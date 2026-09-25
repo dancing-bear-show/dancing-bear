@@ -1,0 +1,604 @@
+"""Regression tests for PR #421 review threads.
+
+Pre-fix behavior (on 112a0223 before each fix is applied):
+- Thread 1: drain_live_threads races with start_processing in the worker
+  thread; requeue_processing returns None and the job is not requeued.
+  The thread runs the job to completion even after a grace=0 shutdown.
+- Thread 2: recover_staged_requeues does not exist (AttributeError/ImportError).
+- Thread 3: nan and +inf pass the ``< 0`` check and reach WorkerConfig.
+- Round 2, claim ownership: a thread was registered before its claim, so a
+  grace=0 drain could requeue another worker's processing/ copy of the job.
+- Round 2, staged metadata: recovery published a staged record that still
+  said ``status: processing`` as-is.
+
+Post-fix:
+- Threads 1 and round 2: ``_start_batch`` claims each job in the dispatching
+  thread and registers a worker thread only for a confirmed claim; nothing
+  is claimed once a stop is requested.
+- Thread 2: recover_staged_requeues moves *.json.requeue files to pending/.
+- Round 2, staged metadata: recovery, requeue_processing and the stale-job
+  reaper share one stage -> normalise -> publish path; recovery normalises a
+  record the crash left as ``status: processing``, and no publish overwrites
+  an existing pending/ job.
+- Thread 3: math.isfinite check rejects nan, +inf, and -inf.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import threading
+import unittest
+from pathlib import Path
+from typing import Any
+from unittest.mock import patch
+
+from tests.worker_tests.helpers import QueueRootIsolationMixin
+from tests.worker_tests.test_daemon_nonblocking import (
+    _make_runner,
+    _patch_queue_root,
+    _wait_for,
+)
+from worker.queue_ops import (
+    Job,
+    enqueue,
+    list_pending,
+    reap_stale_processing_jobs,
+    recover_staged_requeues,
+    requeue_processing,
+    start_processing as _real_start,
+)
+
+
+def _read(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+# ---------------------------------------------------------------------------
+# Thread 1: shutdown/claim race
+#
+# Pre-fix (112a0223): process_one claimed the job inside the worker thread
+# and then ran the handler.  When drain_live_threads fired before that claim,
+# requeue_processing found no file and returned None, and the thread then
+# claimed and ran the job anyway.
+#
+# Post-fix: tick() claims in the dispatching thread and claims nothing once
+# stop_event is set, so a stop requested before a tick leaves the job
+# untouched in pending/ with its attempts unchanged.
+# ---------------------------------------------------------------------------
+
+
+def _cheap_handler(job_data: dict[str, object]) -> tuple[bool, object]:
+    return True, "ok"
+
+
+class TestShutdownClaimRace(unittest.TestCase, QueueRootIsolationMixin):
+    """No job is claimed or run once a stop has been requested."""
+
+    def setUp(self) -> None:
+        self.setup_queue_root()
+        base = _patch_queue_root(self.root)
+        base.enter_context(patch.dict("worker.job_runtime.HANDLERS", {"fast": _cheap_handler}))
+        self.addCleanup(base.close)
+        self.addCleanup(self._join_new_threads)
+        self._threads_before = set(threading.enumerate())
+
+    def _join_new_threads(self) -> None:
+        for t in threading.enumerate():
+            if t not in self._threads_before:
+                t.join(timeout=5)
+
+    def test_job_left_pending_when_stop_event_set_before_tick(self) -> None:
+        """stop_event set before tick(): the job is neither claimed nor run.
+
+        Pre-fix (112a0223): no stop-event check; handler runs; job lands in done/.
+        Post-fix: _start_batch claims nothing after a stop; job stays in pending/.
+        """
+        runner = _make_runner(self.root, max_per_tick=1)
+        enqueue(Job(id="race1", type="fast", payload={}, attempts=2), root=self.root)
+
+        runner.stop_event.set()
+
+        self.assertEqual(runner.tick(), 0)
+        self.assertEqual(runner._live_threads, {})
+
+        pending = self.root / "pending" / "race1.json"
+        self.assertTrue(pending.exists(), "job must stay in pending/ after a stop request")
+        self.assertFalse((self.root / "processing" / "race1.json").exists())
+        self.assertFalse((self.root / "done" / "race1.json").exists(), "handler must not have run")
+        self.assertEqual(_read(pending)["attempts"], 2, "attempts must be unchanged")
+
+
+# ---------------------------------------------------------------------------
+# Round 2, thread PRRT_kwDOQr1kjM6lV8Xf: requeue only confirmed claims
+#
+# Pre-fix (fd986138): _start_batch registered a thread before that thread
+# claimed its job.  If another worker won the claim, the local thread was
+# still registered and alive, and a grace=0 drain requeued the other
+# worker's processing/ file back to pending/ — a duplicate execution.
+#
+# Post-fix: the claim happens in the dispatching thread and a thread is
+# registered only once the claim succeeded.
+# ---------------------------------------------------------------------------
+
+
+class _ContestedStart:
+    """start_processing stand-in where another worker wins one job's claim.
+
+    For ``contested_id`` it first claims the file as "another worker" (the
+    real rename), then reports the local claim as lost (None). A claim made
+    from a worker thread stays in flight until ``release`` opens, which keeps
+    that thread alive across the drain exactly as a slow claim would; a claim
+    made from the dispatching (main) thread returns at once.
+    """
+
+    def __init__(self, root: Path, contested_id: str) -> None:
+        self._root = root
+        self._contested_id = contested_id
+        self.other_claimed = threading.Event()
+        self.release = threading.Event()
+        self.other_path: Path | None = None
+
+    def __call__(self, job_path: Path, root: Path | None = None) -> Path | None:
+        if job_path.stem != self._contested_id:
+            return _real_start(job_path, self._root)
+        self.other_path = _real_start(job_path, self._root)
+        self.other_claimed.set()
+        if threading.current_thread() is not threading.main_thread():
+            self.release.wait(timeout=5)
+        return None
+
+
+class TestDrainRequeuesOnlyConfirmedClaims(unittest.TestCase, QueueRootIsolationMixin):
+    def setUp(self) -> None:
+        self.setup_queue_root()
+        self.gate = threading.Event()
+        self.handler_ids: list[str] = []
+
+        def _gated(job_data: dict[str, object]) -> tuple[bool, object]:
+            self.handler_ids.append(str(job_data.get("id")))
+            self.gate.wait(timeout=5)
+            return True, "ok"
+
+        self.contested = _ContestedStart(self.root, "theirs")
+        base = _patch_queue_root(self.root)
+        base.enter_context(patch.dict("worker.job_runtime.HANDLERS", {"slow": _gated}))
+        base.enter_context(patch("worker.job_runtime.q.start_processing", side_effect=self.contested))
+        self.addCleanup(base.close)
+        self._threads_before = set(threading.enumerate())
+        # LIFO: release everything, then join, then drop the patches.
+        self.addCleanup(self._join_new_threads)
+        self.addCleanup(self.contested.release.set)
+        self.addCleanup(self.gate.set)
+
+    def _join_new_threads(self) -> None:
+        for t in threading.enumerate():
+            if t not in self._threads_before:
+                t.join(timeout=10)
+
+    def test_grace_zero_drain_leaves_other_workers_claim_untouched(self) -> None:
+        runner = _make_runner(self.root, max_per_tick=2)
+        enqueue(Job(id="mine", type="slow", payload={}, attempts=1), root=self.root)
+        enqueue(Job(id="theirs", type="slow", payload={}), root=self.root)
+
+        runner.tick()
+        self.assertTrue(self.contested.other_claimed.wait(timeout=5), "contested claim never attempted")
+        other = self.contested.other_path
+        if other is None:
+            self.fail("the other worker's claim did not happen")
+        before = other.read_bytes()
+        self.assertTrue(
+            _wait_for(lambda: self.handler_ids == ["mine"], timeout=5), "claimed job never started"
+        )
+
+        with self.assertLogs("worker.job_runtime", "WARNING"):
+            requeued = runner.drain_live_threads(grace=0)
+
+        self.assertEqual(requeued, ["mine"], "only this runner's claimed job may be requeued")
+        self.assertTrue(other.exists(), "another worker's processing/ file was moved")
+        self.assertEqual(other.read_bytes(), before)
+        self.assertFalse((self.root / "pending" / "theirs.json").exists())
+        mine = _read(self.root / "pending" / "mine.json")
+        self.assertEqual((mine["status"], mine["attempts"]), ("pending", 1))
+        self.contested.release.set()
+        self.gate.set()
+        self._join_new_threads()
+        self.assertEqual(self.handler_ids, ["mine"], "the local handler ran for a lost claim")
+
+
+# ---------------------------------------------------------------------------
+# Thread 2: staged-requeue recovery
+# ---------------------------------------------------------------------------
+
+
+class TestStagedRequeueRecovery(unittest.TestCase, QueueRootIsolationMixin):
+    """*.json.requeue files stranded by a crash are recovered to pending/."""
+
+    def setUp(self) -> None:
+        self.setup_queue_root()
+
+    def _processing_dir(self) -> Path:
+        d = self.root / "processing"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def _plant_staged(self, job_id: str, data: dict[str, Any]) -> Path:
+        """Write a *.json.requeue file directly into processing/."""
+        staged = self._processing_dir() / f"{job_id}.json.requeue"
+        staged.write_text(json.dumps(data), encoding="utf-8")
+        return staged
+
+    def test_staged_requeue_is_moved_to_pending(self) -> None:
+        """A *.json.requeue file in processing/ is completed to pending/ on recovery.
+
+        On 112a0223 there is no recover_staged_requeues function, so the file
+        stays invisible forever.  After the fix it appears in pending/.
+        """
+        from worker.queue_ops import recover_staged_requeues  # type: ignore[attr-defined]
+
+        data = {"id": "stranded1", "type": "slow", "status": "pending", "attempts": 2}
+        staged = self._plant_staged("stranded1", data)
+        self.assertTrue(staged.exists(), "precondition: staged file planted")
+
+        moved = recover_staged_requeues(root=self.root)
+
+        self.assertEqual(moved, ["stranded1"])
+        self.assertFalse(staged.exists(), "staged file should be gone")
+        pending = self.root / "pending" / "stranded1.json"
+        self.assertTrue(pending.exists(), "job must land in pending/")
+        recovered = _read(pending)
+        self.assertEqual(recovered["attempts"], 2)
+
+    def test_staged_requeue_recovery_is_idempotent(self) -> None:
+        """Running recovery twice on the same file produces exactly one pending/ copy."""
+        from worker.queue_ops import recover_staged_requeues  # type: ignore[attr-defined]
+
+        data = {"id": "idem1", "type": "slow", "status": "pending", "attempts": 0}
+        self._plant_staged("idem1", data)
+
+        first = recover_staged_requeues(root=self.root)
+        second = recover_staged_requeues(root=self.root)
+
+        self.assertEqual(first, ["idem1"])
+        self.assertEqual(second, [], "second pass must be a no-op")
+        self.assertTrue((self.root / "pending" / "idem1.json").exists())
+
+    def test_no_staged_files_returns_empty(self) -> None:
+        """Recovery on a clean queue returns an empty list."""
+        from worker.queue_ops import recover_staged_requeues  # type: ignore[attr-defined]
+
+        enqueue(Job(id="normal1", type="slow", payload={}), root=self.root)
+        result = recover_staged_requeues(root=self.root)
+        self.assertEqual(result, [])
+        # Normal pending job is untouched
+        self.assertTrue((self.root / "pending" / "normal1.json").exists())
+
+
+# ---------------------------------------------------------------------------
+# Round 2, thread PRRT_kwDOQr1kjM6lV8YI: normalise staged records on publish
+#
+# Pre-fix (fd986138): a crash right after the staging rename, before the
+# metadata rewrite, left a record saying ``status: processing``; recovery
+# renamed it into pending/ as-is.  Recovery and the reaper also replaced an
+# existing pending/ file of the same id, and the reaper published before
+# writing its metadata, so a claim landing in between left two copies.
+# ---------------------------------------------------------------------------
+
+_REASON = "requeued-on-shutdown"
+
+
+class TestStagedRecordNormalisation(unittest.TestCase, QueueRootIsolationMixin):
+    def setUp(self) -> None:
+        self.setup_queue_root()
+        self.processing = self.root / "processing"
+        self.pending = self.root / "pending"
+        self.processing.mkdir(parents=True, exist_ok=True)
+        self.pending.mkdir(parents=True, exist_ok=True)
+
+    def _plant_staged(self, job_id: str, data: dict[str, Any]) -> Path:
+        staged = self.processing / f"{job_id}.json.requeue"
+        staged.write_text(json.dumps(data), encoding="utf-8")
+        return staged
+
+    def test_unrewritten_staged_record_is_normalised(self) -> None:
+        """A staged record still saying ``processing`` is published as pending."""
+        self._plant_staged("crashed1", {
+            "id": "crashed1",
+            "type": "slow",
+            "payload": {"k": "v"},
+            "status": "processing",
+            "attempts": 2,
+            "not_before": "2000-01-01T00:00:00Z",
+            "processing_started_at": "2000-01-01T00:00:05Z",
+        })
+
+        self.assertEqual(recover_staged_requeues(root=self.root), ["crashed1"])
+
+        data = _read(self.pending / "crashed1.json")
+        self.assertEqual(data["status"], "pending")
+        self.assertEqual(data["last_error"], _REASON)
+        self.assertEqual(data["attempts"], 2, "recovery must not consume an attempt")
+        self.assertEqual(data["payload"], {"k": "v"})
+        self.assertNotEqual(data["not_before"], "2000-01-01T00:00:00Z", "not_before must be reset to now")
+        self.assertEqual([p.stem for p, _ in list_pending(root=self.root)], ["crashed1"])
+        self.assertEqual(list(self.processing.iterdir()), [])
+
+    def test_already_normalised_staged_record_is_published_unchanged(self) -> None:
+        staged = self._plant_staged("done-rewrite", {
+            "id": "done-rewrite",
+            "type": "slow",
+            "status": "pending",
+            "attempts": 1,
+            "not_before": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-01-01T00:00:00Z",
+            "last_error": "some earlier reason",
+        })
+        before = staged.read_bytes()
+
+        self.assertEqual(recover_staged_requeues(root=self.root), ["done-rewrite"])
+
+        self.assertEqual((self.pending / "done-rewrite.json").read_bytes(), before)
+
+    def test_unreadable_staged_record_is_published_unchanged(self) -> None:
+        staged = self._plant_staged("garbled", {})
+        staged.write_text("{not json", encoding="utf-8")
+
+        self.assertEqual(recover_staged_requeues(root=self.root), ["garbled"])
+
+        self.assertEqual((self.pending / "garbled.json").read_text(encoding="utf-8"), "{not json")
+
+    def test_recovery_never_overwrites_an_existing_pending_job(self) -> None:
+        existing = enqueue(Job(id="dup", type="slow", payload={"new": True}), root=self.root)
+        before = existing.read_bytes()
+        staged = self._plant_staged("dup", {"id": "dup", "type": "slow", "status": "processing"})
+
+        self.assertEqual(recover_staged_requeues(root=self.root), [])
+
+        self.assertEqual(existing.read_bytes(), before)
+        self.assertTrue(staged.exists(), "the staged job must be kept for a later recovery")
+
+    def test_recovery_finishes_an_interrupted_publish(self) -> None:
+        """A publish that linked pending/ but stopped before unlinking the stage."""
+        staged = self._plant_staged("half", {"id": "half", "type": "slow", "status": "pending"})
+        os.link(staged, self.pending / "half.json")
+
+        self.assertEqual(recover_staged_requeues(root=self.root), ["half"])
+
+        self.assertFalse(staged.exists())
+        self.assertEqual(_read(self.pending / "half.json")["id"], "half")
+
+    def test_requeue_processing_never_overwrites_an_existing_pending_job(self) -> None:
+        claimed = enqueue(Job(id="twice", type="slow", payload={}, attempts=1), root=self.root)
+        self.assertIsNotNone(_real_start(claimed, self.root))
+        existing = enqueue(Job(id="twice", type="slow", payload={"new": True}), root=self.root)
+        before = existing.read_bytes()
+
+        self.assertIsNone(requeue_processing("twice", reason=_REASON, root=self.root))
+
+        self.assertEqual(existing.read_bytes(), before)
+        staged = self.processing / "twice.json.requeue"
+        self.assertEqual(_read(staged)["status"], "pending", "staged copy is normalised and kept")
+
+    def test_reaper_writes_metadata_before_the_job_is_visible(self) -> None:
+        """A claim that lands during the reaper's metadata write must not duplicate the job."""
+        from worker import queue_ops as q
+
+        started = enqueue(Job(id="stale", type="slow", payload={}), root=self.root)
+        proc = _real_start(started, self.root)
+        if proc is None:
+            self.fail("could not claim the job")
+        data = _read(proc)
+        data["processing_started_at"] = "2000-01-01T00:00:00Z"
+        proc.write_text(json.dumps(data), encoding="utf-8")
+        real_write = q.atomic_write_json
+
+        def _other_worker_claims_then_write(path: Path, payload: Any, **kw: Any) -> None:
+            visible = self.pending / "stale.json"
+            if visible.exists():  # another worker claims it as soon as it is visible
+                visible.replace(self.processing / "stale.json")
+            real_write(path, payload, **kw)
+
+        with patch("worker.queue_ops.atomic_write_json", side_effect=_other_worker_claims_then_write):
+            reaped = reap_stale_processing_jobs(60, root=self.root)
+
+        self.assertEqual(reaped, ["stale"])
+        copies = list(self.root.rglob("stale.json*"))
+        self.assertEqual(len(copies), 1, f"job duplicated: {copies}")
+        record = _read(self.pending / "stale.json")
+        self.assertEqual(record["status"], "pending")
+        self.assertTrue(str(record["last_error"]).startswith("reaped after"))
+
+
+# ---------------------------------------------------------------------------
+# Thread 3: non-finite --shutdown-grace
+# ---------------------------------------------------------------------------
+
+
+class TestShutdownGraceNonFinite(unittest.TestCase):
+    """nan and +inf are rejected by --shutdown-grace.
+
+    argparse converts "--shutdown-grace nan" to float("nan") before handing it
+    to _parse_shutdown_grace; the same for "inf".  "-inf" starts with "-" so
+    argparse treats it as an option flag and errors before our validation runs;
+    it is covered by a direct unit test of _parse_shutdown_grace instead.
+
+    Pre-fix (112a0223): only ``< 0`` is checked, so nan and inf both pass.
+    Post-fix: ``not math.isfinite(value)`` catches both.
+    """
+
+    def _exit_code(self, argv: list[str]) -> int:
+        from worker.cli import main
+
+        with patch("worker.cli.DaemonRunner") as runner_cls, \
+             patch("worker.cli.JobProcessor"), \
+             patch("sys.stderr"):
+            runner_cls.return_value.run_daemon.return_value = 0
+            return main(argv)
+
+    def test_nan_is_rejected(self) -> None:
+        """--shutdown-grace nan must produce a non-zero exit code.
+
+        On 112a0223 _parse_shutdown_grace only checks < 0, so nan passes.
+        """
+        self.assertNotEqual(self._exit_code(["daemon", "--shutdown-grace", "nan"]), 0)
+
+    def test_positive_inf_is_rejected(self) -> None:
+        """--shutdown-grace inf must produce a non-zero exit code.
+
+        On 112a0223 _parse_shutdown_grace only checks < 0, so +inf passes.
+        """
+        self.assertNotEqual(self._exit_code(["daemon", "--shutdown-grace", "inf"]), 0)
+
+    def test_negative_inf_rejected_by_parse_function(self) -> None:
+        """-inf is rejected by _parse_shutdown_grace directly.
+
+        argparse treats "-inf" as an option flag and errors before our code
+        runs, so we test the parser function directly for this value.
+        -inf satisfies ``< 0`` so it was already rejected pre-fix; this is a
+        pass-on-both-old-and-new test that verifies the function never accepts
+        -inf regardless of which check catches it.
+        """
+        import argparse
+        from worker.cli import _parse_shutdown_grace
+        from core.cli_errors import UsageError
+
+        ns = argparse.Namespace(shutdown_grace=float("-inf"))
+        with self.assertRaises(UsageError):
+            _parse_shutdown_grace(ns)
+
+    def test_zero_is_accepted(self) -> None:
+        """grace=0 is valid (disable waiting; requeue immediately)."""
+        self.assertEqual(self._exit_code(["daemon", "--shutdown-grace", "0"]), 0)
+
+    def test_positive_finite_is_accepted(self) -> None:
+        self.assertEqual(self._exit_code(["daemon", "--shutdown-grace", "5.5"]), 0)
+
+
+# ---------------------------------------------------------------------------
+# Resource-warning guard (file-handle leak in commands.py)
+# ---------------------------------------------------------------------------
+
+
+class TestNoResourceWarnings(unittest.TestCase, QueueRootIsolationMixin):
+    """StatusCommand._load_completed_job_rows must not leak file handles.
+
+    Pre-fix (before the ``with`` fix in commands.py): iterating over
+    ``path.open("r", ...)`` without a context manager leaves the handle open
+    until GC.  Under CPython that is usually immediate, but ResourceWarning
+    is emitted before the finaliser runs; under PyPy / strict-GC environments
+    the warning triggers every time.  The test simulates a readable log file
+    and asserts that no ResourceWarning is raised.
+    """
+
+    def setUp(self) -> None:
+        self.setup_queue_root()
+
+    def test_load_completed_job_rows_no_resource_warning(self) -> None:
+        """_load_completed_job_rows closes its file handle (no ResourceWarning).
+
+        Pre-fix: ``for line in path.open(...)`` leaves the handle open;
+        Python emits a ResourceWarning during GC.
+        Post-fix: ``with path.open(...) as fh:`` closes it immediately.
+        """
+        import gc
+        import warnings
+        import json as _json
+        import tempfile
+        from pathlib import Path as _Path
+        from worker.commands import StatusCommand
+
+        # Write a minimal perf-log file with one matching record.
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".jsonl", delete=False, encoding="utf-8"
+        ) as tf:
+            log_path = _Path(tf.name)
+            tf.write(_json.dumps({"args": ["daemon", "run_cli", "ok"], "ts": "2026-01-01T00:00:00Z", "duration_ms": 10}) + "\n")
+            tf.write(_json.dumps({"args": ["other"], "ts": "2026-01-01T00:00:01Z", "duration_ms": 5}) + "\n")
+
+        self.addCleanup(log_path.unlink, missing_ok=True)
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always", ResourceWarning)
+            rows = StatusCommand._load_completed_job_rows(log_path)
+            gc.collect()
+
+        resource_warnings = [x for x in w if issubclass(x.category, ResourceWarning)]
+        self.assertEqual(
+            resource_warnings, [],
+            f"Unexpected ResourceWarning(s): {[str(x.message) for x in resource_warnings]}",
+        )
+        self.assertEqual(len(rows), 1, "should parse exactly one matching record")
+
+
+# ---------------------------------------------------------------------------
+# Real-queue contamination guard
+# ---------------------------------------------------------------------------
+
+
+class TestRealQueueUntouched(unittest.TestCase, QueueRootIsolationMixin):
+    """Worker tests must never write to the user's real queue.
+
+    The guard verifies that ``QueueRootIsolationMixin.setup_queue_root``
+    redirects BOTH ``queue_ops.QUEUE_ROOT`` AND the
+    ``DANCING_BEAR_WORKER_STATE_DIR`` environment variable so that any code
+    path that resolves the state dir — whether from the already-imported
+    constant or from a fresh ``get_worker_state_dir`` call — lands in the
+    temp tree instead of the user's real queue.
+
+    Pre-fix (before this PR): ``setup_queue_root`` only saved/restored
+    ``QUEUE_ROOT`` but never set ``DANCING_BEAR_WORKER_STATE_DIR``, leaving
+    a fresh call to ``get_worker_state_dir`` pointing at the real queue.
+    Post-fix: both are redirected and the env var is restored on cleanup.
+    """
+
+    def setUp(self) -> None:
+        self.setup_queue_root()
+
+    def test_worker_state_dir_env_is_redirected_during_test(self) -> None:
+        """DANCING_BEAR_WORKER_STATE_DIR must point at a temp tree during tests.
+
+        Pre-fix: setup_queue_root never set the env var; a fresh call to
+        get_worker_state_dir() returned the real ~/Library/… path.
+        Post-fix: setup_queue_root sets the var to the temp root.
+        """
+        import os
+        from worker._helpers import WORKER_STATE_DIR_ENV, get_worker_state_dir
+
+        env_val = os.environ.get(WORKER_STATE_DIR_ENV, "")
+        self.assertTrue(
+            env_val,
+            f"{WORKER_STATE_DIR_ENV} is not set — setup_queue_root must set it "
+            "to prevent writes to the real queue.",
+        )
+
+        # get_worker_state_dir must resolve under our temp tree, not the real queue.
+        # Use resolve() to canonicalize both paths so that macOS symlink
+        # differences (/var → /private/var) do not cause a false failure.
+        import pathlib
+        resolved = get_worker_state_dir("queue").resolve()
+        tmp_resolved = pathlib.Path(self.tmp.name).resolve()
+        self.assertTrue(
+            str(resolved).startswith(str(tmp_resolved)),
+            f"get_worker_state_dir resolved to {resolved!r} which is NOT under "
+            f"the temp tree {tmp_resolved!r}.  A no-root call would reach the real queue.",
+        )
+
+    def test_queue_root_module_var_is_redirected(self) -> None:
+        """queue_ops.QUEUE_ROOT must point at the temp tree, not the real queue.
+
+        Pre-fix: QUEUE_ROOT was left as-is between ``isolate_queue_root``
+        saving it and the first explicit reassignment in _make_runner.
+        Post-fix: setup_queue_root sets q.QUEUE_ROOT = self.root.
+        """
+        from worker import queue_ops as q
+
+        self.assertEqual(
+            q.QUEUE_ROOT,
+            self.root,
+            f"q.QUEUE_ROOT={q.QUEUE_ROOT!r} but expected temp root {self.root!r}.  "
+            "setup_queue_root must update q.QUEUE_ROOT immediately.",
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

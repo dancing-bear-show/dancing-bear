@@ -7,11 +7,14 @@ from __future__ import annotations
 
 import logging
 import os
+import signal
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from types import FrameType
 
 from core.cli_errors import UsageError
 from core.cli_output import OutputWriter
@@ -25,6 +28,15 @@ from worker.handlers import REGISTRY as HANDLERS
 
 logger = logging.getLogger(__name__)
 
+# Signals that ask the daemon to stop. launchd stops an agent with SIGTERM,
+# so treating SIGTERM like Ctrl-C is what lets the drain run under launchd.
+_STOP_SIGNALS: tuple[signal.Signals, ...] = (signal.SIGTERM, signal.SIGINT)
+
+_SignalHandler = Callable[[int, FrameType | None], object] | int | None
+
+# last_error for a claimed job requeued because its worker thread never started.
+_THREAD_START_FAILED_REASON = "requeued-thread-start-failed"
+
 # ============================================================================
 # Helpers
 # ============================================================================
@@ -36,9 +48,11 @@ def _finish_or_retry(
     """Finish the job as errored if attempts are exhausted, else retry it."""
     attempts = ctx.attempts + 1
     if attempts >= ctx.max_attempts:
-        q.finish(proc_path, success=False, error_msg=reason)
+        q.finish(proc_path, success=False, error_msg=reason, claim_token=ctx.claim_token)
     else:
-        q.retry(proc_path, delay_sec=config.backoff, reason=reason)
+        q.retry(
+            proc_path, delay_sec=config.backoff, reason=reason, claim_token=ctx.claim_token
+        )
 
 
 def _effective_job_timeout(job_data: dict[str, object], default_timeout: int) -> int:
@@ -96,6 +110,44 @@ def _reap_stale_unowned(job_timeout: int, root: Path, owned: set[str]) -> list[s
     return reaped
 
 
+def _make_stop_handler(stop: threading.Event) -> Callable[[int, FrameType | None], None]:
+    """Return a signal handler that only sets ``stop``.
+
+    Kept to one Event.set so it is safe to run between any two bytecodes of
+    the main thread; the daemon loop does the actual shutdown work.
+    """
+
+    def _handler(signum: int, _frame: FrameType | None) -> None:
+        stop.set()
+
+    return _handler
+
+
+def _install_stop_handlers(stop: threading.Event) -> dict[signal.Signals, _SignalHandler]:
+    """Route SIGTERM and SIGINT to ``stop``; return the handlers they replace.
+
+    Python only allows signal handlers to be installed from the main thread,
+    so a daemon run from any other thread installs nothing and stops via the
+    Event alone.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        return {}
+    handler = _make_stop_handler(stop)
+    previous: dict[signal.Signals, _SignalHandler] = {}
+    for sig in _STOP_SIGNALS:
+        previous[sig] = signal.getsignal(sig)
+        signal.signal(sig, handler)
+    return previous
+
+
+def _restore_signal_handlers(previous: dict[signal.Signals, _SignalHandler]) -> None:
+    """Reinstate handlers captured by ``_install_stop_handlers``."""
+    for sig, handler in previous.items():
+        # getsignal returns None for a handler not installed from Python;
+        # SIG_DFL is the closest installable equivalent.
+        signal.signal(sig, signal.SIG_DFL if handler is None else handler)
+
+
 # ============================================================================
 # Dataclasses
 # ============================================================================
@@ -110,6 +162,10 @@ class WorkerConfig:
     max_inflight: int = 0
     job_timeout: int = 0
     interval: float = 5.0
+    # Seconds the daemon waits for running jobs after a stop request before
+    # requeueing them. Kept below launchd's default ExitTimeOut (20s) so the
+    # requeue finishes before launchd escalates to SIGKILL.
+    shutdown_grace: float = 10.0
 
 
 @dataclass
@@ -121,9 +177,18 @@ class JobContext:
     job_type: str
     attempts: int
     max_attempts: int
+    # This worker's claim on the processing/ file (see q.claim_token); outcome
+    # transitions pass it so a job requeued or re-claimed elsewhere is left alone.
+    claim_token: str | None = None
 
     @classmethod
-    def from_item(cls, job_path: Path, job_data: dict[str, object]) -> JobContext:
+    def from_item(
+        cls,
+        job_path: Path,
+        job_data: dict[str, object],
+        *,
+        claim_token: str | None = None,
+    ) -> JobContext:
         """Create JobContext from queue item."""
         raw_attempts = job_data.get("attempts") or 0
         raw_max = job_data.get("max_attempts") or 3
@@ -133,6 +198,7 @@ class JobContext:
             job_type=str(job_data.get("type") or ""),
             attempts=int(raw_attempts) if isinstance(raw_attempts, (int, float, str)) else 0,
             max_attempts=int(raw_max) if isinstance(raw_max, (int, float, str)) else 3,
+            claim_token=claim_token,
         )
 
 
@@ -176,21 +242,23 @@ def _handle_outcome(outcome_ctx: OutcomeContext, success: bool, out: object) -> 
     command = outcome_ctx.command
     config = outcome_ctx.config
     out_str = str(out)
+    token = ctx.claim_token
     if success:
-        q.finish(proc_path, success=True, result=out)
+        q.finish(proc_path, success=True, result=out, claim_token=token)
         log_perf_jsonl(
             "worker", duration, args=[command, ctx.job_type, "ok"], exit_code=0
         )
     elif out_str.startswith("deferred-"):
         # Handler requested deferral — move back to pending without consuming an attempt.
-        q.retry(proc_path, delay_sec=config.backoff, reason=out_str)
-        _undo_retry_attempt(proc_path.stem, ctx.attempts, q_root=q.QUEUE_ROOT)
+        # None means ownership was lost: the pending/ copy is not ours to adjust.
+        if q.retry(proc_path, delay_sec=config.backoff, reason=out_str, claim_token=token):
+            _undo_retry_attempt(proc_path.stem, ctx.attempts, q_root=q.QUEUE_ROOT)
         log_perf_jsonl(
             "worker", duration, args=[command, ctx.job_type, "deferred"], exit_code=0
         )
     elif out_str.startswith("terminal-"):
         # Handler signalled an unrecoverable failure — skip retry loop entirely.
-        q.finish(proc_path, success=False, error_msg=out_str)
+        q.finish(proc_path, success=False, error_msg=out_str, claim_token=token)
         log_perf_jsonl(
             "worker", duration, args=[command, ctx.job_type, "terminal"], exit_code=1
         )
@@ -268,10 +336,10 @@ class JobProcessor:
         self.command = command
 
     def process_one(self, job_path: Path, job_data: dict[str, object]) -> int:
-        """Process a single job.
+        """Claim a pending job, then process it via ``process_claimed``.
 
         Returns:
-            1 if processed, 0 if skipped (already claimed)
+            1 if processed, 0 if skipped (already claimed by another worker)
         """
         st = time.time()
         proc_path = q.start_processing(job_path)
@@ -280,7 +348,29 @@ class JobProcessor:
             # Already claimed by another worker
             return 0
 
-        ctx = JobContext.from_item(job_path, job_data)
+        self.process_claimed(
+            proc_path, job_data, started_at=st, claim_token=q.claim_token(proc_path)
+        )
+        return 1
+
+    def process_claimed(
+        self,
+        proc_path: Path,
+        job_data: dict[str, object],
+        *,
+        started_at: float | None = None,
+        claim_token: str | None = None,
+    ) -> None:
+        """Process a job this worker has already moved into processing/.
+
+        The daemon tick claims each job itself before starting a thread on
+        this method, so only confirmed claims ever run here. ``started_at``
+        lets ``process_one`` include its claim in the logged duration.
+        Every path ends in a queue transition (finish or retry), each passing
+        ``claim_token`` so it does nothing if the job was requeued meanwhile.
+        """
+        st = time.time() if started_at is None else started_at
+        ctx = JobContext.from_item(proc_path, job_data, claim_token=claim_token)
 
         # A non-object payload can never be handled — terminal failure, no retry.
         raw_payload = job_data.get("payload")
@@ -289,6 +379,7 @@ class JobProcessor:
                 proc_path,
                 success=False,
                 error_msg=f"invalid payload: expected object, got {type(raw_payload).__name__}",
+                claim_token=claim_token,
             )
             log_perf_jsonl(
                 "worker",
@@ -296,7 +387,7 @@ class JobProcessor:
                 args=[self.command, "invalid_payload", ctx.job_type],
                 exit_code=2,
             )
-            return 1
+            return
         base_payload: dict[str, object] = dict(raw_payload or {})
 
         # Resolve effective per-job timeout
@@ -310,7 +401,10 @@ class JobProcessor:
         handler = HANDLERS.get(ctx.job_type)
         if not handler:
             q.finish(
-                proc_path, success=False, error_msg=f"unknown handler: {ctx.job_type}"
+                proc_path,
+                success=False,
+                error_msg=f"unknown handler: {ctx.job_type}",
+                claim_token=claim_token,
             )
             log_perf_jsonl(
                 "worker",
@@ -318,7 +412,7 @@ class JobProcessor:
                 args=[self.command, "unknown", ctx.job_type],
                 exit_code=2,
             )
-            return 1
+            return
 
         # Execute handler via JobSafeProcessor; always call finish/retry even on exception.
         request = JobRequest(job_id=str(job_data.get("id") or ""), payload=dict(base_payload))
@@ -337,7 +431,7 @@ class JobProcessor:
                 args=[self.command, ctx.job_type, "exception"],
                 exit_code=2,
             )
-            return 1
+            return
 
         outcome_ctx = OutcomeContext(
             proc_path=proc_path,
@@ -348,7 +442,6 @@ class JobProcessor:
         )
         producer = JobResultProducer(outcome_ctx)
         producer.produce(envelope)
-        return 1
 
 
 # ============================================================================
@@ -363,7 +456,8 @@ class DaemonRunner:
     newly claimed jobs and returns immediately without waiting for them to
     finish, so one long-running job never blocks a later tick from claiming
     other work. Live threads are tracked in ``_live_threads`` (keyed by job
-    stem) across ticks and pruned as they finish. ``run_once()`` uses a
+    stem) across ticks and pruned as they finish; an entry exists only for a
+    job this runner claimed itself. ``run_once()`` uses a
     separate, still-blocking path (``_run_once_batch``) because
     ``worker run-once``, the workflow ``worker_queue`` dispatch stage, and
     existing tests depend on it waiting for the batch to complete before
@@ -376,14 +470,15 @@ class DaemonRunner:
         self.processor = processor
         self._live_threads: dict[str, threading.Thread] = {}
         self._registry_lock = threading.Lock()
+        self.stop_event = threading.Event()
 
     def tick(self) -> int:
         """Start newly claimed jobs without blocking; return count started.
 
-        Never joins the threads it starts. Capacity accounts for jobs
-        already claimed but not yet visible in processing/ (a started
-        thread may not have finished ``start_processing``'s rename yet) by
-        counting live threads alongside the on-disk processing/ jobs. The
+        Never joins the threads it starts. Each job is claimed in this
+        thread before its worker thread starts (see ``_start_batch``).
+        Capacity counts live threads alongside the on-disk processing/
+        jobs, so a finished-but-unpruned thread still holds its slot. The
         stale-job reap skips every job a live local thread still owns, so a
         slow local job is never requeued and run twice.
         """
@@ -410,29 +505,90 @@ class DaemonRunner:
             for stem in [s for s, t in self._live_threads.items() if not t.is_alive()]:
                 del self._live_threads[stem]
 
-    def _process_one_guarded(self, job_path: Path, job_data: dict[str, object]) -> int:
-        """Run ``process_one`` in a worker thread, logging any escaped exception.
+    @staticmethod
+    def _run_guarded(stem: str, target: Callable[[], int]) -> int:
+        """Run a job thread's body, logging any exception it lets escape.
 
-        Shared thread target for both the daemon tick and run_once, so an
-        error raised outside SafeProcessor (bad job metadata, queue I/O)
-        never surfaces as an uncaught thread exception.
+        An error raised outside SafeProcessor (bad job metadata, queue I/O)
+        must never surface as an uncaught thread exception.
         """
         try:
-            return self.processor.process_one(job_path, job_data)
+            return target()
         except Exception:  # nosec B110 - thread boundary; logged, counted as processed
-            logger.exception("worker job %s raised outside the handler", job_path.stem)
+            logger.exception("worker job %s raised outside the handler", stem)
             return 1
 
+    def _process_one_guarded(self, job_path: Path, job_data: dict[str, object]) -> int:
+        """run_once thread target: claim and process one pending job."""
+        return self._run_guarded(
+            job_path.stem, lambda: self.processor.process_one(job_path, job_data)
+        )
+
+    def _process_claimed_guarded(
+        self, proc_path: Path, job_data: dict[str, object], claim_token: str | None
+    ) -> None:
+        """Daemon-tick thread target: process a job ``_start_batch`` already claimed."""
+
+        def _body() -> int:
+            self.processor.process_claimed(proc_path, job_data, claim_token=claim_token)
+            return 1
+
+        self._run_guarded(proc_path.stem, _body)
+
+    @staticmethod
+    def _claim(job_path: Path) -> Path | None:
+        """Claim a pending job for this runner; None if it cannot be claimed.
+
+        None covers both another worker winning the claim and a claim that
+        raised (logged), so one bad file never stops the daemon loop.
+        """
+        try:
+            return q.start_processing(job_path)
+        except Exception:  # nosec B110 - skip this job; logged, the loop continues
+            logger.exception("worker could not claim job %s", job_path.stem)
+            return None
+
     def _start_batch(self, items: list[tuple[Path, dict[str, object]]]) -> int:
-        """Start one thread per item without joining; register and return count started."""
+        """Claim each item, then start and register a thread per confirmed claim.
+
+        The claim runs here, in the dispatching thread, before any thread is
+        registered. ``_live_threads`` therefore only ever holds jobs this
+        runner has moved into processing/ itself, which is what lets
+        ``drain_live_threads`` requeue its entries without touching a job
+        another worker claimed. Nothing is claimed once a stop is requested.
+
+        If a thread fails to start, its registry entry is removed and its
+        claim is requeued (no attempt consumed), and no further job is
+        claimed this tick: the failure is usually resource exhaustion.
+        """
         started = 0
         for p, d in items:
-            t = threading.Thread(target=self._process_one_guarded, args=(p, d), daemon=True)
+            if self.stop_event.is_set():
+                break
+            proc_path = self._claim(p)
+            if proc_path is None:
+                continue
+            t = threading.Thread(
+                target=self._process_claimed_guarded,
+                args=(proc_path, d, q.claim_token(proc_path)),
+                daemon=True,
+            )
             with self._registry_lock:
                 self._live_threads[p.stem] = t
-            t.start()
+            try:
+                t.start()
+            except Exception:  # nosec B110 - requeue the claim; logged, the loop continues next tick
+                self._abandon_claim(p.stem)
+                break
             started += 1
         return started
+
+    def _abandon_claim(self, stem: str) -> None:
+        """Undo a claim whose worker thread never started: unregister and requeue it."""
+        with self._registry_lock:
+            self._live_threads.pop(stem, None)
+        logger.exception("worker thread for job %s failed to start; requeueing", stem)
+        q.requeue_processing(stem, reason=_THREAD_START_FAILED_REASON, root=q.QUEUE_ROOT)
 
     def _calculate_allowed_jobs(self) -> int:
         """Calculate how many jobs can be started based on max_inflight cap.
@@ -441,7 +597,7 @@ class DaemonRunner:
         (ours or another worker's, e.g. a concurrent ``worker run-once``)
         and the live local threads. A single read means no interleaving can
         drop a job: a live thread counts until it is pruned whether its file
-        is still in pending/, in processing/, or already gone, and each
+        is still in processing/ or already gone, and each
         external processing/ job counts once. A finished-but-unpruned thread
         over-counts by at most one tick, which is the conservative
         direction. When max_inflight is unbounded (<= 0), live threads are
@@ -496,8 +652,16 @@ class DaemonRunner:
 
         for i, (p, d) in enumerate(items):
             t = threading.Thread(target=_run, args=(i, p, d), daemon=True)
+            try:
+                t.start()
+            except Exception:  # nosec B110 - unclaimed job stays pending; join what started
+                # Each thread claims its own job, so an unstarted one claimed
+                # nothing. Stop here and still join the started ones: raising
+                # would let the process exit with their jobs half-run.
+                logger.exception("worker thread for job %s failed to start", p.stem)
+                timeouts = timeouts[: len(threads)]
+                break
             threads.append(t)
-            t.start()
 
         if any(t > 0 for t in timeouts):
             self._join_with_timeout(threads, timeouts)
@@ -525,24 +689,82 @@ class DaemonRunner:
         workflow ``worker_queue`` dispatch stage, and existing tests depend
         on this call waiting for every started job to finish before
         returning, which the non-blocking ``tick()`` no longer does.
+        Like ``run_daemon`` it first publishes any staged requeue a killed
+        worker left behind, which no queue listing would otherwise see.
         """
+        q.recover_staged_requeues(root=q.QUEUE_ROOT)
         self._run_once_batch()
         return 0
 
+    def drain_live_threads(self, grace: float) -> list[str]:
+        """Wait up to ``grace`` seconds for live job threads; requeue the rest.
+
+        One deadline covers every thread, so the total wait never exceeds
+        ``grace``. Each thread still alive at the deadline has its job moved
+        from processing/ back to pending/ without consuming an attempt, with
+        ``last_error`` set to ``q.SHUTDOWN_REQUEUE_REASON``. Only jobs owned by
+        this runner's live threads are touched: ``_start_batch`` registers a
+        thread only after this runner's own claim succeeded, so a job another
+        worker won is never in the registry and its processing/ file is left
+        alone. A job that already left processing/ (it finished during the
+        race) is not recreated. A registered thread that never started is
+        requeued too. Returns the requeued job stems.
+
+        Delivery is at-least-once. Threads cannot be killed, so a requeued
+        job's thread keeps running until the interpreter exits, and the job
+        runs again on the next start after a partial first run. If that
+        thread finishes first, its outcome transition finds the job gone (or
+        claimed again under a new token) and writes nothing, so the requeued
+        copy is never overwritten and no done/ or error/ record appears.
+        """
+        deadline = time.monotonic() + max(0.0, grace)
+        with self._registry_lock:
+            live = dict(self._live_threads)
+        for thread in live.values():
+            if thread.ident is not None:  # join() raises on a never-started thread
+                thread.join(timeout=max(0.0, deadline - time.monotonic()))
+        requeued: list[str] = []
+        for stem, thread in live.items():
+            # A never-started thread is not alive either, but its claim was
+            # never processed, so it is requeued like a still-running job.
+            if thread.ident is not None and not thread.is_alive():
+                continue
+            if q.requeue_processing(stem, reason=q.SHUTDOWN_REQUEUE_REASON, root=q.QUEUE_ROOT):
+                logger.warning("requeued running job %s on shutdown", stem)
+                requeued.append(stem)
+        return requeued
+
     def run_daemon(self) -> int:
-        """Run continuous daemon loop.
+        """Run continuous daemon loop until stopped, then drain.
 
         Calls the non-blocking ``tick()`` each iteration so a long-running
         job never blocks the daemon from claiming other pending work.
+
+        SIGTERM (how launchd stops the agent) and SIGINT both set
+        ``stop_event``; handlers are installed only when running in the main
+        thread and the previous ones are restored on exit. On stop the loop
+        claims no new jobs, then ``drain_live_threads`` waits up to
+        ``config.shutdown_grace`` seconds and requeues any job still running
+        instead of leaving it in processing/. See
+        ``drain_live_threads`` for the at-least-once consequence.
         """
         # Anchor the daemon's cwd to the repo root so job scripts that use
         # relative paths (./bin/...) resolve correctly.
         os.chdir(str(get_repo_root()))
+        # Publish any staged requeue a previous crash interrupted
+        # (*.json.requeue files invisible to the normal listing).
+        q.recover_staged_requeues(root=q.QUEUE_ROOT)
+        previous = _install_stop_handlers(self.stop_event)
         try:
-            while True:
-                n = self.tick()
-                sleep_time = self.config.interval if n == 0 else 0.1
-                time.sleep(sleep_time)
-        except KeyboardInterrupt:
-            logger.info("stopped")
-            return 0
+            try:
+                while not self.stop_event.is_set():
+                    n = self.tick()
+                    self.stop_event.wait(self.config.interval if n == 0 else 0.1)
+            except KeyboardInterrupt:
+                self.stop_event.set()
+            logger.info("stopping; waiting up to %ss for running jobs", self.config.shutdown_grace)
+            self.drain_live_threads(self.config.shutdown_grace)
+        finally:
+            _restore_signal_handlers(previous)
+        logger.info("stopped")
+        return 0

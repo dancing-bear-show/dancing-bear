@@ -457,7 +457,12 @@ class TestDaemonRunnerTick(unittest.TestCase, QueueRootIsolationMixin):
         # tick() returns before its threads run; join them before asserting.
         _join_live_threads(self, runner)
         self.assertEqual(result, 1)
-        mock_proc.process_one.assert_called_once_with(pending_path, job_data)
+        # tick() claims the job itself, then hands the thread the processing/ path.
+        proc = self.root / "processing" / "tick1.json"
+        token = q.claim_token(proc)
+        self.assertTrue(token, "start_processing must record a claim token")
+        mock_proc.process_claimed.assert_called_once_with(proc, job_data, claim_token=token)
+        mock_proc.process_one.assert_not_called()
 
     def test_run_once_returns_zero(self):
         from worker.queue_ops import _ensure_dirs
@@ -507,7 +512,7 @@ class TestDaemonRunnerTick(unittest.TestCase, QueueRootIsolationMixin):
         # Join before asserting, or a count of 0 (threads not yet run) passes.
         _join_live_threads(self, runner)
         self.assertEqual(result, 2)
-        self.assertEqual(mock_proc.process_one.call_count, 2)
+        self.assertEqual(mock_proc.process_claimed.call_count, 2)
 
 
 def _join_live_threads(test: unittest.TestCase, runner: Any, timeout: float = 5.0) -> None:

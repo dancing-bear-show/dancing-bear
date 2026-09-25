@@ -2,11 +2,11 @@
 
 Covers the daemon's liveness guarantees: a long-running job must not stall
 later ticks from claiming and
-completing other work, capacity accounting must account for started-but-not-
-yet-processing threads, an already-claimed job must not be dispatched twice,
+completing other work, capacity accounting must count claimed jobs whose threads have not yet
+run, an already-claimed job must not be dispatched twice,
 unbounded max_inflight must still cap live threads at max_per_tick, run_once
 must keep blocking until its batch finishes, and finished threads must be
-pruned so capacity recovers. Also: an exception escaping process_one stays
+pruned so capacity recovers. Also: an exception escaping process_claimed stays
 inside its thread, another worker's processing/ job counts against
 max_inflight, an unreadable processing/ listing still subtracts live threads,
 a live thread counts once even after its file has left processing/, and the
@@ -32,6 +32,8 @@ from worker.queue_ops import (
     finish as _real_finish,
     list_pending as _real_list_pending,
     reap_stale_processing_jobs as _real_reap,
+    recover_staged_requeues as _real_recover,
+    requeue_processing as _real_requeue,
     retry as _real_retry,
     start_processing as _real_start,
 )
@@ -99,6 +101,20 @@ def _patch_queue_root(job_root: Path) -> ExitStack:
             side_effect=lambda job_path, **kw: _real_retry(job_path, root=job_root, **kw),
         )
     )
+    stack.enter_context(
+        patch(
+            "worker.job_runtime.q.requeue_processing",
+            side_effect=lambda job_id, reason, root=None: _real_requeue(
+                job_id, reason=reason, root=job_root
+            ),
+        )
+    )
+    stack.enter_context(
+        patch(
+            "worker.job_runtime.q.recover_staged_requeues",
+            side_effect=lambda root=None: _real_recover(root=job_root),
+        )
+    )
     return stack
 
 
@@ -141,28 +157,32 @@ class _CountingHandler:
         return True, "ok"
 
 
-class _HeldStart:
-    """start_processing stand-in that blocks before the pending/ -> processing/
-    rename until gate is set. ``waiting`` counts threads parked at the gate."""
+class _HeldClaimed:
+    """Stand-in for ``JobProcessor.process_claimed`` that parks each job
+    thread until ``gate`` opens, then runs the real method.
 
-    def __init__(self, job_root: Path, gate: threading.Event) -> None:
-        self._job_root = job_root
+    ``waiting`` counts threads parked at the gate. The job is already in
+    processing/ by then, because ``tick()`` claims before starting a thread.
+    """
+
+    def __init__(self, real: Callable[..., int], gate: threading.Event) -> None:
+        self._real = real
         self._gate = gate
         self._lock = threading.Lock()
         self.waiting = 0
 
-    def __call__(self, job_path: Path, root: Path | None = None) -> Path | None:
+    def __call__(self, proc_path: Path, job_data: dict[str, object], **kwargs: Any) -> int:
         with self._lock:
             self.waiting += 1
         self._gate.wait(timeout=5)
-        return _real_start(job_path, self._job_root)
+        return self._real(proc_path, job_data, **kwargs)
 
 
 @contextmanager
-def _hold_start_processing(job_root: Path, gate: threading.Event) -> Iterator[_HeldStart]:
-    held = _HeldStart(job_root, gate)
+def _hold_claimed_threads(runner: Any, gate: threading.Event) -> Iterator[_HeldClaimed]:
+    held = _HeldClaimed(runner.processor.process_claimed, gate)
     try:
-        with patch("worker.job_runtime.q.start_processing", side_effect=held):
+        with patch.object(runner.processor, "process_claimed", side_effect=held):
             yield held
     finally:
         gate.set()  # never leave a worker thread parked past the test
@@ -228,32 +248,32 @@ class TestDaemonNonblockingTick(unittest.TestCase, QueueRootIsolationMixin):
                 _wait_for(lambda: (self.root / "done" / "slow1.json").exists(), timeout=5)
             )
 
-    def test_max_inflight_respects_unfinished_started_threads(self):
-        """required_tests[1]: max_inflight is respected when started threads
-        have not yet moved their job into processing/.
+    def test_max_inflight_counts_jobs_claimed_before_their_threads_run(self):
+        """required_tests[1]: max_inflight is respected while started threads
+        have not yet run.
 
-        start_processing is held before its rename, so processing/ stays
-        empty and only the live-thread registry knows two jobs are in
-        flight. A capacity check that counted processing/ alone would start
-        the third job here."""
-        rename_gate = threading.Event()
+        tick() claims each job before starting its thread, so both jobs are
+        in processing/ the moment tick() returns, while their threads are
+        still parked, and the second tick counts them against the cap."""
+        gate = threading.Event()
         for i in range(3):
             enqueue(Job(id=f"held{i}", type="cheap", payload={}), root=self.root)
         runner = _make_runner(self.root, max_per_tick=5, max_inflight=2)
         handler = _CountingHandler()
 
         with _patch_queue_root(self.root), \
-             _hold_start_processing(self.root, rename_gate) as held, \
+             _hold_claimed_threads(runner, gate) as held, \
              patch.dict("worker.job_runtime.HANDLERS", {"cheap": handler}, clear=False):
             started1 = runner.tick()
             self.assertEqual(started1, 2, "max_inflight=2 must cap the first tick at 2")
-            self.assertTrue(_wait_for(lambda: held.waiting == 2, timeout=5))
-            self.assertEqual(list((self.root / "processing").glob("*.json")), [])
+            processing = list((self.root / "processing").glob("*.json"))
+            self.assertEqual(len(processing), 2, "tick() returned before claiming")
 
             started2 = runner.tick()
 
-            self.assertEqual(started2, 0, "live registry threads must count against max_inflight")
-            rename_gate.set()
+            self.assertEqual(started2, 0, "claimed jobs must count against max_inflight")
+            self.assertTrue(_wait_for(lambda: held.waiting == 2, timeout=5))
+            gate.set()
             self.assertTrue(
                 _wait_for(lambda: len(list((self.root / "done").glob("*.json"))) >= 2, timeout=5)
             )
@@ -263,26 +283,26 @@ class TestDaemonNonblockingTick(unittest.TestCase, QueueRootIsolationMixin):
         """required_tests[2]: a job owned by a live thread is not dispatched
         again by a later tick.
 
-        start_processing is held before its rename, so the job is still in
-        pending/ when the second tick lists it; only the registry filter
-        stops a second thread being started for it."""
-        rename_gate = threading.Event()
+        The job's thread is parked before it runs; the job has already left
+        pending/, so a second tick finds nothing to start for it."""
+        gate = threading.Event()
         enqueue(Job(id="held-once", type="cheap", payload={}), root=self.root)
         runner = _make_runner(self.root, max_per_tick=5, max_inflight=0)
         handler = _CountingHandler()
 
         with _patch_queue_root(self.root), \
-             _hold_start_processing(self.root, rename_gate) as held, \
+             _hold_claimed_threads(runner, gate) as held, \
              patch.dict("worker.job_runtime.HANDLERS", {"cheap": handler}, clear=False):
             self.assertEqual(runner.tick(), 1)
             self.assertTrue(_wait_for(lambda: held.waiting == 1, timeout=5))
-            self.assertTrue((self.root / "pending" / "held-once.json").exists())
+            self.assertFalse((self.root / "pending" / "held-once.json").exists())
+            self.assertTrue((self.root / "processing" / "held-once.json").exists())
 
             started2 = runner.tick()
 
             self.assertEqual(started2, 0)
             self.assertEqual(list(runner._live_threads), ["held-once"])
-            rename_gate.set()
+            gate.set()
             self.assertTrue(_wait_for(lambda: (self.root / "done" / "held-once.json").exists(), timeout=5))
             self.assertEqual(handler.call_count, 1)
 
@@ -351,20 +371,23 @@ class TestDaemonNonblockingTick(unittest.TestCase, QueueRootIsolationMixin):
         self.assertTrue((self.root / "done" / "ro1.json").exists())
 
     def test_thread_exception_outside_handler_is_guarded_and_pruned(self):
-        """An exception escaping process_one (outside SafeProcessor) is logged,
+        """An exception escaping process_claimed (outside SafeProcessor) is logged,
         never reaches threading.excepthook, and its thread is still pruned so
         capacity recovers."""
         enqueue(Job(id="boom", type="cheap", payload={}), root=self.root)
-        runner = _make_runner(self.root, max_per_tick=1, max_inflight=1)
+        # Unbounded max_inflight: the raising thread leaves boom in processing/,
+        # so only the live-thread count decides whether capacity recovered.
+        runner = _make_runner(self.root, max_per_tick=1, max_inflight=0)
         excepthook_calls: list[object] = []
 
         with patch("threading.excepthook", side_effect=excepthook_calls.append), \
-             patch.object(runner.processor, "process_one", side_effect=[RuntimeError("bad metadata"), 1]), \
+             patch.object(runner.processor, "process_claimed", side_effect=[RuntimeError("bad metadata"), 1]), \
              self.assertLogs("worker.job_runtime", level="ERROR") as logs:
             self.assertEqual(runner.tick(), 1)
             runner._live_threads["boom"].join(timeout=5)
             self.assertEqual(excepthook_calls, [], "exception escaped the worker thread")
 
+            enqueue(Job(id="boom2", type="cheap", payload={}), root=self.root)
             started2 = runner.tick()
 
         self.assertEqual(started2, 1, "the failed thread must be pruned so capacity recovers")
@@ -372,11 +395,9 @@ class TestDaemonNonblockingTick(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_external_processing_job_counts_against_max_inflight(self):
         """processing/ may hold another worker's job (e.g. a concurrent
-        ``worker run-once``). With cap 3, one external processing job, one
-        local job already in processing/ and one local job held before its
-        rename, three are in flight, so a fourth must not start."""
+        ``worker run-once``). With cap 3, one external processing job and two
+        running local jobs, three are in flight, so a fourth must not start."""
         gate = threading.Event()
-        rename_gate = threading.Event()
         self.addCleanup(gate.set)  # before _drain_threads: never park a thread on failure
         slow = _BlockingHandler(gate)
         (self.root / "processing").mkdir(parents=True, exist_ok=True)
@@ -391,20 +412,18 @@ class TestDaemonNonblockingTick(unittest.TestCase, QueueRootIsolationMixin):
             self.assertEqual(runner.tick(), 1)
             self.assertTrue(slow.started.wait(timeout=5), "claimed job never reached its handler")
 
-            with _hold_start_processing(self.root, rename_gate) as held:
-                enqueue(Job(id="held", type="cheap", payload={}), root=self.root)
-                self.assertEqual(runner.tick(), 1)
-                self.assertTrue(_wait_for(lambda: held.waiting == 1, timeout=5))
+            enqueue(Job(id="second", type="slow", payload={}), root=self.root)
+            self.assertEqual(runner.tick(), 1)
+            self.assertTrue(_wait_for(lambda: slow.call_count == 2, timeout=5))
 
-                enqueue(Job(id="fourth", type="cheap", payload={}), root=self.root)
-                started = runner.tick()
+            enqueue(Job(id="fourth", type="cheap", payload={}), root=self.root)
+            started = runner.tick()
 
-                self.assertEqual(started, 0, "a 4th job started with 3 already in flight")
-                rename_gate.set()
+            self.assertEqual(started, 0, "a 4th job started with 3 already in flight")
             gate.set()
             done = self.root / "done"
             self.assertTrue(
-                _wait_for(lambda: (done / "claimed.json").exists() and (done / "held.json").exists(), timeout=5)
+                _wait_for(lambda: (done / "claimed.json").exists() and (done / "second.json").exists(), timeout=5)
             )
 
     def test_listing_failure_fallback_subtracts_live_threads(self):

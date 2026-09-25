@@ -8,6 +8,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -28,6 +32,11 @@ except Exception:  # pragma: no cover - defensive fallback  # nosec B110 - best-
     QUEUE_ROOT = Path("_data/queue")
 
 QUEUE_FOLDERS: tuple[str, ...] = ("pending", "processing", "done", "error")
+_JOB_SUFFIX = ".json"
+# Written by start_processing; identifies one claim of a job so a worker whose
+# job was requeued (and possibly re-claimed elsewhere) cannot complete it.
+CLAIM_TOKEN_FIELD = "claim_token"  # nosec B105 - JSON field name, not a secret
+_TRANSITION_LOCK_NAME = ".transitions.lock"
 
 
 def _q(root: Path | None) -> Path:
@@ -76,7 +85,7 @@ class Job:
 
 
 def _job_path(folder: Path, job_id: str) -> Path:
-    return folder / f"{job_id}.json"
+    return folder / f"{job_id}{_JOB_SUFFIX}"
 
 
 def enqueue(job: Job, *, root: Path | None = None) -> Path:
@@ -102,7 +111,7 @@ def enqueue(job: Job, *, root: Path | None = None) -> Path:
 def _list_job_paths(folder: Path) -> list[Path]:
     if not folder.exists():
         return []
-    return [p for p in folder.iterdir() if p.is_file() and p.suffix == ".json"]
+    return [p for p in folder.iterdir() if p.is_file() and p.suffix == _JOB_SUFFIX]
 
 
 def list_pending(root: Path | None = None) -> list[tuple[Path, dict[str, object]]]:
@@ -161,6 +170,7 @@ def start_processing(job_path: Path, root: Path | None = None) -> Path | None:
         try:
             data = safe_load_json(new_path, default={})
             data["status"] = "processing"
+            data[CLAIM_TOKEN_FIELD] = uuid.uuid4().hex
             data["processing_started_at"] = iso_now()
             data[FIELD_UPDATED_AT] = iso_now()
             atomic_write_json(new_path, data)
@@ -176,6 +186,57 @@ def start_processing(job_path: Path, root: Path | None = None) -> Path | None:
         return None
 
 
+def claim_token(proc_path: Path) -> str | None:
+    """Return the claim token ``start_processing`` wrote to ``proc_path``, or None."""
+    data = safe_load_json(proc_path, default=None)
+    token = data.get(CLAIM_TOKEN_FIELD) if isinstance(data, dict) else None
+    return str(token) if token else None
+
+
+@contextmanager
+def _transition_lock(root: Path | None) -> Iterator[None]:
+    """Serialise processing/ transitions across threads and processes.
+
+    Held by every transition that removes a processing/ record (finish,
+    retry, requeue, reap) and by staged-requeue recovery, so recovery never
+    publishes a staged file another transition is still writing, and an
+    ownership check stays valid until its transition completes. Each entry
+    opens its own descriptor, so threads of one process exclude each other
+    too. No-op where ``fcntl`` is unavailable.
+    """
+    try:
+        import fcntl
+    except ImportError:  # pragma: no cover - non-POSIX platform
+        yield
+        return
+    lock_path = _q(root) / _TRANSITION_LOCK_NAME
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a") as fh:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+
+
+def _owned_record(job_path: Path, token: str | None) -> dict[str, object] | None:
+    """Return ``job_path``'s record if the caller still owns it, else None.
+
+    Call with ``_transition_lock`` held. A missing or unreadable record means
+    another transition (a shutdown drain, a reap) took the job; a token that
+    differs means the job was requeued and claimed again by someone else.
+    Either way the caller has lost ownership and must write nothing.
+    """
+    data = safe_load_json(job_path, default=None)
+    if not isinstance(data, dict) or not data:
+        _log.warning("Ownership lost for job %s: %s is gone or unreadable", job_path.stem, job_path)
+        return None
+    if token is not None and data.get(CLAIM_TOKEN_FIELD) != token:
+        _log.warning("Ownership lost for job %s: claimed again by another worker", job_path.stem)
+        return None
+    return data
+
+
 def finish(
     job_path: Path,
     success: bool,
@@ -183,9 +244,32 @@ def finish(
     root: Path | None = None,
     error_msg: str | None = None,
     result: object | None = None,
+    claim_token: str | None = None,
+) -> Path | None:
+    """Write updated metadata to done/ or error/, then unlink the processing/ file.
+
+    Returns None and writes nothing when the caller no longer owns the job:
+    ``job_path`` is gone or unreadable, or ``claim_token`` is given and does
+    not match the record's (see ``_owned_record``).
+    """
+    with _transition_lock(root):
+        data = _owned_record(job_path, claim_token)
+        if data is None:
+            return None
+        return _write_finished(job_path, data, success, root=root, error_msg=error_msg, result=result)
+
+
+def _write_finished(
+    job_path: Path,
+    data: dict[str, object],
+    success: bool,
+    *,
+    root: Path | None,
+    error_msg: str | None,
+    result: object | None,
 ) -> Path:
-    """Write updated metadata to done/ or error/, then unlink the processing/ file."""
-    data = safe_load_json(job_path, default={})
+    """Write ``data`` as a done/ or error/ record and remove ``job_path``."""
+    data.pop(CLAIM_TOKEN_FIELD, None)
     data[FIELD_UPDATED_AT] = iso_now()
     if success:
         data["status"] = "done"
@@ -214,20 +298,213 @@ def retry(
     delay_sec: int = 60,
     root: Path | None = None,
     reason: str | None = None,
-) -> Path:
-    """Bump attempts, set not_before to now+delay, and move back to pending/."""
-    data = safe_load_json(job_path, default={})
-    data["attempts"] = int(data.get("attempts", 0)) + 1
-    nb = datetime.now(UTC) + timedelta(seconds=int(delay_sec))
-    data["not_before"] = nb.strftime(ISO_DATETIME_FORMAT)
-    data[FIELD_UPDATED_AT] = iso_now()
-    if reason:
-        data["last_error"] = str(reason)
+    claim_token: str | None = None,
+) -> Path | None:
+    """Bump attempts, set not_before to now+delay, and move back to pending/.
+
+    The record goes through the same stage -> rewrite -> no-clobber publish
+    path as a shutdown requeue, so an existing pending/ job is never
+    overwritten. Returns the pending/ path, or None when the caller no longer
+    owns the job (nothing is written; see ``finish``) or the publish was
+    refused (the staged copy is kept for ``recover_staged_requeues``).
+    """
     paths = _ensure_dirs(root)
-    new_path = _job_path(paths["pending"], job_path.stem)
-    atomic_write_json(new_path, data)
-    _remove_job_file(job_path)
-    return new_path
+    with _transition_lock(root):
+        data = _owned_record(job_path, claim_token)
+        if data is None:
+            return None
+        staged = _stage(job_path)
+        if staged is None:
+            return None
+        raw_attempts = data.get("attempts")
+        attempts = int(raw_attempts) if isinstance(raw_attempts, (int, float, str)) else 0
+        data["attempts"] = attempts + 1
+        nb = datetime.now(UTC) + timedelta(seconds=int(delay_sec))
+        data["status"] = "pending"
+        data["not_before"] = nb.strftime(ISO_DATETIME_FORMAT)
+        data[FIELD_UPDATED_AT] = iso_now()
+        data.pop(CLAIM_TOKEN_FIELD, None)
+        if reason:
+            data["last_error"] = str(reason)
+        atomic_write_json(staged, data)
+        new_path = _job_path(paths["pending"], job_path.stem)
+        return new_path if _publish_no_clobber(staged, new_path) else None
+
+
+_REQUEUE_STAGING_SUFFIX = ".requeue"
+SHUTDOWN_REQUEUE_REASON = "requeued-on-shutdown"
+
+
+def _normalize_requeued(data: dict[str, object], reason: str) -> None:
+    """Set the metadata every requeued pending/ record carries.
+
+    Eligible immediately, ``reason`` as ``last_error``, attempts untouched,
+    and no claim token: the next claim writes its own.
+    Shared by every path that publishes a staged record, so they cannot drift.
+    """
+    now = iso_now()
+    data["status"] = "pending"
+    data["not_before"] = now
+    data[FIELD_UPDATED_AT] = now
+    data["last_error"] = str(reason)
+    data.pop(CLAIM_TOKEN_FIELD, None)
+
+
+def _rewrite_staged(staged: Path, reason: str, *, only_if_unnormalized: bool) -> None:
+    """Normalise a staged record's metadata in place, before it is published.
+
+    ``only_if_unnormalized`` leaves a record that already says
+    ``status: pending`` untouched: its requeue (or retry) finished the
+    rewrite before it was interrupted. An unreadable record is published
+    as-is rather than replaced with near-empty metadata; stale metadata
+    beats a lost job.
+    """
+    data = safe_load_json(staged, default=None)
+    if not isinstance(data, dict):
+        _log.debug("Staged job %s is not a JSON object; publishing unchanged", staged)
+        return
+    if only_if_unnormalized and data.get("status") == "pending":
+        return
+    _normalize_requeued(data, reason)
+    atomic_write_json(staged, data)
+
+
+def _copy_exclusive(staged: Path, dest: Path) -> None:
+    """Create ``dest`` with ``staged``'s bytes; FileExistsError if it exists.
+
+    ``O_CREAT | O_EXCL`` makes the existence check and the create one atomic
+    step, so a file another worker creates first is never overwritten.
+    """
+    content = staged.read_bytes()
+    fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(content)
+        fh.flush()
+        os.fsync(fh.fileno())
+
+
+def _publish_no_clobber(staged: Path, dest: Path) -> bool:
+    """Move ``staged`` to ``dest`` unless ``dest`` already holds another file.
+
+    A hard link publishes atomically and fails if ``dest`` exists, so a
+    pending/ job with the same id is never overwritten. If ``dest`` is
+    already a link to ``staged`` (an earlier publish stopped before its
+    unlink), only the staging name is removed. Without hard links the record
+    is copied into an exclusively created ``dest``; a crash mid-copy can
+    leave a partial ``dest`` beside the intact staged file, never a lost job.
+    Returns False when ``staged`` is gone (published by someone else) or,
+    leaving ``staged`` in place for a later recovery, when ``dest`` is a
+    different file.
+    """
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.link(staged, dest)
+    except FileExistsError:
+        if not dest.samefile(staged):
+            _log.warning("Not publishing %s: %s already exists", staged.name, dest)
+            return False
+    except FileNotFoundError:
+        _log.debug("Not publishing %s: it is already gone", staged.name)
+        return False
+    except OSError:
+        # No hard links on this filesystem: exclusive create, never check-then-replace.
+        try:
+            _copy_exclusive(staged, dest)
+        except FileExistsError:
+            _log.warning("Not publishing %s: %s already exists", staged.name, dest)
+            return False
+        except FileNotFoundError:
+            _log.debug("Not publishing %s: it is already gone", staged.name)
+            return False
+    staged.unlink(missing_ok=True)
+    return True
+
+
+def _stage(src: Path) -> Path | None:
+    """Rename ``src`` to its staging name; None if ``src`` is already gone.
+
+    The staging name matches no queue listing, so the rename is an atomic
+    claim that no other worker can race.
+    """
+    staged = src.with_name(src.name + _REQUEUE_STAGING_SUFFIX)
+    try:
+        src.rename(staged)
+    except FileNotFoundError:
+        return None
+    return staged
+
+
+def _stage_and_requeue(src: Path, pending_dir: Path, reason: str) -> Path | None:
+    """Claim ``src`` from processing/ by renaming it, normalise it, then publish it.
+
+    Runs under ``_transition_lock`` for the queue that owns ``pending_dir``,
+    so no other worker can pick up the pending/ copy before its metadata is
+    written and recovery never sees it half-done. Returns the pending/ path,
+    or None when ``src`` was already gone (nothing is written) or the publish
+    was refused (the staged file stays for ``recover_staged_requeues``).
+    """
+    with _transition_lock(pending_dir.parent):
+        staged = _stage(src)
+        if staged is None:
+            return None
+        try:
+            _rewrite_staged(staged, reason, only_if_unnormalized=False)
+        except Exception as exc:  # still move the job: stale metadata beats a stranded file
+            _log.debug("Failed to update metadata for requeued job %s: %s", src.stem, exc)
+        new_path = _job_path(pending_dir, src.stem)
+        return new_path if _publish_no_clobber(staged, new_path) else None
+
+
+def requeue_processing(job_id: str, *, reason: str, root: Path | None = None) -> Path | None:
+    """Move processing/<job_id> back to pending/ without consuming an attempt.
+
+    The job becomes eligible immediately and records ``reason`` as
+    ``last_error``. Returns the pending/ path, or None when the job is no
+    longer in processing/ (it finished or was moved elsewhere first), in
+    which case nothing is written, or when pending/ already holds a job with
+    that id (the staged copy is kept for ``recover_staged_requeues``).
+
+    Unlike ``retry``, a job that vanished before the claim is never
+    recreated from empty metadata, and no other worker can claim the
+    pending/ copy before its metadata is written; see ``_stage_and_requeue``.
+    """
+    paths = _ensure_dirs(root)
+    return _stage_and_requeue(_job_path(paths["processing"], job_id), paths["pending"], reason)
+
+
+def recover_staged_requeues(root: Path | None = None) -> list[str]:
+    """Complete any interrupted staged requeue in processing/.
+
+    A crash between staging a job and publishing it leaves a
+    ``*.json.requeue`` file that ``_list_job_paths`` never matches (it
+    filters to ``suffix == ".json"``). Every queue-consuming entry point
+    (``worker daemon`` and ``worker run-once``) calls this before claiming
+    work; it publishes each staged file to pending/ and returns the
+    recovered job ids. It holds ``_transition_lock`` throughout, so a staged
+    file another live worker is still writing is never touched.
+
+    A crash can also land before the staged metadata was rewritten, leaving
+    ``status: processing``. Such a record is normalised exactly as
+    ``requeue_processing`` would have, with ``SHUTDOWN_REQUEUE_REASON`` as
+    ``last_error``; one already rewritten is published unchanged. An
+    existing pending/ job with the same id is never overwritten, and a
+    second call is a no-op.
+    """
+    paths = _ensure_dirs(root)
+    recovered: list[str] = []
+    with _transition_lock(root):
+        for staged in list(paths["processing"].iterdir()):
+            if not staged.name.endswith(_JOB_SUFFIX + _REQUEUE_STAGING_SUFFIX):
+                continue
+            job_id = staged.name[: -len(_JOB_SUFFIX + _REQUEUE_STAGING_SUFFIX)]
+            try:
+                _rewrite_staged(staged, SHUTDOWN_REQUEUE_REASON, only_if_unnormalized=True)
+                if _publish_no_clobber(staged, _job_path(paths["pending"], job_id)):
+                    recovered.append(job_id)
+                    _log.info("recovered staged requeue for job %s", job_id)
+            except Exception as exc:  # nosec B110 - best-effort recovery; log and continue
+                _log.debug("Failed to recover staged requeue %s: %s", staged, exc)
+    return recovered
 
 
 def list_processing(root: Path | None = None) -> list[tuple[Path, dict[str, object]]]:
@@ -377,31 +654,22 @@ class ReapJobContext:
 
     p: Path
     paths: dict[str, Path]
-    data: dict[str, object]
     age: int
     job_timeout: int
     job_id: str
 
 
 def _reap_move_to_pending(ctx: ReapJobContext, log: logging.Logger) -> bool:
-    """Rename a stale processing job to pending/ and update its metadata."""
-    new_path = _job_path(ctx.paths["pending"], ctx.job_id)
+    """Requeue a stale processing job, writing its metadata before it is published."""
+    reason = f"reaped after {ctx.age}s (timeout {ctx.job_timeout}s)"
     try:
-        _rename(ctx.p, new_path)
-    except FileNotFoundError:
-        log.debug("Stale job %s already gone before reap rename; skipping", ctx.job_id)
-        return False
+        new_path = _stage_and_requeue(ctx.p, ctx.paths["pending"], reason)
     except Exception as exc:
         log.debug("Failed to reap stale job %s: %s", ctx.job_id, exc)
         return False
-    try:
-        ctx.data["status"] = "pending"
-        ctx.data[FIELD_UPDATED_AT] = iso_now()
-        ctx.data["last_error"] = f"reaped after {ctx.age}s (timeout {ctx.job_timeout}s)"
-        atomic_write_json(new_path, ctx.data)
-    except Exception as exc:
-        log.debug("Failed to update metadata for reaped job %s: %s", ctx.job_id, exc)
-        # job is in pending/ regardless; count it as reaped
+    if new_path is None:
+        log.debug("Stale job %s not requeued (gone, or pending/ copy exists)", ctx.job_id)
+        return False
     return True
 
 
@@ -436,7 +704,6 @@ def _reap_one_job(p: Path, job_timeout: int, paths: dict, now: datetime, log: lo
     reap_ctx = ReapJobContext(
         p=p,
         paths=paths,
-        data=data,
         age=age,
         job_timeout=effective_timeout,
         job_id=job_id,

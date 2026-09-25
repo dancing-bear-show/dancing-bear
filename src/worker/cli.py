@@ -15,6 +15,7 @@ Subcommands:
 from __future__ import annotations
 
 import argparse
+import math
 import sys
 from functools import lru_cache
 
@@ -55,6 +56,14 @@ def _parse_interval(args: argparse.Namespace) -> float:
         raise UsageError(f"--interval must be a positive number, got {raw!r}")
 
 
+def _parse_shutdown_grace(args: argparse.Namespace) -> float:
+    """Parse and validate --shutdown-grace; raises UsageError on a negative or non-finite value."""
+    value = float(getattr(args, "shutdown_grace", 10.0))
+    if not math.isfinite(value) or value < 0:
+        raise UsageError(f"--shutdown-grace must be a finite number >= 0, got {value!r}")
+    return value
+
+
 def _run_processor(args: argparse.Namespace, cmd: str) -> int:
     """Build config and run a job processor for run-once or daemon."""
     interval = _parse_interval(args)
@@ -65,6 +74,7 @@ def _run_processor(args: argparse.Namespace, cmd: str) -> int:
         max_inflight=int(getattr(args, "max_inflight", 0) or 0),
         job_timeout=int(getattr(args, "job_timeout", 0) or 0),
         interval=interval,
+        shutdown_grace=_parse_shutdown_grace(args),
     )
     processor = JobProcessor(config, cmd)
     runner = DaemonRunner(config, processor)
@@ -114,6 +124,7 @@ def cmd_run_once(args: argparse.Namespace) -> int:
 @app.argument("--backoff", type=int, default=60)
 @app.argument("--max-inflight", type=int, default=0, help="Hard cap of concurrent processing jobs; 0 disables clamping")
 @app.argument("--job-timeout", type=int, default=0, help="Job timeout in seconds; 0 disables timeout (default 0)")
+@app.argument("--shutdown-grace", type=float, default=10.0, help="Seconds to wait for running jobs on stop, then requeue (default 10)")
 def cmd_daemon(args: argparse.Namespace) -> int:
     """Run worker daemon."""
     return _run_processor(args, "daemon")
