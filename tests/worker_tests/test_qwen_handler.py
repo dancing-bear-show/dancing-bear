@@ -28,16 +28,18 @@ from telemetry.otel.models import OTLPSpansRecord
 from worker import queue_ops as q
 from worker import qwen, qwen_telemetry
 from tests.worker_tests.qwen_fixtures import (
+    GREET_DIFF,
+    GREET_EDIT,
     GREET_PATH,
     MODEL,
-    REAL_DIFF,
     REAL_GIT_APPLY_CHECK,
     REAL_LANE_DEPTH,
     RESULT_SCHEMA_KEYS,
     RUNNING_DIGEST,
     QwenHandlerCase,
-    fenced,
+    edit_block,
     http_error,
+    model_says,
     require,
 )
 
@@ -61,7 +63,7 @@ def _single_file_diff(path: str) -> str:
 
 
 class QwenHandlerHappyPathTests(QwenHandlerCase):
-    """A 200 response carrying the real Ollama output shape succeeds."""
+    """A 200 response carrying an edit block succeeds."""
 
     def test_valid_diff_returns_success_matching_result_schema(self) -> None:
         ok, result = self.run_handler()
@@ -83,14 +85,14 @@ class QwenHandlerHappyPathTests(QwenHandlerCase):
         self.assertIsNone(result["deferral_reasons"])
         self.assertEqual(len(self.generate_requests()), 1)
 
-    def test_patch_artifact_holds_the_extracted_diff_under_patch_dir(self) -> None:
+    def test_patch_artifact_holds_the_built_diff_under_patch_dir(self) -> None:
         ok, result = self.run_handler()
 
         self.assertTrue(ok)
         result = self.as_dict(result)
         patch_path = Path(str(result["patch_path"]))
         self.assertEqual(patch_path, self.patch_dir / "qwen-test-job.patch")
-        self.assertEqual(patch_path.read_text(encoding="utf-8"), REAL_DIFF + "\n")
+        self.assertEqual(patch_path.read_text(encoding="utf-8"), GREET_DIFF)
         self.assertEqual(self.patch_files(), [patch_path])
 
     def test_request_body_matches_the_transport_contract(self) -> None:
@@ -123,17 +125,15 @@ class QwenHandlerHappyPathTests(QwenHandlerCase):
                 self.run_handler({"timeout": raw})
                 self.assertEqual(self.generate_requests()[0][2], expected)
 
-    def test_real_response_passes_the_real_git_apply_check(self) -> None:
-        """The survey's real output has no trailing newline after the last
-        context line; _git_apply_check must add one or git reports a corrupt
-        patch."""
+    def test_built_diff_passes_the_real_git_apply_check(self) -> None:
         with mock.patch("worker.qwen._git_apply_check", wraps=REAL_GIT_APPLY_CHECK) as check:
             ok, result = self.run_handler()
 
         self.assertTrue(ok, result)
         check.assert_called_once()
-        self.assertTrue(REAL_GIT_APPLY_CHECK(REAL_DIFF, self.repo_root))
-        self.assertFalse(REAL_GIT_APPLY_CHECK(REAL_DIFF.replace("print", "echo"), self.repo_root))
+        self.assertEqual(check.call_args.args[0], GREET_DIFF)
+        self.assertTrue(REAL_GIT_APPLY_CHECK(GREET_DIFF, self.repo_root))
+        self.assertFalse(REAL_GIT_APPLY_CHECK(GREET_DIFF.replace("print", "echo"), self.repo_root))
 
 
 class QwenRetryMapTests(QwenHandlerCase):
@@ -228,16 +228,31 @@ class QwenRetryMapTests(QwenHandlerCase):
                 self.assertFalse(ok)
                 self._assert_plain(out, detail)
 
-    def test_no_diff_extractable_is_terminal(self) -> None:
+    def test_no_edit_blocks_is_terminal(self) -> None:
         responses: tuple[dict[str, object], ...] = (
             {"response": "sorry, I cannot help with that"},
             {"response": ""},
             {"error": "model runner crashed"},
+            model_says(f"```diff\n{GREET_DIFF}```"),
         )
         for response in responses:
             with self.subTest(response=response):
                 self.generate_response = response
-                self.assertEqual(self.run_handler(), (False, "terminal-no-diff-found"))
+                self.assertEqual(self.run_handler(), (False, "terminal-no-edits-found"))
+        self.assertEqual(self.patch_files(), [])
+
+    def test_each_edit_outcome_reaches_the_handler_result(self) -> None:
+        cases = (
+            (edit_block("src/other.py", "def greet(name):", "x"), "terminal-edit-outside-inputs"),
+            (edit_block(GREET_PATH, "absent line", "x"), "terminal-edit-not-found"),
+            (f"FILE: {GREET_PATH}\n<<<<<<< SEARCH\n=======\nx\n>>>>>>> REPLACE\n", "terminal-edit-ambiguous"),
+            (edit_block(GREET_PATH, "def greet(name):", "def greet(name):"), "terminal-no-change"),
+            (f"FILE: {GREET_PATH}\n<<<<<<< SEARCH\ndef greet(name):\n=======\n", "terminal-edit-malformed"),
+        )
+        for text, expected in cases:
+            with self.subTest(expected=expected):
+                self.generate_response = model_says(text)
+                self.assertEqual(self.run_handler(), (False, expected))
         self.assertEqual(self.patch_files(), [])
 
     def test_patch_fails_git_apply_check_is_terminal(self) -> None:
@@ -266,10 +281,16 @@ class QwenRetryMapTests(QwenHandlerCase):
         self.assertEqual(out, "terminal-path-not-allowed: src/missing.py")
 
     def test_patch_too_broad_is_terminal(self) -> None:
-        """Real check_patch_caps, fed through the handler."""
-        self.generate_response = fenced(_many_files_diff(qwen.THRESHOLDS.max_files + 1))
+        """Real check_patch_caps, fed through the handler: one edit to each of
+        max_files + 1 input files."""
+        paths = [f"src/example/f{i}.py" for i in range(qwen.THRESHOLDS.max_files + 1)]
+        for i, path in enumerate(paths):
+            (self.repo_root / path).write_text(f"line{i}\n", encoding="utf-8")
+        self.generate_response = model_says(
+            "".join(edit_block(path, f"line{i}", f"changed{i}") for i, path in enumerate(paths))
+        )
 
-        ok, out = self.run_handler()
+        ok, out = self.run_handler({"files": paths})
 
         self.assertFalse(ok)
         self.assertEqual(out, "terminal-patch-too-broad")
@@ -721,9 +742,9 @@ class QwenDeferralBoundTests(QwenHandlerCase):
         self._cleanup_case(_PLAIN, survives=True)
 
     def test_every_terminal_exit_clears_deferral_state(self) -> None:
-        with self.subTest(outcome="terminal-no-diff-found"):
+        with self.subTest(outcome="terminal-no-edits-found"):
             self.generate_response = {"response": "no"}
-            self._cleanup_case("terminal-no-diff-found", survives=False)
+            self._cleanup_case("terminal-no-edits-found", survives=False)
         with self.subTest(outcome="terminal-path-not-allowed"):
             self._cleanup_case("terminal-path-not-allowed", survives=False, payload={"files": ["src/missing.py"]})
         with self.subTest(outcome="terminal-model-not-found"):
@@ -832,33 +853,6 @@ class QwenExceptionBoundaryTests(QwenHandlerCase):
         self.assertEqual((ok, out), (False, "terminal-internal-error: ValueError"))
 
 
-class QwenExtractDiffTests(unittest.TestCase):
-    def test_extracts_the_real_ollama_shape(self) -> None:
-        """survey.baseline_generation_post_install: ```diff fence, ---/+++
-        a/ b/ headers, no diff --git line, no prose."""
-        self.assertEqual(qwen.extract_diff(f"```diff\n{REAL_DIFF}\n```"), REAL_DIFF)
-
-    def test_extracts_diff_wrapped_in_prose(self) -> None:
-        text = f"Sure, here's the change:\n\n```diff\n{REAL_DIFF}\n```\n\nAnything else?"
-
-        self.assertEqual(qwen.extract_diff(text), REAL_DIFF)
-
-    def test_extracts_bare_diff_with_no_fence(self) -> None:
-        self.assertEqual(qwen.extract_diff(f"{REAL_DIFF}\n"), REAL_DIFF)
-
-    def test_stray_dash_line_in_prose_starts_the_bare_diff_early(self) -> None:
-        """An unfenced diff after a prose line beginning '--- ' is extracted
-        from that line; git apply --check then rejects it (fail closed)."""
-        text = f"--- note: see below\n{REAL_DIFF}\n"
-
-        extracted = require(qwen.extract_diff(text))
-
-        self.assertTrue(extracted.startswith("--- note"))
-
-    def test_unparseable_response_returns_none(self) -> None:
-        self.assertIsNone(qwen.extract_diff("sorry, I cannot help with that"))
-
-
 class QwenPatchCapsTests(unittest.TestCase):
     def test_check_patch_caps_max_files_exceeded(self) -> None:
         self.assertEqual(qwen.check_patch_caps(_many_files_diff(9)), "terminal-patch-too-broad")
@@ -872,7 +866,7 @@ class QwenPatchCapsTests(unittest.TestCase):
         self.assertIsNone(qwen.check_patch_caps(big(400)))
 
     def test_check_patch_caps_ok_diff_returns_none(self) -> None:
-        self.assertIsNone(qwen.check_patch_caps(REAL_DIFF))
+        self.assertIsNone(qwen.check_patch_caps(GREET_DIFF))
 
     def test_denied_targets_including_case_and_path_variants(self) -> None:
         denied = (
@@ -1035,39 +1029,38 @@ class QwenPatchCapsThroughHandlerTests(QwenHandlerCase):
         _git(self.repo_root, "add", rel)
         return target
 
-    def test_well_formed_ci_yml_diff_passes_apply_check_but_is_too_broad(self) -> None:
-        ci = self._init_repo_with(".github/workflows/ci.yml", "name: CI\n")
-        ci.write_text("name: CI\non: push\n", encoding="utf-8")
-        diff = _git(self.repo_root, "diff", "--", ".github/workflows/ci.yml")
-        ci.write_text("name: CI\n", encoding="utf-8")
-        self.assertTrue(REAL_GIT_APPLY_CHECK(diff, self.repo_root), "fixture diff must apply cleanly")
-        self.generate_response = fenced(diff)
+    def test_edit_to_a_readable_but_denied_target_applies_but_is_too_broad(self) -> None:
+        """bin/ is an allowed INPUT directory but a denied patch target: the
+        built diff passes the real git apply --check, and the caps reject it."""
+        self._init_repo_with("bin/tool", "echo old\n")
+        self.generate_response = model_says(edit_block("bin/tool", "echo old", "echo new"))
 
         with mock.patch("worker.qwen._git_apply_check", wraps=REAL_GIT_APPLY_CHECK) as check:
-            ok, out = self.run_handler()
+            ok, out = self.run_handler({"files": ["bin/tool"]})
 
         check.assert_called_once()
+        self.assertTrue(REAL_GIT_APPLY_CHECK(check.call_args.args[0], self.repo_root), "built diff must apply")
         self.assertEqual((ok, out), (False, "terminal-patch-too-broad"))
         self.assertEqual(self.patch_files(), [])
 
-    def test_denied_or_escaping_target_is_too_broad_through_handler(self) -> None:
-        """Even when git apply --check accepts it (a case-insensitive volume
-        applies Bin/qwen onto bin/qwen), the caps check rejects it."""
-        for target in ("Bin/qwen", "../outside.py", "./configs/x.plist"):
-            with self.subTest(target=target):
-                self.generate_response = fenced(_single_file_diff(target))
-                self.assertEqual(self.run_handler(), (False, "terminal-patch-too-broad"))
+    def test_edit_naming_a_non_input_path_is_refused_before_any_diff(self) -> None:
+        """A case variant, an escape, or another file: the model can only edit
+        the files it was given, so none of these ever reaches git apply."""
+        for target in ("Bin/qwen", "../outside.py", "./configs/x.plist", "SRC/example/greet.py", "/etc/passwd"):
+            with self.subTest(target=target), mock.patch("worker.qwen._git_apply_check") as check:
+                self.generate_response = model_says(edit_block(target, "def greet(name):", "x"))
+                self.assertEqual(self.run_handler(), (False, "terminal-edit-outside-inputs"))
+                check.assert_not_called()
         self.assertEqual(self.patch_files(), [])
 
-    def test_diff_truncated_at_num_predict_does_not_apply(self) -> None:
-        """done_reason 'length': generation stopped mid-hunk."""
-        truncated = REAL_DIFF.split('+    return f"hello')[0].rstrip("\n")
-        self.generate_response = {**fenced(truncated), "done_reason": "length"}
+    def test_edit_truncated_at_num_predict_is_malformed(self) -> None:
+        """done_reason 'length': generation stopped inside the REPLACE body."""
+        truncated = GREET_EDIT.split(">>>>>>> REPLACE")[0]
+        self.generate_response = {**model_says(truncated), "done_reason": "length"}
 
-        with mock.patch("worker.qwen._git_apply_check", wraps=REAL_GIT_APPLY_CHECK):
-            ok, out = self.run_handler()
+        ok, out = self.run_handler()
 
-        self.assertEqual((ok, out), (False, "terminal-patch-does-not-apply"))
+        self.assertEqual((ok, out), (False, "terminal-edit-malformed"))
 
 
 class QwenExplainModeTests(QwenHandlerCase):

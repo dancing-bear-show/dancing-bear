@@ -2,10 +2,13 @@
 
 Registered as ``REGISTRY["qwen_patch"] = handle_qwen_patch`` in
 ``worker.handlers``. Given a set of repo-relative files and a natural-language
-instruction, prompts a local Ollama model (default ``qwen2.5-coder:14b``) to
-produce a unified diff, validates the diff with ``git apply --check``, and
-writes it to a patch file under ``core.paths.output_dir("qwen")``. The patch
-is never applied by this handler.
+instruction, prompts a local Ollama model (default ``qwen2.5-coder:14b``) for
+SEARCH/REPLACE edit blocks, applies them to the file contents in memory,
+builds the unified diff locally with ``difflib``, validates it with
+``git apply --check``, and writes it to a patch file under
+``core.paths.output_dir("qwen")``. The patch is never applied by this handler.
+The model is not asked for a diff: measured against qwen2.5-coder:14b it got
+hunk-header line counts wrong in every sample. See ``worker.qwen_edits``.
 
 Guard order (contract.json): the job id is validated first (it becomes a
 file name under the qwen state and patch dirs), then the payload shape and
@@ -29,7 +32,15 @@ Outcome strings (the handler's second return value on failure):
 * ``terminal-model-not-found`` - HTTP 404 from Ollama
 * ``terminal-ollama-request-rejected: http-error-<code>`` - any other HTTP
   status that retrying cannot fix (400, 401, 403, ...)
-* ``terminal-no-diff-found`` / ``terminal-patch-does-not-apply``
+* ``terminal-no-edits-found`` - the response holds no SEARCH/REPLACE block
+* ``terminal-edit-malformed`` - a block is missing a marker (e.g. truncated)
+* ``terminal-edit-outside-inputs`` - a block names a file that is not an input
+* ``terminal-edit-not-found`` / ``terminal-edit-ambiguous`` - a SEARCH body
+  matches the file's current content zero times / more than once (an empty
+  SEARCH is ambiguous)
+* ``terminal-no-change`` - the edits apply but change nothing
+* ``terminal-patch-does-not-apply`` - the locally built diff fails
+  ``git apply --check`` (fail-closed backstop)
 * ``terminal-patch-too-broad`` - caps, denied targets, binary or unparseable
   path headers
 * ``terminal-deferral-limit[: <reason>]``
@@ -40,8 +51,11 @@ Outcome strings (the handler's second return value on failure):
 Every string derived from payload content or model output that reaches the
 result (success, failure or explain report), a log line or telemetry is
 masked via ``core.secrets.mask_text`` first. The
-prompt itself is never persisted; the only place file contents reach disk is
-inside the generated patch artifact, which lives outside the checkout.
+prompt itself is never persisted. File contents reach disk in two places,
+both outside the checkout: the generated patch artifact, and - only when a
+job fails after the model answered - the model's raw response, masked and
+capped, at ``output_dir("qwen")/responses/<job_id>.txt`` (mode 0600) for
+diagnosis. See ``_persist_response``.
 """
 
 from __future__ import annotations
@@ -62,6 +76,7 @@ from pathlib import Path
 from core.process import run_binary
 from core.secrets import mask_text
 from worker._helpers import get_repo_root, get_worker_state_dir
+from worker.qwen_edits import EDIT_FORMAT_EXAMPLE, EditBlockError, edits_to_diff
 from worker.qwen_telemetry import describe_exception, export_in_background, export_job_metrics, export_job_span
 
 _log = logging.getLogger(__name__)
@@ -626,6 +641,12 @@ def _patch_dir() -> Path:
     return output_dir("qwen") / "patches"
 
 
+def _response_dir() -> Path:
+    from core.paths import output_dir
+
+    return output_dir("qwen") / "responses"
+
+
 def _pid_alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
@@ -660,48 +681,6 @@ def _pid_is_worker(pid: int) -> bool | None:
 # ---------------------------------------------------------------------------
 # Pure helpers — directly testable without mocks.
 # ---------------------------------------------------------------------------
-
-_DIFF_START_RE = re.compile(r"^(?:diff --git|--- )", re.MULTILINE)
-
-
-def _strip_blank_edge_lines(text: str) -> str:
-    """Drop fully-empty leading/trailing lines without touching interior content.
-
-    Unlike str.strip(), this never removes trailing whitespace WITHIN the
-    last remaining line — a line holding a single space is a meaningful
-    unified-diff context line (an unchanged blank line in the source file),
-    not incidental formatting, and stripping it would silently drop that
-    hunk line from the patch.
-    """
-    lines = text.split("\n")
-    start = 0
-    while start < len(lines) and lines[start] == "":
-        start += 1
-    end = len(lines)
-    while end > start and lines[end - 1] == "":
-        end -= 1
-    return "\n".join(lines[start:end])
-
-
-def extract_diff(response_text: str) -> str | None:
-    """Extract a unified diff from a model response.
-
-    Tries a fenced ```diff/```patch block first, then falls back to finding
-    a bare diff starting at "diff --git" or "--- " with no fence. Returns
-    None when neither heuristic finds a diff. The fenced match requires no
-    blank line immediately before the closing fence, so a diff whose last
-    hunk line is a single-space context line (unchanged blank source line)
-    is captured whole rather than truncated.
-    """
-    fence_match = re.search(r"```(?:diff|patch)?\n(.*?)```", response_text, re.DOTALL)
-    if fence_match:
-        candidate = _strip_blank_edge_lines(fence_match.group(1).rstrip("\n"))
-        if candidate:
-            return candidate
-    start_match = _DIFF_START_RE.search(response_text)
-    if start_match:
-        return _strip_blank_edge_lines(response_text[start_match.start():])
-    return None
 
 
 class UnsupportedPatchError(ValueError):
@@ -1499,7 +1478,7 @@ def _explain_report(prepared: _PreparedJob) -> dict[str, object]:
     # The system text shares the context window, so it counts here exactly
     # as it does in _check_prompt_budget.
     prompt_chars = len(instruction) + sum(per_file_bytes.values()) + len(options.system or "")
-    prompt = _build_prompt(instruction, _decode_contents(contents))
+    prompt = _build_prompt(instruction, _prompt_files(contents, prepared.root))
     report: dict[str, object] = {
         "resolved_files": [str(f) for f in files],
         "per_file_bytes": per_file_bytes,
@@ -1605,8 +1584,18 @@ def _read_confined_bytes(files: list[Path], root: Path) -> dict[str, bytes]:
     return contents
 
 
-def _decode_contents(contents: dict[str, bytes]) -> dict[str, str]:
-    return {path: data.decode("utf-8", errors="replace") for path, data in contents.items()}
+def _prompt_files(contents: dict[str, bytes], root: Path) -> dict[str, str]:
+    """Decode each confined read, keyed by its path relative to root in
+    POSIX form. The prompt labels files this way and edit blocks must name
+    them this way, so the absolute root never reaches the model.
+
+    Undecodable bytes become U+FFFD; the diff built from that text then
+    fails git apply --check, so such a file can never be patched silently.
+    """
+    return {
+        Path(path).relative_to(root).as_posix(): data.decode("utf-8", errors="replace")
+        for path, data in contents.items()
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1640,12 +1629,20 @@ def _check_prompt_budget(prompt: str, options: GenerationOptions) -> str | None:
 
 
 def _build_prompt(instruction: str, file_contents: dict[str, str]) -> str:
+    """The generation prompt. file_contents is keyed by repo-relative path
+    (see _prompt_files)."""
     parts = [f"Instruction: {instruction}", "", "Files:"]
     for path, content in file_contents.items():
-        parts.append(f"--- {path} ---")
+        parts.append(f"FILE: {path}")
         parts.append(content)
-    parts.append("")
-    parts.append("Respond with a single unified diff in a ```diff fenced block.")
+    parts += [
+        "",
+        "Answer ONLY with SEARCH/REPLACE edit blocks. Format example:",
+        EDIT_FORMAT_EXAMPLE,
+        "",
+        "Rules: FILE is one of the paths above. SEARCH copies existing lines verbatim "
+        "and has enough lines to match exactly once. Use one block per edit. No diffs.",
+    ]
     return "\n".join(parts)
 
 
@@ -1736,17 +1733,80 @@ def _call_ollama_generate(host: str, body: dict[str, object], timeout: float) ->
         raise QwenTransientError(str(exc)) from exc
 
 
-def _generate_and_validate_patch(
-    host: str, prompt: str, options: GenerationOptions, timeout: float
-) -> tuple[str, dict[str, object]]:
-    """Call the model, extract the diff, and validate it.
+MAX_PERSISTED_RESPONSE_BYTES = 256 * 1024
+# Characters kept past the byte cap before masking. mask_text's cost grows
+# quadratically on long unbroken word runs (64 KB of one word takes ~10 s),
+# so the text is cut first; the margin lets a secret straddling the byte cap
+# still match whole, and whatever the final cut drops lies past the cap.
+_MASK_MARGIN_CHARS = 4096
+
+
+def response_path_for_job(job_id: str) -> Path:
+    """Where a failed job's masked model response is kept for diagnosis."""
+    return job_scoped_path(_response_dir(), job_id, ".txt")
+
+
+def _persist_response(job_id: str, response_text: str) -> None:
+    """Best-effort: keep the model's response after a post-response failure.
+
+    The outcome string is content-free by contract, which leaves nothing to
+    diagnose a rejected answer with, so the response is written - masked,
+    capped at MAX_PERSISTED_RESPONSE_BYTES - to response_path_for_job, in a
+    0700 directory. _write_job_file creates the file with mkstemp (O_EXCL,
+    mode 0600) and renames it into place, never following a symlink. Any
+    failure is logged and swallowed: diagnostics must never change the
+    job's outcome.
+    """
+    try:
+        directory = _response_dir()
+        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        head = response_text[: MAX_PERSISTED_RESPONSE_BYTES + _MASK_MARGIN_CHARS]
+        capped = mask_text(head).encode("utf-8")[:MAX_PERSISTED_RESPONSE_BYTES]
+        _write_job_file(response_path_for_job(job_id), capped.decode("utf-8", errors="ignore"))
+    except Exception as exc:  # nosec B110 - diagnostics are best-effort; the job's outcome is already decided
+        _log.debug("qwen: could not persist the model response (non-fatal): %s", describe_exception(exc))
+
+
+def _validated_diff(response_text: str, files: dict[str, str]) -> str:
+    """The diff built from the response's edit blocks, once git apply
+    --check and the patch caps accept it. Raises QwenGuardError."""
+    try:
+        diff = edits_to_diff(response_text, files)
+    except EditBlockError as exc:
+        raise QwenGuardError(str(exc)) from exc
+    if not _git_apply_check(diff, _repo_root()):
+        raise QwenGuardError("terminal-patch-does-not-apply")
+    caps_verdict = check_patch_caps(diff)
+    if caps_verdict is not None:
+        raise QwenGuardError(caps_verdict)
+    return diff
+
+
+@dataclass(frozen=True)
+class _GenerationRequest:
+    """What one model call needs: the assembled prompt, and the repo-relative
+    file contents it was built from, which the edit blocks are applied to."""
+
+    job_id: str
+    host: str
+    prompt: str
+    files: dict[str, str]
+    options: GenerationOptions
+    timeout: float
+
+
+def _generate_and_validate_patch(request: _GenerationRequest) -> tuple[str, dict[str, object]]:
+    """Call the model, turn its edit blocks into a diff, and validate it.
 
     Raises QwenGuardError (a terminal/deferred outcome string) or
-    QwenTransientError (a plain, retryable failure) on failure.
+    QwenTransientError (a plain, retryable failure) on failure. A
+    QwenGuardError raised after the model answered persists its response
+    first (_persist_response).
     """
+    options = request.options
     body: dict[str, object] = {
         "model": options.model,
-        "prompt": prompt,
+        "prompt": request.prompt,
         "stream": False,
         "options": {
             "temperature": options.temperature,
@@ -1756,21 +1816,14 @@ def _generate_and_validate_patch(
     }
     if options.system:
         body["system"] = options.system
-    response = _call_ollama_generate(f"{host}/api/generate", body, timeout)
+    response = _call_ollama_generate(f"{request.host}/api/generate", body, request.timeout)
 
     response_text = str(response.get("response") or "")
-    diff = extract_diff(response_text)
-    if diff is None:
-        raise QwenGuardError("terminal-no-diff-found")
-
-    repo_root = _repo_root()
-    if not _git_apply_check(diff, repo_root):
-        raise QwenGuardError("terminal-patch-does-not-apply")
-
-    caps_verdict = check_patch_caps(diff)
-    if caps_verdict is not None:
-        raise QwenGuardError(caps_verdict)
-
+    try:
+        diff = _validated_diff(response_text, request.files)
+    except QwenGuardError:
+        _persist_response(request.job_id, response_text)
+        raise
     return diff, response
 
 
@@ -1871,9 +1924,7 @@ def _resolve_timeout(payload: dict[str, object]) -> float:
     return value
 
 
-def _run_with_lock(
-    job_id: str, host: str, prompt: str, options: GenerationOptions, timeout: float
-) -> tuple[str, dict[str, object]] | str:
+def _run_with_lock(request: _GenerationRequest) -> tuple[str, dict[str, object]] | str:
     """Acquire the lock, run the model call, release in finally.
 
     Goes through _acquire_model_lock/_release_model_lock (not the lower-level
@@ -1891,7 +1942,7 @@ def _run_with_lock(
     the outcome non-empty even when the exception message is. Masking
     happens once, at handle_qwen_patch's boundary.
     """
-    holder = _acquire_model_lock(job_id)
+    holder = _acquire_model_lock(request.job_id)
     if not holder:
         return "deferred-qwen-busy"
     try:
@@ -1900,16 +1951,16 @@ def _run_with_lock(
         # for Ollama to unload a model that was warm (so this call would
         # cold-load it under a margin-only admission) or for headroom to drop.
         # Only Ollama's own load step remains outside this window.
-        memory_verdict = _check_memory_guard(host, options.model)
+        memory_verdict = _check_memory_guard(request.host, request.options.model)
         if memory_verdict is not None:
             return memory_verdict
-        return _generate_and_validate_patch(host, prompt, options, timeout)
+        return _generate_and_validate_patch(request)
     except QwenGuardError as exc:
         return str(exc)
     except QwenTransientError as exc:
         return f"{TRANSIENT_OUTCOME_PREFIX}: {exc}"
     finally:
-        _release_model_lock(job_id, holder)
+        _release_model_lock(request.job_id, holder)
 
 
 @dataclass
@@ -2074,7 +2125,8 @@ def _finalize_success(run: _JobRun, host: str, diff: str, response: dict[str, ob
 def _run_generation(run: _JobRun, prepared: _PreparedJob, timeout: float) -> tuple[bool, object]:
     """Guarded model call through result building. Assumes explain/admission/memory already checked."""
     contents = _read_confined_bytes(prepared.files, prepared.root)
-    prompt = _build_prompt(prepared.instruction, _decode_contents(contents))
+    files = _prompt_files(contents, prepared.root)
+    prompt = _build_prompt(prepared.instruction, files)
 
     budget_verdict = _check_prompt_budget(prompt, prepared.options)
     if budget_verdict is not None:
@@ -2082,7 +2134,7 @@ def _run_generation(run: _JobRun, prepared: _PreparedJob, timeout: float) -> tup
 
     job_id = run.identity.job_id
     start_ns = time.time_ns()
-    outcome = _run_with_lock(job_id, prepared.host, prompt, prepared.options, timeout)
+    outcome = _run_with_lock(_GenerationRequest(job_id, prepared.host, prompt, files, prepared.options, timeout))
     run.generation_ns = (start_ns, time.time_ns())
 
     if isinstance(outcome, str):

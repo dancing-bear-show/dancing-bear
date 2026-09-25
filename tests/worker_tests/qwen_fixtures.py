@@ -15,12 +15,11 @@ per-test mock lists used to leave to chance:
   (qwen_telemetry.wait_for_exports), so telemetry assertions made after
   run_handler are deterministic, and cleanup waits again before any patch
   is undone.
-* No writes outside the test's temp dir. The lock, deferral, patch and
-  digest-record paths all point into it.
+* No writes outside the test's temp dir. The lock, deferral, patch,
+  model-response and digest-record paths all point into it.
 
-The default model response is the real Ollama output captured in the
-workflow survey (survey.baseline_generation_post_install.raw_response_excerpt):
-a ```diff fence, ---/+++ headers with a/ b/ prefixes, no ``diff --git`` line.
+The default model response is one SEARCH/REPLACE edit block for GREET_PATH
+inside a ``` fence; the handler turns it into GREET_DIFF.
 """
 
 from __future__ import annotations
@@ -45,19 +44,26 @@ GIB = 1024**3
 
 GREET_PATH = "src/example/greet.py"
 GREET_ORIGINAL = 'def greet(name):\n    print("hello " + name)\n    return None\n'
-REAL_DIFF = (
+
+def edit_block(path: str, search: str, replace: str) -> str:
+    """One SEARCH/REPLACE block; search and replace are newline-joined lines."""
+    return f"FILE: {path}\n<<<<<<< SEARCH\n{search}\n=======\n{replace}\n>>>>>>> REPLACE\n"
+
+
+GREET_EDIT = edit_block(GREET_PATH, '    print("hello " + name)', '    return f"hello {name}"')
+# The diff the handler must build from GREET_EDIT.
+GREET_DIFF = (
     "--- a/src/example/greet.py\n"
     "+++ b/src/example/greet.py\n"
     "@@ -1,3 +1,3 @@\n"
     " def greet(name):\n"
     '-    print("hello " + name)\n'
     '+    return f"hello {name}"\n'
-    "     return None"
+    "     return None\n"
 )
-REAL_RESPONSE_TEXT = f"```diff\n{REAL_DIFF}\n```"
 REAL_RESPONSE: dict[str, object] = {
     "model": MODEL,
-    "response": REAL_RESPONSE_TEXT,
+    "response": f"```\n{GREET_EDIT}```",
     "done": True,
     "prompt_eval_count": 84,
     "eval_count": 57,
@@ -97,9 +103,9 @@ def require(value: _T | None) -> _T:
     return value
 
 
-def fenced(diff: str) -> dict[str, object]:
-    """A 200 /api/generate body whose response is diff inside a ```diff fence."""
-    return {**REAL_RESPONSE, "response": f"```diff\n{diff}\n```"}
+def model_says(text: str) -> dict[str, object]:
+    """A 200 /api/generate body whose response text is text."""
+    return {**REAL_RESPONSE, "response": text}
 
 
 class FakeResponse:
@@ -133,6 +139,7 @@ class QwenHandlerCase(TempDirMixin, unittest.TestCase):
         greet.parent.mkdir(parents=True)
         greet.write_text(GREET_ORIGINAL, encoding="utf-8")
         self.patch_dir = tmp / "patches"
+        self.response_dir = tmp / "responses"
         self.deferral_dir = tmp / "deferrals"
         self.lock_path = tmp / "state" / "model.lock"
         self.digest_record = tmp / "state" / "model_digest.json"
@@ -177,6 +184,7 @@ class QwenHandlerCase(TempDirMixin, unittest.TestCase):
             ("_lane_depth", 0),
             ("_lock_path", self.lock_path),
             ("_patch_dir", self.patch_dir),
+            ("_response_dir", self.response_dir),
             ("_deferral_dir", self.deferral_dir),
             ("_recorded_digest_path", self.digest_record),
         ):
@@ -287,3 +295,6 @@ class QwenHandlerCase(TempDirMixin, unittest.TestCase):
 
     def patch_files(self) -> list[Path]:
         return sorted(self.patch_dir.glob("*.patch")) if self.patch_dir.exists() else []
+
+    def response_files(self) -> list[Path]:
+        return sorted(self.response_dir.glob("*.txt")) if self.response_dir.exists() else []
