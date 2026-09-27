@@ -73,9 +73,6 @@ def _ws(workspace_dir: str | Path) -> str:
     return str(Path(workspace_dir).resolve())
 
 
-_WORKSPACE_PLACEHOLDER = "{workspace}"
-
-
 def _resolve_ws(text: str, ws: str) -> str:
     """Substitute the resolved workspace path for every ``{workspace}`` token.
 
