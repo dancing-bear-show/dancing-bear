@@ -459,21 +459,20 @@ stages:
       token into the command — the engine's substitution is raw text
       replacement, so re-typing the token here reintroduces the unvalidated
       value into shell source after the check that was supposed to be the
-      boundary. Run exactly one tiny generation asking for a diff on a
-      three-line snippet you supply inline, and record VERBATIM:
-        - whether the response is a bare diff or is wrapped in prose and/or a
-          ```diff fence
-        - whether it starts with `---`/`+++` or `diff --git`
-        - whether the hunk headers are well-formed
+      boundary. Run exactly one tiny generation asking for SEARCH/REPLACE edit
+      blocks on a three-line snippet you supply inline, and record VERBATIM:
+        - whether the response contains a well-formed SEARCH/REPLACE block
+        - whether the SEARCH text matches the snippet exactly
+        - whether extra prose or fences surround the blocks
         - the wall-clock duration
       This is the single most valuable thing this stage can produce, and
       nothing else in the workflow can substitute for it: the design stage is
-      otherwise choosing the prompt's output instruction, the diff extraction
-      strategy and every patch-cap threshold without ever having seen what
-      this model actually emits. Keep it tiny — one small snippet, short
-      timeout. If the model is absent, record
+      otherwise choosing the prompt's output instruction, the edit-block
+      extraction strategy and every patch-cap threshold without ever having
+      seen what this model actually emits. Keep it tiny — one small snippet,
+      short timeout. If the model is absent, record
       "baseline: unavailable (model not installed)" and say plainly in
-      survey.json that the design's diff-format assumptions are unvalidated.
+      survey.json that the design's edit-block format assumptions are unvalidated.
 
       Also probe the live machine (Bash, read-only — install nothing here):
         command -v ollama || echo "ollama: absent"
@@ -1378,21 +1377,22 @@ stages:
           SafeProcessor's envelope is written to the job record by
           job_runtime with NO masking, so a traceback raised during prompt
           assembly could carry file content to disk.
-        - PATCH CAPS, per contract.json's "patch_caps". Parse the diff's
-          target paths yourself and check them against the denied prefixes;
-          `git apply --check` will happily validate a patch that rewrites
-          .github/workflows/ci.yml. Record files_touched and lines_changed
-          in the result on EVERY job, pass or fail, so a reviewer sees the
-          size before opening the diff.
+        - PATCH CAPS, per contract.json's "patch_caps". Parse the edit
+          blocks' target paths yourself and check them against the denied
+          prefixes; `git apply --check` will happily validate a patch that
+          rewrites .github/workflows/ci.yml. Record files_touched and
+          lines_changed in the result on EVERY job, pass or fail, so a
+          reviewer sees the size before opening the diff.
         - REDACTION, per contract.json's "redaction". Every string derived
           from payload content that reaches the RESULT or TELEMETRY goes
           through core.secrets.mask_text first, and those two carry counts,
           paths and durations only — never file contents.
           Be precise about the one place contents DO reach disk, because an
           earlier revision of this file overclaimed and the design (item 5f)
-          already corrects it: the PATCH is the product, and a unified diff
-          carries context lines lifted verbatim from the input files. So
-          "file contents are never persisted" is false as a blanket claim.
+          already corrects it: the PATCH is the product, and a SEARCH/REPLACE
+          edit block's SEARCH section contains lines lifted verbatim from the
+          input files; the diff built from those blocks likewise carries them.
+          So "file contents are never persisted" is false as a blanket claim.
           What is true: the prompt is never persisted, and contents reach
           disk only inside the patch artifact — which is why that artifact's
           location outside the checkout is a confidentiality boundary, not a
