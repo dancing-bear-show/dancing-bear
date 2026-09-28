@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import io
 import json
+import os
+import socket
 import tempfile
+import threading
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -133,6 +136,80 @@ class TestCountSweep(_Tree):
     def test_long_lines_matched_on_their_prefix_only(self) -> None:
         self._put("src/long.txt", "x" * sweep_count.MAX_LINE_CHARS + "check\n")
         self.assertEqual(count_sweep("check", ["src/long.txt"], root=self.root).hits, 0)
+
+
+class TestSpecialFiles(_Tree):
+    """Only regular files are read; anything else is skipped before it is opened."""
+
+    def _sweep_with_timeout(self, paths: list[str], seconds: float = 10.0) -> sweep_count.SweepCount:
+        # A regression that opens a FIFO blocks forever; run in a daemon
+        # thread so it fails this test instead of hanging the suite.
+        results: list[sweep_count.SweepCount] = []
+        errors: list[SweepError] = []
+
+        def run() -> None:
+            try:
+                results.append(count_sweep("check", paths, root=self.root))
+            except SweepError as exc:
+                errors.append(exc)
+
+        worker = threading.Thread(target=run, daemon=True)
+        worker.start()
+        worker.join(seconds)
+        self.assertFalse(worker.is_alive(), "count_sweep blocked on a special file")
+        if errors:
+            raise errors[0]
+        return results[0]
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "no mkfifo on this platform")
+    def test_fifo_in_a_walked_dir_is_skipped_without_blocking(self) -> None:
+        self._put("src/real.txt", "check\n")
+        os.mkfifo(self.root / "src/pipe")
+        got = self._sweep_with_timeout(["src"])
+        self.assertEqual((got.hits, got.files), (1, 1))
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "no mkfifo on this platform")
+    def test_fifo_named_directly_is_refused(self) -> None:
+        os.mkfifo(self.root / "src/pipe")
+        with self.assertRaisesRegex(SweepError, "not a regular file"):
+            self._sweep_with_timeout(["src/pipe"])
+
+    @unittest.skipUnless(hasattr(socket, "AF_UNIX"), "no AF_UNIX sockets on this platform")
+    def test_socket_in_a_walked_dir_is_skipped(self) -> None:
+        self._put("src/real.txt", "check\n")
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.addCleanup(sock.close)
+        try:
+            sock.bind(str(self.root / "src/s.sock"))
+        except OSError as exc:  # path too long for sun_path on some hosts
+            self.skipTest(f"cannot bind a unix socket here: {exc}")
+        got = self._sweep_with_timeout(["src"])
+        self.assertEqual((got.hits, got.files), (1, 1))
+
+    @unittest.skipUnless(Path("/dev/null").exists(), "no /dev/null")
+    def test_device_named_directly_is_refused(self) -> None:
+        with self.assertRaisesRegex(SweepError, "not a regular file"):
+            count_sweep("check", ["null"], root=Path("/dev"))
+
+    def test_unreadable_file_is_skipped(self) -> None:
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            self.skipTest("root can read a mode-000 file")
+        locked = self._put("src/locked.txt", "check\n")
+        locked.chmod(0)
+        self.addCleanup(locked.chmod, 0o600)
+        self._put("src/open.txt", "check\n")
+        self.assertEqual(count_sweep("check", ["src"], root=self.root).hits, 1)
+
+    def test_empty_file_counts_zero(self) -> None:
+        self._put("src/empty.txt", "")
+        self.assertEqual(count_sweep("check", ["src/empty.txt"], root=self.root).as_dict(), {"hits": 0, "files": 0})
+
+    def test_file_swapped_for_a_fifo_after_the_walk_is_not_read(self) -> None:
+        if not hasattr(os, "mkfifo"):
+            self.skipTest("no mkfifo on this platform")
+        os.mkfifo(self.root / "src/pipe")
+        # Simulates the race: the walk saw a regular file, the open meets a FIFO.
+        self.assertIsNone(sweep_count._read_text(self.root / "src/pipe"))
 
 
 class TestPathAllowlist(_Tree):

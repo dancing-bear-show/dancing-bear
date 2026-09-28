@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import re
+import stat
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -122,36 +123,72 @@ def _resolve_one(root_real: Path, raw: str, normalised: str) -> Path:
         raise SweepError(f"no such file or directory: {raw!r}") from exc
     if real != target or not real.is_relative_to(root_real):
         raise SweepError(f"refused path (symlink): {raw!r}; symlinks are refused")
+    mode = _lstat_mode(real)
+    if mode is None or not (stat.S_ISREG(mode) or stat.S_ISDIR(mode)):
+        raise SweepError(f"refused path (not a regular file or directory): {raw!r}")
     return real
+
+
+def _lstat_mode(path: Path) -> int | None:
+    try:
+        return os.lstat(path).st_mode
+    except OSError:
+        return None
 
 
 def _inside(path: Path, root_real: Path) -> bool:
     return Path(os.path.realpath(path)).is_relative_to(root_real)
 
 
+def _is_regular(path: Path, root_real: Path) -> bool:
+    """True for a regular file (not a link, FIFO, socket or device) under the root.
+
+    Decided from ``lstat`` before anything opens the file: opening a FIFO
+    blocks until a writer appears, and a device can be read forever.
+    """
+    mode = _lstat_mode(path)
+    return mode is not None and stat.S_ISREG(mode) and _inside(path, root_real)
+
+
+def _is_walkable_dir(path: Path, root_real: Path) -> bool:
+    mode = _lstat_mode(path)  # lstat: a symlinked directory is not S_ISDIR
+    return mode is not None and stat.S_ISDIR(mode) and _inside(path, root_real)
+
+
 def _iter_files(target: Path, root_real: Path) -> Iterator[Path]:
-    if target.is_file():
+    if _is_regular(target, root_real):
         yield target
         return
     for dirpath, dirnames, filenames in os.walk(target):  # followlinks=False: symlinked dirs are not entered
         base = Path(dirpath)
-        dirnames[:] = sorted(d for d in dirnames if d not in _SKIP_DIRS and _inside(base / d, root_real)
-                             and not (base / d).is_symlink())
+        dirnames[:] = sorted(d for d in dirnames if d not in _SKIP_DIRS and _is_walkable_dir(base / d, root_real))
         for name in sorted(filenames):
             candidate = base / name
-            if not candidate.is_symlink() and _inside(candidate, root_real):
+            if _is_regular(candidate, root_real):
                 yield candidate
 
 
 def _read_text(path: Path) -> str | None:
-    """Return a file's text, or None for a binary, oversized or unreadable file."""
+    """Return a file's text, or None for a binary, oversized, non-regular or unreadable file.
+
+    The open refuses a symlink and never blocks, and ``fstat`` re-checks the
+    opened file, so a file swapped for a FIFO or link after the walk's
+    ``lstat`` is still skipped.
+    """
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
     try:
-        if path.stat().st_size > MAX_FILE_BYTES:
-            return None
-        data = path.read_bytes()
+        fd = os.open(path, flags)
     except OSError:
         return None
-    if b"\0" in data[:_BINARY_SNIFF]:
+    with os.fdopen(fd, "rb") as fh:
+        try:
+            info = os.fstat(fh.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_FILE_BYTES:
+                return None
+            data = fh.read(MAX_FILE_BYTES + 1)
+        except OSError:
+            return None
+    if len(data) > MAX_FILE_BYTES or b"\0" in data[:_BINARY_SNIFF]:
         return None
     return data.decode("utf-8", errors="replace")
 
