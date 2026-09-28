@@ -526,7 +526,7 @@ stages:
 
       If Step 3 exits non-zero, name the offending PRs before failing:
 
-        jq -rn --slurpfile idx "{workspace}/outputs/rereview-index.json" --slurpfile got "{workspace}/outputs/rereview-classified.json" --slurpfile src "{workspace}/outputs/rereview-source-thread-ids.json" '$idx[0].items[].pr as $p | ([$got[0][] | select((.pr | tostring) == $p)]) as $m | if ($m | length) != 1 then "\($p): \($m | length) classified files (expected 1)" elif ([$m[0].threads[].thread_id] | sort) != $src[0][$p] then "\($p): thread_id mismatch — got \([$m[0].threads[].thread_id] | sort | join(\",\")), expected \($src[0][$p] | join(\",\"))" else empty end'
+        jq -rn --slurpfile idx "{workspace}/outputs/rereview-index.json" --slurpfile got "{workspace}/outputs/rereview-classified.json" --slurpfile src "{workspace}/outputs/rereview-source-thread-ids.json" '$idx[0].items[].pr as $p | ([$got[0][] | select((.pr | tostring) == $p)]) as $m | if ($m | length) != 1 then "\($p): \($m | length) classified files (expected 1)" elif ([$m[0].threads[].thread_id] | sort) != $src[0][$p] then "\($p): thread_id mismatch — got \([$m[0].threads[].thread_id] | sort | join(",")), expected \($src[0][$p] | join(","))" else empty end'
 
       A missing file is a crashed agent, and a thread_id mismatch means a
       classifier omitted or duplicated thread IDs while keeping the same length.

@@ -30,7 +30,7 @@ _TOPIC_STAGES = {
     "init", "fetch-findings", "fetch-review-threads", "cluster-gaps",
     "propose-concerns", "human-gate", "update-guides",
 }
-_REREVIEW_ONLY = {"fetch-round-history", "classify-rereview", "aggregate-rereview"}
+_REREVIEW_ONLY = {"fetch-round-history", "seed-class-list", "classify-rereview", "aggregate-rereview"}
 _PLACEHOLDER_RE = re.compile(r"\{[a-z_][a-z0-9_]*\}")
 
 
@@ -234,8 +234,10 @@ class TestRenderedJqExecutes(unittest.TestCase):
         return subprocess.run(argv, capture_output=True, text=True, check=False)  # nosec B603 - rendered workflow lines against a temp dir
 
     def _classify(self, pr: int, n: int) -> None:
-        self._write(f"outputs/classified/pr{pr}.json",
-                    {"pr": pr, "threads": [{"class": "unquoted-shell-var"}] * n})
+        # thread_ids must match the source rounds data (T{pr}-{i}) so the
+        # multiset comparison in aggregate-rereview passes on good data.
+        threads = [{"thread_id": f"T{pr}-{i}", "class": "unquoted-shell-var"} for i in range(n)]
+        self._write(f"outputs/classified/pr{pr}.json", {"pr": pr, "threads": threads})
 
     def _index(self) -> None:
         self.assertEqual(self._run(self.build_index).returncode, 0)
@@ -315,7 +317,7 @@ class TestRenderedJqExecutes(unittest.TestCase):
         for cmd in (self.merge, self.counts):
             self.assertEqual(self._run(cmd).returncode, 0, cmd)
         self.assertNotEqual(self._run(self.check).returncode, 0)
-        self.assertIn("406: 1 of 2 threads classified", self._run(self.explain).stdout)
+        self.assertIn("406: thread_id mismatch", self._run(self.explain).stdout)
 
 
 if __name__ == "__main__":  # pragma: no cover
