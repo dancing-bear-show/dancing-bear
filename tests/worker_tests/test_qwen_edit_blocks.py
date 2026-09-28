@@ -82,13 +82,26 @@ class ParseEditBlocksTests(unittest.TestCase):
 
         self.assertEqual([b.path for b in qwen_edits.parse_edit_blocks(text)], ["src/a.py", "src/a.py"])
 
-    def test_body_lines_are_verbatim_and_a_divider_in_replace_is_content(self) -> None:
-        text = "FILE: docs/x.rst\n<<<<<<< SEARCH\n  Title  \n=======\nTitle\n=======\n>>>>>>> REPLACE\n"
+    def test_body_lines_are_verbatim(self) -> None:
+        text = "FILE: docs/x.rst\n<<<<<<< SEARCH\n  Title  \n=======\nTitle\n>>>>>>> REPLACE\n"
 
         [block] = qwen_edits.parse_edit_blocks(text)
 
         self.assertEqual(block.search, ("  Title  ",))
-        self.assertEqual(block.replace, ("Title", "======="))
+        self.assertEqual(block.replace, ("Title",))
+
+    def test_a_second_bare_divider_in_either_body_is_rejected_not_guessed(self) -> None:
+        # An RST/Markdown title underline reads as "=======". Whether it sits
+        # in the SEARCH body or the REPLACE body, a second bare divider line
+        # makes the true divider ambiguous; the block must fail closed
+        # (never silently truncate SEARCH and misapply a partial edit).
+        cases = {
+            "in search body": "FILE: docs/x.rst\n<<<<<<< SEARCH\nTitle\n=======\nold body\n=======\nnew body\n>>>>>>> REPLACE\n",
+            "in replace body": "FILE: docs/x.rst\n<<<<<<< SEARCH\n  Title  \n=======\nTitle\n=======\n>>>>>>> REPLACE\n",
+        }
+        for name, text in cases.items():
+            with self.subTest(name):
+                self.assertEqual(_outcome(qwen_edits.parse_edit_blocks, text), qwen_edits.EDIT_MALFORMED_OUTCOME)
 
     def test_empty_search_parses_as_an_empty_tuple(self) -> None:
         [block] = qwen_edits.parse_edit_blocks("FILE: src/a.py\n<<<<<<< SEARCH\n=======\nnew\n>>>>>>> REPLACE\n")

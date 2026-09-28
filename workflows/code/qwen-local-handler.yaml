@@ -168,9 +168,11 @@ description: >
            anything can reach a model. Merging it changes no behaviour for
            existing job types.
 
-    PR 2 — "the model": the Ollama transport, diff extraction, patch
-           validation and caps, the concurrency lock, deferral bound, and the
-           memory/disk prechecks, with their tests. Checkpoints C3-C5. This
+    PR 2 — "the model": the Ollama transport, SEARCH/REPLACE edit-block
+           parsing and application (worker.qwen_edits), the locally-built
+           diff, patch validation and caps, the concurrency lock, deferral
+           bound, and the memory/disk prechecks, with their tests. Checkpoints
+           C3-C5. This
            is the PR that makes the handler actually do something, and it is
            the one that most needs the adversarial test review.
 
@@ -590,22 +592,26 @@ stages:
 
       2. PROMPT CONSTRUCTION. Start from survey.json's baseline_generation:
          if it is available, it tells you what this model ACTUALLY emits —
-         bare diff, fenced, or wrapped in prose — and your diff-extraction
-         strategy must handle exactly that rather than an assumed format.
-         Cite the observed values. If the baseline was unavailable, say so
-         explicitly here and design extraction defensively (tolerate a fence
-         and surrounding prose), because you are guessing.
+         bare SEARCH/REPLACE blocks, fenced, or wrapped in prose — and your
+         edit-block parsing strategy (worker.qwen_edits) must handle exactly
+         that rather than an assumed format. Cite the observed values. If the
+         baseline was unavailable, say so explicitly here and design parsing
+         defensively (tolerate a fence and surrounding prose), because you are
+         guessing.
 
          Then: how file contents become a prompt — delimiters,
-         whether line numbers are included, the instruction to emit a unified
-         diff and nothing else, and the total context budget. Note the model's
-         context window and what happens when the files exceed it — truncate,
-         or fail terminally with a clear message? Decide.
+         whether line numbers are included, the instruction to emit
+         SEARCH/REPLACE edit blocks against repo-relative FILE labels and
+         nothing else, and the total context budget. Note the model's context
+         window and what happens when the files exceed it — truncate, or fail
+         terminally with a clear message? Decide.
 
       3. RETRY TAXONOMY, mapped onto the exact prefixes recorded in the
          survey's retry_protocol. Classify at least: connection refused,
          request timeout, HTTP 5xx, HTTP 404 model-not-found, a 200 response
-         whose body contains no diff, and a diff that fails `git apply --check`.
+         whose body contains no parseable edit block, and a patch — built
+         locally from the applied edit blocks — that fails
+         `git apply --check`.
          Each maps to exactly one of: plain failure (retries with backoff),
          "terminal-..." (no retry), or "deferred-..." (re-queue without
          consuming an attempt). State the rule you are applying — the
@@ -910,9 +916,11 @@ stages:
            - Log the REJECTED PATH but never the file's contents.
 
       5e. OUTPUT BLAST RADIUS. `git apply --check` proves a patch applies; it
-         does not prove it is sane. A model can emit a diff touching two
-         hundred files, or rewriting .github/workflows/ci.yml, or replacing
-         bin/worker. The patch is reviewed by a human before it applies, and
+         does not prove it is sane. A model can emit SEARCH/REPLACE edit
+         blocks touching two hundred files, or rewriting
+         .github/workflows/ci.yml, or replacing bin/worker, and the diff
+         built locally from those blocks inherits the same blast radius. The
+         patch is reviewed by a human before it applies, and
          that review is the real control — but a 200-file diff is exactly the
          kind of thing a reviewer skims.
 
@@ -943,11 +951,13 @@ stages:
 
          (2) "File contents are never persisted" is FALSE as a blanket claim,
              and the design must not repeat it. The patch IS the product and
-             it IS persisted — a unified diff carries context lines lifted
-             verbatim from the input files. Say instead what is actually
-             true: the prompt is never persisted, and file contents reach
-             disk only inside the patch artifact, which is the reviewable
-             output this workflow exists to produce.
+             it IS persisted — a SEARCH/REPLACE edit block's SEARCH section
+             contains lines lifted verbatim from the input files, and the
+             diff built locally from the applied blocks (via difflib)
+             likewise carries them. Say instead what is actually true: the
+             prompt is never persisted, and file contents reach disk only
+             inside the patch artifact, which is the reviewable output this
+             workflow exists to produce.
 
              That makes the patch artifact's LOCATION a confidentiality
              boundary, not just a tidiness question — it is written under

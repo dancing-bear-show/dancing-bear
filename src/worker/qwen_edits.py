@@ -28,8 +28,12 @@ NO_CHANGE_OUTCOME = "terminal-no-change"
 SEARCH_MARKER = "<<<<<<< SEARCH"
 DIVIDER_MARKER = "======="
 REPLACE_MARKER = ">>>>>>> REPLACE"
-# A divider inside a REPLACE body is content (an RST underline, say); the
-# SEARCH and REPLACE markers never are.
+# The SEARCH and REPLACE markers never appear as body content. A divider
+# line can: an RST/Markdown underline reads as "=======". There is no
+# escaping in this format, so a block with more than one bare "======="
+# line before its REPLACE marker is genuinely ambiguous - it is never
+# guessed at (that would silently truncate the SEARCH body and apply a
+# partial edit) and is instead rejected as malformed.
 _BLOCK_MARKERS = frozenset({SEARCH_MARKER, REPLACE_MARKER})
 _STRAY_MARKERS = frozenset({DIVIDER_MARKER, REPLACE_MARKER})
 _FILE_LINE_RE = re.compile(r"\s*FILE:(.*)")
@@ -98,9 +102,16 @@ def _find_marker(lines: list[str], start: int, marker: str) -> int:
 
 def _parse_block_body(lines: list[str], start: int) -> tuple[tuple[str, ...], tuple[str, ...], int]:
     """(search, replace, index after the REPLACE marker) for the block whose
-    SEARCH marker is lines[start - 1]."""
+    SEARCH marker is lines[start - 1].
+
+    A second bare "=======" line between the divider and the REPLACE marker
+    means the body's own divider cannot be told apart from a legitimate
+    "=======" line of content (SEARCH or REPLACE side); that block is
+    rejected rather than silently truncated."""
     divider = _find_marker(lines, start, DIVIDER_MARKER)
     end = _find_marker(lines, divider + 1, REPLACE_MARKER)
+    if any(lines[i].strip() == DIVIDER_MARKER for i in range(divider + 1, end)):
+        raise EditBlockError(EDIT_MALFORMED_OUTCOME)
     return tuple(lines[start:divider]), tuple(lines[divider + 1 : end]), end + 1
 
 
