@@ -44,13 +44,15 @@ def _q(root: Path | None) -> Path:
     ``QUEUE_ROOT`` remains a public, assignable attribute for callers that pass
     it explicitly (``root=q.QUEUE_ROOT``); those callers are unaffected by this
     change.
+
+    Raises:
+        Any exception raised by ``get_worker_state_dir`` propagates to the
+        caller.  There is no fallback to ``QUEUE_ROOT``: a silent fallback could
+        reintroduce the real-queue leak if the env-var resolution fails.
     """
     if root is not None:
         return root
-    try:
-        return get_worker_state_dir("queue")
-    except Exception:  # pragma: no cover - defensive fallback  # nosec B110 - best-effort path resolution
-        return QUEUE_ROOT
+    return get_worker_state_dir("queue")
 
 
 def _ensure_dirs(root: Path | None = None) -> dict[str, Path]:

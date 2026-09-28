@@ -138,39 +138,52 @@ class TestStateDirectoryIsPrivate(unittest.TestCase):
         )
 
     def test_user_supplied_private_dir_is_accepted(self) -> None:
-        """A user-supplied private dir (not under tmp) satisfies the invariant.
+        """A user-supplied private dir (not under the real default) satisfies the invariant.
 
-        The bootstrap in tests/__init__.py preserves any pre-existing value that
-        is not the real default.  This test simulates that by running the bootstrap
-        logic directly: a path like /home/user/dev/test-queue is private (not the
-        real default) and must not be overwritten by the bootstrap.
+        Calls ensure_private() directly instead of reimplementing the predicate,
+        so the test exercises the real bootstrap logic.
         """
-        real_default = _real_default_state_dir()
+        # Load _private_worker_state by path, the same way the package __init__ files do.
+        bootstrap_path = Path(__file__).parent.parent / "_private_worker_state.py"
+        key = "_dancing_bear_private_worker_state_test_reload"
+        spec = importlib.util.spec_from_file_location(key, bootstrap_path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"Failed to load spec from {bootstrap_path}")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)  # type: ignore[union-attr]
+
+        import shutil
 
         with tempfile.TemporaryDirectory() as user_dir:
-            # user_dir is a real private dir (under /tmp on macOS, but that is
-            # incidental; the important property is that it is not the real default).
             with patch.dict(os.environ, {helpers.WORKER_STATE_DIR_ENV: user_dir}):
-                current = os.environ.get(helpers.WORKER_STATE_DIR_ENV, "").strip()
-                is_already_private = bool(
-                    current
-                    and current != str(real_default)
-                    and not current.startswith(str(real_default) + "/")
+                mod.ensure_private()
+                # ensure_private() must leave the env var unchanged — it is already private.
+                self.assertEqual(
+                    os.environ.get(helpers.WORKER_STATE_DIR_ENV),
+                    user_dir,
+                    "ensure_private() must not overwrite a user-supplied private dir",
                 )
-                # The bootstrap would preserve this value because it is already private.
+
+        # Sad path: env set to the real default string → ensure_private() must replace it.
+        real_default_str = str(_real_default_state_dir())
+        created_dir: str | None = None
+        try:
+            with patch.dict(os.environ, {helpers.WORKER_STATE_DIR_ENV: real_default_str}):
+                mod.ensure_private()
+                after = os.environ.get(helpers.WORKER_STATE_DIR_ENV, "")
+                created_dir = after
+                self.assertNotEqual(
+                    after,
+                    real_default_str,
+                    "ensure_private() must replace the real default with a private dir",
+                )
                 self.assertTrue(
-                    is_already_private,
-                    f"Bootstrap should preserve {user_dir!r} (private, not real default), "
-                    f"but _is_already_private={is_already_private}",
+                    mod._is_private(after),
+                    f"ensure_private() set the env var to a non-private value: {after!r}",
                 )
-                # The invariant holds: the supplied dir is not the real default.
-                state_dir = helpers.get_worker_state_dir()
-                self.assertFalse(
-                    state_dir == real_default
-                    or str(state_dir).startswith(str(real_default) + "/"),
-                    f"With user-supplied override, state dir resolved to real default: "
-                    f"{state_dir}",
-                )
+        finally:
+            if created_dir and created_dir != real_default_str:
+                shutil.rmtree(created_dir, ignore_errors=True)
 
     def test_q_none_resolves_via_env_at_call_time(self) -> None:
         """queue_ops._q(None) must read the env var at call time, not QUEUE_ROOT.
@@ -198,3 +211,80 @@ class TestStateDirectoryIsPrivate(unittest.TestCase):
             f"DANCING_BEAR_WORKER_STATE_DIR is set to a private dir.\n"
             "queue_ops._q(None) must call get_worker_state_dir() at call time.",
         )
+
+    def test_q_raises_when_get_worker_state_dir_raises(self) -> None:
+        """_q(None) must propagate exceptions from get_worker_state_dir, not fall back.
+
+        Thread 1 fix: the try/except fallback to QUEUE_ROOT was removed.  A
+        resolution failure must raise so callers know the queue root is unknown,
+        rather than silently touching the real queue via QUEUE_ROOT.
+        """
+        with patch("worker.queue_ops.get_worker_state_dir", side_effect=OSError("path error")):
+            with self.assertRaises(OSError):
+                queue_ops._q(None)
+
+    def test_q_explicit_path_bypasses_get_worker_state_dir(self) -> None:
+        """_q(explicit_path) returns the explicit path without calling get_worker_state_dir."""
+        explicit = Path(tempfile.mkdtemp())
+        try:
+            with patch("worker.queue_ops.get_worker_state_dir", side_effect=OSError("should not be called")):
+                result = queue_ops._q(explicit)
+            self.assertEqual(result, explicit)
+        finally:
+            import shutil
+            shutil.rmtree(explicit, ignore_errors=True)
+
+
+class TestIsPrivate(unittest.TestCase):
+    """Unit tests for _private_worker_state._is_private after Thread 2 fix."""
+
+    def setUp(self) -> None:
+        # Load the module by path each time so we test the live version.
+        bootstrap_path = Path(__file__).parent.parent / "_private_worker_state.py"
+        key = "_dancing_bear_private_worker_state_is_private_suite"
+        spec = importlib.util.spec_from_file_location(key, bootstrap_path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"Failed to load spec from {bootstrap_path}")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)  # type: ignore[union-attr]
+        self._mod = mod
+        self._real_default = Path.home() / "Library" / "Application Support" / "dancing-bear"
+
+    def _is_private(self, val: str) -> bool:
+        return self._mod._is_private(val)  # type: ignore[attr-defined]
+
+    def test_empty_string_is_not_private(self) -> None:
+        self.assertFalse(self._is_private(""))
+
+    def test_real_default_resolved_is_not_private(self) -> None:
+        """The resolved real default path must not be private."""
+        self.assertFalse(self._is_private(str(self._real_default.resolve())))
+
+    def test_real_default_with_tilde_is_not_private(self) -> None:
+        """A literal tilde form of the real default must also be rejected."""
+        # Build the tilde form: ~/Library/Application Support/dancing-bear
+        home = Path.home()
+        relative = self._real_default.relative_to(home)
+        tilde_form = "~/" + str(relative)
+        self.assertFalse(self._is_private(tilde_form))
+
+    def test_subdir_of_real_default_is_not_private(self) -> None:
+        """A subdirectory of the real default (e.g. .../queue) is not private."""
+        subdir = str(self._real_default / "queue")
+        self.assertFalse(self._is_private(subdir))
+
+    def test_symlink_to_real_default_is_not_private(self) -> None:
+        """A symlink that resolves to the real default must not be private.
+
+        Creating a symlink that POINTS at the real default is allowed (nothing is
+        written through it); it just must not pass the privacy check.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            link = Path(tmpdir) / "link-to-real"
+            link.symlink_to(self._real_default)
+            self.assertFalse(self._is_private(str(link)))
+
+    def test_plain_temp_dir_is_private(self) -> None:
+        """A real temporary directory is private."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self.assertTrue(self._is_private(tmpdir))

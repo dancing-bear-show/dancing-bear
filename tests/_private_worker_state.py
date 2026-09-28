@@ -29,16 +29,29 @@ import tempfile
 from pathlib import Path
 
 _WORKER_STATE_ENV = "DANCING_BEAR_WORKER_STATE_DIR"
-_REAL_DEFAULT = Path.home() / "Library" / "Application Support" / "dancing-bear"
+_REAL_DEFAULT = (Path.home() / "Library" / "Application Support" / "dancing-bear").resolve()
 
 
 def _is_private(val: str) -> bool:
-    """Return True if *val* is set and is not the real default location."""
-    return bool(
-        val
-        and val != str(_REAL_DEFAULT)
-        and not val.startswith(str(_REAL_DEFAULT) + "/")
-    )
+    """Return True if *val* is set and is not the real default location.
+
+    Normalizes *val* with ``Path.expanduser().resolve()`` before comparing, so
+    a literal tilde or a symlink that resolves to the real default is correctly
+    identified as not private.
+
+    Ancestry check: ``_REAL_DEFAULT`` is ``~/Library/.../dancing-bear``.
+    ``get_worker_state_dir`` appends only one segment (e.g. "queue"), so a path
+    that *contains* the real default as an ancestor — like ``$HOME`` — would
+    resolve to ``~/queue``, not into the real queue tree.  We only need to
+    reject paths that *are* the real default or are inside it.
+    """
+    if not val:
+        return False
+    try:
+        resolved = Path(val).expanduser().resolve()
+    except Exception:  # nosec B110 - path resolution failure means we cannot confirm it is private
+        return False
+    return resolved != _REAL_DEFAULT and not resolved.is_relative_to(_REAL_DEFAULT)
 
 
 def ensure_private() -> None:
