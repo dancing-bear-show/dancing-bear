@@ -253,7 +253,11 @@ class TestShutdownTimeoutMarkerWritten(_RuntimeTestBase):
         self.assertTrue(marker.exists(), "shutdown-timeout marker was not written")
 
     def test_no_marker_on_successful_requeue(self) -> None:
-        """Happy path: successful requeue writes no marker."""
+        """Happy path: a requeue_processing call that returns without raising
+        (whether it requeued the job or found nothing left to do) leaves no
+        marker behind -- even past the deadline, where a marker is written
+        proactively before the call, it is removed again once the call
+        returns normally."""
         enqueue(Job(id="st2", type="noop", payload={}), root=self.root)
         runner = _make_runner(self.root, max_per_tick=1)
         paths = q._ensure_dirs(self.root)
@@ -271,6 +275,40 @@ class TestShutdownTimeoutMarkerWritten(_RuntimeTestBase):
         # returned None because the job already left processing/, writes none).
         markers = list(paths["processing"].glob("st2.json.shutdown-timeout*"))
         self.assertEqual(markers, [], "marker should not exist on clean drain")
+
+    def test_marker_written_proactively_before_past_deadline_call(self) -> None:
+        """Sad path: once the shared deadline has passed, the marker is
+        written BEFORE requeue_processing is even called (not only after a
+        failure), so recovery intent is durable even if the call itself
+        hangs indefinitely on a stalled filesystem and the process is later
+        SIGKILLed before the call returns."""
+        enqueue(Job(id="st8", type="noop", payload={}), root=self.root)
+        runner = _make_runner(self.root, max_per_tick=1)
+        paths = q._ensure_dirs(self.root)
+        proc = paths["processing"] / "st8.json"
+        proc.write_text(json.dumps({"id": "st8", "claim_token": "tok-st8"}), encoding="utf-8")
+        dead_thread = threading.Thread(target=lambda: None, daemon=True)
+        dead_thread.start()
+        dead_thread.join()
+        runner._live_threads["st8"] = (dead_thread, "tok-st8")
+
+        marker = paths["processing"] / "st8.json.shutdown-timeout.tok-st8"
+        seen_during_call = []
+
+        def _check_marker_exists(*_a: object, **_kw: object) -> None:
+            # Called from inside requeue_processing's mock, simulating a
+            # call that is still "in flight": the marker must already exist
+            # at this point, before the (simulated) filesystem work completes.
+            seen_during_call.append(marker.exists())
+            return None
+
+        with patch.object(q, "requeue_processing", side_effect=_check_marker_exists):
+            runner.drain_live_threads(grace=0.0)
+
+        self.assertEqual(seen_during_call, [True], "marker must exist before the call, not only after it fails")
+        # The call returned normally (no exception), so the now-unneeded
+        # marker was removed afterward.
+        self.assertFalse(marker.exists(), "marker should be removed after a normal return")
 
 
 class TestRecoverShutdownTimeoutMarkers(unittest.TestCase, QueueRootIsolationMixin):
@@ -445,6 +483,64 @@ class TestWriteShutdownTimeoutMarker(unittest.TestCase, QueueRootIsolationMixin)
         q.write_shutdown_timeout_marker("m2", "tok-m2", root=self.root)
         paths = q._ensure_dirs(self.root)
         self.assertTrue((paths["processing"] / "m2.json.shutdown-timeout.tok-m2").exists())
+
+
+class TestRemoveShutdownTimeoutMarker(unittest.TestCase, QueueRootIsolationMixin):
+    """remove_shutdown_timeout_marker deletes the marker written for a job."""
+
+    def setUp(self) -> None:
+        self.setup_queue_root()
+
+    def test_removes_existing_marker(self) -> None:
+        paths = q._ensure_dirs(self.root)
+        q.write_shutdown_timeout_marker("rm1", "tok-rm1", root=self.root)
+        marker = paths["processing"] / "rm1.json.shutdown-timeout.tok-rm1"
+        self.assertTrue(marker.exists())
+        q.remove_shutdown_timeout_marker("rm1", "tok-rm1", root=self.root)
+        self.assertFalse(marker.exists())
+
+    def test_missing_marker_is_a_noop(self) -> None:
+        """Removing a marker that was never written (or already removed)
+        does not raise."""
+        q.remove_shutdown_timeout_marker("rm2", "tok-rm2", root=self.root)  # must not raise
+
+
+class TestRecoverShutdownTimeoutMarkersParsesJobIdWithEmbeddedSuffix(
+    unittest.TestCase, QueueRootIsolationMixin
+):
+    """recover_shutdown_timeout_markers must parse the marker filename
+    correctly even when the job id itself contains the literal marker
+    suffix text, by taking the LAST occurrence (rfind) as the true
+    boundary rather than the first (find)."""
+
+    def setUp(self) -> None:
+        self.setup_queue_root()
+
+    def test_job_id_containing_marker_suffix_text_is_parsed_correctly(self) -> None:
+        """A job id such as 'a.json.shutdown-timeout.b' must not be
+        mis-parsed as job id 'a' with token 'b.json.shutdown-timeout.<tok>' --
+        the real marker filename appends the true suffix again at the end,
+        and only the LAST occurrence is the genuine boundary."""
+        paths = q._ensure_dirs(self.root)
+        tricky_id = "a.json.shutdown-timeout.b"
+        proc = paths["processing"] / f"{tricky_id}.json"
+        proc.write_text(
+            json.dumps(
+                {"id": tricky_id, "type": "noop", "payload": {}, "status": "processing",
+                 "claim_token": "tok-tricky"}
+            ),
+            encoding="utf-8",
+        )
+        q.write_shutdown_timeout_marker(tricky_id, "tok-tricky", root=self.root)
+
+        recovered = q.recover_shutdown_timeout_markers(root=self.root)
+
+        self.assertIn(tricky_id, recovered, "the full tricky job id must be recovered intact")
+        self.assertTrue(
+            (paths["pending"] / f"{tricky_id}.json").exists(),
+            "the job with the embedded-suffix id must be requeued, not stranded",
+        )
+        self.assertFalse(proc.exists())
 
 
 # ---------------------------------------------------------------------------

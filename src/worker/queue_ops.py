@@ -449,6 +449,28 @@ def write_shutdown_timeout_marker(
     marker.touch()
 
 
+def remove_shutdown_timeout_marker(
+    job_id: str, claim_token: str | None, root: Path | None = None
+) -> None:
+    """Remove the shutdown-timeout marker ``write_shutdown_timeout_marker`` wrote.
+
+    Called when a post-deadline requeue_processing call that raced ahead of
+    its own marker write (see drain_live_threads) succeeds after all: the
+    marker's recovery intent is no longer needed, and leaving it in place
+    would make recover_shutdown_timeout_markers() attempt a spurious requeue
+    of a processing/ record that is already gone at the next startup. A
+    missing marker (it was never written, or already cleaned up) is a no-op,
+    not an error -- this is always called defensively.
+    """
+    paths = _ensure_dirs(root)
+    token_part = claim_token if claim_token is not None else ""
+    marker = (
+        paths["processing"]
+        / f"{job_id}{_JOB_SUFFIX}{_SHUTDOWN_TIMEOUT_MARKER_SUFFIX}.{token_part}"
+    )
+    marker.unlink(missing_ok=True)
+
+
 def recover_shutdown_timeout_markers(root: Path | None = None) -> list[str]:
     """Requeue any processing/ jobs that have a shutdown-timeout marker.
 
@@ -475,7 +497,13 @@ def recover_shutdown_timeout_markers(root: Path | None = None) -> list[str]:
     marker_suffix = _JOB_SUFFIX + _SHUTDOWN_TIMEOUT_MARKER_SUFFIX
     for marker in list(paths["processing"].iterdir()):
         marker_stem = marker.name
-        suffix_start = marker_stem.find(marker_suffix)
+        # rfind, not find: a job id is not constrained to exclude the literal
+        # text ".json.shutdown-timeout", so the first occurrence is not
+        # necessarily the real marker suffix. The token segment written by
+        # write_shutdown_timeout_marker is a bare hex uuid (or empty) with no
+        # dots of its own, so the LAST occurrence of marker_suffix is always
+        # the genuine boundary between the job id and the token.
+        suffix_start = marker_stem.rfind(marker_suffix)
         if suffix_start == -1:
             continue
         job_id = marker_stem[:suffix_start]

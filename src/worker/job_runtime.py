@@ -105,6 +105,16 @@ def _write_shutdown_timeout_marker(job_id: str, claim_token: str | None, root: P
     q.write_shutdown_timeout_marker(job_id, claim_token, root)
 
 
+def _remove_shutdown_timeout_marker(job_id: str, claim_token: str | None, root: Path) -> None:
+    """Delegate to queue_ops to remove a shutdown-timeout marker for ``job_id``.
+
+    Called when a post-deadline requeue that raced ahead of its own
+    precautionary marker write succeeds after all, so the marker's recovery
+    intent is no longer needed.
+    """
+    q.remove_shutdown_timeout_marker(job_id, claim_token, root)
+
+
 def _processing_stems(root: Path) -> set[str]:
     """Return the job stems currently in processing/ under ``root``."""
     folder = q._ensure_dirs(root)["processing"]
@@ -897,75 +907,129 @@ class DaemonRunner:
             # requeue_processing is a no-op when the record is already gone
             # (normal completion moved it), so probing a finished thread is
             # safe — it never recreates a job that legitimately completed.
-            #
-            # The token is passed through as claim_token rather than compared
-            # here first: a pre-check-then-requeue has the same window this
-            # check exists to close (another worker's reaper can reclaim the
-            # stem between the check and the requeue), so the comparison must
-            # happen atomically under requeue_processing's transition lock.
-            #
-            # Each requeue_processing call acquires the blocking _transition_lock.
-            # If a live job is still inside finish()/retry() or its filesystem
-            # write stalls, drain could wait beyond shutdown_grace and launchd
-            # may send SIGKILL before cleanup completes. To bound the total
-            # post-deadline work, pass the remaining time budget as lock_timeout
-            # so the call raises _TransitionLockTimeout rather than blocking
-            # indefinitely. A lock-timeout or I/O failure for one stem must
-            # not abort the whole drain — catch and log per stem, then continue.
-            #
-            # The budget is floored at 0.0, not a small positive value: once
-            # the shared deadline has passed, every contended stem would
-            # otherwise get its own fresh wait window, and those can add up
-            # across many stems to extend the drain well past shutdown_grace.
-            # A timeout of exactly 0.0 still makes _transition_lock attempt
-            # one non-blocking acquisition before giving up, so a lock that
-            # happens to be free is still used — only a contended lock fails
-            # immediately instead of waiting.
-            remaining = deadline - time.monotonic()
-            lock_budget = max(0.0, remaining)
+            if self._drain_one_stem(stem, token, deadline):
+                requeued.append(stem)
+        return requeued
+
+    def _drain_one_stem(self, stem: str, token: str | None, deadline: float) -> bool:
+        """Requeue one live-thread's job on shutdown; return True if requeued.
+
+        Split out of ``drain_live_threads`` to keep that loop's cognitive
+        complexity in check; behavior is unchanged.
+
+        The token is passed through as claim_token rather than compared here
+        first: a pre-check-then-requeue has the same window this check exists
+        to close (another worker's reaper can reclaim the stem between the
+        check and the requeue), so the comparison must happen atomically
+        under requeue_processing's transition lock.
+
+        Each requeue_processing call acquires the blocking _transition_lock.
+        If a live job is still inside finish()/retry() or its filesystem
+        write stalls, drain could wait beyond shutdown_grace and launchd may
+        send SIGKILL before cleanup completes. To bound the total
+        post-deadline work, pass the remaining time budget as lock_timeout so
+        the call raises _TransitionLockTimeout rather than blocking
+        indefinitely. A lock-timeout or I/O failure for one stem must not
+        abort the whole drain — catch and log per stem, then continue.
+
+        The budget is floored at 0.0, not a small positive value: once the
+        shared deadline has passed, every contended stem would otherwise get
+        its own fresh wait window, and those can add up across many stems to
+        extend the drain well past shutdown_grace. A timeout of exactly 0.0
+        still makes _transition_lock attempt one non-blocking acquisition
+        before giving up, so a lock that happens to be free is still used —
+        only a contended lock fails immediately instead of waiting.
+
+        lock_timeout only bounds acquiring the lock, not the filesystem work
+        requeue_processing does once it holds it (metadata read, fsync,
+        link/replace, byte re-reads) — a stalled filesystem could still block
+        this call past shutdown_grace with the lock held. That work cannot be
+        interrupted from pure Python without threads or a subprocess, which
+        is more machinery and risk than a rare, already-catastrophic
+        stalled-disk scenario justifies. Instead: write the marker BEFORE
+        attempting the call, once the deadline has passed, so recovery
+        intent is durable on disk even if this call itself hangs
+        indefinitely and the process is later SIGKILLed mid-syscall. A
+        successful requeue then removes the now-unnecessary marker; a
+        failure leaves it for recovery, same as before.
+        """
+        remaining = deadline - time.monotonic()
+        past_deadline = remaining <= 0
+        lock_budget = max(0.0, remaining)
+        if past_deadline:
             try:
-                if q.requeue_processing(
-                    stem,
-                    reason=q.SHUTDOWN_REQUEUE_REASON,
-                    root=q.QUEUE_ROOT,
-                    claim_token=token,
-                    lock_timeout=lock_budget,
-                ):
-                    logger.warning("requeued running job %s on shutdown", stem)
-                    requeued.append(stem)
-            except Exception:  # nosec B112 - best-effort shutdown drain; log and continue to remaining jobs
-                # A _TransitionLockTimeout means a live job still holds the lock
-                # (inside finish()/retry()) past the grace period — expected
-                # and acceptable here; launchd will re-run the job on next start.
-                # Any other I/O failure is also non-fatal: drain the rest.
-                #
-                # Write a zero-byte sentinel beside the processing/ record so
-                # recover_shutdown_timeout_markers() can force-requeue it on the
-                # next startup, regardless of job_timeout.  This write needs no
-                # lock: the marker sits beside the record, never inside it, so
-                # it cannot race whoever holds the transition lock right now.
-                #
-                # The token this runner observed for the stem is encoded into
-                # the marker so recovery revalidates ownership atomically
-                # (the same check every other requeue_processing call makes)
-                # instead of requeueing by stem alone -- without it, a worker
-                # whose own reaper reclaims this stem with a new token before
-                # the next startup would have its live claim stolen by an
-                # unauthenticated recovery pass.
+                _write_shutdown_timeout_marker(stem, token, q.QUEUE_ROOT)
+            except Exception:  # nosec B110 - marker write failed; retried on failure path below if the call itself also fails
                 logger.exception(
-                    "could not requeue job %s on shutdown (skipped); "
-                    "writing shutdown-timeout marker for recovery on next start",
+                    "could not write shutdown-timeout marker for job %s "
+                    "before the requeue attempt; job may remain stranded "
+                    "if this call now hangs",
                     stem,
                 )
+        try:
+            requeue_result = q.requeue_processing(
+                stem,
+                reason=q.SHUTDOWN_REQUEUE_REASON,
+                root=q.QUEUE_ROOT,
+                claim_token=token,
+                lock_timeout=lock_budget,
+            )
+            if past_deadline:
+                # The call returned without raising -- whether it
+                # requeued the job (truthy) or found nothing left to do
+                # (None: already gone, already pending, or ownership
+                # refused) -- so the marker written above is no longer
+                # needed. Leaving it would make recover_shutdown_timeout_
+                # markers() attempt a spurious requeue of a processing/
+                # record that is already gone (or, worse, a live claim
+                # someone else now legitimately owns) at next startup.
                 try:
-                    _write_shutdown_timeout_marker(stem, token, q.QUEUE_ROOT)
-                except Exception:  # nosec B110 - marker write failed; job may stay stranded; already logged above
+                    _remove_shutdown_timeout_marker(stem, token, q.QUEUE_ROOT)
+                except Exception:  # nosec B110 - best-effort cleanup; a leftover marker is a harmless no-op at next startup (the record is already gone)
                     logger.exception(
-                        "could not write shutdown-timeout marker for job %s; "
-                        "job may remain stranded in processing/ without manual recovery",
+                        "could not remove shutdown-timeout marker for "
+                        "job %s after the requeue call returned normally",
                         stem,
                     )
-        return requeued
+            if requeue_result:
+                logger.warning("requeued running job %s on shutdown", stem)
+                return True
+            return False
+        except Exception:  # nosec B112 - best-effort shutdown drain; log and continue to remaining jobs
+            # A _TransitionLockTimeout means a live job still holds the lock
+            # (inside finish()/retry()) past the grace period — expected
+            # and acceptable here; launchd will re-run the job on next start.
+            # Any other I/O failure is also non-fatal: drain the rest.
+            #
+            # The marker (if this stem was past the deadline) was already
+            # written above, before this call; nothing further to do here
+            # for that case. If the call failed for a reason unrelated to
+            # a stalled filesystem (and the marker was not yet written
+            # because the deadline had not actually passed -- lock_budget
+            # can be a small positive number that still elapses during a
+            # slow but not stalled write), write it now as a fallback.
+            #
+            # The token this runner observed for the stem is encoded into
+            # the marker so recovery revalidates ownership atomically
+            # (the same check every other requeue_processing call makes)
+            # instead of requeueing by stem alone -- without it, a worker
+            # whose own reaper reclaims this stem with a new token before
+            # the next startup would have its live claim stolen by an
+            # unauthenticated recovery pass.
+            logger.exception(
+                "could not requeue job %s on shutdown (skipped); "
+                "writing shutdown-timeout marker for recovery on next start",
+                stem,
+            )
+            try:
+                _write_shutdown_timeout_marker(stem, token, q.QUEUE_ROOT)
+            except Exception:  # nosec B110 - marker write failed; job may stay stranded; already logged above
+                logger.exception(
+                    "could not write shutdown-timeout marker for job %s; "
+                    "job may remain stranded in processing/ without manual recovery",
+                    stem,
+                )
+            return False
 
     def run_daemon(self) -> int:
         """Run continuous daemon loop until stopped, then drain.
