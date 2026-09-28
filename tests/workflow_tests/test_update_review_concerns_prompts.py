@@ -178,18 +178,24 @@ class TestRenderedPrompts(unittest.TestCase):
         self.assertEqual(named, {"concerns/README.md"})
         self.assertIn("concerns/*.md", text)
 
-    def test_update_guides_writes_to_covers_every_guide(self) -> None:
-        _, manifest = _compile(mode="topics")
-        declared = set(manifest.resolved_stages["update-guides"].spec.writes_to)
-        guides = {f"concerns/{p.name}" for p in (_ROOT / "concerns").glob("*.md")}
-        self.assertTrue(guides)
-        # concerns/collateral-damage.md is a conditional output: it is created
-        # only by a rereview run and may not exist in the working tree.  It is
-        # declared in writes_to so the contract covers it when it appears, but
-        # we exclude it here so this test does not fail on a tree where the
-        # file was not yet created.
-        conditional = {"concerns/collateral-damage.md"}
-        self.assertEqual(guides - declared - conditional, set())
+    def test_writes_to_names_only_workspace_paths(self) -> None:
+        """The engine resolves every writes_to entry under the workspace, so a
+        repo path such as concerns/x.md becomes {workspace}/outputs/concerns/x.md
+        in the prompt: a file nothing writes, which completion then waits on."""
+        for mode in ("topics", "rereview"):
+            _, manifest = _compile(mode=mode)
+            for name, stage in manifest.resolved_stages.items():
+                for path in stage.spec.writes_to:
+                    with self.subTest(mode=mode, stage=name, path=path):
+                        self.assertTrue("/" not in path or path.startswith(("outputs/", "validation/", "stages/")))
+                        self.assertFalse(path.startswith("concerns/"))
+            self.assertEqual(manifest.resolved_stages["update-guides"].spec.writes_to,
+                             ("outputs/update-summary.md",))
+
+    def test_human_gate_writes_selection_on_none(self) -> None:
+        text = self.prompts["human-gate"]
+        self.assertIn("'none'        — reject all; approved-concern-ids.json is []", text)
+        self.assertNotIn("exit without changes", text)
 
     def test_update_guides_counts_readme_row_after_appending(self) -> None:
         text = self.prompts["update-guides"]
@@ -629,6 +635,22 @@ class TestPromotionRule(unittest.TestCase):
                     self.assertIn("enforcement-gaps.json", flat[at:at + 250])
             with self.subTest(mode=mode, check="single-PR rereview"):
                 self.assertIn("Write [] when there are none, which is always the case when pr_number is set", flat)
+
+    def test_every_stage_early_exit_writes_every_declared_output(self) -> None:
+        """Beyond cluster-gaps: any paragraph that exits 0 early must still
+        write each of its stage's writes_to files, or completion never passes."""
+        seen = 0
+        for mode in ("topics", "rereview"):
+            _, manifest = _compile(mode=mode)
+            for name, stage in manifest.resolved_stages.items():
+                for para in stage.spec.description.split("\n\n"):
+                    if not re.search(r"\bexit 0\b", para, re.IGNORECASE):
+                        continue
+                    seen += 1
+                    for path in stage.spec.writes_to:
+                        with self.subTest(mode=mode, stage=name, path=path):
+                            self.assertIn(Path(path).name, para)
+        self.assertGreaterEqual(seen, 3)  # fetch-review-threads, propose-concerns, update-guides
 
     def test_propose_concerns_forwards_enforcement_gaps_and_never_proposes_them(self) -> None:
         flat = " ".join(self.prompts["propose-concerns"].split())

@@ -213,7 +213,11 @@ stages:
           Filter to PRs merged within the last {window_days} days.
           Write the filtered PR list (number, title, mergedAt) to
           {workspace}/outputs/merged-prs.json.
-          If no PRs found, write [] and exit 0.
+          If no PRs found, write [] to merged-prs.json AND
+          {"comments": [], "total": 0, "finding_count": 0,
+          "author_reply_count": 0} to
+          {workspace}/outputs/review-comments.json, then exit 0. Both
+          declared outputs must exist on this branch too.
         Step 2 — for each merged PR (up to {max_prs} most recent), fetch all
         three sources with the same github CLI calls shown in MODE A
         (substituting the PR number). Wrap each PR's fetch so a single failed
@@ -923,7 +927,11 @@ stages:
       Step 1 — load inputs:
         Read {workspace}/outputs/gap-clusters.json.
         If the array is empty, write an empty array to
-        {workspace}/outputs/proposed-concerns.json and exit 0.
+        {workspace}/outputs/proposed-concerns.json AND the single line
+        "No clusters promoted" to
+        {workspace}/outputs/proposed-concerns-summary.md, then exit 0. Both
+        declared outputs must exist on this branch too; the human gate
+        displays the summary.
 
         Read the target guide file for each cluster (the guide_file field from
         gap-clusters.json), e.g. concerns/correctness.md.
@@ -1080,13 +1088,14 @@ stages:
          Options:
            - 'all'         — accept all proposed entries
            - '1,3,5'       — accept by number (1-indexed list order)
-           - 'none'        — reject all; exit without changes
+           - 'none'        — reject all; approved-concern-ids.json is []
            - Edit any entry before accepting by pasting the revised text
 
          Which entries should be written to the guides?"
 
       Write the user's selection to {workspace}/outputs/approved-concern-ids.json
-      as a JSON array of concern_ids that were approved.
+      as a JSON array of concern_ids that were approved. Write it on every
+      answer, 'none' included ([]), and when there was nothing to review.
       If the user approves edits to an entry, update the formatted_entry in
       {workspace}/outputs/proposed-concerns.json before passing downstream.
     agent:
@@ -1113,8 +1122,10 @@ stages:
       Step 1 — load inputs:
         Read {workspace}/outputs/approved-concern-ids.json.
         Read {workspace}/outputs/proposed-concerns.json.
-        If approved list is empty, print "No concerns approved — guides unchanged."
-        and exit 0.
+        If approved list is empty, write "No concerns approved — guides
+        unchanged." to {workspace}/outputs/update-summary.md, print the same
+        line, and exit 0. update-summary.md is this stage's only declared
+        output and must exist on every branch.
 
       Step 2 — for each approved concern:
         Filter proposed-concerns.json to entries whose concern_id appears in
@@ -1134,6 +1145,8 @@ stages:
         guide file: an unknown guide_file is skipped and reported.
 
       Step 3 — append to guide files:
+        The guides are repository files, relative to the repository root
+        (your working directory), never copies under {workspace}.
         For each guide_file group:
           Read the appropriate concerns/<guide>.md file.
           Verify the concern_id does NOT already appear in the file
@@ -1163,20 +1176,14 @@ stages:
       tools: [Read, Write, Bash]
       access: read-write
     required: true
+    # Only the summary is declared. The guide edits land in the REPOSITORY
+    # (concerns/*.md, concerns/README.md), but the engine resolves every
+    # writes_to entry under the workspace: `concerns/x.md` becomes
+    # {workspace}/outputs/concerns/x.md in the agent prompt and in a skip
+    # sentinel, and the completion check looks for {workspace}/concerns/x.md.
+    # Nothing writes either path, so listing the guides pointed the agent at
+    # workspace copies and left completion waiting on files that never
+    # appear. Each guide is also edited only when an approved proposal
+    # targets it, and collateral-damage.md may not exist at all.
     writes_to:
       - outputs/update-summary.md
-      - concerns/workflow.md
-      - concerns/workflow-stages.md
-      - concerns/workflow-fanout.md
-      - concerns/workflow-fragments.md
-      - concerns/correctness.md
-      - concerns/tests.md
-      - concerns/patterns.md
-      - concerns/security.md
-      - concerns/reuse.md
-      - concerns/complexity.md
-      - concerns/phone-layout.md
-      - concerns/docs.md
-      - concerns/resume-copy.md
-      - concerns/slides-yaml.md
-      - concerns/README.md
