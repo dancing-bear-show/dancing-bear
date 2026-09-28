@@ -242,7 +242,7 @@ flowchart LR
 stage with `human_gate: true` into its own group, so the orchestrator can pause
 after it. Stage descriptions invoking a repo CLI compile to a shell command. The
 compiler inserts a `--` separator before flags for most CLIs, exempting `llm`
-and `docs` via `_NO_SEPARATOR_CLIS` (`src/workflow/compiler.py:37`).
+and `docs` via `_NO_SEPARATOR_CLIS` (`src/workflow/compiler.py:50`).
 
 Each stage writes its `writes_to` files under `outputs/` in the run workspace,
 plus a per-stage result JSON under `stages/`.
@@ -284,21 +284,34 @@ not fit as criteria, use `kind: execute`.
 
 ### 2. Brace handling in stage descriptions
 
-Stage `description` fields undergo trigger-param substitution at compile time.
-Braces are never unescaped: `{{` and `}}` render verbatim to the agent.
-Write JSON examples and code snippets with single braces (`{` and `}`).
+**Placeholder grammar** (`src/workflow/placeholders.py`): a placeholder is
+`{ident}` where `ident` is `[A-Za-z_]\w*` (ASCII; uppercase allowed). Tokens
+that don't match — regex quantifiers like `{2,40}`, bare `{}` — are never
+placeholders. A closing `}` that belongs to surrounding JSON, e.g.
+`{"v": {name}}`, does not prevent `{name}` from matching.
 
 `{name}` matching a trigger param is substituted with the param's value.
-Unknown `{name}` placeholders are left as-is.
+Unknown `{name}` references are left as-is. `{{name}}` and `${name}` are not
+placeholders and are left verbatim; `{{` renders as literal doubled braces in
+the agent prompt — it is **not** an escape sequence for `{`. There is no way to
+render a literal `{name}` when `name` is a declared trigger param: backtick
+wrapping does not stop substitution (only the lint check skips backticks),
+and `{{name}}` renders `{{name}}` rather than `{name}`.
 
-Validation criteria undergo the same param substitution. When a criterion
-references exactly one trigger param whose value is `|`-separated, the
-criterion is split into one entry per `|`-delimited item (whitespace
-stripped, empty items dropped), substituted into the criterion's own prefix
-and suffix. When a criterion references two or more such params, expansion
-is skipped to avoid a combinatorial cross-product: each param's raw
-`|`-including value is substituted in and the criterion stays a single
-entry.
+**Lint checks** (`src/workflow/linter.py`):
+- *Undeclared-variable* (warning without `--strict`, error with `--strict`):
+  fires when a `{ref}` in a description is not in `trigger.params` or the
+  runtime builtins (`workspace`). Skips `{ref}` inside a backtick code span.
+- *Escape-brace* (warning): fires when a stage description contains `{{` that
+  is not `${{` (GitHub Actions), `{{.` (Go template), or inside a backtick span.
+  Use single braces for JSON examples and code snippets.
+
+**Criteria** undergo the same param substitution. When a criterion references
+exactly one trigger param whose value is `|`-separated, the criterion is split
+into one entry per `|`-delimited item (whitespace stripped, empty items
+dropped), substituted into the criterion's own prefix and suffix. When a
+criterion references two or more such params, expansion is skipped and each
+raw `|`-including value is substituted in, leaving a single criterion.
 
 ### 3. `writes_to` gets no `{param}` substitution
 
