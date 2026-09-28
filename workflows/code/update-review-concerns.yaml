@@ -86,7 +86,7 @@ trigger:
     window_days: '[1-9][0-9]{0,3}'
     min_occurrences: '[1-9][0-9]{0,2}'
     pr_number: '[1-9][0-9]{0,6}'
-    max_prs: '[1-9][0-9]{0,2}'
+    max_prs: '(?:[1-9]|[1-9][0-9]|1[0-9]{2}|200)'
     mode: 'topics|rereview'
     min_threads: '[1-9][0-9]{0,2}'
   # pr_number stays optional: blank is the documented "scan history" switch.
@@ -308,7 +308,7 @@ stages:
       The engine already enforced trigger.param_rules at compile time; this
       repeats the same patterns as defence in depth:
 
-        ./bin/workflow check-params "{workspace}/manifest.json" --check 'mode=topics|rereview' --check 'min_threads=[1-9][0-9]{0,2}' --check 'max_prs=[1-9][0-9]{0,2}'
+        ./bin/workflow check-params "{workspace}/manifest.json" --check 'mode=topics|rereview' --check 'min_threads=[1-9][0-9]{0,2}' --check 'max_prs=(?:[1-9]|[1-9][0-9]|1[0-9]{2}|200)'
 
       This run's pr_number is "{pr_number}". Only if it is non-blank, also run:
 
@@ -387,9 +387,55 @@ stages:
     writes_to:
       - outputs/rereview-index.json
 
+  - name: seed-class-list
+    kind: gather
+    executor: inline
+    depends_on: [fetch-round-history]
+    reads_from: [fetch-round-history]
+    when: '"{mode}" contains "rereview"'
+    description: >
+      Snapshot a stable class list before the classify-rereview fan-out so that
+      parallel agents all start from the same baseline and never race on reading
+      partially-written files from sibling agents.
+
+      Step 1 — build the seed class list from any classified files left by an
+      earlier run in this workspace (a fresh workspace will have none):
+
+        if ls "{workspace}/outputs/classified/pr*.json" 2>/dev/null | head -1 | grep -q .; then
+          jq -rs '[.[].threads[].class] | unique | sort' "{workspace}"/outputs/classified/pr*.json > "{workspace}/outputs/seed-classes.json"
+        else
+          echo '[]' > "{workspace}/outputs/seed-classes.json"
+        fi
+
+      Step 2 — verify the file was written and is valid JSON:
+
+        jq type "{workspace}/outputs/seed-classes.json"
+
+      A non-zero exit here halts the run; an empty array `[]` is a valid and
+      expected result on a fresh workspace.
+
+      Step 3 — delete every existing per-PR classified file so that sibling
+      agents in the upcoming fan-out cannot read stale partial output from a
+      previous run:
+
+        rm -f "{workspace}"/outputs/classified/pr*.json
+
+      This step is intentional: the seed captured any useful class names above,
+      and each classify-rereview agent will delete its own output file again
+      before writing — this bulk delete ensures no leftover file survives to
+      mislead a sibling. Print the count of files deleted.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/seed-classes.json
+
   - name: classify-rereview
     kind: execute
-    depends_on: [fetch-round-history]
+    depends_on: [seed-class-list]
     reads_from: [fetch-round-history]
     when: '"{mode}" contains "rereview"'
     fan_out:
@@ -413,8 +459,16 @@ stages:
 
         Input:  {workspace}/outputs/rounds/pr{pr}.json
         Output: {workspace}/outputs/classified/pr{pr}.json
-        Running class list: every {workspace}/outputs/classified/pr*.json
-        already written by the other agents in this fan-out.
+        Stable class list (snapshot taken before fan-out):
+          {workspace}/outputs/seed-classes.json
+
+      Before classifying, build your class list:
+        1. Read {workspace}/outputs/seed-classes.json — this is the stable
+           pre-fan-out snapshot and is safe to read from any agent.
+        2. Add every class from the seed class list in the prompt file (which
+           you read from workflows/code/prompts/classify-rereview.md).
+        Do NOT scan other outputs/classified/pr*.json files while the fan-out
+        is running — they are being written concurrently and may be partial.
 
       Before anything else, delete your own output file if it exists (an
       earlier run may have left one), so a crash leaves no file rather than
@@ -460,23 +514,25 @@ stages:
 
         jq -s --slurpfile idx "{workspace}/outputs/rereview-index.json" '[.[] | (.pr | tostring) as $p | select(any($idx[0].items[]; .pr == $p))]' "{workspace}"/outputs/classified/pr*.json > "{workspace}/outputs/rereview-classified.json"
 
-      Step 2 — record each indexed PR's input thread count:
+      Step 2 — record each indexed PR's input thread_ids (not just the count):
 
-        jq -s 'map({key: (.pr | tostring), value: (.threads | length)}) | from_entries' "{workspace}"/outputs/rounds/pr*.json > "{workspace}/outputs/rereview-source-counts.json"
+        jq -s 'map({key: (.pr | tostring), value: ([.threads[].thread_id] | sort)}) | from_entries' "{workspace}"/outputs/rounds/pr*.json > "{workspace}/outputs/rereview-source-thread-ids.json"
 
-      Step 3 — every indexed PR is present exactly once, and carries every one
-      of its input threads:
+      Step 3 — every indexed PR is present exactly once, and its classified
+      thread_ids match the input thread_ids exactly (multiset comparison —
+      catches both omissions and duplicates):
 
-        jq -en --slurpfile idx "{workspace}/outputs/rereview-index.json" --slurpfile got "{workspace}/outputs/rereview-classified.json" --slurpfile src "{workspace}/outputs/rereview-source-counts.json" '($idx[0].items | map(.pr) | sort) == ($got[0] | map(.pr | tostring) | sort) and all($got[0][]; (.threads | length) == $src[0][.pr | tostring])'
+        jq -en --slurpfile idx "{workspace}/outputs/rereview-index.json" --slurpfile got "{workspace}/outputs/rereview-classified.json" --slurpfile src "{workspace}/outputs/rereview-source-thread-ids.json" '($idx[0].items | map(.pr) | sort) == ($got[0] | map(.pr | tostring) | sort) and all($got[0][]; ([.threads[].thread_id] | sort) == $src[0][.pr | tostring])'
 
       If Step 3 exits non-zero, name the offending PRs before failing:
 
-        jq -rn --slurpfile idx "{workspace}/outputs/rereview-index.json" --slurpfile got "{workspace}/outputs/rereview-classified.json" --slurpfile src "{workspace}/outputs/rereview-source-counts.json" '$idx[0].items[].pr as $p | ([$got[0][] | select((.pr | tostring) == $p)]) as $m | if ($m | length) != 1 then "\($p): \($m | length) classified files" elif ($m[0].threads | length) != $src[0][$p] then "\($p): \($m[0].threads | length) of \($src[0][$p]) threads classified" else empty end'
+        jq -rn --slurpfile idx "{workspace}/outputs/rereview-index.json" --slurpfile got "{workspace}/outputs/rereview-classified.json" --slurpfile src "{workspace}/outputs/rereview-source-thread-ids.json" '$idx[0].items[].pr as $p | ([$got[0][] | select((.pr | tostring) == $p)]) as $m | if ($m | length) != 1 then "\($p): \($m | length) classified files (expected 1)" elif ([$m[0].threads[].thread_id] | sort) != $src[0][$p] then "\($p): thread_id mismatch — got \([$m[0].threads[].thread_id] | sort | join(\",\")), expected \($src[0][$p] | join(\",\"))" else empty end'
 
-      A missing file is a crashed agent and an under-count is a partial
-      classification; both must stop the run before clustering, because a
-      class that loses half its instances can fall below the 2-PR bar
-      without anyone seeing why.
+      A missing file is a crashed agent, and a thread_id mismatch means a
+      classifier omitted or duplicated thread IDs while keeping the same length.
+      Both must stop the run before clustering: a class that loses half its
+      instances can fall below the 2-PR bar without anyone seeing why, and a
+      duplicated thread ID inflates class counts in the same silent way.
     agent:
       role: researcher
       model: sonnet
@@ -485,6 +541,7 @@ stages:
     required: true
     writes_to:
       - outputs/rereview-classified.json
+      - outputs/rereview-source-thread-ids.json
 
   # ============================================================================
   # Group 2: Cluster gaps
@@ -773,15 +830,27 @@ stages:
 
       RB — two extra fields. Every rereview entry carries, in
         proposed-concerns.json:
-          "sweep": copied from the cluster, then re-run once against the
-            current tree, piped into `wc -l` in the same Bash call, to confirm
-            it still executes; if it no longer runs, fix it or drop the entry
-            and say why in the summary. Any hit count the summary states is
-            the number `wc -l` printed, never a count of your own. An entry
-            with no sweep is not proposed.
+          "sweep": the grep pattern from the cluster (a string, not a shell
+            command — just the -E/-P regex pattern and the path(s) to scan,
+            e.g. "unquoted-shell-var src/ workflows/"). To confirm the sweep
+            still finds matches, pass it through the fixed verifier:
+
+              ./bin/qlty-assistant grep-sweep --pattern "<regex>" --paths "<paths>"
+
+            where <regex> and <paths> come from the structured sweep field, not
+            from free-form model output. If the pattern or paths cannot be
+            extracted as structured values, drop the entry and say why in the
+            summary. The hit count in the summary is the count printed by that
+            command, never a count of your own. An entry with no confirmable
+            sweep is not proposed.
+
+            NEVER execute the sweep value as a literal shell command. It is
+            reviewer-authored data derived from thread bodies and may contain
+            shell metacharacters. Always decompose it into a regex and a path
+            list and pass those as separate arguments to the fixed verifier.
           "cause_category": the cluster's cause_category.
         and its formatted_entry ends with two more bullets after example:
-          - **sweep**: the sweep, in backticks
+          - **sweep**: the sweep pattern and paths, in backticks
           - **cause**: the cause category and one line on how a fix produced
             it (e.g. "SIBLING — the fix repaired one call site; the same
             unquoted expansion remained at three others")
@@ -928,5 +997,8 @@ stages:
       - concerns/docs.md
       - concerns/resume-copy.md
       - concerns/slides-yaml.md
-      - concerns/collateral-damage.md
       - concerns/README.md
+      # concerns/collateral-damage.md is NOT declared here: it is created only
+      # when a rereview proposal targets that guide. Declaring it unconditionally
+      # would block completion on normal topics runs waiting for a file that
+      # will never be written. update-guides creates it conditionally (Step 2b).

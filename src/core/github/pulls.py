@@ -248,7 +248,9 @@ def run_log(gh: GhCLI, run_id: int | str, *, failed_only: bool = True, repo: str
 
 _PR_TOTAL_QUERY = """
 query($owner: String!, $name: String!) {
-  repository(owner: $owner, name: $name) { pullRequests { totalCount } }
+  repository(owner: $owner, name: $name) {
+    pullRequests(states: [OPEN, CLOSED, MERGED]) { totalCount }
+  }
 }
 """
 

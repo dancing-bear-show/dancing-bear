@@ -236,6 +236,39 @@ class TestPrReviewComment(unittest.TestCase):
             self.assertEqual(fake.calls, [])
 
 
+class TestPrTotalCount(unittest.TestCase):
+    def _graphql_response(self, total: int):
+        """Wrap a totalCount in the structure graphql_checked returns."""
+        return {"repository": {"pullRequests": {"totalCount": total}}}
+
+    def _gh_returning(self, total: int):
+        def handler(call: GhCall):
+            return ok({"data": self._graphql_response(total)})
+        return FakeGh(handler)
+
+    def test_returns_total_count(self):
+        fake = self._gh_returning(42)
+        gh = GhCLI(run_func=fake)
+        self.assertEqual(pulls.pr_total_count(gh, "o", "r"), 42)
+
+    def test_query_includes_all_states(self):
+        fake = self._gh_returning(10)
+        gh = GhCLI(run_func=fake)
+        pulls.pr_total_count(gh, "o", "r")
+        graphql_call = fake.calls[0]
+        self.assertIn("OPEN", graphql_call.query)
+        self.assertIn("CLOSED", graphql_call.query)
+        self.assertIn("MERGED", graphql_call.query)
+
+    def test_missing_total_count_raises(self):
+        def handler(call: GhCall):
+            return ok({"data": {"repository": {}}})
+        fake = FakeGh(handler)
+        gh = GhCLI(run_func=fake)
+        with self.assertRaisesRegex(GhError, "totalCount"):
+            pulls.pr_total_count(gh, "o", "r")
+
+
 class TestRunLog(unittest.TestCase):
     def test_failed_only_by_default_and_full_log_on_request(self):
         gh, fake = _gh(lambda c: ok("log"))
