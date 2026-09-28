@@ -669,31 +669,43 @@ stages:
             rereview is diagnostic, and every cluster is rejected here.
           - `covered` — an existing concern id already describes the class
             (name that id in the reason).
-          - `no-sweep` — you cannot write a concrete sweep. A sweep is either
-            an extended-grep command with explicit paths or globs (e.g.
-            grep -rnE 'check-params[^|]*--check' workflows/) or a precise
-            structural check a reviewer can run mechanically (e.g. "every
-            stage with isolation: worktree whose description mentions the
-            workspace variable"). "Review the docs for accuracy" is not a
-            sweep.
-          - `sweep-too-broad` — the grep matches more than 200 lines in the
-            current tree and cannot be narrowed without losing instances.
-        Verify each sweep's hit count using the fixed verifier — never
-        construct a shell command from the sweep string, which is
-        reviewer-authored data and may contain metacharacters:
+          - `no-sweep` — you cannot write a concrete sweep. A sweep is
+            DATA, never a command, in exactly one of two shapes:
+              {"pattern": "<regex>", "paths": ["workflows/", "src/"]}
+            — a Python regular expression, plus one or more repo-relative
+            paths (e.g. pattern `check-params[^|]*--check`, paths
+            ["workflows/"]); or
+              {"structural": "<one-sentence mechanical check>"}
+            (e.g. "every stage with isolation: worktree whose description
+            mentions the workspace variable"). "Review the docs for
+            accuracy" is not a sweep.
+          - `sweep-too-broad` — the pattern matches more than 200 lines in
+            the current tree and cannot be narrowed without losing
+            instances.
+        The pattern is derived from reviewer-authored thread text, so it
+        is never run by grep or any other shell tool, and never written to
+        a file for one. Count each pattern sweep's hits with this one
+        command, which compiles the pattern with Python `re` and reads the
+        files itself (no subprocess, no temp file):
 
-          1. Extract the regex pattern and paths from the sweep field as
-             structured values (e.g. by splitting on the first run of
-             whitespace that precedes a path token).
-          2. Write a spec file using Python with no shell interpolation:
-               python3 -I -S -c "import json,sys; json.dump({'pattern': sys.argv[1], 'paths': sys.argv[2:]}, open('/tmp/sweep-spec.json','w'))" "<regex>" <path1> ...
-             where <regex> and <path1> ... are literal structured values, never the raw sweep string.
-          3. Invoke: `./bin/qlty-assistant grep-sweep --spec /tmp/sweep-spec.json`
-             The command prints the match count and exits 0.
-          If the pattern or paths cannot be extracted as structured values,
-          record sweep_hits as null and reject the cluster with `no-sweep`.
-        A sweep with zero hits today is acceptable — the instances may already
-        be fixed — but record it.
+          ./bin/workflow count-sweep --pattern='<pattern>' --path <path> [--path <path> ...]
+
+        It prints {"hits": N, "files": M}; record N as sweep_hits and never
+        count matches by eye. Exit 2 means the pattern or a path is invalid
+        or refused: fix the sweep or reject the cluster as `no-sweep`. Exit
+        1 means the scan hit its work bound and the count is partial:
+        reject it as `sweep-too-broad`. A sweep with zero hits today is
+        acceptable — the instances may already be fixed — but record it.
+        The pattern goes inside single quotes, as one `--pattern=`
+        argument, which the shell never expands. So a pattern containing a
+        single quote or a newline is REFUSED, not escaped: rewrite it
+        without one (`.` or `\x27` matches a quote) or reject the cluster
+        as `no-sweep`. Each path is its own `--path` argument and must be
+        repo-relative: no leading `/`, `~` or `-`, no `..` segment, only
+        letters, digits, `.`, `_`, `-` and `/`, and nothing under `.git`,
+        `.github`, `.claude` or `.envrc`; never type a path that breaks
+        this. count-sweep enforces the same rules as check-paths, and R7b
+        re-checks the written file.
 
       R6 — choose guide_file for each promoted cluster:
           - COLLATERAL_DOC, FIX_REGRESSION, SIBLING, INCOMPLETE_FIX →
@@ -718,10 +730,17 @@ stages:
             "class": "unquoted-shell-var",
             "cause_category": "SIBLING",
             "thread_count": N,
-            "sweep": "grep -rnE '...' workflows/ src/",
-            "sweep_hits": N
+            "sweep": {"pattern": "...", "paths": ["workflows/", "src/"]},
+            "sweep_hits": N                  # null for a structural sweep
           }
         Write [] if nothing is promoted.
+
+      R7b — prove every sweep is data of the right shape with safe paths.
+        This fixed command reads the file itself, so no model-written text
+        is typed into the shell. It prints one line per bad sweep and ends
+        with true or false; a false exits non-zero and fails the stage:
+
+          jq -er '[.[] | select(((.sweep | type == "object") and (if (.sweep | has("structural")) then (.sweep | keys == ["structural"] and (.structural | type == "string" and length > 0)) else (.sweep | keys == ["paths", "pattern"] and (.pattern | type == "string" and length > 0 and (test("[\u0027\n\r]") | not)) and (.paths | type == "array" and length > 0 and all(.[]; type == "string" and test("^[A-Za-z0-9_][A-Za-z0-9._/-]*$") and (split("/") | all(. != ".." and . != ".")) and (ascii_downcase | split("/") | (.[0] != ".github" and .[0] != ".claude" and all(. != ".git" and . != ".envrc")))))) end)) | not) | "\(.class // "?"): \(.sweep | tojson)"] | (.[]), (length == 0)' "{workspace}/outputs/gap-clusters.json"
 
       R8 — write {workspace}/outputs/cluster-summary.md with, in order:
           - "## Totals": PRs, threads, the count per category, and the
@@ -743,6 +762,8 @@ stages:
     agent:
       role: reviewer
       model: sonnet
+      # Bash runs only the fixed jq and count-sweep commands written in this
+      # description; no sweep pattern is ever run by a shell tool.
       tools: [Read, Write, Bash]
       access: read-write
     required: true
@@ -841,36 +862,35 @@ stages:
 
       RB — two extra fields. Every rereview entry carries, in
         proposed-concerns.json:
-          "sweep": the grep pattern from the cluster (a string, not a shell
-            command — just the -E/-P regex pattern and the path(s) to scan,
-            e.g. "unquoted-shell-var src/ workflows/"). To confirm the sweep
-            still finds matches, pass it through the fixed verifier via a
-            spec file — never interpolate reviewer-derived values into a shell
-            command, even inside double quotes (double quotes do not prevent
-            command substitution or backtick expansion):
-
-              1. Extract the regex and paths from the structured sweep field
-                 as separate values (not from free-form model output).
-              2. Write a spec file using Python with no shell interpolation:
-                   python3 -I -S -c "import json,sys; json.dump({'pattern': sys.argv[1], 'paths': sys.argv[2:]}, open('/tmp/sweep-spec.json','w'))" "<regex>" <path1> <path2> ...
-                 where <regex>, <path1>, <path2> are literal structured values,
-                 never the raw sweep string.
-              3. Invoke the verifier: `./bin/qlty-assistant grep-sweep --spec /tmp/sweep-spec.json`
-                 The command prints the match count to stdout and exits 0.
-
-            If the pattern or paths cannot be extracted as structured values,
-            drop the entry and say why in the summary. The hit count in the
-            summary is the count printed by the verifier, never a count of
-            your own. An entry with no confirmable sweep is not proposed.
+          "sweep": copied from the cluster unchanged in shape — a
+            {"pattern", "paths"} or {"structural"} object, never a command.
+            Re-count a pattern sweep once with the same
+            `./bin/workflow count-sweep --pattern='<pattern>' --path <path>`
+            command cluster-gaps R5 uses, under the same rules: the
+            pattern is one single-quoted `--pattern=` argument, a pattern
+            containing a single quote or a newline is REFUSED rather than
+            escaped, and each path is its own `--path` argument that passes
+            the R5 path rules. Never run the pattern through grep or write
+            it to a file. Exit 2 or 1 means the sweep is refused or its
+            count is partial: fix the pattern or drop the entry and say why
+            in the summary. Any hit count the summary states is the "hits"
+            value count-sweep printed, never a count of your own. An entry
+            with no sweep is not proposed.
           "cause_category": the cluster's cause_category.
         and its formatted_entry ends with two more bullets after example:
-          - **sweep**: the sweep pattern and paths, in backticks
+          - **sweep**: for a pattern sweep, the pattern in backticks
+            followed by "in" and the paths in backticks; for a structural
+            sweep, its sentence
           - **cause**: the cause category and one line on how a fix produced
             it (e.g. "SIBLING — the fix repaired one call site; the same
             unquoted expansion remained at three others")
         The check and triggers must describe the defect shape itself, so the
         concern catches the first instance in round 0 and not only the
         siblings a fix leaves behind.
+        After writing proposed-concerns.json, run the same fixed shape gate
+        cluster-gaps R7b runs, over this file; a false fails the stage:
+
+          jq -er '[.[] | select(((.sweep | type == "object") and (if (.sweep | has("structural")) then (.sweep | keys == ["structural"] and (.structural | type == "string" and length > 0)) else (.sweep | keys == ["paths", "pattern"] and (.pattern | type == "string" and length > 0 and (test("[\u0027\n\r]") | not)) and (.paths | type == "array" and length > 0 and all(.[]; type == "string" and test("^[A-Za-z0-9_][A-Za-z0-9._/-]*$") and (split("/") | all(. != ".." and . != ".")) and (ascii_downcase | split("/") | (.[0] != ".github" and .[0] != ".claude" and all(. != ".git" and . != ".envrc")))))) end)) | not) | "\(.concern_id // "?"): \(.sweep | tojson)"] | (.[]), (length == 0)' "{workspace}/outputs/proposed-concerns.json"
 
       RC — the rejected list reaches the human gate. Copy the
         "## Rejected clusters" section of
@@ -884,7 +904,9 @@ stages:
     agent:
       role: doc-writer
       model: sonnet
-      tools: [Read, Write, Bash]  # Bash: rereview RB re-runs each sweep
+      # Bash: rereview RB re-counts each sweep with count-sweep and runs the
+      # fixed jq shape gate; no sweep pattern is ever run by a shell tool.
+      tools: [Read, Write, Bash]
       access: read-write
     required: true
     writes_to:

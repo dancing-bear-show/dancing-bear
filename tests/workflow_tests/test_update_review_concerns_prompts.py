@@ -325,6 +325,97 @@ class TestRenderedJqExecutes(unittest.TestCase):
         self.assertNotEqual(self._run(self.check).returncode, 0)
         self.assertIn("406: thread_id mismatch", self._run(self.explain).stdout)
 
+    def _sweep_gate(self, stage: str, file: str) -> str:
+        prompts = _prompts(str(self.ws), mode="rereview")
+        (line,) = [c for c in _jq_lines(prompts[stage]) if f"outputs/{file}" in c and "structural" in c]
+        return line
+
+    def test_sweep_gate_accepts_data_and_refuses_shell_or_unsafe_paths(self) -> None:
+        gate = self._sweep_gate("cluster-gaps", "gap-clusters.json")
+        good = [
+            {"class": "a", "sweep": {"pattern": "check-params[^|]*--check", "paths": ["workflows/", "src/core"]}},
+            {"class": "b", "sweep": {"structural": "every isolated stage that names the workspace"}},
+        ]
+        self._write("outputs/gap-clusters.json", good)
+        res = self._run(gate)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        bad_sweeps = {
+            "command-string": "grep -rnE 'x' workflows/; id",
+            "dotdot": {"pattern": "x", "paths": ["workflows/../../etc"]},
+            "absolute": {"pattern": "x", "paths": ["/etc"]},
+            "home": {"pattern": "x", "paths": ["~/x"]},
+            "option": {"pattern": "x", "paths": ["-rf"]},
+            "substitution": {"pattern": "x", "paths": ["src/$(id)"]},
+            "github": {"pattern": "x", "paths": [".github/workflows"]},
+            "claude": {"pattern": "x", "paths": [".claude/settings.json"]},
+            "git-segment": {"pattern": "x", "paths": ["src/.GIT/hooks"]},
+            "envrc": {"pattern": "x", "paths": ["src/.envrc"]},
+            "no-paths": {"pattern": "x", "paths": []},
+            "extra-key": {"pattern": "x", "paths": ["src"], "cmd": "id"},
+            "empty-structural": {"structural": ""},
+            "single-quote": {"pattern": "it's", "paths": ["src"]},
+            "newline": {"pattern": "a\nb", "paths": ["src"]},
+        }
+        for label, sweep in bad_sweeps.items():
+            with self.subTest(case=label):
+                self._write("outputs/gap-clusters.json", [*good, {"class": label, "sweep": sweep}])
+                res = self._run(gate)
+                self.assertNotEqual(res.returncode, 0)
+                self.assertIn(f"{label}: ", res.stdout)
+                self.assertNotIn("a: ", res.stdout)
+
+    def test_proposal_gate_is_the_cluster_gate(self) -> None:
+        cluster = self._sweep_gate("cluster-gaps", "gap-clusters.json")
+        proposal = self._sweep_gate("propose-concerns", "proposed-concerns.json")
+        self.assertEqual(proposal, cluster.replace("gap-clusters.json", "proposed-concerns.json")
+                         .replace('(.class // "?")', '(.concern_id // "?")'))
+
+
+_COUNT_SWEEP_CALL = "./bin/workflow count-sweep --pattern='<pattern>' --path <path>"
+
+
+class TestSweepCounting(unittest.TestCase):
+    """Sweeps are counted in-process by count-sweep, never via a spec file and a shell grep."""
+
+    def test_no_stage_prompt_names_the_spec_file_flow(self) -> None:
+        for mode in ("topics", "rereview"):
+            for name, text in _prompts("/ws", mode=mode).items():
+                with self.subTest(mode=mode, stage=name):
+                    for banned in ("sweep-spec", "/tmp/", "grep-sweep"):
+                        self.assertNotIn(banned, text)
+
+    def test_sweeping_stages_call_count_sweep_with_a_single_quoted_pattern(self) -> None:
+        prompts = _prompts("/ws", mode="rereview")
+        for name in ("cluster-gaps", "propose-concerns"):
+            with self.subTest(stage=name):
+                text = prompts[name]
+                self.assertIn(_COUNT_SWEEP_CALL, text)
+                for leaked in ("wc -l", "Grep tool", "grep -rn", "python3 -I -S -c"):
+                    self.assertNotIn(leaked, text)
+                calls = re.findall(r"count-sweep --pattern[^\n`]*", text)
+                self.assertTrue(calls)
+                for call in calls:
+                    self.assertTrue(call.startswith("count-sweep --pattern='<pattern>' --path <path>"), call)
+
+    def test_quote_and_newline_refusal_is_in_the_stage_text(self) -> None:
+        prompts = _prompts("/ws", mode="rereview")
+        for name in ("cluster-gaps", "propose-concerns"):
+            with self.subTest(stage=name):
+                flat = " ".join(prompts[name].split())
+                self.assertIn("a pattern containing a single quote or a newline is REFUSED", flat)
+
+    def test_rendered_call_runs_and_refuses_an_escaping_path(self) -> None:
+        text = _prompts("/ws", mode="rereview")["cluster-gaps"]
+        self.assertIn(_COUNT_SWEEP_CALL, text)
+        argv = [str(_ROOT / "bin/workflow"), "count-sweep", "--pattern=check-params", "--path", "workflows/"]
+        res = subprocess.run(argv, cwd=_ROOT, capture_output=True, text=True, check=False)  # nosec B603 - fixed argv, repo's own wrapper
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertGreater(json.loads(res.stdout)["hits"], 0)
+        argv[-1] = "../x"
+        res = subprocess.run(argv, cwd=_ROOT, capture_output=True, text=True, check=False)  # nosec B603 - fixed argv, repo's own wrapper
+        self.assertEqual((res.returncode, res.stdout), (2, ""))
+        self.assertIn("escapes-repo", res.stderr)
+
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
