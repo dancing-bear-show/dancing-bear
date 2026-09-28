@@ -56,8 +56,6 @@ class RefusedOutput:
     param: str | None = None
 
 
-
-
 def find_refused_outputs(stages: Iterable[StageSpec], params: Mapping[str, str]) -> list[RefusedOutput]:
     """Every agent-stage output the harness would refuse, given *params*.
 
