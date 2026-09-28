@@ -542,6 +542,49 @@ class TestRecoverShutdownTimeoutMarkersParsesJobIdWithEmbeddedSuffix(
         )
         self.assertFalse(proc.exists())
 
+    def test_job_record_itself_is_never_mistaken_for_a_marker(self) -> None:
+        """The plain job record file for a tricky id (e.g.
+        'a.json.shutdown-timeout.b.json' on disk) must never itself be
+        parsed as a marker, regardless of directory iteration order.
+
+        Before the fix, ``recover_shutdown_timeout_markers`` iterated every
+        file in processing/ and treated any whose name contained
+        ``marker_suffix`` as a marker with no check that it was actually one
+        (as opposed to a job record that happens to contain that literal
+        text). For this tricky id, the job record's OWN filename
+        ('a.json.shutdown-timeout.b.json') itself matches via rfind --
+        parsed as bogus job id 'a' with bogus token 'b.json' -- and got
+        processed as if it were a marker for a job that never existed. This
+        this order-dependent bug did not reproduce locally (this test's
+        sibling passed on macOS) but failed on CI's Linux runner, where
+        directory iteration order let the bogus parse run before the real
+        marker's. Testing the fix directly, independent of iteration order:
+        with NO real marker file present at all, a lone job record whose
+        name embeds the marker suffix text must not be requeued or removed.
+        """
+        paths = q._ensure_dirs(self.root)
+        tricky_id = "z.json.shutdown-timeout.q"
+        proc = paths["processing"] / f"{tricky_id}.json"
+        proc.write_text(
+            json.dumps(
+                {"id": tricky_id, "type": "noop", "payload": {}, "status": "processing",
+                 "claim_token": "tok-only-job-record"}
+            ),
+            encoding="utf-8",
+        )
+        # Deliberately no write_shutdown_timeout_marker call: only the job
+        # record itself is on disk, so any requeue at all proves the record
+        # was wrongly treated as a marker.
+
+        recovered = q.recover_shutdown_timeout_markers(root=self.root)
+
+        self.assertEqual(recovered, [], "no marker exists; nothing should be recovered")
+        self.assertTrue(proc.exists(), "the job record must be left untouched in processing/")
+        self.assertFalse(
+            (paths["pending"] / f"{tricky_id}.json").exists(),
+            "the job record must not be requeued just because its name embeds marker_suffix",
+        )
+
 
 # ---------------------------------------------------------------------------
 # Finding 3 — _copy_exclusive rival-in-window race

@@ -496,6 +496,19 @@ def recover_shutdown_timeout_markers(root: Path | None = None) -> list[str]:
     requeued: list[str] = []
     marker_suffix = _JOB_SUFFIX + _SHUTDOWN_TIMEOUT_MARKER_SUFFIX
     for marker in list(paths["processing"].iterdir()):
+        # A plain job record's last dot-extension is exactly _JOB_SUFFIX
+        # (".json"), same convention _list_job_paths uses. A marker's last
+        # dot-extension is always its token segment (or, for an empty token,
+        # the empty string after a trailing dot) -- never bare ".json" --
+        # because write_shutdown_timeout_marker always appends
+        # ".shutdown-timeout.<token>" after the job id's own ".json". Without
+        # this check, a job id that itself contains the literal text
+        # ".json.shutdown-timeout" (adversarial, but not disallowed) makes
+        # the job's OWN record file match marker_suffix via rfind below, so
+        # it gets mis-parsed as a marker and processed ahead of (or instead
+        # of) the real marker for that job.
+        if marker.suffix == _JOB_SUFFIX:
+            continue
         marker_stem = marker.name
         # rfind, not find: a job id is not constrained to exclude the literal
         # text ".json.shutdown-timeout", so the first occurrence is not
