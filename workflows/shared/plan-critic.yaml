@@ -126,7 +126,7 @@ stages:
 
       Write {workspace}/validation/critique.json:
         {
-          "critic_focus": "<value of {critic_focus} or 'full-spectrum'>",
+          "critic_focus": "<value of critic_focus or 'full-spectrum'>",
           "blockers": [
             {
               "concern": "<one-sentence summary>",

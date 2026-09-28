@@ -155,7 +155,7 @@ stages:
 
       Format as markdown, suitable for injection into an agent prompt:
 
-        ## Known Concern Hints ({N} concerns from {guide_list})
+        ## Known Concern Hints (`{N}` concerns from `{guide_list}`)
 
         | ID | Severity | Check |
         |----|----------|-------|
