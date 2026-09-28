@@ -422,7 +422,7 @@ Testing:
 ```bash
 make test                                                              # preferred
 make cov                                                               # with coverage
-PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests           # direct equivalent
+PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests -t .      # direct equivalent
 ```
 
 Do not run bare `python3 -m unittest` in a worktree — an inherited `PYTHONPATH` silently

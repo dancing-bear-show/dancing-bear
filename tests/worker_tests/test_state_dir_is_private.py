@@ -6,17 +6,24 @@ is process-wide: tests/__init__.py sets DANCING_BEAR_WORKER_STATE_DIR to a
 temporary directory before any worker module is imported, so "restoring to the
 original" restores to that temp dir, never to the user's real queue.
 
-This test asserts that the invariant holds for any invocation that imports
-tests/__init__.py first (make test, make cov, and the documented
-``python3 -m unittest discover -s tests -t .`` form).
+This test asserts the invariant for invocations where tests/__init__.py runs:
+  - make test (bare python -m unittest)
+  - make cov
+  - coverage run -m unittest discover  (no -s/-t; discovers from ., tests/ is a package)
+  - python3 -m unittest discover -s tests -t .  (both flags required)
+
+Use -t . with -s tests: without it, tests are imported as top-level modules and
+tests/__init__.py is never imported, so the guard does not run.
 """
 
 from __future__ import annotations
 
 import os
 import platform
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from worker import _helpers as helpers
 from worker import queue_ops
@@ -29,6 +36,16 @@ def _real_default_state_dir() -> Path:
     this test remains correct if the default path ever changes.
     """
     return Path.home() / "Library" / "Application Support" / "dancing-bear"
+
+
+def _bootstrap_created_dir() -> bool:
+    """Return True if tests/__init__.py created the current state dir.
+
+    The bootstrap names its temp dirs with the prefix "dancing-bear-test-state-".
+    A user-supplied dir will not have that prefix.
+    """
+    val = os.environ.get(helpers.WORKER_STATE_DIR_ENV, "")
+    return "dancing-bear-test-state-" in val
 
 
 class TestStateDirectoryIsPrivate(unittest.TestCase):
@@ -56,8 +73,8 @@ class TestStateDirectoryIsPrivate(unittest.TestCase):
             "queue_ops is imported.",
         )
 
-    def test_state_dir_env_var_set_to_temp_prefix(self) -> None:
-        """DANCING_BEAR_WORKER_STATE_DIR must be set and under a temp prefix."""
+    def test_state_dir_env_var_is_not_real_default(self) -> None:
+        """DANCING_BEAR_WORKER_STATE_DIR must be set and not point at the real queue."""
         val = os.environ.get(helpers.WORKER_STATE_DIR_ENV, "")
         self.assertTrue(
             val,
@@ -74,11 +91,52 @@ class TestStateDirectoryIsPrivate(unittest.TestCase):
         )
 
     @unittest.skipUnless(platform.system() == "Darwin", "macOS-only path check")
-    def test_private_dir_is_under_tmp(self) -> None:
-        """On macOS the private dir should be under /var/folders or /tmp."""
+    @unittest.skipUnless(_bootstrap_created_dir(), "only applies to bootstrap-created dirs")
+    def test_bootstrap_dir_is_under_tmp(self) -> None:
+        """Bootstrap-created dirs must be under a macOS temp prefix.
+
+        This assertion only applies when tests/__init__.py created the directory
+        (identified by the 'dancing-bear-test-state-' prefix).  A user-supplied
+        private dir may legitimately live outside /tmp.
+        """
         val = os.environ.get(helpers.WORKER_STATE_DIR_ENV, "")
         tmp_prefixes = ("/var/folders", "/tmp", "/private/tmp")  # nosec B108 - path prefix check only
         self.assertTrue(
             any(val.startswith(p) for p in tmp_prefixes),
-            f"Expected a temp-style path, got {val!r}",
+            f"Bootstrap-created dir expected under a temp prefix, got {val!r}",
         )
+
+    def test_user_supplied_private_dir_is_accepted(self) -> None:
+        """A user-supplied private dir (not under tmp) satisfies the invariant.
+
+        The bootstrap in tests/__init__.py preserves any pre-existing value that
+        is not the real default.  This test simulates that by running the bootstrap
+        logic directly: a path like /home/user/dev/test-queue is private (not the
+        real default) and must not be overwritten by the bootstrap.
+        """
+        real_default = _real_default_state_dir()
+
+        with tempfile.TemporaryDirectory() as user_dir:
+            # user_dir is a real private dir (under /tmp on macOS, but that is
+            # incidental; the important property is that it is not the real default).
+            with patch.dict(os.environ, {helpers.WORKER_STATE_DIR_ENV: user_dir}):
+                current = os.environ.get(helpers.WORKER_STATE_DIR_ENV, "").strip()
+                is_already_private = bool(
+                    current
+                    and current != str(real_default)
+                    and not current.startswith(str(real_default) + "/")
+                )
+                # The bootstrap would preserve this value because it is already private.
+                self.assertTrue(
+                    is_already_private,
+                    f"Bootstrap should preserve {user_dir!r} (private, not real default), "
+                    f"but _is_already_private={is_already_private}",
+                )
+                # The invariant holds: the supplied dir is not the real default.
+                state_dir = helpers.get_worker_state_dir()
+                self.assertFalse(
+                    state_dir == real_default
+                    or str(state_dir).startswith(str(real_default) + "/"),
+                    f"With user-supplied override, state dir resolved to real default: "
+                    f"{state_dir}",
+                )

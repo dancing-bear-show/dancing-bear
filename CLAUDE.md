@@ -132,6 +132,14 @@ this bootstrap in place, restoring to the original is harmless: no test path can
 reach `~/Library/Application Support/dancing-bear/`.  The invariant is pinned by
 `tests/worker_tests/test_state_dir_is_private.py`.
 
+The bootstrap runs when `tests` is imported as a package. All supported
+invocations do so: `make test` (bare `python -m unittest`), `make cov`,
+`coverage run -m unittest discover` (no `-s`/`-t`; discovers from `.` so
+`tests/` is a package), and the documented
+`python3 -m unittest discover -s tests -t .` form.
+**Always include `-t .` when using `-s tests`** — without it, test modules are
+imported as top-level modules and `tests/__init__.py` is never imported.
+
 **Linting (qlty):**
 - Check files: `~/.qlty/bin/qlty check path/to/file.py`
 - Check module: `~/.qlty/bin/qlty check src/mail/`
@@ -295,7 +303,7 @@ silently resolves `core`/`mail`/`worker` to the **main checkout's** source. Test
 then pass against unmodified code — a false green that looks identical to a real
 one, and only turns red once a newly added module is imported by name.
 
-- Use `make test`, or `PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests`
+- Use `make test`, or `PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests -t .`
 - `make check-env` verifies imports resolve to the current checkout and fails loudly if not
 - This applies to subagents too: an agent verifying with bare `python3` in an
   isolated worktree is not verifying anything
