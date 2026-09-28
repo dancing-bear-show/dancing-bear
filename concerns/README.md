@@ -21,3 +21,7 @@ Code review concern guides for dancing-bear. Each file covers a domain:
 
 Used by: code review agents and the `reviewer` agent defined in CLAUDE.md.
 Load guides selectively based on the file types in the diff.
+
+**Canonical selection rules**: `concerns/selection.yaml` is the single source of truth
+for which guides apply to a set of changed files. Use `./bin/workflow select-concerns
+--paths p1 p2 ... [--task-type T] [--format json]` to get the guide list for any input.

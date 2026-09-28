@@ -28,6 +28,10 @@ def build_agentic_capsule() -> str:
     )
     lines.append("  - check-paths: ./bin/workflow check-paths <path> [<path> ...]")
     lines.append(
+        "  - select-concerns: ./bin/workflow select-concerns [--paths p1 p2 ...] "
+        "[--paths-file FILE] [--task-type T] [--format json]"
+    )
+    lines.append(
         "  - check-fix-index: ./bin/workflow check-fix-index <workspace>/outputs/fix-index.json"
     )
     lines.append(
@@ -82,6 +86,11 @@ def build_agentic_capsule() -> str:
         "  - parse-overview emits Copilot overview findings (linked and unlinked, each with id "
         "and file_id); check-paths exits 1 printing REFUSED for any path that escapes the repo "
         "or is protected"
+    )
+    lines.append(
+        "  - select-concerns emits the concern guides for given file paths and task_type; "
+        "--format json returns {guides:[...], matched:{guide:[reasons]}}; "
+        "rules live in concerns/selection.yaml"
     )
     lines.append(
         "  - check-unlisted exits 1 printing UNLISTED for every path changed since the "

@@ -19,17 +19,11 @@ description: >
   concise hint sheet — typically 5-20 concerns — so code-writers and testers
   can write defensively from the start rather than catching issues in post-review.
 
-  Guide selection:
-    - file_paths contains .py  → correctness.md, security.md, patterns.md, reuse.md, complexity.md (+ tests.md if test files)
-    - file_paths contains .yaml → workflow.md, workflow-stages.md, workflow-fanout.md, workflow-fragments.md, patterns.md (except resume paths below)
-    - file_paths under src/resume/config/, src/resume/examples/, or named linkedin*.yaml → resume-copy.md (overrides the generic .yaml rule for those paths)
-    - file_paths contains SKILL.md → workflow.md, workflow-stages.md, workflow-fanout.md, workflow-fragments.md, patterns.md, docs.md
-    - task_type = "feature"    → correctness.md, patterns.md, security.md, reuse.md
-    - task_type = "test"       → tests.md, correctness.md
-    - task_type = "security"   → security.md, correctness.md
-    - task_type = "docs"       → docs.md
-    - task_type = "refactor"   → patterns.md, correctness.md, reuse.md, complexity.md
-    - always include           → patterns.md
+  Guide selection is delegated to the canonical selector:
+    ./bin/workflow select-concerns --paths <file_paths> --task-type <task_type> --format json
+
+  The canonical rules live in concerns/selection.yaml — see that file or the
+  select-concerns subcommand for the authoritative rule set.
 
   Output: {workspace}/outputs/concerns.md — a compact hint sheet with concern IDs,
   severities, one-line checks, and a trigger condition. Suitable for injection into
@@ -58,37 +52,25 @@ stages:
     kind: execute
     executor: inline
     description: >
-      Determine which guide files are relevant based on task_type and file_paths params.
+      Select which guide files are relevant using the canonical selector.
 
-      Rules (apply all that match, deduplicate):
-        - file_paths contains ".py" (and not test_) → correctness.md, security.md, patterns.md, reuse.md, complexity.md
-        - file_paths contains "test_" or "/tests/"  → tests.md, correctness.md
-        - file_paths contains ".yaml" or ".yml"     → workflow.md, workflow-stages.md, workflow-fanout.md, workflow-fragments.md, patterns.md
-          EXCEPT paths under "src/resume/config/", "src/resume/examples/", or named
-          "linkedin*.yaml", which are content rather than workflow DAGs — for those
-          paths this rule does not apply and the resume-copy rule below governs.
-        - file_paths under "src/resume/config/", "src/resume/examples/", or named
-          "linkedin*.yaml" → resume-copy.md
-          (overrides the generic .yaml rule above rather than adding to it; if the
-           diff ALSO touches genuine workflow YAML elsewhere, both sets load)
-        - file_paths contains "SKILL.md"            → workflow.md, workflow-stages.md, workflow-fanout.md, workflow-fragments.md, patterns.md, docs.md
-        - file_paths contains iOS layout files      → phone-layout.md
-        - task_type == "feature"                    → correctness.md, patterns.md, security.md, reuse.md
-        - task_type == "test"                       → tests.md, correctness.md
-        - task_type == "security"                   → security.md, correctness.md
-        - task_type == "docs"                       → docs.md
-        - task_type == "refactor"                   → patterns.md, correctness.md, reuse.md, complexity.md
-        - task_type == "workflow"                   → workflow.md, workflow-stages.md, workflow-fanout.md, workflow-fragments.md, patterns.md
-        - always include                            → patterns.md
+      Run:
+        ./bin/workflow select-concerns \
+          --paths {file_paths} \
+          --task-type {task_type} \
+          --format json
 
-      If no file_paths and no task_type, default to: correctness.md, patterns.md
+      The canonical rules live in concerns/selection.yaml — do not restate them
+      here. Pass individual paths as space-separated tokens to --paths. If
+      task_type is empty, omit --task-type.
 
-      Write {workspace}/outputs/selected-guides.json (path resolves to outputs/ automatically):
+      Parse the JSON output {"guides": [...]} and write it to
+      {workspace}/outputs/selected-guides.json:
         {"guides": ["correctness.md", "patterns.md", ...]}
     agent:
       role: researcher
       model: sonnet
-      tools: [Write]
+      tools: [Bash, Write]
       access: read-write
     required: true
     writes_to:

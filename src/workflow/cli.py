@@ -48,6 +48,7 @@ from workflow.cli_dispatch_review import (
     _cmd_check_thread_ids,
     _cmd_check_unlisted,
     _cmd_parse_overview,
+    _cmd_select_concerns,
     _cmd_snapshot_dirty,
     _cmd_thread_fingerprints,
 )
@@ -191,6 +192,18 @@ def cmd_check_paths(args: argparse.Namespace) -> int:
     return _cmd_check_paths(args)
 
 
+@app.command(
+    "select-concerns",
+    help="Select concern guides for given file paths and optional task type",
+)
+@app.argument("--paths", nargs="*", default=[], metavar="PATH", help="File paths to evaluate")
+@app.argument("--paths-file", dest="paths_file", default="", help="Newline-delimited file of paths")
+@app.argument("--task-type", dest="task_type", default="", help="Task type: feature|test|security|docs|refactor|workflow")
+@app.argument("--format", "-f", choices=["text", "json"], default="text", help="Output format (default: text)")
+def cmd_select_concerns(args: argparse.Namespace) -> int:
+    return _cmd_select_concerns(args)
+
+
 @app.command("status", help="Show status of a workflow run")
 @app.argument("workspace_dir", help="Workspace directory of the run")
 @app.argument("--format", "-f", **_format_kwargs(default="table"))
@@ -324,9 +337,9 @@ def _no_command_usage() -> int:
     since this is a public CLI surface."""
     print(
         "Usage: workflow {parse,compile,run,lint,list,status,init-workspace,resume,"
-        "validate-fragment,parse-overview,check-paths,check-params,check-fix-index,"
-        "thread-fingerprints,check-thread-ids,aggregate-fix-results,snapshot-dirty,"
-        "check-unlisted} [options]",
+        "validate-fragment,parse-overview,check-paths,select-concerns,check-params,"
+        "check-fix-index,thread-fingerprints,check-thread-ids,aggregate-fix-results,"
+        "snapshot-dirty,check-unlisted} [options]",
         file=sys.stderr,
     )
     return ExitCode.USAGE

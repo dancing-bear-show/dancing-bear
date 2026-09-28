@@ -1,8 +1,8 @@
 """PR-review-thread subcommand handlers for the workflow CLI.
 
 Handles check-fix-index, thread-fingerprints, check-thread-ids,
-aggregate-fix-results, check-paths, parse-overview, snapshot-dirty and
-check-unlisted command handlers, plus their private helpers.
+aggregate-fix-results, check-paths, parse-overview, snapshot-dirty,
+check-unlisted, and select-concerns command handlers, plus their private helpers.
 """
 
 from __future__ import annotations
@@ -347,4 +347,46 @@ def _cmd_check_unlisted(args: argparse.Namespace) -> int:
     if unlisted:
         print(f"{len(unlisted)} changed path(s) missing from files_changed", file=sys.stderr)
         return 1
+    return 0
+
+
+def _cmd_select_concerns(args: argparse.Namespace) -> int:
+    """Select concern guides for a set of file paths and an optional task_type.
+
+    Reads paths from ``--paths`` and/or ``--paths-file``. Outputs the selected
+    guides in ``--format text`` (one per line, default) or ``--format json``::
+
+        {"guides": [...], "matched": {guide: [reasons]}}
+
+    Exit codes: 0 success, 1 on I/O or parse error.
+    """
+    from workflow.concern_select import select_guides_with_reasons
+
+    paths: list[str] = list(args.paths or [])
+
+    if args.paths_file:
+        pf = Path(args.paths_file)
+        if not pf.is_file():
+            print(f"select-concerns: paths-file not found: {pf}", file=sys.stderr)
+            return 1
+        for line in pf.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped:
+                paths.append(stripped)
+
+    task_type: str | None = args.task_type or None
+
+    try:
+        matched = select_guides_with_reasons(paths=paths, task_type=task_type)
+    except Exception as exc:  # nosec B110 - surface parse errors to the caller
+        print(f"select-concerns: {exc}", file=sys.stderr)
+        return 1
+
+    guides = list(matched.keys())
+
+    if args.format == "json":
+        print(json.dumps({"guides": guides, "matched": matched}, indent=2))
+    else:
+        for guide in guides:
+            print(guide)
     return 0

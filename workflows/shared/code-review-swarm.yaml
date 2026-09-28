@@ -210,17 +210,16 @@ stages:
     reads_from: [fetch-pr-context]
     description: >
       Read {workspace}/outputs/changed-files.txt and select which concern guide
-      files to sweep based on file extensions present in the diff.
+      files to sweep using the canonical selector:
 
-      Guide selection rules:
-        - .py files present          → correctness.md, security.md, tests.md, patterns.md, reuse.md, complexity.md
-          (tests.md applies to test files AND source files that introduce sys.exit() / HTTP clients)
-        - .yaml/.yml files present   → workflow.md, workflow-fanout.md, workflow-fragments.md, patterns.md
-        - SKILL.md files present     → workflow.md, workflow-fanout.md, workflow-fragments.md, patterns.md, docs.md
-        - .md / README files present → docs.md
-        - always                     → patterns.md
+        ./bin/workflow select-concerns \
+          --paths-file {workspace}/outputs/changed-files.txt \
+          --format json
 
-      Deduplicate the list (patterns.md appears once even if selected multiple times).
+      The selector (concerns/selection.yaml) is the single source of truth for
+      guide-selection rules — do not restate them here.
+
+      Parse the JSON output to get the guides list, then build the index.
 
       Write {workspace}/outputs/concern-sweep-index.json:
         {
