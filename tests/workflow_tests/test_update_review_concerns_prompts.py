@@ -17,6 +17,7 @@ import tempfile
 import unittest
 from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 from workflow.compiler import WorkflowCompileError, compile_workflow, match_when_expression
 from workflow.dispatch import build_agent_prompt
@@ -493,7 +494,7 @@ class TestRenderedJqExecutes(unittest.TestCase):
         self._write("outputs/rounds/pr406.json", {"pr": 406, "rounds": [{"round": 0, "commit": round_commit}],
                                                   "threads": threads})
 
-    def _gate_and_sanitise(self) -> tuple[list[object], dict[str, dict[str, object]]]:
+    def _gate_and_sanitise(self) -> tuple[list[object], dict[str, Any]]:
         for cmd in (self.gate, self.sanitise):
             res = self._run(cmd)
             self.assertEqual(res.returncode, 0, res.stderr)
