@@ -4,21 +4,30 @@ update-review-concerns derives each sweep pattern from reviewer-authored
 thread text. Running it through ``grep`` in a shell is an injection path, so
 the stage calls ``./bin/workflow count-sweep`` instead: the pattern is compiled
 with :mod:`re`, every path passes the same guard as ``check-paths``, and the
-files are read here with no subprocess.
+files are read by Python, never by a shell tool.
+
+Only regular files are read (FIFOs, sockets, devices and symlinks are skipped
+by ``lstat`` before any open), and a symlink anywhere in a listed path is
+refused. Paths must also match a strict allowlist, so one that reaches shell
+text is inert.
 
 Work is bounded so a broad or pathological sweep fails the stage instead of
 hanging it: binary files and files over :data:`MAX_FILE_BYTES` are skipped,
 each line is matched on its first :data:`MAX_LINE_CHARS` characters, and a
 scan that passes :data:`MAX_TOTAL_BYTES` or :data:`MAX_SECONDS` stops and is
-reported as truncated. A single ``re.search`` cannot be interrupted, so the
-line cap is what bounds one pathological match.
+reported as truncated. A single ``re.search`` cannot be interrupted in-process,
+so matching runs in a child interpreter (:mod:`workflow._sweep_worker`) that is
+killed at the deadline; the job reaches it as JSON on stdin, never via a shell.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import stat
+import subprocess  # nosec B404 - runs this package's own matcher with a fixed argv and no shell
+import sys
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -31,7 +40,8 @@ MAX_LINE_CHARS = 2_000
 MAX_SECONDS = 30.0
 #: Never descended into: repository/tool state rather than source.
 _SKIP_DIRS = frozenset({".git", ".venv", "venv", "node_modules", "__pycache__", ".mypy_cache", ".ruff_cache"})
-_BINARY_SNIFF = 8192
+#: The matcher, run as its own interpreter so it can be killed mid-match.
+_WORKER = Path(__file__).with_name("_sweep_worker.py")
 #: Characters a single-quoted shell argument cannot carry intact.
 _UNQUOTABLE = re.compile(r"['\n\r]")
 #: The only path shape accepted: the same allowlist the workflow's jq gates
@@ -51,6 +61,8 @@ class SweepCount:
     hits: int
     files: int
     truncated: bool
+    #: Why a truncated count is partial; empty for a complete one.
+    reason: str = ""
 
     def as_dict(self) -> dict[str, int | bool]:
         out: dict[str, int | bool] = {"hits": self.hits, "files": self.files}
@@ -168,35 +180,6 @@ def _iter_files(target: Path, root_real: Path) -> Iterator[Path]:
                 yield candidate
 
 
-def _read_text(path: Path) -> str | None:
-    """Return a file's text, or None for a binary, oversized, non-regular or unreadable file.
-
-    The open refuses a symlink and never blocks, and ``fstat`` re-checks the
-    opened file, so a file swapped for a FIFO or link after the walk's
-    ``lstat`` is still skipped.
-    """
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
-    try:
-        fd = os.open(path, flags)
-    except OSError:
-        return None
-    with os.fdopen(fd, "rb") as fh:
-        try:
-            info = os.fstat(fh.fileno())
-            if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_FILE_BYTES:
-                return None
-            data = fh.read(MAX_FILE_BYTES + 1)
-        except OSError:
-            return None
-    if len(data) > MAX_FILE_BYTES or b"\0" in data[:_BINARY_SNIFF]:
-        return None
-    return data.decode("utf-8", errors="replace")
-
-
-def _count_lines(regex: re.Pattern[str], text: str) -> int:
-    return sum(1 for line in text.splitlines() if regex.search(line[:MAX_LINE_CHARS]))
-
-
 def _unique_files(targets: list[Path], root_real: Path) -> Iterator[Path]:
     """Every file under ``targets`` once, even when listed paths overlap.
 
@@ -217,19 +200,59 @@ def count_sweep(pattern: str, paths: list[str], *, root: Path) -> SweepCount:
     ``files`` is the number of files with at least one hit. A path listed
     twice, or nested inside another listed path, is counted once.
     """
-    regex = compile_pattern(pattern)
+    compile_pattern(pattern)
     targets = resolve_paths(root, paths)
     root_real = root.resolve(strict=True)
     deadline = time.monotonic() + MAX_SECONDS
-    hits = files = total = 0
+    files: list[str] = []
     for path in _unique_files(targets, root_real):
-        text = _read_text(path)
-        if text is None:
-            continue
-        total += len(text)
-        if total > MAX_TOTAL_BYTES or time.monotonic() > deadline:
-            return SweepCount(hits, files, truncated=True)
-        n = _count_lines(regex, text)
-        hits += n
-        files += 1 if n else 0
-    return SweepCount(hits, files, truncated=False)
+        if time.monotonic() > deadline:
+            return SweepCount(0, 0, truncated=True, reason="time bound reached while listing files")
+        files.append(str(path))
+    job = {
+        "pattern": pattern,
+        "files": files,
+        "max_file_bytes": MAX_FILE_BYTES,
+        "max_line_chars": MAX_LINE_CHARS,
+        "max_total_bytes": MAX_TOTAL_BYTES,
+    }
+    return _run_worker(job, deadline - time.monotonic())
+
+
+def _run_worker(job: dict[str, object], timeout: float) -> SweepCount:
+    """Run the matcher in a child interpreter, killing it at ``timeout`` seconds.
+
+    The job goes over stdin as JSON and the argv is fixed, so no part of the
+    pattern or a path reaches a shell or the command line. ``-I -S`` keeps the
+    child from importing anything outside the standard library.
+    """
+    argv = [sys.executable, "-I", "-S", str(_WORKER)]
+    proc = subprocess.Popen(  # nosec B603 - fixed argv, no shell; the job is sent as data on stdin
+        argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    try:
+        out, err = proc.communicate(json.dumps(job), timeout=max(timeout, 0.0))
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        out, _ = proc.communicate()
+        return _parse_worker_output(out, fallback_reason="time bound reached")
+    if proc.returncode != 0:
+        detail = err.strip().splitlines()[-1:] or [f"exit {proc.returncode}"]
+        return _parse_worker_output(out, fallback_reason=f"matcher failed: {detail[0]}")
+    return _parse_worker_output(out, fallback_reason="matcher stopped without a result")
+
+
+def _parse_worker_output(out: str, *, fallback_reason: str) -> SweepCount:
+    """The last complete JSON line wins; anything short of ``done`` is partial."""
+    last: dict[str, object] = {}
+    for line in out.splitlines():
+        try:
+            record = json.loads(line)
+        except ValueError:
+            continue  # a line cut off by the kill
+        if isinstance(record, dict):
+            last = record
+    hits, files = int(str(last.get("hits", 0))), int(str(last.get("files", 0)))
+    if last.get("done") is True:
+        return SweepCount(hits, files, truncated=False)
+    return SweepCount(hits, files, truncated=True, reason=str(last.get("reason") or fallback_reason))

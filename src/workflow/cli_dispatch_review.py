@@ -443,6 +443,6 @@ def _cmd_count_sweep(args: argparse.Namespace) -> int:
         return int(ExitCode.USAGE)
     print(json.dumps(result.as_dict()))
     if result.truncated:
-        print("count-sweep: work bound reached; the count is partial", file=sys.stderr)
+        print(f"count-sweep: {result.reason}; the count is partial", file=sys.stderr)
         return int(ExitCode.ERROR)
     return 0

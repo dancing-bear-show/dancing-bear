@@ -1,4 +1,4 @@
-"""Tests for workflow count-sweep: in-process sweep counting with guarded paths."""
+"""Tests for workflow count-sweep: shell-free sweep counting with guarded paths and a killable matcher."""
 
 from __future__ import annotations
 
@@ -6,14 +6,16 @@ import io
 import json
 import os
 import socket
+import subprocess  # nosec B404 - wraps the real Popen to inspect the argv count-sweep builds
 import tempfile
 import threading
+import time
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from workflow import sweep_count
+from workflow import _sweep_worker, sweep_count
 from workflow.cli import main
 from workflow.sweep_count import SweepError, count_sweep
 
@@ -209,7 +211,84 @@ class TestSpecialFiles(_Tree):
             self.skipTest("no mkfifo on this platform")
         os.mkfifo(self.root / "src/pipe")
         # Simulates the race: the walk saw a regular file, the open meets a FIFO.
-        self.assertIsNone(sweep_count._read_text(self.root / "src/pipe"))
+        self.assertIsNone(_sweep_worker.read_text(str(self.root / "src/pipe"), sweep_count.MAX_FILE_BYTES))
+
+
+class TestMatchTimeBound(_Tree):
+    """The time bound interrupts a single catastrophic ``re.search``."""
+
+    def test_nested_quantifier_is_killed_at_the_deadline(self) -> None:
+        self._put("src/evil.txt", "a" * 30 + "!\n")
+        start = time.monotonic()
+        with patch.object(sweep_count, "MAX_SECONDS", 1.0):
+            got = count_sweep("(a+)+$", ["src"], root=self.root)
+        self.assertLess(time.monotonic() - start, 10)
+        self.assertTrue(got.truncated)
+        self.assertEqual(got.reason, "time bound reached")
+
+    def test_partial_count_survives_the_kill(self) -> None:
+        self._put("src/1-good.txt", "aaa\naaa\n")
+        self._put("src/2-evil.txt", "a" * 30 + "!\n")
+        with patch.object(sweep_count, "MAX_SECONDS", 1.0):
+            got = count_sweep("^(a+)+$", ["src"], root=self.root)
+        self.assertEqual((got.hits, got.files, got.truncated), (2, 1, True))
+
+    def test_huge_alternation_within_the_length_cap_counts(self) -> None:
+        pattern = "|".join(f"w{i}x" for i in range(100))
+        self.assertLessEqual(len(pattern), sweep_count.MAX_PATTERN_CHARS)
+        self._put("src/w.txt", "w7x\nw99x\nnope\n")
+        self.assertEqual(count_sweep(pattern, ["src/w.txt"], root=self.root).hits, 2)
+
+    def test_huge_alternation_over_the_length_cap_is_refused(self) -> None:
+        pattern = "|".join(f"word{i}" for i in range(200))
+        with self.assertRaisesRegex(SweepError, "longer than"):
+            count_sweep(pattern, ["src"], root=self.root)
+
+    def test_worker_gets_the_job_as_stdin_data_with_no_shell(self) -> None:
+        real_popen = subprocess.Popen
+        with patch.object(sweep_count.subprocess, "Popen", side_effect=real_popen) as popen:
+            count_sweep("$(id)|`id`", ["src"], root=self.root)
+        args, kwargs = popen.call_args
+        self.assertEqual(args[0][1:3], ["-I", "-S"])
+        self.assertTrue(str(args[0][3]).endswith("_sweep_worker.py"))
+        self.assertEqual(len(args[0]), 4)
+        self.assertNotIn("shell", kwargs)
+
+    def test_worker_crash_is_reported_as_partial_with_its_error(self) -> None:
+        with patch.object(sweep_count, "_WORKER", self.root / "missing_worker.py"):
+            got = count_sweep("check", ["workflows"], root=self.root)
+        self.assertTrue(got.truncated)
+        self.assertIn("matcher failed", got.reason)
+
+    def test_truncated_or_garbled_worker_lines_are_ignored(self) -> None:
+        got = sweep_count._parse_worker_output('{"hits": 2, "files": 1}\n{"hits": 5, "fi', fallback_reason="x")
+        self.assertEqual((got.hits, got.files, got.truncated, got.reason), (2, 1, True, "x"))
+
+
+class TestSweepWorker(_Tree):
+    """The child's matcher, run in-process so its branches are measured."""
+
+    def _run(self, files: list[str], **caps: int) -> list[dict[str, object]]:
+        job: dict[str, object] = {"pattern": "check", "files": files, "max_file_bytes": 1_000,
+                                  "max_line_chars": 100, "max_total_bytes": 10_000, **caps}
+        out = io.StringIO()
+        with redirect_stdout(out):
+            _sweep_worker.run(job)
+        return [json.loads(line) for line in out.getvalue().splitlines()]
+
+    def test_emits_running_totals_then_done(self) -> None:
+        files = [str(self.root / "workflows/a.yaml"), str(self.root / "src/c.py"), str(self.root / "workflows/sub/b.yaml")]
+        self.assertEqual(self._run(files), [{"hits": 2, "files": 1}, {"hits": 3, "files": 2},
+                                            {"hits": 3, "files": 2, "done": True}])
+
+    def test_byte_bound_emits_truncated(self) -> None:
+        records = self._run([str(self.root / "workflows/a.yaml")], max_total_bytes=5)
+        self.assertEqual(records[-1]["truncated"], True)
+
+    def test_oversized_binary_and_missing_files_skipped(self) -> None:
+        self._put("src/bin.dat", b"check\0")
+        files = [str(self.root / "src/bin.dat"), str(self.root / "workflows/a.yaml"), str(self.root / "nope")]
+        self.assertEqual(self._run(files, max_file_bytes=10)[-1], {"hits": 0, "files": 0, "done": True})
 
 
 class TestPathAllowlist(_Tree):

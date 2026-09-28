@@ -356,7 +356,7 @@ def cmd_review_rounds(args: argparse.Namespace) -> int:
 
 @app.command(
     "count-sweep",
-    help="Count lines matching a regex under repo-relative paths, in-process; prints {hits, files}",
+    help="Count lines matching a regex under repo-relative paths, no shell; prints {hits, files}",
 )
 @app.argument("--pattern", required=True, help="Python regex; never passed to a shell")
 @app.argument(
