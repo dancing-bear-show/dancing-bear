@@ -1767,6 +1767,8 @@ def _persist_response(job_id: str, response_text: str) -> None:
     """
     try:
         directory = _response_dir()
+        if directory.is_symlink():
+            raise OSError(f"responses directory path is a symlink: {directory}")
         directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(directory, 0o700)
         head = response_text[: _MASK_INPUT_CHARS + _MASK_MARGIN_CHARS]

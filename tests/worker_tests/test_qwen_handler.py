@@ -1396,6 +1396,37 @@ class QwenPersistResponseTests(QwenHandlerCase):
         response_file = self._response_file()
         self.assertIsNotNone(response_file, "persisted response file was not created after _finalize_success failure")
 
+    def test_symlink_at_responses_dir_is_refused(self) -> None:
+        """A pre-existing symlink at the responses directory path must be
+        refused: mkdir(exist_ok=True) silently succeeds through a symlink to a
+        directory, allowing a response to be written to an arbitrary location
+        outside the intended confidentiality boundary."""
+        # Create a real target directory and plant a symlink at response_dir's path.
+        real_target = self.response_dir.parent / "responses_real_target"
+        real_target.mkdir(mode=0o700)
+        self.response_dir.symlink_to(real_target)
+        self.generate_response = model_says("no edit blocks here")
+
+        ok, out = self.run_handler()
+
+        # The handler must not have written anything through the symlink.
+        self.assertFalse(ok)
+        self.assertEqual(out, "terminal-no-edits-found")
+        self.assertEqual(list(real_target.glob("*")), [], "response was written through the symlink")
+
+    def test_real_directory_at_responses_dir_is_accepted(self) -> None:
+        """A real (non-symlink) responses directory must be accepted normally;
+        this is the happy path for the symlink guard."""
+        self.generate_response = model_says("no edit blocks here")
+
+        ok, out = self.run_handler()
+
+        self.assertFalse(ok)
+        self.assertEqual(out, "terminal-no-edits-found")
+        response_file = self._response_file()
+        self.assertIsNotNone(response_file, "persisted response file was not created")
+        self.assertFalse(self.response_dir.is_symlink(), "response_dir should be a real directory")
+
 
 if __name__ == "__main__":
     unittest.main()

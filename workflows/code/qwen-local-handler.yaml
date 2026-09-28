@@ -1231,6 +1231,8 @@ stages:
       File ownership — this stage runs in parallel with impl-heartbeat and
       impl-tests. Touch ONLY:
         - src/worker/qwen.py                 (new — handler + Ollama transport)
+        - src/worker/qwen_edits.py           (new — edit-block parsing and diff
+                                              construction, imported by qwen.py)
         - src/worker/qwen_telemetry.py       (new — OTLP emit, kept separate so
                                               best-effort telemetry never
                                               tangles with job control flow)
