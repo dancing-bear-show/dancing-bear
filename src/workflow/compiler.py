@@ -424,6 +424,13 @@ def _resolve_criteria(
 
     A criterion with no param references, or whose only pipe-valued param
     resolves to a single item, is kept as a single criterion.
+
+    **All-empty pipe value**
+
+    If every ``|``-delimited segment is empty (e.g. ``"||"``), the criterion
+    is never silently dropped.  Instead, the raw param value is substituted
+    and the criterion is kept as a single entry.  This is the same fallback
+    used when a criterion references two or more pipe-valued params.
     """
     # Identify which params carry pipe-separated values.
     pipe_params: dict[str, list[str]] = {
@@ -445,9 +452,13 @@ def _resolve_criteria(
                 expanded = resolve_params(raw, {**params, key: item})
                 if expanded:
                     resolved.append(expanded)
-        else:
-            # Zero or multiple pipe-valued params: substitute as-is (no expansion).
-            resolved.append(resolve_params(raw, params))
+            if items:
+                # Expanded to N criteria — do not fall through to the single-criterion path.
+                continue
+
+        # Zero or multiple pipe-valued params, or all segments were empty (e.g. "||"):
+        # substitute as-is (no expansion) so the criterion is never silently dropped.
+        resolved.append(resolve_params(raw, params))
 
     return replace(validation, criteria=tuple(resolved))
 

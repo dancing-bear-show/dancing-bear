@@ -309,8 +309,10 @@ and `{{name}}` renders `{{name}}` rather than `{name}`.
 **Criteria** undergo the same param substitution. When a criterion references
 exactly one trigger param whose value is `|`-separated, the criterion is split
 into one entry per `|`-delimited item (whitespace stripped, empty items
-dropped), substituted into the criterion's own prefix and suffix. When a
-criterion references two or more such params, expansion is skipped and each
+dropped), substituted into the criterion's own prefix and suffix. If every
+segment is empty (e.g. `"||"`), the criterion is kept as a single entry with
+the raw value substituted — it is never silently dropped. When a criterion
+references two or more such params, expansion is skipped and each
 raw `|`-including value is substituted in, leaving a single criterion.
 
 ### 3. `writes_to` gets no `{param}` substitution

@@ -228,6 +228,43 @@ class TestValidationCriteriaParamResolution(unittest.TestCase):
         self.assertIn("b", criteria)
         self.assertIn("c", criteria)
 
+    def test_all_empty_pipe_segments_keep_criterion_with_double_pipe(self) -> None:
+        """'||' has only empty segments; the criterion must not be silently dropped."""
+        criteria = self._compile_with_criteria(
+            raw_criteria=("{validation_criteria}",),
+            params={"validation_criteria": "||"},
+        )
+        self.assertEqual(len(criteria), 1)
+        self.assertEqual(criteria[0], "||")
+
+    def test_all_empty_pipe_segments_keep_criterion_with_single_pipe(self) -> None:
+        """'|' has two empty segments; the criterion must not be silently dropped."""
+        criteria = self._compile_with_criteria(
+            raw_criteria=("{validation_criteria}",),
+            params={"validation_criteria": "|"},
+        )
+        self.assertEqual(len(criteria), 1)
+        self.assertEqual(criteria[0], "|")
+
+    def test_all_empty_pipe_segments_keep_criterion_with_whitespace_pipe(self) -> None:
+        """' | ' has only whitespace segments (stripped to empty); criterion is kept."""
+        criteria = self._compile_with_criteria(
+            raw_criteria=("{validation_criteria}",),
+            params={"validation_criteria": " | "},
+        )
+        self.assertEqual(len(criteria), 1)
+        self.assertEqual(criteria[0], " | ")
+
+    def test_mixed_empty_and_non_empty_segments_expand_normally(self) -> None:
+        """'a||b' has non-empty items 'a' and 'b'; expands to 2 criteria, empty dropped."""
+        criteria = self._compile_with_criteria(
+            raw_criteria=("{validation_criteria}",),
+            params={"validation_criteria": "a||b"},
+        )
+        self.assertEqual(len(criteria), 2)
+        self.assertIn("a", criteria)
+        self.assertIn("b", criteria)
+
     def test_unresolved_param_criterion_stays_literal(self) -> None:
         """A criterion with an unknown param is left as-is (no split)."""
         criteria = self._compile_with_criteria(
