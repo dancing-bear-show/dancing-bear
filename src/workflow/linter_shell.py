@@ -95,7 +95,7 @@ _PYTHON_WORD_RE = re.compile(r"^(?:.*/)?python3?(?:\.\d+)?$")
 # a caller can tell a quoted heredoc (body is inert data, no expansions occur)
 # from an unquoted one (body undergoes $(...)/backtick/$VAR expansion). Group 2
 # captures the delimiter word itself, so the matching close line can be found.
-_HEREDOC_RE = re.compile(r"<<-?\s*(['\"])?([A-Za-z_][A-Za-z0-9_]*)")
+_HEREDOC_RE = re.compile(r"<<-?\s*(['\"])?([A-Za-z_]\w*)")
 _SUBSTITUTION_RE = re.compile(r"\$\(|`")
 _WRITE_INSTRUCTION_RE = re.compile(
     r"\b(?:Write|write|Save|save|Create|create|Emit|emit|Output|output|Produce|produce)\s+"
