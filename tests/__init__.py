@@ -8,12 +8,17 @@ MAIN checkout's code instead of the worktree's. Prepending the local ``src``
 (the same effect as the Makefile's ``PYTHONPATH=src``) makes tests always
 exercise the tree they were launched from.
 
-Also installs the interactive-auth guard below.
+Also installs the interactive-auth guard below, and sets a process-wide
+private worker state directory so that no test can accidentally write to the
+user's real queue (see CLAUDE.md "Testing" section).
 """
 
 from __future__ import annotations
 
+import atexit
+import os
 import sys
+import tempfile
 import webbrowser
 from pathlib import Path
 
@@ -29,6 +34,46 @@ if _SRC.is_dir():
         if p != _src_str and not (p.endswith("/src") and "/dancing-bear/" in p)
     ]
     sys.path.insert(0, _src_str)
+
+
+# --- Process-wide private worker state dir ----------------------------------
+# Per-test isolation (QueueRootIsolationMixin) redirects queue_ops.QUEUE_ROOT
+# and DANCING_BEAR_WORKER_STATE_DIR per test and restores them on teardown.
+# That is NOT enough: a worker thread that outlives its test finishes after the
+# restore and writes into the "original" value — which, without this guard, is
+# the user's real ~/Library/Application Support/dancing-bear/.  When the
+# launchd daemon is running, anything in pending/ gets picked up and executed.
+#
+# The fix: make the "real" value for the whole test process already point at a
+# private temp directory, so restoring to it is harmless.
+#
+# Respect an already-set value only if it is NOT the real default location,
+# so that a developer who sets the var explicitly to something safe keeps it.
+_WORKER_STATE_ENV = "DANCING_BEAR_WORKER_STATE_DIR"
+_REAL_DEFAULT = (
+    Path.home() / "Library" / "Application Support" / "dancing-bear"
+)
+
+_current_val = os.environ.get(_WORKER_STATE_ENV, "").strip()
+_is_already_private = bool(
+    _current_val
+    and _current_val != str(_REAL_DEFAULT)
+    and not _current_val.startswith(str(_REAL_DEFAULT) + "/")
+)
+
+if not _is_already_private:
+    # Create a fresh temp dir for the entire test process.
+    _worker_state_tmp = tempfile.mkdtemp(prefix="dancing-bear-test-state-")
+    os.environ[_WORKER_STATE_ENV] = _worker_state_tmp
+
+    def _cleanup_worker_state_tmp(_d: str = _worker_state_tmp) -> None:  # noqa
+        import shutil
+        try:
+            shutil.rmtree(_d, ignore_errors=True)
+        except Exception:  # nosec B110 - best-effort cleanup at exit
+            pass
+
+    atexit.register(_cleanup_worker_state_tmp)
 
 
 # --- Interactive-auth guard -------------------------------------------------

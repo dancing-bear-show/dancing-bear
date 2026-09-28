@@ -122,6 +122,16 @@ All CLIs use argparse with positional subcommand dispatch. Arguments are passed 
 
 ## Testing and Code Quality
 
+**Worker state dir is always private during tests.** `tests/__init__.py` sets
+`DANCING_BEAR_WORKER_STATE_DIR` to a fresh `tempfile.mkdtemp()` before any test
+module imports `worker`, so the "original" value that per-test isolation restores
+to (via `QueueRootIsolationMixin`) is already a private temp directory.  Per-test
+isolation alone cannot stop a worker thread that outlives its test and finishes
+after the restore — it would write into whatever the "restored" value is.  With
+this bootstrap in place, restoring to the original is harmless: no test path can
+reach `~/Library/Application Support/dancing-bear/`.  The invariant is pinned by
+`tests/worker_tests/test_state_dir_is_private.py`.
+
 **Linting (qlty):**
 - Check files: `~/.qlty/bin/qlty check path/to/file.py`
 - Check module: `~/.qlty/bin/qlty check src/mail/`
