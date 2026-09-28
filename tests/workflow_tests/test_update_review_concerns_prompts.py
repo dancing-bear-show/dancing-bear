@@ -399,7 +399,7 @@ class TestRenderedJqExecutes(unittest.TestCase):
             self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
 
     def test_sweep_gate_refuses_non_mechanical_procedures(self) -> None:
-        steps = _procedure()["steps"]
+        steps = _STEPS
         bad = {
             "one-step": _procedure(steps=steps[:1]),
             "seven-steps": _procedure(steps=[f"Is item {i} tested?" for i in range(7)]),
@@ -467,13 +467,16 @@ class TestRenderedJqExecutes(unittest.TestCase):
                                   " | COLLATERAL_DOC | 406, 395 | 8 | a.md:3 — x   y |")
 
 
+_STEPS = [
+    "Does the diff list every input form the guard receives?",
+    "Does each listed input form have its own test?",
+]
+
+
 def _procedure(**over: object) -> dict[str, object]:
     base: dict[str, object] = {
         "trigger": "a function that rejects, filters or authorises input is added or modified in `src/**/*.py`",
-        "steps": [
-            "Does the diff list every input form the guard receives?",
-            "Does each listed input form have its own test?",
-        ],
+        "steps": list(_STEPS),
         "evidence": "each input form, paired with the test that covers it",
     }
     return {**base, **over}
