@@ -44,6 +44,7 @@ the context-free rules run when the fragment file itself is linted.
 from __future__ import annotations
 
 import re
+import shlex
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -494,15 +495,32 @@ def _unbound_variables(item: _StageShell) -> list[LintWarning]:
 # ---------------------------------------------------------------------------
 
 
+_VALUE_TAKING_FLAGS = frozenset({"-X", "-W"})
+
+
 def _isolation_flags(args: list[str]) -> set[str]:
-    """Single-letter interpreter flags given before the program or module."""
+    """Single-letter interpreter flags given before the program or module.
+
+    ``-X`` and ``-W`` each take the NEXT token as their value (``-X utf8``,
+    ``-W error``), not a bundled suffix -- that value token must be skipped
+    rather than treated as the end of the flag list, or a later isolation
+    flag (``-I``) is never reached: ``python3 -X utf8 -I -c '...'`` would
+    otherwise stop scanning at ``utf8`` and report the invocation as
+    unisolated even though ``-I`` is present.
+    """
     flags: set[str] = set()
-    for arg in args:
+    i = 0
+    while i < len(args):
+        arg = args[i]
         if not arg.startswith("-") or arg.startswith("--"):
             break
         flags.update(arg[1:])
         if "c" in arg or "m" in arg:
             break
+        if arg in _VALUE_TAKING_FLAGS:
+            i += 2
+            continue
+        i += 1
     return flags
 
 
@@ -721,15 +739,63 @@ def _in_bracket_test(body: list[str], i: int) -> bool:
     return depth > 0
 
 
-def _has_write_redirect(body: list[str]) -> bool:
+def _raw_tokens(text: str) -> list[str]:
+    """Tokenise *text* like :func:`~workflow.shell_text.split_tokens`, but quote-preserving.
+
+    ``split_tokens`` runs ``shlex`` in POSIX mode, which strips quote
+    characters -- a quoted argument like ``">"`` becomes an indistinguishable
+    bare ``>`` token, so a redirect scan over posix tokens alone cannot tell
+    "the loop writes to a file" from "the loop echoes the character '>'"
+    (``for f in files; do echo ">" "$f"; done`` is read-only). Running the
+    SAME lexer configuration in non-POSIX mode instead leaves a surrounding
+    quote character in place on the token, at the identical list index --
+    non-POSIX mode changes quote handling only, not word-splitting, so this
+    list lines up 1:1 with the posix token list for every construct this
+    module's checks scan (command separators, redirects, fd duplication,
+    bracket tests). Callers use it purely to ask "was body[i] quoted",
+    never as a substitute for the posix tokens themselves.
+    """
+    text = text.replace("\\\n", " ")
+    lexer = shlex.shlex(text, posix=False, punctuation_chars=";&|()")
+    lexer.whitespace_split = True  # noqa - read by shlex itself; vulture cannot see it
+    lexer.commenters = ""  # noqa - "#" inside shell words is not a comment here
+    try:
+        return list(lexer)
+    except ValueError:
+        return text.split()
+
+
+def _is_quoted_token(raw_tokens: list[str], i: int) -> bool:
+    """True when ``raw_tokens[i]`` still carries a surrounding quote character.
+
+    Out-of-range is treated as unquoted rather than raising: a caller passing
+    mismatched token lists (which should not happen given ``_raw_tokens``'
+    alignment guarantee, but a defensive default here is cheap) gets the
+    conservative answer -- still scanned as a possible real redirect -- rather
+    than a crash.
+    """
+    if i >= len(raw_tokens):
+        return False
+    tok = raw_tokens[i]
+    return len(tok) >= 2 and tok[0] in ("'", '"') and tok[-1] == tok[0]
+
+
+def _has_write_redirect(body: list[str], raw_body: list[str] | None = None) -> bool:
     """True when *body* contains a genuine output-redirect token.
 
-    Excludes the two shapes the guard's own contract allows outright: a file
-    descriptor duplication (``2>&1``) writes nothing, and a bare ``>``/``<``
-    inside ``[[ ]]``/``(( ))`` is a comparison operator, not a redirect.
+    Excludes the shapes the guard's own contract allows outright: a file
+    descriptor duplication (``2>&1``) writes nothing, a bare ``>``/``<``
+    inside ``[[ ]]``/``(( ))`` is a comparison operator, and a `>`-shaped
+    token that was actually a QUOTED string argument (``echo ">"``) is
+    literal text the loop merely prints, not a redirect the shell parses --
+    see :func:`_raw_tokens`. *raw_body* is optional so existing callers that
+    have no raw text available (there are none left in this module, but the
+    signature stays permissive) still get the fd-dup/bracket-test exemptions.
     """
     for i, tok in enumerate(body):
         if not _REDIRECT_RE.search(tok):
+            continue
+        if raw_body is not None and _is_quoted_token(raw_body, i):
             continue
         if _is_fd_duplication(body, i):
             continue
@@ -752,7 +818,7 @@ def _is_token_command_position(body: list[str], i: int) -> bool:
     return i == 0 or body[i - 1] in _COMMAND_SEPARATORS
 
 
-def _loop_body_is_mutating(tokens: list[str], do_index: int) -> bool:
+def _loop_body_is_mutating(tokens: list[str], do_index: int, raw_tokens: list[str]) -> bool:
     """True when the loop body (after ``do``) writes anything, by the guard's own test.
 
     The guard allows a loop outright when its body is read-only (guard-contract.yaml:
@@ -766,14 +832,18 @@ def _loop_body_is_mutating(tokens: list[str], do_index: int) -> bool:
     or `-o FILE` is present. A mutating-command-shaped token is only checked when it
     sits in command position -- see :func:`_is_token_command_position` -- so a quoted
     argument like ``"rm"`` passed to ``echo`` is not misread as a real invocation.
+    *raw_tokens* is the quote-preserving tokenisation of the same text (see
+    :func:`_raw_tokens`), sliced the same way, so :func:`_has_write_redirect`
+    can tell a genuine redirect from a quoted ``">"`` argument.
     """
     body = tokens[do_index + 1:]
+    raw_body = raw_tokens[do_index + 1:]
     if any(
         tok in _MUTATING_COMMANDS and _is_token_command_position(body, i)
         for i, tok in enumerate(body)
     ):
         return True
-    if _has_write_redirect(body):
+    if _has_write_redirect(body, raw_body):
         return True
     for i, tok in enumerate(body):
         if tok == "sed" and _is_token_command_position(body, i) and _has_sed_in_place(body, i):
@@ -784,13 +854,15 @@ def _loop_body_is_mutating(tokens: list[str], do_index: int) -> bool:
 
 
 def _has_loop(text: str) -> bool:
-    tokens = split_tokens(_as_command_separators(text))
+    normalized = _as_command_separators(text)
+    tokens = split_tokens(normalized)
+    raw_tokens = _raw_tokens(normalized)
     for i, tok in enumerate(tokens):
         if i and tokens[i - 1] not in _COMMAND_SEPARATORS:
             continue
         if tok in _LOOP_HEADS and "do" in tokens[i + 1:]:
             do_index = tokens.index("do", i + 1)
-            if _loop_body_is_mutating(tokens, do_index):
+            if _loop_body_is_mutating(tokens, do_index, raw_tokens):
                 return True
     return False
 

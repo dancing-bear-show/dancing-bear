@@ -350,20 +350,25 @@ def _line_segments(
 
 
 def _absorb_heredoc_body(chunk: list[str], lines: list[str], i: int, consumed: set[int]) -> int:
-    """Pull an unquoted-delimiter heredoc's body lines into *chunk*, up to its closer.
+    """Consume a heredoc's body lines up to its closer; append them only if unquoted.
 
     A heredoc opener (``cat <<EOF``) has no unclosed quote or trailing
     backslash, so :func:`_can_continue` stops right after it -- the body is
     otherwise never part of any segment's text, and a placeholder substituted
     into an unquoted (shell-expanding) body line never reaches a caller
-    scanning segment text for ``{param}`` uses. Only an unquoted delimiter is
-    absorbed: a quoted one (``<<'EOF'``/``<<"EOF"``) makes the body inert, and
-    is left for whatever prose/line logic already handles that line.
+    scanning segment text for ``{param}`` uses. An unquoted delimiter's body
+    is live shell, so it is appended to *chunk*. A quoted one
+    (``<<'EOF'``/``<<"EOF"``) makes the body inert data, never shell-expanded,
+    so it must not be appended -- but its lines still need to be marked
+    *consumed* here, or :func:`_line_segments` revisits a command-looking body
+    line (``echo "$UNBOUND"``) as its own independent segment and a caller
+    wrongly treats inert heredoc text as live shell.
     """
     joined = "\n".join(chunk)
     m = _HEREDOC_OPEN_RE.search(joined)
-    if m is None or quote_context(joined)[m.start()] != "" or m.group(1) is not None:
+    if m is None or quote_context(joined)[m.start()] != "":
         return i
+    quoted = m.group(1) is not None
     delimiter = m.group(2)
     j = i + 1
     while j < len(lines) and lines[j].strip() != delimiter:
@@ -371,7 +376,8 @@ def _absorb_heredoc_body(chunk: list[str], lines: list[str], i: int, consumed: s
     if j >= len(lines):
         return i
     for k in range(i + 1, j + 1):
-        chunk.append(lines[k].strip())
+        if not quoted:
+            chunk.append(lines[k].strip())
         consumed.add(k)
     return j
 

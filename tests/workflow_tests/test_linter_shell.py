@@ -549,6 +549,24 @@ class TestUnboundVariable(_RuleCase):
     def test_has_teeth(self) -> None:
         self.assert_has_teeth(_workflow(_stage(_UNBOUND)))
 
+    def test_quoted_heredoc_body_does_not_spuriously_fire_unbound(self) -> None:
+        # PR #433 review: a quoted-delimiter heredoc returned from
+        # _absorb_heredoc_body without consuming its body lines, so
+        # _line_segments revisited the body's `echo "$UNBOUND"` as its own
+        # independent shell segment and this rule fired on it -- even though
+        # a quoted heredoc body is inert data that never shell-expands.
+        desc = "Write the file:\n\n  cat <<'EOF'\n  echo \"$UNBOUND\"\n  EOF\n"
+        self.assert_silent(_workflow(_stage(desc)))
+
+    def test_unquoted_heredoc_body_still_fires_unbound(self) -> None:
+        # Happy-path sibling: an UNQUOTED delimiter's body is live shell, so a
+        # real unbound reference inside it must still fire -- confirms the fix
+        # only stops the quoted body from being independently re-scanned, and
+        # does not also silence the unquoted case round 5 already covers.
+        desc = 'Write the file:\n\n  cat <<EOF\n  echo "$UNBOUND"\n  EOF\n'
+        hits = self.assert_fires(_workflow(_stage(desc)))
+        self.assertIn("$UNBOUND", hits[0].message)
+
 
 # ---------------------------------------------------------------------------
 # python-not-isolated
@@ -645,6 +663,25 @@ class TestPythonNotIsolated(_RuleCase):
 
     def test_has_teeth(self) -> None:
         self.assert_has_teeth(_workflow(_stage(_BARE_PYTHON)))
+
+    def test_isolated_form_after_value_taking_flag_is_silent(self) -> None:
+        # Copilot PRRT_kwDOQr1kjM6mhoot (PR #433): the flag scan stopped at
+        # the first arg not starting with "-", so "-X utf8" (a value-taking
+        # flag whose value is the NEXT token) was misread as the end of the
+        # flag list and "-I" right after it was never reached.
+        for command in (
+            "python3 -X utf8 -I -c 'print(1)'",
+            "python3 -W error -I -c 'print(1)'",
+            "python3 -X utf8 -W error -I -c 'print(1)'",
+        ):
+            with self.subTest(command=command):
+                self.assert_silent(_workflow(_stage(f"Run:\n\n  {command}\n")))
+
+    def test_value_taking_flag_without_isolation_flag_still_fires(self) -> None:
+        # Sad-path sibling: consuming -X's value must not itself grant
+        # isolation -- a command with -X but no -I/-E still lacks it.
+        hits = self.assert_fires(_workflow(_stage("Run:\n\n  python3 -X utf8 -c 'print(1)'\n")))
+        self.assertIn("lacks -I", hits[0].message)
 
 
 # ---------------------------------------------------------------------------
@@ -920,6 +957,21 @@ class TestGuardRefused(_RuleCase):
         )
         self.assertIn("loop", self.assert_fires(_workflow(_stage(desc)))[0].message)
 
+    def test_quoted_redirect_char_as_argument_is_silent(self) -> None:
+        # Copilot PRRT_kwDOQr1kjM6mhoo2 (PR #433): split_tokens strips quotes
+        # via shlex, so a quoted ">" argument becomes an indistinguishable
+        # bare ">" token and was misread as a write redirect. The loop only
+        # echoes the character; it writes nothing.
+        desc = 'Report:\n\n  for f in files; do echo ">" "$f"; done\n'
+        self.assert_silent(_workflow(_stage(desc)))
+
+    def test_real_redirect_alongside_quoted_char_still_fires(self) -> None:
+        # Sad-path sibling: a genuine write redirect in the same body as a
+        # quoted ">" argument must still fire -- the quote-awareness fix must
+        # not blind the scan to a real redirect appearing elsewhere.
+        desc = 'Report:\n\n  for f in files; do echo ">" "$f" > out.log; done\n'
+        self.assertIn("loop", self.assert_fires(_workflow(_stage(desc)))[0].message)
+
     def test_second_heredoc_with_identical_opener_text_still_inspected(self) -> None:
         # Unlinked triage findings linter_shell.py:552/568: _has_heredoc's
         # full_text.find(text) fallback anchors to the FIRST occurrence of
@@ -1098,13 +1150,26 @@ class TestExtractShellSegments(unittest.TestCase):
 
     def test_quoted_heredoc_body_is_not_absorbed(self) -> None:
         # Happy-path sibling: a quoted delimiter's body is inert (no shell
-        # expansion happens inside it at all), so absorbing it is unnecessary
-        # -- confirms the fix only widens the unquoted case, matching
-        # linter_shell.py's own quoted/unquoted heredoc distinction.
+        # expansion happens inside it at all), so absorbing it into the
+        # segment TEXT is unnecessary -- confirms the fix only widens the
+        # unquoted case's appended text, matching linter_shell.py's own
+        # quoted/unquoted heredoc distinction.
         desc = "cat <<'EOF'\n{host}\nEOF\n"
         segments = extract_shell_segments(desc)
         self.assertEqual(len(segments), 1)
         self.assertNotIn("{host}", segments[0].text)
+        self.assertEqual(segments[0].text, "cat <<'EOF'")
+
+    def test_quoted_heredoc_body_is_still_consumed_as_its_own_segment(self) -> None:
+        # PR #433 review: the quoted-delimiter branch used to return early
+        # without marking the body lines CONSUMED, so _line_segments revisited
+        # a command-looking body line as an INDEPENDENT segment of its own --
+        # even though the same body text is correctly excluded from the
+        # opener's segment text above. A quoted heredoc body must produce
+        # exactly one segment total (the opener), not two.
+        desc = "cat <<'EOF'\necho \"$UNBOUND\"\nEOF\n"
+        segments = extract_shell_segments(desc)
+        self.assertEqual(len(segments), 1, msg=segments)
         self.assertEqual(segments[0].text, "cat <<'EOF'")
 
 
