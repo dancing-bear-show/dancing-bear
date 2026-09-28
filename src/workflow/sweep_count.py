@@ -47,7 +47,7 @@ _UNQUOTABLE = re.compile(r"['\n\r]")
 #: The only path shape accepted: the same allowlist the workflow's jq gates
 #: apply. It excludes every shell metacharacter, whitespace, quotes and a
 #: leading ``-`` or ``.``, so a path that reaches a shell unquoted is inert.
-_SAFE_PATH = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._/-]*")
+_SAFE_PATH = re.compile(r"\w[\w./-]*", re.ASCII)  # ASCII \w is exactly [A-Za-z0-9_]
 #: Reason a path was refused for a character or segment outside the allowlist.
 UNSAFE_PATH = "unsafe-path"
 

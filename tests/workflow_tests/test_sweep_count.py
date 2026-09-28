@@ -283,7 +283,7 @@ class TestSweepWorker(_Tree):
 
     def test_byte_bound_emits_truncated(self) -> None:
         records = self._run([str(self.root / "workflows/a.yaml")], max_total_bytes=5)
-        self.assertEqual(records[-1]["truncated"], True)
+        self.assertIs(records[-1]["truncated"], True)
 
     def test_oversized_binary_and_missing_files_skipped(self) -> None:
         self._put("src/bin.dat", b"check\0")
@@ -322,6 +322,11 @@ class TestPathAllowlist(_Tree):
 
     def test_quotes_refused(self) -> None:
         for bad in ("src'x", 'src"x'):
+            with self.subTest(path=bad):
+                self._refused(bad, "unsafe-path")
+
+    def test_non_ascii_letters_refused(self) -> None:
+        for bad in ("src/é", "ѕrc"):  # e-acute; Cyrillic dze, a lookalike of s
             with self.subTest(path=bad):
                 self._refused(bad, "unsafe-path")
 
