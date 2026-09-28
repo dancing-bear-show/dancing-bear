@@ -542,35 +542,36 @@ class GrepSweepCommandTests(unittest.TestCase):
 
     def test_sad_path_missing_spec_file(self) -> None:
         """A spec file that does not exist exits with an error."""
-        code, out, err = run_cli_streams(["grep-sweep", "--spec", "/tmp/nonexistent-spec-xyz.json"])
+        missing = f"{self.tmp}/nonexistent-spec.json"
+        code, _out, err = run_cli_streams(["grep-sweep", "--spec", missing])
         self.assertNotEqual(code, 0)
         self.assertIn("spec file not found", err)
 
     def test_sad_path_invalid_regex_rejected(self) -> None:
         """An invalid regex in spec.pattern is rejected with a clear error."""
         spec = self._write_spec({"pattern": "(unclosed", "paths": ["src/"]})
-        code, out, err = run_cli_streams(["grep-sweep", "--spec", spec])
+        code, _out, err = run_cli_streams(["grep-sweep", "--spec", spec])
         self.assertNotEqual(code, 0)
         self.assertIn("invalid regex", err)
 
     def test_sad_path_path_traversal_rejected(self) -> None:
         """Paths containing '..' are rejected to prevent directory traversal."""
         spec = self._write_spec({"pattern": "hello", "paths": ["../../etc/passwd"]})
-        code, out, err = run_cli_streams(["grep-sweep", "--spec", spec])
+        code, _out, err = run_cli_streams(["grep-sweep", "--spec", spec])
         self.assertNotEqual(code, 0)
         self.assertIn("path traversal", err)
 
     def test_sad_path_missing_pattern_rejected(self) -> None:
         """A spec missing the pattern key is rejected."""
         spec = self._write_spec({"paths": ["src/"]})
-        code, out, err = run_cli_streams(["grep-sweep", "--spec", spec])
+        code, _out, err = run_cli_streams(["grep-sweep", "--spec", spec])
         self.assertNotEqual(code, 0)
         self.assertIn("spec.pattern", err)
 
     def test_sad_path_empty_paths_rejected(self) -> None:
         """A spec with an empty paths list is rejected."""
         spec = self._write_spec({"pattern": "hello", "paths": []})
-        code, out, err = run_cli_streams(["grep-sweep", "--spec", spec])
+        code, _out, err = run_cli_streams(["grep-sweep", "--spec", spec])
         self.assertNotEqual(code, 0)
         self.assertIn("spec.paths", err)
 
