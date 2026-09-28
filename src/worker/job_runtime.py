@@ -751,11 +751,15 @@ class DaemonRunner:
         # Anchor the daemon's cwd to the repo root so job scripts that use
         # relative paths (./bin/...) resolve correctly.
         os.chdir(str(get_repo_root()))
-        # Publish any staged requeue a previous crash interrupted
-        # (*.json.requeue files invisible to the normal listing).
-        q.recover_staged_requeues(root=q.QUEUE_ROOT)
+        # Install stop handlers before staged-requeue recovery so that a
+        # SIGTERM/SIGINT arriving while recover_staged_requeues holds
+        # _transition_lock still sets stop_event and allows drain_live_threads
+        # to run, rather than terminating via the default handler.
         previous = _install_stop_handlers(self.stop_event)
         try:
+            # Publish any staged requeue a previous crash interrupted
+            # (*.json.requeue files invisible to the normal listing).
+            q.recover_staged_requeues(root=q.QUEUE_ROOT)
             try:
                 while not self.stop_event.is_set():
                     n = self.tick()

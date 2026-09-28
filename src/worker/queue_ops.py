@@ -160,26 +160,36 @@ def start_processing(job_path: Path, root: Path | None = None) -> Path | None:
 
     Returns None when another worker has already claimed the job between
     listing and claim, which can occur under high concurrency.
+
+    Both the rename and the metadata write happen under ``_transition_lock``.
+    Without the lock, a stale reaper could observe ``processing/<id>.json``
+    after the rename but before the claim-token and ``processing_started_at``
+    fields are written, decide the job is stale (no start time), stage it back
+    to pending/, and allow a second worker to pick it up while this worker is
+    still running it.
     """
     paths = _ensure_dirs(root)
     job_id = job_path.stem
     new_path = _job_path(paths["processing"], job_id)
-    # First, claim the job by renaming; then update metadata on the processing copy
     try:
-        _rename(job_path, new_path)
-        try:
-            data = safe_load_json(new_path, default={})
-            data["status"] = "processing"
-            data[CLAIM_TOKEN_FIELD] = uuid.uuid4().hex
-            data["processing_started_at"] = iso_now()
-            data[FIELD_UPDATED_AT] = iso_now()
-            atomic_write_json(new_path, data)
-        except Exception as exc:
-            import logging as _logging
+        with _transition_lock(root):
+            # Claim the job atomically: rename then write metadata before the
+            # lock is released, so a reaper cannot observe the processing/
+            # record in a partially-initialised state.
+            _rename(job_path, new_path)
+            try:
+                data = safe_load_json(new_path, default={})
+                data["status"] = "processing"
+                data[CLAIM_TOKEN_FIELD] = uuid.uuid4().hex
+                data["processing_started_at"] = iso_now()
+                data[FIELD_UPDATED_AT] = iso_now()
+                atomic_write_json(new_path, data)
+            except Exception as exc:
+                import logging as _logging
 
-            _logging.getLogger(__name__).debug(
-                "Failed to update processing job %s: %s", new_path, exc
-            )
+                _logging.getLogger(__name__).debug(
+                    "Failed to update processing job %s: %s", new_path, exc
+                )
         return new_path
     except FileNotFoundError:
         # Claimed elsewhere; ignore
@@ -372,15 +382,49 @@ def _rewrite_staged(staged: Path, reason: str, *, only_if_unnormalized: bool) ->
 def _copy_exclusive(staged: Path, dest: Path) -> None:
     """Create ``dest`` with ``staged``'s bytes; FileExistsError if it exists.
 
-    ``O_CREAT | O_EXCL`` makes the existence check and the create one atomic
-    step, so a file another worker creates first is never overwritten.
+    Writes bytes to a hidden temp file in the same directory, fsyncs them, then
+    publishes the temp file to ``dest`` atomically so that ``list_pending()``
+    and ``start_processing()`` can never observe a partially written record:
+    the destination is either absent or fully written.
+
+    No-clobber is preserved: ``os.link(tmp, dest)`` raises ``FileExistsError``
+    atomically if ``dest`` already exists.  On filesystems where hard links are
+    unavailable even within the same directory, ``tmp.replace(dest)`` is used as
+    a last resort; that path can overwrite an existing ``dest``, which is the
+    pre-existing limitation of any no-hardlink filesystem for this fallback.
     """
     content = staged.read_bytes()
-    fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
-    with os.fdopen(fd, "wb") as fh:
-        fh.write(content)
-        fh.flush()
-        os.fsync(fh.fileno())
+    tmp = dest.with_name(f".{dest.name}.tmp.{uuid.uuid4().hex}")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(content)
+            fh.flush()
+            os.fsync(fh.fileno())
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    # Publish atomically: os.link raises FileExistsError if dest exists,
+    # preserving the no-clobber guarantee.
+    try:
+        os.link(tmp, dest)
+    except FileExistsError:
+        tmp.unlink(missing_ok=True)
+        raise
+    except OSError:
+        # Hard links unavailable even within the directory.  Check existence
+        # with O_CREAT|O_EXCL, which is atomic, before replacing.
+        try:
+            chk = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+            os.close(chk)
+        except FileExistsError:
+            tmp.unlink(missing_ok=True)
+            raise
+        # dest was absent at the O_EXCL check; the empty placeholder we just
+        # created will be replaced by the fully written temp file.
+        tmp.replace(dest)
+        return
+    tmp.unlink(missing_ok=True)
 
 
 def _publish_no_clobber(staged: Path, dest: Path) -> bool:

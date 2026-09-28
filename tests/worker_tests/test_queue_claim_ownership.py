@@ -352,5 +352,130 @@ class TestThreadStartFailure(_RuntimeTestBase):
         self.assertEqual(_names(self.root / "pending"), ["b.json"])
 
 
+# ---------------------------------------------------------------------------
+# Thread 1 fix: start_processing holds _transition_lock over rename+write
+# ---------------------------------------------------------------------------
+
+
+class TestStartProcessingHoldsLock(unittest.TestCase, QueueRootIsolationMixin):
+    """start_processing holds _transition_lock across both the rename and the
+    metadata write, so a concurrent reaper cannot observe a partially claimed
+    processing/ record between the two operations."""
+
+    def setUp(self) -> None:
+        self.setup_queue_root()
+        enqueue(Job(id="lk1", type="t", payload={"k": 1}), root=self.root)
+        self.pending = self.root / "pending" / "lk1.json"
+
+    def test_lock_is_held_while_rename_and_write_both_occur(self) -> None:
+        """A thread that acquires _transition_lock before start_processing blocks
+        until start_processing releases it; start_processing itself must hold the
+        lock across the entire rename+write pair."""
+        lock_was_held_at_write: list[bool] = []
+        real_atomic_write = __import__("core.fileutil", fromlist=["atomic_write_json"]).atomic_write_json
+
+        def _spy_write(path: Any, data: Any) -> Any:
+            # If the lock is held by start_processing, trying to acquire it
+            # from this thread will block.  We use non-blocking to detect it.
+            import fcntl
+            lock_path = q._q(self.root) / q._TRANSITION_LOCK_NAME
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
+            with lock_path.open("a") as fh:
+                try:
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+                    lock_was_held_at_write.append(False)
+                except OSError:
+                    lock_was_held_at_write.append(True)
+            return real_atomic_write(path, data)
+
+        with patch("worker.queue_ops.atomic_write_json", side_effect=_spy_write):
+            result = q.start_processing(self.pending, self.root)
+
+        self.assertIsNotNone(result)
+        self.assertEqual(lock_was_held_at_write, [True], "lock was not held during atomic_write_json")
+
+    def test_reaper_cannot_observe_processing_record_without_start_time(self) -> None:
+        """After start_processing returns, the processing/ record has
+        processing_started_at set, so the reaper never sees an initialisation
+        window where the start time is absent."""
+        proc = q.start_processing(self.pending, self.root)
+        self.assertIsNotNone(proc)
+        assert proc is not None
+        data = _read(proc)
+        self.assertIn("processing_started_at", data, "processing_started_at missing after start_processing")
+        self.assertIn(q.CLAIM_TOKEN_FIELD, data, "claim_token missing after start_processing")
+        self.assertEqual(data["status"], "processing")
+
+
+# ---------------------------------------------------------------------------
+# Thread 2 fix: _copy_exclusive keeps dest undiscoverable until fully written
+# ---------------------------------------------------------------------------
+
+
+class TestCopyExclusiveTempPublish(unittest.TestCase, QueueRootIsolationMixin):
+    """_copy_exclusive writes bytes to a hidden temp file, then renames it to
+    dest atomically, so list_pending/start_processing never see partial content."""
+
+    def setUp(self) -> None:
+        self.setup_queue_root()
+        paths = q._ensure_dirs(self.root)
+        self.staged = paths["processing"] / "ce1.json.requeue"
+        self.payload = {"id": "ce1", "status": "pending", "type": "t", "payload": {}}
+        self.staged.write_text(json.dumps(self.payload), encoding="utf-8")
+        self.dest = paths["pending"] / "ce1.json"
+        # Disable the os.link fast path so _copy_exclusive is exercised.
+        link_patch = patch("worker.queue_ops.os.link", side_effect=OSError(errno.EPERM, "no links"))
+        link_patch.start()
+        self.addCleanup(link_patch.stop)
+
+    def test_dest_not_visible_during_write(self) -> None:
+        """dest must not appear in the pending/ directory while bytes are being
+        written; it becomes visible only after the atomic rename."""
+        visible_during_write: list[bool] = []
+        real_fsync = os.fsync
+
+        def _spy_fsync(fd: int) -> None:
+            real_fsync(fd)
+            # At this point bytes are flushed but rename has not happened yet.
+            # list_pending must not see dest yet.
+            visible = self.dest.exists()
+            visible_during_write.append(visible)
+
+        with patch("worker.queue_ops.os.fsync", side_effect=_spy_fsync):
+            q._copy_exclusive(self.staged, self.dest)
+
+        self.assertEqual(visible_during_write, [False], "dest was visible before the atomic rename")
+        # After the call, dest is fully written.
+        self.assertTrue(self.dest.exists())
+        self.assertEqual(json.loads(self.dest.read_text(encoding="utf-8")), self.payload)
+
+    def test_dest_raises_file_exists_error_when_already_present(self) -> None:
+        """If dest was created concurrently, _copy_exclusive raises FileExistsError."""
+        self.dest.write_text(json.dumps({"id": "ce1", "other": True}), encoding="utf-8")
+        with self.assertRaises(FileExistsError):
+            q._copy_exclusive(self.staged, self.dest)
+        # dest must still hold the rival content.
+        self.assertEqual(_read(self.dest)["other"], True)
+
+    def test_no_partial_temp_file_left_on_write_error(self) -> None:
+        """If an error occurs during the write, no temp file is left behind."""
+        real_fdopen = os.fdopen
+
+        def _exploding_fdopen(fd: int, mode: str) -> Any:
+            fh = real_fdopen(fd, mode)
+            fh.write = lambda _b: (_ for _ in ()).throw(IOError("disk full"))  # type: ignore[assignment]
+            return fh
+
+        pending_dir = self.dest.parent
+        before = set(pending_dir.iterdir()) if pending_dir.exists() else set()
+        with patch("worker.queue_ops.os.fdopen", side_effect=_exploding_fdopen):
+            with self.assertRaises(IOError):
+                q._copy_exclusive(self.staged, self.dest)
+        after = set(pending_dir.iterdir()) if pending_dir.exists() else set()
+        leftover = after - before
+        self.assertEqual(leftover, set(), f"temp file(s) left behind: {leftover}")
+
+
 if __name__ == "__main__":
     unittest.main()

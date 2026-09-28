@@ -410,6 +410,103 @@ class TestStagedRecordNormalisation(unittest.TestCase, QueueRootIsolationMixin):
 
 
 # ---------------------------------------------------------------------------
+# Thread PRRT_kwDOQr1kjM6l0mrK: stop handlers installed before recovery
+#
+# Pre-fix: _install_stop_handlers was called AFTER q.recover_staged_requeues.
+# A SIGTERM/SIGINT arriving while recover_staged_requeues held _transition_lock
+# therefore used the default handler and could terminate the process before
+# drain_live_threads ran, leaving processing/ jobs abandoned.
+#
+# Post-fix: _install_stop_handlers is called before recover_staged_requeues and
+# recovery is inside the try/finally scope, so a signal during recovery sets
+# stop_event and drain_live_threads still runs.
+# ---------------------------------------------------------------------------
+
+
+class TestStopHandlersInstalledBeforeRecovery(unittest.TestCase, QueueRootIsolationMixin):
+    """Stop handlers are installed before staged-requeue recovery in run_daemon."""
+
+    def setUp(self) -> None:
+        self.setup_queue_root()
+        base = _patch_queue_root(self.root)
+        self.addCleanup(base.close)
+
+    def test_handlers_installed_before_recovery(self) -> None:
+        """_install_stop_handlers is called before q.recover_staged_requeues.
+
+        Pre-fix: handlers were installed after recovery; a SIGTERM during the
+        (potentially lock-blocking) recovery still used the default handler.
+        Post-fix: handlers are first, so a signal during recovery sets
+        stop_event rather than terminating via the default handler.
+        """
+        from worker import job_runtime as jr
+
+        call_order: list[str] = []
+
+        original_install = jr._install_stop_handlers
+
+        def _recording_install(stop: threading.Event) -> dict:
+            call_order.append("install_handlers")
+            return original_install(stop)
+
+        def _recording_recover(root=None) -> list:
+            call_order.append("recover")
+            return []
+
+        runner = _make_runner(self.root)
+        # stop_event set immediately so the daemon loop exits right away
+        runner.stop_event.set()
+
+        with patch("worker.job_runtime._install_stop_handlers", side_effect=_recording_install), \
+             patch("worker.job_runtime.q.recover_staged_requeues", side_effect=_recording_recover), \
+             patch("worker.job_runtime.os.chdir"):
+            runner.run_daemon()
+
+        self.assertEqual(
+            call_order,
+            ["install_handlers", "recover"],
+            "stop handlers must be installed before recovery is invoked",
+        )
+
+    def test_signal_during_recovery_drains_gracefully(self) -> None:
+        """A signal arriving during recovery sets stop_event; drain_live_threads still runs.
+
+        Pre-fix: with handlers installed after recovery, a signal during
+        recovery called the default handler and the process could terminate
+        before drain_live_threads ran.
+        Post-fix: the handler is installed first, so the simulated signal
+        (stop_event.set()) lets the daemon exit its loop and call drain.
+        """
+        from worker import job_runtime as jr
+
+        drain_called = threading.Event()
+        original_drain = jr.DaemonRunner.drain_live_threads
+
+        def _recording_drain(self_runner, grace: float) -> list:
+            drain_called.set()
+            return original_drain(self_runner, grace)
+
+        runner = _make_runner(self.root)
+
+        def _signal_during_recovery(root=None) -> list:
+            # Simulate a SIGTERM arriving while recover_staged_requeues holds
+            # _transition_lock: the installed handler sets stop_event.
+            runner.stop_event.set()
+            return []
+
+        with patch("worker.job_runtime.q.recover_staged_requeues", side_effect=_signal_during_recovery), \
+             patch("worker.job_runtime.os.chdir"), \
+             patch.object(jr.DaemonRunner, "drain_live_threads", _recording_drain):
+            result = runner.run_daemon()
+
+        self.assertTrue(
+            drain_called.is_set(),
+            "drain_live_threads must be called even when stop_event is set during recovery",
+        )
+        self.assertEqual(result, 0)
+
+
+# ---------------------------------------------------------------------------
 # Thread 3: non-finite --shutdown-grace
 # ---------------------------------------------------------------------------
 
