@@ -99,24 +99,47 @@ def resolve_paths(root: Path, paths: list[str]) -> list[Path]:
     # All paths are checked before any is touched, so a refusal is exit 2
     # with no IO at all.
     normalised_paths = [check_path(raw) for raw in paths]
-    resolved: list[Path] = []
-    for raw, normalised in zip(paths, normalised_paths, strict=True):
-        target = root / normalised
-        if target.is_symlink() or not target.exists():
-            raise SweepError(f"no such file or directory (symlinks are refused): {raw!r}")
-        resolved.append(target)
-    return resolved
+    try:
+        root_real = root.resolve(strict=True)
+    except OSError as exc:
+        raise SweepError(f"repository root is unusable: {exc}") from exc
+    return [_resolve_one(root_real, raw, normalised)
+            for raw, normalised in zip(paths, normalised_paths, strict=True)]
 
 
-def _iter_files(target: Path) -> Iterator[Path]:
+def _resolve_one(root_real: Path, raw: str, normalised: str) -> Path:
+    """Resolve one checked path, refusing it when any component is a symlink.
+
+    A symlink anywhere in the path is refused, whether it points outside the
+    repository or inside it. Following in-repo links would make the result
+    depend on where each link points, and the walk never follows one, so a
+    listed path and a walked path obey the same rule.
+    """
+    target = root_real / normalised
+    try:
+        real = target.resolve(strict=True)
+    except (OSError, RuntimeError) as exc:  # RuntimeError: a symlink loop
+        raise SweepError(f"no such file or directory: {raw!r}") from exc
+    if real != target or not real.is_relative_to(root_real):
+        raise SweepError(f"refused path (symlink): {raw!r}; symlinks are refused")
+    return real
+
+
+def _inside(path: Path, root_real: Path) -> bool:
+    return Path(os.path.realpath(path)).is_relative_to(root_real)
+
+
+def _iter_files(target: Path, root_real: Path) -> Iterator[Path]:
     if target.is_file():
         yield target
         return
     for dirpath, dirnames, filenames in os.walk(target):  # followlinks=False: symlinked dirs are not entered
-        dirnames[:] = sorted(d for d in dirnames if d not in _SKIP_DIRS)
+        base = Path(dirpath)
+        dirnames[:] = sorted(d for d in dirnames if d not in _SKIP_DIRS and _inside(base / d, root_real)
+                             and not (base / d).is_symlink())
         for name in sorted(filenames):
-            candidate = Path(dirpath) / name
-            if not candidate.is_symlink():
+            candidate = base / name
+            if not candidate.is_symlink() and _inside(candidate, root_real):
                 yield candidate
 
 
@@ -137,14 +160,17 @@ def _count_lines(regex: re.Pattern[str], text: str) -> int:
     return sum(1 for line in text.splitlines() if regex.search(line[:MAX_LINE_CHARS]))
 
 
-def _unique_files(targets: list[Path]) -> Iterator[Path]:
-    """Every file under ``targets`` once, even when listed paths overlap."""
+def _unique_files(targets: list[Path], root_real: Path) -> Iterator[Path]:
+    """Every file under ``targets`` once, even when listed paths overlap.
+
+    Targets are already resolved and no symlink is ever followed, so each
+    file's walked path is its real path and serves as the identity key.
+    """
     seen: set[Path] = set()
     for target in targets:
-        for path in _iter_files(target):
-            key = path.resolve()
-            if key not in seen:
-                seen.add(key)
+        for path in _iter_files(target, root_real):
+            if path not in seen:
+                seen.add(path)
                 yield path
 
 
@@ -156,9 +182,10 @@ def count_sweep(pattern: str, paths: list[str], *, root: Path) -> SweepCount:
     """
     regex = compile_pattern(pattern)
     targets = resolve_paths(root, paths)
+    root_real = root.resolve(strict=True)
     deadline = time.monotonic() + MAX_SECONDS
     hits = files = total = 0
-    for path in _unique_files(targets):
+    for path in _unique_files(targets, root_real):
         text = _read_text(path)
         if text is None:
             continue

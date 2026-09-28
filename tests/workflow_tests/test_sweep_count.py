@@ -71,6 +71,45 @@ class TestCountSweep(_Tree):
         with self.assertRaisesRegex(SweepError, "symlinks are refused"):
             count_sweep("check", ["src/link"], root=self.root)
 
+    def _outside(self) -> Path:
+        outside = tempfile.TemporaryDirectory()
+        self.addCleanup(outside.cleanup)
+        Path(outside.name, "secret.txt").write_text("check\n", encoding="utf-8")
+        return Path(outside.name)
+
+    def test_intermediate_symlink_to_outside_is_refused(self) -> None:
+        (self.root / "src/out").symlink_to(self._outside())
+        with self.assertRaisesRegex(SweepError, r"refused path \(symlink\)"):
+            count_sweep("check", ["src/out/secret.txt"], root=self.root)
+
+    def test_intermediate_symlink_inside_repo_is_refused(self) -> None:
+        # Documented choice: a symlink component is refused even when it
+        # stays in the repo, matching the walk, which never follows one.
+        (self.root / "src/alias").symlink_to(self.root / "workflows")
+        with self.assertRaisesRegex(SweepError, r"refused path \(symlink\)"):
+            count_sweep("check", ["src/alias/a.yaml"], root=self.root)
+        with self.assertRaisesRegex(SweepError, r"refused path \(symlink\)"):
+            count_sweep("check", ["src/alias"], root=self.root)
+
+    def test_walk_skips_in_repo_symlinked_dir(self) -> None:
+        (self.root / "src/alias").symlink_to(self.root / "workflows")
+        self.assertEqual(count_sweep("check", ["src"], root=self.root).hits, 0)
+
+    def test_symlink_loop_is_refused(self) -> None:
+        (self.root / "src/loop").symlink_to(self.root / "src/loop")
+        with self.assertRaisesRegex(SweepError, "no such file"):
+            count_sweep("check", ["src/loop"], root=self.root)
+        self.assertEqual(count_sweep("check", ["src"], root=self.root).hits, 0)
+
+    def test_root_reached_through_a_symlink_still_works(self) -> None:
+        # The root itself may sit behind a symlink (macOS /var -> /private/var);
+        # only components below it are checked.
+        link_parent = tempfile.TemporaryDirectory()
+        self.addCleanup(link_parent.cleanup)
+        linked_root = Path(link_parent.name, "repo")
+        linked_root.symlink_to(self.root)
+        self.assertEqual(count_sweep("check", ["workflows"], root=linked_root).hits, 3)
+
     def test_invalid_empty_and_oversized_patterns(self) -> None:
         for bad, msg in (("(", "invalid pattern"), ("", "empty"),
                          ("it's", "single quote"), ("a\nb", "newline"),
