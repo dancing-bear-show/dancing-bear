@@ -15,10 +15,8 @@ user's real queue (see CLAUDE.md "Testing" section).
 
 from __future__ import annotations
 
-import atexit
-import os
+import importlib.util as _ilu
 import sys
-import tempfile
 import webbrowser
 from pathlib import Path
 
@@ -41,39 +39,20 @@ if _SRC.is_dir():
 # and DANCING_BEAR_WORKER_STATE_DIR per test and restores them on teardown.
 # That is NOT enough: a worker thread that outlives its test finishes after the
 # restore and writes into the "original" value — which, without this guard, is
-# the user's real ~/Library/Application Support/dancing-bear/.  When the
-# launchd daemon is running, anything in pending/ gets picked up and executed.
+# the user's real ~/Library/Application Support/dancing-bear/.
 #
-# The fix: make the "real" value for the whole test process already point at a
-# private temp directory, so restoring to it is harmless.
-#
-# Respect an already-set value only if it is NOT the real default location,
-# so that a developer who sets the var explicitly to something safe keeps it.
-_WORKER_STATE_ENV = "DANCING_BEAR_WORKER_STATE_DIR"
-_REAL_DEFAULT = (
-    Path.home() / "Library" / "Application Support" / "dancing-bear"
-)
-
-_current_val = os.environ.get(_WORKER_STATE_ENV, "").strip()
-_is_already_private = bool(
-    _current_val
-    and _current_val != str(_REAL_DEFAULT)
-    and not _current_val.startswith(str(_REAL_DEFAULT) + "/")
-)
-
-if not _is_already_private:
-    # Create a fresh temp dir for the entire test process.
-    _worker_state_tmp = tempfile.mkdtemp(prefix="dancing-bear-test-state-")
-    os.environ[_WORKER_STATE_ENV] = _worker_state_tmp
-
-    def _cleanup_worker_state_tmp(_d: str = _worker_state_tmp) -> None:  # noqa
-        import shutil
-        try:
-            shutil.rmtree(_d, ignore_errors=True)
-        except Exception:  # nosec B110 - best-effort cleanup at exit
-            pass
-
-    atexit.register(_cleanup_worker_state_tmp)
+# The fix lives in tests/_private_worker_state.py and is called from the
+# __init__.py of every test package that can reach worker, so it runs regardless
+# of which discover form is used.  See CLAUDE.md "Testing" section.
+_BOOTSTRAP = Path(__file__).parent / "_private_worker_state.py"
+_BOOTSTRAP_KEY = "_dancing_bear_private_worker_state"
+if _BOOTSTRAP_KEY not in sys.modules:
+    _spec = _ilu.spec_from_file_location(_BOOTSTRAP_KEY, _BOOTSTRAP)
+    if _spec is not None and _spec.loader is not None:
+        _mod = _ilu.module_from_spec(_spec)
+        sys.modules[_BOOTSTRAP_KEY] = _mod
+        _spec.loader.exec_module(_mod)  # type: ignore[union-attr]
+sys.modules[_BOOTSTRAP_KEY].ensure_private()  # type: ignore[attr-defined]
 
 
 # --- Interactive-auth guard -------------------------------------------------

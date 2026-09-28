@@ -132,13 +132,22 @@ this bootstrap in place, restoring to the original is harmless: no test path can
 reach `~/Library/Application Support/dancing-bear/`.  The invariant is pinned by
 `tests/worker_tests/test_state_dir_is_private.py`.
 
-The bootstrap runs when `tests` is imported as a package. All supported
-invocations do so: `make test` (bare `python -m unittest`), `make cov`,
-`coverage run -m unittest discover` (no `-s`/`-t`; discovers from `.` so
-`tests/` is a package), and the documented
-`python3 -m unittest discover -s tests -t .` form.
-**Always include `-t .` when using `-s tests`** — without it, test modules are
-imported as top-level modules and `tests/__init__.py` is never imported.
+The bootstrap runs under every supported discovery form.  The logic lives in
+`tests/_private_worker_state.py` and is called from `tests/__init__.py` AND
+from the `__init__.py` of every test package that can reach `worker` directly
+or transitively (`worker_tests`, `workflow_tests`, `infra`).  Each package's
+`__init__.py` loads the module by path via `importlib.util.spec_from_file_location`
+so the call succeeds whether or not `tests` is the top-level package.
+
+Supported invocations and how the bootstrap is reached:
+
+| Invocation | `tests/__init__.py` runs | Bootstrap via |
+|---|---|---|
+| `make test` / `make cov` (bare `-m unittest`) | Yes | `tests/__init__.py` |
+| `coverage run -m unittest discover` (CI, no `-s`/`-t`) | Yes | `tests/__init__.py` |
+| `python3 -m unittest discover -s tests -t .` | Yes | `tests/__init__.py` |
+| `python3 -m unittest discover -s tests` (no `-t`) | **No** | subpackage `__init__.py` |
+| `python3 -m unittest discover -s tests/worker_tests` | **No** | `worker_tests/__init__.py` |
 
 **Linting (qlty):**
 - Check files: `~/.qlty/bin/qlty check path/to/file.py`

@@ -2,31 +2,53 @@
 
 Per-test isolation via QueueRootIsolationMixin cannot protect against worker
 threads that outlive their test and finish after the per-test restore.  The fix
-is process-wide: tests/__init__.py sets DANCING_BEAR_WORKER_STATE_DIR to a
-temporary directory before any worker module is imported, so "restoring to the
-original" restores to that temp dir, never to the user's real queue.
+is process-wide: DANCING_BEAR_WORKER_STATE_DIR is set to a temporary directory
+before any worker module is imported, so "restoring to the original" restores to
+that temp dir, never to the user's real queue.
 
-This test asserts the invariant for invocations where tests/__init__.py runs:
-  - make test (bare python -m unittest)
-  - make cov
-  - coverage run -m unittest discover  (no -s/-t; discovers from ., tests/ is a package)
-  - python3 -m unittest discover -s tests -t .  (both flags required)
+The bootstrap logic lives in tests/_private_worker_state.py and is called from
+tests/__init__.py AND from the __init__.py of every test package that reaches
+worker (worker_tests, workflow_tests, infra), so the guard fires under every
+supported discover form:
 
-Use -t . with -s tests: without it, tests are imported as top-level modules and
-tests/__init__.py is never imported, so the guard does not run.
+  - make test / make cov (bare -m unittest)
+  - coverage run -m unittest discover  (CI; no -s/-t)
+  - python3 -m unittest discover -s tests -t .
+  - python3 -m unittest discover -s tests  (no -t; worker_tests/__init__.py fires)
+  - python3 -m unittest discover -s tests/worker_tests  (this file's bootstrap)
+
+When unittest imports this file without first importing worker_tests/__init__.py
+(e.g. discover -s tests/worker_tests with no -t), the bootstrap below fires here
+so DANCING_BEAR_WORKER_STATE_DIR is private before the module-level worker imports
+below compute queue_ops.QUEUE_ROOT.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import platform
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from worker import _helpers as helpers
-from worker import queue_ops
+# Bootstrap the private worker state dir before any worker import, so
+# queue_ops.QUEUE_ROOT is computed from a private path regardless of how this
+# module was loaded (with or without worker_tests/__init__.py running first).
+_BOOTSTRAP = Path(__file__).parent.parent / "_private_worker_state.py"
+_BOOTSTRAP_KEY = "_dancing_bear_private_worker_state"
+if _BOOTSTRAP_KEY not in sys.modules:
+    _spec = importlib.util.spec_from_file_location(_BOOTSTRAP_KEY, _BOOTSTRAP)
+    if _spec is not None and _spec.loader is not None:
+        _mod = importlib.util.module_from_spec(_spec)
+        sys.modules[_BOOTSTRAP_KEY] = _mod
+        _spec.loader.exec_module(_mod)  # type: ignore[union-attr]
+sys.modules[_BOOTSTRAP_KEY].ensure_private()  # type: ignore[attr-defined]
+
+from worker import _helpers as helpers  # noqa: E402
+from worker import queue_ops  # noqa: E402
 
 
 def _real_default_state_dir() -> Path:
