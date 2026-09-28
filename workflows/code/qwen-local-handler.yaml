@@ -1164,7 +1164,7 @@ stages:
           "deferral_bound": {"mechanism": "derived-wallclock|side-channel-file|queue-field", "where_persisted": "<the exact file/field the retry path actually writes>", "verified_against": "<how you proved it survives queue_ops.retry reloading from disk>", "ceiling": N, "ceiling_unit": "count|minutes", "on_exceeded": "terminal-deferral-limit", "reasons_counted_separately": true, "cleanup": "<required for side-channel: when the entry is removed>"},
           "input_confinement": {"allowlist_dirs": ["..."], "denylist": ["..."], "resolution": "realpath+symlink", "check_before_open": true, "toctou": "closed-via-fd|accepted-with-rationale", "max_file_bytes": N, "on_violation": "terminal-path-not-allowed", "logs_contents": false},
           "patch_caps": {"max_files": N, "max_lines": N, "denied_prefixes": ["..."], "on_breach": "terminal-patch-too-broad", "records_size_always": true},
-          "redaction": {"helper": "core.secrets.mask_text", "applies_to": ["..."], "prompt_never_persisted": true, "contents_reach_disk_only_in": "the patch artifact", "patch_dir_outside_checkout": true, "exception_boundary": "handler catches and returns a masked content-free string; job_runtime's envelope.diagnostics path is NOT masked", "known_limit": "pattern-based; no novel secret formats"},
+          "redaction": {"helper": "core.secrets.mask_text", "applies_to": ["..."], "prompt_never_persisted": true, "contents_reach_disk_only_in": ["the patch artifact", "the masked model response kept on failure: output_dir('qwen')/responses/<job_id>.txt, capped at 256 KiB, file 0600, dir 0700"], "patch_dir_outside_checkout": true, "exception_boundary": "handler catches and returns a masked content-free string; job_runtime's envelope.diagnostics path is NOT masked", "known_limit": "pattern-based; no novel secret formats"},
           "disk_guard": {"path": "...", "min_free_gb": N, "on_insufficient": "deferred-low-disk", "unavailable_fallback": "no-op with warning"},
           "admission": {"max_lane_depth": N, "counts": "pending+processing for this type only", "enforced_at": "handler-side|operator-limit|follow-up", "on_exceeded": "terminal-lane-over-capacity" | null, "stops_the_enqueue": false, "other_types_unconstrained": true},
           "model_pinning": {"digest_source": "...", "recorded_at": "install", "on_mismatch": "record and surface, do not fail"},
@@ -1397,9 +1397,13 @@ stages:
           input files; the diff built from those blocks likewise carries them.
           So "file contents are never persisted" is false as a blanket claim.
           What is true: the prompt is never persisted, and contents reach
-          disk only inside the patch artifact — which is why that artifact's
-          location outside the checkout is a confidentiality boundary, not a
-          tidiness preference. Do not restate the blanket claim anywhere.
+          disk in exactly two places — the patch artifact, and the masked
+          model response kept when a job fails after the model answered
+          (output_dir("qwen")/responses/<job_id>.txt, capped at 256 KiB,
+          file 0600, dir 0700), whose SEARCH sections quote input lines.
+          Both live outside the checkout, which is why that location is a
+          confidentiality boundary, not a tidiness preference. Do not
+          restate the blanket claim anywhere.
         - DISK PRECHECK, per contract.json's "disk_guard", before writing the
           patch. Fails open like the memory guard.
         - MODEL PINNING, per contract.json's "model_pinning": read the
