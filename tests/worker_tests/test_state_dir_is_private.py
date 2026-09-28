@@ -69,6 +69,16 @@ def _real_default_state_dir() -> Path:
     return Path.home() / "Library" / "Application Support" / "dancing-bear"
 
 
+def _load_bootstrap(key: str):
+    """Load a fresh copy of tests/_private_worker_state.py under *key*, by path."""
+    spec = importlib.util.spec_from_file_location(key, _BOOTSTRAP)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Failed to load spec from {_BOOTSTRAP}")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def _bootstrap_created_dir() -> bool:
     """Return True if tests/__init__.py created the current state dir.
 
@@ -143,14 +153,7 @@ class TestStateDirectoryIsPrivate(unittest.TestCase):
         Calls ensure_private() directly instead of reimplementing the predicate,
         so the test exercises the real bootstrap logic.
         """
-        # Load _private_worker_state by path, the same way the package __init__ files do.
-        bootstrap_path = Path(__file__).parent.parent / "_private_worker_state.py"
-        key = "_dancing_bear_private_worker_state_test_reload"
-        spec = importlib.util.spec_from_file_location(key, bootstrap_path)
-        if spec is None or spec.loader is None:
-            raise RuntimeError(f"Failed to load spec from {bootstrap_path}")
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)  # type: ignore[union-attr]
+        mod = _load_bootstrap("_dancing_bear_private_worker_state_test_reload")
 
         import shutil
 
@@ -239,19 +242,11 @@ class TestIsPrivate(unittest.TestCase):
     """Unit tests for _private_worker_state._is_private after Thread 2 fix."""
 
     def setUp(self) -> None:
-        # Load the module by path each time so we test the live version.
-        bootstrap_path = Path(__file__).parent.parent / "_private_worker_state.py"
-        key = "_dancing_bear_private_worker_state_is_private_suite"
-        spec = importlib.util.spec_from_file_location(key, bootstrap_path)
-        if spec is None or spec.loader is None:
-            raise RuntimeError(f"Failed to load spec from {bootstrap_path}")
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)  # type: ignore[union-attr]
-        self._mod = mod
+        self._mod = _load_bootstrap("_dancing_bear_private_worker_state_is_private_suite")
         self._real_default = Path.home() / "Library" / "Application Support" / "dancing-bear"
 
     def _is_private(self, val: str) -> bool:
-        return self._mod._is_private(val)  # type: ignore[attr-defined]
+        return self._mod._is_private(val)
 
     def test_empty_string_is_not_private(self) -> None:
         self.assertFalse(self._is_private(""))

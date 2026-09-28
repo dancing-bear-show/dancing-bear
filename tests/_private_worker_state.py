@@ -40,10 +40,10 @@ def _is_private(val: str) -> bool:
     identified as not private.
 
     Ancestry check: ``_REAL_DEFAULT`` is ``~/Library/.../dancing-bear``.
-    ``get_worker_state_dir`` appends only one segment (e.g. "queue"), so a path
-    that *contains* the real default as an ancestor — like ``$HOME`` — would
-    resolve to ``~/queue``, not into the real queue tree.  We only need to
-    reject paths that *are* the real default or are inside it.
+    ``get_worker_state_dir`` appends only one segment (e.g. "queue"), so an
+    ancestor of the real default — like ``$HOME`` — resolves to ``~/queue``,
+    not into the real queue tree.  Only paths that *are* the real default or
+    lie inside it need rejecting.
     """
     if not val:
         return False
