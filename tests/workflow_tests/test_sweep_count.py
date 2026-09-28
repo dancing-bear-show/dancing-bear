@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
-from unittest import mock
+from unittest.mock import patch
 
 from workflow import sweep_count
 from workflow.cli import main
@@ -81,12 +81,12 @@ class TestCountSweep(_Tree):
     def test_binary_and_oversized_files_skipped(self) -> None:
         self._put("src/bin.dat", b"check\0check\n")
         self._put("src/big.txt", "check\n")
-        with mock.patch.object(sweep_count, "MAX_FILE_BYTES", 5):
+        with patch.object(sweep_count, "MAX_FILE_BYTES", 5):
             got = count_sweep("check", ["src"], root=self.root)
         self.assertEqual(got.hits, 0)
 
     def test_total_byte_bound_truncates(self) -> None:
-        with mock.patch.object(sweep_count, "MAX_TOTAL_BYTES", 10):
+        with patch.object(sweep_count, "MAX_TOTAL_BYTES", 10):
             got = count_sweep("check", ["workflows"], root=self.root)
         self.assertTrue(got.truncated)
         self.assertIs(got.as_dict()["truncated"], True)
@@ -125,7 +125,7 @@ class TestCountSweepCLI(_Tree):
                 self.assertIn(msg, err)
 
     def test_truncated_scan_exits_1_with_partial_count(self) -> None:
-        with mock.patch.object(sweep_count, "MAX_TOTAL_BYTES", 10):
+        with patch.object(sweep_count, "MAX_TOTAL_BYTES", 10):
             code, out, err = self._run("--pattern=check", "--path", "workflows")
         self.assertEqual(code, 1)
         self.assertTrue(json.loads(out)["truncated"])
