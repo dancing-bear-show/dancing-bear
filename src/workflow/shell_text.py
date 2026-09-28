@@ -64,6 +64,10 @@ _FENCE_RE = re.compile(r"^\s*```\s*([A-Za-z0-9_+-]*)\s*$")
 # its line and would miss that; this variant captures the lang tag and
 # whatever trailing text follows it, so the trailing text can be recovered
 # as the fence's first body line instead of the whole block being skipped.
+# The lang-tag group is greedy and cannot itself tell a real language from
+# the first word of an unlabelled fence's body ("``` echo setup" also
+# matches group(1)="echo"); _fence_lang_and_first_line resolves that using
+# the known-language set.
 _FENCE_OPEN_RE = re.compile(r"^\s*```\s*([A-Za-z0-9_+-]*)[ \t]*(\S.*)?$")
 _ASSIGN_START_RE = re.compile(r"^[A-Z_][A-Z0-9_]*=")
 _BACKTICK_SPAN_RE = re.compile(r"`([^`\n]+)`")
@@ -228,14 +232,33 @@ def _fence_segments(lines: list[str]) -> tuple[list[ShellSegment], set[int]]:
             continue
         end = next((j for j in range(i + 1, len(lines)) if _FENCE_RE.match(lines[j])), len(lines))
         body = lines[i + 1:end]
-        trailing = m.group(2)
-        if trailing:
-            body = [trailing] + body
+        lang, first_line = _fence_lang_and_first_line(m.group(1), m.group(2))
+        if first_line:
+            body = [first_line] + body
         consumed.update(range(i, min(end + 1, len(lines))))
-        if _fence_is_shell(m.group(1).lower(), body):
+        if _fence_is_shell(lang, body):
             segments.append(ShellSegment(text="\n".join(body), origin="fence"))
         i = end + 1
     return segments, consumed
+
+
+def _fence_lang_and_first_line(tag: str, trailing: str | None) -> tuple[str, str]:
+    """Split a folded fence-open match into its real language tag and body line.
+
+    ``_FENCE_OPEN_RE``'s lang-tag group is greedy: on a labelled fence folded
+    onto one line ("```bash echo setup") *tag* is a real language and
+    *trailing* is the body's first line. On an UNLABELLED fence folded the
+    same way ("``` echo setup") there is no language at all -- *tag* is just
+    the first word of the body ("echo"), grabbed because the regex cannot
+    tell "echo" from "bash" without a known-language list. Recover that case
+    by checking *tag* against the known set: if it is not recognised and
+    there is trailing text, the fence is unlabelled and the whole captured
+    text (*tag* + *trailing*) is the body's first line.
+    """
+    lang = tag.lower()
+    if trailing and lang not in _SHELL_FENCE_LANGS:
+        return "", f"{tag} {trailing}"
+    return lang, trailing or ""
 
 
 def _fence_is_shell(lang: str, body: list[str]) -> bool:

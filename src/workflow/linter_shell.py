@@ -81,17 +81,25 @@ _PLACEHOLDER_RE = re.compile(r"(?<!\{)\{([a-z_][a-z0-9_]*)\}(?!\})")
 # friends handle an unset NAME, so the braced form must close right after it.
 _EXPANSION_RE = re.compile(r"\$(?:\{([A-Z_][A-Z0-9_]*)\}|([A-Z_][A-Z0-9_]*))")
 # Searched in the whole description, prose included: "Bash tool: F=..." binds F
-# even though its label keeps that line out of the shell segments.
+# even though its label keeps that line out of the shell segments. A leading
+# word character immediately before the match (no separator/whitespace boundary)
+# is excluded by _is_assignment_position below: an assignment word is only a
+# binding in assignment position -- the first word of a command, or right after
+# export/local/declare -- not merely preceded by whitespace or a separator.
+# ``echo FOO=literal`` must not bind FOO; ``export FOO=literal`` must.
 _ASSIGNMENT_RE = re.compile(r"(?:^|[\s;(&|`])([A-Z_][A-Z0-9_]*)=")
+_ASSIGNMENT_KEYWORDS = frozenset({"export", "local", "declare"})
 _BINDING_WORDS = frozenset({"for", "read"})
 _PYTHON_WORD_RE = re.compile(r"^(?:.*/)?python3?(?:\.\d+)?$")
 # Group 1 captures a quoting character on the delimiter, when there is one, so
 # a caller can tell a quoted heredoc (body is inert data, no expansions occur)
-# from an unquoted one (body undergoes $(...)/backtick/$VAR expansion).
-_HEREDOC_RE = re.compile(r"<<-?\s*(['\"])?[A-Za-z_]")
+# from an unquoted one (body undergoes $(...)/backtick/$VAR expansion). Group 2
+# captures the delimiter word itself, so the matching close line can be found.
+_HEREDOC_RE = re.compile(r"<<-?\s*(['\"])?([A-Za-z_][A-Za-z0-9_]*)")
+_SUBSTITUTION_RE = re.compile(r"\$\(|`")
 _WRITE_INSTRUCTION_RE = re.compile(
     r"\b(?:Write|write|Save|save|Create|create|Emit|emit|Output|output|Produce|produce)\s+"
-    r"(?:it\s+to\s+|to\s+|the\s+\S+\s+to\s+)?"
+    r"(?:it\s+to:?\s+|to:?\s+|the\s+\S+\s+to:?\s+)?"
     r"\"?\{workspace\}/\S+\.[A-Za-z0-9]+\b"
 )
 
@@ -107,11 +115,18 @@ _LOOP_HEADS = frozenset({"for", "while", "until"})
 # "Written" table in .claude/hooks/README.md). A loop whose body calls none of
 # these, and contains no output redirection, is read-only and the guard allows
 # it outright (guard-contract.yaml: "for f in src/*.py; do wc -l "$f"; done").
+# `sed` and `patch` are handled separately in _loop_body_is_mutating because
+# the guard's own contract for them is conditional on their flags, not on the
+# bare command name -- see the "Written" table's `sed` and `patch` rows.
 _MUTATING_COMMANDS = frozenset({
     "rm", "rmdir", "unlink", "shred", "chmod", "chown", "chgrp", "mv", "cp",
     "ln", "install", "touch", "tee", "truncate", "dd", "mkdir",
 })
 _REDIRECT_RE = re.compile(r"(?<![<>])>>?(?!>)")
+# The guard refuses `patch` unless one of these is present (it writes the
+# files named *inside the diff*, so the guard cannot resolve a write target
+# without one of these).
+_PATCH_SAFE_FLAGS = ("--dry-run", "-o")
 # -I (isolated) and -E both make the interpreter ignore PYTHONPATH, which is
 # where a foreign checkout's sitecustomize comes from. -S is not required:
 # alone it does not ignore PYTHONPATH, and it would break ``-m pip``.
@@ -295,8 +310,32 @@ def _unquoted_fan_out_keys(item: _StageShell) -> list[LintWarning]:
 # ---------------------------------------------------------------------------
 
 
+def _is_assignment_position(text: str, start: int) -> bool:
+    """True when the ``NAME=`` match at *start* sits in assignment position.
+
+    A shell assignment word binds only as the first word of a command, or right
+    after ``export``/``local``/``declare`` -- not merely because whitespace or a
+    separator precedes it. ``echo FOO=literal`` is an argument to ``echo``, not a
+    binding: the character immediately before ``FOO`` (skipping whitespace) is
+    ``o``, a word character, so this is preceded by another word, not a command
+    boundary. ``export FOO=literal`` binds because that preceding word is one of
+    the assignment keywords. A prose label ending in a non-word character
+    (``Bash tool: F=...``) is also a boundary -- the ':' is not a word character.
+    """
+    i = start
+    while i > 0 and text[i - 1] in " \t":
+        i -= 1
+    if i == 0 or not text[i - 1].isalnum() and text[i - 1] != "_":
+        return True
+    word_end = i
+    word_start = word_end
+    while word_start > 0 and (text[word_start - 1].isalnum() or text[word_start - 1] == "_"):
+        word_start -= 1
+    return text[word_start:word_end] in _ASSIGNMENT_KEYWORDS
+
+
 def _assigned_names(description: str, segments: Iterable[ShellSegment]) -> set[str]:
-    """Upper-case names bound by ``NAME=`` anywhere, or ``for``/``read`` in shell.
+    """Upper-case names bound by ``NAME=`` in assignment position, or ``for``/``read`` in shell.
 
     Matched outside quotes only: an assignment-looking literal inside a quoted
     string (``echo "example FOO=literal"``) is quoted text, not a binding, and
@@ -304,13 +343,16 @@ def _assigned_names(description: str, segments: Iterable[ShellSegment]) -> set[s
     Quote context is computed over the whole description -- not just the shell
     segments -- so the intentional "label before a command" case (``Bash tool:
     F=...``) still binds: the assignment token there sits outside any quote,
-    only the value is quoted.
+    only the value is quoted. An unquoted ``NAME=`` that is merely an argument
+    to another command (``echo FOO=literal``) is excluded by
+    :func:`_is_assignment_position` -- only the shell grammar's assignment
+    position is a real binding.
     """
     ctx = quote_context(description)
     names = {
         m.group(1)
         for m in _ASSIGNMENT_RE.finditer(description)
-        if ctx[m.start(1)] == ""
+        if ctx[m.start(1)] == "" and _is_assignment_position(description, m.start(1))
     }
     for seg in segments:
         tokens = split_tokens(seg.text)
@@ -435,20 +477,50 @@ def _unisolated_pythons(item: _StageShell) -> list[LintWarning]:
 # ---------------------------------------------------------------------------
 
 
-def _has_heredoc(text: str) -> bool:
-    """True for an unquoted-delimiter heredoc -- the shape the guard cannot inspect.
+def _heredoc_body_has_substitution(text: str, delimiter: str, body_start: int) -> bool:
+    """True when the heredoc body up to the matching *delimiter* line contains a substitution.
+
+    Finds the first line, from *body_start* on, whose stripped content equals
+    *delimiter* -- the closing line -- and scans everything before it for
+    ``$(...)`` or a backtick. A static body (plain literal lines) has neither,
+    and the guard's contract only refuses an unquoted heredoc because those
+    constructs expand before the guard can inspect the result; a body with
+    no substitution is not something the guard refuses.
+    """
+    close = re.search(rf"^[ \t]*{re.escape(delimiter)}[ \t]*$", text[body_start:], re.MULTILINE)
+    body = text[body_start:body_start + close.start()] if close else text[body_start:]
+    return bool(_SUBSTITUTION_RE.search(body))
+
+
+def _has_heredoc(text: str, full_text: str | None = None) -> bool:
+    """True for an unquoted-delimiter heredoc whose body actually substitutes.
 
     A quoted delimiter (``<<'EOF'`` or ``<<"EOF"``) makes the body inert: POSIX sh
     performs no expansion inside it at all, so ``$(...)`` in a quoted heredoc body
     is literal text, not a command to run. The guard's own contract allows this
     shape explicitly (guard-contract.yaml: "quoted heredoc data" -> allow), so it
-    must not be flagged here as refused.
+    must not be flagged here as refused. An unquoted delimiter whose body is
+    static (no ``$(...)`` or backtick) is also something the guard accepts: the
+    guard can only fail to inspect a substitution that is actually there.
+
+    *full_text* is the whole stage description to scan for the body in, when it
+    differs from *text*: ``extract_shell_segments`` stops a "line" segment at
+    the heredoc opener, so the body lines never appear in the segment text
+    itself and must be located in the surrounding description instead.
     """
     ctx = quote_context(text)
-    return any(
-        ctx[m.start()] == "" and text[m.start() - 1:m.start()] != "<" and m.group(1) is None
-        for m in _HEREDOC_RE.finditer(text)
-    )
+    for m in _HEREDOC_RE.finditer(text):
+        if ctx[m.start()] != "" or text[m.start() - 1:m.start()] == "<" or m.group(1) is not None:
+            continue
+        if full_text is not None:
+            anchor = full_text.find(text)
+            body_start = anchor + m.end() if anchor != -1 else m.end()
+            search_text = full_text if anchor != -1 else text
+        else:
+            body_start, search_text = m.end(), text
+        if _heredoc_body_has_substitution(search_text, m.group(2), body_start):
+            return True
+    return False
 
 
 def _as_command_separators(text: str) -> str:
@@ -465,6 +537,32 @@ def _as_command_separators(text: str) -> str:
     return "".join(";" if ch == "\n" and ctx[i] == "" else ch for i, ch in enumerate(text))
 
 
+def _has_sed_in_place(tokens: list[str], sed_index: int) -> bool:
+    """True when the ``sed`` invocation at *sed_index* carries ``-i``/``--in-place``.
+
+    The guard's "Written" table blocks `sed` operands only with `-i`/`--in-place`
+    present -- a plain `sed -n ...` is a read. `-i` can appear bare, clustered
+    with other short flags (`-ie`), or with an attached suffix (`-i.bak`).
+    """
+    for tok in tokens[sed_index + 1:]:
+        if tok in ("--in-place",) or tok.startswith("--in-place="):
+            return True
+        if tok.startswith("-") and not tok.startswith("--") and "i" in tok[1:]:
+            return True
+    return False
+
+
+def _has_unsafe_patch(tokens: list[str], patch_index: int) -> bool:
+    """True when the ``patch`` invocation at *patch_index* lacks a safe flag.
+
+    The guard refuses `patch` unless `--dry-run` or `-o FILE` is present, because
+    otherwise it writes the files named *inside the diff* -- a write target the
+    guard cannot resolve from the command line alone.
+    """
+    rest = tokens[patch_index + 1:]
+    return not any(tok.startswith(_PATCH_SAFE_FLAGS) for tok in rest)
+
+
 def _loop_body_is_mutating(tokens: list[str], do_index: int) -> bool:
     """True when the loop body (after ``do``) writes anything, by the guard's own test.
 
@@ -473,12 +571,22 @@ def _loop_body_is_mutating(tokens: list[str], do_index: int) -> bool:
     the guard's own "Written" table, or redirects output (`>`, `>>`). This is
     deliberately narrower than the guard's full write-target parser -- it is enough to
     stop flagging the read-only loops the guard actually allows, not a reimplementation
-    of the guard itself.
+    of the guard itself. `sed` and `patch` are checked separately because the guard's
+    own contract for them is conditional on flags, not on the bare command name: `sed`
+    is refused only with `-i`/`--in-place`, and `patch` is refused unless `--dry-run`
+    or `-o FILE` is present.
     """
     body = tokens[do_index + 1:]
     if any(tok in _MUTATING_COMMANDS for tok in body):
         return True
-    return any(_REDIRECT_RE.search(tok) for tok in body)
+    if any(_REDIRECT_RE.search(tok) for tok in body):
+        return True
+    for i, tok in enumerate(body):
+        if tok == "sed" and _has_sed_in_place(body, i):
+            return True
+        if tok == "patch" and _has_unsafe_patch(body, i):
+            return True
+    return False
 
 
 def _has_loop(text: str) -> bool:
@@ -493,9 +601,9 @@ def _has_loop(text: str) -> bool:
     return False
 
 
-def _refused_construct(text: str) -> str:
+def _refused_construct(text: str, full_text: str) -> str:
     """Name the guard-refused construct in *text*, or "" when there is none."""
-    if _has_heredoc(text):
+    if _has_heredoc(text, full_text):
         return "heredoc"
     if _has_loop(text):
         return "loop"
@@ -504,7 +612,7 @@ def _refused_construct(text: str) -> str:
 
 def _guard_refused(item: _StageShell) -> list[LintWarning]:
     for seg in item.segments:
-        what = _refused_construct(seg.text)
+        what = _refused_construct(seg.text, item.stage.description)
         if what:
             return [_warn(
                 item.stage.name,

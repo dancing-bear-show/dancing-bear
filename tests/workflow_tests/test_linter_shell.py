@@ -320,6 +320,19 @@ class TestUnboundVariable(_RuleCase):
         hits = self.assert_fires(_workflow(_stage(desc)))
         self.assertIn("$UNBOUND_VAR", hits[0].message)
 
+    def test_fires_when_folded_scalar_collapses_unlabelled_fence_marker(self) -> None:
+        # PR #433 review (follow-up): an UNLABELLED fence folded onto one
+        # line ("``` echo ...") has no language tag at all, but
+        # _FENCE_OPEN_RE's lang-tag group is greedy and still captures the
+        # first word of the body ("echo") as if it were one. _fence_is_shell
+        # then rejected "echo" (not in _SHELL_FENCE_LANGS) and the whole
+        # fenced block -- including this unbound reference -- was silently
+        # dropped, the same failure mode as the labelled case above but for
+        # a fence with no language tag whatsoever.
+        desc = '``` echo "$UNBOUND_VAR"\n```\n'
+        hits = self.assert_fires(_workflow(_stage(desc)))
+        self.assertIn("$UNBOUND_VAR", hits[0].message)
+
     def test_single_quoted_default_and_environment_are_silent(self) -> None:
         desc = (
             "Run:\n\n"
@@ -356,6 +369,24 @@ class TestUnboundVariable(_RuleCase):
         desc = 'Run:\n\n  echo "example FOO=literal"\n  echo "$FOO"\n'
         hits = self.assert_fires(_workflow(_stage(desc)))
         self.assertIn("$FOO", hits[0].message)
+
+    def test_unquoted_non_assignment_position_does_not_bind(self) -> None:
+        # PR #433 review: NAME=value as an argument to another command (not
+        # itself in assignment position) is not a binding -- the shell never
+        # runs an assignment there, so a real later $FOO expansion must still
+        # fire shell-unbound-variable, even though the token is unquoted.
+        desc = 'Run:\n\n  echo FOO=literal\n  echo "$FOO"\n'
+        hits = self.assert_fires(_workflow(_stage(desc)))
+        self.assertIn("$FOO", hits[0].message)
+
+    def test_export_prefixed_assignment_binds(self) -> None:
+        # export/local/declare are assignment keywords: the word right after
+        # them is still a real binding even though it is not the first word
+        # of the command.
+        for keyword in ("export", "local", "declare"):
+            with self.subTest(keyword=keyword):
+                desc = f'Run:\n\n  {keyword} FOO=literal\n  echo "$FOO"\n'
+                self.assert_silent(_workflow(_stage(desc)))
 
     def test_has_teeth(self) -> None:
         self.assert_has_teeth(_workflow(_stage(_UNBOUND)))
@@ -457,6 +488,23 @@ class TestValidateStageWritesOutput(_RuleCase):
             with self.subTest(verb=verb):
                 self.assert_fires(_workflow(_stage(desc, kind="validate")))
 
+    def test_fires_on_colon_after_to(self) -> None:
+        # An unlinked finding: "Write to: {workspace}/..." never matched
+        # because the regex required "to" to be followed directly by
+        # whitespace, with no punctuation allowed in between.
+        hits = self.assert_fires(
+            _workflow(_stage("Write to: {workspace}/outputs/result.json", kind="validate"))
+        )
+        self.assertIn("outputs/result.json", hits[0].message)
+
+    def test_no_colon_after_to_still_fires(self) -> None:
+        # Sad path for the same fix: the plain "to " form (no punctuation)
+        # must keep matching after the colon is made optional.
+        hits = self.assert_fires(
+            _workflow(_stage("Write to {workspace}/outputs/result.json", kind="validate"))
+        )
+        self.assertIn("outputs/result.json", hits[0].message)
+
     def test_has_teeth(self) -> None:
         self.assert_has_teeth(_workflow(_stage(_VERIFY, kind="validate")))
 
@@ -528,6 +576,32 @@ class TestGuardRefused(_RuleCase):
         desc = 'Report line counts:\n\n  for f in src/*.py; do wc -l "$f"; done\n'
         self.assert_silent(_workflow(_stage(desc)))
 
+    def test_static_heredoc_body_is_silent(self) -> None:
+        # PR #433 review: _has_heredoc previously fired for every unquoted
+        # delimiter regardless of body content. The guard only fails to
+        # inspect a heredoc body that contains a substitution -- a purely
+        # literal body like this one is something the guard accepts outright.
+        desc = (
+            "Write the file:\n\n"
+            '  cat > "$TMPDIR/notes.txt" <<EOF\n'
+            "  literal\n"
+            "  EOF\n"
+        )
+        self.assert_silent(_workflow(_stage(desc)))
+
+    def test_unquoted_heredoc_with_backtick_substitution_fires(self) -> None:
+        # A backtick substitution in the body is just as unresolvable to the
+        # guard as $(...); the sad path for the static-body fix must still
+        # catch this shape.
+        desc = (
+            "Write the file:\n\n"
+            '  cat > "$TMPDIR/notes.txt" <<EOF\n'
+            "  `date`\n"
+            "  EOF\n"
+        )
+        hits = self.assert_fires(_workflow(_stage(desc)))
+        self.assertIn("heredoc", hits[0].message)
+
     def test_python_for_loop_is_not_shell(self) -> None:
         desc = "Inline:\n\n  python3 -I -S -c \"\n  for parser in PARSERS:\n      print(parser)\n  \"\n"
         self.assert_silent(_workflow(_stage(desc)))
@@ -544,6 +618,39 @@ class TestGuardRefused(_RuleCase):
         desc = "```bash\necho setup\n\nfor p in items; do rm -f \"$p\"; done\n```\n"
         hits = self.assert_fires(_workflow(_stage(desc)))
         self.assertIn("loop", hits[0].message)
+
+    def test_fires_on_loop_with_sed_in_place(self) -> None:
+        # PR #433 review r4099834XXX: sed -i is a write per the guard's
+        # "Written" table but was absent from _MUTATING_COMMANDS, so a loop
+        # calling it passed shell-guard-refused even though the guard refuses it.
+        for command in (
+            'for p in files; do sed -i "s/a/b/" "$p"; done',
+            'for p in files; do sed --in-place "s/a/b/" "$p"; done',
+            'for p in files; do sed -ie "s/a/b/" "$p"; done',
+        ):
+            with self.subTest(command=command):
+                desc = f"Run:\n\n  {command}\n"
+                self.assertIn("loop", self.assert_fires(_workflow(_stage(desc)))[0].message)
+
+    def test_sed_without_in_place_in_loop_is_silent(self) -> None:
+        # sed -n (or any sed call without -i/--in-place) only reads: the
+        # guard's "Written" table blocks sed operands only with -i present.
+        desc = 'Read:\n\n  for p in files; do sed -n "1p" "$p"; done\n'
+        self.assert_silent(_workflow(_stage(desc)))
+
+    def test_fires_on_loop_with_unsafe_patch(self) -> None:
+        # patch is refused by the guard unless --dry-run or -o FILE is given,
+        # because it writes the files named inside the diff.
+        desc = 'Run:\n\n  for p in diffs; do patch < "$p"; done\n'
+        self.assertIn("loop", self.assert_fires(_workflow(_stage(desc)))[0].message)
+
+    def test_patch_with_safe_flag_in_loop_is_silent(self) -> None:
+        for command in (
+            'for p in diffs; do patch --dry-run < "$p"; done',
+            'for p in diffs; do patch -o "$p.out" < "$p"; done',
+        ):
+            with self.subTest(command=command):
+                self.assert_silent(_workflow(_stage(f"Run:\n\n  {command}\n")))
 
     def test_has_teeth(self) -> None:
         self.assert_has_teeth(_workflow(_stage(_LOOP)))
@@ -616,6 +723,29 @@ class TestExtractShellSegments(unittest.TestCase):
         self.assertEqual(fence_segments[0].text, 'echo setup\nfor p in items; do echo "$p"; done')
         # The collapsed first command must survive, not be discarded.
         self.assertIn("echo setup", fence_segments[0].text)
+
+    def test_folded_scalar_collapses_unlabelled_fence_marker_onto_first_command(self) -> None:
+        # PR #433 review (follow-up): the fix above only covers a LABELLED
+        # fence folded onto one line ("```bash echo setup"). An UNLABELLED
+        # fence folded the same way ("``` echo setup") has no language tag,
+        # but the lang-tag group in _FENCE_OPEN_RE is greedy and captures
+        # "echo" as if it were one; _fence_is_shell then rejected it
+        # ("echo" not in _SHELL_FENCE_LANGS) and the whole block -- an
+        # unlabelled fence whose first line is a command, which the module's
+        # own contract says counts as shell -- was silently dropped.
+        desc = '``` echo setup\nfor p in items; do echo "$p"; done\n```\n'
+        segments = extract_shell_segments(desc)
+        fence_segments = [s for s in segments if s.origin == "fence"]
+        self.assertEqual(len(fence_segments), 1)
+        self.assertEqual(fence_segments[0].text, 'echo setup\nfor p in items; do echo "$p"; done')
+
+    def test_folded_scalar_collapsed_unlabelled_fence_with_prose_first_line_stays_silent(self) -> None:
+        # Sibling near-miss: when the collapsed first line is NOT a command
+        # (prose, not a recognised command word), the fence must still be
+        # rejected as non-shell -- the fix must not turn every unlabelled
+        # collapsed fence into shell regardless of content.
+        desc = "``` this is just prose\nmore prose\n```\n"
+        self.assertEqual(extract_shell_segments(desc), [])
 
     def test_quote_context_handles_nested_substitution(self) -> None:
         text = 'X="$(jq -r \'.a\' "$F")" {k}'
