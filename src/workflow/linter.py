@@ -136,8 +136,70 @@ def lint_workflow(path: str | Path, *, check_commands: bool = False) -> LintResu
     if check_commands:
         _check_cli_commands(defn, result)
 
+    _lint_included_fragments(text, p, result)
+
     result.valid = len(result.errors) == 0
     return result
+
+
+def _lint_included_fragments(text: str, workflow_path: Path, result: LintResult) -> None:
+    """Recursively lint every fragment reachable from ``include:``, own errors folded in.
+
+    ``check_shell_rules`` skips the context-free rules (unbound-variable, fan-out
+    quoting, isolation, guard-refused, validate-writes) for stages inlined from a
+    fragment, because those rules are judged against the fragment's own params --
+    not the importer's -- and get judged when the fragment is linted on its own
+    (see ``_lint_fragment``). Nothing previously did that second lint automatically,
+    so a normal ``workflow lint parent.yaml`` never ran them on an included stage at
+    all: the skip fired, and no other call site picked up the slack.
+
+    Each fragment file is linted at most once per top-level ``lint_workflow`` call
+    (`` _own_stage_names``/`` _check_include_files`` already error on a missing file
+    or a cycle, so this only needs to dedupe, not detect cycles itself). Fragment
+    warnings and errors are folded into *result* with the fragment path prefixed
+    onto the stage name, so they read distinctly from the importer's own findings
+    and from a second fragment reusing the same stage name.
+    """
+    seen: set[str] = set()
+    _lint_fragments_from(text, workflow_path, result, seen)
+
+
+def _lint_fragments_from(
+    text: str, source_path: Path, result: LintResult, seen: set[str]
+) -> None:
+    for inc in extract_include_entries(text):
+        if not isinstance(inc, dict) or "path" not in inc:
+            continue
+        frag_path = resolve_fragment_path(str(inc["path"]), source_path)
+        key = str(frag_path.resolve()) if frag_path.exists() else str(frag_path)
+        if key in seen or not frag_path.exists():
+            continue
+        seen.add(key)
+        frag_result = lint_workflow(frag_path)
+        _merge_fragment_findings(frag_path, frag_result, result)
+        try:
+            frag_text = frag_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        _lint_fragments_from(frag_text, frag_path, result, seen)
+
+
+def _merge_fragment_findings(frag_path: Path, frag_result: LintResult, result: LintResult) -> None:
+    """Fold a fragment's own lint findings into the importer's *result*.
+
+    Stage names are prefixed with the fragment's path so a warning reads as
+    belonging to the fragment, not the importer, and does not collide with an
+    importer stage of the same bare name.
+    """
+    label = frag_path.name
+    for w in frag_result.warnings:
+        result.warnings.append(
+            LintWarning(stage=f"{label}:{w.stage}", field=w.field, message=w.message, rule=w.rule)
+        )
+    for e in frag_result.errors:
+        result.errors.append(
+            LintError(stage=f"{label}:{e.stage}", field=e.field, message=e.message)
+        )
 
 
 def _lint_fragment(p: Path, text: str, result: LintResult) -> LintResult:

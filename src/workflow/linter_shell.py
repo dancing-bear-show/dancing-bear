@@ -88,6 +88,11 @@ _EXPANSION_RE = re.compile(r"\$(?:\{([A-Z_][A-Z0-9_]*)\}|([A-Z_][A-Z0-9_]*))")
 # export/local/declare -- not merely preceded by whitespace or a separator.
 # ``echo FOO=literal`` must not bind FOO; ``export FOO=literal`` must.
 _ASSIGNMENT_RE = re.compile(r"(?:^|[\s;(&|`])([A-Z_][A-Z0-9_]*)=")
+# A whole word that is itself an assignment (``FOO=one``), used to recognise a
+# SECOND (or later) consecutive assignment word before a command: POSIX sh
+# allows any number of them, and _is_assignment_position walks backward one
+# word at a time to confirm each preceding word is itself a real binding.
+_WORD_ASSIGNMENT_RE = re.compile(r"^[A-Z_][A-Z0-9_]*=")
 _ASSIGNMENT_KEYWORDS = frozenset({"export", "local", "declare"})
 _BINDING_WORDS = frozenset({"for", "read"})
 _PYTHON_WORD_RE = re.compile(r"^(?:.*/)?python3?(?:\.\d+)?$")
@@ -123,6 +128,14 @@ _MUTATING_COMMANDS = frozenset({
     "ln", "install", "touch", "tee", "truncate", "dd", "mkdir",
 })
 _REDIRECT_RE = re.compile(r"(?<![<>])>>?(?!>)")
+# A redirect token that is entirely digits before the ">" and nothing after it
+# (bare "1>", "2>", ...) is only ever a write UNLESS the very next tokens are
+# "&" then a digit -- "2>&1" duplicates a descriptor and writes nothing, and
+# split_tokens (punctuation_chars=";&|()") tokenises that shape as "2>", "&",
+# "1", three separate tokens, not one glued "2>&1".
+_FD_DUP_TARGET_RE = re.compile(r"^\d+$")
+_BRACKET_OPEN = frozenset({"[[", "(("})
+_BRACKET_CLOSE = frozenset({"]]", "))"})
 # The guard refuses `patch` unless one of these is present (it writes the
 # files named *inside the diff*, so the guard cannot resolve a write target
 # without one of these).
@@ -188,11 +201,20 @@ def _snippet(text: str) -> str:
 
 
 def _check_specs(tail: str) -> list[str]:
-    """Every ``--check <spec>``/``--check=<spec>`` value in a check-params call's tail."""
+    """Every ``--check <spec>``/``--check=<spec>`` value belonging to THIS check-params call.
+
+    ``tail`` is everything after the match to the end of the segment, which
+    can include later, unrelated commands (``check-params m.json; echo --check
+    host=trusted``). Only tokens up to the first command separator belong to
+    this invocation -- a later command's own ``--check`` flag must not donate
+    a spec to an earlier, unrelated check-params call.
+    """
     tokens = split_tokens(tail)
     specs = []
     for i, tok in enumerate(tokens):
-        if tok == "--check" and i + 1 < len(tokens):
+        if tok in _COMMAND_SEPARATORS:
+            break
+        if tok == "--check" and i + 1 < len(tokens) and tokens[i + 1] not in _COMMAND_SEPARATORS:
             specs.append(tokens[i + 1])
         elif tok.startswith("--check="):
             specs.append(tok[len("--check="):])
@@ -363,14 +385,19 @@ def _unquoted_fan_out_keys(item: _StageShell) -> list[LintWarning]:
 def _is_assignment_position(text: str, start: int) -> bool:
     """True when the ``NAME=`` match at *start* sits in assignment position.
 
-    A shell assignment word binds only as the first word of a command, or right
-    after ``export``/``local``/``declare`` -- not merely because whitespace or a
-    separator precedes it. ``echo FOO=literal`` is an argument to ``echo``, not a
-    binding: the character immediately before ``FOO`` (skipping whitespace) is
-    ``o``, a word character, so this is preceded by another word, not a command
-    boundary. ``export FOO=literal`` binds because that preceding word is one of
-    the assignment keywords. A prose label ending in a non-word character
-    (``Bash tool: F=...``) is also a boundary -- the ':' is not a word character.
+    A shell assignment word binds as the first word of a command, right after
+    ``export``/``local``/``declare``, or right after ANOTHER assignment word
+    -- POSIX sh allows any number of consecutive ``NAME=value`` words before
+    the command name, and every one of them is a real binding
+    (``FOO=one BAR=two echo "$FOO $BAR"`` binds both). ``echo FOO=literal`` is
+    an argument to ``echo``, not a binding: the character immediately before
+    ``FOO`` (skipping whitespace) is ``o``, a word character, so this is
+    preceded by another word -- but that preceding word, ``echo``, is neither
+    an assignment keyword nor itself an assignment word, so it is not a
+    command boundary. ``export FOO=literal`` binds because that preceding word
+    is one of the assignment keywords. A prose label ending in a non-word
+    character (``Bash tool: F=...``) is also a boundary -- the ':' is not a
+    word character.
     """
     i = start
     while i > 0 and text[i - 1] in " \t":
@@ -379,9 +406,12 @@ def _is_assignment_position(text: str, start: int) -> bool:
         return True
     word_end = i
     word_start = word_end
-    while word_start > 0 and (text[word_start - 1].isalnum() or text[word_start - 1] == "_"):
+    while word_start > 0 and text[word_start - 1] not in " \t\n;&|(":
         word_start -= 1
-    return text[word_start:word_end] in _ASSIGNMENT_KEYWORDS
+    preceding = text[word_start:word_end]
+    if preceding in _ASSIGNMENT_KEYWORDS:
+        return True
+    return bool(_WORD_ASSIGNMENT_RE.match(preceding)) and _is_assignment_position(text, word_start)
 
 
 def _assigned_names(description: str, segments: Iterable[ShellSegment]) -> set[str]:
@@ -483,14 +513,33 @@ def _is_invocation(args: list[str]) -> bool:
     ``python3 "$SCRIPT"`` both start the interpreter just as surely. Treat a
     path-like operand (contains ``/``) or a variable reference (``$NAME`` --
     shlex already stripped the quotes off ``"$SCRIPT"``) as an invocation too;
-    a single bare word (``is``, ``required``) stays prose.
+    a single bare word (``is``, ``required``) stays prose. No operands at all
+    is a real invocation too: a bare ``python3`` command line still starts the
+    interpreter with the ambient PYTHONPATH, and by the time this function
+    runs, ``extract_shell_segments`` has already decided the line is shell,
+    not prose -- ``args`` is empty only because the interpreter word itself
+    was the whole command.
     """
     if not args:
-        return False
+        return True
     first = args[0]
     return bool(
         first.startswith("-") or first.endswith(".py") or "/" in first or first.startswith("$")
     )
+
+
+def _command_start(tokens: list[str], i: int) -> int:
+    """Index of the first token of the simple command that token *i* sits in.
+
+    A ``PYTHONPATH=`` assignment only configures the command it prefixes, so
+    the lookback for it must not cross a command separator: an assignment
+    belonging to a PRIOR, unrelated command (``echo PYTHONPATH=/tmp; python3
+    ...``) must not exempt a python invocation in a later command.
+    """
+    start = i
+    while start > 0 and tokens[start - 1] not in _COMMAND_SEPARATORS:
+        start -= 1
+    return start
 
 
 def _python_offenders(seg: ShellSegment) -> list[str]:
@@ -500,7 +549,7 @@ def _python_offenders(seg: ShellSegment) -> list[str]:
         word = tok.lstrip("$(`")
         if not _PYTHON_WORD_RE.match(word):
             continue
-        prefix = tokens[max(0, i - 3):i]
+        prefix = tokens[_command_start(tokens, i):i]
         if any(t.startswith("PYTHONPATH=") for t in prefix):
             continue  # the author set PYTHONPATH on purpose; -I would ignore it
         args = tokens[i + 1:]
@@ -542,7 +591,7 @@ def _heredoc_body_has_substitution(text: str, delimiter: str, body_start: int) -
     return bool(_SUBSTITUTION_RE.search(body))
 
 
-def _has_heredoc(text: str, full_text: str | None = None) -> bool:
+def _has_heredoc(text: str, full_text: str | None = None, text_start: int = 0) -> bool:
     """True for an unquoted-delimiter heredoc whose body actually substitutes.
 
     A quoted delimiter (``<<'EOF'`` or ``<<"EOF"``) makes the body inert: POSIX sh
@@ -554,18 +603,26 @@ def _has_heredoc(text: str, full_text: str | None = None) -> bool:
     guard can only fail to inspect a substitution that is actually there.
 
     *full_text* is the whole stage description to scan for the body in, when it
-    differs from *text*: ``extract_shell_segments`` stops a "line" segment at
-    the heredoc opener, so the body lines never appear in the segment text
-    itself and must be located in the surrounding description instead.
+    differs from *text*: an older ``extract_shell_segments`` stopped a "line"
+    segment at the heredoc opener, so the body lines never appeared in the
+    segment text itself. ``extract_shell_segments`` now absorbs an unquoted
+    heredoc's body into its own segment, so this fallback is defensive rather
+    than load-bearing for its callers today -- but a caller that still passes
+    a segment stopped short of its body must not have that fallback silently
+    corrupted: *text_start* is the real character offset of *text* within
+    *full_text* (``ShellSegment.start``), used to anchor the search instead of
+    ``full_text.find(text)``. A ``.find()`` returns the FIRST occurrence of
+    matching text unconditionally, so two segments with identical opener (and,
+    before body-absorption, identical truncated) text both resolved to the
+    same first occurrence -- a later, dangerous heredoc's own body was never
+    reached because the search always restarted from the earlier one.
     """
     ctx = quote_context(text)
     for m in _HEREDOC_RE.finditer(text):
         if ctx[m.start()] != "" or text[m.start() - 1:m.start()] == "<" or m.group(1) is not None:
             continue
         if full_text is not None:
-            anchor = full_text.find(text)
-            body_start = anchor + m.end() if anchor != -1 else m.end()
-            search_text = full_text if anchor != -1 else text
+            body_start, search_text = text_start + m.end(), full_text
         else:
             body_start, search_text = m.end(), text
         if _heredoc_body_has_substitution(search_text, m.group(2), body_start):
@@ -587,14 +644,29 @@ def _as_command_separators(text: str) -> str:
     return "".join(";" if ch == "\n" and ctx[i] == "" else ch for i, ch in enumerate(text))
 
 
+def _command_tokens_after(tokens: list[str], index: int) -> list[str]:
+    """Tokens belonging to the SAME simple command as *tokens[index]*, after it.
+
+    Stops at the next command separator (``;``, ``&&``, ``||``, ``|``, ``(``,
+    ``&``) so a later, unrelated command's own flag cannot be misread as an
+    option of the invocation at *index* -- e.g. a later ``grep -i`` in the same
+    loop body must not be attributed to an earlier ``sed`` call.
+    """
+    rest = tokens[index + 1:]
+    end = next((j for j, t in enumerate(rest) if t in _COMMAND_SEPARATORS), len(rest))
+    return rest[:end]
+
+
 def _has_sed_in_place(tokens: list[str], sed_index: int) -> bool:
     """True when the ``sed`` invocation at *sed_index* carries ``-i``/``--in-place``.
 
     The guard's "Written" table blocks `sed` operands only with `-i`/`--in-place`
     present -- a plain `sed -n ...` is a read. `-i` can appear bare, clustered
-    with other short flags (`-ie`), or with an attached suffix (`-i.bak`).
+    with other short flags (`-ie`), or with an attached suffix (`-i.bak`). Only
+    tokens belonging to THIS invocation are scanned -- see
+    :func:`_command_tokens_after`.
     """
-    for tok in tokens[sed_index + 1:]:
+    for tok in _command_tokens_after(tokens, sed_index):
         if tok in ("--in-place",) or tok.startswith("--in-place="):
             return True
         if tok.startswith("-") and not tok.startswith("--") and "i" in tok[1:]:
@@ -607,10 +679,77 @@ def _has_unsafe_patch(tokens: list[str], patch_index: int) -> bool:
 
     The guard refuses `patch` unless `--dry-run` or `-o FILE` is present, because
     otherwise it writes the files named *inside the diff* -- a write target the
-    guard cannot resolve from the command line alone.
+    guard cannot resolve from the command line alone. Only tokens belonging to
+    THIS invocation are scanned -- see :func:`_command_tokens_after`.
     """
-    rest = tokens[patch_index + 1:]
+    rest = _command_tokens_after(tokens, patch_index)
     return not any(tok.startswith(_PATCH_SAFE_FLAGS) for tok in rest)
+
+
+def _is_fd_duplication(body: list[str], i: int) -> bool:
+    """True when the redirect-shaped token at *i* is actually ``N>&M`` (fd dup, not a write).
+
+    ``split_tokens`` never sees ``2>&1`` as one glued token -- ``&`` is a
+    punctuation char, so it splits into ``"2>"``, ``"&"``, ``"1"``. A dup
+    reads no differently from a real redirect at the single-token level
+    (``"2>"`` also opens ``2> file``), so this only fires true when the next
+    two tokens are literally ``"&"`` then an all-digit token.
+    """
+    return (
+        i + 2 < len(body)
+        and body[i + 1] == "&"
+        and bool(_FD_DUP_TARGET_RE.match(body[i + 2]))
+    )
+
+
+def _in_bracket_test(body: list[str], i: int) -> bool:
+    """True when token *i* sits inside an unclosed ``[[ ... ]]`` or ``(( ... ))``.
+
+    Inside either, a bare ``>``/``<`` is a string or arithmetic comparison
+    (guard-contract.yaml: ``"[[ > ]] compares"`` / ``"(( > )) compares"`` ->
+    allow), never an output redirect -- the guard's own parser treats them
+    the same way. Only tracks the SAME bracket kind opening/closing, which is
+    enough for a loop body: the guard's write-target scan this rule mirrors
+    never nests one kind inside the other on the shapes it needs to match.
+    """
+    depth = 0
+    for tok in body[:i]:
+        if tok in _BRACKET_OPEN:
+            depth += 1
+        elif tok in _BRACKET_CLOSE:
+            depth = max(0, depth - 1)
+    return depth > 0
+
+
+def _has_write_redirect(body: list[str]) -> bool:
+    """True when *body* contains a genuine output-redirect token.
+
+    Excludes the two shapes the guard's own contract allows outright: a file
+    descriptor duplication (``2>&1``) writes nothing, and a bare ``>``/``<``
+    inside ``[[ ]]``/``(( ))`` is a comparison operator, not a redirect.
+    """
+    for i, tok in enumerate(body):
+        if not _REDIRECT_RE.search(tok):
+            continue
+        if _is_fd_duplication(body, i):
+            continue
+        if tok == ">" and _in_bracket_test(body, i):
+            continue
+        return True
+    return False
+
+
+def _is_token_command_position(body: list[str], i: int) -> bool:
+    """True when ``body[i]`` sits where a command word may appear.
+
+    A token is only ever a real invocation of that command in this narrow
+    token-list check when it is the first token of the body, or immediately
+    follows a command separator -- otherwise it is an ARGUMENT to whatever
+    command came before it, such as the literal string ``"rm"`` passed to
+    ``echo`` (shlex has already stripped the quotes, so it is indistinguishable
+    from a bare ``rm`` token at this point without this check).
+    """
+    return i == 0 or body[i - 1] in _COMMAND_SEPARATORS
 
 
 def _loop_body_is_mutating(tokens: list[str], do_index: int) -> bool:
@@ -624,17 +763,22 @@ def _loop_body_is_mutating(tokens: list[str], do_index: int) -> bool:
     of the guard itself. `sed` and `patch` are checked separately because the guard's
     own contract for them is conditional on flags, not on the bare command name: `sed`
     is refused only with `-i`/`--in-place`, and `patch` is refused unless `--dry-run`
-    or `-o FILE` is present.
+    or `-o FILE` is present. A mutating-command-shaped token is only checked when it
+    sits in command position -- see :func:`_is_token_command_position` -- so a quoted
+    argument like ``"rm"`` passed to ``echo`` is not misread as a real invocation.
     """
     body = tokens[do_index + 1:]
-    if any(tok in _MUTATING_COMMANDS for tok in body):
+    if any(
+        tok in _MUTATING_COMMANDS and _is_token_command_position(body, i)
+        for i, tok in enumerate(body)
+    ):
         return True
-    if any(_REDIRECT_RE.search(tok) for tok in body):
+    if _has_write_redirect(body):
         return True
     for i, tok in enumerate(body):
-        if tok == "sed" and _has_sed_in_place(body, i):
+        if tok == "sed" and _is_token_command_position(body, i) and _has_sed_in_place(body, i):
             return True
-        if tok == "patch" and _has_unsafe_patch(body, i):
+        if tok == "patch" and _is_token_command_position(body, i) and _has_unsafe_patch(body, i):
             return True
     return False
 
@@ -651,9 +795,9 @@ def _has_loop(text: str) -> bool:
     return False
 
 
-def _refused_construct(text: str, full_text: str) -> str:
+def _refused_construct(text: str, full_text: str, text_start: int = 0) -> str:
     """Name the guard-refused construct in *text*, or "" when there is none."""
-    if _has_heredoc(text, full_text):
+    if _has_heredoc(text, full_text, text_start):
         return "heredoc"
     if _has_loop(text):
         return "loop"
@@ -662,7 +806,7 @@ def _refused_construct(text: str, full_text: str) -> str:
 
 def _guard_refused(item: _StageShell) -> list[LintWarning]:
     for seg in item.segments:
-        what = _refused_construct(seg.text, item.stage.description)
+        what = _refused_construct(seg.text, item.stage.description, seg.start)
         if what:
             return [_warn(
                 item.stage.name,
