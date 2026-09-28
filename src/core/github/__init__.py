@@ -24,6 +24,7 @@ from .mutations import (
 )
 from .repo import resolve_owner_repo
 from .threads import (
+    PRReviews,
     build_threads_doc,
     fetch_pr_reviews,
     fetch_raw_threads,
@@ -36,6 +37,7 @@ from .threads import (
 __all__ = [
     "GhCLI",
     "GhError",
+    "PRReviews",
     "build_threads_doc",
     "classify_author",
     "client",
