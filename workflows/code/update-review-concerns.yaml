@@ -537,6 +537,31 @@ stages:
       Both must stop the run before clustering: a class that loses half its
       instances can fall below the 2-PR bar without anyone seeing why, and a
       duplicated thread ID inflates class counts in the same silent way.
+
+      Step 4 — every classified thread obeys the prompt's mechanical rules,
+      checked against the INPUT round in outputs/rounds/pr<N>.json rather
+      than the classifier's copy. Step 3 has already proved the thread_ids
+      match, so this step does not repeat that check. One command both names
+      each violation ("<pr> <thread_id>: <reason>", or "<pr>: counts ...")
+      and fails: its last line is true when there are none and false
+      otherwise, and -e turns false into a non-zero exit. The rules:
+        - category is one of the eight allowed values;
+        - category is ROUND0 if and only if the input round is 0 (a
+          later-round thread on round-0 code is LATE_DISCOVERY), and an
+          unplaced round-null thread is NOISE;
+        - round is copied verbatim from the input, null included;
+        - class is a non-empty string, is not on the prompt's forbidden
+          catch-all list, and no-defect appears only under NOISE or ROUND0;
+        - counts, ignoring zero entries, equals the per-category tally of
+          threads[].
+
+        jq -ers --slurpfile got "{workspace}/outputs/rereview-classified.json" '(map({key: (.pr | tostring), value: ([.threads[] | {key: .thread_id, value: .round}] | from_entries)}) | from_entries) as $src | ["ROUND0", "FIX_REGRESSION", "SIBLING", "INCOMPLETE_FIX", "COLLATERAL_DOC", "NEW_SURFACE", "LATE_DISCOVERY", "NOISE"] as $cats | ["spec-or-logic-error", "logic-error", "bug", "correctness", "misc", "other", "general", "unknown", "edge-case", "incorrect-behavior", "wrong-logic", "needs-fix", "code-quality"] as $banned | [$got[0][] | (.pr | tostring) as $p | ($src[$p] // {}) as $r | . as $d | (.threads[] | . as $t | $r[$t.thread_id] as $want | [if ($t.category | IN($cats[])) | not then "category \($t.category | tojson) is not allowed" elif ($t.category == "ROUND0") != ($want == 0) then "category \($t.category) with input round \($want | tojson)" elif $want == null and $t.category != "NOISE" then "category \($t.category) with input round null (must be NOISE)" else empty end, if ($t | has("round") | not) or $t.round != $want then "round \($t.round | tojson) copied, input has \($want | tojson)" else empty end, if ($t.class | type) != "string" or ($t.class | length) == 0 then "class is missing" elif ($t.class | IN($banned[])) then "class \($t.class) is a forbidden catch-all" elif $t.class == "no-defect" and ($t.category | IN("NOISE", "ROUND0") | not) then "class no-defect with category \($t.category)" else empty end] | select(length > 0) | "\($p) \($t.thread_id): \(join("; "))"), ([$d.threads[].category | tostring] | group_by(.) | map({key: .[0], value: length}) | from_entries) as $tally | if ($d.counts | type) != "object" then "\($p): counts is not an object" elif ($d.counts | with_entries(select(.value != 0))) != $tally then "\($p): counts \($d.counts | with_entries(select(.value != 0)) | tojson) != tally \($tally | tojson)" else empty end] | (.[]), (length == 0)' "{workspace}"/outputs/rounds/pr*.json
+
+      A violation halts the run. A later-round thread filed as ROUND0 is
+      dropped from clustering by cluster-gaps R2 without any error: a live
+      run filed 11 later-round threads on PR 400 as ROUND0 ("logic already
+      present in the round-0 diff", which is LATE_DISCOVERY), and nothing
+      caught it.
     agent:
       role: researcher
       model: sonnet
@@ -650,7 +675,10 @@ stages:
         causes of a re-review. Count ROUND0, NEW_SURFACE and NOISE threads for
         the summary but do not cluster them. A ROUND0 thread with the same
         class as a SIBLING is that class's first instance: include it in the
-        cluster's example locations, not in its PR count.
+        cluster's example locations, not in its PR count. aggregate-rereview
+        has already proved that ROUND0 means round 0 and nothing else, and
+        that a thread with round null (unplaced) is NOISE, so neither a
+        later-round nor an unplaced thread can reach this stage as ROUND0.
 
       R3 — merge synonymous class names BEFORE clustering. First apply the
         synonym mapping in the seed table of

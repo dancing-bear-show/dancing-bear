@@ -93,7 +93,8 @@ threads) and useless as a concern because nothing can be swept for it.
 `-problem`, or `-bug` that does not name the construct. If you cannot name the
 shape, read the flagged code (see Input for which line and revision) until
 you can. If the thread genuinely has no checkable shape (a question, a
-preference), its category is `NOISE` and its class is `no-defect`.
+preference), its class is `no-defect` and its category is `NOISE` (`ROUND0`
+if its `round` is 0; see below).
 
 #### Seed class list
 
@@ -131,10 +132,23 @@ for the same class; map them to the canonical name, never emit the synonym.
 
 ### 2. `category`
 
-For a thread with `round: null`, the commit could not be matched to a
-Copilot round. Classify these as `NOISE` (class `no-defect`) and exclude them
-from cause clustering. Do not assign `FIX_REGRESSION`, `SIBLING`, or any
-other cause category to a null-round thread.
+The category follows from `round` first, mechanically, before anything the
+thread says:
+
+- `round` is `0` → `ROUND0`, always. A round-0 nit or question is still
+  `ROUND0`, never `NOISE`.
+- `round` is `>= 1` → one of the seven categories below, never `ROUND0`. A
+  later-round thread on code that was already in the round-0 diff is
+  `LATE_DISCOVERY`: "the logic was already present in round 0" is that
+  category's definition, not a reason for `ROUND0`.
+- `round` is `null` (the commit could not be matched to a Copilot round) →
+  `NOISE` with class `no-defect`, never `ROUND0` and never a cause category,
+  since nothing places the thread in any round. cluster-gaps R2 does not
+  cluster `NOISE`, so these threads are counted for the summary and excluded
+  from cause clustering.
+
+aggregate-rereview checks these rules against the INPUT file's `round`, not
+your copy of it, and fails the run on any mismatch.
 
 For a thread with `round` >= 1, exactly one of:
 
@@ -152,8 +166,6 @@ For a thread with `round` >= 1, exactly one of:
 - `LATE_DISCOVERY` — flags code that was already in the round-0 diff and
   unchanged since; the reviewer found it late.
 - `NOISE` — wrong, a pure nit, or rejected by us with evidence in `replies`.
-
-Round-0 threads get category `ROUND0`.
 
 To tell `FIX_REGRESSION` from `LATE_DISCOVERY`, check whether the flagged
 lines were introduced by a later commit. `commit` and `rounds[].commit` are

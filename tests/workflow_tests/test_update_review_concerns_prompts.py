@@ -32,6 +32,10 @@ _TOPIC_STAGES = {
 }
 _REREVIEW_ONLY = {"fetch-round-history", "seed-class-list", "classify-rereview", "aggregate-rereview"}
 _PLACEHOLDER_RE = re.compile(r"\{[a-z_][a-z0-9_]*\}")
+#: Input round per fixture thread: 406 has a round-0 and a round-2 thread,
+#: 395 has one unplaced (null) thread.
+_ROUNDS: dict[str, int | None] = {"T406-0": 0, "T406-1": 2, "T395-0": None}
+_CATEGORY_FOR_ROUND: dict[int | None, str] = {0: "ROUND0", None: "NOISE"}
 
 
 def _compile(**params: str) -> tuple[WorkflowDefinition, WorkflowManifest]:
@@ -225,13 +229,14 @@ class TestRenderedJqExecutes(unittest.TestCase):
         self._write("outputs/rounds/summary.json", summary)
         for pr, n in ((406, 2), (395, 1), (12, 0)):
             self._write(f"outputs/rounds/pr{pr}.json",
-                        {"pr": pr, "threads": [{"thread_id": f"T{pr}-{i}"} for i in range(n)]})
+                        {"pr": pr, "threads": [{"thread_id": f"T{pr}-{i}", "round": _ROUNDS[f"T{pr}-{i}"]}
+                                               for i in range(n)]})
         prompts = _prompts(str(self.ws), mode="rereview", min_threads="1")
         fetch = _jq_lines(prompts["fetch-round-history"])
         self.refuse_empty = next(c for c in fetch if "length > 0' " in c and "items" not in c)
         self.build_index = next(c for c in fetch if "--argjson min" in c)
         agg = _jq_lines(prompts["aggregate-rereview"])
-        self.merge, self.counts, self.check, self.explain = agg
+        self.merge, self.counts, self.check, self.explain, self.invariants = agg
 
     def _write(self, rel: str, doc: object) -> None:
         (self.ws / rel).write_text(json.dumps(doc), encoding="utf-8")
@@ -240,11 +245,27 @@ class TestRenderedJqExecutes(unittest.TestCase):
         argv = [str(shutil.which("bash")), "-c", cmd]
         return subprocess.run(argv, capture_output=True, text=True, check=False)  # nosec B603 - rendered workflow lines against a temp dir
 
-    def _classify(self, pr: int, n: int) -> None:
-        # thread_ids must match the source rounds data (T{pr}-{i}) so the
-        # multiset comparison in aggregate-rereview passes on good data.
-        threads = [{"thread_id": f"T{pr}-{i}", "class": "unquoted-shell-var"} for i in range(n)]
-        self._write(f"outputs/classified/pr{pr}.json", {"pr": pr, "threads": threads})
+    def _classify(self, pr: int, n: int, override: dict[str, dict[str, object]] | None = None) -> None:
+        """Write a valid classified file for the first n input threads of ``pr``.
+
+        thread_ids match the source rounds data (T{pr}-{i}) so the multiset
+        comparison passes; round, category and class obey the prompt's rules.
+        ``override`` maps a thread_id to fields replacing the valid ones, and
+        ``counts`` is always the true tally of what is written.
+        """
+        threads: list[dict[str, object]] = []
+        for i in range(n):
+            tid = f"T{pr}-{i}"
+            rnd = _ROUNDS.get(tid)
+            category = _CATEGORY_FOR_ROUND.get(rnd, "LATE_DISCOVERY")
+            entry: dict[str, object] = {"thread_id": tid, "round": rnd, "category": category,
+                                        "class": "no-defect" if rnd is None else "unquoted-shell-var"}
+            entry.update((override or {}).get(tid, {}))
+            threads.append(entry)
+        counts: dict[str, int] = {}
+        for entry in threads:
+            counts[str(entry["category"])] = counts.get(str(entry["category"]), 0) + 1
+        self._write(f"outputs/classified/pr{pr}.json", {"pr": pr, "threads": threads, "counts": counts})
 
     def _index(self) -> None:
         self.assertEqual(self._run(self.build_index).returncode, 0)
@@ -325,6 +346,74 @@ class TestRenderedJqExecutes(unittest.TestCase):
             self.assertEqual(self._run(cmd).returncode, 0, cmd)
         self.assertNotEqual(self._run(self.check).returncode, 0)
         self.assertIn("406: thread_id mismatch", self._run(self.explain).stdout)
+
+    def _invariants_after(self, override: dict[str, dict[str, object]] | None = None,
+                          ) -> subprocess.CompletedProcess[str]:
+        """Classify both indexed PRs validly except ``override``, pass Steps 1-3, run Step 4."""
+        self._index()
+        self._classify(406, 2, override)
+        self._classify(395, 1, override)
+        for cmd in (self.merge, self.counts, self.check):
+            self.assertEqual(self._run(cmd).returncode, 0, cmd)  # thread_ids are right in every case
+        return self._run(self.invariants)
+
+    def test_invariants_pass_on_clean_files(self) -> None:
+        res = self._invariants_after()
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertEqual(res.stdout.strip(), "true")
+
+    def test_later_round_thread_labelled_round0_fails(self) -> None:
+        """PR 400: 11 later-round threads on round-0 code were filed as ROUND0."""
+        res = self._invariants_after({"T406-1": {"category": "ROUND0"}})
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("406 T406-1: category ROUND0 with input round 2", res.stdout)
+
+    def test_round0_thread_labelled_late_discovery_fails(self) -> None:
+        res = self._invariants_after({"T406-0": {"category": "LATE_DISCOVERY"}})
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("406 T406-0: category LATE_DISCOVERY with input round 0", res.stdout)
+
+    def test_unplaced_thread_must_be_noise(self) -> None:
+        for category, needle in (("ROUND0", "category ROUND0 with input round null"),
+                                 ("LATE_DISCOVERY", "category LATE_DISCOVERY with input round null (must be NOISE)")):
+            with self.subTest(category=category):
+                res = self._invariants_after({"T395-0": {"category": category, "class": "unquoted-shell-var"}})
+                self.assertNotEqual(res.returncode, 0)
+                self.assertIn(f"395 T395-0: {needle}", res.stdout)
+
+    def test_round_miscopied_fails_even_when_category_matches_the_copy(self) -> None:
+        """The gate reads the INPUT round, so a copied round of 0 cannot launder ROUND0."""
+        res = self._invariants_after({"T406-1": {"round": 0, "category": "ROUND0"}})
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("406 T406-1: category ROUND0 with input round 2; round 0 copied, input has 2", res.stdout)
+
+    def test_unknown_category_and_bad_class_fail(self) -> None:
+        for fields, needle in (({"category": "UNPLACED"}, 'category "UNPLACED" is not allowed'),
+                               ({"class": "spec-or-logic-error"}, "class spec-or-logic-error is a forbidden catch-all"),
+                               ({"class": ""}, "class is missing"),
+                               ({"class": "no-defect"}, "class no-defect with category LATE_DISCOVERY")):
+            with self.subTest(fields=fields):
+                res = self._invariants_after({"T406-1": fields})
+                self.assertNotEqual(res.returncode, 0)
+                self.assertIn(f"406 T406-1: {needle}", res.stdout)
+
+    def test_counts_disagreeing_with_tally_fail(self) -> None:
+        self._invariants_after()
+        doc = json.loads((self.ws / "outputs/rereview-classified.json").read_text())
+        doc[0]["counts"] = {"ROUND0": 2, "LATE_DISCOVERY": 0, "NOISE": 0}
+        self._write("outputs/rereview-classified.json", doc)
+        res = self._run(self.invariants)
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn(f"{doc[0]['pr']}: counts ", res.stdout)
+        self.assertIn("!= tally", res.stdout)
+
+    def test_banned_classes_match_the_prompt_list(self) -> None:
+        body = _PROMPT_FILE.read_text(encoding="utf-8")
+        section = body[body.index("**Forbidden catch-alls**"):body.index("and any name ending in")]
+        from_prompt = set(re.findall(r"`([a-z-]+)`", section))
+        in_gate = set(re.findall(r'"([a-z-]+)"', self.invariants.split("as $cats")[1].split("as $banned")[0]))
+        self.assertTrue(from_prompt)
+        self.assertEqual(from_prompt, in_gate)
 
     def _sweep_gate(self, stage: str, file: str) -> str:
         prompts = _prompts(str(self.ws), mode="rereview")
