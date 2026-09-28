@@ -144,7 +144,7 @@ class _ContestedStart:
             return _real_start(job_path, self._root)
         claim = _real_start(job_path, self._root)
         if claim is not None:
-            self.other_path, _tok = claim
+            self.other_path = claim[0]
         self.other_claimed.set()
         if threading.current_thread() is not threading.main_thread():
             self.release.wait(timeout=5)

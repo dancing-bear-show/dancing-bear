@@ -557,6 +557,13 @@ class DaemonRunner:
         The token is passed through as ``claim_token`` to verify ownership under
         the transition lock before staging the record, matching the same pattern
         ``drain_live_threads`` uses.
+
+        A queue I/O or transition-lock error from ``requeue_processing`` is
+        caught per stem and logged rather than left to propagate out of
+        ``tick()`` and terminate ``run_daemon``: unlike a normal completion,
+        a failed requeue attempt is worth retrying, so the registry entry is
+        kept (not popped) on failure and this stem is tried again on a later
+        tick.
         """
         with self._registry_lock:
             dead_stems = [
@@ -565,12 +572,19 @@ class DaemonRunner:
                 if not t.is_alive()
             ]
         for stem, token in dead_stems:
-            q.requeue_processing(
-                stem,
-                reason=_THREAD_DIED_REASON,
-                root=q.QUEUE_ROOT,
-                claim_token=token,
-            )
+            try:
+                q.requeue_processing(
+                    stem,
+                    reason=_THREAD_DIED_REASON,
+                    root=q.QUEUE_ROOT,
+                    claim_token=token,
+                )
+            except Exception:  # nosec B112 - retry this stem on a later tick; logged
+                logger.exception(
+                    "could not requeue dead thread's job %s (retrying next tick)",
+                    stem,
+                )
+                continue
             with self._registry_lock:
                 self._live_threads.pop(stem, None)
 
@@ -866,8 +880,17 @@ class DaemonRunner:
             # so the call raises _TransitionLockTimeout rather than blocking
             # indefinitely. A lock-timeout or I/O failure for one stem must
             # not abort the whole drain — catch and log per stem, then continue.
+            #
+            # The budget is floored at 0.0, not a small positive value: once
+            # the shared deadline has passed, every contended stem would
+            # otherwise get its own fresh wait window, and those can add up
+            # across many stems to extend the drain well past shutdown_grace.
+            # A timeout of exactly 0.0 still makes _transition_lock attempt
+            # one non-blocking acquisition before giving up, so a lock that
+            # happens to be free is still used — only a contended lock fails
+            # immediately instead of waiting.
             remaining = deadline - time.monotonic()
-            lock_budget = max(0.1, remaining)
+            lock_budget = max(0.0, remaining)
             try:
                 if q.requeue_processing(
                     stem,
