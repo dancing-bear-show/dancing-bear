@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re as _re
 import tempfile
 import unittest
 from pathlib import Path
@@ -492,12 +493,80 @@ class TestCmdSelectConcerns(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Reason deduplication
+# ---------------------------------------------------------------------------
+
+
+class TestReasonDedup(unittest.TestCase):
+    def test_same_reason_not_repeated_for_multiple_paths(self) -> None:
+        """Two .py files must not produce duplicate 'glob:*.py' reasons."""
+        result = select_guides_with_reasons(
+            paths=["src/workflow/cli.py", "tests/workflow_tests/test_x.py"]
+        )
+        for guide, reasons in result.items():
+            self.assertEqual(
+                len(reasons),
+                len(set(reasons)),
+                f"guide {guide!r} has duplicate reasons: {reasons}",
+            )
+
+    def test_always_reason_appears_once(self) -> None:
+        result = select_guides_with_reasons(
+            paths=["src/a.py", "src/b.py", "workflows/c.yaml"]
+        )
+        patterns_reasons = result.get("patterns.md", [])
+        self.assertEqual(patterns_reasons.count("always"), 1)
+
+    def test_task_type_reason_appears_once_even_with_paths(self) -> None:
+        result = select_guides_with_reasons(
+            paths=["src/a.py"], task_type="feature"
+        )
+        for guide, reasons in result.items():
+            self.assertEqual(
+                len(reasons),
+                len(set(reasons)),
+                f"guide {guide!r} has duplicate reasons: {reasons}",
+            )
+
+
+# ---------------------------------------------------------------------------
+# Guard: consumers reference select-concerns, not hand-written tables
+# ---------------------------------------------------------------------------
+
+# Files that must reference select-concerns or selection.yaml:
+_CONSUMER_FILES = [
+    ".claude/agents/thread-fixer.md",
+    "workflows/shared/code-review-swarm.yaml",
+    "workflows/code/load-concerns.yaml",
+    ".claude/agents/reviewer.md",
+    ".claude/agents/code-writer.md",
+    ".claude/agents/code-writer-opus.md",
+    ".claude/skills/code-review/SKILL.md",
+    ".github/copilot-instructions.md",
+]
+
+# Pattern that detects an inlined path→guide table row.
+# Matches Markdown table rows of the form: | <filetype or path> | ...<guide>.md... |
+# e.g. | `.py` files | `correctness.md`, ... |
+# We require: starts with `|`, contains a backtick-quoted .md filename,
+# and also contains a backtick-quoted file type (.py, .yaml, .yml, SKILL.md)
+# or path pattern (src/resume/, linkedin).
+_TABLE_ROW_RE = _re.compile(
+    r"^\s*\|[^|]*`(?:\.py|\.yaml|\.yml|SKILL\.md|src/resume/|linkedin)[^`]*`"
+    r"[^|]*\|[^|]*`[a-z][a-z0-9_-]*\.md`",
+    _re.MULTILINE,
+)
+
+
 class TestConsumersReferenceSelector(unittest.TestCase):
     """Ensure each consumer calls select-concerns rather than inlining rules."""
 
     def _read(self, rel_path: str) -> str:
         root = Path(__file__).parent.parent.parent
         return (root / rel_path).read_text(encoding="utf-8")
+
+    # --- each consumer references select-concerns or selection.yaml ---
 
     def test_thread_fixer_references_select_concerns(self) -> None:
         content = self._read(".claude/agents/thread-fixer.md")
@@ -521,6 +590,76 @@ class TestConsumersReferenceSelector(unittest.TestCase):
             "select-concerns",
             content,
             "workflows/code/load-concerns.yaml must reference select-concerns",
+        )
+
+    def test_reviewer_references_selection_yaml_or_select_concerns(self) -> None:
+        content = self._read(".claude/agents/reviewer.md")
+        self.assertTrue(
+            "select-concerns" in content or "selection.yaml" in content,
+            ".claude/agents/reviewer.md must reference select-concerns or selection.yaml",
+        )
+
+    def test_code_writer_references_select_concerns(self) -> None:
+        content = self._read(".claude/agents/code-writer.md")
+        self.assertIn(
+            "select-concerns",
+            content,
+            ".claude/agents/code-writer.md must reference select-concerns",
+        )
+
+    def test_code_writer_opus_references_select_concerns(self) -> None:
+        content = self._read(".claude/agents/code-writer-opus.md")
+        self.assertIn(
+            "select-concerns",
+            content,
+            ".claude/agents/code-writer-opus.md must reference select-concerns",
+        )
+
+    def test_code_review_skill_md_references_selection_yaml_or_select_concerns(self) -> None:
+        content = self._read(".claude/skills/code-review/SKILL.md")
+        self.assertTrue(
+            "select-concerns" in content or "selection.yaml" in content,
+            ".claude/skills/code-review/SKILL.md must reference select-concerns or selection.yaml",
+        )
+
+    def test_copilot_instructions_references_selection_yaml(self) -> None:
+        content = self._read(".github/copilot-instructions.md")
+        self.assertIn(
+            "selection.yaml",
+            content,
+            ".github/copilot-instructions.md must reference selection.yaml",
+        )
+
+    # --- no hand-written path→guide tables ---
+
+    def test_no_inlined_table_rows_in_consumers(self) -> None:
+        """No consumer file may contain a Markdown table row pairing file types
+        with concerns/*.md guide names — those rules belong in selection.yaml."""
+        for rel_path in _CONSUMER_FILES:
+            content = self._read(rel_path)
+            match = _TABLE_ROW_RE.search(content)
+            row_text = match.group(0) if match else ""
+            self.assertIsNone(
+                match,
+                f"{rel_path} still contains an inlined path-to-guide table row: "
+                f"{row_text!r}. Move the rule to concerns/selection.yaml instead.",
+            )
+
+    def test_table_row_detector_has_teeth(self) -> None:
+        """The detector must fire on a known bad row, not just pass silently."""
+        bad_row = "| `.py` files | `correctness.md`, `security.md` |"
+        self.assertIsNotNone(
+            _TABLE_ROW_RE.search(bad_row),
+            "The table-row detector failed to match a known bad row — "
+            "the guard would be vacuous.",
+        )
+
+    def test_table_row_detector_ignores_cli_reference_table(self) -> None:
+        """A CLI quick-reference table (no .md guide names) must not trigger."""
+        ok_row = "| PR metadata | `gh pr view N --json ...` |"
+        self.assertIsNone(
+            _TABLE_ROW_RE.search(ok_row),
+            "The table-row detector incorrectly matched a CLI reference row.",
         )
 
 

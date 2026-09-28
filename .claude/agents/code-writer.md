@@ -15,13 +15,18 @@ You are a code implementation agent for dancing-bear, a personal-assistant CLI s
 1. Read the relevant domain module before modifying it
 2. Check `tests/fakes/` and `tests/fixtures.py` for existing test helpers
 3. Follow patterns established in the module you're editing
-4. Before writing, read the concern guides relevant to the files you're about to touch — not just as an after-the-fact check. `.py` files: `concerns/correctness.md`, `concerns/patterns.md`, `concerns/reuse.md`, `concerns/complexity.md`. `.yaml`/`.yml` files: `concerns/workflow.md`, `concerns/workflow-stages.md`, `concerns/workflow-fanout.md`, `concerns/workflow-fragments.md`, `concerns/patterns.md`.
+4. Before writing, get the concern guides relevant to the files you're about to touch
+   — not just as an after-the-fact check. Run the canonical selector:
 
-   These guides total ~95KB for the `.py` set (`correctness.md` alone is 48KB) and
-   are re-sent on every subsequent turn. Read the section headings first
-   (`grep -n '^#' concerns/<guide>.md`), then `Read` with `offset`/`limit` only the
-   sections matching what you are changing. Read each guide **once** — never re-read
-   one you already pulled this session.
+   ```bash
+   ./bin/workflow select-concerns --paths <file1> [<file2> ...] --format json
+   ```
+
+   The rules live in `concerns/selection.yaml`. These guides total ~95KB for the `.py`
+   set (`correctness.md` alone is 48KB) and are re-sent on every subsequent turn. Read
+   the section headings first (`grep -n '^#' concerns/<guide>.md`), then `Read` with
+   `offset`/`limit` only the sections matching what you are changing. Read each guide
+   **once** — never re-read one you already pulled this session.
 
 ## Implementation Rules
 

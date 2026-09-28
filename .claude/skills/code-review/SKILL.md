@@ -77,17 +77,14 @@ one file per domain. The concern-sweep stage (G2) reads only the guides
 relevant to the diff, then filters each guide's concerns to those triggered
 by the actual changes, so validators only spend time on relevant checks.
 
-| Guide | Loaded when |
-|-------|-------------|
-| `concerns/correctness.md` | diff contains `.py` files |
-| `concerns/security.md` | diff contains `.py` files |
-| `concerns/tests.md` | diff contains `.py` files (test files, or source files introducing `sys.exit()` / HTTP clients) |
-| `concerns/patterns.md` | any diff (all file types) |
-| `concerns/reuse.md` | diff contains `.py` files |
-| `concerns/complexity.md` | diff contains `.py` files |
-| `concerns/workflow.md`, `concerns/workflow-stages.md`, `concerns/workflow-fanout.md`, `concerns/workflow-fragments.md` | diff contains `.yaml`/`.yml` or `SKILL.md` files |
-| `concerns/docs.md` | diff contains `.md`, `README`, or `SKILL.md` files |
-| `concerns/resume-copy.md` | diff contains `src/resume/config/profiles/**`, `src/resume/config/*.yaml`, `src/resume/examples/*`, or any `linkedin*.yaml` |
+Guide selection is canonical — use the selector to get the exact list:
+
+```bash
+git diff main...HEAD --name-only > /tmp/changed.txt
+./bin/workflow select-concerns --paths-file /tmp/changed.txt --format json
+```
+
+The canonical rules live in `concerns/selection.yaml`.
 
 ## CLI Quick Reference
 

@@ -62,15 +62,26 @@ def _collect_guides(
 
     Applies always-rules, glob rules (with override-group suppression),
     task_type rules, and the default fallback when no input is given.
+
+    Reasons are deduplicated per guide: the same reason string is recorded at
+    most once, so two ``.py`` files matching ``glob:*.py`` produce a single
+    ``"glob:*.py"`` entry rather than one per path. Use path-prefixed reasons
+    (``"src/x.py: glob:*.py"``) when per-path detail is needed.
     """
     rules = _load_rules()
 
+    # order: dict preserves insertion order (Python 3.7+); reason_sets tracks
+    # seen reasons per guide to avoid duplicates.
     seen: dict[str, list[str]] = {}
+    reason_sets: dict[str, set[str]] = {}
 
     def _add(guide: str, reason: str) -> None:
         if guide not in seen:
             seen[guide] = []
-        seen[guide].append(reason)
+            reason_sets[guide] = set()
+        if reason not in reason_sets[guide]:
+            seen[guide].append(reason)
+            reason_sets[guide].add(reason)
 
     # 1. Always-include guides
     for guide in rules.get("always", []):

@@ -31,8 +31,13 @@ You are a code implementation agent for dancing-bear. Use this agent when the ta
 
 ## Review Concerns (Self-Check Before Finishing)
 
-- `concerns/correctness.md`, `concerns/patterns.md`, `concerns/reuse.md`, `concerns/complexity.md`
-- `concerns/workflow.md` for any workflow YAML
+Get the guides for your changed files using the canonical selector:
+
+```bash
+./bin/workflow select-concerns --paths <file1> [<file2> ...] --format json
+```
+
+The rules live in `concerns/selection.yaml`.
 
 ## Git Rules
 
