@@ -226,6 +226,33 @@ def _is_command_word_position(text: str, start: int) -> bool:
     return "/" in preceding and _is_command_word_position(text, word_start)
 
 
+def _check_param_names_at(seg_text: str, match_end: int) -> list[str]:
+    """Param names checked by the ``--check`` specs following a check-params call."""
+    names = []
+    for spec in _check_specs(seg_text[match_end:]):
+        name, sep, _ = spec.partition("=")
+        if sep and name:
+            names.append(name)
+    return names
+
+
+def _checked_params_in_segment(seg_text: str) -> Iterable[tuple[str, int]]:
+    """Yield (param name, char offset) for every real check-params call in *seg_text*.
+
+    A token merely ending in ``check-params`` is not enough -- it must also sit at a
+    command-word position, so an argument to some other command (``echo check-params
+    --check host=...``) is not mistaken for a real invocation; see
+    :func:`_is_command_word_position`.
+    """
+    for m in re.finditer(r"\S+", seg_text):
+        if not m.group(0).endswith("check-params"):
+            continue
+        if not _is_command_word_position(seg_text, m.start()):
+            continue
+        for name in _check_param_names_at(seg_text, m.end()):
+            yield name, m.start()
+
+
 def _checked_param_positions(
     segments: Iterable[ShellSegment],
 ) -> dict[str, tuple[int, int]]:
@@ -236,23 +263,12 @@ def _checked_param_positions(
     text before the stage's own ``check-params --check`` call has already reached
     shell by the time the check runs, so only uses at or after that position may be
     credited to a same-stage check.
-
-    A token merely ending in ``check-params`` is not enough -- it must also sit at a
-    command-word position, so an argument to some other command (``echo check-params
-    --check host=...``) is not mistaken for a real invocation; see
-    :func:`_is_command_word_position`.
     """
     positions: dict[str, tuple[int, int]] = {}
     for seg_index, seg in enumerate(segments):
-        for m in re.finditer(r"\S+", seg.text):
-            if not m.group(0).endswith("check-params"):
-                continue
-            if not _is_command_word_position(seg.text, m.start()):
-                continue
-            for spec in _check_specs(seg.text[m.end():]):
-                name, sep, _ = spec.partition("=")
-                if sep and name and name not in positions:
-                    positions[name] = (seg_index, m.start())
+        for name, offset in _checked_params_in_segment(seg.text):
+            if name not in positions:
+                positions[name] = (seg_index, offset)
     return positions
 
 

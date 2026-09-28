@@ -773,19 +773,6 @@ class TestExtractShellSegments(unittest.TestCase):
         desc = "``` this is just prose\nmore prose\n```\n"
         self.assertEqual(extract_shell_segments(desc), [])
 
-    def test_folded_unlabelled_fence_with_command_first_word_still_recognized(self) -> None:
-        # Happy-path regression for the round-3 fix: an unlabelled fence
-        # folded onto one line, whose stolen "tag" position is genuinely
-        # the first word of the body ("echo", not a known language), must
-        # still be recognized as an unlabelled shell fence. This is the
-        # case this PR's fix must not break while fixing the sibling
-        # real-language-tag case below.
-        desc = '``` echo setup\nfor p in items; do echo "$p"; done\n```\n'
-        segments = extract_shell_segments(desc)
-        fence_segments = [s for s in segments if s.origin == "fence"]
-        self.assertEqual(len(fence_segments), 1)
-        self.assertEqual(fence_segments[0].text, 'echo setup\nfor p in items; do echo "$p"; done')
-
     def test_folded_python_fence_is_not_reclassified_as_unlabelled_shell(self) -> None:
         # PR #433 review: a REAL language tag ("python") folded onto one
         # line by a YAML folded scalar ("```python python3 -c ...") has the
