@@ -28,10 +28,8 @@ recall.
 Quoting is resolved with :func:`quote_context`, a small lexer, rather than by
 regex over the shell text.
 
-The command parser (:func:`parse_shell` and its supporting types) lives in
-:mod:`shell_parse`.  This module re-exports the public symbols for backwards
-compatibility and uses :data:`shell_parse._Lexer` internally for
-:func:`_heredoc_delimiters`.
+The command parser (:func:`shell_parse.parse_shell` and its supporting types)
+lives in :mod:`shell_parse`.
 """
 
 from __future__ import annotations
@@ -39,27 +37,12 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from .shell_parse import (
-    Heredoc,
-    Redirect,
-    ShellScript,
-    ShellToken,
-    SimpleCommand,
-    _Lexer,
-    _heredoc_delimiters,
-    parse_shell,
-)
+from .shell_parse import _Lexer, _heredoc_delimiters
 
 __all__ = [
-    "Heredoc",
-    "Redirect",
-    "ShellScript",
     "ShellSegment",
-    "ShellToken",
-    "SimpleCommand",
     "extract_labelled_assignments",
     "extract_shell_segments",
-    "parse_shell",
     "quote_context",
 ]
 
