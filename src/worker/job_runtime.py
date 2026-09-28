@@ -95,9 +95,14 @@ def _undo_retry_attempt(job_stem: str, original_attempts: int, q_root: Path) -> 
         pass
 
 
-def _write_shutdown_timeout_marker(job_id: str, root: Path) -> None:
-    """Delegate to queue_ops to write a shutdown-timeout sentinel for ``job_id``."""
-    q.write_shutdown_timeout_marker(job_id, root)
+def _write_shutdown_timeout_marker(job_id: str, claim_token: str | None, root: Path) -> None:
+    """Delegate to queue_ops to write a shutdown-timeout sentinel for ``job_id``.
+
+    ``claim_token`` is the token this runner observed for the stem before the
+    lock timed out; it is encoded into the marker so recovery can verify
+    ownership atomically instead of requeueing by stem alone.
+    """
+    q.write_shutdown_timeout_marker(job_id, claim_token, root)
 
 
 def _processing_stems(root: Path) -> set[str]:
@@ -939,13 +944,21 @@ class DaemonRunner:
                 # next startup, regardless of job_timeout.  This write needs no
                 # lock: the marker sits beside the record, never inside it, so
                 # it cannot race whoever holds the transition lock right now.
+                #
+                # The token this runner observed for the stem is encoded into
+                # the marker so recovery revalidates ownership atomically
+                # (the same check every other requeue_processing call makes)
+                # instead of requeueing by stem alone -- without it, a worker
+                # whose own reaper reclaims this stem with a new token before
+                # the next startup would have its live claim stolen by an
+                # unauthenticated recovery pass.
                 logger.exception(
                     "could not requeue job %s on shutdown (skipped); "
                     "writing shutdown-timeout marker for recovery on next start",
                     stem,
                 )
                 try:
-                    _write_shutdown_timeout_marker(stem, q.QUEUE_ROOT)
+                    _write_shutdown_timeout_marker(stem, token, q.QUEUE_ROOT)
                 except Exception:  # nosec B110 - marker write failed; job may stay stranded; already logged above
                     logger.exception(
                         "could not write shutdown-timeout marker for job %s; "

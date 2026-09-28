@@ -406,13 +406,19 @@ _REQUEUE_STAGING_SUFFIX = ".requeue"
 # Written when drain_live_threads times out acquiring the transition lock for a
 # job.  The record in processing/ is left untouched (no lock held), so this
 # zero-byte sentinel is the only durable evidence of the failed drain attempt.
-# recover_shutdown_timeout_markers() reads it at startup and force-requeues the
-# corresponding processing/ record regardless of job_timeout.
+# The full marker filename is "<job_id>.json.shutdown-timeout.<token>", with
+# an empty trailing segment when the original claim had no token to record.
+# recover_shutdown_timeout_markers() reads it at startup, passes the encoded
+# token through as requeue_processing's claim_token, and force-requeues the
+# corresponding processing/ record regardless of job_timeout -- but only if
+# that atomic ownership check still finds the original claim in place.
 _SHUTDOWN_TIMEOUT_MARKER_SUFFIX = ".shutdown-timeout"
 SHUTDOWN_REQUEUE_REASON = "requeued-on-shutdown"
 
 
-def write_shutdown_timeout_marker(job_id: str, root: Path | None = None) -> None:
+def write_shutdown_timeout_marker(
+    job_id: str, claim_token: str | None, root: Path | None = None
+) -> None:
     """Write a zero-byte sentinel beside processing/<job_id>.json.
 
     Created when drain_live_threads cannot acquire the transition lock for a
@@ -422,9 +428,24 @@ def write_shutdown_timeout_marker(job_id: str, root: Path | None = None) -> None
     startup and force-requeues the corresponding record regardless of
     job_timeout.  Writing requires no lock: the file sits beside the job
     record and does not modify it.
+
+    ``claim_token`` is encoded into the marker's filename (a bare hex uuid,
+    filename-safe with no separators of its own) so recovery can pass it as
+    ``requeue_processing``'s ``claim_token`` and get the same atomic
+    ownership check every other requeue path uses. Without it, recovery
+    would requeue by job id alone: if another worker's own reaper reclaims
+    this stem with a new token before the next startup runs, an
+    unauthenticated recovery would steal that worker's live claim instead of
+    the original stranded one. Pass ``None`` when the drain attempt itself
+    had no token to record (mirrors ``requeue_processing``'s own
+    "explicit None still verifies tokenless" semantics).
     """
     paths = _ensure_dirs(root)
-    marker = paths["processing"] / f"{job_id}{_JOB_SUFFIX}{_SHUTDOWN_TIMEOUT_MARKER_SUFFIX}"
+    token_part = claim_token if claim_token is not None else ""
+    marker = (
+        paths["processing"]
+        / f"{job_id}{_JOB_SUFFIX}{_SHUTDOWN_TIMEOUT_MARKER_SUFFIX}.{token_part}"
+    )
     marker.touch()
 
 
@@ -432,13 +453,18 @@ def recover_shutdown_timeout_markers(root: Path | None = None) -> list[str]:
     """Requeue any processing/ jobs that have a shutdown-timeout marker.
 
     Called at startup alongside recover_staged_requeues.  For each
-    ``*.json.shutdown-timeout`` sentinel in processing/:
+    ``*.json.shutdown-timeout.<token>`` sentinel in processing/:
 
     - If the corresponding ``*.json`` record still exists, call
-      requeue_processing without a claim_token (no live thread owns it after a
-      restart) so the record is moved back to pending/ regardless of
-      job_timeout.  A failed requeue logs a warning and leaves both files in
-      place for the next startup attempt.
+      requeue_processing with the token encoded in the marker's filename as
+      ``claim_token`` (an empty token segment means the original drain
+      attempt itself had no token, and is passed through as ``None`` so the
+      same atomic tokenless-verification path applies). This is the same
+      ownership check every other requeue call makes: if another worker's
+      own reaper has since reclaimed this stem with a different token, the
+      requeue is refused rather than stealing that worker's live claim, and
+      the marker is removed as stale (the original job this marker was for
+      is gone regardless of what currently occupies the stem).
     - Once the processing/ record is gone (finished or already requeued), the
       marker is removed so it does not trigger a spurious double-requeue.
 
@@ -448,16 +474,22 @@ def recover_shutdown_timeout_markers(root: Path | None = None) -> list[str]:
     requeued: list[str] = []
     marker_suffix = _JOB_SUFFIX + _SHUTDOWN_TIMEOUT_MARKER_SUFFIX
     for marker in list(paths["processing"].iterdir()):
-        if not marker.name.endswith(marker_suffix):
+        marker_stem = marker.name
+        suffix_start = marker_stem.find(marker_suffix)
+        if suffix_start == -1:
             continue
-        job_id = marker.name[: -len(marker_suffix)]
+        job_id = marker_stem[:suffix_start]
+        token_part = marker_stem[suffix_start + len(marker_suffix) + 1 :]
+        expected_token = token_part if token_part else None
         proc_path = _job_path(paths["processing"], job_id)
         if not proc_path.exists():
             # Job already finished or requeued on its own; clean up stale marker.
             marker.unlink(missing_ok=True)
             continue
         try:
-            result = requeue_processing(job_id, reason=SHUTDOWN_REQUEUE_REASON, root=root)
+            result = requeue_processing(
+                job_id, reason=SHUTDOWN_REQUEUE_REASON, root=root, claim_token=expected_token
+            )
         except Exception as exc:
             _log.warning(
                 "Could not recover shutdown-timeout job %s: %s; "
@@ -470,9 +502,19 @@ def recover_shutdown_timeout_markers(root: Path | None = None) -> list[str]:
             requeued.append(job_id)
             _log.info("recovered shutdown-timeout job %s", job_id)
         else:
-            _log.debug("Shutdown-timeout job %s not requeued (gone or already pending)", job_id)
-        # Remove the marker regardless: either the job was requeued or it is
-        # gone, and a stale marker on the next startup would be a no-op anyway.
+            # Either the job already left processing/, or (with a token
+            # recorded) a different worker's claim now occupies the stem --
+            # requeue_processing refuses to touch it in that case rather than
+            # stealing that worker's live claim. Either way the marker refers
+            # to a job that is no longer this marker's to recover.
+            _log.debug(
+                "Shutdown-timeout marker for %s not requeued (gone, already "
+                "pending, or claim since reclaimed by another worker)",
+                job_id,
+            )
+        # Remove the marker regardless: either the job was requeued, or it is
+        # gone/reclaimed and a stale marker on the next startup would be a
+        # no-op (or worse, another refused steal attempt) anyway.
         marker.unlink(missing_ok=True)
     return requeued
 

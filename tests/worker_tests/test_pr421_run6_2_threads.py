@@ -53,8 +53,6 @@ from tests.worker_tests.test_daemon_nonblocking import _make_runner, _patch_queu
 from worker import queue_ops as q
 from worker.queue_ops import Job, enqueue
 
-_REAL_REPLACE = Path.replace
-
 
 def _read(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
@@ -251,7 +249,7 @@ class TestShutdownTimeoutMarkerWritten(_RuntimeTestBase):
         ):
             runner.drain_live_threads(grace=0.0)
 
-        marker = paths["processing"] / "st1.json.shutdown-timeout"
+        marker = paths["processing"] / "st1.json.shutdown-timeout.tok-st1"
         self.assertTrue(marker.exists(), "shutdown-timeout marker was not written")
 
     def test_no_marker_on_successful_requeue(self) -> None:
@@ -269,8 +267,10 @@ class TestShutdownTimeoutMarkerWritten(_RuntimeTestBase):
         with patch.object(q, "requeue_processing", return_value=None):
             runner.drain_live_threads(grace=0.0)
 
-        marker = paths["processing"] / "st2.json.shutdown-timeout"
-        self.assertFalse(marker.exists(), "marker should not exist on clean drain")
+        # No marker of any kind (successful requeue attempt, even one that
+        # returned None because the job already left processing/, writes none).
+        markers = list(paths["processing"].glob("st2.json.shutdown-timeout*"))
+        self.assertEqual(markers, [], "marker should not exist on clean drain")
 
 
 class TestRecoverShutdownTimeoutMarkers(unittest.TestCase, QueueRootIsolationMixin):
@@ -280,15 +280,19 @@ class TestRecoverShutdownTimeoutMarkers(unittest.TestCase, QueueRootIsolationMix
         self.setup_queue_root()
 
     def test_requeues_processing_job_with_marker(self) -> None:
-        """Sad path: processing/ record with a marker is moved back to pending/."""
+        """Sad path: processing/ record with a marker is moved back to pending/
+        when the marker's encoded token still matches the record."""
         paths = q._ensure_dirs(self.root)
-        # Plant a job in processing/ with a marker
+        # Plant a job in processing/ with a marker recording its claim token.
         proc = paths["processing"] / "st3.json"
         proc.write_text(
-            json.dumps({"id": "st3", "type": "noop", "payload": {}, "status": "processing"}),
+            json.dumps(
+                {"id": "st3", "type": "noop", "payload": {}, "status": "processing",
+                 "claim_token": "tok-st3"}
+            ),
             encoding="utf-8",
         )
-        marker = paths["processing"] / "st3.json.shutdown-timeout"
+        marker = paths["processing"] / "st3.json.shutdown-timeout.tok-st3"
         marker.touch()
 
         recovered = q.recover_shutdown_timeout_markers(root=self.root)
@@ -297,10 +301,51 @@ class TestRecoverShutdownTimeoutMarkers(unittest.TestCase, QueueRootIsolationMix
         self.assertFalse(proc.exists(), "processing/ record should be gone")
         self.assertFalse(marker.exists(), "marker should be cleaned up")
 
+    def test_requeues_tokenless_job_with_tokenless_marker(self) -> None:
+        """Sad path: a marker recorded with no token (drain's own claim had none)
+        still recovers a record that also still carries no token."""
+        paths = q._ensure_dirs(self.root)
+        proc = paths["processing"] / "st3b.json"
+        proc.write_text(
+            json.dumps({"id": "st3b", "type": "noop", "payload": {}, "status": "processing"}),
+            encoding="utf-8",
+        )
+        marker = paths["processing"] / "st3b.json.shutdown-timeout."
+        marker.touch()
+
+        recovered = q.recover_shutdown_timeout_markers(root=self.root)
+        self.assertIn("st3b", recovered)
+        self.assertTrue((paths["pending"] / "st3b.json").exists())
+        self.assertFalse(marker.exists())
+
+    def test_does_not_steal_claim_reclaimed_by_another_worker(self) -> None:
+        """Sad path: if another worker's own reaper has since reclaimed this
+        stem with a different token, recovery must not requeue that worker's
+        live claim -- the ownership check refuses it, and the stale marker is
+        still cleaned up rather than retried forever."""
+        paths = q._ensure_dirs(self.root)
+        proc = paths["processing"] / "st3c.json"
+        proc.write_text(
+            json.dumps(
+                {"id": "st3c", "type": "noop", "payload": {}, "status": "processing",
+                 "claim_token": "tok-new-owner"}
+            ),
+            encoding="utf-8",
+        )
+        # The marker was written under the OLD (now-superseded) token.
+        marker = paths["processing"] / "st3c.json.shutdown-timeout.tok-old-owner"
+        marker.touch()
+
+        recovered = q.recover_shutdown_timeout_markers(root=self.root)
+        self.assertNotIn("st3c", recovered, "must not steal another worker's live claim")
+        self.assertTrue(proc.exists(), "the new owner's processing/ record must survive untouched")
+        self.assertEqual(_read(proc)["claim_token"], "tok-new-owner")
+        self.assertFalse(marker.exists(), "stale marker should still be cleaned up")
+
     def test_cleans_up_stale_marker_when_job_already_gone(self) -> None:
         """Happy path: marker without a corresponding processing/ record is removed."""
         paths = q._ensure_dirs(self.root)
-        marker = paths["processing"] / "st4.json.shutdown-timeout"
+        marker = paths["processing"] / "st4.json.shutdown-timeout.tok-st4"
         marker.touch()
 
         recovered = q.recover_shutdown_timeout_markers(root=self.root)
@@ -318,7 +363,7 @@ class TestRecoverShutdownTimeoutMarkers(unittest.TestCase, QueueRootIsolationMix
             encoding="utf-8",
         )
         # No processing/ record — marker is stale
-        marker = paths["processing"] / "st5.json.shutdown-timeout"
+        marker = paths["processing"] / "st5.json.shutdown-timeout.tok-st5"
         marker.touch()
 
         recovered = q.recover_shutdown_timeout_markers(root=self.root)
@@ -332,10 +377,13 @@ class TestRecoverShutdownTimeoutMarkers(unittest.TestCase, QueueRootIsolationMix
         paths = q._ensure_dirs(self.root)
         proc = paths["processing"] / "st6.json"
         proc.write_text(
-            json.dumps({"id": "st6", "type": "noop", "payload": {}, "status": "processing"}),
+            json.dumps(
+                {"id": "st6", "type": "noop", "payload": {}, "status": "processing",
+                 "claim_token": "tok-st6"}
+            ),
             encoding="utf-8",
         )
-        marker = paths["processing"] / "st6.json.shutdown-timeout"
+        marker = paths["processing"] / "st6.json.shutdown-timeout.tok-st6"
         marker.touch()
 
         with (
@@ -353,10 +401,13 @@ class TestRecoverShutdownTimeoutMarkers(unittest.TestCase, QueueRootIsolationMix
         paths = q._ensure_dirs(self.root)
         proc = paths["processing"] / "st7.json"
         proc.write_text(
-            json.dumps({"id": "st7", "type": "noop", "payload": {}, "status": "processing"}),
+            json.dumps(
+                {"id": "st7", "type": "noop", "payload": {}, "status": "processing",
+                 "claim_token": "tok-st7"}
+            ),
             encoding="utf-8",
         )
-        marker = paths["processing"] / "st7.json.shutdown-timeout"
+        marker = paths["processing"] / "st7.json.shutdown-timeout.tok-st7"
         marker.touch()
 
         runner = _make_runner(self.root, max_per_tick=1)
@@ -376,16 +427,24 @@ class TestWriteShutdownTimeoutMarker(unittest.TestCase, QueueRootIsolationMixin)
 
     def test_creates_marker_file(self) -> None:
         paths = q._ensure_dirs(self.root)
-        q.write_shutdown_timeout_marker("m1", root=self.root)
-        marker = paths["processing"] / "m1.json.shutdown-timeout"
+        q.write_shutdown_timeout_marker("m1", "tok-m1", root=self.root)
+        marker = paths["processing"] / "m1.json.shutdown-timeout.tok-m1"
+        self.assertTrue(marker.exists())
+
+    def test_creates_marker_file_with_no_token(self) -> None:
+        """None is encoded as an empty trailing segment, distinguishable from
+        any real hex token (which is never empty)."""
+        paths = q._ensure_dirs(self.root)
+        q.write_shutdown_timeout_marker("m1b", None, root=self.root)
+        marker = paths["processing"] / "m1b.json.shutdown-timeout."
         self.assertTrue(marker.exists())
 
     def test_idempotent(self) -> None:
         """touch() is idempotent; writing twice does not raise."""
-        q.write_shutdown_timeout_marker("m2", root=self.root)
-        q.write_shutdown_timeout_marker("m2", root=self.root)
+        q.write_shutdown_timeout_marker("m2", "tok-m2", root=self.root)
+        q.write_shutdown_timeout_marker("m2", "tok-m2", root=self.root)
         paths = q._ensure_dirs(self.root)
-        self.assertTrue((paths["processing"] / "m2.json.shutdown-timeout").exists())
+        self.assertTrue((paths["processing"] / "m2.json.shutdown-timeout.tok-m2").exists())
 
 
 # ---------------------------------------------------------------------------
