@@ -57,6 +57,21 @@ _LOOP_WORDS: frozenset[str] = frozenset({"for", "while", "until"})
 
 _SHELL_FENCE_LANGS: frozenset[str] = frozenset({"", "sh", "bash", "shell", "zsh", "console"})
 
+# Fence languages this module does not treat as shell, but which are real
+# language tags rather than a body word that happens to sit where a tag
+# would. Needed only to disambiguate the YAML-folding fallback below: a
+# fence folded onto one line ("```python python3 -c ...") looks identical,
+# after folding, to an unlabelled fence whose first body word is
+# coincidentally shell-shaped ("``` python3 -c ..."). Listing the common
+# non-shell tags lets that fallback tell "real tag for a language we don't
+# lint" from "no tag at all" instead of guessing from the trailing text.
+_KNOWN_NON_SHELL_FENCE_LANGS: frozenset[str] = frozenset({
+    "python", "py", "yaml", "yml", "json", "js", "javascript", "ts",
+    "typescript", "ruby", "rb", "go", "rust", "rs", "java", "c", "cpp",
+    "c++", "csharp", "cs", "html", "css", "sql", "toml", "ini", "xml",
+    "markdown", "md", "diff", "text", "txt",
+})
+
 _FENCE_RE = re.compile(r"^\s*```\s*([A-Za-z0-9_+-]*)\s*$")
 # A YAML folded scalar (``description: >``) collapses adjacent lines onto
 # one, so a fence's opening marker and its first command can arrive as a
@@ -250,13 +265,24 @@ def _fence_lang_and_first_line(tag: str, trailing: str | None) -> tuple[str, str
     *trailing* is the body's first line. On an UNLABELLED fence folded the
     same way ("``` echo setup") there is no language at all -- *tag* is just
     the first word of the body ("echo"), grabbed because the regex cannot
-    tell "echo" from "bash" without a known-language list. Recover that case
-    by checking *tag* against the known set: if it is not recognised and
-    there is trailing text, the fence is unlabelled and the whole captured
-    text (*tag* + *trailing*) is the body's first line.
+    tell "echo" from "bash" without a known-language list.
+
+    Recovering the unlabelled case by falling back to "unrecognised tag ->
+    treat as body word" whenever *trailing* is present is not enough: a
+    REAL non-shell language tag folded the same way ("```python python3 -c
+    ...") has the identical shape -- an unrecognised tag with trailing
+    text -- and would be wrongly reclassified as an unlabelled shell fence
+    whose first body word ("python3") is a strong command. Check *tag*
+    against a second, explicit list of known non-shell languages first: a
+    hit there means the fence has a real (if unlinted) language and
+    *trailing* is genuinely the body's first line, not a stolen body word.
+    Only *tag* values recognised by neither set fall through to "unlabelled
+    fence, first word is body".
     """
     lang = tag.lower()
-    if trailing and lang not in _SHELL_FENCE_LANGS:
+    if lang in _SHELL_FENCE_LANGS or lang in _KNOWN_NON_SHELL_FENCE_LANGS:
+        return lang, trailing or ""
+    if trailing:
         return "", f"{tag} {trailing}"
     return lang, trailing or ""
 

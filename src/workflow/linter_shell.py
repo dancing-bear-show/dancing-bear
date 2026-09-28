@@ -199,6 +199,33 @@ def _check_specs(tail: str) -> list[str]:
     return specs
 
 
+def _is_command_word_position(text: str, start: int) -> bool:
+    """True when the token at *start* sits where a command word may appear.
+
+    A real ``check-params`` invocation is either the first word of a command
+    (a command boundary -- start of text, or right after a separator like
+    ``;``/``&&``/``|``/``(``/``&``), or a subcommand immediately following its
+    wrapper's path (``./bin/workflow check-params ...``) -- the wrapper word
+    itself sits in command position, so its subcommand does too. A token that
+    is merely an ARGUMENT to some other command, such as the literal string
+    ``check-params`` after ``echo``, is preceded by a plain word (``echo``)
+    that is itself in argument position, not a command boundary or a wrapper
+    path -- so this returns False and the token is not credited as a real
+    invocation.
+    """
+    i = start
+    while i > 0 and text[i - 1] in " \t":
+        i -= 1
+    if i == 0 or text[i - 1] in "\n;&|(":
+        return True
+    word_end = i
+    word_start = word_end
+    while word_start > 0 and text[word_start - 1] not in " \t\n;&|(":
+        word_start -= 1
+    preceding = text[word_start:word_end]
+    return "/" in preceding and _is_command_word_position(text, word_start)
+
+
 def _checked_param_positions(
     segments: Iterable[ShellSegment],
 ) -> dict[str, tuple[int, int]]:
@@ -209,11 +236,18 @@ def _checked_param_positions(
     text before the stage's own ``check-params --check`` call has already reached
     shell by the time the check runs, so only uses at or after that position may be
     credited to a same-stage check.
+
+    A token merely ending in ``check-params`` is not enough -- it must also sit at a
+    command-word position, so an argument to some other command (``echo check-params
+    --check host=...``) is not mistaken for a real invocation; see
+    :func:`_is_command_word_position`.
     """
     positions: dict[str, tuple[int, int]] = {}
     for seg_index, seg in enumerate(segments):
         for m in re.finditer(r"\S+", seg.text):
             if not m.group(0).endswith("check-params"):
+                continue
+            if not _is_command_word_position(seg.text, m.start()):
                 continue
             for spec in _check_specs(seg.text[m.end():]):
                 name, sep, _ = spec.partition("=")

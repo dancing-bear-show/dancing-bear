@@ -159,6 +159,18 @@ class TestUnvalidatedParam(_RuleCase):
     def test_check_params_in_same_stage_validates(self) -> None:
         self.assert_silent(_workflow(_stage(_CHECK_PARAMS + _OLLAMA_PROBE), params=_OLLAMA_PARAMS))
 
+    def test_check_params_as_argument_to_another_command_does_not_validate(self) -> None:
+        # A token merely ENDING in "check-params" that is an argument to some
+        # other command (here, echo) is not a real check-params invocation --
+        # no check-params process ever ran, so the later {ollama_host} use
+        # must still be flagged.
+        desc = (
+            "  echo check-params --check 'ollama_host=https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?/?'\n"
+            + _OLLAMA_PROBE
+        )
+        hits = self.assert_fires(_workflow(_stage(desc), params=_OLLAMA_PARAMS))
+        self.assertIn("'{ollama_host}'", hits[0].message)
+
     def test_check_params_after_the_use_does_not_validate_it(self) -> None:
         # PR #433 review: check-params validation must respect ordering. A
         # {ollama_host} used BEFORE a same-stage check-params --check call has
@@ -332,6 +344,20 @@ class TestUnboundVariable(_RuleCase):
         desc = '``` echo "$UNBOUND_VAR"\n```\n'
         hits = self.assert_fires(_workflow(_stage(desc)))
         self.assertIn("$UNBOUND_VAR", hits[0].message)
+
+    def test_folded_real_language_tag_is_not_misread_as_unlabelled_shell(self) -> None:
+        # PR #433 review (this fix): a REAL, non-shell language tag folded
+        # onto one line ("```python python3 -c ...") has the exact same
+        # shape as the unlabelled-fence case two tests above -- an
+        # unrecognised tag with trailing text. Before this fix, both were
+        # treated identically: the fence was reclassified as unlabelled
+        # shell, its "tag" plus trailing text became the first body line
+        # ("python python3 -c ..."), and "python3" (a strong command) made
+        # is_command_line() call the whole thing shell. A genuine
+        # python-labelled code block must stay silent, even though its
+        # first body word after folding looks like a shell command.
+        desc = '```python python3 -c "print($UNBOUND_VAR)"\n```\n'
+        self.assert_silent(_workflow(_stage(desc)))
 
     def test_single_quoted_default_and_environment_are_silent(self) -> None:
         desc = (
@@ -746,6 +772,34 @@ class TestExtractShellSegments(unittest.TestCase):
         # collapsed fence into shell regardless of content.
         desc = "``` this is just prose\nmore prose\n```\n"
         self.assertEqual(extract_shell_segments(desc), [])
+
+    def test_folded_unlabelled_fence_with_command_first_word_still_recognized(self) -> None:
+        # Happy-path regression for the round-3 fix: an unlabelled fence
+        # folded onto one line, whose stolen "tag" position is genuinely
+        # the first word of the body ("echo", not a known language), must
+        # still be recognized as an unlabelled shell fence. This is the
+        # case this PR's fix must not break while fixing the sibling
+        # real-language-tag case below.
+        desc = '``` echo setup\nfor p in items; do echo "$p"; done\n```\n'
+        segments = extract_shell_segments(desc)
+        fence_segments = [s for s in segments if s.origin == "fence"]
+        self.assertEqual(len(fence_segments), 1)
+        self.assertEqual(fence_segments[0].text, 'echo setup\nfor p in items; do echo "$p"; done')
+
+    def test_folded_python_fence_is_not_reclassified_as_unlabelled_shell(self) -> None:
+        # PR #433 review: a REAL language tag ("python") folded onto one
+        # line by a YAML folded scalar ("```python python3 -c ...") has the
+        # same shape, after folding, as the unlabelled-fence case above --
+        # an unrecognised tag with trailing text. Before this fix, both
+        # were handled identically: the fallback discarded the tag and
+        # treated "python python3 -c ..." as an unlabelled fence's first
+        # body line, and "python3" (a strong command in _STRONG_COMMANDS)
+        # made the fence lint as shell. A python-labelled fence is not a
+        # shell fence and must yield zero fence segments.
+        desc = '```python python3 -c "print(1)"\nmore_code = 2\n```\n'
+        segments = extract_shell_segments(desc)
+        fence_segments = [s for s in segments if s.origin == "fence"]
+        self.assertEqual(fence_segments, [])
 
     def test_quote_context_handles_nested_substitution(self) -> None:
         text = 'X="$(jq -r \'.a\' "$F")" {k}'
