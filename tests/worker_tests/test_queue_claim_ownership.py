@@ -401,7 +401,7 @@ class TestStartProcessingHoldsLock(unittest.TestCase, QueueRootIsolationMixin):
         window where the start time is absent."""
         proc = q.start_processing(self.pending, self.root)
         self.assertIsNotNone(proc)
-        assert proc is not None
+        assert proc is not None  # nosec B101 - narrows Optional for mypy
         data = _read(proc)
         self.assertIn("processing_started_at", data, "processing_started_at missing after start_processing")
         self.assertIn(q.CLAIM_TOKEN_FIELD, data, "claim_token missing after start_processing")
@@ -456,7 +456,7 @@ class TestCopyExclusiveTempPublish(unittest.TestCase, QueueRootIsolationMixin):
         with self.assertRaises(FileExistsError):
             q._copy_exclusive(self.staged, self.dest)
         # dest must still hold the rival content.
-        self.assertEqual(_read(self.dest)["other"], True)
+        self.assertTrue(_read(self.dest)["other"])
 
     def test_no_partial_temp_file_left_on_write_error(self) -> None:
         """If an error occurs during the write, no temp file is left behind."""
