@@ -254,7 +254,7 @@ both are structurally valid.
 
 ### 1. `kind: validate` discards `description`
 
-`_validate()` in `src/workflow/dispatch.py:260` builds the agent prompt from
+`_validate()` in `src/workflow/dispatch.py:365` builds the agent prompt from
 `validation.strategy`, `validation.criteria`, and `validation.domain_rules`
 only. It never reads `stage.spec.description`.
 
@@ -303,7 +303,7 @@ entry.
 ### 3. `writes_to` gets no `{param}` substitution
 
 `description` gets trigger-param substitution. `writes_to` does not:
-`_write_paths()` (`src/workflow/dispatch.py:115`) consumes `stage.spec.writes_to`
+`_write_paths()` (`src/workflow/dispatch.py:213`) consumes `stage.spec.writes_to`
 verbatim. A `{param}` there becomes a literal filename with braces in it.
 
 ```yaml
