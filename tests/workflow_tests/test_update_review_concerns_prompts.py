@@ -15,6 +15,7 @@ import shutil
 import subprocess  # nosec B404 - runs the workflow's own rendered jq lines in a temp dir
 import tempfile
 import unittest
+from collections.abc import Mapping
 from pathlib import Path
 
 from workflow.compiler import WorkflowCompileError, compile_workflow, match_when_expression
@@ -251,7 +252,7 @@ class TestRenderedJqExecutes(unittest.TestCase):
         argv = [str(shutil.which("bash")), "-c", cmd]
         return subprocess.run(argv, capture_output=True, text=True, check=False)  # nosec B603 - rendered workflow lines against a temp dir
 
-    def _classify(self, pr: int, n: int, override: dict[str, dict[str, object]] | None = None) -> None:
+    def _classify(self, pr: int, n: int, override: Mapping[str, Mapping[str, object]] | None = None) -> None:
         """Write a valid classified file for the first n input threads of ``pr``.
 
         thread_ids match the source rounds data (T{pr}-{i}) so the multiset
@@ -353,7 +354,7 @@ class TestRenderedJqExecutes(unittest.TestCase):
         self.assertNotEqual(self._run(self.check).returncode, 0)
         self.assertIn("406: thread_id mismatch", self._run(self.explain).stdout)
 
-    def _invariants_after(self, override: dict[str, dict[str, object]] | None = None,
+    def _invariants_after(self, override: Mapping[str, Mapping[str, object]] | None = None,
                           ) -> subprocess.CompletedProcess[str]:
         """Classify both indexed PRs validly except ``override``, pass Steps 1-3, run Step 4."""
         self._index()
@@ -457,7 +458,8 @@ class TestRenderedJqExecutes(unittest.TestCase):
         self.assertEqual(g["sweep"], pattern)  # a pattern beats the earlier procedure
         self.assertEqual(g["sweep_hits"], 7)
         examples = g["example_comments"]
-        self.assertIsInstance(examples, list)
+        if not isinstance(examples, list):
+            self.fail(f"example_comments is {examples!r}")
         self.assertEqual(len(examples), 3)
         self.assertEqual({str(e).split()[0] for e in examples}, {"#395", "#400", "#406"})
         self.assertEqual(groups["unquoted-shell-var"]["cause_categories"], ["SIBLING"])
@@ -656,7 +658,7 @@ def _procedure(**over: object) -> dict[str, object]:
 
 
 def _cluster(cls: str, category: str, prs: list[str], threads: int, guide: str,
-             sweep: dict[str, object], examples: list[str], hits: int | None = None) -> dict[str, object]:
+             sweep: Mapping[str, object], examples: list[str], hits: int | None = None) -> dict[str, object]:
     """One promoted gap-clusters.json entry in the R7 shape."""
     return {"theme": f"{cls} ({category})", "occurrences": len(prs), "pr_numbers": prs, "file_types": [".py"],
             "guide_file": guide, "example_comments": examples, "source": "rereview", "class": cls,
