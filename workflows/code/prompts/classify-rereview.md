@@ -228,7 +228,7 @@ as given, `null` included; never fill one from the other.
 Do not tally `counts` by hand. After writing the file, compute the category
 counts in one Bash call and copy them into `counts`:
 
-    jq '[.threads[].category] | group_by(.) | map({key: .[0], value: length}) | from_entries' <your output file>
+    jq '[.threads[].category] | group_by(.) | map({key: .[0], value: length}) | from_entries' "<your output file>"
 
 Categories absent from that output are 0.
 

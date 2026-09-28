@@ -218,6 +218,17 @@ class TestRenderedPrompts(unittest.TestCase):
         self.assertIn("aggregate-rereview fails the run", body)
         self.assertNotIn("cluster-gaps' aggregate check", body)
 
+    def test_topics_pr_templates_are_quoted(self) -> None:
+        text = _prompts("/ws", mode="topics")["fetch-review-threads"]
+        calls = re.findall(r"\./bin/github [^\n]*<PR>[^\n]*", text)
+        self.assertEqual(len(calls), 4)
+        for call in calls:
+            with self.subTest(call=call):
+                self.assertIn("--pr '<PR>'", call)
+                rest = call.replace("'<PR>'", "").replace('"/ws/outputs/threads-<PR>.json"', "")
+                self.assertNotIn("<PR>", rest)
+        self.assertIn('--out "/ws/outputs/threads-<PR>.json"', text)
+
     def test_prompt_git_templates_are_quoted_and_end_options(self) -> None:
         body = _PROMPT_FILE.read_text(encoding="utf-8")
         allowed = ("git show --stat '<commit>' --`", "git show '<commit>' -- '<path>'`",
@@ -304,6 +315,16 @@ class TestRenderedJqExecutes(unittest.TestCase):
         index = json.loads((self.ws / "outputs/rereview-index.json").read_text())
         self.assertEqual(index, {"items": [{"pr": "406"}, {"pr": "395"}]})
 
+    def test_index_keys_must_be_pr_numbers(self) -> None:
+        fetch = _jq_lines(_prompts(str(self.ws), mode="rereview", min_threads="1")["fetch-round-history"])
+        (check,) = [c for c in fetch if "all(.pr | test(" in c]
+        self._index()
+        self.assertEqual(self._run(check).returncode, 0)
+        for bad in ("$(id)", "../x", "0", "406 ", "a"):
+            with self.subTest(key=bad):
+                self._write("outputs/rereview-index.json", {"items": [{"pr": "406"}, {"pr": bad}]})
+                self.assertNotEqual(self._run(check).returncode, 0)
+
     def _seed_block(self) -> str:
         """The rendered seed-class-list Step 1 `if ls ... fi` block, dedented."""
         lines = _prompts(str(self.ws), mode="rereview", min_threads="1")["seed-class-list"].splitlines()
@@ -382,7 +403,8 @@ class TestRenderedJqExecutes(unittest.TestCase):
         out = self.ws / "outputs/classified/pr1.json"
         self._write("outputs/classified/pr1.json",
                     {"pr": 1, "threads": [{"category": "SIBLING"}, {"category": "SIBLING"}, {"category": "NOISE"}]})
-        res = self._run(line.replace("<your output file>", f'"{out}"'))
+        self.assertIn('"<your output file>"', line)
+        res = self._run(line.replace("<your output file>", str(out)))
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertEqual(json.loads(res.stdout), {"NOISE": 1, "SIBLING": 2})
 

@@ -188,6 +188,11 @@ stages:
       GITHUB_TOKEN automatically — no `GITHUB_TOKEN=` prefix or owner/repo
       preamble needed. Do not re-implement these fetches with raw gh.
 
+      <PR> below is always a PR number of digits only: the pr_number param
+      (the engine's param_rules require [1-9][0-9]{0,6}) or a `number` from
+      the `pr list` call in MODE B. Anything else is refused, never
+      substituted. Keep the single quotes around it.
+
       MODE A — single PR (when pr_number param is non-empty, e.g. "112"):
         Skip the merged-PR list entirely.
         Fetch all three comment surfaces for that one PR:
@@ -198,12 +203,12 @@ stages:
           #    treat that PR as skipped, never mine a partial set. The old raw GraphQL
           #    approach capped threads at 100 with no pagination check —
           #    that defect is now closed in code.
-          ./bin/github threads fetch --pr <PR> --out {workspace}/outputs/threads-<PR>.json
+          ./bin/github threads fetch --pr '<PR>' --out "{workspace}/outputs/threads-<PR>.json"
           # 2. REST inline (diff-line) comments — Copilot inline feedback
           #    lives here; threads fetch does not return this endpoint.
-          ./bin/github pr comments --pr <PR> --kind review
+          ./bin/github pr comments --pr '<PR>' --kind review
         Write merged-prs.json as a single-element list with the PR's metadata:
-          ./bin/github pr view --pr <PR> --fields number,title,mergedAt
+          ./bin/github pr view --pr '<PR>' --fields number,title,mergedAt
         Set min_occurrences threshold to 1 for this mode — a single PR is the
         full universe, so patterns that appear even once are worth proposing.
 
@@ -250,7 +255,7 @@ stages:
 
           role = "author_reply" when the comment's author equals the PR author
             (resolve once per PR:
-              ./bin/github pr view --pr <PR> --value author
+              ./bin/github pr view --pr '<PR>' --value author
             then parse `.login` from the JSON object returned).
             Everything else is role = "finding".
 
@@ -406,6 +411,12 @@ stages:
         ls "{workspace}/outputs/rounds"
 
         jq -r '.items[].pr' "{workspace}/outputs/rereview-index.json"
+
+      Every index key must be a PR number of digits only, because
+      classify-rereview places it in file paths and a jq --arg. A non-zero
+      exit fails the stage:
+
+        jq -e '.items | all(.pr | test("^[1-9][0-9]{0,6}$"))' "{workspace}/outputs/rereview-index.json"
 
       Every PR number from the second command must have a matching prN.json
       in the first listing. A missing file is a review-rounds contract
