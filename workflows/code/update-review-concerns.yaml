@@ -16,8 +16,10 @@
 #                        thread by cause (FIX_REGRESSION, SIBLING,
 #                        INCOMPLETE_FIX, COLLATERAL_DOC, LATE_DISCOVERY, ...)
 #                        and promote classes seen on >= 2 PRs that carry a
-#                        concrete sweep. 69% of review threads over 160 PRs
-#                        were opened on our fix commits, not the original diff.
+#                        concrete sweep: a pattern, a structural check, or a
+#                        mechanical procedure applied to a diff. 69% of
+#                        review threads over 160 PRs were opened on our fix
+#                        commits, not the original diff.
 #
 # DAG (stages marked [R] run only when mode=rereview, [T] only when topics;
 # every other stage runs in both and branches on {mode} in its prose):
@@ -54,7 +56,9 @@ description: >
 
   mode=rereview: classify each thread by why it appeared in a later review
   round, cluster by (class, cause), and promote only classes seen on >= 2 PRs
-  with a concrete sweep. Rejected classes are listed with reasons at the gate.
+  with a concrete sweep (pattern, structural check, or diff procedure).
+  Rejected classes are listed with reasons at the gate, and covered classes
+  that still recur on >= 2 PRs are reported as enforcement gaps.
     - pr_number set: that PR only, never thread-filtered (diagnostic; the
       2-PR bar still applies)
     - pr_number blank: the max_prs most recent PRs (any state) with >=
@@ -558,7 +562,12 @@ stages:
       MODE — this run's mode is "{mode}". If it is topics, follow Steps 1–5
       below exactly as written and ignore the REREVIEW MODE section at the
       end. If it is rereview, skip Steps 1–5 entirely and follow REREVIEW
-      MODE instead; it writes the same two files.
+      MODE instead; it writes the same three files.
+
+      Every exit from this stage, early or not and in either mode, writes all
+      three declared files: gap-clusters.json, cluster-summary.md and
+      enforcement-gaps.json, each `[]` or a one-line note when it has nothing
+      to hold. A missing file is indistinguishable from a crashed stage.
 
       Step 1 — load inputs:
         Read {workspace}/outputs/past-findings.json
@@ -619,8 +628,11 @@ stages:
             ...
           ]
 
-        If no gaps meet the threshold, write [] and note it in a brief
-        {workspace}/outputs/cluster-summary.md.
+        If no gaps meet the threshold, write [] to gap-clusters.json.
+        Either way, write a brief {workspace}/outputs/cluster-summary.md
+        (the cluster count, noting when no gap met the threshold), and
+        write [] to {workspace}/outputs/enforcement-gaps.json: enforcement
+        gaps are a rereview output, and the file is declared for both modes.
 
       REREVIEW MODE (only when mode is rereview):
 
@@ -656,9 +668,9 @@ stages:
         produces. For each cluster count distinct PRs and threads, and keep
         up to 3 example locations (path:line plus the evidence line).
 
-      R5 — promote or reject EVERY cluster. A cluster is promoted only if ALL
-        of these hold; otherwise it is rejected with the first failing
-        reason code:
+      R5 — promote or reject EVERY cluster. Apply these tests in order. A
+        cluster is promoted only if it passes all of them; otherwise it is
+        rejected with the first failing reason code:
           - `catch-all` — the class does not name a checkable defect shape
             (construct plus what is wrong with it). `spec-or-logic-error`,
             the largest class on PR #391 at 38 threads, is the canonical
@@ -668,20 +680,64 @@ stages:
             when pr_number is set ("{pr_number}" this run): single-PR
             rereview is diagnostic, and every cluster is rejected here.
           - `covered` — an existing concern id already describes the class
-            (name that id in the reason).
-          - `no-sweep` — you cannot write a concrete sweep. A sweep is
-            DATA, never a command, in exactly one of two shapes:
-              {"pattern": "<regex>", "paths": ["workflows/", "src/"]}
-            — a Python regular expression, plus one or more repo-relative
-            paths (e.g. pattern `check-params[^|]*--check`, paths
-            ["workflows/"]); or
-              {"structural": "<one-sentence mechanical check>"}
-            (e.g. "every stage with isolation: worktree whose description
-            mentions the workspace variable"). "Review the docs for
-            accuracy" is not a sweep.
-          - `sweep-too-broad` — the pattern matches more than 200 lines in
-            the current tree and cannot be narrowed without losing
-            instances.
+            (name that id in the reason). A cluster that reaches this test
+            already spans 2 or more PRs, so a covered cluster is also an
+            ENFORCEMENT GAP: the concern exists but was not applied, for
+            example because the review swarm never ran on those PRs. List
+            it under rejected clusters AND record it in R7c. It is never
+            promoted and never appended to a guide.
+          - the sweep ladder — the cluster needs one concrete sweep. A
+            sweep is DATA, never a command. Try the three kinds in this
+            order and take the first that can be written:
+              1. pattern — {"pattern": "<regex>", "paths": ["workflows/", "src/"]}:
+                 a Python regular expression plus one or more repo-relative
+                 paths (e.g. pattern `check-params[^|]*--check`, paths
+                 ["workflows/"]), counted with count-sweep below. It is too
+                 broad when it matches more than 200 lines in the current
+                 tree and cannot be narrowed without losing instances;
+                 fall through to 2 and 3.
+              2. structural — {"structural": "<one-sentence mechanical check>"}
+                 over the current tree (e.g. "every stage with isolation:
+                 worktree whose description mentions the workspace
+                 variable").
+              3. procedure — for a defect no search of the tree can find,
+                 because it is an absence in one diff: a guard that misses
+                 an input form, a param that reaches shell text unchecked,
+                 a check-then-act race. The procedure is a mechanical check
+                 a reviewer applies to a DIFF:
+                   {"procedure": {"trigger": "<condition observable in a diff: file type + construct changed>", "steps": ["<yes/no question>?", ...], "evidence": "<what the reviewer records to show it was applied>"}}
+                 A procedure is valid only if ALL of these hold:
+                   a. the trigger names a concrete construct AND the file
+                      type it lives in, both visible in a diff hunk: "a
+                      function that rejects, filters or authorises input
+                      is added or modified in `src/**/*.py`", or "a stage
+                      description in `workflows/**/*.yaml` adds or changes
+                      shell text containing a brace-wrapped param
+                      placeholder". "Any risky change" names neither.
+                   b. it has 2 to 6 steps, each one yes/no question ending
+                      in `?`, answerable from the diff plus the files the
+                      diff touches.
+                   c. evidence names a concrete record: a list, a table,
+                      or test names (e.g. "each input form, paired with
+                      the test that covers it").
+                   d. no part of it is judgement-only: "review for
+                      accuracy", "check carefully", "looks correct", "as
+                      appropriate", "use judgement". A step answerable
+                      only by opinion is not a step.
+                 Worked example, for `incomplete-guard-coverage`:
+                   {"procedure": {"trigger": "a function that rejects, filters or authorises input is added or modified in `src/**/*.py`", "steps": ["Does the diff, its tests or the PR text list every input form the guard receives (absolute, relative, symlinked, `..`, mixed case, empty)?", "Does it list every entry point that reaches the guard (CLI flags, hook payload fields, direct callers)?", "Does each listed input form have its own test asserting accept or reject?", "Does each entry point have a test that reaches the guard through that entry point?"], "evidence": "the input-form list and the entry-point list, each item paired with the test that covers it"}}
+                 A procedure has no hit count: sweep_hits is null and
+                 sweep_hits_reason says why.
+            Reason codes when the ladder fails. Never reject with
+            `no-sweep` or `sweep-too-broad` before attempting a procedure:
+          - `procedure-not-mechanical` — you drafted a procedure and it
+            breaks rule a, b, c or d above; name the rule in the detail.
+          - `sweep-too-broad` — the pattern was too broad, and no
+            structural check or procedure could be drafted to replace it.
+          - `no-sweep` — neither a pattern, a structural check, nor a
+            mechanical procedure could be written: the defect has no
+            construct a diff hunk shows. "Review the docs for accuracy" is
+            not a sweep of any kind.
         The pattern is derived from reviewer-authored thread text, so it
         is never run by grep or any other shell tool, and never written to
         a file for one. Count each pattern sweep's hits with this one
@@ -692,15 +748,16 @@ stages:
 
         It prints {"hits": N, "files": M}; record N as sweep_hits and never
         count matches by eye. Exit 2 means the pattern or a path is invalid
-        or refused: fix the sweep or reject the cluster as `no-sweep`. Exit
-        1 means the scan hit its work bound and the count is partial:
-        reject it as `sweep-too-broad`. A sweep with zero hits today is
+        or refused: fix the pattern, or drop it and continue down the
+        ladder. Exit 1 means the scan hit its work bound and the count is
+        partial: treat the pattern as too broad and continue down the
+        ladder. A pattern sweep with zero hits today is
         acceptable — the instances may already be fixed — but record it.
         The pattern goes inside single quotes, as one `--pattern=`
         argument, which the shell never expands. So a pattern containing a
         single quote or a newline is REFUSED, not escaped: rewrite it
-        without one (`.` or `\x27` matches a quote) or reject the cluster
-        as `no-sweep`. Each path is its own `--path` argument and must be
+        without one (`.` or `\x27` matches a quote) or drop the pattern
+        and continue down the ladder. Each path is its own `--path` argument and must be
         repo-relative: no leading `/`, `~` or `-`, no `..` segment, only
         letters, digits, `.`, `_`, `-` and `/`, and nothing under `.git`,
         `.github`, `.claude` or `.envrc`; never type a path that breaks
@@ -731,16 +788,52 @@ stages:
             "cause_category": "SIBLING",
             "thread_count": N,
             "sweep": {"pattern": "...", "paths": ["workflows/", "src/"]},
-            "sweep_hits": N                  # null for a structural sweep
+            "sweep_hits": N,                 # null for a structural or procedure sweep
+            "sweep_hits_reason": null        # when sweep_hits is null: why, e.g. "procedure: applied per diff, no tree count"
           }
-        Write [] if nothing is promoted.
+        "sweep" holds exactly one of the three R5 shapes. If nothing is
+        promoted, write [] to gap-clusters.json; R7c still writes
+        enforcement-gaps.json.
 
       R7b — prove every sweep is data of the right shape with safe paths.
         This fixed command reads the file itself, so no model-written text
         is typed into the shell. It prints one line per bad sweep and ends
+        with true or false; a false exits non-zero and fails the stage. A
+        procedure fails it when the trigger or evidence is missing or
+        blank, when it has fewer than 2 or more than 6 steps, when a step
+        is blank or does not end in `?`, or when any part uses an R5 rule d
+        phrase:
+
+          jq -er '[.[] | select(((.sweep | type == "object") and (if (.sweep | has("structural")) then (.sweep | keys == ["structural"] and (.structural | type == "string" and length > 0)) elif (.sweep | has("procedure")) then (.sweep | keys == ["procedure"] and (.procedure | type == "object" and keys == ["evidence", "steps", "trigger"] and (.trigger | type == "string" and test("\\S")) and (.evidence | type == "string" and test("\\S")) and (.steps | type == "array" and length >= 2 and length <= 6 and all(.[]; type == "string" and test("\\S") and test("\\?\\s*$"))) and ([.trigger, .evidence, .steps[]] | all(.[]; test("carefully|for accuracy|looks? (right|correct|good|fine)|as appropriate|judge?ment"; "i") | not)))) else (.sweep | keys == ["paths", "pattern"] and (.pattern | type == "string" and length > 0 and (test("[\u0027\n\r]") | not)) and (.paths | type == "array" and length > 0 and all(.[]; type == "string" and test("^[A-Za-z0-9_][A-Za-z0-9._/-]*$") and (split("/") | all(. != ".." and . != ".")) and (ascii_downcase | split("/") | (.[0] != ".github" and .[0] != ".claude" and all(. != ".git" and . != ".envrc")))))) end)) | not) | "\(.class // "?"): \(.sweep | tojson)"] | (.[]), (length == 0)' "{workspace}/outputs/gap-clusters.json"
+
+      R7c — write {workspace}/outputs/enforcement-gaps.json: one entry per
+        cluster rejected `covered` in R5, and no other cluster. Write [] when
+        there are none, which is always the case when pr_number is set (a
+        single-PR cluster fails `single-pr` before it reaches `covered`).
+        Each entry:
+          {
+            "concern_id": "stale-prose-after-behavior-change",  # the existing id named in the reason
+            "guide_file": "patterns.md",     # the guide that holds that id
+            "class": "doc-claims-drift-from-code",
+            "cause_category": "COLLATERAL_DOC",
+            "pr_numbers": ["..."],           # 2 or more distinct PRs
+            "thread_count": N,
+            "example": "path:line — evidence"
+          }
+        Take guide_file from this fixed listing of every concern heading,
+        not from memory: each line is guide-path:heading.
+
+          grep -H '^### ' concerns/*.md
+
+        Then prove every entry names a known concern, its guide file and
+        2 or more PRs. The command prints one line per bad entry and ends
         with true or false; a false exits non-zero and fails the stage:
 
-          jq -er '[.[] | select(((.sweep | type == "object") and (if (.sweep | has("structural")) then (.sweep | keys == ["structural"] and (.structural | type == "string" and length > 0)) else (.sweep | keys == ["paths", "pattern"] and (.pattern | type == "string" and length > 0 and (test("[\u0027\n\r]") | not)) and (.paths | type == "array" and length > 0 and all(.[]; type == "string" and test("^[A-Za-z0-9_][A-Za-z0-9._/-]*$") and (split("/") | all(. != ".." and . != ".")) and (ascii_downcase | split("/") | (.[0] != ".github" and .[0] != ".claude" and all(. != ".git" and . != ".envrc")))))) end)) | not) | "\(.class // "?"): \(.sweep | tojson)"] | (.[]), (length == 0)' "{workspace}/outputs/gap-clusters.json"
+          jq -er --slurpfile k "{workspace}/outputs/known-concern-ids.json" '[.[] | select((type == "object" and (.concern_id | type == "string") and (.concern_id as $c | any($k[0][]; . == $c)) and (.guide_file | type == "string" and test("^[a-z0-9-]+\\.md$")) and (.class | type == "string" and length > 0) and (.cause_category | type == "string" and length > 0) and (.pr_numbers | type == "array" and (unique | length) >= 2) and (.thread_count | type == "number") and (.example | type == "string" and length > 0)) | not) | "\(.concern_id // "?"): \(tojson)"] | (.[]), (length == 0)' "{workspace}/outputs/enforcement-gaps.json"
+
+        These entries are reported, never proposed: they mean the concern
+        exists but was not applied on those PRs, which a new guide entry
+        would not fix.
 
       R8 — write {workspace}/outputs/cluster-summary.md with, in order:
           - "## Totals": PRs, threads, the count per category, and the
@@ -750,26 +843,37 @@ stages:
 
               jq -rn --slurpfile c "{workspace}/outputs/rereview-classified.json" --slurpfile k "{workspace}/outputs/known-concern-ids.json" '"PRs: \($c[0] | length)", "threads: \([$c[0][].threads[]] | length)", ([$c[0][].threads[].category] | group_by(.) | .[] | "\(.[0]): \(length)"), "known concern ids: \($k[0] | length)"'
           - "## Synonym merges": a table of every R3 merge (from, to, reason)
-          - "## Promoted clusters": class, cause category, PRs, threads, sweep
+          - "## Promoted clusters": class, cause category, PRs, threads,
+            sweep kind (pattern, structural or procedure), and the sweep:
+            a pattern with its paths and hit count, a structural sentence,
+            or a procedure's trigger and step count
+          - "## Enforcement gaps": do not write this table yourself. Paste
+            the output of this one Bash call verbatim under the heading:
+
+              jq -r 'if length == 0 then "None." else ("| concern | guide | class | category | PRs | threads | example |", "|---|---|---|---|---|---|---|", (.[] | "| `\(.concern_id)` | \(.guide_file) | \(.class) | \(.cause_category) | \(.pr_numbers | map(tostring) | join(", ")) | \(.thread_count) | \(.example | gsub("[|\\n\\r]"; " ")) |")) end' "{workspace}/outputs/enforcement-gaps.json"
           - "## Rejected clusters": class, cause category, PRs, threads,
             reason code, one-line detail. EVERY cluster not promoted appears
-            here; none is dropped silently. propose-concerns copies this
-            section verbatim so the human gate shows it.
+            here; none is dropped silently. A `covered` row's detail names
+            the concern id and says "enforcement gap". propose-concerns
+            copies this section and "## Enforcement gaps" verbatim so the
+            human gate shows both.
         The promoted and rejected counts must sum to the cluster total;
         state both numbers and the total. Take the promoted count from
         `jq length "{workspace}/outputs/gap-clusters.json"` after R7, not
         from your own tally.
+    # A `lint` sweep kind (a linter rule id) follows once PR #433 lands with the rule ids.
     agent:
       role: reviewer
       model: sonnet
-      # Bash runs only the fixed jq and count-sweep commands written in this
-      # description; no sweep pattern is ever run by a shell tool.
+      # Bash runs only the fixed jq, grep -H and count-sweep commands written
+      # in this description; no sweep pattern is ever run by a shell tool.
       tools: [Read, Write, Bash]
       access: read-write
     required: true
     writes_to:
       - outputs/gap-clusters.json
       - outputs/cluster-summary.md
+      - outputs/enforcement-gaps.json
 
   # ============================================================================
   # Group 3: Propose new concern entries
@@ -863,8 +967,9 @@ stages:
       RB — two extra fields. Every rereview entry carries, in
         proposed-concerns.json:
           "sweep": copied from the cluster unchanged in shape — a
-            {"pattern", "paths"} or {"structural"} object, never a command.
-            Re-count a pattern sweep once with the same
+            {"pattern", "paths"}, {"structural"} or {"procedure"} object,
+            never a command. A structural or procedure sweep has no count;
+            never state one. Re-count a pattern sweep once with the same
             `./bin/workflow count-sweep --pattern='<pattern>' --path <path>`
             command cluster-gaps R5 uses, under the same rules: the
             pattern is one single-quoted `--pattern=` argument, a pattern
@@ -880,27 +985,37 @@ stages:
         and its formatted_entry ends with two more bullets after example:
           - **sweep**: for a pattern sweep, the pattern in backticks
             followed by "in" and the paths in backticks; for a structural
-            sweep, its sentence
+            sweep, its sentence; for a procedure, the line "procedure,
+            applied to the diff when the trigger matches:" followed by the
+            steps as a numbered list indented two spaces under the bullet,
+            one step per line in order, and a last indented line
+            "Record: " plus the evidence
           - **cause**: the cause category and one line on how a fix produced
             it (e.g. "SIBLING — the fix repaired one call site; the same
             unquoted expansion remained at three others")
         The check and triggers must describe the defect shape itself, so the
         concern catches the first instance in round 0 and not only the
-        siblings a fix leaves behind.
+        siblings a fix leaves behind. For a procedure they are taken from
+        it, not drafted freehand: **check** is "Answer yes to each step: "
+        followed by the steps in order, space-separated; **triggers** is
+        the procedure trigger verbatim; "check" and "triggers" in
+        proposed-concerns.json hold the same text.
         After writing proposed-concerns.json, run the same fixed shape gate
         cluster-gaps R7b runs, over this file; a false fails the stage:
 
-          jq -er '[.[] | select(((.sweep | type == "object") and (if (.sweep | has("structural")) then (.sweep | keys == ["structural"] and (.structural | type == "string" and length > 0)) else (.sweep | keys == ["paths", "pattern"] and (.pattern | type == "string" and length > 0 and (test("[\u0027\n\r]") | not)) and (.paths | type == "array" and length > 0 and all(.[]; type == "string" and test("^[A-Za-z0-9_][A-Za-z0-9._/-]*$") and (split("/") | all(. != ".." and . != ".")) and (ascii_downcase | split("/") | (.[0] != ".github" and .[0] != ".claude" and all(. != ".git" and . != ".envrc")))))) end)) | not) | "\(.concern_id // "?"): \(.sweep | tojson)"] | (.[]), (length == 0)' "{workspace}/outputs/proposed-concerns.json"
+          jq -er '[.[] | select(((.sweep | type == "object") and (if (.sweep | has("structural")) then (.sweep | keys == ["structural"] and (.structural | type == "string" and length > 0)) elif (.sweep | has("procedure")) then (.sweep | keys == ["procedure"] and (.procedure | type == "object" and keys == ["evidence", "steps", "trigger"] and (.trigger | type == "string" and test("\\S")) and (.evidence | type == "string" and test("\\S")) and (.steps | type == "array" and length >= 2 and length <= 6 and all(.[]; type == "string" and test("\\S") and test("\\?\\s*$"))) and ([.trigger, .evidence, .steps[]] | all(.[]; test("carefully|for accuracy|looks? (right|correct|good|fine)|as appropriate|judge?ment"; "i") | not)))) else (.sweep | keys == ["paths", "pattern"] and (.pattern | type == "string" and length > 0 and (test("[\u0027\n\r]") | not)) and (.paths | type == "array" and length > 0 and all(.[]; type == "string" and test("^[A-Za-z0-9_][A-Za-z0-9._/-]*$") and (split("/") | all(. != ".." and . != ".")) and (ascii_downcase | split("/") | (.[0] != ".github" and .[0] != ".claude" and all(. != ".git" and . != ".envrc")))))) end)) | not) | "\(.concern_id // "?"): \(.sweep | tojson)"] | (.[]), (length == 0)' "{workspace}/outputs/proposed-concerns.json"
 
-      RC — the rejected list reaches the human gate. Copy the
-        "## Rejected clusters" section of
+      RC — the enforcement gaps and the rejected list reach the human gate.
+        Copy the "## Enforcement gaps" section of
         {workspace}/outputs/cluster-summary.md, verbatim, to the end of
         {workspace}/outputs/proposed-concerns-summary.md, followed by the
-        "## Synonym merges" section. Do this even when gap-clusters.json is
-        empty: in that case write [] to proposed-concerns.json and a summary
-        holding only a one-line "No clusters promoted" plus those two
-        sections. The reviewer at the gate must be able to disagree with a
-        rejection.
+        "## Rejected clusters" section and then the "## Synonym merges"
+        section. Do this even when gap-clusters.json is empty: in that case
+        write [] to proposed-concerns.json and a summary holding only a
+        one-line "No clusters promoted" plus those three sections. The
+        reviewer at the gate must be able to disagree with a rejection.
+        An enforcement gap is reported, never proposed: never add one to
+        proposed-concerns.json, because its concern already exists.
     agent:
       role: doc-writer
       model: sonnet
@@ -926,6 +1041,9 @@ stages:
       files.
 
       Display {workspace}/outputs/proposed-concerns-summary.md in full.
+      Its "## Enforcement gaps" section, when present, is informational:
+      those concerns already exist and were not applied, so its rows are
+      not numbered entries and cannot be selected.
 
       Ask the user:
         "The above concerns are proposed for addition to the guide library.

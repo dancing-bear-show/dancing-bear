@@ -77,8 +77,11 @@ A short kebab-case name for the defect TYPE, reusable across threads and PRs.
    and record it under `new_classes` with a one-line definition.
 
 **A class must name a checkable defect shape**: the construct AND what is
-wrong with it, specific enough that someone could write a grep pattern or a
-one-line structural check from the name and definition alone.
+wrong with it, specific enough that someone could write a grep pattern, a
+one-line structural check, or a short yes/no procedure a reviewer applies to
+a diff, from the name and definition alone. `incomplete-guard-coverage`
+passes even though no grep finds it: a diff that changes a guard can be
+checked by listing every input form and entry point that reaches it.
 `unquoted-shell-var` passes (construct: shell variable; defect: unquoted).
 `spec-or-logic-error` fails — it was the largest class on PR #391 (38
 threads) and useless as a concern because nothing can be swept for it.
@@ -185,7 +188,7 @@ counts differ.
  "top_classes": [{"class": "...", "n": 0, "rounds": [1, 4, 7], "example": "path:line - one line"}],
  "new_classes": [{"class": "...", "definition": "...", "why_no_seed_fits": "..."}],
  "chains": ["round a finding -> fix -> round b finding caused by it -> ..., with path:line"],
- "prevention": ["for each top class: the concrete check (grep pattern or structural test) that would have caught every instance in one round"]}
+ "prevention": ["for each top class: the concrete check (grep pattern, structural test, or yes/no diff procedure) that would have caught every instance in one round"]}
 ```
 
 `pr` is an integer. Copy `thread_id` verbatim from the input — never
