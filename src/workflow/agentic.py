@@ -50,6 +50,9 @@ def build_agentic_capsule() -> str:
         "  - review-rounds: ./bin/workflow review-rounds --prs 391,406 --out-dir <dir> "
         "[--min-threads N]  OR  --recent 20 --out-dir <dir> [--min-threads 15]"
     )
+    lines.append(
+        "  - count-sweep: ./bin/workflow count-sweep --pattern='<regex>' --path <p> [--path <p> ...]"
+    )
     lines.append("notes:")
     lines.append("  - ./bin/workflow list is the authoritative live catalog of available workflows")
     lines.append(

@@ -2,7 +2,7 @@
 
 Handles check-fix-index, thread-fingerprints, check-thread-ids,
 aggregate-fix-results, check-paths, parse-overview, snapshot-dirty,
-check-unlisted and review-rounds command handlers, plus their private helpers.
+check-unlisted, review-rounds and count-sweep command handlers, plus their private helpers.
 """
 
 from __future__ import annotations
@@ -425,3 +425,24 @@ def _cmd_review_rounds(args: argparse.Namespace) -> int:
         min_threads=min_threads,
         gh=gh,
     )
+
+
+def _cmd_count_sweep(args: argparse.Namespace) -> int:
+    """Count a sweep pattern's matching lines under repo-relative paths.
+
+    The pattern is reviewer-derived text; it is compiled with ``re`` and never
+    reaches a shell. Exit 2 on an invalid pattern or a refused/missing path,
+    1 when the scan hit its work bound (the count would be partial), else 0.
+    """
+    from workflow.sweep_count import SweepError, count_sweep
+
+    try:
+        result = count_sweep(args.pattern, list(args.paths), root=Path(args.root))
+    except SweepError as exc:
+        print(f"count-sweep: {exc}", file=sys.stderr)
+        return int(ExitCode.USAGE)
+    print(json.dumps(result.as_dict()))
+    if result.truncated:
+        print("count-sweep: work bound reached; the count is partial", file=sys.stderr)
+        return int(ExitCode.ERROR)
+    return 0

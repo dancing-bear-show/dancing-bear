@@ -47,6 +47,7 @@ from workflow.cli_dispatch_review import (
     _cmd_check_paths,
     _cmd_check_thread_ids,
     _cmd_check_unlisted,
+    _cmd_count_sweep,
     _cmd_parse_overview,
     _cmd_review_rounds,
     _cmd_snapshot_dirty,
@@ -353,6 +354,24 @@ def cmd_review_rounds(args: argparse.Namespace) -> int:
     return _cmd_review_rounds(args)
 
 
+@app.command(
+    "count-sweep",
+    help="Count lines matching a regex under repo-relative paths, in-process; prints {hits, files}",
+)
+@app.argument("--pattern", required=True, help="Python regex; never passed to a shell")
+@app.argument(
+    "--path",
+    dest="paths",
+    action="append",
+    default=[],
+    required=True,
+    help="Repo-relative file or directory (repeatable); check-paths rules apply",
+)
+@app.argument("--root", default=".", help="Repository root the paths are relative to (default: cwd)")
+def cmd_count_sweep(args: argparse.Namespace) -> int:
+    return _cmd_count_sweep(args)
+
+
 def _no_command_usage() -> int:
     """Preserve the legacy no-subcommand behavior (one-line usage to
     stderr, ExitCode.USAGE) rather than CLIApp's default (full --help),
@@ -361,7 +380,7 @@ def _no_command_usage() -> int:
         "Usage: workflow {parse,compile,run,lint,list,status,init-workspace,resume,"
         "validate-fragment,parse-overview,check-paths,check-params,check-fix-index,"
         "thread-fingerprints,check-thread-ids,aggregate-fix-results,snapshot-dirty,"
-        "check-unlisted,review-rounds} [options]",
+        "check-unlisted,review-rounds,count-sweep} [options]",
         file=sys.stderr,
     )
     return ExitCode.USAGE
