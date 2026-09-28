@@ -37,7 +37,7 @@ never the surrounding prose -- and emit warnings with stable rule ids:
     explicitly allows, so this rule does not fire on either.
 
 Every rule that asks "which command runs here" reads the same model:
-``shell_text.parse_shell``, which identifies the program word of each simple
+``shell_parse.parse_shell``, which identifies the program word of each simple
 command through separators, reserved words, wrappers, and substitutions, and
 keeps heredoc bodies out of it. A rule never matches a bare token or a
 substring of the raw text to decide that.
