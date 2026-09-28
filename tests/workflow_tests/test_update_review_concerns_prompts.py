@@ -282,6 +282,25 @@ class TestRenderedJqExecutes(unittest.TestCase):
         index = json.loads((self.ws / "outputs/rereview-index.json").read_text())
         self.assertEqual(index, {"items": [{"pr": "406"}, {"pr": "395"}]})
 
+    def _seed_block(self) -> str:
+        """The rendered seed-class-list Step 1 `if ls ... fi` block, dedented."""
+        lines = _prompts(str(self.ws), mode="rereview", min_threads="1")["seed-class-list"].splitlines()
+        start = next(i for i, ln in enumerate(lines) if ln.strip().startswith("if ls "))
+        end = next(i for i in range(start, len(lines)) if lines[i].strip() == "fi")
+        return "\n".join(ln.strip() for ln in lines[start:end + 1])
+
+    def test_seed_list_reads_earlier_classified_files(self) -> None:
+        # A quoted glob ("…/pr*.json") never expands, so the seed list came back
+        # [] even when an earlier run had left classified files behind.
+        self._classify(406, 2)
+        self.assertEqual(self._run(self._seed_block()).returncode, 0)
+        seed = json.loads((self.ws / "outputs/seed-classes.json").read_text())
+        self.assertEqual(seed, ["unquoted-shell-var"])
+
+    def test_seed_list_is_empty_on_a_fresh_workspace(self) -> None:
+        self.assertEqual(self._run(self._seed_block()).returncode, 0)
+        self.assertEqual(json.loads((self.ws / "outputs/seed-classes.json").read_text()), [])
+
     def test_empty_summary_halts(self) -> None:
         self._write("outputs/rounds/summary.json", [])
         self.assertNotEqual(self._run(self.refuse_empty).returncode, 0)

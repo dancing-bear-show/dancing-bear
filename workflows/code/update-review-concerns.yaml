@@ -409,7 +409,7 @@ stages:
       Step 1 — build the seed class list from any classified files left by an
       earlier run in this workspace (a fresh workspace will have none):
 
-        if ls "{workspace}/outputs/classified/pr*.json" 2>/dev/null | head -1 | grep -q .; then
+        if ls "{workspace}"/outputs/classified/pr*.json 2>/dev/null | head -1 | grep -q .; then
           jq -rs '[.[].threads[].class] | unique | sort' "{workspace}"/outputs/classified/pr*.json > "{workspace}/outputs/seed-classes.json"
         else
           echo '[]' > "{workspace}/outputs/seed-classes.json"
