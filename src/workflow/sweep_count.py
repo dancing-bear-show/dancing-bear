@@ -14,8 +14,8 @@ text is inert.
 Work is bounded so a broad or pathological sweep fails the stage instead of
 hanging it: binary files and files over :data:`MAX_FILE_BYTES` are skipped,
 each line is matched on its first :data:`MAX_LINE_CHARS` characters, and a
-scan that passes :data:`MAX_TOTAL_BYTES` or :data:`MAX_SECONDS` stops and is
-reported as truncated. A single ``re.search`` cannot be interrupted in-process,
+scan that reads more than :data:`MAX_TOTAL_BYTES` raw bytes, or runs past
+:data:`MAX_SECONDS`, stops and is reported as truncated. A single ``re.search`` cannot be interrupted in-process,
 so matching runs in a child interpreter (:mod:`workflow._sweep_worker`) that is
 killed at the deadline; the job reaches it as JSON on stdin, never via a shell.
 """
@@ -33,6 +33,9 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
+#: Each bound counts the unit in its name. Pattern and line caps are
+#: characters (what the regex engine sees); file and total caps are raw
+#: bytes on disk, so multibyte UTF-8 cannot stretch them.
 MAX_PATTERN_CHARS = 500
 MAX_FILE_BYTES = 1_000_000
 MAX_TOTAL_BYTES = 64_000_000

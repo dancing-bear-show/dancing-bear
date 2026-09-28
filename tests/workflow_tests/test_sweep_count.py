@@ -290,6 +290,24 @@ class TestSweepWorker(_Tree):
         records = self._run([str(self.root / "workflows/a.yaml")], max_total_bytes=5)
         self.assertIs(records[-1]["truncated"], True)
 
+    def test_byte_bound_counts_bytes_not_characters(self) -> None:
+        # 21 characters but 41 bytes: under a 30-unit budget by characters,
+        # over it by bytes. The ASCII control of the same length stays under.
+        wide = self._put("src/wide.txt", "\u00e9" * 20 + "\n")
+        narrow = self._put("src/narrow.txt", "e" * 20 + "\n")
+        self.assertEqual(self._run([str(wide)], max_total_bytes=30)[-1],
+                         {"hits": 0, "files": 0, "truncated": True, "reason": "byte bound reached"})
+        self.assertEqual(self._run([str(narrow)], max_total_bytes=30)[-1], {"hits": 0, "files": 0, "done": True})
+
+    def test_per_file_bound_counts_bytes_not_characters(self) -> None:
+        wide = self._put("src/wide.txt", "check\u00e9")  # 6 characters, 7 bytes
+        self.assertEqual(self._run([str(wide)], max_file_bytes=6)[-1], {"hits": 0, "files": 0, "done": True})
+        self.assertEqual(self._run([str(wide)], max_file_bytes=7)[-1], {"hits": 1, "files": 1, "done": True})
+
+    def test_read_text_reports_raw_byte_length(self) -> None:
+        got = _sweep_worker.read_text(str(self._put("src/wide.txt", "\u00e9\n")), 1_000)
+        self.assertEqual((got.text, got.nbytes) if got else None, ("\u00e9\n", 3))
+
     def test_oversized_binary_and_missing_files_skipped(self) -> None:
         self._put("src/bin.dat", b"check\0")
         files = [str(self.root / "src/bin.dat"), str(self.root / "workflows/a.yaml"), str(self.root / "nope")]
@@ -399,6 +417,14 @@ class TestCountSweepCLI(_Tree):
         self.assertEqual(code, 1)
         self.assertTrue(json.loads(out)["truncated"])
         self.assertIn("partial", err)
+
+    def test_multibyte_text_over_the_byte_budget_exits_1(self) -> None:
+        self._put("src/wide.txt", "check " + "\u00e9" * 20 + "\n")  # 27 characters, 47 bytes
+        with patch.object(sweep_count, "MAX_TOTAL_BYTES", 40):
+            code, out, err = self._run("--pattern=check", "--path", "src/wide.txt")
+        self.assertEqual(code, 1, err)
+        self.assertIs(json.loads(out)["truncated"], True)
+        self.assertIn("byte bound", err)
 
 
 if __name__ == "__main__":  # pragma: no cover

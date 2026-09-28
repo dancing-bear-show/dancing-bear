@@ -23,12 +23,23 @@ import os
 import re
 import stat
 import sys
+from dataclasses import dataclass
 from typing import Any
 
 _BINARY_SNIFF = 8192
 
 
-def read_text(path: str, max_file_bytes: int) -> str | None:
+@dataclass(frozen=True)
+class FileText:
+    """A file's decoded text and the byte length it was decoded from."""
+
+    text: str
+    #: Raw size on disk; the byte bounds count this, never ``len(text)``,
+    #: which is characters and undercounts multibyte UTF-8.
+    nbytes: int
+
+
+def read_text(path: str, max_file_bytes: int) -> FileText | None:
     """Return a file's text, or None for a binary, oversized, non-regular or unreadable file.
 
     The open refuses a symlink and never blocks, and ``fstat`` re-checks the
@@ -50,7 +61,7 @@ def read_text(path: str, max_file_bytes: int) -> str | None:
             return None
     if len(data) > max_file_bytes or b"\0" in data[:_BINARY_SNIFF]:
         return None
-    return data.decode("utf-8", errors="replace")
+    return FileText(data.decode("utf-8", errors="replace"), len(data))
 
 
 def _emit(record: dict[str, Any]) -> None:
@@ -66,14 +77,16 @@ def run(job: dict[str, Any]) -> None:
     max_file = int(job["max_file_bytes"])
     hits = files = total = 0
     for path in job["files"]:
-        text = read_text(path, max_file)
-        if text is None:
+        read = read_text(path, max_file)
+        if read is None:
             continue
-        total += len(text)
+        total += read.nbytes  # bytes, like max_file_bytes; not len(read.text)
         if total > max_total:
             _emit({"hits": hits, "files": files, "truncated": True, "reason": "byte bound reached"})
             return
-        n = sum(1 for line in text.splitlines() if regex.search(line[:max_line]))
+        # The line cap is characters by design: it bounds what one re.search
+        # sees, and slicing by bytes could split a UTF-8 sequence.
+        n = sum(1 for line in read.text.splitlines() if regex.search(line[:max_line]))
         if n:
             hits += n
             files += 1
