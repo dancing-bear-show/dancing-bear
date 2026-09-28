@@ -33,7 +33,7 @@ COMMENT_PAGE = 50
 #: Hard ceiling on pages per connection: a cursor bug must fail, not spin.
 MAX_PAGES = 1000
 
-_COMMENT_FIELDS = "databaseId author { login __typename } body createdAt url originalCommit { oid }"
+_COMMENT_FIELDS = "databaseId author { login __typename } body createdAt url originalLine originalCommit { oid }"
 
 THREADS_QUERY = f"""
 query($owner: String!, $name: String!, $pr: Int!, $after: String) {{
@@ -44,7 +44,7 @@ query($owner: String!, $name: String!, $pr: Int!, $after: String) {{
         pageInfo {{ hasNextPage endCursor }}
         nodes {{
           id isResolved isOutdated isCollapsed
-          path line originalLine startLine diffSide
+          path line startLine diffSide
           comments(first: {COMMENT_PAGE}) {{
             totalCount
             pageInfo {{ hasNextPage endCursor }}
@@ -193,7 +193,12 @@ def _count_disagrees(collected: int, reported: Any) -> bool:
 
 
 def _complete_thread_comments(gh: GhCLI, node: dict[str, Any]) -> bool:
-    """Page one thread's remaining comments into ``node``; return True if short."""
+    """Page one thread's remaining comments into ``node``; return True if short.
+
+    Also derives ``originalLine`` on the thread node from the first comment,
+    since the GitHub schema exposes ``originalLine`` on ``PullRequestReviewComment``
+    rather than on ``PullRequestReviewThread``.
+    """
     comments = node.get("comments") or {}
     nodes = list(comments.get("nodes") or [])
     more = _next_cursor(comments.get("pageInfo"), None, f"thread {node.get('id')} comments")
@@ -201,6 +206,10 @@ def _complete_thread_comments(gh: GhCLI, node: dict[str, Any]) -> bool:
         extra, _ = _page_thread_comments(gh, str(node["id"]), more)
         nodes.extend(extra)
     node["comments"] = {"totalCount": comments.get("totalCount"), "nodes": nodes}
+    # Derive originalLine from the first comment: the GitHub schema puts it on
+    # PullRequestReviewComment, not PullRequestReviewThread.
+    if nodes:
+        node["originalLine"] = nodes[0].get("originalLine")
     return _count_disagrees(len(nodes), comments.get("totalCount"))
 
 

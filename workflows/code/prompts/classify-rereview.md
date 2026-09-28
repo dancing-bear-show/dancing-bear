@@ -47,10 +47,17 @@ open a round, though their threads can still appear here.
 `line` and `original_line` refer to different revisions of the file. For a
 thread with `outdated: true`, `line` is usually `null` and the flagged code
 may no longer exist at HEAD: read it at the commit the thread was opened on,
-`git show '<commit>:<path>'`, around `original_line`. For a current thread,
-read it at the thread's `commit` and `original_line` using
-`git show '<commit>:<path>'` — do not read the working tree, which reflects
-an unrelated revision when running a historical `--recent` scan.
+around `original_line`, by passing commit and path as separate argv values —
+`git show <commit>:<path>` — never by interpolating them into shell text. For
+a current thread, read it at the thread's `commit` and `original_line` the
+same way — do not read the working tree, which reflects an unrelated revision
+when running a historical `--recent` scan.
+
+When invoking `git show` programmatically, pass commit and path as a single
+positional argument `<commit>:<path>` through argv (e.g. as a Python list
+`["git", "show", f"{commit}:{path}"]` with `shell=False`), not interpolated
+into a shell string. Reject any `commit` or `path` value that contains a
+single quote, shell metacharacter, or path traversal sequence before use.
 
 ## What to decide for EVERY thread (round 0 and null included)
 

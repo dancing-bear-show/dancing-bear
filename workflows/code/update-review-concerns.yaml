@@ -685,8 +685,9 @@ stages:
           1. Extract the regex pattern and paths from the sweep field as
              structured values (e.g. by splitting on the first run of
              whitespace that precedes a path token).
-          2. Write a spec file: `echo '{"pattern":"<regex>","paths":["<path1>",...]}' > /tmp/sweep-spec.json`
-             — this step uses literal values you control, not interpolated data.
+          2. Write a spec file using Python with no shell interpolation:
+               python3 -I -S -c "import json,sys; json.dump({'pattern': sys.argv[1], 'paths': sys.argv[2:]}, open('/tmp/sweep-spec.json','w'))" "<regex>" <path1> ...
+             where <regex> and <path1> ... are literal structured values, never the raw sweep string.
           3. Invoke: `./bin/qlty-assistant grep-sweep --spec /tmp/sweep-spec.json`
              The command prints the match count and exits 0.
           If the pattern or paths cannot be extracted as structured values,
@@ -1011,10 +1012,3 @@ stages:
       - concerns/resume-copy.md
       - concerns/slides-yaml.md
       - concerns/README.md
-      # concerns/collateral-damage.md is a conditional output: it is created
-      # only when a rereview proposal targets that guide. It is declared here
-      # so that the writes_to contract covers it when a rereview run produces
-      # it, preventing test_update_guides_writes_to_covers_every_guide from
-      # failing after the file appears on disk. The test excludes this path
-      # from the "every guide must be declared" check because it is optional.
-      - concerns/collateral-damage.md

@@ -518,24 +518,39 @@ class GrepSweepCommandTests(unittest.TestCase):
     """grep-sweep: structured-argv sweep verifier that avoids shell interpolation."""
 
     def setUp(self) -> None:
+        import os
         import tempfile
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        self.tmp = tmp.name
+        # Target files used in grep must be under the repo root (cwd), because
+        # the path-containment check rejects absolute paths and paths that
+        # resolve outside the tree.  The spec file itself may live anywhere
+        # since it is not a grep target.
+        self._cwd = os.getcwd()
+        repo_tmp = tempfile.mkdtemp(dir=self._cwd, prefix=".test-grep-sweep-")
+        self.addCleanup(lambda: __import__("shutil").rmtree(repo_tmp, ignore_errors=True))
+        self.repo_tmp = repo_tmp
+        self.repo_tmp_rel = os.path.relpath(repo_tmp, self._cwd)
+        # Spec file lives outside the repo root (absolute) — that is fine
+        # because only the *paths inside the spec* are validated, not the spec
+        # file itself.
+        ext_tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(ext_tmp.cleanup)
+        self.tmp = ext_tmp.name
         self._spec_path = f"{self.tmp}/spec.json"
 
-    def _write_spec(self, spec: dict) -> str:
+    def _write_spec(self, spec: object) -> str:
         with open(self._spec_path, "w") as f:
             json.dump(spec, f)
         return self._spec_path
 
     def test_happy_path_prints_match_count(self) -> None:
         """A valid spec produces a numeric count on stdout."""
-        # Write a small target file with a known number of matches.
-        target = f"{self.tmp}/target.txt"
-        with open(target, "w") as f:
+        # Write a small target file under the repo root; use a relative path.
+        import os
+        target_abs = f"{self.repo_tmp}/target.txt"
+        target_rel = os.path.relpath(target_abs, self._cwd)
+        with open(target_abs, "w") as f:
             f.write("hello world\nhello again\nno match\n")
-        spec = self._write_spec({"pattern": "hello", "paths": [target]})
+        spec = self._write_spec({"pattern": "hello", "paths": [target_rel]})
         code, out = run_cli(["grep-sweep", "--spec", spec])
         self.assertEqual(code, 0)
         self.assertEqual(out.strip(), "2")
@@ -555,11 +570,49 @@ class GrepSweepCommandTests(unittest.TestCase):
         self.assertIn("invalid regex", err)
 
     def test_sad_path_path_traversal_rejected(self) -> None:
-        """Paths containing '..' are rejected to prevent directory traversal."""
+        """Paths containing '..' that escape the repo root are rejected."""
         spec = self._write_spec({"pattern": "hello", "paths": ["../../etc/passwd"]})
         code, _out, err = run_cli_streams(["grep-sweep", "--spec", spec])
         self.assertNotEqual(code, 0)
-        self.assertIn("path traversal", err)
+        self.assertIn("path escapes repository root", err)
+
+    def test_sad_path_absolute_path_rejected(self) -> None:
+        """Absolute paths are rejected to prevent reading arbitrary filesystem paths."""
+        spec = self._write_spec({"pattern": "hello", "paths": ["/etc/passwd"]})
+        code, _out, err = run_cli_streams(["grep-sweep", "--spec", spec])
+        self.assertNotEqual(code, 0)
+        self.assertIn("absolute paths not allowed", err)
+
+    def test_sad_path_non_dict_json_rejected(self) -> None:
+        """A spec file containing a JSON list or null raises a controlled UsageError."""
+        spec = self._write_spec([{"pattern": "hello", "paths": ["src/"]}])
+        code, _out, err = run_cli_streams(["grep-sweep", "--spec", spec])
+        self.assertNotEqual(code, 0)
+        self.assertIn("JSON object", err)
+
+    def test_sad_path_null_json_rejected(self) -> None:
+        """A spec file containing JSON null raises a controlled UsageError."""
+        path = f"{self.tmp}/null-spec.json"
+        with open(path, "w") as f:
+            f.write("null")
+        code, _out, err = run_cli_streams(["grep-sweep", "--spec", path])
+        self.assertNotEqual(code, 0)
+        self.assertIn("JSON object", err)
+
+    def test_sad_path_timeout_raises_usage_error(self) -> None:
+        """A grep call that exceeds the timeout raises a controlled UsageError."""
+        import os
+        import unittest.mock as mock
+        import subprocess
+        target_abs = f"{self.repo_tmp}/target.txt"
+        target_rel = os.path.relpath(target_abs, self._cwd)
+        with open(target_abs, "w") as f:
+            f.write("hello\n")
+        spec = self._write_spec({"pattern": "hello", "paths": [target_rel]})
+        with mock.patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="grep", timeout=30)):
+            code, _out, err = run_cli_streams(["grep-sweep", "--spec", spec])
+        self.assertNotEqual(code, 0)
+        self.assertIn("timed out", err)
 
     def test_sad_path_missing_pattern_rejected(self) -> None:
         """A spec missing the pattern key is rejected."""
@@ -577,10 +630,12 @@ class GrepSweepCommandTests(unittest.TestCase):
 
     def test_zero_matches_exits_success(self) -> None:
         """Zero matches is not an error — the count is 0 and exit is 0."""
-        target = f"{self.tmp}/empty.txt"
-        with open(target, "w") as f:
+        import os
+        target_abs = f"{self.repo_tmp}/empty.txt"
+        target_rel = os.path.relpath(target_abs, self._cwd)
+        with open(target_abs, "w") as f:
             f.write("no matches here\n")
-        spec = self._write_spec({"pattern": "XXXXXXNOMATCH", "paths": [target]})
+        spec = self._write_spec({"pattern": "XXXXXXNOMATCH", "paths": [target_rel]})
         code, out = run_cli(["grep-sweep", "--spec", spec])
         self.assertEqual(code, 0)
         self.assertEqual(out.strip(), "0")

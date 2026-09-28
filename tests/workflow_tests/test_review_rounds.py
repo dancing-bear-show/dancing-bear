@@ -232,6 +232,8 @@ def _thread_node(
         "databaseId": 1,
         "createdAt": "2024-01-01T00:00:00Z",
         "url": "https://example.com",
+        # originalLine is on the comment node (PullRequestReviewComment), not the thread.
+        "originalLine": line if original_line is None else original_line,
         "originalCommit": {"oid": oid} if oid else None,
     }
     nodes = [comment]
@@ -241,7 +243,8 @@ def _thread_node(
         "isOutdated": outdated,
         "path": path,
         "line": line,
-        "originalLine": line if original_line is None else original_line,
+        # originalLine is not a thread-level field; _complete_thread_comments derives
+        # it from the first comment and sets it here.
         "comments": {
             "totalCount": comment_total if comment_total is not None else len(nodes),
             "pageInfo": {"hasNextPage": False, "endCursor": None},
@@ -520,7 +523,7 @@ class TestBuildPRRounds(TempDirMixin, unittest.TestCase):
             "isOutdated": False,
             "path": "src/a.py",
             "line": 1,
-            "originalLine": 1,
+            # originalLine is not a thread-level field; it lives on the comment node.
             "comments": {
                 "totalCount": 6,
                 "pageInfo": {"hasNextPage": False, "endCursor": None},
@@ -531,6 +534,7 @@ class TestBuildPRRounds(TempDirMixin, unittest.TestCase):
                         "databaseId": i + 1,
                         "createdAt": "2024-01-01T00:00:00Z",
                         "url": "https://example.com",
+                        "originalLine": 1,
                         "originalCommit": {"oid": oid},
                     }
                     for i in range(6)

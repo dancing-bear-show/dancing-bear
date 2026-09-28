@@ -283,6 +283,9 @@ def cmd_grep_sweep(args) -> int:
     except (json.JSONDecodeError, OSError) as exc:
         raise UsageError(f"could not parse spec file: {exc}") from exc
 
+    if not isinstance(spec, dict):
+        raise UsageError("spec file must contain a JSON object, not a list or scalar")
+
     pattern = spec.get("pattern")
     paths = spec.get("paths")
 
@@ -300,16 +303,33 @@ def cmd_grep_sweep(args) -> int:
     except re.error as exc:
         raise UsageError(f"invalid regex in spec.pattern: {exc}") from exc
 
-    # Reject paths that attempt directory traversal.  Reviewer-derived path
-    # strings are untrusted; a path containing ".." could reach outside the
-    # repo.  We only allow relative paths or paths starting with "./" or a
-    # bare directory/file name.
+    # Reject paths that reach outside the repository root.  Reviewer-derived
+    # path strings are untrusted: absolute paths (e.g. /etc), ".." components,
+    # or symlinks that resolve outside the tree must all be rejected.  Resolve
+    # each path against the current working directory (the repo root when the
+    # workflow runs the command) and require it to remain under that root.
+    import os
+    repo_root = Path(os.getcwd()).resolve()
     for p in paths:
-        if ".." in Path(p).parts:
-            raise UsageError(f"path traversal not allowed in spec.paths: {p!r}")
+        if Path(p).is_absolute():
+            raise UsageError(f"absolute paths not allowed in spec.paths: {p!r}")
+        resolved = (repo_root / p).resolve()
+        try:
+            resolved.relative_to(repo_root)
+        except ValueError:
+            raise UsageError(f"path escapes repository root in spec.paths: {p!r}")
 
     cmd = ["grep", "-rnE", "--", pattern] + list(paths)
-    result = subprocess.run(cmd, capture_output=True, text=True)  # nosec B603 - argv list, not shell
+    _GREP_TIMEOUT_SECS = 30
+    try:
+        result = subprocess.run(  # nosec B603 - argv list, not shell
+            cmd, capture_output=True, text=True, timeout=_GREP_TIMEOUT_SECS
+        )
+    except subprocess.TimeoutExpired:
+        raise UsageError(
+            f"grep sweep timed out after {_GREP_TIMEOUT_SECS}s; "
+            "reduce the path set or use a more specific pattern"
+        )
     # grep exits 0 (matches), 1 (no matches), or 2 (error).
     if result.returncode == 2:
         print(f"error: grep reported an error: {result.stderr.strip()}", file=sys.stderr)
