@@ -36,6 +36,7 @@ from .linter_access import _check_agent_access, _check_stage_access
 from .linter_shell import RULE_UNVALIDATED_PARAM, ShellLintContext, check_shell_rules
 from .linter_types import LintError, LintResult, LintWarning
 from .param_rules import ENGINE_BUILTIN_PARAMS
+from .placeholders import find_refs, in_backtick_span
 
 __all__ = [
     "LintError",
@@ -56,8 +57,6 @@ _CLI_NO_HELP_ALLOWLIST: dict[str, set[str]] = {
 }
 
 _GLOBAL_STAGE = "<global>"
-
-_VAR_RE = re.compile(r"(?<!\{)\{([a-z_][a-z0-9_]*)\}(?!\})")
 
 _RUNTIME_BUILTIN_VARS: frozenset[str] = frozenset({"workspace"})
 
@@ -132,6 +131,7 @@ def lint_workflow(path: str | Path, *, check_commands: bool = False) -> LintResu
     check_shell_rules(
         defn.stages, _shell_context(defn.trigger.params, defn.trigger.rules, inlined), result
     )
+    _check_escape_style_braces(tuple(defn.stages), result)
 
     if check_commands:
         _check_cli_commands(defn, result)
@@ -249,6 +249,7 @@ def _lint_fragment(p: Path, text: str, result: LintResult) -> LintResult:
     # Only the fragment's own params count as caller params here: the rest are
     # the importer's, and each importer's lint judges them in its own context.
     check_shell_rules(stages, _shell_context(frag_params, frag_rules), result)
+    _check_escape_style_braces(tuple(stages), result)
     result.valid = len(result.errors) == 0
     return result
 
@@ -468,8 +469,12 @@ def _compute_dag_depth(stages: "tuple[StageSpec, ...]") -> int:
 
 
 def _extract_var_refs(text: str) -> set[str]:
-    """Return all ``{param}`` placeholder names found in *text*."""
-    return set(_VAR_RE.findall(text))
+    """Return all ``{param}`` placeholder names found in *text*.
+
+    Skips matches inside backtick code spans so that references in inline-code
+    examples (e.g. `` `{pkg}` ``) do not trigger undeclared-variable warnings.
+    """
+    return find_refs(text, skip_code=True)
 
 
 def _check_cli_commands(defn: object, result: LintResult) -> None:
@@ -526,6 +531,61 @@ def _looks_like_invalid_subcommand(output: str) -> bool:
     """Return True when subprocess output indicates the subcommand does not exist."""
     lowered = output.lower()
     return "unrecognized arguments" in lowered or "invalid choice" in lowered
+
+
+_DOUBLE_BRACE_RE = re.compile(r"\{\{")
+_GO_TEMPLATE_RE = re.compile(r"\{\{\s*\.")  # {{. — Go template
+
+
+def _description_has_escape_brace(description: str) -> bool:
+    """Return True if *description* contains a ``{{`` that looks like an escape attempt.
+
+    Exemptions:
+    - ``${{`` — GitHub Actions expression syntax
+    - ``{{.`` — Go template syntax
+    - ``{{`` inside a backtick code span on the same line
+    """
+    for line in description.splitlines():
+        for m in _DOUBLE_BRACE_RE.finditer(line):
+            pos = m.start()
+            if pos > 0 and line[pos - 1] == "$":
+                continue  # ${{ GitHub Actions
+            if _GO_TEMPLATE_RE.match(line, pos):
+                continue  # {{. Go template
+            if in_backtick_span(line, pos):
+                continue  # inside backtick span
+            return True
+    return False
+
+
+def _check_escape_style_braces(stages: "tuple[object, ...]", result: LintResult) -> None:
+    """Warn when a stage description contains ``{{`` that looks like an escape attempt.
+
+    The workflow engine does not unescape doubled braces — ``{{`` renders
+    verbatim.  Authors who write ``{{`` intending a single ``{`` in a JSON
+    example will see the doubled form in the agent prompt.
+
+    Exemptions (not warned):
+    - ``${{`` — GitHub Actions expression syntax
+    - ``{{.Name}}`` — Go template syntax (``{{`` followed by ``.'')
+    - ``{{`` that appears inside a backtick code span on the same line
+    """
+    from workflow.models import StageSpec
+
+    for stage in stages:
+        if not isinstance(stage, StageSpec) or not stage.description:
+            continue
+        if _description_has_escape_brace(stage.description):
+            result.warnings.append(
+                LintWarning(
+                    stage=stage.name,
+                    field="description",
+                    message=(
+                        "description contains '{{' — the engine does not unescape doubled braces; "
+                        "write single braces for JSON examples"
+                    ),
+                )
+            )
 
 
 def _check_include_files(text: str, workflow_path: Path, result: LintResult) -> None:

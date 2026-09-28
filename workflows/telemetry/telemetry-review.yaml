@@ -105,18 +105,18 @@ stages:
         - count of ./bin/llm familiar invocations per session
 
       Write transcript-analysis.json with one object per session:
-        {{
+        {
           "session_id": "...",
           "project_path": "...",
           "total_cost": 1.23,
           "errors": [
-            {{"tool": "Bash", "command": "...", "snippet": "first 200 chars of error"}}
+            {"tool": "Bash", "command": "...", "snippet": "first 200 chars of error"}
           ],
           "repeated_calls": [
-            {{"tool": "...", "count": 3, "input_preview": "..."}}
+            {"tool": "...", "count": 3, "input_preview": "..."}
           ],
           "familiarize_count": 2
-        }}
+        }
 
       Redact anything resembling a credential, token, or API key to
       "[redacted]" before writing it into the output. This stage captures raw
@@ -172,25 +172,25 @@ stages:
       Produce findings.json with the following top-level keys:
 
       error_patterns (top 5):
-        Each entry: {{ "rank": 1, "pattern": "...", "frequency": N,
-                      "example_command": "...", "fix": "..." }}
+        Each entry: { "rank": 1, "pattern": "...", "frequency": N,
+                      "example_command": "...", "fix": "..." }
         Look for: repeated CLI flag errors, wrong -- separator usage,
         missing arguments, shell quoting issues, non-zero exit codes
         on the same tool across sessions.
 
       token_waste (top 5):
-        Each entry: {{ "rank": 1, "pattern": "...", "estimated_tokens": N,
-                      "sessions_affected": N, "description": "..." }}
+        Each entry: { "rank": 1, "pattern": "...", "estimated_tokens": N,
+                      "sessions_affected": N, "description": "..." }
         Look for: high familiarize call counts (>1 per session), repeated
         identical Bash calls, cold cache tiers from efficiency-scores.json,
         sessions with very high output_tokens relative to task complexity.
 
       feature_proposals (top 5):
-        Each entry: {{ "rank": 1, "title": "...", "problem": "...",
+        Each entry: { "rank": 1, "title": "...", "problem": "...",
                       "proposal": "...", "file_path": "...",
                       "pseudocode": "<3-5 lines of core logic>",
                       "tokens_saved_per_session": N,
-                      "estimated_lines": N }}
+                      "estimated_lines": N }
         Focus on concrete repo improvements: new CLI flags, new subcommands,
         agentic schema fixes, error message improvements.
         Every proposal must name a file path that exists — verify each one
@@ -204,13 +204,13 @@ stages:
         does not support an estimate.
 
       workflow_improvements (list):
-        Each entry: {{ "finding": "...", "suggestion": "..." }}
+        Each entry: { "finding": "...", "suggestion": "..." }
         Patterns that make agentic workflows non-deterministic: ambiguous
         instructions, missing output format specs, unclear dependency chains.
 
       summary:
-        {{ "sessions_analyzed": N, "total_cost_usd": N,
-          "top_cost_session": "session_id", "analysis_window": "{since}" }}
+        { "sessions_analyzed": N, "total_cost_usd": N,
+          "top_cost_session": "session_id", "analysis_window": "{since}" }
 
       Every number written here must trace to one of the source files. Do not
       estimate a figure the data does not support — omit the entry instead.

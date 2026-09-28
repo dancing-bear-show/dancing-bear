@@ -869,10 +869,9 @@ stages:
           # looks identical to "not a Jane receipt".
           INVOICE_RE = re.compile(r"Invoice\s+#(\d{3,6}-P\d{2})")
           # NOTE: single braces.  This is source code you COPY, not a
-          # format string -- resolve_params() in compiler.py does plain
-          # str.replace on declared parameter names and never unescapes
-          # { to {, so a doubled brace reaches you literally and the
-          # regex matches nothing at all.
+          # format string -- resolve_params() delegates to placeholders.substitute,
+          # which leaves doubled braces verbatim (not unescaped to single braces),
+          # so a doubled brace reaches you literally and the regex matches nothing.
           # Jane-family clinics do NOT all use the same total label.  Observed
           # in real receipts from the same practice software:
           #   "Payer Total"  receipts       "Total"        invoices

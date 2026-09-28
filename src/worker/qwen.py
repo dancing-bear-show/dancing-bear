@@ -14,6 +14,11 @@ every option are validated (no disk access), then input confinement runs
 precheck, then the lock/model call, then patch validation/caps/disk precheck.
 See ``handle_qwen_patch`` for the full sequence.
 
+The memory precheck reads headroom the way macOS does (``memory_pressure``,
+falling back to ``vm_stat``) and requires only the margin, not the model's
+resident size, when Ollama's ``/api/ps`` shows the model already loaded.
+See ``_available_memory_bytes`` and ``_assess_memory``.
+
 Outcome strings (the handler's second return value on failure):
 
 * ``terminal-invalid-job-id`` - job id is not a safe file-name component
@@ -54,6 +59,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
+from core.process import run_binary
 from core.secrets import mask_text
 from worker._helpers import get_repo_root, get_worker_state_dir
 from worker.qwen_telemetry import describe_exception, export_in_background, export_job_metrics, export_job_span
@@ -92,6 +98,7 @@ THRESHOLDS = QwenThresholds()
 JOB_TYPE = "qwen_patch"
 DEFAULT_MODEL_TAG = "qwen2.5-coder:14b"
 DEFAULT_OLLAMA_HOST = "http://localhost:11434"
+_GIB = 1024**3
 
 ALLOWLIST_DIRS = ("src/", "tests/", "bin/", "workflows/", "concerns/", "docs/")
 DENYLIST_NAMES = ("credentials.ini", "id_rsa", "id_ed25519")
@@ -349,23 +356,34 @@ def _parse_json_object(raw: bytes) -> dict[str, object]:
     return parsed
 
 
-def _ollama_tags(host: str, timeout: float) -> dict[str, object]:
-    """GET {host}/api/tags and parse the JSON response. Separate from _ollama_request
+def _ollama_get(url: str, timeout: float) -> dict[str, object]:
+    """GET url and parse the JSON response. Separate from _ollama_request
 
     because that seam is POST-only (matches interface.md's generate transport
-    signature); /api/tags is a GET with no body. Kept as its own tiny seam so
-    tests can patch it independently of the generate call.
+    signature); the read-only endpoints below are GETs with no body.
     """
     import urllib.error
     import urllib.request
 
-    req = urllib.request.Request(f"{host}/api/tags", method="GET")  # noqa: S310 - fixed local ollama endpoint
+    req = urllib.request.Request(url, method="GET")  # noqa: S310 - fixed local ollama endpoint
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310 - fixed local ollama endpoint, not user-controlled
             raw = resp.read()
     except urllib.error.URLError as exc:  # HTTPError is a URLError subclass
         raise ConnectionError(str(exc.reason)) from exc
     return _parse_json_object(raw)
+
+
+def _ollama_tags(host: str, timeout: float) -> dict[str, object]:
+    """GET {host}/api/tags (installed models). Its own tiny seam so tests can
+    patch it independently of the generate call."""
+    return _ollama_get(f"{host}/api/tags", timeout)
+
+
+def _ollama_ps(host: str, timeout: float) -> dict[str, object]:
+    """GET {host}/api/ps (models currently loaded in memory). Its own tiny seam
+    so tests can patch it independently of /api/tags and the generate call."""
+    return _ollama_get(f"{host}/api/ps", timeout)
 
 
 def _model_digest(host: str, model: str) -> str | None:
@@ -393,35 +411,123 @@ def _model_digest(host: str, model: str) -> str | None:
     return None
 
 
-def _available_memory_bytes() -> int | None:
-    """Return free+inactive+speculative memory via macOS vm_stat, or None if unreadable."""
-    import subprocess  # nosec B404 - subprocess imported deliberately for vm_stat; call site below carries its own review
+_OLLAMA_PS_TIMEOUT_SEC = 3.0
+# At most four digits, then the literal %: a value over 100 is rejected in the
+# parser, and a longer run (a corrupted reading) does not match at all, so int()
+# never sees an arbitrarily long string. Unbounded \d+ let a 4300+-digit value
+# raise ValueError (Python's int-string length limit) out of the guard.
+_FREE_PERCENT_RE = re.compile(r"System-wide memory free percentage:\s*(\d{1,4})%")
 
+
+def _model_loaded(host: str, model: str) -> bool:
+    """True only if GET {host}/api/ps lists model as loaded right now.
+
+    Ollama keeps a model resident for keep_alive (~5 min) after a request,
+    and a generation against a resident model allocates no new model memory.
+    Matched on the entry's "name" exactly, as _model_digest matches /api/tags.
+    Any failure (unreachable, malformed, missing list) answers False, so the
+    memory guard falls back to the full model+margin requirement rather than
+    to skipping the model share.
+    """
     try:
-        out = subprocess.run(  # nosec B603 B607 - fixed argv, no shell, no user input
-            ["vm_stat"], capture_output=True, text=True, timeout=5
-        )
-    except Exception:  # nosec B110 - unavailable_fallback: log and proceed rather than guess
+        result = _ollama_ps(host, timeout=_OLLAMA_PS_TIMEOUT_SEC)
+    except Exception:  # nosec B110 - not known to be loaded: the guard keeps its conservative requirement
+        return False
+    models = result.get("models")
+    if not isinstance(models, list):
+        return False
+    return any(isinstance(entry, dict) and entry.get("name") == model for entry in models)
+
+
+def _run_probe(argv: list[str]) -> str | None:
+    """stdout of a fixed read-only system command; None if missing, failing or slow."""
+    # run_binary never raises: missing, unrunnable and timed-out commands all
+    # come back as a non-zero return code, so the caller falls back.
+    out = run_binary(argv, timeout=5)
+    return out.stdout if out.returncode == 0 else None
+
+
+def _memory_pressure_output() -> str | None:
+    """stdout of ``memory_pressure -Q``, or None. Test seam for the primary source."""
+    return _run_probe(["memory_pressure", "-Q"])
+
+
+def _vm_stat_output() -> str | None:
+    """stdout of ``vm_stat``, or None. Test seam for the fallback source."""
+    return _run_probe(["vm_stat"])
+
+
+def _total_memory_bytes() -> int | None:
+    """Physical memory (hw.memsize) via sysconf, or None where unsupported."""
+    try:
+        total = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+    except (AttributeError, ValueError, OSError):
         return None
-    if out.returncode != 0:
+    return total if total > 0 else None
+
+
+def _parse_memory_pressure(text: str, total: int) -> int | None:
+    """total * the "System-wide memory free percentage", or None if absent."""
+    match = _FREE_PERCENT_RE.search(text)
+    if not match or int(match.group(1)) > 100:
         return None
-    return _parse_vm_stat(out.stdout)
+    return total * int(match.group(1)) // 100
+
+
+def _memory_from_pressure() -> int | None:
+    """Available bytes per the kernel's own memory_pressure view, or None."""
+    text = _memory_pressure_output()
+    if text is None:
+        return None
+    total = _total_memory_bytes()
+    return _parse_memory_pressure(text, total) if total is not None else None
+
+
+def _available_memory_bytes() -> int | None:
+    """Memory a new model load can claim without pushing macOS into pressure.
+
+    Primary source: ``memory_pressure -Q``'s free percentage times physical
+    memory. That is the kernel's own figure and counts memory macOS reclaims
+    cheaply (file-backed cache, compressible pages), which vm_stat's
+    free/inactive/speculative pages leave out: on a healthy 32 GB Mac,
+    vm_stat read ~11.9 GB while memory_pressure reported 47% (~15.1 GB).
+    Fallback when memory_pressure is missing or unparseable: vm_stat's
+    free+inactive+speculative pages, which are disjoint pools. None when
+    neither is readable; the guard then fails open with a warning.
+    """
+    available = _memory_from_pressure()
+    if available is not None:
+        return available
+    text = _vm_stat_output()
+    return _parse_vm_stat(text) if text is not None else None
 
 
 def _parse_vm_stat(text: str) -> int | None:
-    """Parse vm_stat output into free+inactive+speculative bytes."""
+    """Parse vm_stat output into free+inactive+speculative bytes.
+
+    Purgeable pages are deliberately left out: they are not a disjoint pool
+    (a purgeable page is also counted as active or inactive), so adding them
+    would double-count and overstate headroom. This feeds a safety guard,
+    so the fallback errs low, never high.
+    """
     page_match = re.search(r"page size of (\d+) bytes", text)
     if not page_match:
         return None
-    page_size = int(page_match.group(1))
     wanted = ("Pages free", "Pages inactive", "Pages speculative")
-    total_pages = 0
-    for line in text.splitlines():
-        for label in wanted:
-            if line.startswith(label):
-                digits = re.sub(r"[^\d]", "", line.split(":", 1)[-1])
-                if digits:
-                    total_pages += int(digits)
+    try:
+        # int() raises ValueError on a digit run past Python's int-string
+        # limit; a corrupted reading must stay "unparseable" (None), never
+        # escape the guard as an exception.
+        page_size = int(page_match.group(1))
+        total_pages = 0
+        for line in text.splitlines():
+            for label in wanted:
+                if line.startswith(label):
+                    digits = re.sub(r"[^\d]", "", line.split(":", 1)[-1])
+                    if digits:
+                        total_pages += int(digits)
+    except ValueError:
+        return None
     return total_pages * page_size if total_pages else None
 
 
@@ -739,7 +845,12 @@ def _hunk_line_counts(line: str) -> tuple[int, int] | None:
     if match is None:
         return None
     old, new = match.group(1), match.group(2)
-    return int(old if old is not None else 1), int(new if new is not None else 1)
+    try:
+        return int(old if old is not None else 1), int(new if new is not None else 1)
+    except ValueError as exc:
+        # The diff is model output: an overlong count must fail closed as an
+        # unparseable patch, not escape as a bare ValueError.
+        raise UnsupportedPatchError(f"unparseable hunk header: {line[:80]!r}") from exc
 
 
 def _consume_hunk_line(line: str, remaining: tuple[int, int]) -> tuple[int, int, int] | None:
@@ -857,16 +968,44 @@ def check_patch_caps(patch_text: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def _check_memory_guard() -> str | None:
-    """Return "deferred-low-memory" if insufficient, else None. Fails open."""
+@dataclass(frozen=True)
+class MemoryCheck:
+    """The memory guard's verdict plus the figures behind it (explain mode reports them).
+
+    requirement is "model_resident+margin" (a cold load), "margin_only" (the
+    model is already resident in Ollama) or "unguarded" (no memory reading).
+    """
+
+    verdict: str | None
+    requirement: str
+    required_gb: float | None
+    available_bytes: int | None
+
+
+def _assess_memory(host: str, model: str) -> MemoryCheck:
+    """Apply the memory precheck for model on host. Fails open on no reading.
+
+    A cold load needs model_resident_gb + memory_margin_gb. Only when that
+    is not met is Ollama asked whether model is already loaded; if it is,
+    the generation allocates no new model memory and only the margin is
+    required. An unanswered /api/ps keeps the full requirement.
+    """
     available = _available_memory_bytes()
     if available is None:
         _log.warning("qwen: memory reading unavailable; proceeding without a memory guard")
-        return None
-    required_bytes = (THRESHOLDS.model_resident_gb + THRESHOLDS.memory_margin_gb) * (1024**3)
-    if available < required_bytes:
-        return "deferred-low-memory"
-    return None
+        return MemoryCheck(None, "unguarded", None, None)
+    full_gb = THRESHOLDS.model_resident_gb + THRESHOLDS.memory_margin_gb
+    if available >= full_gb * _GIB:
+        return MemoryCheck(None, "model_resident+margin", full_gb, available)
+    margin_gb = THRESHOLDS.memory_margin_gb
+    if available >= margin_gb * _GIB and _model_loaded(host, model):
+        return MemoryCheck(None, "margin_only", margin_gb, available)
+    return MemoryCheck("deferred-low-memory", "model_resident+margin", full_gb, available)
+
+
+def _check_memory_guard(host: str, model: str) -> str | None:
+    """Return "deferred-low-memory" if insufficient, else None. Fails open."""
+    return _assess_memory(host, model).verdict
 
 
 def _check_disk_guard() -> str | None:
@@ -875,7 +1014,7 @@ def _check_disk_guard() -> str | None:
     if free is None:
         _log.warning("qwen: disk reading unavailable; proceeding without a disk guard")
         return None
-    if free < THRESHOLDS.min_free_disk_gb * (1024**3):
+    if free < THRESHOLDS.min_free_disk_gb * _GIB:
         return "deferred-low-disk"
     return None
 
@@ -912,7 +1051,9 @@ class _LockHolder:
 def _read_lock_holder(lock_path: Path) -> _LockHolder | None:
     try:
         raw = json.loads(lock_path.read_text())
-    except (OSError, json.JSONDecodeError):
+    except (OSError, ValueError):
+        # ValueError, not just JSONDecodeError: an overlong integer in the
+        # file makes json.loads raise a plain ValueError (int-string limit).
         return None
     try:
         token = raw.get("token")
@@ -1337,9 +1478,7 @@ def _masked(value: object) -> object:
     return value
 
 
-def _explain_report(
-    files: list[Path], instruction: str, options: GenerationOptions, root: Path
-) -> dict[str, object]:
+def _explain_report(prepared: _PreparedJob) -> dict[str, object]:
     """Build the explain_mode report: guard results without calling the model.
 
     The files are read through the same descriptor-bound path a real run
@@ -1349,8 +1488,13 @@ def _explain_report(
     The report is persisted as the job's result and most of it echoes the
     payload (file paths, model, system text), so every string in it - keys
     included - is masked on the way out.
+
+    memory_detail records which memory requirement applied (see MemoryCheck),
+    using the same host and model the real run would check.
     """
-    contents = _read_confined_bytes(files, root)
+    files, instruction, options = prepared.files, prepared.instruction, prepared.options
+    contents = _read_confined_bytes(files, prepared.root)
+    memory = _assess_memory(prepared.host, options.model)
     per_file_bytes = {path: len(data) for path, data in contents.items()}
     # The system text shares the context window, so it counts here exactly
     # as it does in _check_prompt_budget.
@@ -1371,10 +1515,17 @@ def _explain_report(
         },
         "guard_results": {
             "confinement": "pass",
-            "memory": _verdict(_check_memory_guard()),
+            "memory": _verdict(memory.verdict),
             "disk": _verdict(_check_disk_guard()),
             "admission": _verdict(_check_admission_cap()),
             "prompt_budget": _verdict(_check_prompt_budget(prompt, options)),
+        },
+        "memory_detail": {
+            "requirement": memory.requirement,
+            "required_gb": memory.required_gb,
+            # Floor to 2 decimal places so the displayed value stays on the same side
+            # of the threshold as the guard's decision (round-to-nearest can flip it).
+            "available_gb": None if memory.available_bytes is None else memory.available_bytes * 100 // _GIB / 100,
         },
     }
     return {mask_text(key): _masked(value) for key, value in report.items()}
@@ -1744,6 +1895,14 @@ def _run_with_lock(
     if not holder:
         return "deferred-qwen-busy"
     try:
+        # Re-check memory now that the lock is held. The pre-lock check is a
+        # snapshot: the lock wait can last up to wait_ceiling_sec, long enough
+        # for Ollama to unload a model that was warm (so this call would
+        # cold-load it under a margin-only admission) or for headroom to drop.
+        # Only Ollama's own load step remains outside this window.
+        memory_verdict = _check_memory_guard(host, options.model)
+        if memory_verdict is not None:
+            return memory_verdict
         return _generate_and_validate_patch(host, prompt, options, timeout)
     except QwenGuardError as exc:
         return str(exc)
@@ -1874,6 +2033,10 @@ def _handle_string_outcome(job_id: str, outcome: str) -> tuple[bool, object]:
     """Turn a deferred/terminal string outcome from _run_with_lock into a result tuple."""
     if outcome == "deferred-qwen-busy":
         return (False, _deferral_outcome(job_id, "qwen-busy", outcome))
+    if outcome == "deferred-low-memory":
+        # The post-lock memory re-check: count it like the pre-lock deferral,
+        # so the deferral bound still applies.
+        return (False, _deferral_outcome(job_id, "low-memory", outcome))
     return (False, outcome)
 
 
@@ -1954,13 +2117,13 @@ def _run_guarded(payload: dict[str, object], run: _JobRun) -> tuple[bool, object
 
     if prepared.options.explain:
         run.explain = True
-        return (True, _explain_report(prepared.files, instruction, prepared.options, root))
+        return (True, _explain_report(prepared))
 
     admission_verdict = _check_admission_cap()
     if admission_verdict is not None:
         return (False, admission_verdict)
 
-    memory_verdict = _check_memory_guard()
+    memory_verdict = _check_memory_guard(prepared.host, prepared.options.model)
     if memory_verdict is not None:
         return (False, _deferral_outcome(job_id, "low-memory", memory_verdict))
 
