@@ -159,6 +159,15 @@ class TestUnvalidatedParam(_RuleCase):
     def test_check_params_in_same_stage_validates(self) -> None:
         self.assert_silent(_workflow(_stage(_CHECK_PARAMS + _OLLAMA_PROBE), params=_OLLAMA_PARAMS))
 
+    def test_check_params_after_the_use_does_not_validate_it(self) -> None:
+        # PR #433 review: check-params validation must respect ordering. A
+        # {ollama_host} used BEFORE a same-stage check-params --check call has
+        # already reached shell by the time the check runs, so it must still
+        # be flagged -- the check protects only uses that come after it.
+        desc = _OLLAMA_PROBE + _CHECK_PARAMS
+        hits = self.assert_fires(_workflow(_stage(desc), params=_OLLAMA_PARAMS))
+        self.assertIn("'{ollama_host}'", hits[0].message)
+
     def test_check_params_in_ancestor_stage_validates(self) -> None:
         yaml_text = _workflow(
             _stage(_CHECK_PARAMS, name="init"),
@@ -298,6 +307,19 @@ class TestUnboundVariable(_RuleCase):
         desc = 'Loop:\n\n  jq -r ".[]" f.json | while read -r ITEM; do echo "$ITEM"; done\n'
         self.assert_silent(_workflow(_stage(desc)))
 
+    def test_fires_when_folded_scalar_collapses_fence_marker_onto_first_command(self) -> None:
+        # PR #433 review: a YAML folded scalar (`description: >`) collapses a
+        # fence's opening marker line and its first command onto one line
+        # before shell rules ever see them -- "```bash" + a command becomes
+        # one line starting "```bash <command>". _stage() places this
+        # fixture in a real folded scalar (no blank lines), so PyYAML does
+        # the actual folding; before the fix, _FENCE_RE could not match that
+        # line and the whole fenced block -- including this unbound
+        # reference -- was silently skipped by every shell rule.
+        desc = '```bash echo "$UNBOUND_VAR"\n```\n'
+        hits = self.assert_fires(_workflow(_stage(desc)))
+        self.assertIn("$UNBOUND_VAR", hits[0].message)
+
     def test_single_quoted_default_and_environment_are_silent(self) -> None:
         desc = (
             "Run:\n\n"
@@ -326,6 +348,14 @@ class TestUnboundVariable(_RuleCase):
             _stage('Use it:\n\n  ./bin/github threads reply --thread "$THREAD_ID"\n', name="b", depends_on="[a]"),
         )
         self.assertEqual([w.stage for w in self.assert_fires(yaml_text)], ["b"])
+
+    def test_quoted_assignment_looking_literal_does_not_bind(self) -> None:
+        # PR #433 review: an assignment-shaped literal inside a quoted string is
+        # quoted text, not a binding -- FOO is never actually assigned, so a real
+        # later $FOO expansion must still fire shell-unbound-variable.
+        desc = 'Run:\n\n  echo "example FOO=literal"\n  echo "$FOO"\n'
+        hits = self.assert_fires(_workflow(_stage(desc)))
+        self.assertIn("$FOO", hits[0].message)
 
     def test_has_teeth(self) -> None:
         self.assert_has_teeth(_workflow(_stage(_UNBOUND)))
@@ -435,17 +465,24 @@ class TestValidateStageWritesOutput(_RuleCase):
 # shell-guard-refused
 # ---------------------------------------------------------------------------
 
-# qwen-admin.yaml health stage at f00a50d5 (PR #391 round 7): the heredoc
-# guard that a value carrying the delimiter could close early.
+# qwen-admin.yaml health stage at f00a50d5 (PR #391 round 7), adapted to an
+# UNQUOTED delimiter: the guard's own contract (guard-contract.yaml "heredoc
+# subst runs" -> block) only refuses this shape because $(...) in the body
+# expands before the guard can inspect the result. The original fixture used
+# a quoted `<<'RAW'` delimiter, which the guard allows outright ("quoted
+# heredoc data" -> allow) -- Copilot PR #433 flagged that mismatch directly.
 _HEREDOC = """
     Get the value off the command line:
 
-      cat > "$TMPDIR/qwen-admin-host" <<'RAW'
-      {ollama_host}
+      cat > "$TMPDIR/qwen-admin-host" <<RAW
+      $(echo {ollama_host})
       RAW
 """
-# review-fix-threads.yaml verify-fixes, on main today.
-_LOOP = "Run twice:\n\n  for pass in 1 2; do make test; done\n"
+# review-fix-threads.yaml verify-fixes, adapted to a mutating body: the guard
+# allows a read-only loop outright (guard-contract.yaml "loop variable in a
+# read" -> allow), so the original `do make test; done` body -- a false
+# positive Copilot PR #433 flagged -- must not fire this rule any more.
+_LOOP = "Run twice:\n\n  for pass in 1 2; do rm -rf \"$TMPDIR/scratch-$pass\"; done\n"
 
 
 class TestGuardRefused(_RuleCase):
@@ -456,7 +493,7 @@ class TestGuardRefused(_RuleCase):
         self.assertIn("heredoc", hits[0].message)
 
     def test_fires_on_shell_loops(self) -> None:
-        for desc in (_LOOP, "Drain:\n\n  while test -s q.txt; do sleep 1; done\n"):
+        for desc in (_LOOP, "Drain:\n\n  while test -s q.txt; do mv q.txt \"$TMPDIR/done\"; done\n"):
             with self.subTest(desc=desc):
                 self.assertIn("loop", self.assert_fires(_workflow(_stage(desc)))[0].message)
 
@@ -470,6 +507,27 @@ class TestGuardRefused(_RuleCase):
             with self.subTest(desc=desc):
                 self.assert_silent(_workflow(_stage(desc)))
 
+    def test_quoted_heredoc_delimiter_is_silent(self) -> None:
+        # Copilot PR #433 review: a quoted delimiter makes the body inert data --
+        # no expansion occurs inside it at all -- so the guard allows it outright
+        # (guard-contract.yaml "quoted heredoc data" -> allow). This must not fire
+        # even though {ollama_host} sits in the body, unlike the unquoted _HEREDOC
+        # fixture above.
+        desc = (
+            "Get the value off the command line:\n\n"
+            '  cat > "$TMPDIR/qwen-admin-host" <<\'RAW\'\n'
+            "  {ollama_host}\n"
+            "  RAW\n"
+        )
+        self.assert_silent(_workflow(_stage(desc), params=_OLLAMA_PARAMS, rules=_OLLAMA_RULE))
+
+    def test_read_only_loop_is_silent(self) -> None:
+        # guard-contract.yaml "loop variable in a read" -> allow: a loop whose
+        # body only reads is not something the guard refuses, so this rule must
+        # not warn on it either.
+        desc = 'Report line counts:\n\n  for f in src/*.py; do wc -l "$f"; done\n'
+        self.assert_silent(_workflow(_stage(desc)))
+
     def test_python_for_loop_is_not_shell(self) -> None:
         desc = "Inline:\n\n  python3 -I -S -c \"\n  for parser in PARSERS:\n      print(parser)\n  \"\n"
         self.assert_silent(_workflow(_stage(desc)))
@@ -481,7 +539,9 @@ class TestGuardRefused(_RuleCase):
         # blank line here is only to survive the folded (`>`) YAML scalar
         # this fixture format uses -- extract_shell_segments still returns
         # the setup line and the loop as a single fence segment either way.
-        desc = "```bash\necho setup\n\nfor p in items; do echo \"$p\"; done\n```\n"
+        # The body removes a file (mutating), so this also stays a positive
+        # case under the guard-contract-aligned loop check.
+        desc = "```bash\necho setup\n\nfor p in items; do rm -f \"$p\"; done\n```\n"
         hits = self.assert_fires(_workflow(_stage(desc)))
         self.assertIn("loop", hits[0].message)
 
@@ -531,6 +591,31 @@ class TestExtractShellSegments(unittest.TestCase):
 
     def test_prose_line_closing_a_paren_is_not_shell(self) -> None:
         self.assertEqual(self._texts("  git add -A) and run /open-pr with a title\n"), [])
+
+    def test_fence_marker_alone_on_its_line_is_still_recognized(self) -> None:
+        # Happy path: a normal fence, unaffected by folded-scalar collapsing,
+        # still yields one fence segment with all its body lines intact.
+        desc = "```bash\necho setup\nfor p in items; do echo \"$p\"; done\n```\n"
+        segments = extract_shell_segments(desc)
+        fence_segments = [s for s in segments if s.origin == "fence"]
+        self.assertEqual(len(fence_segments), 1)
+        self.assertEqual(fence_segments[0].text, 'echo setup\nfor p in items; do echo "$p"; done')
+
+    def test_folded_scalar_collapses_fence_marker_onto_first_command(self) -> None:
+        # PR #433 review: most workflow stages use YAML folded scalars
+        # (`description: >`), which collapse a fence's opening marker line
+        # and its first command onto one line before this function ever
+        # sees them -- "```bash" + "echo setup" arrives as
+        # "```bash echo setup". The old _FENCE_RE required the marker alone
+        # on its line, so it missed that line entirely and the whole fenced
+        # block -- including the loop line -- was silently dropped as shell.
+        desc = '```bash echo setup\nfor p in items; do echo "$p"; done\n```\n'
+        segments = extract_shell_segments(desc)
+        fence_segments = [s for s in segments if s.origin == "fence"]
+        self.assertEqual(len(fence_segments), 1)
+        self.assertEqual(fence_segments[0].text, 'echo setup\nfor p in items; do echo "$p"; done')
+        # The collapsed first command must survive, not be discarded.
+        self.assertIn("echo setup", fence_segments[0].text)
 
     def test_quote_context_handles_nested_substitution(self) -> None:
         text = 'X="$(jq -r \'.a\' "$F")" {k}'

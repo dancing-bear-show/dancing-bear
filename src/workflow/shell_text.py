@@ -58,6 +58,13 @@ _LOOP_WORDS: frozenset[str] = frozenset({"for", "while", "until"})
 _SHELL_FENCE_LANGS: frozenset[str] = frozenset({"", "sh", "bash", "shell", "zsh", "console"})
 
 _FENCE_RE = re.compile(r"^\s*```\s*([A-Za-z0-9_+-]*)\s*$")
+# A YAML folded scalar (``description: >``) collapses adjacent lines onto
+# one, so a fence's opening marker and its first command can arrive as a
+# single line ("```bash echo setup"). _FENCE_RE requires the marker alone on
+# its line and would miss that; this variant captures the lang tag and
+# whatever trailing text follows it, so the trailing text can be recovered
+# as the fence's first body line instead of the whole block being skipped.
+_FENCE_OPEN_RE = re.compile(r"^\s*```\s*([A-Za-z0-9_+-]*)[ \t]*(\S.*)?$")
 _ASSIGN_START_RE = re.compile(r"^[A-Z_][A-Z0-9_]*=")
 _BACKTICK_SPAN_RE = re.compile(r"`([^`\n]+)`")
 _PROMPT_PREFIX = "$ "
@@ -215,12 +222,15 @@ def _fence_segments(lines: list[str]) -> tuple[list[ShellSegment], set[int]]:
     consumed: set[int] = set()
     i = 0
     while i < len(lines):
-        m = _FENCE_RE.match(lines[i])
+        m = _FENCE_OPEN_RE.match(lines[i])
         if m is None:
             i += 1
             continue
         end = next((j for j in range(i + 1, len(lines)) if _FENCE_RE.match(lines[j])), len(lines))
         body = lines[i + 1:end]
+        trailing = m.group(2)
+        if trailing:
+            body = [trailing] + body
         consumed.update(range(i, min(end + 1, len(lines))))
         if _fence_is_shell(m.group(1).lower(), body):
             segments.append(ShellSegment(text="\n".join(body), origin="fence"))

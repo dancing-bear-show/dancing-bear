@@ -28,8 +28,13 @@ never the surrounding prose -- and emit warnings with stable rule ids:
     The validate prompt is built from ``validation:`` alone and appends a
     findings-array format, so the instruction never reaches the agent.
 ``shell-guard-refused``
-    A heredoc or a ``for``/``while``/``until`` loop in shell text; the Bash
-    guard hook refuses both as too complex to verify.
+    An unquoted-delimiter heredoc (``<<EOF``, not ``<<'EOF'``), whose body the
+    Bash guard hook cannot inspect because ``$(...)`` and backticks in it expand
+    before the guard ever sees the result; or a ``for``/``while``/``until`` loop
+    whose body contains a command the guard's write-target scan would refuse.
+    A quoted-delimiter heredoc and a read-only loop are both things the guard's
+    own contract (``.claude/hooks/README.md``, ``.claude/hooks/tests/guard-contract.yaml``)
+    explicitly allows, so this rule does not fire on either.
 
 Fragment stages inlined into a workflow get only the context-dependent rule
 (``shell-unvalidated-param``) there, because their params are the importer's;
@@ -80,7 +85,10 @@ _EXPANSION_RE = re.compile(r"\$(?:\{([A-Z_][A-Z0-9_]*)\}|([A-Z_][A-Z0-9_]*))")
 _ASSIGNMENT_RE = re.compile(r"(?:^|[\s;(&|`])([A-Z_][A-Z0-9_]*)=")
 _BINDING_WORDS = frozenset({"for", "read"})
 _PYTHON_WORD_RE = re.compile(r"^(?:.*/)?python3?(?:\.\d+)?$")
-_HEREDOC_RE = re.compile(r"<<-?\s*['\"]?[A-Za-z_]")
+# Group 1 captures a quoting character on the delimiter, when there is one, so
+# a caller can tell a quoted heredoc (body is inert data, no expansions occur)
+# from an unquoted one (body undergoes $(...)/backtick/$VAR expansion).
+_HEREDOC_RE = re.compile(r"<<-?\s*(['\"])?[A-Za-z_]")
 _WRITE_INSTRUCTION_RE = re.compile(
     r"\b(?:Write|write|Save|save|Create|create|Emit|emit|Output|output|Produce|produce)\s+"
     r"(?:it\s+to\s+|to\s+|the\s+\S+\s+to\s+)?"
@@ -95,6 +103,15 @@ _ENVIRONMENT_VARS: frozenset[str] = frozenset({
 _ENVIRONMENT_PREFIXES = ("BASH_", "CLAUDE_", "GITHUB_", "GH_", "RUNNER_", "DANCING_BEAR_")
 
 _LOOP_HEADS = frozenset({"for", "while", "until"})
+# Commands the real destructive-bash guard treats as write targets (see the
+# "Written" table in .claude/hooks/README.md). A loop whose body calls none of
+# these, and contains no output redirection, is read-only and the guard allows
+# it outright (guard-contract.yaml: "for f in src/*.py; do wc -l "$f"; done").
+_MUTATING_COMMANDS = frozenset({
+    "rm", "rmdir", "unlink", "shred", "chmod", "chown", "chgrp", "mv", "cp",
+    "ln", "install", "touch", "tee", "truncate", "dd", "mkdir",
+})
+_REDIRECT_RE = re.compile(r"(?<![<>])>>?(?!>)")
 # -I (isolated) and -E both make the interpreter ignore PYTHONPATH, which is
 # where a foreign checkout's sitecustomize comes from. -S is not required:
 # alone it does not ignore PYTHONPATH, and it would break ``-m pip``.
@@ -155,23 +172,34 @@ def _snippet(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _checked_param_names(segments: Iterable[ShellSegment]) -> set[str]:
-    """Param names a ``check-params --check name=regex`` call validates."""
-    names: set[str] = set()
-    for seg in segments:
-        tokens = split_tokens(seg.text)
-        if not any(t.endswith("check-params") for t in tokens):
-            continue
-        for i, tok in enumerate(tokens):
-            spec = ""
-            if tok == "--check" and i + 1 < len(tokens):
-                spec = tokens[i + 1]
-            elif tok.startswith("--check="):
-                spec = tok[len("--check="):]
-            name, sep, _ = spec.partition("=")
-            if sep and name:
-                names.add(name)
-    return names
+def _checked_param_positions(
+    segments: Iterable[ShellSegment],
+) -> dict[str, tuple[int, int]]:
+    """Param name -> (segment index, char offset) of its earliest check-params call.
+
+    The position is what lets a caller distinguish "checked before this use" from
+    "checked after it" within the same stage: a ``{param}`` substituted into shell
+    text before the stage's own ``check-params --check`` call has already reached
+    shell by the time the check runs, so only uses at or after that position may be
+    credited to a same-stage check.
+    """
+    positions: dict[str, tuple[int, int]] = {}
+    for seg_index, seg in enumerate(segments):
+        for m in re.finditer(r"\S+", seg.text):
+            if not m.group(0).endswith("check-params"):
+                continue
+            tail = seg.text[m.end():]
+            tokens = split_tokens(tail)
+            for i, tok in enumerate(tokens):
+                spec = ""
+                if tok == "--check" and i + 1 < len(tokens):
+                    spec = tokens[i + 1]
+                elif tok.startswith("--check="):
+                    spec = tok[len("--check="):]
+                name, sep, _ = spec.partition("=")
+                if sep and name and name not in positions:
+                    positions[name] = (seg_index, m.start())
+    return positions
 
 
 def _ancestors(name: str, deps: Mapping[str, tuple[str, ...]]) -> set[str]:
@@ -189,25 +217,41 @@ def _ancestors(name: str, deps: Mapping[str, tuple[str, ...]]) -> set[str]:
 def _validated_by_stage(
     parsed: list[_StageShell], ruled: frozenset[str]
 ) -> dict[str, frozenset[str]]:
-    """Per stage: params the engine rules or a check-params here or upstream cover."""
-    own = {p.stage.name: _checked_param_names(p.segments) for p in parsed}
+    """Per stage: params the engine rules or a check-params here or upstream cover.
+
+    Upstream (ancestor-stage) checks validate unconditionally: an ancestor's shell
+    text runs to completion before this stage starts, so ordering within it cannot
+    leave an unvalidated use reaching this stage's shell. A check in THIS stage is
+    different -- the check and the use can appear in either order in the same
+    segment sequence -- so it is not folded into this per-stage name set; see
+    ``_unvalidated_params``, which applies it only to uses at or after its position.
+    """
+    own_positions = {p.stage.name: _checked_param_positions(p.segments) for p in parsed}
+    own = {name: set(pos) for name, pos in own_positions.items()}
     deps = {p.stage.name: tuple(p.stage.depends_on) for p in parsed}
     out: dict[str, frozenset[str]] = {}
-    for name, checked in own.items():
+    for name in own:
         upstream = set().union(*(own.get(a, set()) for a in _ancestors(name, deps)))
-        out[name] = frozenset(ruled | checked | upstream)
+        out[name] = frozenset(ruled | upstream)
     return out
 
 
 def _unvalidated_params(
     item: _StageShell, caller: frozenset[str], validated: frozenset[str]
 ) -> list[LintWarning]:
+    own_checks = _checked_param_positions(item.segments)
     reported: dict[str, str] = {}
-    for seg in item.segments:
+    for seg_index, seg in enumerate(item.segments):
         for m in _PLACEHOLDER_RE.finditer(seg.text):
             name = m.group(1)
-            if name in caller and name not in validated:
-                reported.setdefault(name, seg.text)
+            if name not in caller:
+                continue
+            if name in validated:
+                continue
+            checked_at = own_checks.get(name)
+            if checked_at is not None and (seg_index, m.start()) >= checked_at:
+                continue
+            reported.setdefault(name, seg.text)
     return [
         _warn(
             item.stage.name,
@@ -247,8 +291,22 @@ def _unquoted_fan_out_keys(item: _StageShell) -> list[LintWarning]:
 
 
 def _assigned_names(description: str, segments: Iterable[ShellSegment]) -> set[str]:
-    """Upper-case names bound by ``NAME=`` anywhere, or ``for``/``read`` in shell."""
-    names = set(_ASSIGNMENT_RE.findall(description))
+    """Upper-case names bound by ``NAME=`` anywhere, or ``for``/``read`` in shell.
+
+    Matched outside quotes only: an assignment-looking literal inside a quoted
+    string (``echo "example FOO=literal"``) is quoted text, not a binding, and
+    must not suppress ``shell-unbound-variable`` for a real, later ``$FOO``.
+    Quote context is computed over the whole description -- not just the shell
+    segments -- so the intentional "label before a command" case (``Bash tool:
+    F=...``) still binds: the assignment token there sits outside any quote,
+    only the value is quoted.
+    """
+    ctx = quote_context(description)
+    names = {
+        m.group(1)
+        for m in _ASSIGNMENT_RE.finditer(description)
+        if ctx[m.start(1)] == ""
+    }
     for seg in segments:
         tokens = split_tokens(seg.text)
         for i, tok in enumerate(tokens):
@@ -373,9 +431,17 @@ def _unisolated_pythons(item: _StageShell) -> list[LintWarning]:
 
 
 def _has_heredoc(text: str) -> bool:
+    """True for an unquoted-delimiter heredoc -- the shape the guard cannot inspect.
+
+    A quoted delimiter (``<<'EOF'`` or ``<<"EOF"``) makes the body inert: POSIX sh
+    performs no expansion inside it at all, so ``$(...)`` in a quoted heredoc body
+    is literal text, not a command to run. The guard's own contract allows this
+    shape explicitly (guard-contract.yaml: "quoted heredoc data" -> allow), so it
+    must not be flagged here as refused.
+    """
     ctx = quote_context(text)
     return any(
-        ctx[m.start()] == "" and text[m.start() - 1:m.start()] != "<"
+        ctx[m.start()] == "" and text[m.start() - 1:m.start()] != "<" and m.group(1) is None
         for m in _HEREDOC_RE.finditer(text)
     )
 
@@ -394,13 +460,31 @@ def _as_command_separators(text: str) -> str:
     return "".join(";" if ch == "\n" and ctx[i] == "" else ch for i, ch in enumerate(text))
 
 
+def _loop_body_is_mutating(tokens: list[str], do_index: int) -> bool:
+    """True when the loop body (after ``do``) writes anything, by the guard's own test.
+
+    The guard allows a loop outright when its body is read-only (guard-contract.yaml:
+    "loop variable in a read" -> allow) and refuses one whose body calls a command from
+    the guard's own "Written" table, or redirects output (`>`, `>>`). This is
+    deliberately narrower than the guard's full write-target parser -- it is enough to
+    stop flagging the read-only loops the guard actually allows, not a reimplementation
+    of the guard itself.
+    """
+    body = tokens[do_index + 1:]
+    if any(tok in _MUTATING_COMMANDS for tok in body):
+        return True
+    return any(_REDIRECT_RE.search(tok) for tok in body)
+
+
 def _has_loop(text: str) -> bool:
     tokens = split_tokens(_as_command_separators(text))
     for i, tok in enumerate(tokens):
         if i and tokens[i - 1] not in _COMMAND_SEPARATORS:
             continue
         if tok in _LOOP_HEADS and "do" in tokens[i + 1:]:
-            return True
+            do_index = tokens.index("do", i + 1)
+            if _loop_body_is_mutating(tokens, do_index):
+                return True
     return False
 
 
