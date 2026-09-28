@@ -1262,5 +1262,82 @@ class QwenOptionValidationTests(QwenHandlerCase):
                 self.assertEqual((options["temperature"], options["num_predict"]), (temperature, 1))
 
 
+class QwenPersistResponseTests(QwenHandlerCase):
+    """_persist_response: directory permissions, masking bounds, and the
+    broad-catch coverage that ensures every post-response failure persists."""
+
+    def _response_file(self) -> Path | None:
+        """The persisted response file for job 'qwen-test-job', or None."""
+        candidates = list(self.response_dir.glob("qwen-test-job*")) if self.response_dir.exists() else []
+        return candidates[0] if len(candidates) == 1 else None
+
+    def test_chmod_enforced_on_existing_directory(self) -> None:
+        """mkdir exists_ok=True leaves an existing directory's permissions unchanged;
+        the explicit os.chmod must correct that."""
+        self.response_dir.mkdir(parents=True, mode=0o755)
+        self.generate_response = model_says("no edits here")  # produces terminal-no-edits-found
+
+        self.run_handler()
+
+        # The directory must be 0700 regardless of what it was before.
+        self.assertEqual(oct(self.response_dir.stat().st_mode & 0o777), oct(0o700))
+
+    def test_masker_receives_at_most_mask_input_plus_margin_chars(self) -> None:
+        """mask_text receives no more than _MASK_INPUT_CHARS + _MASK_MARGIN_CHARS.
+
+        A response much longer than that must be clipped before masking so
+        that mask_text does not stall the worker on a multi-hundred-KB
+        unbroken text run (old cap was ~260 KB; new cap is ~68 KB).
+        """
+        max_input = qwen._MASK_INPUT_CHARS + qwen._MASK_MARGIN_CHARS
+        long_response = "x" * (max_input + 100_000)
+        self.generate_response = model_says(long_response)
+        received: list[str] = []
+
+        def spy(text: str) -> str:
+            received.append(text)
+            return text
+
+        with mock.patch("worker.qwen.mask_text", side_effect=spy):
+            self.run_handler()
+
+        mask_calls = [t for t in received if len(t) > 1]
+        self.assertTrue(mask_calls, "mask_text was never called with a substantial text")
+        for text in mask_calls:
+            self.assertLessEqual(
+                len(text),
+                max_input,
+                "mask_text received more chars than _MASK_INPUT_CHARS + _MASK_MARGIN_CHARS",
+            )
+
+    def test_timeout_expired_in_validated_diff_persists_response(self) -> None:
+        """subprocess.TimeoutExpired from _git_apply_check must trigger
+        _persist_response before re-raising, per the documented contract."""
+        import subprocess as sp
+
+        self.generate_response = model_says(f"```\n{GREET_EDIT}```")
+        timeout_exc = sp.TimeoutExpired(["git"], 30)
+
+        with mock.patch("worker.qwen._git_apply_check", side_effect=timeout_exc):
+            ok, out = self.run_handler()
+
+        self.assertFalse(ok)
+        self.assertTrue(str(out).startswith("terminal-internal-error"), out)
+        response_file = self._response_file()
+        self.assertIsNotNone(response_file, "persisted response file was not created")
+
+    def test_qwen_guard_error_in_validated_diff_persists_response(self) -> None:
+        """A QwenGuardError raised during validation persists the response (happy path
+        for _persist_response: a no-edit-block response produces the file)."""
+        self.generate_response = model_says("no edit blocks here")
+
+        ok, out = self.run_handler()
+
+        self.assertFalse(ok)
+        self.assertEqual(out, "terminal-no-edits-found")
+        response_file = self._response_file()
+        self.assertIsNotNone(response_file, "persisted response file was not created")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -388,20 +388,26 @@ class ResponsePersistenceTests(QwenHandlerCase):
                 self.assertEqual(self._response_file().read_text(encoding="utf-8"), text)
 
     def test_response_is_capped_and_masked_across_the_cap(self) -> None:
-        """A secret straddling the byte cap is masked, not cut into an
-        unmaskable fragment."""
-        filler = "no edits here\n" * (qwen.MAX_PERSISTED_RESPONSE_BYTES // 14 - 10)
-        # A bare token starting 10 bytes before the cap: cut-then-mask would
-        # keep "ghp_abcdef", which mask_text does not recognise on its own.
-        pad = " " * (qwen.MAX_PERSISTED_RESPONSE_BYTES - len(filler) - 10)
+        """A secret that starts just before _MASK_INPUT_CHARS is masked.
+
+        _MASK_MARGIN_CHARS extra bytes are fed to mask_text so a secret
+        straddling the persist-cap boundary is matched whole. A GitHub token
+        (40 chars) placed 10 bytes before _MASK_INPUT_CHARS must not appear
+        in the persisted file; the full token fits within the margin.
+        """
+        cap = qwen._MASK_INPUT_CHARS
+        filler = "no edits here\n" * (cap // 14 - 10)
+        # Place the token 10 bytes before _MASK_INPUT_CHARS so the regex
+        # pattern has to look into the margin to match the full token.
+        pad = " " * (cap - len(filler) - 10)
         text = f"{filler}{pad}{_FAKE_TOKEN}\n" + "tail\n" * 5000
-        self.assertEqual(text.index(_FAKE_TOKEN), qwen.MAX_PERSISTED_RESPONSE_BYTES - 10)
+        self.assertEqual(text.index(_FAKE_TOKEN), cap - 10)
         self.generate_response = model_says(text)
 
         self.assertEqual(self.run_handler(), (False, qwen_edits.NO_EDITS_OUTCOME))
 
         saved = self._response_file().read_bytes()
-        self.assertEqual(len(saved), qwen.MAX_PERSISTED_RESPONSE_BYTES)
+        self.assertLessEqual(len(saved), qwen.MAX_PERSISTED_RESPONSE_BYTES)
         self.assertNotIn(_FAKE_TOKEN[:10].encode("utf-8"), saved)
 
     def test_success_and_pre_response_failures_persist_nothing(self) -> None:

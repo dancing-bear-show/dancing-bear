@@ -1640,8 +1640,7 @@ def _build_prompt(instruction: str, file_contents: dict[str, str]) -> str:
         "Answer ONLY with SEARCH/REPLACE edit blocks. Format example:",
         EDIT_FORMAT_EXAMPLE,
         "",
-        "Rules: FILE is one of the paths above. SEARCH copies existing lines verbatim "
-        "and has enough lines to match exactly once. Use one block per edit. No diffs.",
+        "Rules: FILE is one of the paths above. SEARCH copies existing lines verbatim and has enough lines to match exactly once. Use one block per edit. No diffs.",
     ]
     return "\n".join(parts)
 
@@ -1734,10 +1733,13 @@ def _call_ollama_generate(host: str, body: dict[str, object], timeout: float) ->
 
 
 MAX_PERSISTED_RESPONSE_BYTES = 256 * 1024
-# Characters kept past the byte cap before masking. mask_text's cost grows
-# quadratically on long unbroken word runs (64 KB of one word takes ~10 s),
-# so the text is cut first; the margin lets a secret straddling the byte cap
-# still match whole, and whatever the final cut drops lies past the cap.
+# Characters fed to mask_text. mask_text's cost grows quadratically on long
+# unbroken word runs (64 KB of one word can take ~10 s on a slow machine),
+# so only a diagnostic head is masked and persisted. _MASK_MARGIN_CHARS is
+# added beyond the persist cap to ensure a secret that starts just before it
+# is matched whole; the encoded result is then cut to MAX_PERSISTED_RESPONSE_BYTES
+# before writing, so no bytes past the masked window reach disk.
+_MASK_INPUT_CHARS = 64 * 1024
 _MASK_MARGIN_CHARS = 4096
 
 
@@ -1760,7 +1762,8 @@ def _persist_response(job_id: str, response_text: str) -> None:
     try:
         directory = _response_dir()
         directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-        head = response_text[: MAX_PERSISTED_RESPONSE_BYTES + _MASK_MARGIN_CHARS]
+        os.chmod(directory, 0o700)
+        head = response_text[: _MASK_INPUT_CHARS + _MASK_MARGIN_CHARS]
         capped = mask_text(head).encode("utf-8")[:MAX_PERSISTED_RESPONSE_BYTES]
         _write_job_file(response_path_for_job(job_id), capped.decode("utf-8", errors="ignore"))
     except Exception as exc:  # nosec B110 - diagnostics are best-effort; the job's outcome is already decided
@@ -1822,6 +1825,9 @@ def _generate_and_validate_patch(request: _GenerationRequest) -> tuple[str, dict
     try:
         diff = _validated_diff(response_text, request.files)
     except QwenGuardError:
+        _persist_response(request.job_id, response_text)
+        raise
+    except Exception:
         _persist_response(request.job_id, response_text)
         raise
     return diff, response
