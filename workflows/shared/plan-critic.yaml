@@ -93,19 +93,29 @@ stages:
     description: >
       Read {plan_file} and {workspace}/validation/plan-validate-findings.json.
 
-      Step 1 — load the workflow concern library:
-        Read concerns/workflow.md
-        Read concerns/workflow-fanout.md
-        Read concerns/workflow-fragments.md
-        Read concerns/patterns.md
-        These contain named concerns (e.g. unused-trigger-params,
+      Step 1 — load the concern guides applicable to the plan being critiqued.
+
+        First, check whether {workspace}/context/concerns.json exists (it is
+        written by the prepare-target stage when invoked via critique.yaml).
+        If it exists, read it and load only the guides listed in its "guides"
+        array. If it does not exist (e.g. plan-critic is included by a
+        workflow that does not provide a prepare-target stage), run the
+        canonical selector yourself:
+          ./bin/workflow select-concerns --paths {plan_file} --format json
+        and use the "guides" list from the resulting JSON output. Write that
+        JSON to {workspace}/context/concerns.json so subsequent stages can
+        reference it.
+
+        For each guide file in the selected list, read it in full:
+          e.g. Read concerns/workflow.md, Read concerns/patterns.md, etc.
+        These contain named concerns with IDs (e.g. unused-trigger-params,
         missing-human-gate, model-null, hardcoded-absolute-path,
         fragment-standalone-execution, skill-dag-sync, fanout-writes-to-gather-output,
-        sub-workflow-field-not-copied-in-include). Apply every concern
-        whose check is relevant to the plan as a structured checklist —
-        "does this plan violate or risk this pattern?" — before moving to
-        freeform critique. A plan-level violation is a blocker; a risk or
-        missing guard is a suggestion.
+        sub-workflow-field-not-copied-in-include, correctness IDs, security IDs, etc.).
+        Apply every concern whose check is relevant to the plan as a structured
+        checklist — "does this plan violate or risk this pattern?" — before
+        moving to freeform critique. A plan-level violation is a blocker; a
+        risk or missing guard is a suggestion.
 
       Step 2 — freeform adversarial critique. If {critic_focus} is non-empty,
       concentrate on that dimension but do not ignore critical issues outside it.
@@ -131,14 +141,16 @@ stages:
             {{
               "concern": "<one-sentence summary>",
               "detail": "<2-4 sentences: why it matters and what would fix it>",
-              "section": "<section heading or description of where in the plan>"
+              "section": "<section heading or description of where in the plan>",
+              "concern_id": "<optional: the named concern ID from the guide that maps to this finding, e.g. 'missing-human-gate', 'hardcoded-absolute-path'. Omit the field if no concern in the loaded guides directly corresponds.>"
             }}
           ],
           "suggestions": [
             {{
               "concern": "<one-sentence summary>",
               "detail": "<2-4 sentences: reasoning and improvement>",
-              "section": "<section heading or description>"
+              "section": "<section heading or description>",
+              "concern_id": "<optional: named concern ID from the guide, or omit>"
             }}
           ],
           "strengths": ["<one-sentence strength>", ...]
@@ -154,11 +166,13 @@ stages:
     agent:
       role: critic
       model: opus
-      tools: [Read, Grep, Write]
+      tools: [Read, Grep, Write, Bash]
       access: read-write
     required: true
     writes_to:
       - validation/critique.json
+      # Also writes context/concerns.json when concerns.json did not already
+      # exist (fallback path for callers that do not include a prepare-target).
 
   # ===========================================================================
   # Stage 3: validate-critique — fact-check the critique
@@ -182,6 +196,16 @@ stages:
            critique that could apply to any plan regardless of what is written?
            Generic concerns without a plan-specific grounding must be removed.
 
+      For any item that carries a "concern_id" field, also verify that the
+      cited ID actually exists as a named concern in the guide from which it
+      was drawn. Check {workspace}/context/concerns.json to know which guide
+      files were loaded. For each concern_id, scan the corresponding guide
+      file for a heading or anchor matching that ID. If the concern_id does
+      not exist in any of the loaded guides, remove the "concern_id" field
+      from the item (do not remove the whole finding — just clear the
+      unverifiable ID, and add a note in the "removed" array of type
+      "concern_id_not_found").
+
       Write {workspace}/validation/critique-checked.json using the same schema
       as critique.json but with an additional top-level "removed" field:
         {{
@@ -191,12 +215,15 @@ stages:
           "strengths": [...],
           "removed": [
             {{
-              "concern": "<original concern summary>",
-              "type": "blocker|suggestion",
-              "reason": "<why it was removed: already-addressed|not-grounded|hallucinated-section>"
+              "concern": "<original concern summary or concern_id for id-only removals>",
+              "type": "blocker|suggestion|concern_id_not_found",
+              "reason": "<why it was removed: already-addressed|not-grounded|hallucinated-section|concern_id_not_found>"
             }}
           ]
         }}
+
+      Preserve "concern_id" fields that were verified as existing — pass them
+      through unchanged in blockers and suggestions.
 
       Write the file on all code paths. If no items are removed, write an
       empty "removed" array. If all blockers or suggestions are removed, write
