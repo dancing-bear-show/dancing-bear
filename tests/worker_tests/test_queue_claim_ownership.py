@@ -336,7 +336,15 @@ class TestThreadStartFailure(_RuntimeTestBase):
     def test_drain_requeues_a_registered_thread_that_never_started(self) -> None:
         runner = _make_runner(self.root)
         enqueue(Job(id="t2", type="fast", payload={"k": 2}), root=self.root)
-        _claim(self, self.root / "pending" / "t2.json", self.root)
+        proc = _claim(self, self.root / "pending" / "t2.json", self.root)
+        # A registry entry with token=None represents a claim whose
+        # start_processing metadata write failed, so the processing/ record
+        # itself never got a token either -- strip it here so the file
+        # matches that reality; requeue_processing(claim_token=None) now
+        # verifies the record still carries no token before requeueing.
+        data = _read(proc)
+        data.pop(q.CLAIM_TOKEN_FIELD, None)
+        proc.write_text(json.dumps(data), encoding="utf-8")
         runner._live_threads["t2"] = (threading.Thread(target=lambda: None), None)
 
         with self.assertLogs("worker.job_runtime", "WARNING"):

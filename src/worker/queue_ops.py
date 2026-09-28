@@ -26,6 +26,14 @@ from worker._helpers import (
 
 _log = logging.getLogger(__name__)
 
+# Sentinel distinguishing "caller has no token concept, skip the check"
+# (the parameter's default) from "caller expects the record to carry no
+# token" (an explicit None passed as the expected value). Both states use
+# `None` as data -- a missing claim token IS `None` -- so a bare `None`
+# default cannot tell them apart; the check in _stage_and_requeue keys off
+# identity against this sentinel instead.
+_NO_TOKEN_CHECK = object()
+
 try:
     QUEUE_ROOT = get_worker_state_dir("queue")
 except Exception:  # pragma: no cover - defensive fallback  # nosec B110 - best-effort path resolution
@@ -432,7 +440,7 @@ def _copy_exclusive(staged: Path, dest: Path) -> None:
     """
     content = staged.read_bytes()
     tmp = dest.with_name(f".{dest.name}.tmp.{uuid.uuid4().hex}")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
         with os.fdopen(fd, "wb") as fh:
             fh.write(content)
@@ -470,6 +478,28 @@ def _copy_exclusive(staged: Path, dest: Path) -> None:
     tmp.unlink(missing_ok=True)
 
 
+def _is_own_interrupted_publish(staged: Path, dest: Path) -> bool:
+    """True if ``dest``'s bytes already match ``staged``'s (a self-publish).
+
+    Without hard links, ``dest`` and ``staged`` are never the same inode, so
+    the ``samefile()`` self-recognition the hard-link branch of
+    ``_publish_no_clobber`` uses is unavailable. A prior call can still have
+    published ``dest`` successfully via ``_copy_exclusive`` and then crashed
+    before reaching ``staged.unlink()`` -- that is our own interrupted
+    publish, not a rival, and treating it as a rival strands ``staged``
+    forever: once ``dest`` is later consumed (claimed into processing/) a
+    subsequent recovery pass would see ``dest`` gone and republish the stale
+    ``staged`` copy, duplicating the job. Content comparison is the only
+    signal available without inode identity: identical bytes mean self-
+    recognition; different bytes (or an unreadable file) mean a genuine
+    rival, which is left for the caller to refuse.
+    """
+    try:
+        return dest.read_bytes() == staged.read_bytes()
+    except OSError:
+        return False  # nosec B110 - unreadable dest is treated as a rival, not a self-match
+
+
 def _publish_no_clobber(staged: Path, dest: Path) -> bool:
     """Move ``staged`` to ``dest`` unless ``dest`` already holds another file.
 
@@ -498,6 +528,9 @@ def _publish_no_clobber(staged: Path, dest: Path) -> bool:
         try:
             _copy_exclusive(staged, dest)
         except FileExistsError:
+            if _is_own_interrupted_publish(staged, dest):
+                staged.unlink(missing_ok=True)
+                return True
             _log.warning("Not publishing %s: %s already exists", staged.name, dest)
             return False
         except FileNotFoundError:
@@ -536,7 +569,7 @@ def _stage_and_requeue(
     pending_dir: Path,
     reason: str,
     *,
-    expected_token: str | None = None,
+    expected_token: str | None | object = _NO_TOKEN_CHECK,
 ) -> Path | None:
     """Claim ``src`` from processing/ by renaming it, normalise it, then publish it.
 
@@ -546,17 +579,24 @@ def _stage_and_requeue(
     or None when ``src`` was already gone (nothing is written) or the publish
     was refused (the staged file stays for ``recover_staged_requeues``).
 
-    When ``expected_token`` is given, the staged record's claim token is
-    compared against it under the lock.  A mismatch means the job finished
-    and was re-claimed while the caller was deciding to requeue it; the staged
-    file is renamed back to ``src`` and None is returned, leaving the new
-    claim undisturbed.
+    When ``expected_token`` is given -- anything other than the module's
+    ``_NO_TOKEN_CHECK`` sentinel, including an explicit ``None`` -- the staged
+    record's claim token is compared against it under the lock. A mismatch
+    means the job was reclaimed while the caller was deciding to requeue it;
+    the staged file is renamed back to ``src`` and None is returned, leaving
+    the new claim undisturbed. Passing ``None`` explicitly checks that the
+    record STILL carries no token (the caller's own claim failed its metadata
+    write, so it never had one) rather than skipping the check: a bare
+    ``None`` default could not tell "no token to compare" apart from "caller
+    has no token concept at all", because a missing claim token is itself
+    represented as ``None`` -- that ambiguity is exactly what let two call
+    sites requeue a stem with no ownership check at all.
     """
     with _transition_lock(pending_dir.parent):
         staged = _stage(src)
         if staged is None:
             return None
-        if expected_token is not None:
+        if expected_token is not _NO_TOKEN_CHECK:
             staged_data = safe_load_json(staged, default=None)
             if not isinstance(staged_data, dict) or staged_data.get(CLAIM_TOKEN_FIELD) != expected_token:
                 # The job was reclaimed between the stale check and acquiring
@@ -588,7 +628,7 @@ def requeue_processing(
     *,
     reason: str,
     root: Path | None = None,
-    claim_token: str | None = None,
+    claim_token: str | None | object = _NO_TOKEN_CHECK,
 ) -> Path | None:
     """Move processing/<job_id> back to pending/ without consuming an attempt.
 
@@ -602,13 +642,18 @@ def requeue_processing(
     recreated from empty metadata, and no other worker can claim the
     pending/ copy before its metadata is written; see ``_stage_and_requeue``.
 
-    ``claim_token``, when given, is revalidated under the transition lock
-    (see ``_stage_and_requeue``'s ``expected_token``): identifying the job by
-    stem alone is not enough when another worker's stale-job reaper, or a
-    finish-then-reclaim, can put a *different* claim at the same stem between
-    the caller's decision to requeue and this call acquiring the lock. A
-    mismatch means the stem is now owned by someone else, so nothing is
-    written and the new claim is left alone.
+    ``claim_token``, when given -- including an explicit ``None`` -- is
+    revalidated under the transition lock (see ``_stage_and_requeue``'s
+    ``expected_token``): identifying the job by stem alone is not enough when
+    another worker's stale-job reaper, or a finish-then-reclaim, can put a
+    *different* claim at the same stem between the caller's decision to
+    requeue and this call acquiring the lock. A mismatch means the stem is
+    now owned by someone else, so nothing is written and the new claim is
+    left alone. Pass ``None`` explicitly (not by omission) when the caller's
+    own claim never had a token to begin with -- a failed ``start_processing``
+    metadata write -- so this still verifies the record has not since been
+    claimed by someone else with a real token; leaving the parameter
+    unset skips the check entirely, for callers with no token to compare.
     """
     paths = _ensure_dirs(root)
     return _stage_and_requeue(

@@ -366,12 +366,21 @@ class JobProcessor:
             # which would run the handler and let every finish()/retry() call
             # skip its ownership check) keeps run_once consistent with the
             # daemon-tick path.
+            #
+            # claim_token=None (explicit, not omitted) makes requeue_processing
+            # verify under the transition lock that the record still carries no
+            # token, rather than requeuing this stem unconditionally: another
+            # worker's reaper could have already reclaimed it with a real
+            # token in the time between the read above and this call.
             logger.warning(
                 "worker claim token missing for job %s after start_processing; requeueing",
                 job_path.stem,
             )
             q.requeue_processing(
-                job_path.stem, reason=_THREAD_START_FAILED_REASON, root=q.QUEUE_ROOT
+                job_path.stem,
+                reason=_THREAD_START_FAILED_REASON,
+                root=q.QUEUE_ROOT,
+                claim_token=None,
             )
             return 0
 
@@ -606,11 +615,23 @@ class DaemonRunner:
                 # Metadata write inside start_processing failed; we cannot
                 # track ownership for this claim.  Requeue it and stop — the
                 # missing token means the record is in an undefined state.
+                #
+                # claim_token=None (explicit) verifies under the transition
+                # lock that the record still carries no token before staging
+                # it, rather than requeuing this stem unconditionally: a
+                # stale-job reaper on another worker could already have
+                # reclaimed it with a real token between the read above and
+                # this call.
                 logger.warning(
                     "worker claim token missing for job %s after start_processing; requeueing",
                     p.stem,
                 )
-                q.requeue_processing(p.stem, reason=_THREAD_START_FAILED_REASON, root=q.QUEUE_ROOT)
+                q.requeue_processing(
+                    p.stem,
+                    reason=_THREAD_START_FAILED_REASON,
+                    root=q.QUEUE_ROOT,
+                    claim_token=None,
+                )
                 break
             t = threading.Thread(
                 target=self._process_claimed_guarded,

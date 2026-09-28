@@ -91,7 +91,23 @@ class TestProcessOneMissingClaimToken(unittest.TestCase, QueueRootIsolationMixin
         self.stack.enter_context(patch.dict("worker.job_runtime.HANDLERS", {"fast": _record}))
         enqueue(Job(id="tok-none", type="fast", payload={}, attempts=1), root=self.root)
 
+        # requeue_processing(claim_token=None) now verifies under the lock
+        # that the processing/ record still carries no token, so the record
+        # itself must also lack one to match the metadata-write failure this
+        # test simulates -- strip the token start_processing would normally
+        # write.
+        real_start = q.start_processing
+
+        def _start_without_token(job_path: Path, root: Path | None = None) -> Path | None:
+            proc = real_start(job_path, root)
+            if proc is not None:
+                data = json.loads(proc.read_text(encoding="utf-8"))
+                data.pop(q.CLAIM_TOKEN_FIELD, None)
+                proc.write_text(json.dumps(data), encoding="utf-8")
+            return proc
+
         with patch("worker.job_runtime.q.claim_token", return_value=None), \
+             patch("worker.job_runtime.q.start_processing", side_effect=_start_without_token), \
              self.assertLogs("worker.job_runtime", "WARNING"):
             runner = _make_runner(self.root, max_per_tick=1)
             result = runner.run_once()

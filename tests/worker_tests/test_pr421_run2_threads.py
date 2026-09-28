@@ -89,7 +89,23 @@ class TestMissingClaimTokenAbandonsClaim(unittest.TestCase, QueueRootIsolationMi
         enqueue(Job(id="tok2", type="fast", payload={"k": 2}, attempts=3), root=self.root)
 
         # Simulate a metadata-write failure: claim_token always returns None.
+        # requeue_processing(claim_token=None) now verifies under the lock
+        # that the processing/ record still carries no token, so the record
+        # itself must also lack one -- a real start_processing call would
+        # normally write one, so strip it to match the failure being
+        # simulated (a metadata write that never completed).
+        real_start = q.start_processing
+
+        def _start_without_token(job_path: Path, root: Path | None = None) -> Path | None:
+            proc = real_start(job_path, root)
+            if proc is not None:
+                data = json.loads(proc.read_text(encoding="utf-8"))
+                data.pop(q.CLAIM_TOKEN_FIELD, None)
+                proc.write_text(json.dumps(data), encoding="utf-8")
+            return proc
+
         with patch("worker.job_runtime.q.claim_token", return_value=None), \
+             patch("worker.job_runtime.q.start_processing", side_effect=_start_without_token), \
              self.assertLogs("worker.job_runtime", "WARNING") as logs:
             started = runner.tick()
 
