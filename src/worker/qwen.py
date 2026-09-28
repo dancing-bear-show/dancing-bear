@@ -43,6 +43,7 @@ Outcome strings (the handler's second return value on failure):
   ``git apply --check`` (fail-closed backstop)
 * ``terminal-patch-too-broad`` - caps, denied targets, binary or unparseable
   path headers
+* ``terminal-not-utf8: <path>`` - a confined input file is not valid UTF-8
 * ``terminal-deferral-limit[: <reason>]``
 * ``terminal-internal-error: <exception type>``
 * ``deferred-low-memory`` / ``deferred-qwen-busy`` / ``deferred-low-disk``
@@ -1589,13 +1590,18 @@ def _prompt_files(contents: dict[str, bytes], root: Path) -> dict[str, str]:
     POSIX form. The prompt labels files this way and edit blocks must name
     them this way, so the absolute root never reaches the model.
 
-    Undecodable bytes become U+FFFD; the diff built from that text then
-    fails git apply --check, so such a file can never be patched silently.
+    Raises QwenGuardError("terminal-not-utf8: <rel-path>") for any file
+    whose bytes are not valid UTF-8, so binary and non-UTF-8 files are
+    rejected before the model is called rather than silently patched.
     """
-    return {
-        Path(path).relative_to(root).as_posix(): data.decode("utf-8", errors="replace")
-        for path, data in contents.items()
-    }
+    result: dict[str, str] = {}
+    for path, data in contents.items():
+        rel = Path(path).relative_to(root).as_posix()
+        try:
+            result[rel] = data.decode("utf-8")
+        except UnicodeDecodeError:
+            raise QwenGuardError(f"terminal-not-utf8: {rel}")
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -2147,11 +2153,17 @@ def _run_generation(run: _JobRun, prepared: _PreparedJob, timeout: float) -> tup
         return _handle_string_outcome(job_id, outcome)
 
     diff, response = outcome
-    disk_verdict = _check_disk_guard()
-    if disk_verdict is not None:
-        return (False, _deferral_outcome(job_id, "low-disk", disk_verdict))
+    response_text = str(response.get("response") or "")
+    try:
+        disk_verdict = _check_disk_guard()
+        if disk_verdict is not None:
+            _persist_response(job_id, response_text)
+            return (False, _deferral_outcome(job_id, "low-disk", disk_verdict))
 
-    return _finalize_success(run, prepared.host, diff, response)
+        return _finalize_success(run, prepared.host, diff, response)
+    except Exception:
+        _persist_response(job_id, response_text)
+        raise
 
 
 def _run_guarded(payload: dict[str, object], run: _JobRun) -> tuple[bool, object]:

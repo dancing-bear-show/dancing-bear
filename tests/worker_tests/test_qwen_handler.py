@@ -533,6 +533,38 @@ class QwenMemoryPrecheckTests(QwenHandlerCase):
         self.assertIsNone(qwen._parse_vm_stat("no page size line"))
 
 
+class QwenUtf8ValidationTests(QwenHandlerCase):
+    """_prompt_files: non-UTF-8 input is rejected before the model is called."""
+
+    def test_non_utf8_input_returns_terminal_outcome(self) -> None:
+        """A file containing an invalid UTF-8 byte sequence must return
+        terminal-not-utf8 without calling the model."""
+        greet = self.repo_root / GREET_PATH
+        greet.write_bytes(b"def greet():\n    pass\n\xff\xfe invalid bytes\n")
+
+        ok, out = self.run_handler()
+
+        self.assertFalse(ok)
+        self.assertEqual(out, f"terminal-not-utf8: {GREET_PATH}")
+        self.assertEqual(self.generate_requests(), [], "model was called despite non-UTF-8 input")
+
+    def test_valid_utf8_input_proceeds_to_model(self) -> None:
+        """A file with valid UTF-8 (including multi-byte characters) must not
+        be rejected by the UTF-8 guard; the handler must reach the model call."""
+        greet = self.repo_root / GREET_PATH
+        # Append a UTF-8 encoded comment so multi-byte characters are present
+        # while keeping the SEARCH target the default edit needs intact.
+        original = greet.read_bytes()
+        greet.write_bytes(original + "# à bientôt\n".encode("utf-8"))
+
+        ok, out = self.run_handler()
+
+        # The appended content does not affect the SEARCH match, so the edit
+        # applies and the job succeeds — and the model was definitely called.
+        self.assertTrue(ok, f"expected success for valid UTF-8 input, got: {out}")
+        self.assertGreater(len(self.generate_requests()), 0, "model was not called")
+
+
 class QwenDiskGuardTests(QwenHandlerCase):
     def test_low_disk_defers_and_writes_no_patch_file(self) -> None:
         with mock.patch("worker.qwen._free_disk_bytes", return_value=1024):
@@ -557,6 +589,17 @@ class QwenDiskGuardTests(QwenHandlerCase):
 
         self.assertTrue(ok)
         self.assertTrue(any("disk reading unavailable" in line for line in logs.output))
+
+    def test_low_disk_deferral_persists_model_response(self) -> None:
+        """After the model answers, a low-disk deferral must persist the
+        response so a diagnostic file exists for the failed job."""
+        with mock.patch("worker.qwen._free_disk_bytes", return_value=1024):
+            ok, out = self.run_handler()
+
+        self.assertFalse(ok)
+        self.assertEqual(out, "deferred-low-disk")
+        response_files = self.response_files()
+        self.assertEqual(len(response_files), 1, "persisted response file was not created on low-disk deferral")
 
 
 class QwenModelPinningTests(QwenHandlerCase):
@@ -1337,6 +1380,21 @@ class QwenPersistResponseTests(QwenHandlerCase):
         self.assertEqual(out, "terminal-no-edits-found")
         response_file = self._response_file()
         self.assertIsNotNone(response_file, "persisted response file was not created")
+
+    def test_finalize_success_failure_persists_response(self) -> None:
+        """An exception raised by _finalize_success (after the model answered)
+        must persist the response before re-raising, extending the 'any failure
+        after the model answers' contract to the post-generation path."""
+        self.generate_response = model_says(f"```\n{GREET_EDIT}```")
+        boom = OSError("disk full")
+
+        with mock.patch("worker.qwen._finalize_success", side_effect=boom):
+            ok, out = self.run_handler()
+
+        self.assertFalse(ok)
+        self.assertTrue(str(out).startswith("terminal-internal-error"), out)
+        response_file = self._response_file()
+        self.assertIsNotNone(response_file, "persisted response file was not created after _finalize_success failure")
 
 
 if __name__ == "__main__":
