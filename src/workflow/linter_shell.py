@@ -172,6 +172,18 @@ def _snippet(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _check_specs(tail: str) -> list[str]:
+    """Every ``--check <spec>``/``--check=<spec>`` value in a check-params call's tail."""
+    tokens = split_tokens(tail)
+    specs = []
+    for i, tok in enumerate(tokens):
+        if tok == "--check" and i + 1 < len(tokens):
+            specs.append(tokens[i + 1])
+        elif tok.startswith("--check="):
+            specs.append(tok[len("--check="):])
+    return specs
+
+
 def _checked_param_positions(
     segments: Iterable[ShellSegment],
 ) -> dict[str, tuple[int, int]]:
@@ -188,14 +200,7 @@ def _checked_param_positions(
         for m in re.finditer(r"\S+", seg.text):
             if not m.group(0).endswith("check-params"):
                 continue
-            tail = seg.text[m.end():]
-            tokens = split_tokens(tail)
-            for i, tok in enumerate(tokens):
-                spec = ""
-                if tok == "--check" and i + 1 < len(tokens):
-                    spec = tokens[i + 1]
-                elif tok.startswith("--check="):
-                    spec = tok[len("--check="):]
+            for spec in _check_specs(seg.text[m.end():]):
                 name, sep, _ = spec.partition("=")
                 if sep and name and name not in positions:
                     positions[name] = (seg_index, m.start())
