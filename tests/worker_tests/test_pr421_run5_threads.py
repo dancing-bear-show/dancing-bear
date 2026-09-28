@@ -79,6 +79,13 @@ class TestPruneLiveThreadsSurvivesRequeueError(unittest.TestCase, QueueRootIsola
         self.assertTrue(
             _wait_for(lambda: (self.root / "done" / "prune5-ok.json").exists(), timeout=5)
         )
+        # The done/ record is written just before the worker thread returns,
+        # so there is a small window where the file exists but the thread
+        # object has not yet transitioned to not-alive. Join it directly
+        # (bounded) rather than racing is_alive() against thread teardown.
+        thread, _tok = runner._live_threads["prune5-ok"]
+        thread.join(timeout=5)
+        self.assertFalse(thread.is_alive(), "worker thread did not finish in time")
         runner._prune_live_threads()
         self.assertEqual(runner._live_threads, {})
 
