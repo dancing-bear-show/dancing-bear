@@ -927,9 +927,14 @@ class DaemonRunner:
         """Wait up to ``grace`` seconds for live job threads; requeue the rest.
 
         One deadline covers every thread, so the total wait never exceeds
-        ``grace``. Each thread still alive at the deadline has its job moved
-        from processing/ back to pending/ without consuming an attempt, with
-        ``last_error`` set to ``q.SHUTDOWN_REQUEUE_REASON``. Only jobs owned by
+        ``grace``. After the deadline every registered claim is probed,
+        whatever its thread's state: a thread that died outside the handler
+        guard can leave its record behind, and ``requeue_processing`` is a
+        no-op once a normal completion has moved the record. A record still in
+        processing/ under this runner's token is moved back to pending/ without
+        consuming an attempt, with ``last_error`` set to
+        ``q.SHUTDOWN_REQUEUE_REASON``; one whose requeue cannot finish before
+        the deadline keeps a marker for startup recovery. Only jobs owned by
         this runner's live threads are touched: ``_start_batch`` registers a
         thread only after this runner's own claim succeeded, so a job another
         worker won is never in the registry and its processing/ file is left
@@ -976,10 +981,12 @@ class DaemonRunner:
         check and the requeue), so the comparison must happen atomically
         under requeue_processing's transition lock.
 
-        The remaining time budget is passed as lock_timeout, floored at 0.0
-        (one non-blocking attempt once the deadline has passed), so a
-        contended lock never extends the drain. A lock-timeout or I/O failure
-        for one stem is logged and the drain continues.
+        The remaining time budget, measured after the marker write, is passed
+        as lock_timeout, floored at 0.0 (one non-blocking attempt once the
+        deadline has passed), so a contended lock never extends the drain.
+        The transition lock is the only lock the drain takes on a stem. A
+        lock-timeout or I/O failure for one stem is logged and the drain
+        continues; its marker stays for startup recovery.
 
         lock_timeout bounds only acquiring the lock, not the filesystem work
         requeue_processing does while holding it, and a call that starts
@@ -992,8 +999,11 @@ class DaemonRunner:
         requeues the job. The marker is removed once the call returns
         normally, whatever it returned, and kept if it raises.
         """
-        lock_budget = max(0.0, deadline - time.monotonic())
         _mark_for_recovery(stem, token)
+        # Measured after the marker write, not before it: a write that stalls
+        # would otherwise leave the lock wait its full pre-write budget and
+        # carry the drain past the deadline.
+        lock_budget = max(0.0, deadline - time.monotonic())
         try:
             requeue_result = q.requeue_processing(
                 stem,

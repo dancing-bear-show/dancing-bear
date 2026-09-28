@@ -5,12 +5,17 @@ staged files, registered stems, processing/ or pending/ records isolates a
 failure to its own entry (logged with the stem) and keeps going; a claim this
 worker gives up without running is never left untracked when its requeue
 raises.
+
+Class 2 -- drain probes every registered claim whatever its thread's state,
+and no lock wait in the drain outlasts the shutdown deadline; a claim not
+requeued in time keeps a marker startup recovery consumes.
 """
 
 from __future__ import annotations
 
 import json
 import threading
+import time
 import unittest
 from pathlib import Path
 from typing import Any
@@ -318,6 +323,73 @@ class TestDrainIsolatesPerStemFailures(_Base):
         self.assertEqual(requeued, ["d2"])
         self.assertTrue(any("d1" in line for line in logs.output))
         self.assertTrue(self._marker("d1", _TOK_A).exists())
+
+
+# ---------------------------------------------------------------------------
+# Class 2 -- drain probes every registered claim, bounded by the deadline
+# ---------------------------------------------------------------------------
+
+
+class TestDrainProbesEveryClaimWithinTheDeadline(_Base):
+    _GRACE = 0.2
+    _EPSILON = 0.5
+
+    def _dead_thread_claim(self, runner: Any, job_id: str) -> Path:
+        pending = enqueue(Job(id=job_id, type="noop", payload={}), root=self.root)
+        claim = q.start_processing(pending, self.root)
+        if claim is None or not claim[1]:
+            self.fail(f"could not claim {job_id}")
+        dead = threading.Thread(target=lambda: None, daemon=True)
+        dead.start()
+        dead.join()
+        runner._live_threads[job_id] = (dead, claim[1])
+        return claim[0]
+
+    def test_dead_thread_with_record_left_behind_is_requeued(self) -> None:
+        """job_runtime.py:731/734: thread state never decides whether to probe."""
+        runner = _make_runner(self.root)
+        proc = self._dead_thread_claim(runner, "died1")
+        self.assertEqual(runner.drain_live_threads(grace=self._GRACE), ["died1"])
+        self.assertFalse(proc.exists())
+        self.assertEqual(_names(self.paths["pending"]), ["died1.json"])
+
+    def test_lock_held_past_the_deadline_bounds_the_drain(self) -> None:
+        """job_runtime.py:825: a held transition lock cannot stretch the drain."""
+        runner = _make_runner(self.root)
+        proc = self._dead_thread_claim(runner, "held1")
+        with q._transition_lock(self.root), self.assertLogs("worker.job_runtime", "ERROR"):
+            started = time.monotonic()
+            requeued = runner.drain_live_threads(grace=self._GRACE)
+            elapsed = time.monotonic() - started
+        self.assertEqual(requeued, [])
+        self.assertLess(elapsed, self._GRACE + self._EPSILON)
+        self.assertTrue(proc.exists(), "the record must stay for recovery")
+        self.assertEqual(q.recover_shutdown_timeout_markers(root=self.root), ["held1"])
+        self.assertEqual(_names(self.paths["pending"]), ["held1.json"])
+
+    def test_stalled_marker_write_does_not_extend_the_lock_wait(self) -> None:
+        """The lock budget is measured after the marker write, not before it."""
+        from worker import job_runtime as jr
+
+        runner = _make_runner(self.root)
+        self._dead_thread_claim(runner, "slowfs1")
+        real_write = jr._write_shutdown_timeout_marker
+        budgets: list[float | None] = []
+
+        def _slow_write(job_id: str, token: str | None, root: Path, **kw: Any) -> None:
+            time.sleep(self._GRACE)
+            real_write(job_id, token, root, **kw)
+
+        def _capture(job_id: str, **kw: Any) -> Path | None:
+            budgets.append(kw.get("lock_timeout"))
+            return _REAL_REQUEUE(job_id, **kw)
+
+        with (
+            patch.object(jr, "_write_shutdown_timeout_marker", side_effect=_slow_write),
+            patch.object(q, "requeue_processing", side_effect=_capture),
+        ):
+            runner._drain_one_stem("slowfs1", runner._live_threads["slowfs1"][1], time.monotonic() + self._GRACE / 2)
+        self.assertEqual(budgets, [0.0])
 
 
 if __name__ == "__main__":
