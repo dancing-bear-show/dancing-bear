@@ -256,6 +256,52 @@ def cmd_triage(args) -> int:
     return ExitCode.SUCCESS
 
 
+def _load_grep_spec(spec_file: str) -> tuple[str, list[str]]:
+    """Load and validate a grep-sweep spec file; return (pattern, paths)."""
+    import json
+    import re
+    from pathlib import Path
+
+    spec_path = Path(spec_file)
+    if not spec_path.exists():
+        raise UsageError(f"spec file not found: {spec_file}")
+    try:
+        spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        raise UsageError(f"could not parse spec file: {exc}") from exc
+    if not isinstance(spec, dict):
+        raise UsageError("spec file must contain a JSON object, not a list or scalar")
+    pattern = spec.get("pattern")
+    paths = spec.get("paths")
+    if not isinstance(pattern, str) or not pattern:
+        raise UsageError("spec.pattern must be a non-empty string")
+    if not isinstance(paths, list) or not paths:
+        raise UsageError("spec.paths must be a non-empty list")
+    if not all(isinstance(p, str) and p for p in paths):
+        raise UsageError("each spec.paths entry must be a non-empty string")
+    try:
+        re.compile(pattern)
+    except re.error as exc:
+        raise UsageError(f"invalid regex in spec.pattern: {exc}") from exc
+    return pattern, paths
+
+
+def _validate_grep_paths(paths: list[str]) -> None:
+    """Reject paths that escape the repository root (absolute, '..', symlinks)."""
+    import os
+    from pathlib import Path
+
+    repo_root = Path(os.getcwd()).resolve()
+    for p in paths:
+        if Path(p).is_absolute():
+            raise UsageError(f"absolute paths not allowed in spec.paths: {p!r}")
+        resolved = (repo_root / p).resolve()
+        try:
+            resolved.relative_to(repo_root)
+        except ValueError:
+            raise UsageError(f"path escapes repository root in spec.paths: {p!r}")
+
+
 @app.command("grep-sweep", help="Count regex matches across paths; accepts a spec file to avoid shell interpolation")
 @app.argument("--spec", required=True, metavar="FILE",
               help="JSON file: {\"pattern\": \"<regex>\", \"paths\": [\"<path>\", ...]}")
@@ -269,55 +315,10 @@ def cmd_grep_sweep(args) -> int:
     invoking grep, so an invalid pattern or suspicious path is rejected rather
     than executed.
     """
-    import json
-    import re
     import subprocess
-    from pathlib import Path
 
-    spec_path = Path(args.spec)
-    if not spec_path.exists():
-        raise UsageError(f"spec file not found: {args.spec}")
-
-    try:
-        spec = json.loads(spec_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError) as exc:
-        raise UsageError(f"could not parse spec file: {exc}") from exc
-
-    if not isinstance(spec, dict):
-        raise UsageError("spec file must contain a JSON object, not a list or scalar")
-
-    pattern = spec.get("pattern")
-    paths = spec.get("paths")
-
-    if not isinstance(pattern, str) or not pattern:
-        raise UsageError("spec.pattern must be a non-empty string")
-    if not isinstance(paths, list) or not paths:
-        raise UsageError("spec.paths must be a non-empty list")
-    if not all(isinstance(p, str) and p for p in paths):
-        raise UsageError("each spec.paths entry must be a non-empty string")
-
-    # Validate the regex before handing it to grep so a bad pattern is a
-    # clean error, not a cryptic grep failure.
-    try:
-        re.compile(pattern)
-    except re.error as exc:
-        raise UsageError(f"invalid regex in spec.pattern: {exc}") from exc
-
-    # Reject paths that reach outside the repository root.  Reviewer-derived
-    # path strings are untrusted: absolute paths (e.g. /etc), ".." components,
-    # or symlinks that resolve outside the tree must all be rejected.  Resolve
-    # each path against the current working directory (the repo root when the
-    # workflow runs the command) and require it to remain under that root.
-    import os
-    repo_root = Path(os.getcwd()).resolve()
-    for p in paths:
-        if Path(p).is_absolute():
-            raise UsageError(f"absolute paths not allowed in spec.paths: {p!r}")
-        resolved = (repo_root / p).resolve()
-        try:
-            resolved.relative_to(repo_root)
-        except ValueError:
-            raise UsageError(f"path escapes repository root in spec.paths: {p!r}")
+    pattern, paths = _load_grep_spec(args.spec)
+    _validate_grep_paths(paths)
 
     cmd = ["grep", "-rnE", "--", pattern] + list(paths)
     _GREP_TIMEOUT_SECS = 30
