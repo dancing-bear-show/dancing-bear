@@ -13,14 +13,18 @@ prose mentioning ``{param}`` is noise, so "shell text" is defined narrowly:
   the following lines in with it.
 
 A "command" is a path to a repo wrapper (``./bin/<cli>``, ``bin/<cli>``), a
-bare or path-prefixed ``python``/``python3`` interpreter (optionally version-
-suffixed, e.g. ``python3.11``), a path ending in ``/qlty``, or a word from
-:data:`_STRONG_COMMANDS`.
+path ending in ``/qlty``, or a word from :data:`_STRONG_COMMANDS`.
 Words that are also common English (``make``, ``test``, ``find``, ``for``, ...)
 count only when the next token looks like shell -- an option, a path, a
 quote, a ``$`` expansion, or a ``NAME=`` assignment -- a loop head
 (``for``/``while``/``until``) only with a ``do`` on the same line, and ``if``
-only with a ``then``. A line whose unquoted ``)`` closes
+only with a ``then``. A wrapper from :data:`shell_parse.WRAPPER_NAMES`
+(``env``, ``timeout``, ``sudo``, ``time`` ...) counts only when the command it
+runs is itself a command by these rules, so "timeout to interrupt a handler"
+stays prose. A bare or path-prefixed ``python``/``python3`` interpreter
+(optionally version-suffixed, e.g. ``python3.11``) counts on its own or before
+shell-looking operands; a bare operand followed by another bare word ("python3
+is required") is prose. A line whose unquoted ``)`` closes
 nothing is prose wrapped mid-parenthesis. Everything else, including a label
 before a command ("2. Server: curl ..."), is treated as prose: precision over
 recall.
@@ -37,7 +41,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from .shell_parse import _Lexer, _heredoc_delimiters
+from .shell_parse import WRAPPER_NAMES, _Lexer, _heredoc_delimiters, parse_shell
 
 __all__ = [
     "ShellSegment",
@@ -47,7 +51,7 @@ __all__ = [
 ]
 
 _STRONG_COMMANDS: frozenset[str] = frozenset({
-    "gh", "git", "jq", "curl", "python", "python3", "grep", "rg", "sed", "awk",
+    "gh", "git", "jq", "curl", "grep", "rg", "sed", "awk",
     "mkdir", "rm", "cp", "mv", "ls", "cat", "printf", "echo", "cd", "ollama",
     "launchctl", "qlty", "xargs", "wc", "mktemp", "shasum", "du", "df",
     "vm_stat", "uv", "pip", "npm", "chmod", "PYTHONPATH",
@@ -64,6 +68,11 @@ _WEAK_COMMANDS: frozenset[str] = frozenset({
 _COMPOUND_HEADS: dict[str, str] = {"for": "do", "while": "do", "until": "do", "if": "then"}
 
 _SHELL_FENCE_LANGS: frozenset[str] = frozenset({"", "sh", "bash", "shell", "zsh", "console"})
+# Language tags that are also command words. A folded "``` python" with
+# nothing after it is ambiguous -- the tag of a Python fence, or an unlabelled
+# fence whose first line is `python`. These keep their tag; any other command
+# word in that position is read as the first body line (``` echo, ``` python3).
+_COMMAND_LIKE_LANG_TAGS: frozenset[str] = frozenset({"python"})
 
 _FENCE_RE = re.compile(r"^\s*```\s*([A-Za-z0-9_+-]*)\s*$")
 # A YAML folded scalar (``description: >``) collapses adjacent lines onto
@@ -84,13 +93,17 @@ _BACKTICK_SPAN_RE = re.compile(r"`([^`\n]+)`")
 _LABEL_RE = re.compile(r"^[^`:]*:[ \t]+(?=[A-Za-z_]\w*=)")
 # Mirrors linter_shell.py's _PYTHON_WORD_RE: a bare or path-prefixed
 # interpreter name, optionally version-suffixed (python3.11, python3.12, ...).
-# _is_command_word previously only recognised the exact names "python"/
-# "python3" or a path ending in "/python3", so a versioned interpreter line
-# was never extracted as shell at all -- the isolation-not-set rule in
-# linter_shell never got a segment to see it in.
+# Matching only the exact names "python"/"python3" once left a versioned
+# interpreter line unextracted, so the isolation rule in linter_shell never
+# saw it. An interpreter word is judged by _interpreter_line_is_command,
+# which keeps "python3 is required" out while letting "python3 runner" in.
 _PYTHON_WORD_RE = re.compile(r"^(?:.*/)?python3?(?:\.\d+)?$")
 _PROMPT_PREFIX = "$ "
 _SHELLISH_ARG_PREFIXES = ("-", '"', "'", "$", ".", "/", "~", "{")
+# An interpreter operand that is shell rather than English: a path, an
+# assignment, an operator, or a file name with an extension (``run.py``).
+_SHELLISH_CHARS = frozenset("/=;|&<>")
+_FILE_NAME_RE = re.compile(r"\w\.\w")
 # A stray apostrophe in a trailing comment would otherwise pull prose in until
 # the next quote; a blank line or this many lines ends a continuation.
 _MAX_CONTINUATION_LINES = 30
@@ -183,25 +196,56 @@ def _ends_open(text: str) -> bool:
     return bool(_scan(text).stack)
 
 
-def _first_words(line: str) -> tuple[str, str]:
-    """The first two whitespace-separated words of *line*, prompt stripped."""
+def _command_body(line: str) -> str:
+    """*line* stripped of surrounding whitespace and a ``$ `` prompt."""
     body = line.strip()
-    if body.startswith(_PROMPT_PREFIX):
-        body = body[len(_PROMPT_PREFIX):]
-    words = body.split(None, 2)
-    first = words[0] if words else ""
-    second = words[1] if len(words) > 1 else ""
-    return first, second
+    return body[len(_PROMPT_PREFIX):] if body.startswith(_PROMPT_PREFIX) else body
 
 
 def _is_command_word(word: str) -> bool:
-    """True for a repo wrapper path, a python/qlty path, a versioned interpreter, or a strong command."""
+    """True for a repo wrapper path, a qlty path, or a strong command."""
     word = word.lstrip("(")
     if word.startswith(("./bin/", "bin/", "~/.qlty/bin/")):
         return True
-    if word.endswith("/qlty") or _PYTHON_WORD_RE.match(word):
+    return word.endswith("/qlty") or word in _STRONG_COMMANDS
+
+
+def _looks_shellish(word: str) -> bool:
+    """True when an operand reads as shell: an option, quote, path, operator, or file name."""
+    return (
+        word.startswith(_SHELLISH_ARG_PREFIXES)
+        or any(ch in _SHELLISH_CHARS for ch in word)
+        or _FILE_NAME_RE.search(word) is not None
+    )
+
+
+def _interpreter_line_is_command(operands: list[str]) -> bool:
+    """An interpreter word counts alone, or before a shell-looking operand.
+
+    ``python3 runner`` runs a script whose name has no suffix, so a single
+    bare operand counts. A bare operand followed by another bare word
+    ("python3 is required") is prose. Known approximation: ``python3 runner
+    arg`` reads as prose too -- precision over recall.
+    """
+    if not operands or _looks_shellish(operands[0]):
         return True
-    return word in _STRONG_COMMANDS
+    return len(operands) == 1 or _looks_shellish(operands[1])
+
+
+def _wrapper_line_is_command(body: str) -> bool:
+    """A wrapper counts only when the command it runs is itself a command.
+
+    :func:`shell_parse.parse_shell` resolves the wrapper's own options and
+    operands exactly as the linter rules will, so ``timeout 5 python3 x`` is
+    judged on ``python3 x`` and "timeout to interrupt a handler" on
+    "interrupt a handler". A wrapper that runs nothing (``env | grep``,
+    ``command -v x``) is not judged here.
+    """
+    commands = parse_shell(body).commands
+    word = commands[0].word if commands else None
+    if word is None or word.start == 0:
+        return False
+    return is_command_line(body[word.start:])
 
 
 def _closes_unopened_paren(line: str) -> bool:
@@ -224,12 +268,19 @@ def _weak_word_is_command(first: str, second: str, line: str) -> bool:
 
 def is_command_line(line: str) -> bool:
     """True when *line* starts with a command or an upper-case assignment."""
-    first, second = _first_words(line)
-    if not first or _closes_unopened_paren(line):
+    body = _command_body(line)
+    words = body.split(None, 3)
+    if not words or _closes_unopened_paren(line):
         return False
+    first = words[0]
     if _ASSIGN_START_RE.match(first) or _is_command_word(first):
         return True
-    return first in _WEAK_COMMANDS and _weak_word_is_command(first, second, line)
+    if _PYTHON_WORD_RE.match(first.lstrip("(")):
+        return _interpreter_line_is_command(words[1:3])
+    second = words[1] if len(words) > 1 else ""
+    if first in _WEAK_COMMANDS and _weak_word_is_command(first, second, line):
+        return True
+    return first in WRAPPER_NAMES and _wrapper_line_is_command(body)
 
 
 def _fence_segments(
@@ -270,13 +321,21 @@ def _fence_lang_and_first_line(gap: str, tag: str, trailing: str | None) -> tupl
     language and *trailing* the first body line. Folding an unlabelled
     fence leaves a space ("``` python -c ..."): *tag* is the body's first
     word, whatever language it happens to name. A spaced shell tag
-    ("``` bash echo x") stays a shell fence either way, and a marker with
-    no trailing text ("``` python") keeps its tag.
+    ("``` bash echo x") stays a shell fence either way.
+
+    A spaced word with no trailing text is ambiguous: "``` python" is a
+    Python fence, but "``` echo" is an unlabelled fence whose first line is a
+    one-word command. A word that is a command line on its own is read as that
+    body line, unless it is a language tag in :data:`_COMMAND_LIKE_LANG_TAGS`.
     """
     lang = tag.lower()
-    if gap and trailing and lang not in _SHELL_FENCE_LANGS:
+    if not gap or lang in _SHELL_FENCE_LANGS:
+        return lang, trailing or ""
+    if trailing:
         return "", f"{tag} {trailing}"
-    return lang, trailing or ""
+    if lang not in _COMMAND_LIKE_LANG_TAGS and is_command_line(tag):
+        return "", tag
+    return lang, ""
 
 
 def _fence_is_shell(lang: str, body: list[str]) -> bool:

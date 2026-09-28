@@ -5,7 +5,8 @@ one model of "which word is the program" every rule in ``linter_shell`` asks
 about. It splits on control operators (``;``, ``&&``, ``||``, ``|``, ``&``,
 newline, ``(``, ``)``), passes over reserved words (``if``, ``then``, ``do``,
 ``!``, ``{``, ``time`` ...) and leading ``NAME=value`` words, sees through
-wrappers (``env``, ``sudo``, ``xargs``, ``timeout N`` ...), recurses into
+wrappers (``env``, ``sudo``, ``xargs``, ``timeout N`` ...; see
+:data:`WRAPPER_NAMES`), recurses into
 ``$(...)``, backticks and ``<(...)``, and reads heredoc bodies as data rather
 than as commands. shlex cannot do this: it reports no offsets, strips the
 quotes that tell ``"rm"`` from ``rm``, and has no notion of heredocs.
@@ -26,6 +27,8 @@ __all__ = [
     "ShellScript",
     "ShellToken",
     "SimpleCommand",
+    "WRAPPER_NAMES",
+    "command_from_words",
     "parse_shell",
 ]
 
@@ -403,6 +406,10 @@ _WRAPPERS: dict[str, _Wrapper] = {
                       long_value_opts=("arg-file", "delimiter", "max-args", "max-procs",
                                        "max-chars", "process-slot-var")),
 }
+# The wrapper vocabulary, derived from the table above so the segment
+# extractor in shell_text recognises exactly the wrappers this parser sees
+# through -- one list, not two that drift apart.
+WRAPPER_NAMES: frozenset[str] = frozenset(_WRAPPERS)
 
 
 def _short_option_width(word: str, spec: _Wrapper) -> int | None:
@@ -459,6 +466,17 @@ def _resolve_command(words: tuple[ShellToken, ...]) -> tuple[int, list[ShellToke
         i, more = _skip_wrapper(words, i + 1, spec)
         assigned.extend(more)
     return -1, assigned
+
+
+def command_from_words(words: tuple[ShellToken, ...], in_loop: bool = False) -> SimpleCommand:
+    """A :class:`SimpleCommand` for *words* that some other command runs.
+
+    For argv a command hands on rather than shell text -- ``find -exec``'s
+    body. Wrappers are resolved exactly as for a parsed command; there are no
+    redirects, since the shell never sees these words as a command line.
+    """
+    index, env_assignments = _resolve_command(words)
+    return SimpleCommand(words, tuple(env_assignments), (), index, in_loop)
 
 
 class _CommandSplitter:

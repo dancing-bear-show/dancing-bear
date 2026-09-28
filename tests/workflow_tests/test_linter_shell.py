@@ -780,6 +780,36 @@ class TestPythonNotIsolated(_RuleCase):
         hits = self.assert_fires(_workflow(_stage("Run:\n\n  python3 -X utf8 -c 'print(1)'\n")))
         self.assertIn("lacks -I", hits[0].message)
 
+    def test_fires_on_bare_relative_script_operand(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6ms2U4: `_is_invocation(["runner"])`
+        # was False, so `python3 runner` -- a script with no suffix and no
+        # slash -- started the interpreter with the ambient PYTHONPATH
+        # unreported. Prose is now kept out by the segment extractor instead.
+        for command in ("python3 runner", "python3 runner --verbose"):
+            with self.subTest(command=command):
+                hits = self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))
+                self.assertIn("python3 runner", hits[0].message)
+
+    def test_python_is_required_prose_is_silent(self) -> None:
+        # Happy path for the same thread: with the operand heuristic gone,
+        # "python3 is required" stays silent because it is never a segment.
+        self.assert_silent(_workflow(_stage("Setup:\n\n  python3 is required\n")))
+
+    def test_fires_on_wrapper_led_interpreter_line(self) -> None:
+        # PR #437 "Previously missed" (shell_text.py is_command_line): a line
+        # led by a wrapper parse_shell sees through produced no segment, so
+        # its unisolated interpreter was never linted.
+        for command in ("env FOO=1 python3 -c 'print(1)'", "timeout 5 python3 run.py",
+                        "sudo -u me nice -n 5 python3 run.py"):
+            with self.subTest(command=command):
+                self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))
+
+    def test_fires_in_folded_unlabelled_fence_opening_with_single_word(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6ms2Wg: "``` python3" -- an unlabelled
+        # fence whose first line is the bare interpreter -- was read as a fence
+        # tagged `python3` and dropped.
+        self.assert_fires(_workflow(_stage("Run:\n\n  ``` python3\n  ```\n")))
+
 
 # ---------------------------------------------------------------------------
 # validate-stage-writes-output
@@ -1144,6 +1174,61 @@ class TestGuardRefused(_RuleCase):
         hits = self.assert_fires(_workflow(_stage(desc)))
         self.assertIn("heredoc", hits[0].message)
 
+    def test_fires_on_find_write_actions_in_loop(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6ms2Vv: the guard's h_find treats
+        # -delete and -fprint as writes, but `cmd.name` was only `find`.
+        for command in ('for p in files; do find "$p" -delete; done',
+                        'for p in files; do find "$p" -name x -fprint out.txt; done'):
+            with self.subTest(command=command):
+                self.assertIn("loop", self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))[0].message)
+
+    def test_fires_on_find_exec_mutator_in_loop(self) -> None:
+        # Same thread: h_find judges the command after -exec/-execdir/-ok.
+        for command in ('for p in files; do find "$p" -exec rm {} +; done',
+                        'for p in files; do find "$p" -execdir env mv {} x \\; ; done',
+                        'for p in files; do find "$p" -ok sed -i "s/a/b/" {} \\; ; done'):
+            with self.subTest(command=command):
+                self.assertIn("loop", self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))[0].message)
+
+    def test_read_only_find_in_loop_is_silent(self) -> None:
+        # Happy path: find's read-only forms, and a -delete-shaped word that
+        # belongs to an -exec body rather than to find, stay silent.
+        for command in ("for p in files; do find . -name x; done",
+                        "for p in files; do find . -exec grep -n x {} +; done",
+                        "for p in files; do find . -exec grep -delete x {} +; done"):
+            with self.subTest(command=command):
+                self.assert_silent(_workflow(_stage(f"Run:\n\n  {command}\n")))
+
+    def test_fires_on_eval_and_bare_nested_shell_anywhere(self) -> None:
+        # Same thread: block-destructive-bash.sh refuses eval, a bare
+        # `sh -c`, and xargs into a shell outright -- in a loop or not.
+        for command in ('eval "$CMD"', "bash -c 'echo hi'", "sh -ec 'echo hi'",
+                        "echo a | xargs -n 1 sh run.sh", "find . -exec bash -c 'echo {}' \\;"):
+            with self.subTest(command=command):
+                desc = f"Run:\n\n  ```bash\n  {command}\n  ```\n"
+                self.assertIn("eval/sh -c", self.assert_fires(_workflow(_stage(desc)))[0].message)
+
+    def test_fires_on_mutator_inside_qualified_shell_string_in_loop(self) -> None:
+        # Same thread: a /bin/sh -c string escapes the destructive guard's
+        # nested-shell check, but _bash_write_targets.py h_shell parses the
+        # string and judges its commands; so does this rule. A shell reading
+        # its program from stdin is refused by h_shell too.
+        for command in ("for f in a; do /bin/sh -c 'rm -f x'; done",
+                        "for f in a; do /bin/bash -c 'cd x && touch y'; done",
+                        "for f in a; do echo x | /bin/bash; done"):
+            with self.subTest(command=command):
+                self.assertIn("loop", self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))[0].message)
+
+    def test_read_only_qualified_shell_forms_are_silent(self) -> None:
+        # Happy path: a read-only -c string, a script file (command semantics,
+        # out of the guard's reach), and a qualified shell outside a loop.
+        for command in ("for f in a; do /bin/sh -c 'wc -l x'; done",
+                        "for f in a; do /bin/bash script.sh; done",
+                        "/bin/sh -c 'rm -f x'",
+                        "echo eval sh -c"):
+            with self.subTest(command=command):
+                self.assert_silent(_workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n")))
+
     def test_has_teeth(self) -> None:
         self.assert_has_teeth(_workflow(_stage(_LOOP)))
 
@@ -1269,6 +1354,53 @@ class TestExtractShellSegments(unittest.TestCase):
     def test_spaced_tag_alone_on_its_line_keeps_its_language(self) -> None:
         # Nothing was folded onto "``` python", so the word is its tag.
         self.assertEqual(extract_shell_segments("``` python\nprint(1)\n```\n"), [])
+
+    def test_folded_unlabelled_fence_opening_with_single_word_command(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6ms2Wg: "``` echo" has a gap but no
+        # trailing text, so "echo" was returned as the language and the fence
+        # was dropped although its first body line is a command.
+        self.assertEqual(self._texts("``` echo\nhi\n```\n"), ["echo\nhi"])
+        self.assertEqual(self._texts("``` python3\n```\n"), ["python3"])
+
+    def test_python_tagged_fences_stay_non_shell(self) -> None:
+        # Happy path: a glued "```python" tag, and the spaced "``` python"
+        # language tag, are still Python fences.
+        for desc in ("```python\nprint(1)\n```\n", "``` python\nprint(1)\n```\n",
+                     "``` python\nimport os\n```\n"):
+            with self.subTest(desc=desc):
+                self.assertEqual(extract_shell_segments(desc), [])
+
+    def test_bare_interpreter_operand_is_a_command_line(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6ms2U4: a suffixless script operand.
+        self.assertEqual(self._texts("  python3 runner\n"), ["python3 runner"])
+        self.assertEqual(self._texts("  python3 runner -v\n"), ["python3 runner -v"])
+
+    def test_interpreter_prose_is_not_a_command_line(self) -> None:
+        for line in ("python3 is required", "python3 is required for this step",
+                     "python must be 3.11 or newer"):
+            with self.subTest(line=line):
+                self.assertEqual(self._texts(f"  {line}\n"), [])
+
+    def test_wrapper_led_lines_are_command_lines(self) -> None:
+        # PR #437 "Previously missed" finding: wrappers parse_shell sees
+        # through (WRAPPER_NAMES) now lead a command line when what they run
+        # is itself a command.
+        for line in ("env FOO=1 python3 -c 'print(1)'", "timeout 5 python3 run.py",
+                     "timeout 1200 ./bin/github pr checks --pr 1", "nohup git fetch",
+                     "time -p make -C src lint", "command rm -f x"):
+            with self.subTest(line=line):
+                self.assertEqual(self._texts(f"  {line}\n"), [line])
+
+    def test_prose_led_by_a_wrapper_word_is_not_a_command_line(self) -> None:
+        # Happy path: the words that follow a wrapper-shaped English word are
+        # prose, so the line is too. The last three are real lines from
+        # workflows/code/qwen-local-handler.yaml and qwen-admin.yaml.
+        for line in ("env vars must be set before the run", "time to wait for CI",
+                     "time regardless of lock state.", "timeout to interrupt a blocked handler",
+                     "timeout — so the exposure is seconds rather than minutes,",
+                     "nice to have: a faster runner"):
+            with self.subTest(line=line):
+                self.assertEqual(self._texts(f"  {line}\n"), [])
 
     def test_assignment_and_if_lines_are_commands(self) -> None:
         self.assertEqual(self._texts("  export FOO=1\n"), ["export FOO=1"])

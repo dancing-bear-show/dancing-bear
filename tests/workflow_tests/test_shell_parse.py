@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import unittest
 
-from workflow.shell_parse import parse_shell
+from workflow.shell_parse import WRAPPER_NAMES, command_from_words, parse_shell
 from workflow.shell_text import extract_labelled_assignments
 
 
@@ -59,6 +59,23 @@ class TestParseShell(unittest.TestCase):
         ])
         test = parse_shell('[[ "$a" > b ]] && [[ -n x ]]').commands
         self.assertEqual(test, ())
+
+    def test_command_from_words_resolves_wrappers(self) -> None:
+        # find -exec hands on argv, not shell text: the program is still the
+        # word after any wrappers, and env's assignments are recorded.
+        words = parse_shell("env FOO=1 timeout 5 rm -f {}").commands[0].words
+        cmd = command_from_words(words, in_loop=True)
+        self.assertEqual((cmd.name, cmd.args, cmd.in_loop), ("rm", ["-f", "{}"], True))
+        self.assertEqual([tok.text for tok in cmd.assignments], ["FOO=1"])
+        self.assertEqual(command_from_words(parse_shell("command -v rm").commands[0].words).name, "")
+
+    def test_every_wrapper_name_is_seen_through(self) -> None:
+        # WRAPPER_NAMES is the vocabulary shell_text uses to extract
+        # wrapper-led lines; each name must really hand on to its command.
+        for name in sorted(WRAPPER_NAMES):
+            head = f"{name} 5" if name.endswith("timeout") else name  # the duration operand
+            with self.subTest(name=name):
+                self.assertEqual(self._names(f"{head} rm x"), ["rm"])
 
     def test_labelled_assignment_is_extracted_outside_segments_only(self) -> None:
         desc = "Bash tool: F=\"x\"\n```bash\nNote: G=1\n```\ncat <<'EOF'\nLabel: H=1\nEOF\n"
