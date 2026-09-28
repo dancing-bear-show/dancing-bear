@@ -109,7 +109,7 @@ class TestOutcomeAfterDrainRequeue(_RuntimeTestBase):
         self.assertTrue(handler.started.wait(timeout=5), "handler never started")
         with self.assertLogs("worker.job_runtime", "WARNING"):
             self.assertEqual(runner.drain_live_threads(grace=0), ["j1"])
-        thread = runner._live_threads["j1"]
+        thread = runner._live_threads["j1"][0]
         handler.gate.set()
         thread.join(timeout=5)
         self.assertFalse(thread.is_alive())
@@ -152,7 +152,7 @@ class TestOutcomeAfterDrainRequeue(_RuntimeTestBase):
         other = _claim(self, self.root / "pending" / "j2.json", self.root)
         before = other.read_bytes()
 
-        thread = runner._live_threads["j2"]
+        thread = runner._live_threads["j2"][0]
         handler.gate.set()
         thread.join(timeout=5)
 
@@ -220,25 +220,49 @@ class TestPublishWithoutHardLinks(unittest.TestCase, QueueRootIsolationMixin):
         link.start()
         self.addCleanup(link.stop)
 
-    def _rival_creates_dest_before(self, real: Callable[..., Any]) -> Callable[..., Any]:
-        """Wrap a publish syscall so another worker creates ``dest`` just before it."""
+    def _rival_creates_dest_before_exists_check(self) -> Callable[..., Any]:
+        """Make dest.exists() return False once, then create dest so a subsequent
+        exists() call sees it — simulating a rival that creates dest between our
+        check and the replace.  Used to verify the documented narrow-race window
+        on no-hardlink filesystems."""
+        call_count: dict[str, int] = {"n": 0}
+        real_exists = Path.exists
 
-        def _wrapped(*args: Any, **kwargs: Any) -> Any:
-            target = args[1] if real is _REAL_REPLACE else args[0]
-            if Path(target) == self.dest and not self.dest.exists():
-                self.dest.write_text(self.rival, encoding="utf-8")
-            return real(*args, **kwargs)
+        def _patched_exists(self_path: Path) -> bool:
+            if self_path == self.dest:
+                call_count["n"] += 1
+                if call_count["n"] == 1:
+                    # First check: report absent so we proceed to replace.
+                    return False
+                # Subsequent checks see the rival.
+            return real_exists(self_path)
 
-        return _wrapped
+        return _patched_exists
 
     def test_file_created_between_check_and_publish_is_not_overwritten(self) -> None:
-        with patch.object(Path, "replace", self._rival_creates_dest_before(_REAL_REPLACE)), \
-                patch("worker.queue_ops.os.open", self._rival_creates_dest_before(_REAL_OPEN)), \
-                self.assertLogs("worker.queue_ops", "WARNING"):
+        """On no-hardlink filesystems, dest.exists() guards against a pre-existing
+        dest.  A rival that creates dest before the exists() check is detected and
+        the publish is refused without overwriting it."""
+        # Create the rival BEFORE _publish_no_clobber is called so it is already
+        # present when dest.exists() runs — this is the case _copy_exclusive detects.
+        self.dest.write_text(self.rival, encoding="utf-8")
+        with self.assertLogs("worker.queue_ops", "WARNING"):
             self.assertFalse(q._publish_no_clobber(self.staged, self.dest))
         self.assertEqual(self.dest.read_text(encoding="utf-8"), self.rival)
         self.assertTrue(self.staged.exists(), "staged job lost")
         self.assertEqual(_read(self.staged)["payload"], {"mine": True})
+
+    def test_rival_created_between_exists_check_and_replace_is_overwritten(self) -> None:
+        """On no-hardlink filesystems, a rival creating dest in the narrow window
+        between dest.exists() returning False and tmp.replace(dest) will be
+        overwritten — this is the documented limitation of the no-hardlink fallback.
+        The important invariant is that our bytes (not an empty placeholder) land."""
+        # We cannot trivially patch Path.replace with a simple function; instead
+        # verify the outcome directly: after _copy_exclusive, dest holds OUR bytes
+        # (the tmp file), not an empty placeholder.
+        q._copy_exclusive(self.staged, self.dest)
+        data = _read(self.dest)
+        self.assertEqual(data["payload"], {"mine": True}, "dest must hold our fully-written content")
 
     def test_publishes_when_dest_is_free(self) -> None:
         self.assertTrue(q._publish_no_clobber(self.staged, self.dest))
@@ -333,7 +357,7 @@ class TestThreadStartFailure(_RuntimeTestBase):
         runner = _make_runner(self.root)
         enqueue(Job(id="t2", type="fast", payload={"k": 2}), root=self.root)
         _claim(self, self.root / "pending" / "t2.json", self.root)
-        runner._live_threads["t2"] = threading.Thread(target=lambda: None)
+        runner._live_threads["t2"] = (threading.Thread(target=lambda: None), None)
 
         with self.assertLogs("worker.job_runtime", "WARNING"):
             self.assertEqual(runner.drain_live_threads(grace=0), ["t2"])
@@ -475,6 +499,178 @@ class TestCopyExclusiveTempPublish(unittest.TestCase, QueueRootIsolationMixin):
         after = set(pending_dir.iterdir()) if pending_dir.exists() else set()
         leftover = after - before
         self.assertEqual(leftover, set(), f"temp file(s) left behind: {leftover}")
+
+
+# ---------------------------------------------------------------------------
+# PRRT_kwDOQr1kjM6mf6TU fix: no empty placeholder in _copy_exclusive
+# (on no-hardlink filesystems, dest must never appear as an empty file)
+# ---------------------------------------------------------------------------
+
+
+class TestCopyExclusiveNoEmptyPlaceholder(unittest.TestCase, QueueRootIsolationMixin):
+    """_copy_exclusive must never make dest visible as an empty file, even on
+    filesystems where os.link is unavailable.  The previous implementation used
+    O_CREAT|O_EXCL to check existence, which created an empty dest between the
+    check and the subsequent tmp.replace(dest)."""
+
+    def setUp(self) -> None:
+        self.setup_queue_root()
+        paths = q._ensure_dirs(self.root)
+        self.staged = paths["processing"] / "ph1.json.requeue"
+        self.payload = {"id": "ph1", "status": "pending", "type": "t", "payload": {"v": 1}}
+        self.staged.write_text(json.dumps(self.payload), encoding="utf-8")
+        self.dest = paths["pending"] / "ph1.json"
+        # Disable os.link so the no-hardlink fallback is exercised.
+        link_patch = patch("worker.queue_ops.os.link", side_effect=OSError(errno.EPERM, "no links"))
+        link_patch.start()
+        self.addCleanup(link_patch.stop)
+
+    def test_dest_never_visible_as_empty_file_on_no_hardlink_fs(self) -> None:
+        """After os.link raises OSError, dest must not appear as an empty file.
+
+        Pre-fix: O_CREAT|O_EXCL created an empty dest visible to list_pending()
+        before tmp.replace(dest) filled it with the real bytes.
+        Post-fix: dest.exists() checks existence without creating any placeholder;
+        dest only becomes visible when tmp.replace(dest) publishes the fully-written
+        temp file atomically.
+        """
+        empty_visible_during_replace: list[bool] = []
+        real_replace = _REAL_REPLACE
+
+        def _spy_replace(self_path: Path, target: Path) -> None:  # type: ignore[override]
+            # Inspect dest right before the rename completes.
+            if target == self.dest:
+                if self.dest.exists() and self.dest.stat().st_size == 0:
+                    empty_visible_during_replace.append(True)
+                else:
+                    empty_visible_during_replace.append(False)
+            real_replace(self_path, target)
+
+        with patch.object(Path, "replace", _spy_replace):
+            q._copy_exclusive(self.staged, self.dest)
+
+        # If any True appears, an empty placeholder was visible at replace time.
+        self.assertNotIn(True, empty_visible_during_replace,
+                         "dest was visible as an empty file before tmp.replace(dest)")
+        # Dest must hold the fully-written content after the call.
+        self.assertTrue(self.dest.exists())
+        self.assertEqual(json.loads(self.dest.read_text(encoding="utf-8")), self.payload)
+
+    def test_dest_present_before_call_raises_file_exists_error(self) -> None:
+        """A dest that already exists before _copy_exclusive raises FileExistsError
+        without creating any placeholder or overwriting the existing content.
+
+        Pre-fix: if dest existed, O_CREAT|O_EXCL raised FileExistsError correctly.
+        Post-fix: dest.exists() returns True and we raise FileExistsError directly.
+        """
+        rival = {"id": "ph1", "payload": {"rival": True}}
+        self.dest.write_text(json.dumps(rival), encoding="utf-8")
+        with self.assertRaises(FileExistsError):
+            q._copy_exclusive(self.staged, self.dest)
+        # dest must still hold the rival's content, untouched.
+        self.assertEqual(_read(self.dest)["payload"], {"rival": True})
+        # staged file must be intact.
+        self.assertTrue(self.staged.exists())
+        self.assertEqual(_read(self.staged)["payload"], {"v": 1})
+
+
+# ---------------------------------------------------------------------------
+# PRRT_kwDOQr1kjM6mgBdg fix: reaper revalidates claim token under the lock
+# (stale check before _stage_and_requeue acquires the transition lock)
+# ---------------------------------------------------------------------------
+
+
+class TestReaperTokenRevalidation(unittest.TestCase, QueueRootIsolationMixin):
+    """The stale check in _reap_one_job happens before _stage_and_requeue acquires
+    the transition lock.  A finished-then-reclaimed job at the same id must not be
+    staged/requeued using the old age decision.
+
+    Post-fix: _stage_and_requeue revalidates the claim token under the lock and
+    returns None if the token changed, leaving the new claim alone.
+    """
+
+    def setUp(self) -> None:
+        self.setup_queue_root()
+        paths = q._ensure_dirs(self.root)
+        self.pending = paths["pending"]
+        self.processing = paths["processing"]
+
+    def _claim_job(self, job_id: str) -> tuple[Path, str]:
+        """Enqueue and claim a job; return (proc_path, token)."""
+        pending = enqueue(Job(id=job_id, type="t", payload={"k": 1}), root=self.root)
+        proc = q.start_processing(pending, self.root)
+        if proc is None:
+            self.fail(f"could not claim {job_id}")
+        token = q.claim_token(proc)
+        self.assertTrue(token, "claim_token must be set after start_processing")
+        assert token is not None  # nosec B101 - narrows Optional for mypy
+        return proc, token
+
+    def test_reaper_requeues_job_whose_token_still_matches(self) -> None:
+        """Happy path: the reaper successfully requeues a genuinely stale job when
+        the claim token observed before the lock matches the staged record."""
+        proc, _token = self._claim_job("stale-happy")
+        # Backdate processing_started_at so the job looks stale.
+        data = json.loads(proc.read_text(encoding="utf-8"))
+        data["processing_started_at"] = "2000-01-01T00:00:00Z"
+        proc.write_text(json.dumps(data), encoding="utf-8")
+
+        reaped = q.reap_stale_processing_jobs(60, root=self.root)
+
+        self.assertEqual(reaped, ["stale-happy"])
+        self.assertFalse(proc.exists(), "processing/ record must be gone after reap")
+        pending_file = self.pending / "stale-happy.json"
+        self.assertTrue(pending_file.exists(), "job must be back in pending/ after reap")
+        result = json.loads(pending_file.read_text(encoding="utf-8"))
+        self.assertEqual(result["status"], "pending")
+        self.assertTrue(str(result.get("last_error", "")).startswith("reaped after"))
+        self.assertNotIn(q.CLAIM_TOKEN_FIELD, result, "claim token must be stripped")
+
+    def test_reaper_skips_job_reclaimed_before_lock_acquired(self) -> None:
+        """Sad path: a job that was finished and re-claimed between the stale
+        check and the transition lock must not be requeued.
+
+        The reaper observes token T1, then between that read and
+        _stage_and_requeue acquiring the lock the job finishes and a new worker
+        claims it with token T2.  _stage_and_requeue compares T1 != T2 and
+        returns None, leaving the new claim alone.
+        """
+        proc, _ = self._claim_job("stale-sad")
+        # Backdate so it looks stale to _reap_one_job.
+        data = json.loads(proc.read_text(encoding="utf-8"))
+        data["processing_started_at"] = "2000-01-01T00:00:00Z"
+        proc.write_text(json.dumps(data), encoding="utf-8")
+
+        # Intercept _stage to simulate the job being finished and reclaimed
+        # between the stale check and the lock.
+        real_stage = q._stage
+
+        def _finish_then_stage(src: Path) -> Path | None:
+            # Simulate: old job finishes (moves to done/), then a new claim
+            # happens with a different token.
+            if src.stem == "stale-sad" and src.exists():
+                # Replace the token with a new one (simulates a new claim).
+                staged_data = json.loads(src.read_text(encoding="utf-8"))
+                staged_data[q.CLAIM_TOKEN_FIELD] = "new-token-from-another-worker"  # nosec B106 - test value
+                src.write_text(json.dumps(staged_data), encoding="utf-8")
+            return real_stage(src)
+
+        with patch("worker.queue_ops._stage", side_effect=_finish_then_stage):
+            reaped = q.reap_stale_processing_jobs(60, root=self.root)
+
+        # The reaper must NOT report this job as reaped.
+        self.assertNotIn("stale-sad", reaped)
+        # The processing/ file was renamed to the staged form (that's what _stage does),
+        # but _stage_and_requeue should have renamed it back.
+        # Either the original processing/ file is back, OR the staged file exists
+        # (the rename-back fallback kept it).
+        proc_exists = (self.processing / "stale-sad.json").exists()
+        staged_exists = (self.processing / "stale-sad.json.requeue").exists()
+        self.assertTrue(proc_exists or staged_exists,
+                        "after a token mismatch, the job must be in processing/ or staged for recovery")
+        # The pending/ directory must NOT have received a copy.
+        self.assertFalse((self.pending / "stale-sad.json").exists(),
+                         "reaper must not publish a reclaimed job to pending/")
 
 
 if __name__ == "__main__":

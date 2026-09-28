@@ -517,7 +517,7 @@ class TestDaemonRunnerTick(unittest.TestCase, QueueRootIsolationMixin):
 
 def _join_live_threads(test: unittest.TestCase, runner: Any, timeout: float = 5.0) -> None:
     """Join every thread a non-blocking tick() started, failing if one hangs."""
-    for stem, thread in list(runner._live_threads.items()):
+    for stem, (thread, _tok) in list(runner._live_threads.items()):
         thread.join(timeout=timeout)
         test.assertFalse(thread.is_alive(), f"worker thread for {stem} never finished")
 

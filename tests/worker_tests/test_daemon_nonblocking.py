@@ -104,8 +104,8 @@ def _patch_queue_root(job_root: Path) -> ExitStack:
     stack.enter_context(
         patch(
             "worker.job_runtime.q.requeue_processing",
-            side_effect=lambda job_id, reason, root=None: _real_requeue(
-                job_id, reason=reason, root=job_root
+            side_effect=lambda job_id, reason, root=None, claim_token=None: _real_requeue(
+                job_id, reason=reason, root=job_root, claim_token=claim_token
             ),
         )
     )
@@ -384,7 +384,7 @@ class TestDaemonNonblockingTick(unittest.TestCase, QueueRootIsolationMixin):
              patch.object(runner.processor, "process_claimed", side_effect=[RuntimeError("bad metadata"), 1]), \
              self.assertLogs("worker.job_runtime", level="ERROR") as logs:
             self.assertEqual(runner.tick(), 1)
-            runner._live_threads["boom"].join(timeout=5)
+            runner._live_threads["boom"][0].join(timeout=5)
             self.assertEqual(excepthook_calls, [], "exception escaped the worker thread")
 
             enqueue(Job(id="boom2", type="cheap", payload={}), root=self.root)
@@ -459,7 +459,7 @@ class TestDaemonNonblockingTick(unittest.TestCase, QueueRootIsolationMixin):
 
             # Join p1's thread itself: its job landing in done/ does not mean
             # the thread has exited, and pruning only drops dead threads.
-            p1_thread = runner._live_threads["p1"]
+            p1_thread = runner._live_threads["p1"][0]
             p1_thread.join(timeout=5)
             self.assertFalse(p1_thread.is_alive())
 
@@ -480,7 +480,7 @@ class TestDaemonNonblockingTick(unittest.TestCase, QueueRootIsolationMixin):
         thread = threading.Thread(target=release.wait, args=(5,), daemon=True)
         thread.start()
         self.addCleanup(release.set)  # before _drain_threads joins it
-        runner._live_threads[stem] = thread
+        runner._live_threads[stem] = (thread, None)
 
     def test_finishing_live_thread_counts_once_from_one_listing(self):
         """A live thread whose job was in processing/ at the listing but has
@@ -541,7 +541,7 @@ class TestDaemonNonblockingTick(unittest.TestCase, QueueRootIsolationMixin):
 
             gate.set()
             self.assertTrue(_wait_for(lambda: (self.root / "done" / "long.json").exists(), timeout=5))
-            runner._live_threads["long"].join(timeout=5)
+            runner._live_threads["long"][0].join(timeout=5)
             for _ in range(2):
                 runner.tick()
 

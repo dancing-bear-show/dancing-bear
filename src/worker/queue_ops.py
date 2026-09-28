@@ -389,9 +389,13 @@ def _copy_exclusive(staged: Path, dest: Path) -> None:
 
     No-clobber is preserved: ``os.link(tmp, dest)`` raises ``FileExistsError``
     atomically if ``dest`` already exists.  On filesystems where hard links are
-    unavailable even within the same directory, ``tmp.replace(dest)`` is used as
-    a last resort; that path can overwrite an existing ``dest``, which is the
-    pre-existing limitation of any no-hardlink filesystem for this fallback.
+    unavailable even within the same directory, existence is checked with
+    ``dest.exists()`` and then ``tmp.replace(dest)`` is used as a last resort;
+    that path has a narrow race window between the existence check and the
+    replace, which is the pre-existing limitation of any no-hardlink filesystem.
+    The hidden temp file is never published as ``dest`` directly, so
+    ``list_pending()`` and ``start_processing()`` never observe an empty or
+    partial record at the destination path.
     """
     content = staged.read_bytes()
     tmp = dest.with_name(f".{dest.name}.tmp.{uuid.uuid4().hex}")
@@ -413,15 +417,14 @@ def _copy_exclusive(staged: Path, dest: Path) -> None:
         raise
     except OSError:
         # Hard links unavailable even within the directory.  Check existence
-        # with O_CREAT|O_EXCL, which is atomic, before replacing.
-        try:
-            chk = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
-            os.close(chk)
-        except FileExistsError:
+        # first so we never create an empty placeholder at dest: dest.exists()
+        # raises FileExistsError if dest is already there, and tmp.replace(dest)
+        # publishes the fully-written temp file atomically if it is absent.
+        # There is a narrow race between the existence check and the replace on
+        # no-hardlink filesystems, but dest is never partially written or empty.
+        if dest.exists():
             tmp.unlink(missing_ok=True)
-            raise
-        # dest was absent at the O_EXCL check; the empty placeholder we just
-        # created will be replaced by the fully written temp file.
+            raise FileExistsError(dest)
         tmp.replace(dest)
         return
     tmp.unlink(missing_ok=True)
@@ -478,7 +481,13 @@ def _stage(src: Path) -> Path | None:
     return staged
 
 
-def _stage_and_requeue(src: Path, pending_dir: Path, reason: str) -> Path | None:
+def _stage_and_requeue(
+    src: Path,
+    pending_dir: Path,
+    reason: str,
+    *,
+    expected_token: str | None = None,
+) -> Path | None:
     """Claim ``src`` from processing/ by renaming it, normalise it, then publish it.
 
     Runs under ``_transition_lock`` for the queue that owns ``pending_dir``,
@@ -486,11 +495,36 @@ def _stage_and_requeue(src: Path, pending_dir: Path, reason: str) -> Path | None
     written and recovery never sees it half-done. Returns the pending/ path,
     or None when ``src`` was already gone (nothing is written) or the publish
     was refused (the staged file stays for ``recover_staged_requeues``).
+
+    When ``expected_token`` is given, the staged record's claim token is
+    compared against it under the lock.  A mismatch means the job finished
+    and was re-claimed while the caller was deciding to requeue it; the staged
+    file is renamed back to ``src`` and None is returned, leaving the new
+    claim undisturbed.
     """
     with _transition_lock(pending_dir.parent):
         staged = _stage(src)
         if staged is None:
             return None
+        if expected_token is not None:
+            staged_data = safe_load_json(staged, default=None)
+            if not isinstance(staged_data, dict) or staged_data.get(CLAIM_TOKEN_FIELD) != expected_token:
+                # The job was reclaimed between the stale check and acquiring
+                # the lock; put it back and leave the new claim alone.
+                try:
+                    staged.rename(src)
+                except Exception as exc:  # nosec B110 - best-effort; stranded staged file is recoverable
+                    _log.warning(
+                        "Could not restore staged job %s after token mismatch: %s; "
+                        "leaving as staged for recovery",
+                        src.stem,
+                        exc,
+                    )
+                _log.debug(
+                    "Skipping requeue of %s: claim token changed under lock (job was reclaimed)",
+                    src.stem,
+                )
+                return None
         try:
             _rewrite_staged(staged, reason, only_if_unnormalized=False)
         except Exception as exc:  # still move the job: stale metadata beats a stranded file
@@ -499,7 +533,13 @@ def _stage_and_requeue(src: Path, pending_dir: Path, reason: str) -> Path | None
         return new_path if _publish_no_clobber(staged, new_path) else None
 
 
-def requeue_processing(job_id: str, *, reason: str, root: Path | None = None) -> Path | None:
+def requeue_processing(
+    job_id: str,
+    *,
+    reason: str,
+    root: Path | None = None,
+    claim_token: str | None = None,
+) -> Path | None:
     """Move processing/<job_id> back to pending/ without consuming an attempt.
 
     The job becomes eligible immediately and records ``reason`` as
@@ -511,9 +551,22 @@ def requeue_processing(job_id: str, *, reason: str, root: Path | None = None) ->
     Unlike ``retry``, a job that vanished before the claim is never
     recreated from empty metadata, and no other worker can claim the
     pending/ copy before its metadata is written; see ``_stage_and_requeue``.
+
+    ``claim_token``, when given, is revalidated under the transition lock
+    (see ``_stage_and_requeue``'s ``expected_token``): identifying the job by
+    stem alone is not enough when another worker's stale-job reaper, or a
+    finish-then-reclaim, can put a *different* claim at the same stem between
+    the caller's decision to requeue and this call acquiring the lock. A
+    mismatch means the stem is now owned by someone else, so nothing is
+    written and the new claim is left alone.
     """
     paths = _ensure_dirs(root)
-    return _stage_and_requeue(_job_path(paths["processing"], job_id), paths["pending"], reason)
+    return _stage_and_requeue(
+        _job_path(paths["processing"], job_id),
+        paths["pending"],
+        reason,
+        expected_token=claim_token,
+    )
 
 
 def recover_staged_requeues(root: Path | None = None) -> list[str]:
@@ -701,13 +754,21 @@ class ReapJobContext:
     age: int
     job_timeout: int
     job_id: str
+    claim_token: str | None = None
 
 
 def _reap_move_to_pending(ctx: ReapJobContext, log: logging.Logger) -> bool:
-    """Requeue a stale processing job, writing its metadata before it is published."""
+    """Requeue a stale processing job, writing its metadata before it is published.
+
+    Passes the claim token observed before the lock to ``_stage_and_requeue``,
+    which revalidates it under the lock.  A token mismatch means the job was
+    reclaimed between the stale check and the transition; nothing is written.
+    """
     reason = f"reaped after {ctx.age}s (timeout {ctx.job_timeout}s)"
     try:
-        new_path = _stage_and_requeue(ctx.p, ctx.paths["pending"], reason)
+        new_path = _stage_and_requeue(
+            ctx.p, ctx.paths["pending"], reason, expected_token=ctx.claim_token
+        )
     except Exception as exc:
         log.debug("Failed to reap stale job %s: %s", ctx.job_id, exc)
         return False
@@ -739,6 +800,11 @@ def _reap_one_job(p: Path, job_timeout: int, paths: dict, now: datetime, log: lo
         return None
 
     job_id = p.stem
+    # Capture the claim token observed before acquiring the transition lock.
+    # _reap_move_to_pending passes it to _stage_and_requeue, which revalidates
+    # it under the lock: a mismatch means this generation of the job finished
+    # and was re-claimed while we were deciding to requeue it.
+    observed_token = str(t) if (t := data.get(CLAIM_TOKEN_FIELD)) else None
     log.warning(
         "Reaping stale processing job %s (age %ds >= timeout %ds); moving back to pending/",
         job_id,
@@ -751,6 +817,7 @@ def _reap_one_job(p: Path, job_timeout: int, paths: dict, now: datetime, log: lo
         age=age,
         job_timeout=effective_timeout,
         job_id=job_id,
+        claim_token=observed_token,
     )
     return job_id if _reap_move_to_pending(reap_ctx, log) else None
 

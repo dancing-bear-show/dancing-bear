@@ -69,6 +69,10 @@ def _undo_retry_attempt(job_stem: str, original_attempts: int, q_root: Path) -> 
     """Reset attempts to original_attempts after a deferred re-queue.
 
     q.retry increments attempts; deferred jobs should not consume an attempt.
+
+    Skips the write when the pending/ file is absent (claimed between the
+    retry() call and this read) or empty, preventing ghost-job creation from
+    a ``safe_load_json`` default when the file no longer exists.
     """
     try:
         from core.fileutil import atomic_write_json, safe_load_json
@@ -78,6 +82,10 @@ def _undo_retry_attempt(job_stem: str, original_attempts: int, q_root: Path) -> 
         if not path.exists():
             return
         data = safe_load_json(path, default={})
+        # Guard: if data is empty the file was gone or unreadable; writing
+        # {"attempts": N} here would create a ghost job with no payload.
+        if not data:
+            return
         data["attempts"] = original_attempts
         atomic_write_json(path, data)
     except Exception:  # nosec B110 - best-effort; worker will still retry correctly
@@ -468,7 +476,11 @@ class DaemonRunner:
         """Initialize daemon with configuration and processor."""
         self.config = config
         self.processor = processor
-        self._live_threads: dict[str, threading.Thread] = {}
+        # Maps job stem → (thread, claim_token).  The claim_token is stored
+        # alongside the thread so that drain_live_threads and _abandon_claim can
+        # verify ownership before requeueing, avoiding the race where another
+        # worker claimed the same stem after our thread finished or was requeued.
+        self._live_threads: dict[str, tuple[threading.Thread, str | None]] = {}
         self._registry_lock = threading.Lock()
         self.stop_event = threading.Event()
 
@@ -502,7 +514,7 @@ class DaemonRunner:
     def _prune_live_threads(self) -> None:
         """Drop finished threads from the live-thread registry."""
         with self._registry_lock:
-            for stem in [s for s, t in self._live_threads.items() if not t.is_alive()]:
+            for stem in [s for s, (t, _tok) in self._live_threads.items() if not t.is_alive()]:
                 del self._live_threads[stem]
 
     @staticmethod
@@ -557,6 +569,10 @@ class DaemonRunner:
         ``drain_live_threads`` requeue its entries without touching a job
         another worker claimed. Nothing is claimed once a stop is requested.
 
+        A missing claim token means ``start_processing``'s metadata write
+        failed; the claim is treated as lost and requeued so the job is not
+        run without ownership tracking.
+
         If a thread fails to start, its registry entry is removed and its
         claim is requeued (no attempt consumed), and no further job is
         claimed this tick: the failure is usually resource exhaustion.
@@ -568,27 +584,54 @@ class DaemonRunner:
             proc_path = self._claim(p)
             if proc_path is None:
                 continue
+            token = q.claim_token(proc_path)
+            if token is None:
+                # Metadata write inside start_processing failed; we cannot
+                # track ownership for this claim.  Requeue it and stop — the
+                # missing token means the record is in an undefined state.
+                logger.warning(
+                    "worker claim token missing for job %s after start_processing; requeueing",
+                    p.stem,
+                )
+                q.requeue_processing(p.stem, reason=_THREAD_START_FAILED_REASON, root=q.QUEUE_ROOT)
+                break
             t = threading.Thread(
                 target=self._process_claimed_guarded,
-                args=(proc_path, d, q.claim_token(proc_path)),
+                args=(proc_path, d, token),
                 daemon=True,
             )
             with self._registry_lock:
-                self._live_threads[p.stem] = t
+                self._live_threads[p.stem] = (t, token)
             try:
                 t.start()
             except Exception:  # nosec B110 - requeue the claim; logged, the loop continues next tick
-                self._abandon_claim(p.stem)
+                self._abandon_claim(p.stem, token)
                 break
             started += 1
         return started
 
-    def _abandon_claim(self, stem: str) -> None:
-        """Undo a claim whose worker thread never started: unregister and requeue it."""
+    def _abandon_claim(self, stem: str, token: str | None) -> None:
+        """Undo a claim whose worker thread never started: unregister and requeue it.
+
+        ``token`` was captured at claim time and is passed through to
+        ``requeue_processing`` as ``claim_token``, which revalidates it under
+        the transition lock (see ``_stage_and_requeue``'s ``expected_token``).
+        A pre-lock read-then-compare here would leave the same window this
+        check exists to close: another worker's stale-job reaper can move the
+        just-claimed record and re-claim it between our read and the requeue,
+        so the comparison must happen atomically under the lock the requeue
+        itself takes, not before it.
+        """
         with self._registry_lock:
             self._live_threads.pop(stem, None)
         logger.exception("worker thread for job %s failed to start; requeueing", stem)
-        q.requeue_processing(stem, reason=_THREAD_START_FAILED_REASON, root=q.QUEUE_ROOT)
+        if q.requeue_processing(
+            stem, reason=_THREAD_START_FAILED_REASON, root=q.QUEUE_ROOT, claim_token=token
+        ) is None:
+            logger.warning(
+                "worker abandoning claim for job %s: not requeued (already gone or reclaimed)",
+                stem,
+            )
 
     def _calculate_allowed_jobs(self) -> int:
         """Calculate how many jobs can be started based on max_inflight cap.
@@ -605,7 +648,7 @@ class DaemonRunner:
         concurrency rather than spawning unboundedly.
         """
         with self._registry_lock:
-            live_stems = set(self._live_threads)
+            live_stems = set(self._live_threads.keys())
         live = len(live_stems)
         if self.config.max_inflight <= 0:
             return max(0, self.config.max_per_tick - live)
@@ -720,16 +763,28 @@ class DaemonRunner:
         deadline = time.monotonic() + max(0.0, grace)
         with self._registry_lock:
             live = dict(self._live_threads)
-        for thread in live.values():
+        for thread, _tok in live.values():
             if thread.ident is not None:  # join() raises on a never-started thread
                 thread.join(timeout=max(0.0, deadline - time.monotonic()))
         requeued: list[str] = []
-        for stem, thread in live.items():
-            # A never-started thread is not alive either, but its claim was
-            # never processed, so it is requeued like a still-running job.
-            if thread.ident is not None and not thread.is_alive():
-                continue
-            if q.requeue_processing(stem, reason=q.SHUTDOWN_REQUEUE_REASON, root=q.QUEUE_ROOT):
+        for stem, (thread, token) in live.items():
+            # Probe every registered entry regardless of alive state: a thread
+            # whose _run_guarded caught an exception outside process_claimed can
+            # exit while its processing/<id>.json remains, so skipping dead
+            # threads (the old `if thread.ident is not None and not
+            # thread.is_alive(): continue`) would strand those jobs.
+            # requeue_processing is a no-op when the record is already gone
+            # (normal completion moved it), so probing a finished thread is
+            # safe — it never recreates a job that legitimately completed.
+            #
+            # The token is passed through as claim_token rather than compared
+            # here first: a pre-check-then-requeue has the same window this
+            # check exists to close (another worker's reaper can reclaim the
+            # stem between the check and the requeue), so the comparison must
+            # happen atomically under requeue_processing's transition lock.
+            if q.requeue_processing(
+                stem, reason=q.SHUTDOWN_REQUEUE_REASON, root=q.QUEUE_ROOT, claim_token=token
+            ):
                 logger.warning("requeued running job %s on shutdown", stem)
                 requeued.append(stem)
         return requeued

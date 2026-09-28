@@ -114,7 +114,7 @@ class TestDrainLiveThreads(_ShutdownTestBase):
 
         self.assertEqual(requeued, ["slow1"])
         self.assertIn("requeued running job slow1 on shutdown", logs.output[0])
-        self.assertTrue(runner._live_threads["slow1"].is_alive())
+        self.assertTrue(runner._live_threads["slow1"][0].is_alive())
         self.assertGreaterEqual(elapsed, 0.15)
         self.assertLess(elapsed, 2.0, "drain overran its grace ceiling")
         pending = self.root / "pending" / "slow1.json"
