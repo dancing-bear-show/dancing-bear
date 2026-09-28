@@ -608,12 +608,15 @@ stages:
           later-round thread on round-0 code is LATE_DISCOVERY), and an
           unplaced round-null thread is NOISE;
         - round is copied verbatim from the input, null included;
-        - class is a non-empty string, is not on the prompt's forbidden
-          catch-all list, and no-defect appears only under NOISE or ROUND0;
+        - class is a non-empty kebab-case string
+          (^[a-z][a-z0-9]*(-[a-z0-9]+)*$), is not on the prompt's forbidden
+          catch-all list, does not end in -error, -issue, -problem or -bug,
+          appears as no-defect only under NOISE or ROUND0, and is no-defect
+          for every round-null thread;
         - counts, ignoring zero entries, equals the per-category tally of
           threads[].
 
-        jq -ers --slurpfile got "{workspace}/outputs/rereview-classified.json" '(map({key: (.pr | tostring), value: ([.threads[] | {key: .thread_id, value: .round}] | from_entries)}) | from_entries) as $src | ["ROUND0", "FIX_REGRESSION", "SIBLING", "INCOMPLETE_FIX", "COLLATERAL_DOC", "NEW_SURFACE", "LATE_DISCOVERY", "NOISE"] as $cats | ["spec-or-logic-error", "logic-error", "bug", "correctness", "misc", "other", "general", "unknown", "edge-case", "incorrect-behavior", "wrong-logic", "needs-fix", "code-quality"] as $banned | [$got[0][] | (.pr | tostring) as $p | ($src[$p] // {}) as $r | . as $d | (.threads[] | . as $t | $r[$t.thread_id] as $want | [if ($t.category | IN($cats[])) | not then "category \($t.category | tojson) is not allowed" elif ($t.category == "ROUND0") != ($want == 0) then "category \($t.category) with input round \($want | tojson)" elif $want == null and $t.category != "NOISE" then "category \($t.category) with input round null (must be NOISE)" else empty end, if ($t | has("round") | not) or $t.round != $want then "round \($t.round | tojson) copied, input has \($want | tojson)" else empty end, if ($t.class | type) != "string" or ($t.class | length) == 0 then "class is missing" elif ($t.class | IN($banned[])) then "class \($t.class) is a forbidden catch-all" elif $t.class == "no-defect" and ($t.category | IN("NOISE", "ROUND0") | not) then "class no-defect with category \($t.category)" else empty end] | select(length > 0) | "\($p) \($t.thread_id): \(join("; "))"), ([$d.threads[].category | tostring] | group_by(.) | map({key: .[0], value: length}) | from_entries) as $tally | if ($d.counts | type) != "object" then "\($p): counts is not an object" elif ($d.counts | with_entries(select(.value != 0))) != $tally then "\($p): counts \($d.counts | with_entries(select(.value != 0)) | tojson) != tally \($tally | tojson)" else empty end] | (.[]), (length == 0)' "{workspace}"/outputs/rounds/pr*.json
+        jq -ers --slurpfile got "{workspace}/outputs/rereview-classified.json" '(map({key: (.pr | tostring), value: ([.threads[] | {key: .thread_id, value: .round}] | from_entries)}) | from_entries) as $src | ["ROUND0", "FIX_REGRESSION", "SIBLING", "INCOMPLETE_FIX", "COLLATERAL_DOC", "NEW_SURFACE", "LATE_DISCOVERY", "NOISE"] as $cats | ["spec-or-logic-error", "logic-error", "bug", "correctness", "misc", "other", "general", "unknown", "edge-case", "incorrect-behavior", "wrong-logic", "needs-fix", "code-quality"] as $banned | [$got[0][] | (.pr | tostring) as $p | ($src[$p] // {}) as $r | . as $d | (.threads[] | . as $t | $r[$t.thread_id] as $want | [if ($t.category | IN($cats[])) | not then "category \($t.category | tojson) is not allowed" elif ($t.category == "ROUND0") != ($want == 0) then "category \($t.category) with input round \($want | tojson)" elif $want == null and $t.category != "NOISE" then "category \($t.category) with input round null (must be NOISE)" else empty end, if ($t | has("round") | not) or $t.round != $want then "round \($t.round | tojson) copied, input has \($want | tojson)" else empty end, if ($t.class | type) != "string" or ($t.class | length) == 0 then "class is missing" elif ($t.class | IN($banned[])) then "class \($t.class) is a forbidden catch-all" elif ($t.class | test("^[a-z][a-z0-9]*(-[a-z0-9]+)*$") | not) then "class \($t.class | tojson) is not kebab-case" elif ($t.class | test("-(error|issue|problem|bug)$")) then "class \($t.class) ends in a catch-all suffix" elif $t.class == "no-defect" and ($t.category | IN("NOISE", "ROUND0") | not) then "class no-defect with category \($t.category)" elif $want == null and $t.class != "no-defect" then "class \($t.class) with input round null (must be no-defect)" else empty end] | select(length > 0) | "\($p) \($t.thread_id): \(join("; "))"), ([$d.threads[].category | tostring] | group_by(.) | map({key: .[0], value: length}) | from_entries) as $tally | if ($d.counts | type) != "object" then "\($p): counts is not an object" elif ($d.counts | with_entries(select(.value != 0))) != $tally then "\($p): counts \($d.counts | with_entries(select(.value != 0)) | tojson) != tally \($tally | tojson)" else empty end] | (.[]), (length == 0)' "{workspace}"/outputs/rounds/pr*.json
 
       A violation halts the run. A later-round thread filed as ROUND0 is
       dropped from clustering by cluster-gaps R2 without any error: a live
@@ -763,7 +766,8 @@ stages:
             (construct plus what is wrong with it). `spec-or-logic-error`,
             the largest class on PR #391 at 38 threads, is the canonical
             reject: nothing can be swept for it. Also reject any name on the
-            prompt file's forbidden list.
+            prompt file's forbidden list or ending in -error, -issue,
+            -problem or -bug.
           - `single-pr` — fewer than 2 distinct PRs. This bar is NOT lowered
             when pr_number is set ("{pr_number}" this run): single-PR
             rereview is diagnostic, and every cluster is rejected here.

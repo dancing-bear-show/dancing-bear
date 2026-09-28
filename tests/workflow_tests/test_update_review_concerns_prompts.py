@@ -486,6 +486,44 @@ class TestRenderedJqExecutes(unittest.TestCase):
         self.assertTrue(from_prompt)
         self.assertEqual(from_prompt, in_gate)
 
+    def test_class_shape_rules_fail_catch_all_suffixes_and_non_kebab_names(self) -> None:
+        for cls, needle in (("validation-error", "class validation-error ends in a catch-all suffix"),
+                            ("parser-issue", "class parser-issue ends in a catch-all suffix"),
+                            ("regex-problem", "class regex-problem ends in a catch-all suffix"),
+                            ("guard-bug", "class guard-bug ends in a catch-all suffix"),
+                            ("Unquoted_Var", 'class "Unquoted_Var" is not kebab-case'),
+                            ("unquoted-", 'class "unquoted-" is not kebab-case'),
+                            ("9-lives", 'class "9-lives" is not kebab-case')):
+            with self.subTest(cls=cls):
+                res = self._invariants_after({"T406-1": {"class": cls}})
+                self.assertNotEqual(res.returncode, 0)
+                self.assertIn(f"406 T406-1: {needle}", res.stdout)
+
+    def test_every_seed_class_passes_the_gate(self) -> None:
+        body = _PROMPT_FILE.read_text(encoding="utf-8")
+        table = body[body.index("#### Seed class list"):body.index("### 2. `category`")]
+        seeds = re.findall(r"^\| `([^`]+)` \|", table, flags=re.MULTILINE)
+        self.assertGreater(len(seeds), 20)
+        for cls in seeds:
+            with self.subTest(cls=cls):
+                res = self._invariants_after({"T406-1": {"class": cls}})
+                self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+
+    def test_unplaced_thread_must_be_no_defect(self) -> None:
+        res = self._invariants_after({"T395-0": {"class": "unquoted-shell-var"}})
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("395 T395-0: class unquoted-shell-var with input round null (must be no-defect)", res.stdout)
+
+    def test_prompt_states_the_gate_suffixes_and_shape(self) -> None:
+        body = _PROMPT_FILE.read_text(encoding="utf-8")
+        suffixes = body[body.index("and any name ending in"):body.index("whatever precedes the suffix")]
+        in_gate = re.search(r'-\(([a-z|]+)\)\$', self.invariants)
+        if in_gate is None:
+            self.fail("suffix regex missing from the gate")
+        self.assertEqual(set(re.findall(r"`-([a-z]+)`", suffixes)), set(in_gate.group(1).split("|")))
+        self.assertIn("`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`", body)
+        self.assertIn('test("^[a-z][a-z0-9]*(-[a-z0-9]+)*$")', self.invariants)
+
     def _rounds_406(self, paths: tuple[object, object], thread_commit: object = _OID,
                     round_commit: object = _OID) -> None:
         """Rewrite pr406.json with a commit and a path on each of its two threads."""

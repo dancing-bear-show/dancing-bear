@@ -85,7 +85,9 @@ headlines, and say so in `evidence`.
 
 ### 1. `class`
 
-A short kebab-case name for the defect TYPE, reusable across threads and PRs.
+A short kebab-case name for the defect TYPE, reusable across threads and PRs:
+lowercase letters and digits in hyphen-separated words, starting with a letter
+(`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`).
 
 **Reuse before you invent.** Before classifying, build your running class list:
 
@@ -112,7 +114,10 @@ threads) and useless as a concern because nothing can be swept for it.
 `spec-or-logic-error`, `logic-error`, `bug`, `correctness`, `misc`, `other`,
 `general`, `unknown`, `edge-case`, `incorrect-behavior`, `wrong-logic`,
 `needs-fix`, `code-quality`, and any name ending in `-error`, `-issue`,
-`-problem`, or `-bug` that does not name the construct. If you cannot name the
+`-problem`, or `-bug`, whatever precedes the suffix: name what is wrong with
+the construct instead (`error-swallowed`, not `exception-handling-error`).
+aggregate-rereview rejects every one of these, a non-kebab-case name, and a
+`round: null` thread whose class is not `no-defect`. If you cannot name the
 shape, read the flagged code (see Input for which line and revision) until
 you can. If the thread genuinely has no checkable shape (a question, a
 preference), its class is `no-defect` and its category is `NOISE` (`ROUND0`
