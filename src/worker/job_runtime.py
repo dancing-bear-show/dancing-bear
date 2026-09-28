@@ -95,6 +95,11 @@ def _undo_retry_attempt(job_stem: str, original_attempts: int, q_root: Path) -> 
         pass
 
 
+def _write_shutdown_timeout_marker(job_id: str, root: Path) -> None:
+    """Delegate to queue_ops to write a shutdown-timeout sentinel for ``job_id``."""
+    q.write_shutdown_timeout_marker(job_id, root)
+
+
 def _processing_stems(root: Path) -> set[str]:
     """Return the job stems currently in processing/ under ``root``."""
     folder = q._ensure_dirs(root)["processing"]
@@ -379,12 +384,19 @@ class JobProcessor:
                 "worker claim token missing for job %s after start_processing; requeueing",
                 job_path.stem,
             )
-            q.requeue_processing(
-                job_path.stem,
-                reason=_THREAD_START_FAILED_REASON,
-                root=q.QUEUE_ROOT,
-                claim_token=None,
-            )
+            try:
+                q.requeue_processing(
+                    job_path.stem,
+                    reason=_THREAD_START_FAILED_REASON,
+                    root=q.QUEUE_ROOT,
+                    claim_token=None,
+                )
+            except Exception:  # nosec B110 - requeue failed; job may be stranded in processing/ until the stale-job reaper or manual recovery
+                logger.exception(
+                    "could not requeue tokenless claim for job %s; "
+                    "job may remain stranded in processing/ and requires manual or reaper recovery",
+                    job_path.stem,
+                )
             return 0
 
         self.process_claimed(proc_path, job_data, started_at=st, claim_token=token)
@@ -677,12 +689,19 @@ class DaemonRunner:
                     "worker claim token missing for job %s after start_processing; requeueing",
                     p.stem,
                 )
-                q.requeue_processing(
-                    p.stem,
-                    reason=_THREAD_START_FAILED_REASON,
-                    root=q.QUEUE_ROOT,
-                    claim_token=None,
-                )
+                try:
+                    q.requeue_processing(
+                        p.stem,
+                        reason=_THREAD_START_FAILED_REASON,
+                        root=q.QUEUE_ROOT,
+                        claim_token=None,
+                    )
+                except Exception:  # nosec B110 - requeue failed; job may be stranded in processing/ until the stale-job reaper or manual recovery
+                    logger.exception(
+                        "could not requeue tokenless claim for job %s; "
+                        "job may remain stranded in processing/ and requires manual or reaper recovery",
+                        p.stem,
+                    )
                 break
             t = threading.Thread(
                 target=self._process_claimed_guarded,
@@ -714,11 +733,18 @@ class DaemonRunner:
         with self._registry_lock:
             self._live_threads.pop(stem, None)
         logger.exception("worker thread for job %s failed to start; requeueing", stem)
-        if q.requeue_processing(
-            stem, reason=_THREAD_START_FAILED_REASON, root=q.QUEUE_ROOT, claim_token=token
-        ) is None:
-            logger.warning(
-                "worker abandoning claim for job %s: not requeued (already gone or reclaimed)",
+        try:
+            if q.requeue_processing(
+                stem, reason=_THREAD_START_FAILED_REASON, root=q.QUEUE_ROOT, claim_token=token
+            ) is None:
+                logger.warning(
+                    "worker abandoning claim for job %s: not requeued (already gone or reclaimed)",
+                    stem,
+                )
+        except Exception:  # nosec B110 - requeue failed after registry entry already popped; job may be stranded in processing/ until the stale-job reaper or manual recovery
+            logger.exception(
+                "could not requeue abandoned claim for job %s; "
+                "job may remain stranded in processing/ and requires manual or reaper recovery",
                 stem,
             )
 
@@ -825,6 +851,7 @@ class DaemonRunner:
         worker left behind, which no queue listing would otherwise see.
         """
         q.recover_staged_requeues(root=q.QUEUE_ROOT)
+        q.recover_shutdown_timeout_markers(root=q.QUEUE_ROOT)
         self._run_once_batch()
         return 0
 
@@ -906,10 +933,25 @@ class DaemonRunner:
                 # (inside finish()/retry()) past the grace period — expected
                 # and acceptable here; launchd will re-run the job on next start.
                 # Any other I/O failure is also non-fatal: drain the rest.
+                #
+                # Write a zero-byte sentinel beside the processing/ record so
+                # recover_shutdown_timeout_markers() can force-requeue it on the
+                # next startup, regardless of job_timeout.  This write needs no
+                # lock: the marker sits beside the record, never inside it, so
+                # it cannot race whoever holds the transition lock right now.
                 logger.exception(
-                    "could not requeue job %s on shutdown (skipped); job will be requeued on next start",
+                    "could not requeue job %s on shutdown (skipped); "
+                    "writing shutdown-timeout marker for recovery on next start",
                     stem,
                 )
+                try:
+                    _write_shutdown_timeout_marker(stem, q.QUEUE_ROOT)
+                except Exception:  # nosec B110 - marker write failed; job may stay stranded; already logged above
+                    logger.exception(
+                        "could not write shutdown-timeout marker for job %s; "
+                        "job may remain stranded in processing/ without manual recovery",
+                        stem,
+                    )
         return requeued
 
     def run_daemon(self) -> int:
@@ -936,8 +978,11 @@ class DaemonRunner:
         previous = _install_stop_handlers(self.stop_event)
         try:
             # Publish any staged requeue a previous crash interrupted
-            # (*.json.requeue files invisible to the normal listing).
+            # (*.json.requeue files invisible to the normal listing), and
+            # requeue any job a prior drain could not move before the lock
+            # timed out (*.json.shutdown-timeout markers).
             q.recover_staged_requeues(root=q.QUEUE_ROOT)
+            q.recover_shutdown_timeout_markers(root=q.QUEUE_ROOT)
             try:
                 while not self.stop_event.is_set():
                     n = self.tick()

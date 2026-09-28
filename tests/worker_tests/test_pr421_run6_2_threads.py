@@ -1,0 +1,523 @@
+"""Regression tests for PR #421 run-6-2 review threads.
+
+Three findings from the Copilot re-review after round 6:
+
+Finding 1 (PRRT_kwDOQr1kjM6miGEl — same underlying bug, 3 call sites):
+  requeue_processing() was called bare (no try/except) in three places in
+  job_runtime.py — process_one's None-token branch, _start_batch's None-token
+  branch, and _abandon_claim — so a queue I/O error there would propagate
+  uncaught, crashing the caller and potentially leaving the job stranded in
+  processing/.  Fixed by wrapping each call in try/except with a
+  # nosec B110 comment and a log message that notes the job may remain
+  stranded until manual/reaper recovery.
+
+Finding 2 (PRRT_kwDOQr1kjM6mh-Xe):
+  When drain_live_threads catches _TransitionLockTimeout, the processing/
+  record is left untouched (no lock held).  With job_timeout=0 (the shipped
+  launchd default), the stale-job reaper never reaps the record, and
+  recover_staged_requeues ignores plain *.json files, so the job is silently
+  stranded after a launchd SIGKILL.  Fixed by writing a zero-byte
+  *.json.shutdown-timeout sentinel beside the processing/ record (no lock
+  needed, since the marker never touches the record itself), and adding
+  recover_shutdown_timeout_markers() to queue_ops that is called at startup
+  alongside recover_staged_requeues().  The marker is cleaned up once the
+  processing/ record is gone or successfully requeued.
+
+Finding 3 (PRRT_kwDOQr1kjM6miGEu):
+  The existing test_rival_created_between_exists_check_and_replace_is_overwritten
+  test in test_queue_claim_ownership.py did not actually inject a rival in the
+  window it described — it just called _copy_exclusive() with no contention and
+  checked the trivially-true happy path.  The production code has a genuine
+  limitation on no-hardlink filesystems: a rival created between dest.exists()
+  and tmp.replace(dest) is silently overwritten (the post-replace content
+  re-read matches our bytes, so _NoClobberRaceLost is not raised).  The fix adds
+  a second dest.exists() check immediately before the replace, narrowing the
+  window to the replace call itself.  A rival created between the second check
+  and the replace is still undetectable on standard POSIX (no renameat2
+  RENAME_NOREPLACE in the stdlib), and is documented as a residual known
+  limitation; the test confirms this behavior explicitly.
+"""
+
+from __future__ import annotations
+
+import errno
+import json
+import threading
+import unittest
+from pathlib import Path
+from typing import Any
+from unittest.mock import patch
+
+from tests.worker_tests.helpers import QueueRootIsolationMixin
+from tests.worker_tests.test_daemon_nonblocking import _make_runner, _patch_queue_root
+from worker import queue_ops as q
+from worker.queue_ops import Job, enqueue
+
+_REAL_REPLACE = Path.replace
+
+
+def _read(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _names(folder: Path) -> list[str]:
+    return sorted(p.name for p in folder.iterdir()) if folder.exists() else []
+
+
+class _RuntimeTestBase(unittest.TestCase, QueueRootIsolationMixin):
+    """Temp queue root, every job_runtime queue call redirected to it."""
+
+    def setUp(self) -> None:
+        self.setup_queue_root()
+        self.stack = _patch_queue_root(self.root)
+        self.addCleanup(self.stack.close)
+        self._threads_before = set(threading.enumerate())
+        self.addCleanup(self._join_new_threads)
+
+    def _join_new_threads(self) -> None:
+        for t in threading.enumerate():
+            if t not in self._threads_before and t.ident is not None:
+                t.join(timeout=10)
+
+    def _handlers(self, mapping: dict) -> None:
+        self.stack.enter_context(patch.dict("worker.job_runtime.HANDLERS", mapping))
+
+
+# ---------------------------------------------------------------------------
+# Finding 1 — requeue_processing() call sites lack try/except
+# ---------------------------------------------------------------------------
+
+
+class TestProcessOneRequeueIOError(_RuntimeTestBase):
+    """process_one: a queue I/O error from requeue_processing must not propagate."""
+
+    def test_io_error_from_requeue_is_caught_and_logged(self) -> None:
+        """Happy/sad: process_one returns 0 and logs, does NOT re-raise."""
+        enqueue(Job(id="io1", type="noop", payload={}), root=self.root)
+        runner = _make_runner(self.root, max_per_tick=1)
+        # Simulate start_processing returning a tuple with an empty token
+        # (metadata write failed), then make requeue_processing raise.
+        fake_proc = self.root / "processing" / "io1.json"
+        fake_proc.parent.mkdir(parents=True, exist_ok=True)
+        fake_proc.write_text(json.dumps({"id": "io1"}), encoding="utf-8")
+
+        with (
+            patch.object(q, "start_processing", return_value=(fake_proc, "")),
+            patch.object(q, "requeue_processing", side_effect=OSError("disk full")),
+            self.assertLogs("worker.job_runtime", "ERROR"),
+        ):
+            result = runner.processor.process_one(
+                self.root / "pending" / "io1.json",
+                {"id": "io1", "type": "noop", "payload": {}},
+            )
+        # Returns 0 (skipped), does not raise
+        self.assertEqual(result, 0)
+
+    def test_requeue_succeeds_normal_path_unaffected(self) -> None:
+        """Happy path: process_one still skips without error when start_processing
+        returns empty token and requeue_processing succeeds."""
+        enqueue(Job(id="io2", type="noop", payload={}), root=self.root)
+        runner = _make_runner(self.root, max_per_tick=1)
+        fake_proc = self.root / "processing" / "io2.json"
+        fake_proc.parent.mkdir(parents=True, exist_ok=True)
+        fake_proc.write_text(json.dumps({"id": "io2"}), encoding="utf-8")
+
+        with (
+            patch.object(q, "start_processing", return_value=(fake_proc, "")),
+            patch.object(q, "requeue_processing", return_value=None),
+        ):
+            result = runner.processor.process_one(
+                self.root / "pending" / "io2.json",
+                {"id": "io2", "type": "noop", "payload": {}},
+            )
+        self.assertEqual(result, 0)
+
+
+class TestStartBatchTokenlessRequeueIOError(_RuntimeTestBase):
+    """_start_batch's None-token branch: queue I/O error from requeue_processing
+    must not propagate out of tick()."""
+
+    def test_io_error_from_requeue_is_caught_and_logged(self) -> None:
+        enqueue(Job(id="sb1", type="noop", payload={}), root=self.root)
+        runner = _make_runner(self.root, max_per_tick=1)
+        fake_proc = self.root / "processing" / "sb1.json"
+        fake_proc.parent.mkdir(parents=True, exist_ok=True)
+        fake_proc.write_text(json.dumps({"id": "sb1"}), encoding="utf-8")
+
+        with (
+            patch.object(q, "start_processing", return_value=(fake_proc, "")),
+            patch.object(q, "requeue_processing", side_effect=OSError("disk full")),
+            self.assertLogs("worker.job_runtime", "ERROR"),
+        ):
+            # tick() calls _start_batch; must not raise even when requeue fails
+            result = runner.tick()
+        # 0 jobs started (claim was lost, loop broke)
+        self.assertEqual(result, 0)
+
+    def test_tokenless_claim_breaks_loop_and_requeues_normally(self) -> None:
+        """Happy path: empty token causes break and requeue without error."""
+        enqueue(Job(id="sb2", type="noop", payload={}), root=self.root)
+        runner = _make_runner(self.root, max_per_tick=1)
+        fake_proc = self.root / "processing" / "sb2.json"
+        fake_proc.parent.mkdir(parents=True, exist_ok=True)
+        fake_proc.write_text(json.dumps({"id": "sb2"}), encoding="utf-8")
+
+        with (
+            patch.object(q, "start_processing", return_value=(fake_proc, "")),
+            patch.object(q, "requeue_processing", return_value=None),
+            self.assertLogs("worker.job_runtime", "WARNING"),
+        ):
+            result = runner.tick()
+        self.assertEqual(result, 0)
+
+
+class TestAbandonClaimRequeueIOError(_RuntimeTestBase):
+    """_abandon_claim: queue I/O error from requeue_processing must not propagate."""
+
+    def test_io_error_from_requeue_is_caught_and_logged(self) -> None:
+        enqueue(Job(id="ac1", type="noop", payload={}), root=self.root)
+        runner = _make_runner(self.root, max_per_tick=1)
+
+        # Make start_processing succeed with a real token
+        fake_proc = self.root / "processing" / "ac1.json"
+        fake_proc.parent.mkdir(parents=True, exist_ok=True)
+        fake_proc.write_text(json.dumps({"id": "ac1", "claim_token": "tok-abc"}), encoding="utf-8")
+
+        import threading as _threading
+
+        with (
+            patch.object(q, "start_processing", return_value=(fake_proc, "tok-abc")),
+            patch.object(_threading.Thread, "start", side_effect=RuntimeError("thread fail")),
+            patch.object(q, "requeue_processing", side_effect=OSError("disk full")),
+            self.assertLogs("worker.job_runtime", "ERROR"),
+        ):
+            result = runner.tick()
+        # 0 started (thread.start() failed and _abandon_claim was called)
+        self.assertEqual(result, 0)
+        # Registry entry was cleaned up
+        self.assertNotIn("ac1", runner._live_threads)
+
+    def test_abandon_claim_requeue_succeeds_normal_path(self) -> None:
+        """Happy path: thread start failure triggers _abandon_claim successfully."""
+        enqueue(Job(id="ac2", type="noop", payload={}), root=self.root)
+        runner = _make_runner(self.root, max_per_tick=1)
+
+        fake_proc = self.root / "processing" / "ac2.json"
+        fake_proc.parent.mkdir(parents=True, exist_ok=True)
+        fake_proc.write_text(json.dumps({"id": "ac2", "claim_token": "tok-def"}), encoding="utf-8")
+
+        import threading as _threading
+
+        with (
+            patch.object(q, "start_processing", return_value=(fake_proc, "tok-def")),
+            patch.object(_threading.Thread, "start", side_effect=RuntimeError("thread fail")),
+            patch.object(q, "requeue_processing", return_value=None),
+            self.assertLogs("worker.job_runtime", "ERROR"),
+        ):
+            result = runner.tick()
+        self.assertEqual(result, 0)
+        self.assertNotIn("ac2", runner._live_threads)
+
+
+# ---------------------------------------------------------------------------
+# Finding 2 — shutdown-timeout marker written and recovered
+# ---------------------------------------------------------------------------
+
+
+class TestShutdownTimeoutMarkerWritten(_RuntimeTestBase):
+    """drain_live_threads writes a *.json.shutdown-timeout sentinel when
+    _TransitionLockTimeout is raised for a job."""
+
+    def test_marker_written_on_lock_timeout(self) -> None:
+        """Sad path: _TransitionLockTimeout causes a marker to be written beside
+        the processing/ record."""
+        from worker.queue_ops import _TransitionLockTimeout
+
+        enqueue(Job(id="st1", type="noop", payload={}), root=self.root)
+        runner = _make_runner(self.root, max_per_tick=1)
+        # Manually plant a processing/ record to simulate an in-flight job
+        paths = q._ensure_dirs(self.root)
+        proc = paths["processing"] / "st1.json"
+        proc.write_text(json.dumps({"id": "st1", "claim_token": "tok-st1"}), encoding="utf-8")
+        # Register a fake dead thread so drain_live_threads iterates over it
+        dead_thread = threading.Thread(target=lambda: None, daemon=True)
+        dead_thread.start()
+        dead_thread.join()
+        runner._live_threads["st1"] = (dead_thread, "tok-st1")
+
+        with (
+            patch.object(q, "requeue_processing", side_effect=_TransitionLockTimeout("timed out")),
+            self.assertLogs("worker.job_runtime", "ERROR"),
+        ):
+            runner.drain_live_threads(grace=0.0)
+
+        marker = paths["processing"] / "st1.json.shutdown-timeout"
+        self.assertTrue(marker.exists(), "shutdown-timeout marker was not written")
+
+    def test_no_marker_on_successful_requeue(self) -> None:
+        """Happy path: successful requeue writes no marker."""
+        enqueue(Job(id="st2", type="noop", payload={}), root=self.root)
+        runner = _make_runner(self.root, max_per_tick=1)
+        paths = q._ensure_dirs(self.root)
+        proc = paths["processing"] / "st2.json"
+        proc.write_text(json.dumps({"id": "st2", "claim_token": "tok-st2"}), encoding="utf-8")
+        dead_thread = threading.Thread(target=lambda: None, daemon=True)
+        dead_thread.start()
+        dead_thread.join()
+        runner._live_threads["st2"] = (dead_thread, "tok-st2")
+
+        with patch.object(q, "requeue_processing", return_value=None):
+            runner.drain_live_threads(grace=0.0)
+
+        marker = paths["processing"] / "st2.json.shutdown-timeout"
+        self.assertFalse(marker.exists(), "marker should not exist on clean drain")
+
+
+class TestRecoverShutdownTimeoutMarkers(unittest.TestCase, QueueRootIsolationMixin):
+    """recover_shutdown_timeout_markers requeues stranded jobs on startup."""
+
+    def setUp(self) -> None:
+        self.setup_queue_root()
+
+    def test_requeues_processing_job_with_marker(self) -> None:
+        """Sad path: processing/ record with a marker is moved back to pending/."""
+        paths = q._ensure_dirs(self.root)
+        # Plant a job in processing/ with a marker
+        proc = paths["processing"] / "st3.json"
+        proc.write_text(
+            json.dumps({"id": "st3", "type": "noop", "payload": {}, "status": "processing"}),
+            encoding="utf-8",
+        )
+        marker = paths["processing"] / "st3.json.shutdown-timeout"
+        marker.touch()
+
+        recovered = q.recover_shutdown_timeout_markers(root=self.root)
+        self.assertIn("st3", recovered)
+        self.assertTrue((paths["pending"] / "st3.json").exists(), "job not moved to pending/")
+        self.assertFalse(proc.exists(), "processing/ record should be gone")
+        self.assertFalse(marker.exists(), "marker should be cleaned up")
+
+    def test_cleans_up_stale_marker_when_job_already_gone(self) -> None:
+        """Happy path: marker without a corresponding processing/ record is removed."""
+        paths = q._ensure_dirs(self.root)
+        marker = paths["processing"] / "st4.json.shutdown-timeout"
+        marker.touch()
+
+        recovered = q.recover_shutdown_timeout_markers(root=self.root)
+        self.assertNotIn("st4", recovered)
+        self.assertFalse(marker.exists(), "stale marker should be cleaned up")
+
+    def test_no_double_requeue_when_already_pending(self) -> None:
+        """Happy path: if the job is already in pending/ (queued by another path),
+        the marker is cleaned up without duplicating the pending record."""
+        paths = q._ensure_dirs(self.root)
+        # The job was already moved to pending/ (e.g. by recover_staged_requeues)
+        pending = paths["pending"] / "st5.json"
+        pending.write_text(
+            json.dumps({"id": "st5", "type": "noop", "payload": {}, "status": "pending"}),
+            encoding="utf-8",
+        )
+        # No processing/ record — marker is stale
+        marker = paths["processing"] / "st5.json.shutdown-timeout"
+        marker.touch()
+
+        recovered = q.recover_shutdown_timeout_markers(root=self.root)
+        self.assertNotIn("st5", recovered)
+        # pending/ copy is intact and unchanged
+        self.assertTrue(pending.exists())
+        self.assertFalse(marker.exists(), "stale marker should be cleaned up")
+
+    def test_marker_left_on_requeue_failure(self) -> None:
+        """Sad path: if requeue_processing raises, marker stays for next startup."""
+        paths = q._ensure_dirs(self.root)
+        proc = paths["processing"] / "st6.json"
+        proc.write_text(
+            json.dumps({"id": "st6", "type": "noop", "payload": {}, "status": "processing"}),
+            encoding="utf-8",
+        )
+        marker = paths["processing"] / "st6.json.shutdown-timeout"
+        marker.touch()
+
+        with (
+            patch.object(q, "requeue_processing", side_effect=OSError("disk full")),
+            self.assertLogs("worker.queue_ops", "WARNING"),
+        ):
+            recovered = q.recover_shutdown_timeout_markers(root=self.root)
+
+        self.assertNotIn("st6", recovered)
+        # marker preserved for next startup
+        self.assertTrue(marker.exists(), "marker should stay on failed requeue")
+
+    def test_run_once_calls_recover_shutdown_timeout_markers(self) -> None:
+        """Happy path: run_once calls recover_shutdown_timeout_markers at startup."""
+        paths = q._ensure_dirs(self.root)
+        proc = paths["processing"] / "st7.json"
+        proc.write_text(
+            json.dumps({"id": "st7", "type": "noop", "payload": {}, "status": "processing"}),
+            encoding="utf-8",
+        )
+        marker = paths["processing"] / "st7.json.shutdown-timeout"
+        marker.touch()
+
+        runner = _make_runner(self.root, max_per_tick=1)
+        stack = _patch_queue_root(self.root)
+        with stack:
+            runner.run_once()
+
+        # After run_once, the marker should be gone and the job requeued
+        self.assertFalse(marker.exists(), "marker should be cleaned up by run_once")
+
+
+class TestWriteShutdownTimeoutMarker(unittest.TestCase, QueueRootIsolationMixin):
+    """write_shutdown_timeout_marker creates the expected file."""
+
+    def setUp(self) -> None:
+        self.setup_queue_root()
+
+    def test_creates_marker_file(self) -> None:
+        paths = q._ensure_dirs(self.root)
+        q.write_shutdown_timeout_marker("m1", root=self.root)
+        marker = paths["processing"] / "m1.json.shutdown-timeout"
+        self.assertTrue(marker.exists())
+
+    def test_idempotent(self) -> None:
+        """touch() is idempotent; writing twice does not raise."""
+        q.write_shutdown_timeout_marker("m2", root=self.root)
+        q.write_shutdown_timeout_marker("m2", root=self.root)
+        paths = q._ensure_dirs(self.root)
+        self.assertTrue((paths["processing"] / "m2.json.shutdown-timeout").exists())
+
+
+# ---------------------------------------------------------------------------
+# Finding 3 — _copy_exclusive rival-in-window race
+# ---------------------------------------------------------------------------
+
+
+class TestCopyExclusiveRivalInWindow(unittest.TestCase, QueueRootIsolationMixin):
+    """The no-clobber fallback in _copy_exclusive on no-hardlink filesystems.
+
+    The hard-link path is disabled by patching os.link to raise OSError(EPERM),
+    forcing the check-then-replace fallback.
+    """
+
+    rival_content = json.dumps({"id": "p1", "payload": {"theirs": True}}).encode()
+    our_content = json.dumps({"id": "p1", "payload": {"mine": True}}).encode()
+
+    def setUp(self) -> None:
+        self.setup_queue_root()
+        paths = q._ensure_dirs(self.root)
+        self.staged = paths["processing"] / "p1.json.requeue"
+        self.staged.write_bytes(self.our_content)
+        self.dest = paths["pending"] / "p1.json"
+
+    def _no_hardlinks(self):
+        """Context manager that disables hard links for _copy_exclusive."""
+        return patch("worker.queue_ops.os.link", side_effect=OSError(errno.EPERM, "no links"))
+
+    def test_rival_before_first_check_is_refused(self) -> None:
+        """A rival already present when dest.exists() first runs causes
+        FileExistsError and the staged file is kept intact."""
+        self.dest.write_bytes(self.rival_content)
+        with self._no_hardlinks():
+            with self.assertRaises(FileExistsError):
+                q._copy_exclusive(self.staged, self.dest)
+        self.assertEqual(self.dest.read_bytes(), self.rival_content, "rival bytes must survive")
+        self.assertTrue(self.staged.exists(), "staged file must be kept")
+
+    def test_rival_created_between_second_check_and_replace_is_overwritten(self) -> None:
+        """Known POSIX limitation: a rival created in the residual window between
+        the second dest.exists() check and tmp.replace(dest) is overwritten
+        without raising _NoClobberRaceLost.  There is no renameat2(RENAME_NOREPLACE)
+        in the Python stdlib, so this narrow window cannot be closed atomically.
+        This test documents the actual behavior rather than asserting it is safe.
+        """
+        # Intercept at the second existence check. The first check returns False
+        # (dest doesn't exist), the rival is then created, the second check is
+        # also forced to return False (simulating the race window), and then
+        # tmp.replace(dest) overwrites the rival.
+        exists_calls: list[bool] = []
+        original_exists = Path.exists
+
+        def patched_exists(self_path: Path) -> bool:
+            if self_path == self.dest:
+                result = original_exists(self_path)
+                exists_calls.append(result)
+                if len(exists_calls) == 2:
+                    # Second check: create rival as side effect to simulate the
+                    # race, but still return False to let the replace proceed.
+                    self.dest.write_bytes(self.rival_content)
+                    return False
+                return result
+            return original_exists(self_path)
+
+        with (
+            self._no_hardlinks(),
+            patch.object(Path, "exists", patched_exists),
+        ):
+            # No exception is raised — this is the known limitation.
+            q._copy_exclusive(self.staged, self.dest)
+
+        # Our bytes won (we replaced the rival).
+        self.assertEqual(self.dest.read_bytes(), self.our_content)
+
+    def test_rival_created_between_first_and_second_check_is_caught(self) -> None:
+        """The second dest.exists() check added in this fix catches rivals created
+        between the first check and the second: FileExistsError is raised and the
+        rival's record survives."""
+        exists_calls: list[int] = []
+        original_exists = Path.exists
+
+        def patched_exists(self_path: Path) -> bool:
+            if self_path == self.dest:
+                exists_calls.append(1)
+                if len(exists_calls) == 1:
+                    # First check: no rival yet; return False
+                    return False
+                # Second check: create the rival first, then let the real
+                # check find it.
+                if len(exists_calls) == 2:
+                    self.dest.write_bytes(self.rival_content)
+                return original_exists(self_path)
+            return original_exists(self_path)
+
+        with (
+            self._no_hardlinks(),
+            patch.object(Path, "exists", patched_exists),
+        ):
+            with self.assertRaises(FileExistsError):
+                q._copy_exclusive(self.staged, self.dest)
+
+        # Rival bytes are intact
+        self.assertEqual(self.dest.read_bytes(), self.rival_content)
+        # Staged file preserved for recovery
+        self.assertTrue(self.staged.exists())
+
+    def test_publish_no_clobber_with_no_rival_succeeds(self) -> None:
+        """Happy path: publish succeeds and staged is removed when dest is free."""
+        with self._no_hardlinks():
+            result = q._publish_no_clobber(self.staged, self.dest)
+        self.assertTrue(result)
+        self.assertEqual(self.dest.read_bytes(), self.our_content)
+        self.assertFalse(self.staged.exists())
+
+    def test_later_rival_overwrites_us_raises_no_clobber_race_lost(self) -> None:
+        """The post-replace re-read catches a rival that overwrites US after we
+        published: _NoClobberRaceLost is raised."""
+        original_replace = Path.replace
+
+        def patched_replace(self_path: Path, target: Path) -> Any:
+            result = original_replace(self_path, target)
+            # After our replace, simulate a rival writing different bytes to dest
+            target.write_bytes(self.rival_content)
+            return result
+
+        with (
+            self._no_hardlinks(),
+            patch.object(Path, "replace", patched_replace),
+        ):
+            with self.assertRaises(q._NoClobberRaceLost):
+                q._copy_exclusive(self.staged, self.dest)
+
+
+if __name__ == "__main__":
+    unittest.main()

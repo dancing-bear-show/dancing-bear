@@ -403,7 +403,78 @@ def retry(
 
 
 _REQUEUE_STAGING_SUFFIX = ".requeue"
+# Written when drain_live_threads times out acquiring the transition lock for a
+# job.  The record in processing/ is left untouched (no lock held), so this
+# zero-byte sentinel is the only durable evidence of the failed drain attempt.
+# recover_shutdown_timeout_markers() reads it at startup and force-requeues the
+# corresponding processing/ record regardless of job_timeout.
+_SHUTDOWN_TIMEOUT_MARKER_SUFFIX = ".shutdown-timeout"
 SHUTDOWN_REQUEUE_REASON = "requeued-on-shutdown"
+
+
+def write_shutdown_timeout_marker(job_id: str, root: Path | None = None) -> None:
+    """Write a zero-byte sentinel beside processing/<job_id>.json.
+
+    Created when drain_live_threads cannot acquire the transition lock for a
+    job before the shutdown deadline.  The processing/ record is left
+    untouched (no lock held), so this marker is the only durable evidence the
+    drain attempt failed.  recover_shutdown_timeout_markers() reads it at
+    startup and force-requeues the corresponding record regardless of
+    job_timeout.  Writing requires no lock: the file sits beside the job
+    record and does not modify it.
+    """
+    paths = _ensure_dirs(root)
+    marker = paths["processing"] / f"{job_id}{_JOB_SUFFIX}{_SHUTDOWN_TIMEOUT_MARKER_SUFFIX}"
+    marker.touch()
+
+
+def recover_shutdown_timeout_markers(root: Path | None = None) -> list[str]:
+    """Requeue any processing/ jobs that have a shutdown-timeout marker.
+
+    Called at startup alongside recover_staged_requeues.  For each
+    ``*.json.shutdown-timeout`` sentinel in processing/:
+
+    - If the corresponding ``*.json`` record still exists, call
+      requeue_processing without a claim_token (no live thread owns it after a
+      restart) so the record is moved back to pending/ regardless of
+      job_timeout.  A failed requeue logs a warning and leaves both files in
+      place for the next startup attempt.
+    - Once the processing/ record is gone (finished or already requeued), the
+      marker is removed so it does not trigger a spurious double-requeue.
+
+    Returns the job ids that were requeued (not just recovered).
+    """
+    paths = _ensure_dirs(root)
+    requeued: list[str] = []
+    marker_suffix = _JOB_SUFFIX + _SHUTDOWN_TIMEOUT_MARKER_SUFFIX
+    for marker in list(paths["processing"].iterdir()):
+        if not marker.name.endswith(marker_suffix):
+            continue
+        job_id = marker.name[: -len(marker_suffix)]
+        proc_path = _job_path(paths["processing"], job_id)
+        if not proc_path.exists():
+            # Job already finished or requeued on its own; clean up stale marker.
+            marker.unlink(missing_ok=True)
+            continue
+        try:
+            result = requeue_processing(job_id, reason=SHUTDOWN_REQUEUE_REASON, root=root)
+        except Exception as exc:
+            _log.warning(
+                "Could not recover shutdown-timeout job %s: %s; "
+                "marker left in place for next startup attempt",
+                job_id,
+                exc,
+            )
+            continue
+        if result is not None:
+            requeued.append(job_id)
+            _log.info("recovered shutdown-timeout job %s", job_id)
+        else:
+            _log.debug("Shutdown-timeout job %s not requeued (gone or already pending)", job_id)
+        # Remove the marker regardless: either the job was requeued or it is
+        # gone, and a stale marker on the next startup would be a no-op anyway.
+        marker.unlink(missing_ok=True)
+    return requeued
 
 
 def _normalize_requeued(data: dict[str, object], reason: str) -> None:
@@ -516,10 +587,23 @@ def _copy_exclusive(staged: Path, dest: Path) -> None:
         if dest.exists():
             tmp.unlink(missing_ok=True)
             raise FileExistsError(dest)
+        # Second existence check, immediately before the replace, to catch a
+        # rival that created dest in the gap between the check above and now.
+        # This does not eliminate the window but narrows it to the shortest
+        # possible interval before the replace, making any remaining gap
+        # detectable by the post-replace content re-read below (which catches
+        # a rival that replaces us after our own write).
+        if dest.exists():
+            tmp.unlink(missing_ok=True)
+            raise FileExistsError(dest)
         tmp.replace(dest)
-        # Detect (not prevent) a rival that claimed dest in the gap between
-        # the check above and this replace: re-read what is on disk now and
-        # compare it to the bytes we just wrote.
+        # Detect a rival that claimed dest in the narrow gap between the
+        # second check above and this replace: re-read what is on disk now and
+        # compare it to the bytes we just wrote. A mismatch means a rival
+        # overwrote our record (or we overwrote theirs and a still-later rival
+        # then overwrote us) -- raise so the caller leaves staged in place for
+        # recover_staged_requeues rather than trusting a publish that may have
+        # destroyed another worker's record.
         try:
             observed = dest.read_bytes()
         except FileNotFoundError:

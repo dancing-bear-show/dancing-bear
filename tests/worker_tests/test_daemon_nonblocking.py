@@ -33,6 +33,7 @@ from worker.queue_ops import (
     list_pending as _real_list_pending,
     reap_stale_processing_jobs as _real_reap,
     recover_staged_requeues as _real_recover,
+    recover_shutdown_timeout_markers as _real_recover_shutdown_markers,
     requeue_processing as _real_requeue,
     retry as _real_retry,
     start_processing as _real_start,
@@ -113,6 +114,12 @@ def _patch_queue_root(job_root: Path) -> ExitStack:
         patch(
             "worker.job_runtime.q.recover_staged_requeues",
             side_effect=lambda root=None: _real_recover(root=job_root),
+        )
+    )
+    stack.enter_context(
+        patch(
+            "worker.job_runtime.q.recover_shutdown_timeout_markers",
+            side_effect=lambda root=None: _real_recover_shutdown_markers(root=job_root),
         )
     )
     return stack
