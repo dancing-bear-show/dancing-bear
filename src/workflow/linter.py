@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 from .harness_outputs import describe, find_refused_outputs
 from .include import extract_include_entries, resolve_fragment_path
 from .linter_access import _check_agent_access, _check_stage_access
-from .linter_shell import ShellLintContext, check_shell_rules
+from .linter_shell import RULE_UNVALIDATED_PARAM, ShellLintContext, check_shell_rules
 from .linter_types import LintError, LintResult, LintWarning
 from .param_rules import ENGINE_BUILTIN_PARAMS
 
@@ -190,9 +190,24 @@ def _merge_fragment_findings(frag_path: Path, frag_result: LintResult, result: L
     Stage names are prefixed with the fragment's path so a warning reads as
     belonging to the fragment, not the importer, and does not collide with an
     importer stage of the same bare name.
+
+    ``shell-unvalidated-param`` is dropped here: it is the one shell rule that
+    is context-dependent (it asks whether a caller-overridable ``{param}`` is
+    constrained by ``trigger.param_rules`` or a ``check-params`` call), and the
+    fragment's standalone lint judges it only against the fragment's own
+    trigger -- not the importer's. The importer's own ``check_shell_rules``
+    call in ``lint_workflow`` already re-judges every inlined stage (including
+    this fragment's) under the importer's merged context, so re-including the
+    fragment's standalone verdict here would surface a false warning whenever
+    the importer supplies a ``param_rules`` entry the fragment lacks. The
+    context-free rules (unbound-variable, fan-out quoting, isolation,
+    guard-refused, validate-writes) have no such duplicate check for inlined
+    stages, so they are kept.
     """
     label = frag_path.name
     for w in frag_result.warnings:
+        if w.rule == RULE_UNVALIDATED_PARAM:
+            continue
         result.warnings.append(
             LintWarning(stage=f"{label}:{w.stage}", field=w.field, message=w.message, rule=w.rule)
         )
