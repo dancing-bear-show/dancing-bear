@@ -55,13 +55,11 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from .linter_types import LintResult, LintWarning
+from .shell_parse import ShellScript, SimpleCommand, parse_shell
 from .shell_text import (
-    ShellScript,
     ShellSegment,
-    SimpleCommand,
     extract_labelled_assignments,
     extract_shell_segments,
-    parse_shell,
     quote_context,
 )
 
