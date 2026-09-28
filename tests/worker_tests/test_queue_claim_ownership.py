@@ -220,25 +220,6 @@ class TestPublishWithoutHardLinks(unittest.TestCase, QueueRootIsolationMixin):
         link.start()
         self.addCleanup(link.stop)
 
-    def _rival_creates_dest_before_exists_check(self) -> Callable[..., Any]:
-        """Make dest.exists() return False once, then create dest so a subsequent
-        exists() call sees it — simulating a rival that creates dest between our
-        check and the replace.  Used to verify the documented narrow-race window
-        on no-hardlink filesystems."""
-        call_count: dict[str, int] = {"n": 0}
-        real_exists = Path.exists
-
-        def _patched_exists(self_path: Path) -> bool:
-            if self_path == self.dest:
-                call_count["n"] += 1
-                if call_count["n"] == 1:
-                    # First check: report absent so we proceed to replace.
-                    return False
-                # Subsequent checks see the rival.
-            return real_exists(self_path)
-
-        return _patched_exists
-
     def test_file_created_between_check_and_publish_is_not_overwritten(self) -> None:
         """On no-hardlink filesystems, dest.exists() guards against a pre-existing
         dest.  A rival that creates dest before the exists() check is detected and

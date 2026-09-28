@@ -414,7 +414,9 @@ class TestRequeueError(unittest.TestCase, QueueRootIsolationMixin):
         p = enqueue(job, root=self.root)
         proc = start_processing(p, self.root)
         assert proc is not None  # nosec B101 - narrows Optional for mypy
-        return finish(proc, success=False, error_msg="boom", root=self.root)
+        result = finish(proc, success=False, error_msg="boom", root=self.root)
+        assert result is not None  # nosec B101 - narrows Optional for mypy
+        return result
 
     def test_requeue_error_moves_to_pending(self):
         from worker.queue_ops import requeue_error
