@@ -67,7 +67,7 @@ class TestMarkerCleanupFailureDoesNotAbortRecovery(_Base):
         stale_token = "b" * 32
         q.write_shutdown_timeout_marker("stale1", stale_token, root=self.root)
         stale_name = self._marker_name("stale1", stale_token)
-        _proc, token = self._claimed_with_marker("live1")
+        _, token = self._claimed_with_marker("live1")
 
         with patch.object(Path, "unlink", _fail_for(stale_name, _REAL_UNLINK)), \
                 self.assertLogs(q.__name__, "WARNING") as logs:
@@ -83,8 +83,8 @@ class TestMarkerCleanupFailureDoesNotAbortRecovery(_Base):
 
     def test_unlink_failure_after_requeue_recovers_the_other_markers(self) -> None:
         """4122495300: the requeue happened; only the cleanup failed."""
-        _p1, tok1 = self._claimed_with_marker("job1")
-        _p2, _tok2 = self._claimed_with_marker("job2")
+        _, tok1 = self._claimed_with_marker("job1")
+        self._claimed_with_marker("job2")
         name1 = self._marker_name("job1", tok1)
 
         with patch.object(Path, "unlink", _fail_for(name1, _REAL_UNLINK)), \
@@ -106,7 +106,7 @@ class TestMarkerCleanupFailureDoesNotAbortRecovery(_Base):
     def test_record_probe_failure_recovers_the_other_markers(self) -> None:
         """Same class: the existence probe of one marker's record fails."""
         p1, tok1 = self._claimed_with_marker("probe1")
-        _p2, _tok2 = self._claimed_with_marker("probe2")
+        self._claimed_with_marker("probe2")
 
         with patch.object(Path, "exists", _fail_for(p1.name, _REAL_EXISTS)), \
                 self.assertLogs(q.__name__, "WARNING") as logs:
