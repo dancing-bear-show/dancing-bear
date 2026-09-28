@@ -36,6 +36,8 @@ _PLACEHOLDER_RE = re.compile(r"\{[a-z_][a-z0-9_]*\}")
 #: Input round per fixture thread: 406 has a round-0 and a round-2 thread,
 #: 395 has one unplaced (null) thread.
 _ROUNDS: dict[str, int | None] = {"T406-0": 0, "T406-1": 2, "T395-0": None}
+#: A full commit OID, the only commit shape review-rounds writes.
+_OID = "0123456789abcdef0123456789abcdef01234567"
 _CATEGORY_FOR_ROUND: dict[int | None, str] = {0: "ROUND0", None: "NOISE"}
 
 
@@ -133,8 +135,11 @@ class TestRenderedPrompts(unittest.TestCase):
     def test_classifier_reads_checked_in_prompt(self) -> None:
         text = self.prompts["classify-rereview"]
         self.assertIn("workflows/code/prompts/classify-rereview.md", text)
-        self.assertIn("/ws/outputs/rounds/pr{pr}.json", text)
+        self.assertIn("Input:  /ws/outputs/rounds-safe/pr{pr}.json", text)
+        self.assertIn('> "/ws/outputs/rounds-safe/pr{pr}.json"', text)
+        self.assertIn("Never read outputs/rounds/pr{pr}.json", text)
         self.assertIn("/ws/outputs/classified/pr{pr}.json", text)
+        self.assertLess(text.index("rm -f"), text.index("--arg pr "))
         self.assertTrue(_PROMPT_FILE.is_file())
 
     def test_prompt_file_is_workspace_relative_and_bans_catch_alls(self) -> None:
@@ -242,6 +247,9 @@ class TestRenderedJqExecutes(unittest.TestCase):
         fetch = _jq_lines(prompts["fetch-round-history"])
         self.refuse_empty = next(c for c in fetch if "length > 0' " in c and "items" not in c)
         self.build_index = next(c for c in fetch if "--argjson min" in c)
+        (self.gate,) = [c for c in fetch if "def okc" in c]
+        (self.sanitise,) = [c for c in fetch if "--slurpfile u " in c]
+        (self.extract,) = [c for c in _jq_lines(prompts["classify-rereview"]) if "--arg pr " in c]
         agg = _jq_lines(prompts["aggregate-rereview"])
         self.merge, self.counts, self.check, self.explain, self.invariants = agg
 
@@ -440,6 +448,67 @@ class TestRenderedJqExecutes(unittest.TestCase):
         in_gate = set(re.findall(r'"([a-z-]+)"', self.invariants.split("as $cats")[1].split("as $banned")[0]))
         self.assertTrue(from_prompt)
         self.assertEqual(from_prompt, in_gate)
+
+    def _rounds_406(self, paths: tuple[object, object], thread_commit: object = _OID,
+                    round_commit: object = _OID) -> None:
+        """Rewrite pr406.json with a commit and a path on each of its two threads."""
+        threads = [{"thread_id": f"T406-{i}", "round": _ROUNDS[f"T406-{i}"], "commit": thread_commit,
+                    "path": path, "body": "b"} for i, path in enumerate(paths)]
+        self._write("outputs/rounds/pr406.json", {"pr": 406, "rounds": [{"round": 0, "commit": round_commit}],
+                                                  "threads": threads})
+
+    def _gate_and_sanitise(self) -> tuple[list[object], dict[str, dict[str, object]]]:
+        for cmd in (self.gate, self.sanitise):
+            res = self._run(cmd)
+            self.assertEqual(res.returncode, 0, res.stderr)
+        unsafe = json.loads((self.ws / "outputs/rounds/unsafe-paths.json").read_text())
+        return unsafe, json.loads((self.ws / "outputs/rounds-sanitised.json").read_text())
+
+    def test_gate_nulls_shell_unfriendly_paths_without_failing(self) -> None:
+        bad = ["src/$(id).py", "docs/my file.md", "src/`id`.py", "../etc/passwd", "a/./b",
+               ".github/workflows/ci.yml", ".claude/settings.json", "src/.GIT/hooks", "src/.envrc",
+               "-rf", "/etc/passwd", "it's.py", "café.py"]
+        for path in bad:
+            with self.subTest(path=path):
+                self._rounds_406((path, "src/core/ok_file-1.py"))
+                unsafe, safe = self._gate_and_sanitise()
+                self.assertEqual(unsafe, [{"pr": 406, "thread_id": "T406-0", "path": path}])
+                self.assertEqual([t["path"] for t in safe["406"]["threads"]], [None, "src/core/ok_file-1.py"])
+
+    def test_gate_fails_on_a_short_or_missing_commit(self) -> None:
+        for label, kwargs in (("thread short", {"thread_commit": "abc123"}),
+                              ("thread uppercase", {"thread_commit": _OID.upper()}),
+                              ("round short", {"round_commit": "abc123"}),
+                              ("round null", {"round_commit": None})):
+            with self.subTest(case=label):
+                self._rounds_406(("src/a.py", "src/b.py"), **kwargs)
+                res = self._run(self.gate)
+                self.assertNotEqual(res.returncode, 0)
+                self.assertIn("commit is not a full OID", res.stderr)
+
+    def test_valid_data_passes_unchanged(self) -> None:
+        self._rounds_406(("src/a.py", None), thread_commit=None)
+        originals = {p: json.loads((self.ws / f"outputs/rounds/pr{p}.json").read_text()) for p in (406, 395, 12)}
+        unsafe, safe = self._gate_and_sanitise()
+        self.assertEqual(unsafe, [])
+        self.assertEqual(safe, {str(p): doc for p, doc in originals.items()})
+        self.assertEqual(json.loads((self.ws / "outputs/rounds/pr406.json").read_text()), originals[406])
+
+    def test_classifier_extract_is_the_sanitised_copy(self) -> None:
+        self._rounds_406(("src/$(id).py", "src/a.py"))
+        _, safe = self._gate_and_sanitise()
+        (self.ws / "outputs/rounds-safe").mkdir()
+        res = self._run(self.extract.replace("{pr}", "406"))
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(json.loads((self.ws / "outputs/rounds-safe/pr406.json").read_text()), safe["406"])
+        self.assertNotEqual(self._run(self.extract.replace("{pr}", "999")).returncode, 0)
+
+    def test_aggregate_multiset_passes_on_sanitised_data(self) -> None:
+        self._rounds_406(("src/$(id).py", "docs/my file.md"))
+        _, safe = self._gate_and_sanitise()
+        self.assertTrue(all(t["path"] is None for t in safe["406"]["threads"]))
+        res = self._invariants_after()
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
 
     def _propose_line(self, needle: str) -> str:
         (line,) = [c for c in _jq_lines(_prompts(str(self.ws), mode="rereview")["propose-concerns"]) if needle in c]
