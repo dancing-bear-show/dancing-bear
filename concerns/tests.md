@@ -270,7 +270,7 @@ source files introduce new `sys.exit()` paths, HTTP clients, or mock boundaries.
 - **severity**: major
 - **check**: Verify that a test which writes a time-keyed artifact (a file named `YYYYMMDD`, a date-partitioned log) and then reads it back freezes "today" for both the write and the read. Sampling `datetime.now()` twice can straddle a UTC midnight boundary and make the two halves disagree.
 - **triggers**: Tests calling `datetime.now()` or `date.today()` in setup *and* again inside the code under test; tests for throughput/status/log commands whose filename derives from the current date; any test that could fail only when run within seconds of midnight UTC.
-- **example**: `test_worker_silent_fallbacks.py` setUp writes a perf log keyed by `datetime.now(UTC)`, then `StatusCommand._calculate_throughput()` recomputes `ymd` at call time (`worker/commands.py:124`). If midnight passes between the two, the method looks for a different filename and returns `None`. Fix: patch `worker.commands.datetime` to a fixed value so both halves agree.
+- **example**: A test setUp writes a perf log keyed by `datetime.now(UTC)`, then `StatusCommand._calculate_throughput()` recomputes `ymd` at call time. If midnight passes between the two, the method looks for a different filename and returns `None`. Fix: patch `worker.commands.datetime` to a fixed value so both halves agree.
 
 ### test-asserts-cwd-not-repo-root
 - **severity**: minor
