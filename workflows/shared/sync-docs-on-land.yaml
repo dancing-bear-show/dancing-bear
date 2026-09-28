@@ -174,21 +174,21 @@ stages:
         .llm/PATTERNS.md     — only if the change introduces a new code pattern
 
       Step 5 — write docs-plan.json:
-        {{
+        {
           "change_types": ["new_subcommand"],
           "preexisting_llm_edits": ["<paths from git status .llm/, verbatim>"],
           "regeneration_unsafe": false,
           "hand_authored_targets": [
-            {{"path": "README.md", "reason": "new user-facing command"}}
+            {"path": "README.md", "reason": "new user-facing command"}
           ],
           "regenerate_targets": [
-            {{"path": ".llm/INVENTORY.md", "generator": "./bin/llm derive-all --include-generated"}}
+            {"path": ".llm/INVENTORY.md", "generator": "./bin/llm derive-all --include-generated"}
           ],
           "unregenerable": [
-            {{"path": "<doc>", "banner": "<the banner line>", "real_generator": "<cmd or unknown>"}}
+            {"path": "<doc>", "banner": "<the banner line>", "real_generator": "<cmd or unknown>"}
           ],
           "no_op": false
-        }}
+        }
 
       Set "no_op": true and leave all target lists empty when the change is
       purely internal and touches no documented surface. A no-op is a valid and
@@ -254,11 +254,11 @@ stages:
           C) Reject — write no documentation changes."
 
       Write {workspace}/validation/doc-plan-decision.json:
-        {{
+        {
           "decision": "approve_all|hand_only|reject|skip",
           "approved_hand_targets": ["README.md"],
           "approved_regenerate_targets": [".llm/INVENTORY.md"]
-        }}
+        }
 
       For "hand_only", set approved_regenerate_targets to an empty array.
       For "reject" and "skip", set both arrays empty.
@@ -355,15 +355,15 @@ stages:
           as though it exists.
 
       Write docs-applied.json:
-        {{
+        {
           "applied": [
-            {{"path": "README.md", "action": "edited", "summary": "added `mail triage` to command list"}},
-            {{"path": ".llm/INVENTORY.md", "action": "regenerated", "generator": "./bin/llm derive-all --include-generated"}}
+            {"path": "README.md", "action": "edited", "summary": "added `mail triage` to command list"},
+            {"path": ".llm/INVENTORY.md", "action": "regenerated", "generator": "./bin/llm derive-all --include-generated"}
           ],
-          "skipped": [{{"path": "CLAUDE.md", "reason": "not approved at gate"}}],
-          "deduped": [{{"path": "<backlog doc>", "entry": "<title>", "reason": "already present"}}],
+          "skipped": [{"path": "CLAUDE.md", "reason": "not approved at gate"}],
+          "deduped": [{"path": "<backlog doc>", "entry": "<title>", "reason": "already present"}],
           "collateral_reverted": [".llm/PR_POLICIES.yaml"]
-        }}
+        }
 
       An entry may only claim action "regenerated" if
       `derive-all --include-generated` actually ran in this stage.
