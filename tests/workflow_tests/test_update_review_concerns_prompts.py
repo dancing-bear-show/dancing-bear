@@ -381,7 +381,7 @@ class TestSweepCounting(unittest.TestCase):
         for mode in ("topics", "rereview"):
             for name, text in _prompts("/ws", mode=mode).items():
                 with self.subTest(mode=mode, stage=name):
-                    for banned in ("sweep-spec", "/tmp/", "grep-sweep"):
+                    for banned in ("sweep-spec", "/tmp/", "grep-sweep"):  # nosec B108 - asserted absent, never used as a path
                         self.assertNotIn(banned, text)
 
     def test_sweeping_stages_call_count_sweep_with_a_single_quoted_pattern(self) -> None:
