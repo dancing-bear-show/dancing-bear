@@ -144,7 +144,8 @@ class TestRenderedPrompts(unittest.TestCase):
 
     def test_cluster_gaps_rejects_with_reasons(self) -> None:
         text = self.prompts["cluster-gaps"]
-        for code in ("`catch-all`", "`single-pr`", "`covered`", "`no-sweep`", "`sweep-too-broad`"):
+        for code in ("`catch-all`", "`single-pr`", "`covered`", "`no-sweep`", "`sweep-too-broad`",
+                     "`procedure-not-mechanical`"):
             self.assertIn(code, text)
         self.assertIn("## Rejected clusters", text)
         self.assertIn('"sweep":', text)
@@ -367,8 +368,193 @@ class TestRenderedJqExecutes(unittest.TestCase):
     def test_proposal_gate_is_the_cluster_gate(self) -> None:
         cluster = self._sweep_gate("cluster-gaps", "gap-clusters.json")
         proposal = self._sweep_gate("propose-concerns", "proposed-concerns.json")
+        self.assertIn('has("procedure")', cluster)
         self.assertEqual(proposal, cluster.replace("gap-clusters.json", "proposed-concerns.json")
                          .replace('(.class // "?")', '(.concern_id // "?")'))
+
+    def _gate_both(self, entry_sweep: dict[str, object], label: str) -> list[subprocess.CompletedProcess[str]]:
+        """Run the cluster gate and the proposal gate over one extra entry."""
+        results = []
+        for stage, file, key in (("cluster-gaps", "gap-clusters.json", "class"),
+                                 ("propose-concerns", "proposed-concerns.json", "concern_id")):
+            gate = self._sweep_gate(stage, file)
+            self._write(f"outputs/{file}", [
+                {key: "a", "sweep": {"pattern": "x", "paths": ["src"]}},
+                {key: label, "sweep": entry_sweep},
+            ])
+            results.append(self._run(gate))
+        return results
+
+    def test_sweep_gate_accepts_a_valid_procedure(self) -> None:
+        for res in self._gate_both({"procedure": _procedure()}, "guard"):
+            self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+            self.assertEqual(res.stdout.strip(), "true")
+
+    def test_worked_example_in_the_prompt_passes_the_gate(self) -> None:
+        """The example R5 teaches must itself be a valid procedure."""
+        text = _prompts(str(self.ws), mode="rereview")["cluster-gaps"]
+        (line,) = [ln.strip() for ln in text.splitlines()
+                   if ln.strip().startswith('{"procedure": {"trigger": "a function')]
+        for res in self._gate_both(json.loads(line), "example"):
+            self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+
+    def test_sweep_gate_refuses_non_mechanical_procedures(self) -> None:
+        steps = _procedure()["steps"]
+        bad = {
+            "one-step": _procedure(steps=steps[:1]),
+            "seven-steps": _procedure(steps=[f"Is item {i} tested?" for i in range(7)]),
+            "no-steps": _procedure(steps=[]),
+            "empty-step": _procedure(steps=[steps[0], ""]),
+            "blank-step": _procedure(steps=[steps[0], "   "]),
+            "not-a-question": _procedure(steps=[steps[0], "List every entry point."]),
+            "non-string-step": _procedure(steps=[steps[0], 3]),
+            "judgement": _procedure(steps=[steps[0], "Was the guard checked carefully?"]),
+            "accuracy": _procedure(evidence="review for accuracy"),
+            "blank-trigger": _procedure(trigger=" "),
+            "no-trigger": {k: v for k, v in _procedure().items() if k != "trigger"},
+            "no-evidence": {k: v for k, v in _procedure().items() if k != "evidence"},
+            "extra-key": {**_procedure(), "cmd": "id"},
+            "steps-as-string": _procedure(steps="Is it tested?"),
+        }
+        for label, proc in bad.items():
+            with self.subTest(case=label):
+                for res in self._gate_both({"procedure": proc}, label):
+                    self.assertNotEqual(res.returncode, 0)
+                    self.assertIn(f"{label}: ", res.stdout)
+                    self.assertNotIn("a: ", res.stdout)
+        with self.subTest(case="procedure-beside-pattern"):
+            for res in self._gate_both({"procedure": _procedure(), "pattern": "x", "paths": ["src"]}, "mixed"):
+                self.assertNotEqual(res.returncode, 0)
+
+    def _enforcement_lines(self) -> tuple[str, str]:
+        text = _prompts(str(self.ws), mode="rereview")["cluster-gaps"]
+        lines = [c for c in _jq_lines(text) if "outputs/enforcement-gaps.json" in c]
+        (gate,) = [c for c in lines if "--slurpfile k" in c]
+        (table,) = [c for c in lines if "None." in c]
+        return gate, table
+
+    def test_enforcement_gap_gate_requires_a_known_concern_and_two_prs(self) -> None:
+        gate, _ = self._enforcement_lines()
+        self._write("outputs/known-concern-ids.json", ["stale-prose-after-behavior-change", "silent-failure"])
+        self._write("outputs/enforcement-gaps.json", [])
+        self.assertEqual(self._run(gate).returncode, 0)
+        self._write("outputs/enforcement-gaps.json", [_gap()])
+        res = self._run(gate)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        bad = {
+            "unknown-id": _gap(concern_id="unknown-id"),
+            "one-pr": _gap(concern_id="silent-failure", pr_numbers=["406", "406"]),
+            "bad-guide": _gap(concern_id="silent-failure", guide_file="../x.md"),
+            "no-example": _gap(concern_id="silent-failure", example=""),
+        }
+        for label, entry in bad.items():
+            with self.subTest(case=label):
+                self._write("outputs/enforcement-gaps.json", [_gap(), entry])
+                res = self._run(gate)
+                self.assertNotEqual(res.returncode, 0)
+                self.assertEqual(res.stdout.count("\n"), 2, res.stdout)  # one bad line, then false
+
+    def test_enforcement_gap_table_is_rendered_by_jq(self) -> None:
+        _, table = self._enforcement_lines()
+        self._write("outputs/enforcement-gaps.json", [])
+        self.assertEqual(self._run(table).stdout.strip(), "None.")
+        self._write("outputs/enforcement-gaps.json", [_gap(example="a.md:3 — x | y")])
+        res = self._run(table)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        rows = res.stdout.splitlines()
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(rows[2], "| `stale-prose-after-behavior-change` | patterns.md | doc-claims-drift-from-code"
+                                  " | COLLATERAL_DOC | 406, 395 | 8 | a.md:3 — x   y |")
+
+
+def _procedure(**over: object) -> dict[str, object]:
+    base: dict[str, object] = {
+        "trigger": "a function that rejects, filters or authorises input is added or modified in `src/**/*.py`",
+        "steps": [
+            "Does the diff list every input form the guard receives?",
+            "Does each listed input form have its own test?",
+        ],
+        "evidence": "each input form, paired with the test that covers it",
+    }
+    return {**base, **over}
+
+
+def _gap(**over: object) -> dict[str, object]:
+    base: dict[str, object] = {
+        "concern_id": "stale-prose-after-behavior-change", "guide_file": "patterns.md",
+        "class": "doc-claims-drift-from-code", "cause_category": "COLLATERAL_DOC",
+        "pr_numbers": ["406", "395"], "thread_count": 8, "example": "README.md:12 — stale claim",
+    }
+    return {**base, **over}
+
+
+class TestPromotionRule(unittest.TestCase):
+    """The promotion rule must admit defects no grep can find, and must not
+    silently drop a covered class that keeps recurring."""
+
+    def setUp(self) -> None:
+        self.prompts = _prompts("/ws", mode="rereview")
+
+    def test_ladder_reason_codes_and_order(self) -> None:
+        flat = " ".join(self.prompts["cluster-gaps"].split())
+        for code in ("`procedure-not-mechanical`", "`no-sweep`", "`sweep-too-broad`", "`covered`"):
+            self.assertIn(code, flat)
+        self.assertLess(flat.index("1. pattern"), flat.index("2. structural"))
+        self.assertLess(flat.index("2. structural"), flat.index("3. procedure"))
+        self.assertIn("Never reject with `no-sweep` or `sweep-too-broad` before attempting a procedure", flat)
+        self.assertIn("neither a pattern, a structural check, nor a mechanical procedure could be written", flat)
+
+    def test_catch_all_and_single_pr_precede_covered(self) -> None:
+        text = self.prompts["cluster-gaps"]
+        r5 = text[text.index("R5 —"):text.index("R6 —")]
+        self.assertLess(r5.index("`catch-all`"), r5.index("`single-pr`"))
+        self.assertLess(r5.index("`single-pr`"), r5.index("`covered`"))
+        self.assertLess(r5.index("`covered`"), r5.index("the sweep ladder"))
+
+    def test_enforcement_gaps_declared(self) -> None:
+        for mode in ("topics", "rereview"):
+            _, manifest = _compile(mode=mode)
+            self.assertIn("outputs/enforcement-gaps.json",
+                          manifest.resolved_stages["cluster-gaps"].spec.writes_to)
+
+    def test_every_exit_writes_every_declared_output(self) -> None:
+        _, manifest = _compile(mode="rereview")
+        declared = [Path(p).name for p in manifest.resolved_stages["cluster-gaps"].spec.writes_to]
+        for mode in ("topics", "rereview"):
+            flat = " ".join(_prompts("/ws", mode=mode)["cluster-gaps"].split())
+            with self.subTest(mode=mode, check="exit rule"):
+                start = flat.index("Every exit from this stage, early or not and in either mode")
+                rule = flat[start:flat.index("A missing file", start)]
+                for name in declared:
+                    self.assertIn(name, rule)
+            with self.subTest(mode=mode, check="topics path"):
+                topics = flat[:flat.index("REREVIEW MODE (only")]
+                self.assertIn("write [] to /ws/outputs/enforcement-gaps.json", topics)
+            with self.subTest(mode=mode, check="empty-array exits"):
+                exits = [m.start() for m in re.finditer(r"write \[\] to gap-clusters\.json", flat, re.IGNORECASE)]
+                self.assertEqual(len(exits), 2)  # topics Step 5 and rereview R7
+                for at in exits:
+                    self.assertIn("enforcement-gaps.json", flat[at:at + 250])
+            with self.subTest(mode=mode, check="single-PR rereview"):
+                self.assertIn("Write [] when there are none, which is always the case when pr_number is set", flat)
+
+    def test_propose_concerns_forwards_enforcement_gaps_and_never_proposes_them(self) -> None:
+        flat = " ".join(self.prompts["propose-concerns"].split())
+        self.assertIn('Copy the "## Enforcement gaps" section', flat)
+        self.assertIn("never add one to proposed-concerns.json", flat)
+        self.assertLess(flat.index('"## Enforcement gaps"'), flat.index('"## Rejected clusters"'))
+        self.assertIn("plus those three sections", flat)
+
+    def test_procedure_entry_format(self) -> None:
+        flat = " ".join(self.prompts["propose-concerns"].split())
+        self.assertIn('**check** is "Answer yes to each step: "', flat)
+        self.assertIn("**triggers** is the procedure trigger verbatim", flat)
+        self.assertIn("numbered list", flat)
+        self.assertIn('{"procedure"} object', flat)
+
+    def test_lint_kind_is_deferred_to_pr_433(self) -> None:
+        self.assertIn("PR #433", _WORKFLOW.read_text(encoding="utf-8"))
+        self.assertNotIn('"lint":', self.prompts["cluster-gaps"])
 
 
 _COUNT_SWEEP_CALL = "./bin/workflow count-sweep --pattern='<pattern>' --path <path>"
