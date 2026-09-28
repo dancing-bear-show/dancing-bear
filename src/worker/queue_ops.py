@@ -132,6 +132,11 @@ def list_pending(root: Path | None = None) -> list[tuple[Path, dict[str, object]
     now = datetime.now(UTC)
     for p in _list_job_paths(paths["pending"]):
         data = safe_load_json(p, default={})
+        if not isinstance(data, dict):
+            # A JSON array or scalar is not a job; skipping it keeps one bad
+            # file from aborting the listing of every other pending job.
+            _log.warning("Skipping job %s: record is not a JSON object", p.name)
+            continue
         nb = str(data.get("not_before") or "")
         if not nb:
             items.append((p, data))
@@ -154,7 +159,12 @@ def list_pending(root: Path | None = None) -> list[tuple[Path, dict[str, object]
     def _key(item: tuple[Path, dict[str, object]]):
         d = item[1]
         raw_pri = d.get("priority")
-        pri = int(raw_pri) if isinstance(raw_pri, (int, float, str)) else 5
+        try:
+            pri = int(raw_pri) if isinstance(raw_pri, (int, float, str)) else 5
+        except (ValueError, OverflowError):
+            # A non-numeric priority string sorts as the default instead of
+            # raising out of sort() and hiding every other pending job.
+            pri = 5
         enq = str(d.get("enqueued_at") or "9999-12-31T23:59:59Z")
         return (pri, enq)
 
@@ -546,7 +556,7 @@ def recover_shutdown_timeout_markers(root: Path | None = None) -> list[str]:
     A filesystem error on one marker (probing its record, requeueing it, or
     unlinking the marker) is logged and that marker is left for the next
     recovery; it never aborts recovery of the others. ``run_daemon`` and
-    ``run_once`` call this unguarded, so an escape would abort startup.
+    ``run_once`` also isolate each startup recovery via ``_recover_at_start``.
 
     Returns the job ids that were requeued (not just recovered).
     """
@@ -983,7 +993,9 @@ def recover_staged_requeues(root: Path | None = None) -> list[str]:
                     recovered.append(job_id)
                     _log.info("recovered staged requeue for job %s", job_id)
             except Exception as exc:  # nosec B110 - best-effort recovery; log and continue
-                _log.debug("Failed to recover staged requeue %s: %s", staged, exc)
+                # Warning, not debug: the staged file stays invisible to every
+                # listing until a later pass succeeds, so a failure is worth seeing.
+                _log.warning("Failed to recover staged requeue for job %s: %s", job_id, exc)
     return recovered
 
 
@@ -1170,8 +1182,15 @@ def _reap_effective_timeout(data: dict, job_timeout: int) -> int:
 
 
 def _reap_one_job(p: Path, job_timeout: int, paths: dict, now: datetime, log: logging.Logger) -> str | None:
-    """Reap one processing job if stale. Returns its job_id if reaped, else None."""
+    """Reap one processing job if stale. Returns its job_id if reaped, else None.
+
+    A record that is not a JSON object is skipped with a warning rather than
+    raising out of the caller's loop and leaving every later job unreaped.
+    """
     data = safe_load_json(p, default={})
+    if not isinstance(data, dict):
+        log.warning("Not reaping %s: record is not a JSON object", p.name)
+        return None
     started = _reap_resolve_start_time(data, p)
     if not started:
         return None

@@ -88,6 +88,81 @@ def _remove_shutdown_timeout_marker(job_id: str, claim_token: str | None, root: 
     q.remove_shutdown_timeout_marker(job_id, claim_token, root)
 
 
+def _mark_for_recovery(stem: str, token: str | None) -> None:
+    """Write the shutdown-timeout marker for ``stem``; log on failure.
+
+    The marker is the queue's durable requeue intent: the next worker start
+    (``recover_shutdown_timeout_markers``) requeues the processing/ record if
+    ``token`` still matches it. The marker encodes ``token`` so recovery
+    revalidates ownership under the transition lock instead of requeueing by
+    stem alone.
+    """
+    try:
+        _write_shutdown_timeout_marker(stem, token, q.QUEUE_ROOT)
+    except Exception:  # nosec B110 - logged; the job may stay in processing/ if the process dies now
+        logger.exception(
+            "could not write shutdown-timeout marker for job %s; "
+            "job may remain stranded in processing/ if shutdown does not complete",
+            stem,
+        )
+
+
+def _release_unrun_claim(stem: str, token: str | None, reason: str) -> bool:
+    """Requeue a claim this worker will not run; return False if the requeue raised.
+
+    One policy for every site that gives a claim up without running it (a
+    tokenless claim in ``process_one`` and ``_start_batch``, a thread that
+    never started in ``_abandon_claim``): one requeue attempt, and when it
+    raises, an error log naming the stem plus a recovery marker, so the
+    processing/ record is never left with nothing tracking it. The next
+    worker start requeues it from the marker; the daemon sites also keep a
+    registry entry so ``_prune_live_threads`` retries every tick. No thread
+    ever ran these claims, so the marker names no drain owner and any
+    worker's recovery may consume it. A marker left after a later successful
+    retry is stale and is discarded at the next start once the record is
+    gone or carries a different token.
+
+    ``token`` is passed through as ``claim_token`` (an explicit ``None`` for a
+    tokenless claim), so the requeue revalidates ownership under the
+    transition lock rather than moving a stem someone else has since claimed.
+    """
+    try:
+        result = q.requeue_processing(stem, reason=reason, root=q.QUEUE_ROOT, claim_token=token)
+    except Exception:  # nosec B110 - logged; a recovery marker keeps the claim tracked
+        logger.exception(
+            "could not requeue unrun claim for job %s; leaving a recovery marker "
+            "for the next worker start",
+            stem,
+        )
+        _mark_for_recovery(stem, token)
+        return False
+    if result is None:
+        logger.warning(
+            "unrun claim for job %s not requeued (already gone or reclaimed)", stem
+        )
+    return True
+
+
+def _recover_at_start() -> None:
+    """Run both startup recoveries, each isolated so one failure skips neither.
+
+    Staged requeues (``*.json.requeue``) and shutdown-timeout markers are
+    independent: an error from one must not stop the other or abort the
+    caller's startup. Anything not recovered stays on disk; the daemon tick
+    retries staged requeues every interval, and markers are retried at the
+    next start.
+    """
+    recoveries: tuple[tuple[str, Callable[..., list[str]]], ...] = (
+        ("staged requeues", q.recover_staged_requeues),
+        ("shutdown-timeout markers", q.recover_shutdown_timeout_markers),
+    )
+    for label, recover in recoveries:
+        try:
+            recover(root=q.QUEUE_ROOT)
+        except Exception:  # nosec B110 - logged; left on disk for a later pass
+            logger.exception("could not recover %s at startup", label)
+
+
 def _processing_stems(root: Path) -> set[str]:
     """Return the job stems currently in processing/ under ``root``."""
     folder = q._ensure_dirs(root)["processing"]
@@ -377,19 +452,8 @@ class JobProcessor:
                 "worker claim token missing for job %s after start_processing; requeueing",
                 job_path.stem,
             )
-            try:
-                q.requeue_processing(
-                    job_path.stem,
-                    reason=_THREAD_START_FAILED_REASON,
-                    root=q.QUEUE_ROOT,
-                    claim_token=None,
-                )
-            except Exception:  # nosec B110 - requeue failed; job may be stranded in processing/ until the stale-job reaper or manual recovery
-                logger.exception(
-                    "could not requeue tokenless claim for job %s; "
-                    "job may remain stranded in processing/ and requires manual or reaper recovery",
-                    job_path.stem,
-                )
+            # A failed requeue leaves a recovery marker (see _release_unrun_claim).
+            _release_unrun_claim(job_path.stem, None, _THREAD_START_FAILED_REASON)
             return 0
 
         self.process_claimed(proc_path, job_data, started_at=st, claim_token=token)
@@ -699,19 +763,10 @@ class DaemonRunner:
                     "worker claim token missing for job %s after start_processing; requeueing",
                     p.stem,
                 )
-                try:
-                    q.requeue_processing(
-                        p.stem,
-                        reason=_THREAD_START_FAILED_REASON,
-                        root=q.QUEUE_ROOT,
-                        claim_token=None,
-                    )
-                except Exception:  # nosec B110 - requeue failed; job may be stranded in processing/ until the stale-job reaper or manual recovery
-                    logger.exception(
-                        "could not requeue tokenless claim for job %s; "
-                        "job may remain stranded in processing/ and requires manual or reaper recovery",
-                        p.stem,
-                    )
+                if not _release_unrun_claim(p.stem, None, _THREAD_START_FAILED_REASON):
+                    # Track the claim with a never-started placeholder so
+                    # _prune_live_threads retries the requeue every tick.
+                    self._register_unrun(p.stem, None)
                 break
             t = threading.Thread(
                 target=self._process_claimed_guarded,
@@ -742,23 +797,25 @@ class DaemonRunner:
 
         The registry entry is dropped only once the requeue call returns. If
         it raises, the never-started thread stays registered, so
-        ``_prune_live_threads`` retries the requeue on the next tick rather
-        than leaving the claim in processing/ with nothing tracking it.
+        ``_prune_live_threads`` retries the requeue on the next tick, and a
+        recovery marker covers a process that dies first (see
+        ``_release_unrun_claim``).
         """
         logger.exception("worker thread for job %s failed to start; requeueing", stem)
-        try:
-            if q.requeue_processing(
-                stem, reason=_THREAD_START_FAILED_REASON, root=q.QUEUE_ROOT, claim_token=token
-            ) is None:
-                logger.warning(
-                    "worker abandoning claim for job %s: not requeued (already gone or reclaimed)",
-                    stem,
-                )
-        except Exception:  # nosec B110 - entry kept; _prune_live_threads retries it next tick
-            logger.exception("could not requeue abandoned claim for job %s (retrying next tick)", stem)
+        if not _release_unrun_claim(stem, token, _THREAD_START_FAILED_REASON):
             return
         with self._registry_lock:
             self._live_threads.pop(stem, None)
+
+    def _register_unrun(self, stem: str, token: str | None) -> None:
+        """Track a claim no thread will run so ``_prune_live_threads`` retries its requeue.
+
+        The placeholder thread is never started, so it reports ``is_alive()``
+        False and the prune treats it like a thread that already exited.
+        """
+        placeholder = threading.Thread(target=lambda: None, daemon=True)
+        with self._registry_lock:
+            self._live_threads[stem] = (placeholder, token)
 
     def _calculate_allowed_jobs(self) -> int:
         """Calculate how many jobs can be started based on max_inflight cap.
@@ -862,8 +919,7 @@ class DaemonRunner:
         Like ``run_daemon`` it first publishes any staged requeue a killed
         worker left behind, which no queue listing would otherwise see.
         """
-        q.recover_staged_requeues(root=q.QUEUE_ROOT)
-        q.recover_shutdown_timeout_markers(root=q.QUEUE_ROOT)
+        _recover_at_start()
         self._run_once_batch()
         return 0
 
@@ -937,7 +993,7 @@ class DaemonRunner:
         normally, whatever it returned, and kept if it raises.
         """
         lock_budget = max(0.0, deadline - time.monotonic())
-        self._mark_shutdown_timeout(stem, token)
+        _mark_for_recovery(stem, token)
         try:
             requeue_result = q.requeue_processing(
                 stem,
@@ -956,7 +1012,7 @@ class DaemonRunner:
                 "leaving shutdown-timeout marker for recovery on next start",
                 stem,
             )
-            self._mark_shutdown_timeout(stem, token)
+            _mark_for_recovery(stem, token)
             return False
         try:
             _remove_shutdown_timeout_marker(stem, token, q.QUEUE_ROOT)
@@ -967,21 +1023,19 @@ class DaemonRunner:
             return True
         return False
 
-    @staticmethod
-    def _mark_shutdown_timeout(stem: str, token: str | None) -> None:
-        """Write the shutdown-timeout marker for ``stem``; log on failure.
+    def _tick_guarded(self) -> int:
+        """Run one ``tick()``; log a failure and report nothing started.
 
-        The marker encodes ``token`` so recovery revalidates ownership under
-        the transition lock instead of requeueing by stem alone.
+        A queue I/O error escaping one tick (an unreadable pending/ listing, a
+        failed reap) must not end the loop: that would skip
+        ``drain_live_threads`` and leave every running job's claim in
+        processing/. The next tick retries after the idle interval.
         """
         try:
-            _write_shutdown_timeout_marker(stem, token, q.QUEUE_ROOT)
-        except Exception:  # nosec B110 - logged; the job may stay in processing/ if the process dies now
-            logger.exception(
-                "could not write shutdown-timeout marker for job %s; "
-                "job may remain stranded in processing/ if shutdown does not complete",
-                stem,
-            )
+            return self.tick()
+        except Exception:  # nosec B110 - logged; the loop retries next interval
+            logger.exception("worker tick failed; retrying next interval")
+            return 0
 
     def run_daemon(self) -> int:
         """Run continuous daemon loop until stopped, then drain.
@@ -1010,11 +1064,10 @@ class DaemonRunner:
             # (*.json.requeue files invisible to the normal listing), and
             # requeue any job a prior drain could not move before the lock
             # timed out (*.json.shutdown-timeout markers).
-            q.recover_staged_requeues(root=q.QUEUE_ROOT)
-            q.recover_shutdown_timeout_markers(root=q.QUEUE_ROOT)
+            _recover_at_start()
             try:
                 while not self.stop_event.is_set():
-                    n = self.tick()
+                    n = self._tick_guarded()
                     self.stop_event.wait(self.config.interval if n == 0 else 0.1)
             except KeyboardInterrupt:
                 self.stop_event.set()
