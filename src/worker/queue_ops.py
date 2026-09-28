@@ -505,6 +505,25 @@ def remove_shutdown_timeout_marker(
     _shutdown_marker_path(job_id, claim_token, root).unlink(missing_ok=True)
 
 
+def _discard_shutdown_marker(marker: Path) -> None:
+    """Unlink ``marker``; log a failure instead of raising.
+
+    Used inside ``recover_shutdown_timeout_markers``' loop, where one
+    undeletable marker must not abandon recovery of the rest. A marker left
+    behind is harmless: the next recovery re-verifies it by claim token, and
+    once its record is gone it is removed as stale.
+    """
+    try:
+        marker.unlink(missing_ok=True)
+    except OSError as exc:
+        _log.warning(
+            "Could not remove shutdown-timeout marker %s: %s; "
+            "left for the next recovery",
+            marker.name,
+            exc,
+        )
+
+
 def recover_shutdown_timeout_markers(root: Path | None = None) -> list[str]:
     """Requeue any processing/ jobs that have a shutdown-timeout marker.
 
@@ -524,6 +543,11 @@ def recover_shutdown_timeout_markers(root: Path | None = None) -> list[str]:
     - Once the processing/ record is gone (finished or already requeued), the
       marker is removed so it does not trigger a spurious double-requeue.
 
+    A filesystem error on one marker (probing its record, requeueing it, or
+    unlinking the marker) is logged and that marker is left for the next
+    recovery; it never aborts recovery of the others. ``run_daemon`` and
+    ``run_once`` call this unguarded, so an escape would abort startup.
+
     Returns the job ids that were requeued (not just recovered).
     """
     paths = _ensure_dirs(root)
@@ -535,11 +559,11 @@ def recover_shutdown_timeout_markers(root: Path | None = None) -> list[str]:
         job_id = parsed["job_id"]
         expected_token = parsed["token"]
         proc_path = _job_path(paths["processing"], job_id)
-        if not proc_path.exists():
-            # Job already finished or requeued on its own; clean up stale marker.
-            marker.unlink(missing_ok=True)
-            continue
         try:
+            if not proc_path.exists():
+                # Job already finished or requeued on its own; clean up stale marker.
+                _discard_shutdown_marker(marker)
+                continue
             result = requeue_processing(
                 job_id, reason=SHUTDOWN_REQUEUE_REASON, root=root, claim_token=expected_token
             )
@@ -568,7 +592,7 @@ def recover_shutdown_timeout_markers(root: Path | None = None) -> list[str]:
         # Remove the marker regardless: either the job was requeued, or it is
         # gone/reclaimed and a stale marker on the next startup would be a
         # no-op (or worse, another refused steal attempt) anyway.
-        marker.unlink(missing_ok=True)
+        _discard_shutdown_marker(marker)
     return requeued
 
 
