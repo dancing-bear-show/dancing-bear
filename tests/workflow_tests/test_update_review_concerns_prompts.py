@@ -197,7 +197,7 @@ class TestRenderedPrompts(unittest.TestCase):
         self.assertNotIn("10-character", body)
         self.assertIn("full OID", body)
         self.assertIn("`original_line`", body)
-        self.assertIn("git show '<commit>:<path>'", body)
+        self.assertIn("`git show <commit>:<path>`", body)
         self.assertIn("aggregate-rereview fails the run", body)
         self.assertNotIn("cluster-gaps' aggregate check", body)
 
