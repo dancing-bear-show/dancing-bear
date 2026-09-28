@@ -29,7 +29,12 @@ from workflow.linter_shell import (
     RULE_VALIDATE_WRITES_OUTPUT,
 )
 from workflow.linter_types import LintWarning
-from workflow.shell_text import extract_shell_segments, quote_context
+from workflow.shell_text import (
+    extract_labelled_assignments,
+    extract_shell_segments,
+    parse_shell,
+    quote_context,
+)
 
 # The check behind each rule id, for the teeth tests.
 _RULE_CHECKS: dict[str, str] = {
@@ -558,6 +563,47 @@ class TestUnboundVariable(_RuleCase):
         desc = "Write the file:\n\n  cat <<'EOF'\n  echo \"$UNBOUND\"\n  EOF\n"
         self.assert_silent(_workflow(_stage(desc)))
 
+    def test_assignment_in_quoted_heredoc_body_does_not_bind(self) -> None:
+        # PR #433 review (linter_shell.py:436): _assigned_names scanned the raw
+        # description, so a FOO=literal line in a quoted heredoc body -- inert
+        # data fed to cat -- counted as a binding and hid the unbound $FOO.
+        desc = "Write it:\n\n  cat <<'EOF'\n  FOO=literal\n  EOF\n  echo \"$FOO\"\n"
+        hits = self.assert_fires(_workflow(_stage(desc)))
+        self.assertIn("$FOO", hits[0].message)
+
+    def test_assignment_in_heredoc_body_inside_a_fence_does_not_bind(self) -> None:
+        # Same class, fenced: the fence keeps the body in the segment text, so
+        # only parsing the heredoc as data keeps it out of the bindings. Blank
+        # lines survive the folded scalar as single line breaks.
+        desc = "```bash\n\ncat <<'EOF'\n\nFOO=literal\n\nEOF\n\necho \"$FOO\"\n\n```\n"
+        hits = self.assert_fires(_workflow(_stage(desc)))
+        self.assertIn("$FOO", hits[0].message)
+
+    def test_assignment_after_a_quoted_heredoc_still_binds(self) -> None:
+        # Happy path: the same assignment as a real command after the heredoc
+        # closes is a binding.
+        desc = "Write it:\n\n  cat <<'EOF'\n  literal\n  EOF\n  FOO=literal\n  echo \"$FOO\"\n"
+        self.assert_silent(_workflow(_stage(desc)))
+
+    def test_expansion_in_quoted_heredoc_body_inside_a_fence_is_silent(self) -> None:
+        # A quoted body never expands, fenced or not.
+        desc = "```bash\n\ncat <<'EOF'\n\necho \"$NOT_EXPANDED\"\n\nEOF\n\n```\n"
+        self.assert_silent(_workflow(_stage(desc)))
+
+    def test_assignment_binds_after_an_apostrophe_in_prose(self) -> None:
+        # Tree-wide sweep: the old whole-description quote scan read a prose
+        # apostrophe as an opening quote, so every later assignment looked
+        # quoted and bound nothing (qlty-complexity-sweep.yaml $PRE_SWEEP,
+        # pr-thread-resolve.yaml $PLAN). Bindings now come from each parsed
+        # segment, where prose quoting cannot reach.
+        desc = "Don't skip this.\n\n  PRIV=$(mktemp -d)\n  rm -rf \"$PRIV\"\n"
+        self.assert_silent(_workflow(_stage(desc)))
+
+    def test_read_as_an_argument_does_not_bind(self) -> None:
+        # `read` binds only as the program word; `echo read FOO` prints.
+        hits = self.assert_fires(_workflow(_stage('Run:\n\n  echo read FOO\n  echo "$FOO"\n')))
+        self.assertIn("$FOO", hits[0].message)
+
     def test_unquoted_heredoc_body_still_fires_unbound(self) -> None:
         # Happy-path sibling: an UNQUOTED delimiter's body is live shell, so a
         # real unbound reference inside it must still fire -- confirms the fix
@@ -676,6 +722,59 @@ class TestPythonNotIsolated(_RuleCase):
         ):
             with self.subTest(command=command):
                 self.assert_silent(_workflow(_stage(f"Run:\n\n  {command}\n")))
+
+    def test_interpreter_as_an_argument_is_silent(self) -> None:
+        # PR #433 review (linter_shell.py:570): every token matching the
+        # interpreter name was treated as an invocation, so `echo python3 -c`
+        # warned although echo runs, not python3.
+        for command in ("echo python3 -c 'print(1)'", "test -x .venv/bin/python",
+                        "grep -n python3 setup.cfg"):
+            with self.subTest(command=command):
+                self.assert_silent(_workflow(_stage(f"Run:\n\n  {command}\n")))
+
+    def test_interpreter_in_command_position_after_a_separator_fires(self) -> None:
+        # Happy path for the same fix: the interpreter is still found wherever
+        # it IS the program -- after a separator, a reserved word, a wrapper,
+        # or inside a command substitution.
+        for command in ("echo setup; python3 -c 'print(1)'",
+                        "if python3 -c 'import x'; then echo ok; fi",
+                        "cd src && env FOO=1 python3 -c 'print(1)'",
+                        "X=$(python3 -c 'print(1)'); echo \"$X\""):
+            with self.subTest(command=command):
+                self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))
+
+    def test_bare_interpreter_before_a_separator_fires(self) -> None:
+        # PR #433 review (linter_shell.py:574): the operand list ran past
+        # the separator, so `;`/`&&` became the first operand and the bare
+        # interpreter was taken for prose.
+        for command in ("python3 ; echo done", "python3 && echo done"):
+            with self.subTest(command=command):
+                hits = self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))
+                self.assertIn("lacks -I", hits[0].message)
+
+    def test_isolated_interpreter_before_a_separator_is_silent(self) -> None:
+        # Happy path: bounding the operands must not drop a later command's
+        # flags onto the interpreter or lose its own.
+        for command in ("python3 -I ; echo done", "python3 -I -c 'print(1)' && echo -X"):
+            with self.subTest(command=command):
+                self.assert_silent(_workflow(_stage(f"Run:\n\n  {command}\n")))
+
+    def test_env_pythonpath_exempts_only_its_own_command(self) -> None:
+        self.assert_silent(_workflow(_stage("Run:\n\n  cd src && env PYTHONPATH=. python3 -m foo\n")))
+        self.assert_fires(_workflow(_stage("Run:\n\n  cd src && env PYTHONPATH=. true; python3 -m foo\n")))
+
+    def test_fires_in_folded_unlabelled_fence_opening_with_python(self) -> None:
+        # PR #433 review (shell_text.py:317): "``` python -c ..." -- an
+        # unlabelled fence folded onto its first command -- was read as a
+        # fence tagged `python` and dropped, so the unisolated call was never
+        # linted. The space after the marker marks the word as body text.
+        hits = self.assert_fires(_workflow(_stage("``` python -c 'print(1)'\n```\n")))
+        self.assertIn("lacks -I", hits[0].message)
+
+    def test_folded_python_tagged_fence_is_still_not_shell(self) -> None:
+        # Happy path: a glued tag ("```python") is a language tag; the
+        # fence is Python source, not shell.
+        self.assert_silent(_workflow(_stage("```python python3 -c 'print(1)'\n```\n")))
 
     def test_value_taking_flag_without_isolation_flag_still_fires(self) -> None:
         # Sad-path sibling: consuming -X's value must not itself grant
@@ -801,6 +900,56 @@ class TestGuardRefused(_RuleCase):
         # later in the same loop body must still fire, so the command-position
         # check does not accidentally suppress every mention of the word.
         desc = 'Report:\n\n  for f in src/*.py; do echo "rm"; rm -f "$f"; done\n'
+        self.assertIn("loop", self.assert_fires(_workflow(_stage(desc)))[0].message)
+
+    def test_fires_on_path_qualified_mutating_command(self) -> None:
+        # PR #433 review (linter_shell.py:844): mutators were matched by exact
+        # bare token, while the guard resolves the basename -- `/bin/rm` in a
+        # loop was refused by the guard and passed here.
+        for command in ('for p in files; do /bin/rm -f "$p"; done',
+                        'for p in files; do "$HOME/bin/../../bin/mv" "$p" x; done'):
+            with self.subTest(command=command):
+                self.assertIn("loop", self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))[0].message)
+
+    def test_path_qualified_read_only_command_is_silent(self) -> None:
+        # Happy path: basename matching must not turn a read into a write.
+        self.assert_silent(_workflow(_stage('Run:\n\n  for p in files; do /usr/bin/wc -l "$p"; done\n')))
+
+    def test_fires_on_mutating_command_after_wrapper_or_reserved_word(self) -> None:
+        # PR #433 review (linter_shell.py:844, second finding): a command was
+        # in command position only as the first token or after punctuation,
+        # so `env rm` and `then rm` were skipped although the guard refuses
+        # both. Wrappers and reserved words now pass command position on.
+        for command in (
+            'for f in files; do env rm -f "$f"; done',
+            'for f in files; do if true; then rm -f "$f"; fi; done',
+            'for f in files; do sudo -u me rm "$f"; done',
+            'for f in files; do timeout 5 nice -n 2 rm "$f"; done',
+            'for f in files; do echo "$f" | xargs -n 1 rm; done',
+            'for f in files; do FOO=1 command rm "$f"; done',
+            'for f in files; do ! rm "$f"; done',
+        ):
+            with self.subTest(command=command):
+                self.assertIn("loop", self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))[0].message)
+
+    def test_mutating_name_as_wrapper_or_keyword_argument_is_silent(self) -> None:
+        # Happy path: after a wrapper or keyword, only the command word counts.
+        for command in (
+            'for f in files; do env FOO=1 wc -l "$f"; done',
+            "for f in files; do command -v rm; done",
+            'for f in files; do if true; then echo rm "$f"; fi; done',
+            'for f in files; do timeout 5 grep rm "$f"; done',
+        ):
+            with self.subTest(command=command):
+                self.assert_silent(_workflow(_stage(f"Run:\n\n  {command}\n")))
+
+    def test_command_after_the_loop_ends_is_not_in_the_loop(self) -> None:
+        # The old body scan ran to the end of the segment, past `done`.
+        self.assert_silent(_workflow(_stage('Run:\n\n  for f in a; do cat "$f"; done; rm -f x\n')))
+
+    def test_redirect_on_the_loop_itself_fires(self) -> None:
+        # `done > file` redirects the whole loop's output.
+        desc = 'Run:\n\n  for f in a; do cat "$f"; done > out.txt\n'
         self.assertIn("loop", self.assert_fires(_workflow(_stage(desc)))[0].message)
 
     def test_here_string_and_prose_are_silent(self) -> None:
@@ -1107,6 +1256,27 @@ class TestExtractShellSegments(unittest.TestCase):
         fence_segments = [s for s in segments if s.origin == "fence"]
         self.assertEqual(fence_segments, [])
 
+    def test_folded_unlabelled_fence_opening_with_python_is_shell(self) -> None:
+        # PR #433 review (shell_text.py:317): the space after the marker
+        # marks "python" as the body's first word, not a language tag.
+        desc = "``` python -c 'print(1)'\nmore_code\n```\n"
+        fence_segments = [s for s in extract_shell_segments(desc) if s.origin == "fence"]
+        self.assertEqual([s.text for s in fence_segments], ["python -c 'print(1)'\nmore_code"])
+
+    def test_spaced_shell_tag_with_trailing_text_stays_shell(self) -> None:
+        # "``` bash echo x" is shell whichever way the word is read.
+        desc = "``` bash echo x\n```\n"
+        self.assertEqual(len([s for s in extract_shell_segments(desc) if s.origin == "fence"]), 1)
+
+    def test_spaced_tag_alone_on_its_line_keeps_its_language(self) -> None:
+        # Nothing was folded onto "``` python", so the word is its tag.
+        self.assertEqual(extract_shell_segments("``` python\nprint(1)\n```\n"), [])
+
+    def test_assignment_and_if_lines_are_commands(self) -> None:
+        self.assertEqual(self._texts("  export FOO=1\n"), ["export FOO=1"])
+        self.assertEqual(self._texts("  if true; then echo ok; fi\n"), ["if true; then echo ok; fi"])
+        self.assertEqual(self._texts("  if the gate fails, stop\n"), [])
+
     def test_quote_context_handles_nested_substitution(self) -> None:
         text = 'X="$(jq -r \'.a\' "$F")" {k}'
         ctx = quote_context(text)
@@ -1171,6 +1341,60 @@ class TestExtractShellSegments(unittest.TestCase):
         segments = extract_shell_segments(desc)
         self.assertEqual(len(segments), 1, msg=segments)
         self.assertEqual(segments[0].text, "cat <<'EOF'")
+
+
+class TestParseShell(unittest.TestCase):
+    """The shared simple-command model every rule reads."""
+
+    def _names(self, text: str) -> list[str]:
+        return [cmd.name for cmd in parse_shell(text).commands]
+
+    def test_command_word_follows_separators_keywords_and_wrappers(self) -> None:
+        cases = {
+            "a; b && c || d | e & f": ["a", "b", "c", "d", "e", "f"],
+            "if x; then y; elif z; then w; else v; fi": ["x", "y", "z", "w", "v"],
+            "while ! t; do { u; }; done": ["t", "u"],
+            "(cd src && make)": ["cd", "make"],
+            "FOO=1 BAR=2 env -u X BAZ=3 nice -n 5 timeout -s KILL 10 /bin/rm x": ["rm"],
+            "time -p sudo -u me xargs -I {} cp {} dst": ["cp"],
+            "echo rm python3 check-params": ["echo"],
+            "command -v rm": [""],
+        }
+        for text, names in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(self._names(text), names)
+
+    def test_substitutions_are_parsed_as_commands(self) -> None:
+        # `date`'s output is the outer command's program word.
+        self.assertEqual(
+            self._names('X="$(jq -r .a f)" `date` <(sort f) "${Y:-z}"'),
+            ["`date`", "jq", "date", "sort"],
+        )
+
+    def test_heredoc_body_is_data_not_commands(self) -> None:
+        script = parse_shell("cat <<'EOF'\nrm -rf /\nFOO=1\nEOF\ncat <<EOF\n$(date)\nEOF\necho done")
+        self.assertEqual([cmd.name for cmd in script.commands], ["cat", "cat", "echo", "date"])
+        self.assertEqual([(d.quoted, d.body) for d in script.heredocs],
+                         [(True, "rm -rf /\nFOO=1\n"), (False, "$(date)\n")])
+
+    def test_loop_membership_and_bindings(self) -> None:
+        script = parse_shell('for f in a; do rm "$f"; done; mv a b\nwhile read -r L; do :; done')
+        self.assertEqual([(c.name, c.in_loop) for c in script.commands],
+                         [("rm", True), ("mv", False), ("read", False), (":", True)])
+        self.assertEqual(script.loop_variables, ("f",))
+
+    def test_redirect_classification(self) -> None:
+        cmd = parse_shell('x 2>&1 >&- < in 3<>rw > "o" >> a &> b <<< s').commands[0]
+        self.assertEqual([(r.op, r.writes) for r in cmd.redirects], [
+            (">&", False), (">&", False), ("<", False), ("<>", True), (">", True),
+            (">>", True), ("&>", True), ("<<<", False),
+        ])
+        test = parse_shell('[[ "$a" > b ]] && [[ -n x ]]').commands
+        self.assertEqual(test, ())
+
+    def test_labelled_assignment_is_extracted_outside_segments_only(self) -> None:
+        desc = "Bash tool: F=\"x\"\n```bash\nNote: G=1\n```\ncat <<'EOF'\nLabel: H=1\nEOF\n"
+        self.assertEqual([s.text for s in extract_labelled_assignments(desc)], ['F="x"'])
 
 
 class TestRuleSerialisation(unittest.TestCase):
