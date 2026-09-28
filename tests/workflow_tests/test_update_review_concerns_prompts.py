@@ -146,7 +146,7 @@ class TestRenderedPrompts(unittest.TestCase):
         body = _PROMPT_FILE.read_text(encoding="utf-8")
         for leaked in ("/private/tmp", "scratchpad", "/Users/"):
             self.assertNotIn(leaked, body)
-        self.assertIn("outputs/rounds/prN.json", body)
+        self.assertIn("outputs/rounds-safe/prN.json", body)
         self.assertIn("`spec-or-logic-error`", body)
         for category in ("FIX_REGRESSION", "SIBLING", "INCOMPLETE_FIX", "COLLATERAL_DOC",
                          "NEW_SURFACE", "LATE_DISCOVERY", "NOISE", "ROUND0"):
@@ -214,9 +214,23 @@ class TestRenderedPrompts(unittest.TestCase):
         self.assertNotIn("10-character", body)
         self.assertIn("full OID", body)
         self.assertIn("`original_line`", body)
-        self.assertIn("`git show <commit>:<path>`", body)
+        self.assertIn("`git show '<commit>:<path>' --`", body)
         self.assertIn("aggregate-rereview fails the run", body)
         self.assertNotIn("cluster-gaps' aggregate check", body)
+
+    def test_prompt_git_templates_are_quoted_and_end_options(self) -> None:
+        body = _PROMPT_FILE.read_text(encoding="utf-8")
+        allowed = ("git show --stat '<commit>' --`", "git show '<commit>' -- '<path>'`",
+                   "git show '<commit>:<path>' --`")
+        starts = [m.start() for m in re.finditer(r"git show", body)]
+        self.assertGreaterEqual(len(starts), 3)
+        for at in starts:
+            with self.subTest(at=body[at:at + 40]):
+                self.assertTrue(body.startswith(allowed, at))
+        self.assertEqual(re.findall(r"gh api [^`]*", body), ["gh api 'repos/OWNER/NAME/commits/<commit>'"])
+        flat = " ".join(body.split())
+        self.assertIn("Every value these take has passed the fetch-round-history gate", flat)
+        self.assertIn("A thread whose `path` or `commit` is `null` gets no git inspection", flat)
 
     def test_topics_prompt_routes_away_from_rereview(self) -> None:
         text = _prompts("/ws", mode="topics")["cluster-gaps"]
