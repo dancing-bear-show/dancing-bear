@@ -292,8 +292,13 @@ Write JSON examples and code snippets with single braces (`{` and `}`).
 Unknown `{name}` placeholders are left as-is.
 
 Validation criteria undergo the same param substitution. When a criterion
-contains a `|`-separated trigger-param value, the criterion is split into one
-entry per `|`-delimited item (whitespace stripped, empty items dropped).
+references exactly one trigger param whose value is `|`-separated, the
+criterion is split into one entry per `|`-delimited item (whitespace
+stripped, empty items dropped), substituted into the criterion's own prefix
+and suffix. When a criterion references two or more such params, expansion
+is skipped to avoid a combinatorial cross-product: each param's raw
+`|`-including value is substituted in and the criterion stays a single
+entry.
 
 ### 3. `writes_to` gets no `{param}` substitution
 
