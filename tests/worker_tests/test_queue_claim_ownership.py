@@ -36,7 +36,6 @@ from worker.queue_ops import Job, enqueue
 
 _REAL_START = threading.Thread.start
 _REAL_REPLACE = Path.replace
-_REAL_OPEN = os.open
 
 
 def _read(path: Path) -> dict[str, Any]:

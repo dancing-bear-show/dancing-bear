@@ -347,7 +347,9 @@ class JobProcessor:
         """Claim a pending job, then process it via ``process_claimed``.
 
         Returns:
-            1 if processed, 0 if skipped (already claimed by another worker)
+            1 if processed, 0 if skipped (already claimed by another worker,
+            or the claim's metadata write failed and the token could not be
+            recovered)
         """
         st = time.time()
         proc_path = q.start_processing(job_path)
@@ -356,9 +358,24 @@ class JobProcessor:
             # Already claimed by another worker
             return 0
 
-        self.process_claimed(
-            proc_path, job_data, started_at=st, claim_token=q.claim_token(proc_path)
-        )
+        token = q.claim_token(proc_path)
+        if token is None:
+            # start_processing's metadata write failed: the same undefined
+            # ownership state _start_batch treats as a lost claim. Requeuing
+            # here (rather than calling process_claimed with claim_token=None,
+            # which would run the handler and let every finish()/retry() call
+            # skip its ownership check) keeps run_once consistent with the
+            # daemon-tick path.
+            logger.warning(
+                "worker claim token missing for job %s after start_processing; requeueing",
+                job_path.stem,
+            )
+            q.requeue_processing(
+                job_path.stem, reason=_THREAD_START_FAILED_REASON, root=q.QUEUE_ROOT
+            )
+            return 0
+
+        self.process_claimed(proc_path, job_data, started_at=st, claim_token=token)
         return 1
 
     def process_claimed(

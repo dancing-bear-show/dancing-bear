@@ -379,6 +379,24 @@ def _rewrite_staged(staged: Path, reason: str, *, only_if_unnormalized: bool) ->
     atomic_write_json(staged, data)
 
 
+class _NoClobberRaceLost(Exception):
+    """Raised when the no-hardlink fallback in ``_copy_exclusive`` cannot rule
+    out a rival's record being overwritten.
+
+    Without hard links there is no single syscall that both (a) fails instead
+    of replacing an existing ``dest`` and (b) never makes an in-progress write
+    visible as an empty file — the two properties this function's docstring
+    promises trade off against each other once hard links are unavailable.
+    Rather than silently pick one, the no-hardlink path performs the
+    existence check, replace, and a post-replace content re-read, and raises
+    this when the post-replace read does not match what was just written —
+    the only case that distinguishes "we published cleanly" from "a rival
+    landed a write in the gap between the check and the replace". The caller
+    (``_publish_no_clobber``) treats this the same as ``staged`` vanishing:
+    the record is left alone rather than assumed published.
+    """
+
+
 def _copy_exclusive(staged: Path, dest: Path) -> None:
     """Create ``dest`` with ``staged``'s bytes; FileExistsError if it exists.
 
@@ -388,14 +406,29 @@ def _copy_exclusive(staged: Path, dest: Path) -> None:
     the destination is either absent or fully written.
 
     No-clobber is preserved: ``os.link(tmp, dest)`` raises ``FileExistsError``
-    atomically if ``dest`` already exists.  On filesystems where hard links are
-    unavailable even within the same directory, existence is checked with
-    ``dest.exists()`` and then ``tmp.replace(dest)`` is used as a last resort;
-    that path has a narrow race window between the existence check and the
-    replace, which is the pre-existing limitation of any no-hardlink filesystem.
-    The hidden temp file is never published as ``dest`` directly, so
-    ``list_pending()`` and ``start_processing()`` never observe an empty or
-    partial record at the destination path.
+    atomically if ``dest`` already exists. On filesystems where hard links are
+    unavailable even within the same directory, there is no single syscall
+    that is simultaneously (a) a no-replace publish and (b) guaranteed never
+    to expose a partially-written ``dest``: claiming ``dest`` itself with
+    ``O_CREAT|O_EXCL`` would publish an empty file before the content write
+    completes -- reopening the exact defect ``PRRT_kwDOQr1kjM6mf6TU`` fixed --
+    while renaming a fully-written temp file over ``dest`` is atomic but
+    always replaces, never fails, so it cannot detect a rival's record at all.
+
+    The fallback therefore does both: check ``dest.exists()`` first (so an
+    already-present rival is refused, matching the hard-link path), then
+    publish via ``tmp.replace(dest)``, then immediately re-read ``dest`` and
+    compare it against the bytes just written. A mismatch means a rival's
+    write landed in the gap between the check and the replace and this
+    replace overwrote it (or a still-later rival overwrote this one before
+    the re-read) -- ``_NoClobberRaceLost`` is raised so the caller treats the
+    outcome as unpublished rather than trusting a replace that may have
+    destroyed another worker's record. The window is narrow (bounded by one
+    replace and one read, not by however long ``_transition_lock`` is held
+    elsewhere) and every existing caller already runs under that lock for
+    every lock-aware writer; the residual risk is ``enqueue()``, which
+    deliberately writes pending/ without the lock for a brand-new job, and
+    this check is what catches a collision with it.
     """
     content = staged.read_bytes()
     tmp = dest.with_name(f".{dest.name}.tmp.{uuid.uuid4().hex}")
@@ -416,16 +449,23 @@ def _copy_exclusive(staged: Path, dest: Path) -> None:
         tmp.unlink(missing_ok=True)
         raise
     except OSError:
-        # Hard links unavailable even within the directory.  Check existence
-        # first so we never create an empty placeholder at dest: dest.exists()
-        # raises FileExistsError if dest is already there, and tmp.replace(dest)
-        # publishes the fully-written temp file atomically if it is absent.
-        # There is a narrow race between the existence check and the replace on
-        # no-hardlink filesystems, but dest is never partially written or empty.
+        # Hard links unavailable even within the directory. dest.exists()
+        # never creates a placeholder there, so a pre-existing rival is
+        # refused exactly as the hard-link path refuses one.
         if dest.exists():
             tmp.unlink(missing_ok=True)
             raise FileExistsError(dest)
         tmp.replace(dest)
+        # Detect (not prevent) a rival that claimed dest in the gap between
+        # the check above and this replace: re-read what is on disk now and
+        # compare it to the bytes we just wrote.
+        try:
+            observed = dest.read_bytes()
+        except FileNotFoundError:
+            # Gone already -- something else raced past our own publish.
+            raise _NoClobberRaceLost(dest) from None
+        if observed != content:
+            raise _NoClobberRaceLost(dest)
         return
     tmp.unlink(missing_ok=True)
 
@@ -462,6 +502,16 @@ def _publish_no_clobber(staged: Path, dest: Path) -> bool:
             return False
         except FileNotFoundError:
             _log.debug("Not publishing %s: it is already gone", staged.name)
+            return False
+        except _NoClobberRaceLost:
+            # A rival (most likely a lock-free enqueue() of the same id)
+            # claimed dest in the narrow check-then-replace gap this
+            # filesystem class cannot close atomically. staged is left in
+            # place for recover_staged_requeues rather than trusting a
+            # replace that may have destroyed the rival's record.
+            _log.warning(
+                "Not publishing %s: lost a no-clobber race for %s", staged.name, dest
+            )
             return False
     staged.unlink(missing_ok=True)
     return True
