@@ -321,6 +321,16 @@ class TestDrainRespectsDeadlineViaLockTimeout(unittest.TestCase, QueueRootIsolat
 
     def setUp(self) -> None:
         self.setup_queue_root()
+        # Registered after the temp-root cleanup, so it runs before it: a
+        # handler thread released by a test's gate.set cleanup finishes its
+        # queue transition before the temp tree is removed underneath it.
+        self._threads_before = set(threading.enumerate())
+        self.addCleanup(self._join_new_threads)
+
+    def _join_new_threads(self) -> None:
+        for t in threading.enumerate():
+            if t not in self._threads_before and t.ident is not None:
+                t.join(timeout=10)
 
     def test_happy_path_lock_acquired_quickly_requeues_job(self) -> None:
         """Happy path: no lock contention means requeue_processing succeeds

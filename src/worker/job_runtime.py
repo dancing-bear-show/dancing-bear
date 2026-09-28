@@ -68,33 +68,6 @@ def _effective_job_timeout(job_data: dict[str, object], default_timeout: int) ->
         return default_timeout
 
 
-def _undo_retry_attempt(job_stem: str, original_attempts: int, q_root: Path) -> None:
-    """Reset attempts to original_attempts after a deferred re-queue.
-
-    q.retry increments attempts; deferred jobs should not consume an attempt.
-
-    Skips the write when the pending/ file is absent (claimed between the
-    retry() call and this read) or empty, preventing ghost-job creation from
-    a ``safe_load_json`` default when the file no longer exists.
-    """
-    try:
-        from core.fileutil import atomic_write_json, safe_load_json
-
-        paths = q._ensure_dirs(q_root)
-        path = q._job_path(paths["pending"], job_stem)
-        if not path.exists():
-            return
-        data = safe_load_json(path, default={})
-        # Guard: if data is empty the file was gone or unreadable; writing
-        # {"attempts": N} here would create a ghost job with no payload.
-        if not data:
-            return
-        data["attempts"] = original_attempts
-        atomic_write_json(path, data)
-    except Exception:  # nosec B110 - best-effort; worker will still retry correctly
-        pass
-
-
 def _write_shutdown_timeout_marker(job_id: str, claim_token: str | None, root: Path) -> None:
     """Delegate to queue_ops to write a shutdown-timeout sentinel for ``job_id``.
 
@@ -280,10 +253,15 @@ def _handle_outcome(outcome_ctx: OutcomeContext, success: bool, out: object) -> 
             "worker", duration, args=[command, ctx.job_type, "ok"], exit_code=0
         )
     elif out_str.startswith("deferred-"):
-        # Handler requested deferral — move back to pending without consuming an attempt.
-        # None means ownership was lost: the pending/ copy is not ours to adjust.
-        if q.retry(proc_path, delay_sec=config.backoff, reason=out_str, claim_token=token):
-            _undo_retry_attempt(proc_path.stem, ctx.attempts, q_root=q.QUEUE_ROOT)
+        # Handler requested deferral — move back to pending without consuming
+        # an attempt, inside the same transition as the move itself.
+        q.retry(
+            proc_path,
+            delay_sec=config.backoff,
+            reason=out_str,
+            claim_token=token,
+            count_attempt=False,
+        )
         log_perf_jsonl(
             "worker", duration, args=[command, ctx.job_type, "deferred"], exit_code=0
         )
@@ -551,6 +529,7 @@ class DaemonRunner:
         slow local job is never requeued and run twice.
         """
         self._prune_live_threads()
+        self._recover_staged()
         with self._registry_lock:
             owned = set(self._live_threads)
         _reap_stale_unowned(self.config.job_timeout, q.QUEUE_ROOT, owned)
@@ -614,6 +593,22 @@ class DaemonRunner:
                 continue
             with self._registry_lock:
                 self._live_threads.pop(stem, None)
+
+    @staticmethod
+    def _recover_staged() -> None:
+        """Publish staged requeues a failed transition left in processing/.
+
+        A requeue or retry that raises after staging (a publish or rewrite
+        failure) leaves a ``*.json.requeue`` file no listing matches, and a
+        retry of the same stem then finds its processing/ record gone. Running
+        the startup recovery every tick publishes it within one interval
+        instead of at the next process start. It takes the transition lock,
+        so it never touches a staged file a live transition is still writing.
+        """
+        try:
+            q.recover_staged_requeues(root=q.QUEUE_ROOT)
+        except Exception:  # nosec B110 - retried next tick; logged
+            logger.exception("could not recover staged requeues (retrying next tick)")
 
     @staticmethod
     def _run_guarded(stem: str, target: Callable[[], int]) -> int:
@@ -744,9 +739,12 @@ class DaemonRunner:
         just-claimed record and re-claim it between our read and the requeue,
         so the comparison must happen atomically under the lock the requeue
         itself takes, not before it.
+
+        The registry entry is dropped only once the requeue call returns. If
+        it raises, the never-started thread stays registered, so
+        ``_prune_live_threads`` retries the requeue on the next tick rather
+        than leaving the claim in processing/ with nothing tracking it.
         """
-        with self._registry_lock:
-            self._live_threads.pop(stem, None)
         logger.exception("worker thread for job %s failed to start; requeueing", stem)
         try:
             if q.requeue_processing(
@@ -756,12 +754,11 @@ class DaemonRunner:
                     "worker abandoning claim for job %s: not requeued (already gone or reclaimed)",
                     stem,
                 )
-        except Exception:  # nosec B110 - requeue failed after registry entry already popped; job may be stranded in processing/ until the stale-job reaper or manual recovery
-            logger.exception(
-                "could not requeue abandoned claim for job %s; "
-                "job may remain stranded in processing/ and requires manual or reaper recovery",
-                stem,
-            )
+        except Exception:  # nosec B110 - entry kept; _prune_live_threads retries it next tick
+            logger.exception("could not requeue abandoned claim for job %s (retrying next tick)", stem)
+            return
+        with self._registry_lock:
+            self._live_threads.pop(stem, None)
 
     def _calculate_allowed_jobs(self) -> int:
         """Calculate how many jobs can be started based on max_inflight cap.
@@ -915,7 +912,7 @@ class DaemonRunner:
         """Requeue one live-thread's job on shutdown; return True if requeued.
 
         Split out of ``drain_live_threads`` to keep that loop's cognitive
-        complexity in check; behavior is unchanged.
+        complexity in check.
 
         The token is passed through as claim_token rather than compared here
         first: a pre-check-then-requeue has the same window this check exists
@@ -923,49 +920,24 @@ class DaemonRunner:
         check and the requeue), so the comparison must happen atomically
         under requeue_processing's transition lock.
 
-        Each requeue_processing call acquires the blocking _transition_lock.
-        If a live job is still inside finish()/retry() or its filesystem
-        write stalls, drain could wait beyond shutdown_grace and launchd may
-        send SIGKILL before cleanup completes. To bound the total
-        post-deadline work, pass the remaining time budget as lock_timeout so
-        the call raises _TransitionLockTimeout rather than blocking
-        indefinitely. A lock-timeout or I/O failure for one stem must not
-        abort the whole drain — catch and log per stem, then continue.
+        The remaining time budget is passed as lock_timeout, floored at 0.0
+        (one non-blocking attempt once the deadline has passed), so a
+        contended lock never extends the drain. A lock-timeout or I/O failure
+        for one stem is logged and the drain continues.
 
-        The budget is floored at 0.0, not a small positive value: once the
-        shared deadline has passed, every contended stem would otherwise get
-        its own fresh wait window, and those can add up across many stems to
-        extend the drain well past shutdown_grace. A timeout of exactly 0.0
-        still makes _transition_lock attempt one non-blocking acquisition
-        before giving up, so a lock that happens to be free is still used —
-        only a contended lock fails immediately instead of waiting.
-
-        lock_timeout only bounds acquiring the lock, not the filesystem work
-        requeue_processing does once it holds it (metadata read, fsync,
-        link/replace, byte re-reads) — a stalled filesystem could still block
-        this call past shutdown_grace with the lock held. That work cannot be
-        interrupted from pure Python without threads or a subprocess, which
-        is more machinery and risk than a rare, already-catastrophic
-        stalled-disk scenario justifies. Instead: write the marker BEFORE
-        attempting the call, once the deadline has passed, so recovery
-        intent is durable on disk even if this call itself hangs
-        indefinitely and the process is later SIGKILLed mid-syscall. A
-        successful requeue then removes the now-unnecessary marker; a
-        failure leaves it for recovery, same as before.
+        lock_timeout bounds only acquiring the lock, not the filesystem work
+        requeue_processing does while holding it, and a call that starts
+        before the deadline can overrun it. Neither can be bounded from pure
+        Python short of abandoning a thread mid-syscall, and a stalled
+        filesystem would stall the marker write as well. So the shutdown-
+        timeout marker is written before every attempt, not only once the
+        deadline has passed: whenever the call hangs and launchd SIGKILLs the
+        process, recovery intent is already on disk and the next start
+        requeues the job. The marker is removed once the call returns
+        normally, whatever it returned, and kept if it raises.
         """
-        remaining = deadline - time.monotonic()
-        past_deadline = remaining <= 0
-        lock_budget = max(0.0, remaining)
-        if past_deadline:
-            try:
-                _write_shutdown_timeout_marker(stem, token, q.QUEUE_ROOT)
-            except Exception:  # nosec B110 - marker write failed; retried on failure path below if the call itself also fails
-                logger.exception(
-                    "could not write shutdown-timeout marker for job %s "
-                    "before the requeue attempt; job may remain stranded "
-                    "if this call now hangs",
-                    stem,
-                )
+        lock_budget = max(0.0, deadline - time.monotonic())
+        self._mark_shutdown_timeout(stem, token)
         try:
             requeue_result = q.requeue_processing(
                 stem,
@@ -974,62 +946,42 @@ class DaemonRunner:
                 claim_token=token,
                 lock_timeout=lock_budget,
             )
-            if past_deadline:
-                # The call returned without raising -- whether it
-                # requeued the job (truthy) or found nothing left to do
-                # (None: already gone, already pending, or ownership
-                # refused) -- so the marker written above is no longer
-                # needed. Leaving it would make recover_shutdown_timeout_
-                # markers() attempt a spurious requeue of a processing/
-                # record that is already gone (or, worse, a live claim
-                # someone else now legitimately owns) at next startup.
-                try:
-                    _remove_shutdown_timeout_marker(stem, token, q.QUEUE_ROOT)
-                except Exception:  # nosec B110 - best-effort cleanup; a leftover marker is a harmless no-op at next startup (the record is already gone)
-                    logger.exception(
-                        "could not remove shutdown-timeout marker for "
-                        "job %s after the requeue call returned normally",
-                        stem,
-                    )
-            if requeue_result:
-                logger.warning("requeued running job %s on shutdown", stem)
-                return True
-            return False
         except Exception:  # nosec B112 - best-effort shutdown drain; log and continue to remaining jobs
             # A _TransitionLockTimeout means a live job still holds the lock
-            # (inside finish()/retry()) past the grace period — expected
-            # and acceptable here; launchd will re-run the job on next start.
-            # Any other I/O failure is also non-fatal: drain the rest.
-            #
-            # The marker (if this stem was past the deadline) was already
-            # written above, before this call; nothing further to do here
-            # for that case. If the call failed for a reason unrelated to
-            # a stalled filesystem (and the marker was not yet written
-            # because the deadline had not actually passed -- lock_budget
-            # can be a small positive number that still elapses during a
-            # slow but not stalled write), write it now as a fallback.
-            #
-            # The token this runner observed for the stem is encoded into
-            # the marker so recovery revalidates ownership atomically
-            # (the same check every other requeue_processing call makes)
-            # instead of requeueing by stem alone -- without it, a worker
-            # whose own reaper reclaims this stem with a new token before
-            # the next startup would have its live claim stolen by an
-            # unauthenticated recovery pass.
+            # (inside finish()/retry()) past the grace period. Either way the
+            # marker stays for recovery at the next start; rewrite it in case
+            # the write before the call failed.
             logger.exception(
                 "could not requeue job %s on shutdown (skipped); "
-                "writing shutdown-timeout marker for recovery on next start",
+                "leaving shutdown-timeout marker for recovery on next start",
                 stem,
             )
-            try:
-                _write_shutdown_timeout_marker(stem, token, q.QUEUE_ROOT)
-            except Exception:  # nosec B110 - marker write failed; job may stay stranded; already logged above
-                logger.exception(
-                    "could not write shutdown-timeout marker for job %s; "
-                    "job may remain stranded in processing/ without manual recovery",
-                    stem,
-                )
+            self._mark_shutdown_timeout(stem, token)
             return False
+        try:
+            _remove_shutdown_timeout_marker(stem, token, q.QUEUE_ROOT)
+        except Exception:  # nosec B110 - a leftover marker is re-verified by token at next start
+            logger.exception("could not remove shutdown-timeout marker for job %s", stem)
+        if requeue_result:
+            logger.warning("requeued running job %s on shutdown", stem)
+            return True
+        return False
+
+    @staticmethod
+    def _mark_shutdown_timeout(stem: str, token: str | None) -> None:
+        """Write the shutdown-timeout marker for ``stem``; log on failure.
+
+        The marker encodes ``token`` so recovery revalidates ownership under
+        the transition lock instead of requeueing by stem alone.
+        """
+        try:
+            _write_shutdown_timeout_marker(stem, token, q.QUEUE_ROOT)
+        except Exception:  # nosec B110 - logged; the job may stay in processing/ if the process dies now
+            logger.exception(
+                "could not write shutdown-timeout marker for job %s; "
+                "job may remain stranded in processing/ if shutdown does not complete",
+                stem,
+            )
 
     def run_daemon(self) -> int:
         """Run continuous daemon loop until stopped, then drain.

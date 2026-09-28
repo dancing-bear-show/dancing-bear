@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from collections.abc import Iterator
@@ -46,6 +47,8 @@ _JOB_SUFFIX = ".json"
 # job was requeued (and possibly re-claimed elsewhere) cannot complete it.
 CLAIM_TOKEN_FIELD = "claim_token"  # nosec B105 - JSON field name, not a secret
 _TRANSITION_LOCK_NAME = ".transitions.lock"
+# Record statuses that name their own destination folder (see _write_finished).
+_TERMINAL_FOLDERS: tuple[str, ...] = ("done", "error")
 
 
 def _q(root: Path | None) -> Path:
@@ -317,7 +320,7 @@ def finish(
     result: object | None = None,
     claim_token: str | None = None,
 ) -> Path | None:
-    """Write updated metadata to done/ or error/, then unlink the processing/ file.
+    """Rewrite the processing/ record as done or error, then move it there.
 
     Returns None and writes nothing when the caller no longer owns the job:
     ``job_path`` is gone or unreadable, or ``claim_token`` is given and does
@@ -339,7 +342,18 @@ def _write_finished(
     error_msg: str | None,
     result: object | None,
 ) -> Path:
-    """Write ``data`` as a done/ or error/ record and remove ``job_path``."""
+    """Rewrite ``job_path`` as a done/ or error/ record, then move it there.
+
+    The record is rewritten in place and then renamed, so the claim ends in
+    one step: the terminal record appears exactly when the processing/ one
+    disappears. Publishing the terminal record first and unlinking second left
+    both behind when the unlink failed, with the processing/ copy still
+    carrying this claim's token -- dead-thread cleanup then requeued a job
+    that had already finished. If the rename fails, the processing/ record
+    already carries the terminal status and no token: no owner's token
+    matches it, and ``_stage_and_requeue`` completes the move rather than
+    requeueing it.
+    """
     data.pop(CLAIM_TOKEN_FIELD, None)
     data[FIELD_UPDATED_AT] = iso_now()
     if success:
@@ -358,8 +372,8 @@ def _write_finished(
     target_folder = "done" if success else "error"
     paths = _ensure_dirs(root)
     new_path = _job_path(paths[target_folder], job_path.stem)
-    atomic_write_json(new_path, data)
-    _remove_job_file(job_path)
+    atomic_write_json(job_path, data)
+    _rename(job_path, new_path)
     return new_path
 
 
@@ -370,8 +384,15 @@ def retry(
     root: Path | None = None,
     reason: str | None = None,
     claim_token: str | None = None,
+    count_attempt: bool = True,
 ) -> Path | None:
     """Bump attempts, set not_before to now+delay, and move back to pending/.
+
+    ``count_attempt=False`` leaves ``attempts`` unchanged (a handler deferral).
+    It is applied here, inside the transition, because a correction written
+    after the publish could land on a newer generation of the same stem: once
+    the lock is released another worker can claim, run and retry the pending/
+    copy, and a late rewrite would reset that generation's counter.
 
     The record goes through the same stage -> rewrite -> no-clobber publish
     path as a shutdown requeue, so an existing pending/ job is never
@@ -387,9 +408,10 @@ def retry(
         staged = _stage(job_path)
         if staged is None:
             return None
-        raw_attempts = data.get("attempts")
-        attempts = int(raw_attempts) if isinstance(raw_attempts, (int, float, str)) else 0
-        data["attempts"] = attempts + 1
+        if count_attempt:
+            raw_attempts = data.get("attempts")
+            attempts = int(raw_attempts) if isinstance(raw_attempts, (int, float, str)) else 0
+            data["attempts"] = attempts + 1
         nb = datetime.now(UTC) + timedelta(seconds=int(delay_sec))
         data["status"] = "pending"
         data["not_before"] = nb.strftime(ISO_DATETIME_FORMAT)
@@ -403,9 +425,9 @@ def retry(
 
 
 _REQUEUE_STAGING_SUFFIX = ".requeue"
-# Written when drain_live_threads times out acquiring the transition lock for a
-# job.  The record in processing/ is left untouched (no lock held), so this
-# zero-byte sentinel is the only durable evidence of the failed drain attempt.
+# Written by the shutdown drain before each requeue attempt and removed once
+# the attempt returns; one that survives marks a drain that timed out, failed,
+# or was killed mid-call, with the processing/ record possibly untouched.
 # The full marker filename is "<job_id>.json.shutdown-timeout.<token>", with
 # an empty trailing segment when the original claim had no token to record.
 # recover_shutdown_timeout_markers() reads it at startup, passes the encoded
@@ -416,15 +438,38 @@ _SHUTDOWN_TIMEOUT_MARKER_SUFFIX = ".shutdown-timeout"
 SHUTDOWN_REQUEUE_REASON = "requeued-on-shutdown"
 
 
+# A marker name is "<job_id>.json.shutdown-timeout.<token>", where <token> is
+# empty or a claim token as start_processing writes it (uuid4().hex). Anything
+# else merely contains the marker text -- a staged requeue or record of a job
+# whose id embeds it -- and must not be parsed, let alone unlinked, as a marker.
+_SHUTDOWN_MARKER_RE = re.compile(
+    rf"(?P<job_id>.+){re.escape(_JOB_SUFFIX + _SHUTDOWN_TIMEOUT_MARKER_SUFFIX)}"
+    r"\.(?P<token>[0-9a-f]{32})?"
+)
+
+
+def _shutdown_marker_path(job_id: str, claim_token: str | None, root: Path | None) -> Path:
+    """Return the marker path for ``job_id``/``claim_token`` (see _SHUTDOWN_MARKER_RE).
+
+    Raises ValueError for a token recovery could not parse back: such a
+    marker would be ignored at startup, so writing it would only look like
+    recovery intent.
+    """
+    token_part = claim_token if claim_token is not None else ""
+    name = f"{job_id}{_JOB_SUFFIX}{_SHUTDOWN_TIMEOUT_MARKER_SUFFIX}.{token_part}"
+    if not _SHUTDOWN_MARKER_RE.fullmatch(name):
+        raise ValueError(f"not a valid shutdown-timeout marker name: {name!r}")
+    return _ensure_dirs(root)["processing"] / name
+
+
 def write_shutdown_timeout_marker(
     job_id: str, claim_token: str | None, root: Path | None = None
 ) -> None:
     """Write a zero-byte sentinel beside processing/<job_id>.json.
 
-    Created when drain_live_threads cannot acquire the transition lock for a
-    job before the shutdown deadline.  The processing/ record is left
-    untouched (no lock held), so this marker is the only durable evidence the
-    drain attempt failed.  recover_shutdown_timeout_markers() reads it at
+    Written by the shutdown drain before each requeue attempt, so a drain
+    that times out, fails, or is killed while the call is stalled still
+    leaves durable recovery intent.  recover_shutdown_timeout_markers() reads it at
     startup and force-requeues the corresponding record regardless of
     job_timeout.  Writing requires no lock: the file sits beside the job
     record and does not modify it.
@@ -432,7 +477,9 @@ def write_shutdown_timeout_marker(
     ``claim_token`` is encoded into the marker's filename (a bare hex uuid,
     filename-safe with no separators of its own) so recovery can pass it as
     ``requeue_processing``'s ``claim_token`` and get the same atomic
-    ownership check every other requeue path uses. Without it, recovery
+    ownership check every other requeue path uses. A token that is neither
+    empty nor 32 hex digits raises ValueError: recovery would not parse the
+    marker back. Without the token, recovery
     would requeue by job id alone: if another worker's own reaper reclaims
     this stem with a new token before the next startup runs, an
     unauthenticated recovery would steal that worker's live claim instead of
@@ -440,13 +487,7 @@ def write_shutdown_timeout_marker(
     had no token to record (mirrors ``requeue_processing``'s own
     "explicit None still verifies tokenless" semantics).
     """
-    paths = _ensure_dirs(root)
-    token_part = claim_token if claim_token is not None else ""
-    marker = (
-        paths["processing"]
-        / f"{job_id}{_JOB_SUFFIX}{_SHUTDOWN_TIMEOUT_MARKER_SUFFIX}.{token_part}"
-    )
-    marker.touch()
+    _shutdown_marker_path(job_id, claim_token, root).touch()
 
 
 def remove_shutdown_timeout_marker(
@@ -454,21 +495,14 @@ def remove_shutdown_timeout_marker(
 ) -> None:
     """Remove the shutdown-timeout marker ``write_shutdown_timeout_marker`` wrote.
 
-    Called when a post-deadline requeue_processing call that raced ahead of
-    its own marker write (see drain_live_threads) succeeds after all: the
+    Called once the drain's requeue_processing call returns normally: the
     marker's recovery intent is no longer needed, and leaving it in place
     would make recover_shutdown_timeout_markers() attempt a spurious requeue
     of a processing/ record that is already gone at the next startup. A
     missing marker (it was never written, or already cleaned up) is a no-op,
     not an error -- this is always called defensively.
     """
-    paths = _ensure_dirs(root)
-    token_part = claim_token if claim_token is not None else ""
-    marker = (
-        paths["processing"]
-        / f"{job_id}{_JOB_SUFFIX}{_SHUTDOWN_TIMEOUT_MARKER_SUFFIX}.{token_part}"
-    )
-    marker.unlink(missing_ok=True)
+    _shutdown_marker_path(job_id, claim_token, root).unlink(missing_ok=True)
 
 
 def recover_shutdown_timeout_markers(root: Path | None = None) -> list[str]:
@@ -494,34 +528,12 @@ def recover_shutdown_timeout_markers(root: Path | None = None) -> list[str]:
     """
     paths = _ensure_dirs(root)
     requeued: list[str] = []
-    marker_suffix = _JOB_SUFFIX + _SHUTDOWN_TIMEOUT_MARKER_SUFFIX
     for marker in list(paths["processing"].iterdir()):
-        # A plain job record's last dot-extension is exactly _JOB_SUFFIX
-        # (".json"), same convention _list_job_paths uses. A marker's last
-        # dot-extension is always its token segment (or, for an empty token,
-        # the empty string after a trailing dot) -- never bare ".json" --
-        # because write_shutdown_timeout_marker always appends
-        # ".shutdown-timeout.<token>" after the job id's own ".json". Without
-        # this check, a job id that itself contains the literal text
-        # ".json.shutdown-timeout" (adversarial, but not disallowed) makes
-        # the job's OWN record file match marker_suffix via rfind below, so
-        # it gets mis-parsed as a marker and processed ahead of (or instead
-        # of) the real marker for that job.
-        if marker.suffix == _JOB_SUFFIX:
+        parsed = _SHUTDOWN_MARKER_RE.fullmatch(marker.name)
+        if parsed is None:
             continue
-        marker_stem = marker.name
-        # rfind, not find: a job id is not constrained to exclude the literal
-        # text ".json.shutdown-timeout", so the first occurrence is not
-        # necessarily the real marker suffix. The token segment written by
-        # write_shutdown_timeout_marker is a bare hex uuid (or empty) with no
-        # dots of its own, so the LAST occurrence of marker_suffix is always
-        # the genuine boundary between the job id and the token.
-        suffix_start = marker_stem.rfind(marker_suffix)
-        if suffix_start == -1:
-            continue
-        job_id = marker_stem[:suffix_start]
-        token_part = marker_stem[suffix_start + len(marker_suffix) + 1 :]
-        expected_token = token_part if token_part else None
+        job_id = parsed["job_id"]
+        expected_token = parsed["token"]
         proc_path = _job_path(paths["processing"], job_id)
         if not proc_path.exists():
             # Job already finished or requeued on its own; clean up stale marker.
@@ -784,6 +796,24 @@ def _stage(src: Path) -> Path | None:
     return staged
 
 
+def _complete_interrupted_finish(src: Path, data: object, root: Path) -> bool:
+    """Move ``src`` to done/ or error/ if ``finish`` already rewrote it; True if moved.
+
+    Call with ``_transition_lock`` held. A processing/ record whose status is
+    terminal is one whose ``finish`` failed at its final rename (see
+    ``_write_finished``): the job already ran to an outcome, so requeueing it
+    would run it again. Checked before staging, so a failed move leaves the
+    record where it was rather than as a staged file recovery would publish
+    to pending/. ``data`` is ``src``'s record as read under the lock.
+    """
+    status = data.get("status") if isinstance(data, dict) else None
+    if status not in _TERMINAL_FOLDERS:
+        return False
+    _rename(src, _job_path(root / str(status), src.stem))
+    _log.warning("Completed interrupted finish of job %s into %s/", src.stem, status)
+    return True
+
+
 def _stage_and_requeue(
     src: Path,
     pending_dir: Path,
@@ -799,12 +829,15 @@ def _stage_and_requeue(
     written and recovery never sees it half-done. Returns the pending/ path,
     or None when ``src`` was already gone (nothing is written) or the publish
     was refused (the staged file stays for ``recover_staged_requeues``).
+    A record ``finish`` already rewrote to a terminal status is moved to its
+    terminal folder instead and None is returned (see
+    ``_complete_interrupted_finish``): requeueing it would run it again.
 
     When ``expected_token`` is given -- anything other than the module's
-    ``_NO_TOKEN_CHECK`` sentinel, including an explicit ``None`` -- the staged
-    record's claim token is compared against it under the lock. A mismatch
-    means the job was reclaimed while the caller was deciding to requeue it;
-    the staged file is renamed back to ``src`` and None is returned, leaving
+    ``_NO_TOKEN_CHECK`` sentinel, including an explicit ``None`` -- the
+    record's claim token is compared against it under the lock, before
+    staging. A mismatch means the job was reclaimed while the caller was
+    deciding to requeue it; nothing is moved and None is returned, leaving
     the new claim undisturbed. Passing ``None`` explicitly checks that the
     record STILL carries no token (the caller's own claim failed its metadata
     write, so it never had one) rather than skipping the check: a bare
@@ -820,28 +853,25 @@ def _stage_and_requeue(
     exceeding the shutdown grace period.
     """
     with _transition_lock(pending_dir.parent, timeout=lock_timeout):
+        # Every writer of a processing/ record holds this lock, so the record
+        # read here is the one staged below. Checking it before staging means
+        # a refusal leaves the record untouched: there is no staged file to
+        # restore, and so none that per-tick recovery could publish while
+        # another worker still owns the claim.
+        data = safe_load_json(src, default=None)
+        if _complete_interrupted_finish(src, data, pending_dir.parent):
+            return None
+        if expected_token is not _NO_TOKEN_CHECK and (
+            not isinstance(data, dict) or data.get(CLAIM_TOKEN_FIELD) != expected_token
+        ):
+            _log.debug(
+                "Skipping requeue of %s: gone, or claim token changed (job was reclaimed)",
+                src.stem,
+            )
+            return None
         staged = _stage(src)
         if staged is None:
             return None
-        if expected_token is not _NO_TOKEN_CHECK:
-            staged_data = safe_load_json(staged, default=None)
-            if not isinstance(staged_data, dict) or staged_data.get(CLAIM_TOKEN_FIELD) != expected_token:
-                # The job was reclaimed between the stale check and acquiring
-                # the lock; put it back and leave the new claim alone.
-                try:
-                    staged.rename(src)
-                except Exception as exc:  # nosec B110 - best-effort; stranded staged file is recoverable
-                    _log.warning(
-                        "Could not restore staged job %s after token mismatch: %s; "
-                        "leaving as staged for recovery",
-                        src.stem,
-                        exc,
-                    )
-                _log.debug(
-                    "Skipping requeue of %s: claim token changed under lock (job was reclaimed)",
-                    src.stem,
-                )
-                return None
         try:
             _rewrite_staged(staged, reason, only_if_unnormalized=False)
         except Exception as exc:  # still move the job: stale metadata beats a stranded file
@@ -979,10 +1009,9 @@ def _strip_error_field(data: dict, job_path: Path) -> None:
 def _remove_job_file(job_path: Path) -> None:
     """Unlink the old job file after its replacement is written, logging on failure.
 
-    Shared by finish(), retry(), and requeue_error(), which all write the new
-    job file first and then remove the old one. The message stays generic
-    because the path itself identifies which queue directory the job came
-    from -- naming one specific transition here would be wrong for the others.
+    Used by requeue_error(), which writes the new job file first and then
+    removes the old one. The message stays generic because the path itself
+    identifies which queue directory the job came from.
     """
     import logging as _logging
 

@@ -630,33 +630,27 @@ class TestReaperTokenRevalidation(unittest.TestCase, QueueRootIsolationMixin):
         data["processing_started_at"] = "2000-01-01T00:00:00Z"
         proc.write_text(json.dumps(data), encoding="utf-8")
 
-        # Intercept _stage to simulate the job being finished and reclaimed
-        # between the stale check and the lock.
-        real_stage = q._stage
+        # Simulate the job being finished and reclaimed with a new token after
+        # the stale check but before _stage_and_requeue takes the lock (every
+        # claim holds that lock, so a reclaim cannot land inside it).
+        real_stage_and_requeue = q._stage_and_requeue
 
-        def _finish_then_stage(src: Path) -> Path | None:
-            # Simulate: old job finishes (moves to done/), then a new claim
-            # happens with a different token.
+        def _reclaim_then_requeue(src: Path, *args: Any, **kwargs: Any) -> Path | None:
             if src.stem == "stale-sad" and src.exists():
-                # Replace the token with a new one (simulates a new claim).
                 staged_data = json.loads(src.read_text(encoding="utf-8"))
                 staged_data[q.CLAIM_TOKEN_FIELD] = "new-token-from-another-worker"  # nosec B106 - test value
                 src.write_text(json.dumps(staged_data), encoding="utf-8")
-            return real_stage(src)
+            return real_stage_and_requeue(src, *args, **kwargs)
 
-        with patch("worker.queue_ops._stage", side_effect=_finish_then_stage):
+        with patch("worker.queue_ops._stage_and_requeue", side_effect=_reclaim_then_requeue):
             reaped = q.reap_stale_processing_jobs(60, root=self.root)
 
         # The reaper must NOT report this job as reaped.
         self.assertNotIn("stale-sad", reaped)
-        # The processing/ file was renamed to the staged form (that's what _stage does),
-        # but _stage_and_requeue should have renamed it back.
-        # Either the original processing/ file is back, OR the staged file exists
-        # (the rename-back fallback kept it).
-        proc_exists = (self.processing / "stale-sad.json").exists()
-        staged_exists = (self.processing / "stale-sad.json.requeue").exists()
-        self.assertTrue(proc_exists or staged_exists,
-                        "after a token mismatch, the job must be in processing/ or staged for recovery")
+        # The token is checked before staging, so the new claim's record is
+        # left exactly where it was: no staged copy for recovery to publish.
+        self.assertTrue((self.processing / "stale-sad.json").exists())
+        self.assertFalse((self.processing / "stale-sad.json.requeue").exists())
         # The pending/ directory must NOT have received a copy.
         self.assertFalse((self.pending / "stale-sad.json").exists(),
                          "reaper must not publish a reclaimed job to pending/")

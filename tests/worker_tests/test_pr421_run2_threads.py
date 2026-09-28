@@ -12,8 +12,9 @@ Finding 2 (line 732, PRRT_kwDOQr1kjM6mf6TE):
   skips the requeue.
 
 Finding 3 (line 255, PRRT_kwDOQr1kjM6mgBcu):
-  _undo_retry_attempt skips the write if the pending/ file is gone or empty
-  after the retry() call, preventing ghost-job creation.
+  The post-retry attempts correction (_undo_retry_attempt) could create a
+  ghost job. It has since been removed: retry(count_attempt=False) keeps the
+  attempt count inside the transition; see test_pr421_run7_threads.
 
 Finding 4 (line 591, PRRT_kwDOQr1kjM6mgBdG):
   _abandon_claim verifies the claim token still matches the processing/ file
@@ -199,68 +200,6 @@ class TestDrainSkipsRequeueOnTokenMismatch(unittest.TestCase, QueueRootIsolation
 
 
 # ---------------------------------------------------------------------------
-# Finding 3: _undo_retry_attempt does not create ghost jobs
-# ---------------------------------------------------------------------------
-
-
-class TestUndoRetryAttemptNoGhostJob(unittest.TestCase, QueueRootIsolationMixin):
-    """_undo_retry_attempt skips the write when the pending/ file is absent or empty."""
-
-    def setUp(self) -> None:
-        self.setup_queue_root()
-
-    def test_happy_path_undo_corrects_attempts_on_present_file(self) -> None:
-        """Happy path: pending/ file exists with full data → attempts are corrected."""
-        from worker.job_runtime import _undo_retry_attempt
-
-        paths = q._ensure_dirs(self.root)
-        path = paths["pending"] / "undo1.json"
-        path.write_text(
-            json.dumps({"id": "undo1", "type": "t", "payload": {}, "attempts": 2}),
-            encoding="utf-8",
-        )
-
-        _undo_retry_attempt("undo1", original_attempts=1, q_root=self.root)
-
-        data = _read(path)
-        self.assertEqual(data["attempts"], 1)
-        self.assertEqual(data["type"], "t")  # payload preserved
-
-    def test_sad_path_undo_skips_write_when_file_is_gone(self) -> None:
-        """Sad path: pending/ file is gone (job was claimed) → no ghost job created.
-
-        Before the fix, safe_load_json returned {} (default) and the next
-        atomic_write_json wrote {"attempts": N} back, creating a ghost job
-        with no payload/type/id — corrupting the queue.
-        """
-        from worker.job_runtime import _undo_retry_attempt
-
-        q._ensure_dirs(self.root)
-        pending_dir = self.root / "pending"
-
-        # File is absent; _undo_retry_attempt must not create it.
-        _undo_retry_attempt("ghost1", original_attempts=0, q_root=self.root)
-
-        ghost = pending_dir / "ghost1.json"
-        self.assertFalse(ghost.exists(), "ghost job was created from an absent pending/ file")
-
-    def test_sad_path_undo_skips_write_when_file_is_empty(self) -> None:
-        """Sad path: pending/ file contains {} (empty/unreadable) → no write."""
-        from worker.job_runtime import _undo_retry_attempt
-
-        paths = q._ensure_dirs(self.root)
-        path = paths["pending"] / "empty1.json"
-        # safe_load_json of "{}" is {} — same as the default; simulates a
-        # partially written or raced-over file.
-        path.write_text("{}", encoding="utf-8")
-
-        _undo_retry_attempt("empty1", original_attempts=1, q_root=self.root)
-
-        # File must remain as-is (not overwritten with just {"attempts": 1}).
-        self.assertEqual(path.read_text(encoding="utf-8"), "{}")
-
-
-# ---------------------------------------------------------------------------
 # Finding 4: _abandon_claim checks token before requeueing
 # ---------------------------------------------------------------------------
 
@@ -422,7 +361,7 @@ class TestDrainRequeuesDeadThreadsWithResidualRecord(unittest.TestCase, QueueRoo
         is a no-op in drain — requeue_processing returns None and nothing is created."""
         runner = _make_runner(self.root, max_per_tick=1)
         q._ensure_dirs(self.root)
-        token = "finished-token"  # nosec B105 - test claim token, not a secret
+        token = "f" * 32  # nosec B105 - test claim token, not a secret
         thread = threading.Thread(target=lambda: None, daemon=True)
         thread.start()
         thread.join(timeout=5)

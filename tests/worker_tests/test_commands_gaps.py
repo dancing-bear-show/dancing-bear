@@ -76,32 +76,6 @@ class TestJobContext(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# _undo_retry_attempt
-# ---------------------------------------------------------------------------
-
-class TestUndoRetryAttempt(unittest.TestCase, QueueRootIsolationMixin):
-    def setUp(self):
-        self.setup_queue_root()
-
-    def test_resets_attempts_on_pending_job(self):
-        from worker.queue_ops import Job, enqueue
-        from worker.job_runtime import _undo_retry_attempt
-        from worker import queue_ops as q
-        q.QUEUE_ROOT = self.root
-        enqueue(Job(id="undo1", type="noop", payload={}, attempts=1), root=self.root)
-        _undo_retry_attempt("undo1", 0, self.root)
-        data = json.loads((self.root / "pending" / "undo1.json").read_text())
-        self.assertEqual(data["attempts"], 0)
-
-    def test_does_not_raise_when_job_missing(self):
-        from worker.job_runtime import _undo_retry_attempt
-        from worker.queue_ops import _ensure_dirs
-        _ensure_dirs(self.root)
-        # Should not raise even if job doesn't exist
-        _undo_retry_attempt("nonexistent-job", 0, self.root)
-
-
-# ---------------------------------------------------------------------------
 # _handle_outcome
 # ---------------------------------------------------------------------------
 
@@ -172,7 +146,6 @@ class TestHandleOutcome(unittest.TestCase, QueueRootIsolationMixin):
         proc = self._make_proc_path("h_defer")
         ctx = self._make_ctx("h_defer")
         with patch("worker.job_runtime.log_perf_jsonl"), \
-             patch("worker.job_runtime._undo_retry_attempt"), \
              patch("worker.job_runtime.q.retry", side_effect=self._patched_retry):
             _handle_outcome(self._make_outcome_ctx(proc, ctx), False, "deferred-needs-resource")
         self.assertTrue((self.root / "pending" / "h_defer.json").exists())
