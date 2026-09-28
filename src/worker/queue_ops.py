@@ -31,14 +31,26 @@ QUEUE_FOLDERS: tuple[str, ...] = ("pending", "processing", "done", "error")
 
 
 def _q(root: Path | None) -> Path:
-    """Return *root* if given, otherwise the current module-level QUEUE_ROOT.
+    """Return *root* if given, otherwise derive the queue root from the environment.
 
-    Resolving here at call time, rather than writing QUEUE_ROOT as the parameter
-    default, matters: a default is bound at import, so a caller that omits ``root`` would
-    reach the user's real queue even after a test reassigned QUEUE_ROOT, and the
-    live daemon would then run the test's jobs.
+    Calling ``get_worker_state_dir("queue")`` here — at call time — rather than
+    reading the module-level ``QUEUE_ROOT`` snapshot means any test that sets
+    ``DANCING_BEAR_WORKER_STATE_DIR`` *after* this module is imported still gets
+    a fully private queue, regardless of import order.  Without this, a test
+    that imports a worker module before the bootstrap env var is set will have
+    ``QUEUE_ROOT`` frozen at the real user queue, and every ``root=None`` call
+    will touch real jobs.
+
+    ``QUEUE_ROOT`` remains a public, assignable attribute for callers that pass
+    it explicitly (``root=q.QUEUE_ROOT``); those callers are unaffected by this
+    change.
     """
-    return root if root is not None else QUEUE_ROOT
+    if root is not None:
+        return root
+    try:
+        return get_worker_state_dir("queue")
+    except Exception:  # pragma: no cover - defensive fallback  # nosec B110 - best-effort path resolution
+        return QUEUE_ROOT
 
 
 def _ensure_dirs(root: Path | None = None) -> dict[str, Path]:

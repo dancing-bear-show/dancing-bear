@@ -16,11 +16,20 @@ supported discover form:
   - python3 -m unittest discover -s tests -t .
   - python3 -m unittest discover -s tests  (no -t; worker_tests/__init__.py fires)
   - python3 -m unittest discover -s tests/worker_tests  (this file's bootstrap)
+  - python3 -m unittest discover -s tests/worker_tests -p test_commands_gaps.py
 
-When unittest imports this file without first importing worker_tests/__init__.py
-(e.g. discover -s tests/worker_tests with no -t), the bootstrap below fires here
-so DANCING_BEAR_WORKER_STATE_DIR is private before the module-level worker imports
-below compute queue_ops.QUEUE_ROOT.
+The last two forms are the hardest: with start_dir=tests/worker_tests and no -t,
+Python never imports worker_tests/__init__.py; discover alphabetically imports
+test_commands_gaps.py first, which triggers worker.queue_ops import and previously
+froze QUEUE_ROOT at the real queue before the bootstrap could run.
+
+The fix is two-layered:
+1. This file has a module-level bootstrap so DANCING_BEAR_WORKER_STATE_DIR is
+   set before the module-level ``from worker import queue_ops`` below.
+2. queue_ops._q(None) calls get_worker_state_dir("queue") at call time (not
+   QUEUE_ROOT at import time), so even if QUEUE_ROOT was frozen at the real path,
+   every omitted-root call resolves via the env var.  Layer 2 alone closes the
+   leak; layer 1 ensures QUEUE_ROOT itself is also private.
 """
 
 from __future__ import annotations
@@ -162,3 +171,30 @@ class TestStateDirectoryIsPrivate(unittest.TestCase):
                     f"With user-supplied override, state dir resolved to real default: "
                     f"{state_dir}",
                 )
+
+    def test_q_none_resolves_via_env_at_call_time(self) -> None:
+        """queue_ops._q(None) must read the env var at call time, not QUEUE_ROOT.
+
+        This test catches the import-order leak: even if queue_ops.QUEUE_ROOT was
+        frozen at the real queue (because worker.queue_ops was imported before the
+        bootstrap set DANCING_BEAR_WORKER_STATE_DIR), a call that omits root must
+        still resolve to the private temp dir via get_worker_state_dir().
+
+        Simulate the worst-case by temporarily resetting QUEUE_ROOT to the real
+        queue root, then asserting that _q(None) still returns the private path
+        set by the bootstrap (the env var is already private at this point).
+        """
+        real_queue = _real_default_state_dir() / "queue"
+        original_queue_root = queue_ops.QUEUE_ROOT
+        try:
+            queue_ops.QUEUE_ROOT = real_queue  # simulate a frozen-at-import QUEUE_ROOT
+            actual = queue_ops._q(None)
+        finally:
+            queue_ops.QUEUE_ROOT = original_queue_root
+
+        self.assertFalse(
+            actual == real_queue or str(actual).startswith(str(real_queue)),
+            f"_q(None) returned the REAL queue {actual!r} even though "
+            f"DANCING_BEAR_WORKER_STATE_DIR is set to a private dir.\n"
+            "queue_ops._q(None) must call get_worker_state_dir() at call time.",
+        )

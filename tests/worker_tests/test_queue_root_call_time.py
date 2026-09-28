@@ -12,11 +12,13 @@ write to the real queue while demonstrating the failure.
 from __future__ import annotations
 
 import inspect
+import os
 import tempfile
 import unittest
 from pathlib import Path
 
 from worker import queue_metrics, queue_ops
+from worker._helpers import WORKER_STATE_DIR_ENV
 from worker.queue_ops import Job
 
 
@@ -49,10 +51,28 @@ class TestOmittedRootUsesReassignedQueueRoot(unittest.TestCase):
             self.skipTest("root defaults are import-bound; running would touch the real queue")
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        self.root = Path(tmp.name) / "queue"
+        # Resolve the tempdir path so it matches get_worker_state_dir()'s output,
+        # which calls .resolve() internally (e.g. /var/folders -> /private/var/folders
+        # on macOS).
+        tmp_resolved = Path(tmp.name).resolve()
+        self.root = tmp_resolved / "queue"
+        # _q(None) now calls get_worker_state_dir("queue") at call time, which
+        # reads DANCING_BEAR_WORKER_STATE_DIR from the environment.  Set the env
+        # var so the call resolves to self.root (= <tmp>/queue).
+        original_env = os.environ.get(WORKER_STATE_DIR_ENV)
+        os.environ[WORKER_STATE_DIR_ENV] = str(tmp_resolved)
+        self.addCleanup(
+            lambda: (
+                os.environ.pop(WORKER_STATE_DIR_ENV, None)
+                if original_env is None
+                else os.environ.__setitem__(WORKER_STATE_DIR_ENV, original_env)
+            )
+        )
+        # Keep QUEUE_ROOT consistent for callers that use root=q.QUEUE_ROOT,
+        # and for the test assertions that compare against self.root.
         original = queue_ops.QUEUE_ROOT
         self.addCleanup(setattr, queue_ops, "QUEUE_ROOT", original)
-        queue_ops.QUEUE_ROOT = self.root
+        queue_ops.QUEUE_ROOT = self.root  # == tmp_resolved / "queue"
 
     def test_enqueue_list_and_claim_use_reassigned_root(self):
         path = queue_ops.enqueue(Job(id="calltime1", type="noop", payload={}))

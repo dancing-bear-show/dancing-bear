@@ -54,8 +54,10 @@ def get_worker_state_dir(subdir: str = "queue") -> Path:
     dedicated variable exists. A relative value is resolved against the
     current directory.
 
-    Read at call time; note queue_ops computes QUEUE_ROOT once at import, so
-    the variable must be in the environment when the process starts.
+    Read at call time.  queue_ops.QUEUE_ROOT is also computed once at import
+    (for callers that read it directly), but queue_ops._q(None) calls this
+    function at call time, so omitted-root calls always resolve via the current
+    env var rather than the import-time snapshot.
     """
     override = os.environ.get(WORKER_STATE_DIR_ENV, "").strip()
     base = (
