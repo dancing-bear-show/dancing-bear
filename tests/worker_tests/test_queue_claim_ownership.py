@@ -48,9 +48,10 @@ def _names(folder: Path) -> list[str]:
 
 def _claim(test: unittest.TestCase, pending: Path, root: Path) -> Path:
     """Claim ``pending`` as a worker would; fail the test if the claim is lost."""
-    proc = q.start_processing(pending, root)
-    if proc is None:
+    result = q.start_processing(pending, root)
+    if result is None:
         test.fail(f"could not claim {pending.name}")
+    proc, _tok = result
     return proc
 
 
@@ -411,9 +412,10 @@ class TestStartProcessingHoldsLock(unittest.TestCase, QueueRootIsolationMixin):
         """After start_processing returns, the processing/ record has
         processing_started_at set, so the reaper never sees an initialisation
         window where the start time is absent."""
-        proc = q.start_processing(self.pending, self.root)
-        self.assertIsNotNone(proc)
-        assert proc is not None  # nosec B101 - narrows Optional for mypy
+        result = q.start_processing(self.pending, self.root)
+        self.assertIsNotNone(result)
+        assert result is not None  # nosec B101 - narrows Optional for type checker
+        proc, _tok = result
         data = _read(proc)
         self.assertIn("processing_started_at", data, "processing_started_at missing after start_processing")
         self.assertIn(q.CLAIM_TOKEN_FIELD, data, "claim_token missing after start_processing")
@@ -586,12 +588,11 @@ class TestReaperTokenRevalidation(unittest.TestCase, QueueRootIsolationMixin):
     def _claim_job(self, job_id: str) -> tuple[Path, str]:
         """Enqueue and claim a job; return (proc_path, token)."""
         pending = enqueue(Job(id=job_id, type="t", payload={"k": 1}), root=self.root)
-        proc = q.start_processing(pending, self.root)
-        if proc is None:
+        result = q.start_processing(pending, self.root)
+        if result is None:
             self.fail(f"could not claim {job_id}")
-        token = q.claim_token(proc)
+        proc, token = result
         self.assertTrue(token, "claim_token must be set after start_processing")
-        assert token is not None  # nosec B101 - narrows Optional for mypy
         return proc, token
 
     def test_reaper_requeues_job_whose_token_still_matches(self) -> None:

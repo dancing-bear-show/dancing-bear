@@ -139,10 +139,12 @@ class _ContestedStart:
         self.release = threading.Event()
         self.other_path: Path | None = None
 
-    def __call__(self, job_path: Path, root: Path | None = None) -> Path | None:
+    def __call__(self, job_path: Path, root: Path | None = None) -> tuple[Path, str] | None:
         if job_path.stem != self._contested_id:
             return _real_start(job_path, self._root)
-        self.other_path = _real_start(job_path, self._root)
+        claim = _real_start(job_path, self._root)
+        if claim is not None:
+            self.other_path, _tok = claim
         self.other_claimed.set()
         if threading.current_thread() is not threading.main_thread():
             self.release.wait(timeout=5)
@@ -384,9 +386,10 @@ class TestStagedRecordNormalisation(unittest.TestCase, QueueRootIsolationMixin):
         from worker import queue_ops as q
 
         started = enqueue(Job(id="stale", type="slow", payload={}), root=self.root)
-        proc = _real_start(started, self.root)
-        if proc is None:
+        claim = _real_start(started, self.root)
+        if claim is None:
             self.fail("could not claim the job")
+        proc, _tok = claim
         data = _read(proc)
         data["processing_started_at"] = "2000-01-01T00:00:00Z"
         proc.write_text(json.dumps(data), encoding="utf-8")

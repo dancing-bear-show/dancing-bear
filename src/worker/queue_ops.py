@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -163,8 +164,8 @@ def _rename(src: Path, dst: Path) -> None:
     src.replace(dst)
 
 
-def start_processing(job_path: Path, root: Path | None = None) -> Path | None:
-    """Move a job from pending/ to processing/ and return new path, or None.
+def start_processing(job_path: Path, root: Path | None = None) -> tuple[Path, str] | None:
+    """Move a job from pending/ to processing/ and return (new_path, claim_token), or None.
 
     Returns None when another worker has already claimed the job between
     listing and claim, which can occur under high concurrency.
@@ -175,10 +176,24 @@ def start_processing(job_path: Path, root: Path | None = None) -> Path | None:
     fields are written, decide the job is stale (no start time), stage it back
     to pending/, and allow a second worker to pick it up while this worker is
     still running it.
+
+    The claim token written inside the lock is returned as the second element of
+    the tuple so callers never need a second file-read to learn their own token.
+    A separate ``claim_token()`` call after this one has a TOCTOU window: the
+    lock is released before the read, and in that gap another worker's reaper
+    can reclaim the stem and write a new token — the re-read then returns the
+    replacement token and the caller proceeds to process a job it does not own.
+    Returning the token here, while the lock is still held, closes that window.
+
+    When the metadata write fails, the returned token is an empty string rather
+    than None (None would widen the return to three states and lose the path).
+    Callers that need a non-empty token to establish ownership must check for
+    an empty string and requeue; see ``_start_batch`` and ``process_one``.
     """
     paths = _ensure_dirs(root)
     job_id = job_path.stem
     new_path = _job_path(paths["processing"], job_id)
+    token: str = ""
     try:
         with _transition_lock(root):
             # Claim the job atomically: rename then write metadata before the
@@ -188,7 +203,8 @@ def start_processing(job_path: Path, root: Path | None = None) -> Path | None:
             try:
                 data = safe_load_json(new_path, default={})
                 data["status"] = "processing"
-                data[CLAIM_TOKEN_FIELD] = uuid.uuid4().hex
+                token = uuid.uuid4().hex
+                data[CLAIM_TOKEN_FIELD] = token
                 data["processing_started_at"] = iso_now()
                 data[FIELD_UPDATED_AT] = iso_now()
                 atomic_write_json(new_path, data)
@@ -198,7 +214,8 @@ def start_processing(job_path: Path, root: Path | None = None) -> Path | None:
                 _logging.getLogger(__name__).debug(
                     "Failed to update processing job %s: %s", new_path, exc
                 )
-        return new_path
+                token = ""  # nosec B105 - empty string signals metadata-write failure, not a credential
+        return new_path, token
     except FileNotFoundError:
         # Claimed elsewhere; ignore
         return None
@@ -211,8 +228,18 @@ def claim_token(proc_path: Path) -> str | None:
     return str(token) if token else None
 
 
+class _TransitionLockTimeout(Exception):
+    """Raised when ``_transition_lock`` cannot acquire the lock within its timeout.
+
+    Follows the ``_NoClobberRaceLost`` naming convention established in this
+    module. Callers that need a best-effort-only attempt (e.g.
+    ``drain_live_threads`` after the shutdown deadline has passed) catch this
+    and continue rather than blocking indefinitely.
+    """
+
+
 @contextmanager
-def _transition_lock(root: Path | None) -> Iterator[None]:
+def _transition_lock(root: Path | None, timeout: float | None = None) -> Iterator[None]:
     """Serialise processing/ transitions across threads and processes.
 
     Held by every transition that removes a processing/ record (finish,
@@ -221,6 +248,12 @@ def _transition_lock(root: Path | None) -> Iterator[None]:
     ownership check stays valid until its transition completes. Each entry
     opens its own descriptor, so threads of one process exclude each other
     too. No-op where ``fcntl`` is unavailable.
+
+    When ``timeout`` is given (not None), the call raises ``_TransitionLockTimeout``
+    rather than blocking indefinitely if the lock cannot be acquired within
+    that many seconds. Omitting it (the default) preserves the original
+    blocking behaviour for all existing callers; only ``drain_live_threads``
+    passes a timeout, to avoid exceeding the shutdown grace period.
     """
     try:
         import fcntl
@@ -230,7 +263,27 @@ def _transition_lock(root: Path | None) -> Iterator[None]:
     lock_path = _q(root) / _TRANSITION_LOCK_NAME
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a") as fh:
-        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        if timeout is None:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        else:
+            # Non-blocking loop with short sleeps until the timeout elapses.
+            deadline = time.monotonic() + timeout
+            _POLL_INTERVAL = 0.05  # seconds between acquisition attempts
+            acquired = False
+            while True:
+                try:
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    acquired = True
+                    break
+                except OSError:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        break
+                    time.sleep(min(_POLL_INTERVAL, remaining))
+            if not acquired:
+                raise _TransitionLockTimeout(
+                    f"could not acquire transition lock within {timeout:.1f}s"
+                )
         try:
             yield
         finally:
@@ -570,6 +623,7 @@ def _stage_and_requeue(
     reason: str,
     *,
     expected_token: str | None | object = _NO_TOKEN_CHECK,
+    lock_timeout: float | None = None,
 ) -> Path | None:
     """Claim ``src`` from processing/ by renaming it, normalise it, then publish it.
 
@@ -591,8 +645,14 @@ def _stage_and_requeue(
     has no token concept at all", because a missing claim token is itself
     represented as ``None`` -- that ambiguity is exactly what let two call
     sites requeue a stem with no ownership check at all.
+
+    ``lock_timeout`` is forwarded to ``_transition_lock``: when given, the
+    call raises ``_TransitionLockTimeout`` instead of blocking indefinitely.
+    All callers use the default (None = block forever) except
+    ``drain_live_threads``, which passes a deadline-derived budget to avoid
+    exceeding the shutdown grace period.
     """
-    with _transition_lock(pending_dir.parent):
+    with _transition_lock(pending_dir.parent, timeout=lock_timeout):
         staged = _stage(src)
         if staged is None:
             return None
@@ -629,6 +689,7 @@ def requeue_processing(
     reason: str,
     root: Path | None = None,
     claim_token: str | None | object = _NO_TOKEN_CHECK,
+    lock_timeout: float | None = None,
 ) -> Path | None:
     """Move processing/<job_id> back to pending/ without consuming an attempt.
 
@@ -654,6 +715,11 @@ def requeue_processing(
     metadata write -- so this still verifies the record has not since been
     claimed by someone else with a real token; leaving the parameter
     unset skips the check entirely, for callers with no token to compare.
+
+    ``lock_timeout`` is forwarded to ``_stage_and_requeue`` and from there to
+    ``_transition_lock``. All callers use the default (None = block forever)
+    except ``drain_live_threads``, which passes a deadline-derived budget to
+    avoid exceeding the shutdown grace period.
     """
     paths = _ensure_dirs(root)
     return _stage_and_requeue(
@@ -661,6 +727,7 @@ def requeue_processing(
         paths["pending"],
         reason,
         expected_token=claim_token,
+        lock_timeout=lock_timeout,
     )
 
 

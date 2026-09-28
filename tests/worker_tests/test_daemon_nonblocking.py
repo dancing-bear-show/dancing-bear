@@ -104,8 +104,8 @@ def _patch_queue_root(job_root: Path) -> ExitStack:
     stack.enter_context(
         patch(
             "worker.job_runtime.q.requeue_processing",
-            side_effect=lambda job_id, reason, root=None, claim_token=None: _real_requeue(
-                job_id, reason=reason, root=job_root, claim_token=claim_token
+            side_effect=lambda job_id, reason, root=None, claim_token=None, lock_timeout=None: _real_requeue(
+                job_id, reason=reason, root=job_root, claim_token=claim_token, lock_timeout=lock_timeout
             ),
         )
     )

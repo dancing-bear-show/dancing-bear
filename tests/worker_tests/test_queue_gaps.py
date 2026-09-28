@@ -188,8 +188,9 @@ class TestStartProcessing(unittest.TestCase, QueueRootIsolationMixin):
         from worker.queue_ops import Job, enqueue, start_processing
         job = Job(id="s1", type="noop", payload={})
         pending_path = enqueue(job, root=self.root)
-        proc_path = start_processing(pending_path, self.root)
-        self.assertIsNotNone(proc_path)
+        result = start_processing(pending_path, self.root)
+        self.assertIsNotNone(result)
+        proc_path, _tok = result
         self.assertIsInstance(proc_path, Path)
         self.assertEqual(proc_path.parent.name, "processing")
 
@@ -204,8 +205,9 @@ class TestStartProcessing(unittest.TestCase, QueueRootIsolationMixin):
         from worker.queue_ops import Job, enqueue, start_processing
         job = Job(id="s2", type="noop", payload={})
         pending_path = enqueue(job, root=self.root)
-        proc_path = start_processing(pending_path, self.root)
-        self.assertIsNotNone(proc_path)
+        result = start_processing(pending_path, self.root)
+        self.assertIsNotNone(result)
+        proc_path, _tok = result
         data = json.loads(proc_path.read_text())
         self.assertEqual(data["status"], "processing")
 
@@ -213,8 +215,9 @@ class TestStartProcessing(unittest.TestCase, QueueRootIsolationMixin):
         from worker.queue_ops import Job, enqueue, start_processing
         job = Job(id="s3", type="noop", payload={})
         pending_path = enqueue(job, root=self.root)
-        proc_path = start_processing(pending_path, self.root)
-        self.assertIsNotNone(proc_path)
+        result = start_processing(pending_path, self.root)
+        self.assertIsNotNone(result)
+        proc_path, _tok = result
         data = json.loads(proc_path.read_text())
         self.assertIn("processing_started_at", data)
 
@@ -227,11 +230,14 @@ class TestFinish(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
         self.setup_queue_root()
 
-    def _enqueue_and_start(self, job_id: str):
+    def _enqueue_and_start(self, job_id: str) -> Path:
         from worker.queue_ops import Job, enqueue, start_processing
         job = Job(id=job_id, type="noop", payload={})
         pending_path = enqueue(job, root=self.root)
-        return start_processing(pending_path, self.root)
+        result = start_processing(pending_path, self.root)
+        assert result is not None  # nosec B101 - narrows Optional for type checker
+        proc_path, _tok = result
+        return proc_path
 
     def test_success_moves_to_done(self):
         from worker.queue_ops import finish
@@ -296,11 +302,14 @@ class TestRetry(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
         self.setup_queue_root()
 
-    def _enqueue_and_start(self, job_id: str):
+    def _enqueue_and_start(self, job_id: str) -> Path:
         from worker.queue_ops import Job, enqueue, start_processing
         job = Job(id=job_id, type="noop", payload={})
         pending_path = enqueue(job, root=self.root)
-        return start_processing(pending_path, self.root)
+        result = start_processing(pending_path, self.root)
+        assert result is not None  # nosec B101 - narrows Optional for type checker
+        proc_path, _tok = result
+        return proc_path
 
     def test_retry_moves_back_to_pending(self):
         from worker.queue_ops import retry
@@ -393,7 +402,9 @@ class TestListProcessingAndError(unittest.TestCase, QueueRootIsolationMixin):
         from worker.queue_ops import Job, enqueue, finish, list_error, start_processing
         job = Job(id="le1", type="noop", payload={})
         pending = enqueue(job, root=self.root)
-        proc = start_processing(pending, self.root)
+        claim = start_processing(pending, self.root)
+        assert claim is not None  # nosec B101 - narrows Optional for type checker
+        proc, _tok = claim
         finish(proc, success=False, error_msg="fail", root=self.root)
         result = list_error(self.root)
         self.assertEqual(len(result), 1)
@@ -412,8 +423,9 @@ class TestRequeueError(unittest.TestCase, QueueRootIsolationMixin):
         from worker.queue_ops import Job, enqueue, finish, start_processing
         job = Job(id=job_id, type="noop", payload={})
         p = enqueue(job, root=self.root)
-        proc = start_processing(p, self.root)
-        assert proc is not None  # nosec B101 - narrows Optional for mypy
+        claim = start_processing(p, self.root)
+        assert claim is not None  # nosec B101 - narrows Optional for type checker
+        proc, _tok = claim
         result = finish(proc, success=False, error_msg="boom", root=self.root)
         assert result is not None  # nosec B101 - narrows Optional for mypy
         return result
@@ -513,7 +525,9 @@ class TestStatus(unittest.TestCase, QueueRootIsolationMixin):
         from worker.queue_metrics import status
         job = Job(id="sterr1", type="noop", payload={})
         p = enqueue(job, root=self.root)
-        proc = start_processing(p, self.root)
+        claim = start_processing(p, self.root)
+        assert claim is not None  # nosec B101 - narrows Optional for type checker
+        proc, _tok = claim
         finish(proc, success=False, error_msg="fail", root=self.root)
         s = status(self.root)
         self.assertIn("sterr1", s["recent_error_ids"])
@@ -575,7 +589,9 @@ class TestFindJobPathById(unittest.TestCase, QueueRootIsolationMixin):
         from worker.queue_ops import Job, enqueue, finish, find_job_path_by_id, start_processing
         job = Job(id="fj2", type="noop", payload={})
         pending = enqueue(job, root=self.root)
-        proc = start_processing(pending, self.root)
+        claim = start_processing(pending, self.root)
+        assert claim is not None  # nosec B101 - narrows Optional for type checker
+        proc, _tok = claim
         finish(proc, success=True, root=self.root)
         p = find_job_path_by_id("fj2", root=self.root)
         self.assertIsNotNone(p)
@@ -585,7 +601,9 @@ class TestFindJobPathById(unittest.TestCase, QueueRootIsolationMixin):
         from worker.queue_ops import Job, enqueue, finish, find_job_path_by_id, start_processing
         job = Job(id="fj3", type="noop", payload={})
         pending = enqueue(job, root=self.root)
-        proc = start_processing(pending, self.root)
+        claim = start_processing(pending, self.root)
+        assert claim is not None  # nosec B101 - narrows Optional for type checker
+        proc, _tok = claim
         finish(proc, success=False, error_msg="fail", root=self.root)
         p = find_job_path_by_id("fj3", root=self.root)
         self.assertIsNotNone(p)
@@ -670,7 +688,9 @@ class TestReapStaleProcessingJobs(unittest.TestCase, QueueRootIsolationMixin):
         from worker.queue_ops import Job, enqueue, start_processing, reap_stale_processing_jobs
         job = Job(id="reap1", type="noop", payload={})
         pending = enqueue(job, root=self.root)
-        proc_path = start_processing(pending, self.root)
+        claim = start_processing(pending, self.root)
+        assert claim is not None  # nosec B101 - narrows Optional for type checker
+        proc_path, _tok = claim
         old_ts = (datetime.now(UTC) - timedelta(seconds=200)).strftime("%Y-%m-%dT%H:%M:%SZ")
         data = json.loads(proc_path.read_text())
         data["processing_started_at"] = old_ts
@@ -686,7 +706,9 @@ class TestReapStaleProcessingJobs(unittest.TestCase, QueueRootIsolationMixin):
         from worker.queue_ops import Job, enqueue, start_processing, reap_stale_processing_jobs
         job = Job(id="norap1", type="noop", payload={})
         pending = enqueue(job, root=self.root)
-        proc_path = start_processing(pending, self.root)
+        claim = start_processing(pending, self.root)
+        assert claim is not None  # nosec B101 - narrows Optional for type checker
+        proc_path, _tok = claim
         past = time.time() - 5
         os.utime(proc_path, (past, past))
         reaped = reap_stale_processing_jobs(300, root=self.root)
@@ -696,7 +718,9 @@ class TestReapStaleProcessingJobs(unittest.TestCase, QueueRootIsolationMixin):
         from worker.queue_ops import Job, enqueue, start_processing, reap_stale_processing_jobs
         job = Job(id="norap2", type="noop", payload={})
         pending = enqueue(job, root=self.root)
-        proc_path = start_processing(pending, self.root)
+        claim = start_processing(pending, self.root)
+        assert claim is not None  # nosec B101 - narrows Optional for type checker
+        proc_path, _tok = claim
         past = time.time() - 10000
         os.utime(proc_path, (past, past))
         reaped = reap_stale_processing_jobs(0, root=self.root)
@@ -706,7 +730,9 @@ class TestReapStaleProcessingJobs(unittest.TestCase, QueueRootIsolationMixin):
         from worker.queue_ops import Job, enqueue, start_processing, reap_stale_processing_jobs
         job = Job(id="pertob", type="noop", payload={}, timeout_sec=30)
         pending = enqueue(job, root=self.root)
-        proc_path = start_processing(pending, self.root)
+        claim = start_processing(pending, self.root)
+        assert claim is not None  # nosec B101 - narrows Optional for type checker
+        proc_path, _tok = claim
         old_ts = (datetime.now(UTC) - timedelta(seconds=60)).strftime("%Y-%m-%dT%H:%M:%SZ")
         data = json.loads(proc_path.read_text())
         data["processing_started_at"] = old_ts
@@ -896,7 +922,9 @@ class TestComputeProcessingOldestAge(unittest.TestCase, QueueRootIsolationMixin)
         from worker.queue_metrics import _compute_processing_oldest_age
         job = Job(id="age1", type="noop", payload={})
         pending = enqueue(job, root=self.root)
-        proc_path = start_processing(pending, self.root)
+        claim = start_processing(pending, self.root)
+        assert claim is not None  # nosec B101 - narrows Optional for type checker
+        proc_path, _tok = claim
         data = json.loads(proc_path.read_text())
         old_ts = (datetime.now(UTC) - timedelta(seconds=50)).strftime("%Y-%m-%dT%H:%M:%SZ")
         data["processing_started_at"] = old_ts

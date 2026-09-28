@@ -130,9 +130,10 @@ class TestDrainLiveThreads(_ShutdownTestBase):
         runner = _make_runner(self.root, max_per_tick=1)
         self._start_gated_job(runner)
         other_pending = enqueue(Job(id="other1", type="slow", payload={}), root=self.root)
-        other_proc = _real_start(other_pending, self.root)
-        if other_proc is None:
+        other_claim = _real_start(other_pending, self.root)
+        if other_claim is None:
             self.fail("could not claim the other worker's job")
+        other_proc, _tok = other_claim
         before = other_proc.read_bytes()
 
         with self.assertLogs("worker.job_runtime", "WARNING"):

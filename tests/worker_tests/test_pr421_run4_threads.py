@@ -75,12 +75,13 @@ class TestProcessOneMissingClaimToken(unittest.TestCase, QueueRootIsolationMixin
         self.assertEqual(_names(self.root / "done"), ["tok-ok.json"])
 
     def test_sad_path_none_claim_token_requeues_without_running_handler(self) -> None:
-        """claim_token() returning None means process_one requeues the claim
-        and never calls process_claimed -- the handler must not run untracked.
+        """An empty token from start_processing means process_one requeues the
+        claim and never calls process_claimed -- the handler must not run untracked.
 
-        Pre-fix: process_one passed claim_token=None straight into
-        process_claimed, which ran the handler and let every finish()/retry()
-        call downstream skip its ownership check.
+        start_processing now returns the token atomically as the second element
+        of its tuple return value; an empty string means the metadata write failed.
+        Previously this was simulated by patching q.claim_token to return None,
+        but claim_token is no longer called in process_one after this fix.
         """
         ran: list[str] = []
 
@@ -91,23 +92,24 @@ class TestProcessOneMissingClaimToken(unittest.TestCase, QueueRootIsolationMixin
         self.stack.enter_context(patch.dict("worker.job_runtime.HANDLERS", {"fast": _record}))
         enqueue(Job(id="tok-none", type="fast", payload={}, attempts=1), root=self.root)
 
-        # requeue_processing(claim_token=None) now verifies under the lock
-        # that the processing/ record still carries no token, so the record
-        # itself must also lack one to match the metadata-write failure this
-        # test simulates -- strip the token start_processing would normally
-        # write.
+        # Simulate a metadata-write failure: start_processing returns the path
+        # with an empty token, and strips the token from disk so that
+        # requeue_processing(claim_token=None) verifies correctly under the lock.
         real_start = q.start_processing
 
-        def _start_without_token(job_path: Path, root: Path | None = None) -> Path | None:
-            proc = real_start(job_path, root)
-            if proc is not None:
+        def _start_empty_token(
+            job_path: Path, root: Path | None = None
+        ) -> tuple[Path, str] | None:
+            result = real_start(job_path, root)
+            if result is not None:
+                proc, _tok = result
                 data = json.loads(proc.read_text(encoding="utf-8"))
                 data.pop(q.CLAIM_TOKEN_FIELD, None)
                 proc.write_text(json.dumps(data), encoding="utf-8")
-            return proc
+                return proc, ""
+            return result
 
-        with patch("worker.job_runtime.q.claim_token", return_value=None), \
-             patch("worker.job_runtime.q.start_processing", side_effect=_start_without_token), \
+        with patch("worker.job_runtime.q.start_processing", side_effect=_start_empty_token), \
              self.assertLogs("worker.job_runtime", "WARNING"):
             runner = _make_runner(self.root, max_per_tick=1)
             result = runner.run_once()

@@ -113,14 +113,35 @@ class TestTokenlessRequeueVerifiesUnderLock(unittest.TestCase, QueueRootIsolatio
         self.assertFalse((self.root / "pending" / "reclaimed1.json").exists())
 
     def test_process_one_requeues_with_claim_token_none_explicit(self) -> None:
-        """process_one's None-claim-token branch passes claim_token=None
+        """process_one's empty-token branch passes claim_token=None
         explicitly to requeue_processing (not omitted), so the record's
-        current state is verified rather than assumed."""
+        current state is verified rather than assumed.
+
+        Previously this was tested by patching q.claim_token to return None,
+        but claim_token is no longer called in process_one: start_processing now
+        returns the token atomically as the second element of its tuple.
+        The failure is now simulated by returning (proc_path, "") from
+        start_processing with the token stripped from disk.
+        """
         base = _patch_queue_root(self.root)
         self.addCleanup(base.close)
         enqueue(Job(id="run-once-tok", type="fast", payload={}, attempts=2), root=self.root)
 
-        with patch("worker.job_runtime.q.claim_token", return_value=None), \
+        real_start = q.start_processing
+
+        def _start_empty_token(
+            job_path: Path, root: Path | None = None
+        ) -> tuple[Path, str] | None:
+            result = real_start(job_path, root)
+            if result is not None:
+                proc, _tok = result
+                data = json.loads(proc.read_text(encoding="utf-8"))
+                data.pop(q.CLAIM_TOKEN_FIELD, None)
+                proc.write_text(json.dumps(data), encoding="utf-8")
+                return proc, ""
+            return result
+
+        with patch("worker.job_runtime.q.start_processing", side_effect=_start_empty_token), \
              self.assertLogs("worker.job_runtime", "WARNING"), \
              patch("worker.job_runtime.q.requeue_processing", side_effect=q.requeue_processing) as spy:
             runner = _make_runner(self.root, max_per_tick=1)

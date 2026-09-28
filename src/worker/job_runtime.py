@@ -36,6 +36,9 @@ _SignalHandler = Callable[[int, FrameType | None], object] | int | None
 
 # last_error for a claimed job requeued because its worker thread never started.
 _THREAD_START_FAILED_REASON = "requeued-thread-start-failed"
+# last_error for a claimed job requeued because its thread died with an unhandled
+# exception (outside the SafeProcessor guard) and left a processing/ record behind.
+_THREAD_DIED_REASON = "requeued-thread-died-unhandled"
 
 # ============================================================================
 # Helpers
@@ -352,14 +355,14 @@ class JobProcessor:
             recovered)
         """
         st = time.time()
-        proc_path = q.start_processing(job_path)
+        claim = q.start_processing(job_path)
 
-        if not proc_path:
+        if claim is None:
             # Already claimed by another worker
             return 0
 
-        token = q.claim_token(proc_path)
-        if token is None:
+        proc_path, token = claim
+        if not token:
             # start_processing's metadata write failed: the same undefined
             # ownership state _start_batch treats as a lost claim. Requeuing
             # here (rather than calling process_claimed with claim_token=None,
@@ -371,7 +374,7 @@ class JobProcessor:
             # verify under the transition lock that the record still carries no
             # token, rather than requeuing this stem unconditionally: another
             # worker's reaper could have already reclaimed it with a real
-            # token in the time between the read above and this call.
+            # token in the time between the metadata failure and this call.
             logger.warning(
                 "worker claim token missing for job %s after start_processing; requeueing",
                 job_path.stem,
@@ -538,10 +541,38 @@ class DaemonRunner:
         return self._start_batch(items)
 
     def _prune_live_threads(self) -> None:
-        """Drop finished threads from the live-thread registry."""
+        """Requeue any unfinished processing/ records for dead threads, then drop them.
+
+        After ``_run_guarded`` catches an exception from ``process_claimed``,
+        the thread can exit while ``processing/<stem>.json`` remains on disk.
+        Without this requeue step, the next tick would silently drop the registry
+        entry and leave the job stranded in processing/ — ``drain_live_threads``
+        can no longer see it (the stem is gone from the registry), and with
+        ``job_timeout=0`` the stale-job reaper also skips it.
+
+        ``requeue_processing`` is a no-op when the processing/ record is already
+        gone (normal completion moved it), so calling it unconditionally on every
+        dead entry is safe and never recreates a job that finished cleanly.
+
+        The token is passed through as ``claim_token`` to verify ownership under
+        the transition lock before staging the record, matching the same pattern
+        ``drain_live_threads`` uses.
+        """
         with self._registry_lock:
-            for stem in [s for s, (t, _tok) in self._live_threads.items() if not t.is_alive()]:
-                del self._live_threads[stem]
+            dead_stems = [
+                (s, tok)
+                for s, (t, tok) in self._live_threads.items()
+                if not t.is_alive()
+            ]
+        for stem, token in dead_stems:
+            q.requeue_processing(
+                stem,
+                reason=_THREAD_DIED_REASON,
+                root=q.QUEUE_ROOT,
+                claim_token=token,
+            )
+            with self._registry_lock:
+                self._live_threads.pop(stem, None)
 
     @staticmethod
     def _run_guarded(stem: str, target: Callable[[], int]) -> int:
@@ -574,11 +605,17 @@ class DaemonRunner:
         self._run_guarded(proc_path.stem, _body)
 
     @staticmethod
-    def _claim(job_path: Path) -> Path | None:
+    def _claim(job_path: Path) -> tuple[Path, str] | None:
         """Claim a pending job for this runner; None if it cannot be claimed.
 
         None covers both another worker winning the claim and a claim that
         raised (logged), so one bad file never stops the daemon loop.
+
+        Returns the (path, token) tuple from ``start_processing`` so the
+        caller never needs a second file-read to learn its token: reading the
+        file again after ``start_processing`` releases the transition lock has
+        a TOCTOU window where a stale-job reaper on another worker could
+        reclaim the stem and write a new token.
         """
         try:
             return q.start_processing(job_path)
@@ -607,11 +644,11 @@ class DaemonRunner:
         for p, d in items:
             if self.stop_event.is_set():
                 break
-            proc_path = self._claim(p)
-            if proc_path is None:
+            claim = self._claim(p)
+            if claim is None:
                 continue
-            token = q.claim_token(proc_path)
-            if token is None:
+            proc_path, token = claim
+            if not token:
                 # Metadata write inside start_processing failed; we cannot
                 # track ownership for this claim.  Requeue it and stop — the
                 # missing token means the record is in an undefined state.
@@ -620,8 +657,8 @@ class DaemonRunner:
                 # lock that the record still carries no token before staging
                 # it, rather than requeuing this stem unconditionally: a
                 # stale-job reaper on another worker could already have
-                # reclaimed it with a real token between the read above and
-                # this call.
+                # reclaimed it with a real token between the metadata failure
+                # and this call.
                 logger.warning(
                     "worker claim token missing for job %s after start_processing; requeueing",
                     p.stem,
@@ -820,11 +857,36 @@ class DaemonRunner:
             # check exists to close (another worker's reaper can reclaim the
             # stem between the check and the requeue), so the comparison must
             # happen atomically under requeue_processing's transition lock.
-            if q.requeue_processing(
-                stem, reason=q.SHUTDOWN_REQUEUE_REASON, root=q.QUEUE_ROOT, claim_token=token
-            ):
-                logger.warning("requeued running job %s on shutdown", stem)
-                requeued.append(stem)
+            #
+            # Each requeue_processing call acquires the blocking _transition_lock.
+            # If a live job is still inside finish()/retry() or its filesystem
+            # write stalls, drain could wait beyond shutdown_grace and launchd
+            # may send SIGKILL before cleanup completes. To bound the total
+            # post-deadline work, pass the remaining time budget as lock_timeout
+            # so the call raises _TransitionLockTimeout rather than blocking
+            # indefinitely. A lock-timeout or I/O failure for one stem must
+            # not abort the whole drain — catch and log per stem, then continue.
+            remaining = deadline - time.monotonic()
+            lock_budget = max(0.1, remaining)
+            try:
+                if q.requeue_processing(
+                    stem,
+                    reason=q.SHUTDOWN_REQUEUE_REASON,
+                    root=q.QUEUE_ROOT,
+                    claim_token=token,
+                    lock_timeout=lock_budget,
+                ):
+                    logger.warning("requeued running job %s on shutdown", stem)
+                    requeued.append(stem)
+            except Exception:  # nosec B112 - best-effort shutdown drain; log and continue to remaining jobs
+                # A _TransitionLockTimeout means a live job still holds the lock
+                # (inside finish()/retry()) past the grace period — expected
+                # and acceptable here; launchd will re-run the job on next start.
+                # Any other I/O failure is also non-fatal: drain the rest.
+                logger.exception(
+                    "could not requeue job %s on shutdown (skipped); job will be requeued on next start",
+                    stem,
+                )
         return requeued
 
     def run_daemon(self) -> int:

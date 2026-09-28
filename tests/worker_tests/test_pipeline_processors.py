@@ -118,7 +118,9 @@ class TestJobResultProducerHappyPath(unittest.TestCase, QueueRootIsolationMixin)
 
         q.QUEUE_ROOT = self.root
         pending = enqueue(Job(id="rp_ok", type="noop", payload={}), root=self.root)
-        proc_path = start_processing(pending, self.root)
+        claim = start_processing(pending, self.root)
+        assert claim is not None  # nosec B101 - narrows Optional for type checker
+        proc_path, _tok = claim
         ctx = JobContext.from_item(pending, {"type": "noop", "attempts": 0, "max_attempts": 3})
 
         # Build a success envelope directly
@@ -146,7 +148,9 @@ class TestJobResultProducerHappyPath(unittest.TestCase, QueueRootIsolationMixin)
 
         q.QUEUE_ROOT = self.root
         pending = enqueue(Job(id="rp_err", type="noop", payload={}), root=self.root)
-        proc_path = start_processing(pending, self.root)
+        claim = start_processing(pending, self.root)
+        assert claim is not None  # nosec B101 - narrows Optional for type checker
+        proc_path, _tok = claim
         ctx = JobContext.from_item(pending, {"type": "noop", "attempts": 0, "max_attempts": 3})
 
         # Failed envelope — produce() should not call _produce_success

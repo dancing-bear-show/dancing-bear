@@ -83,37 +83,46 @@ class TestMissingClaimTokenAbandonsClaim(unittest.TestCase, QueueRootIsolationMi
         self.assertFalse((self.root / "pending" / "tok1.json").exists())
 
     def test_sad_none_claim_token_requeues_job_without_starting_thread(self) -> None:
-        """Sad path: when claim_token() returns None, the claim is abandoned
-        and the job is requeued to pending/ without a thread being started."""
+        """Sad path: when start_processing returns an empty token, the claim is
+        abandoned and the job is requeued to pending/ without a thread being
+        started.
+
+        Previously this was tested by patching q.claim_token to return None and
+        separately patching start_processing to strip the token from the file.
+        Now that start_processing returns the token atomically as part of its
+        tuple return value, the metadata-write failure is simulated by returning
+        (proc_path, "") — an empty string token — which _start_batch and
+        process_one both treat as a lost claim.
+        """
         runner = _make_runner(self.root, max_per_tick=1)
         enqueue(Job(id="tok2", type="fast", payload={"k": 2}, attempts=3), root=self.root)
 
-        # Simulate a metadata-write failure: claim_token always returns None.
-        # requeue_processing(claim_token=None) now verifies under the lock
-        # that the processing/ record still carries no token, so the record
-        # itself must also lack one -- a real start_processing call would
-        # normally write one, so strip it to match the failure being
-        # simulated (a metadata write that never completed).
+        # Simulate a metadata-write failure: start_processing returns the path
+        # but with an empty token, and strips the token from disk so that the
+        # claim_token=None requeue_processing call still verifies correctly.
         real_start = q.start_processing
 
-        def _start_without_token(job_path: Path, root: Path | None = None) -> Path | None:
-            proc = real_start(job_path, root)
-            if proc is not None:
+        def _start_empty_token(
+            job_path: Path, root: Path | None = None
+        ) -> tuple[Path, str] | None:
+            result = real_start(job_path, root)
+            if result is not None:
+                proc, _tok = result
                 data = json.loads(proc.read_text(encoding="utf-8"))
                 data.pop(q.CLAIM_TOKEN_FIELD, None)
                 proc.write_text(json.dumps(data), encoding="utf-8")
-            return proc
+                return proc, ""
+            return result
 
-        with patch("worker.job_runtime.q.claim_token", return_value=None), \
-             patch("worker.job_runtime.q.start_processing", side_effect=_start_without_token), \
+        with patch("worker.job_runtime.q.start_processing", side_effect=_start_empty_token), \
              self.assertLogs("worker.job_runtime", "WARNING") as logs:
             started = runner.tick()
 
-        self.assertEqual(started, 0, "thread must not start when claim_token is None")
+        self.assertEqual(started, 0, "thread must not start when token is empty")
         self.assertEqual(runner._live_threads, {})
         # Job must end up back in pending/ (requeued) with no done/ or error/ copy.
         pending = self.root / "pending" / "tok2.json"
-        self.assertTrue(pending.exists(), "job must be requeued to pending/ when token is None")
+        self.assertTrue(pending.exists(), "job must be requeued to pending/ when token is empty")
         self.assertEqual(_names(self.root / "done"), [])
         self.assertIn("tok2", "\n".join(logs.output))
 
@@ -272,11 +281,11 @@ class TestAbandonClaimTokenCheck(unittest.TestCase, QueueRootIsolationMixin):
         """
         runner = _make_runner(self.root, max_per_tick=1)
         pending = enqueue(Job(id="ab1", type="fast", payload={"k": 1}, attempts=2), root=self.root)
-        proc = _real_start(pending, self.root)
-        if proc is None:
+        claim = _real_start(pending, self.root)
+        if claim is None:
             self.fail("could not claim ab1")
-        token = q.claim_token(proc)
-        if token is None:
+        _proc, token = claim
+        if not token:
             self.fail("no claim token written for ab1")
 
         # Register the claim in the runner registry and call _abandon_claim.
@@ -299,11 +308,11 @@ class TestAbandonClaimTokenCheck(unittest.TestCase, QueueRootIsolationMixin):
         """
         runner = _make_runner(self.root, max_per_tick=1)
         pending = enqueue(Job(id="ab2", type="fast", payload={"k": 2}, attempts=0), root=self.root)
-        proc = _real_start(pending, self.root)
-        if proc is None:
+        claim = _real_start(pending, self.root)
+        if claim is None:
             self.fail("could not claim ab2")
-        original_token = q.claim_token(proc)
-        if original_token is None:
+        proc, original_token = claim
+        if not original_token:
             self.fail("no claim token for ab2")
 
         # Another worker claims the same stem: write a new token to processing/.
