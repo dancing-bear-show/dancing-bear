@@ -779,7 +779,11 @@ class TestPromotionRule(unittest.TestCase):
         self.assertNotIn('"lint":', self.prompts["cluster-gaps"])
 
 
-_COUNT_SWEEP_CALL = "./bin/workflow count-sweep --pattern='<pattern>' --path <path>"
+_COUNT_SWEEP_CALL = "./bin/workflow count-sweep --pattern='<pattern>' --path='<path>'"
+#: Stages whose text builds a count-sweep command. Asserted equal to the set
+#: found by scanning every rendered prompt, so a new caller cannot skip the
+#: quoting checks below.
+_COUNT_SWEEP_STAGES = {"cluster-gaps", "propose-concerns"}
 
 
 class TestSweepCounting(unittest.TestCase):
@@ -792,9 +796,15 @@ class TestSweepCounting(unittest.TestCase):
                     for banned in ("sweep-spec", "/tmp/", "grep-sweep"):  # nosec B108 - asserted absent, never used as a path
                         self.assertNotIn(banned, text)
 
-    def test_sweeping_stages_call_count_sweep_with_a_single_quoted_pattern(self) -> None:
+    def test_every_stage_building_the_command_is_checked(self) -> None:
+        for mode in ("topics", "rereview"):
+            with self.subTest(mode=mode):
+                found = {name for name, text in _prompts("/ws", mode=mode).items() if "count-sweep --" in text}
+                self.assertEqual(found, _COUNT_SWEEP_STAGES)
+
+    def test_sweeping_stages_single_quote_the_pattern_and_every_path(self) -> None:
         prompts = _prompts("/ws", mode="rereview")
-        for name in ("cluster-gaps", "propose-concerns"):
+        for name in sorted(_COUNT_SWEEP_STAGES):
             with self.subTest(stage=name):
                 text = prompts[name]
                 self.assertIn(_COUNT_SWEEP_CALL, text)
@@ -803,14 +813,29 @@ class TestSweepCounting(unittest.TestCase):
                 calls = re.findall(r"count-sweep --pattern[^\n`]*", text)
                 self.assertTrue(calls)
                 for call in calls:
-                    self.assertTrue(call.startswith("count-sweep --pattern='<pattern>' --path <path>"), call)
+                    self.assertTrue(call.startswith("count-sweep --pattern='<pattern>' --path='<path>'"), call)
+                    # Every --path in the call, including the repeat form, is quoted.
+                    self.assertEqual(re.findall(r"--path(?!=')", call), [], call)
+                self.assertNotIn("--path <", text)
 
     def test_quote_and_newline_refusal_is_in_the_stage_text(self) -> None:
         prompts = _prompts("/ws", mode="rereview")
-        for name in ("cluster-gaps", "propose-concerns"):
+        for name in sorted(_COUNT_SWEEP_STAGES):
             with self.subTest(stage=name):
                 flat = " ".join(prompts[name].split())
                 self.assertIn("a pattern containing a single quote or a newline is REFUSED", flat)
+
+    def test_unsafe_path_refusal_precedes_the_command_in_the_stage_text(self) -> None:
+        prompts = _prompts("/ws", mode="rereview")
+        cluster = " ".join(prompts["cluster-gaps"].split())
+        self.assertIn("Check each path against these rules BEFORE writing the command", cluster)
+        self.assertIn("is REFUSED, not escaped or quoted around", cluster)
+        for char in ("`$`", "a backtick", "`;`", "`|`", "`&`", "a space", "a quote"):
+            with self.subTest(char=char):
+                self.assertIn(char, cluster)
+        propose = " ".join(prompts["propose-concerns"].split())
+        self.assertIn("Check every path BEFORE writing the command", propose)
+        self.assertIn("is REFUSED, not escaped", propose)
 
     def test_rendered_call_runs_and_refuses_an_escaping_path(self) -> None:
         text = _prompts("/ws", mode="rereview")["cluster-gaps"]
@@ -823,6 +848,14 @@ class TestSweepCounting(unittest.TestCase):
         res = subprocess.run(argv, cwd=_ROOT, capture_output=True, text=True, check=False)  # nosec B603 - fixed argv, repo's own wrapper
         self.assertEqual((res.returncode, res.stdout), (2, ""))
         self.assertIn("escapes-repo", res.stderr)
+
+    def test_rendered_call_refuses_shell_metacharacter_paths(self) -> None:
+        for bad in ("src/$(id)", "src/`id`", "src;id", "src|id", "src&id", "src id", "-src", "src'x"):
+            with self.subTest(path=bad):
+                argv = [str(_ROOT / "bin/workflow"), "count-sweep", "--pattern=x", f"--path={bad}"]
+                res = subprocess.run(argv, cwd=_ROOT, capture_output=True, text=True, check=False)  # nosec B603 - fixed argv, repo's own wrapper
+                self.assertEqual((res.returncode, res.stdout), (2, ""))
+                self.assertIn("refused path", res.stderr)
 
 
 if __name__ == "__main__":  # pragma: no cover

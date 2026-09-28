@@ -365,7 +365,7 @@ def cmd_review_rounds(args: argparse.Namespace) -> int:
     action="append",
     default=[],
     required=True,
-    help="Repo-relative file or directory (repeatable); check-paths rules apply",
+    help="Repo-relative file or directory (repeatable); check-paths rules plus [A-Za-z0-9_][A-Za-z0-9._/-]*",
 )
 @app.argument("--root", default=".", help="Repository root the paths are relative to (default: cwd)")
 def cmd_count_sweep(args: argparse.Namespace) -> int:

@@ -33,6 +33,12 @@ _SKIP_DIRS = frozenset({".git", ".venv", "venv", "node_modules", "__pycache__", 
 _BINARY_SNIFF = 8192
 #: Characters a single-quoted shell argument cannot carry intact.
 _UNQUOTABLE = re.compile(r"['\n\r]")
+#: The only path shape accepted: the same allowlist the workflow's jq gates
+#: apply. It excludes every shell metacharacter, whitespace, quotes and a
+#: leading ``-`` or ``.``, so a path that reaches a shell unquoted is inert.
+_SAFE_PATH = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._/-]*")
+#: Reason a path was refused for a character or segment outside the allowlist.
+UNSAFE_PATH = "unsafe-path"
 
 
 class SweepError(ValueError):
@@ -68,17 +74,33 @@ def compile_pattern(pattern: str) -> re.Pattern[str]:
         raise SweepError(f"invalid pattern: {exc}") from exc
 
 
-def resolve_paths(root: Path, paths: list[str]) -> list[Path]:
-    """Validate each repo-relative path with the check-paths guard and resolve it under ``root``."""
+def check_path(raw: str) -> str:
+    """Return ``raw`` normalised, or raise :class:`SweepError`; no filesystem access.
+
+    The check-paths guard runs first so its reason codes stay stable, then the
+    strict allowlist: ``classify_repo_path`` alone accepts ``$(id)`` and
+    ``a;b``, which are harmless to Python but not to the shell text that
+    builds this command.
+    """
     from core.copilot_overview import classify_repo_path
 
+    normalised, reason = classify_repo_path(raw)
+    if reason is not None or normalised is None:
+        raise SweepError(f"refused path ({reason}): {raw!r}")
+    if not _SAFE_PATH.fullmatch(raw) or any(seg in (".", "..") for seg in raw.split("/")):
+        raise SweepError(f"refused path ({UNSAFE_PATH}): {raw!r}")
+    return normalised
+
+
+def resolve_paths(root: Path, paths: list[str]) -> list[Path]:
+    """Validate every path (see :func:`check_path`), then resolve each under ``root``."""
     if not paths:
         raise SweepError("no --path given")
+    # All paths are checked before any is touched, so a refusal is exit 2
+    # with no IO at all.
+    normalised_paths = [check_path(raw) for raw in paths]
     resolved: list[Path] = []
-    for raw in paths:
-        normalised, reason = classify_repo_path(raw)
-        if reason is not None or normalised is None:
-            raise SweepError(f"refused path ({reason}): {raw!r}")
+    for raw, normalised in zip(paths, normalised_paths, strict=True):
         target = root / normalised
         if target.is_symlink() or not target.exists():
             raise SweepError(f"no such file or directory (symlinks are refused): {raw!r}")

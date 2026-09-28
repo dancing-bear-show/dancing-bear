@@ -96,6 +96,67 @@ class TestCountSweep(_Tree):
         self.assertEqual(count_sweep("check", ["src/long.txt"], root=self.root).hits, 0)
 
 
+class TestPathAllowlist(_Tree):
+    """Each path form outside ``[A-Za-z0-9_][A-Za-z0-9._/-]*`` is refused before any IO."""
+
+    def _refused(self, raw: str, reason: str) -> None:
+        with self.assertRaisesRegex(SweepError, rf"refused path \({reason}\)"):
+            count_sweep("check", [raw], root=self.root)
+
+    def test_command_substitution_refused(self) -> None:
+        self._refused("src/$(id)", "unsafe-path")
+        self._refused("src/`id`", "unsafe-path")
+
+    def test_variable_expansion_refused(self) -> None:
+        self._refused("src/$HOME", "unsafe-path")
+
+    def test_command_separators_refused(self) -> None:
+        for bad in ("src;id", "src|id", "src&id", "src&&id"):
+            with self.subTest(path=bad):
+                self._refused(bad, "unsafe-path")
+
+    def test_whitespace_refused(self) -> None:
+        for bad in ("src id", " src", "src "):
+            with self.subTest(path=bad):
+                self._refused(bad, "unsafe-path")
+
+    def test_control_characters_and_newlines_refused(self) -> None:
+        for bad in ("src\tid", "src\nid", "src\x00"):
+            with self.subTest(path=bad):
+                self._refused(bad, "escapes-repo")
+
+    def test_quotes_refused(self) -> None:
+        for bad in ("src'x", 'src"x'):
+            with self.subTest(path=bad):
+                self._refused(bad, "unsafe-path")
+
+    def test_leading_dash_refused(self) -> None:
+        self._refused("-rf", "unsafe-path")
+
+    def test_leading_dot_and_dot_segments_refused(self) -> None:
+        for bad in (".hidden", "src/./c.py", "./src"):
+            with self.subTest(path=bad):
+                self._refused(bad, "unsafe-path")
+
+    def test_escape_and_protected_reasons_keep_their_codes(self) -> None:
+        self._refused("../x", "escapes-repo")
+        self._refused("/etc", "escapes-repo")
+        self._refused(".git", "protected-path")
+
+    def test_refusal_happens_before_any_filesystem_access(self) -> None:
+        missing = self.root / "does-not-exist"
+        with patch.object(sweep_count.os, "walk", side_effect=AssertionError("walked")), \
+                self.assertRaisesRegex(SweepError, "unsafe-path"):
+            # The first path is valid and would be looked up if paths were
+            # checked one at a time; the refusal must come first.
+            count_sweep("check", ["src", "src;id"], root=missing)
+
+    def test_allowlisted_forms_accepted(self) -> None:
+        for good in ("src", "src/", "src/c.py", "workflows/sub", "_x"):
+            with self.subTest(path=good):
+                self.assertEqual(sweep_count.check_path(good), good.rstrip("/"))
+
+
 class TestCountSweepCLI(_Tree):
     def _run(self, *argv: str) -> tuple[int, str, str]:
         out, err = io.StringIO(), io.StringIO()
@@ -118,7 +179,10 @@ class TestCountSweepCLI(_Tree):
                           (("--pattern=x", "--path", "/etc"), "escapes-repo"),
                           (("--pattern=x", "--path", ".git"), "protected-path"),
                           (("--pattern=it's", "--path", "src"), "single quote"),
-                          (("--pattern=x", "--path", ".claude"), "protected-path")):
+                          (("--pattern=x", "--path", ".claude"), "protected-path"),
+                          (("--pattern=x", "--path=src/$(id)"), "unsafe-path"),
+                          (("--pattern=x", "--path=-src"), "unsafe-path"),
+                          (("--pattern=x", "--path=src;id"), "unsafe-path")):
             with self.subTest(argv=argv):
                 code, out, err = self._run(*argv)
                 self.assertEqual((code, out), (2, ""))

@@ -778,7 +778,7 @@ stages:
         command, which compiles the pattern with Python `re` and reads the
         files itself (no subprocess, no temp file):
 
-          ./bin/workflow count-sweep --pattern='<pattern>' --path <path> [--path <path> ...]
+          ./bin/workflow count-sweep --pattern='<pattern>' --path='<path>' [--path='<path>' ...]
 
         It prints {"hits": N, "files": M}; record N as sweep_hits and never
         count matches by eye. Exit 2 means the pattern or a path is invalid
@@ -791,11 +791,17 @@ stages:
         argument, which the shell never expands. So a pattern containing a
         single quote or a newline is REFUSED, not escaped: rewrite it
         without one (`.` or `\x27` matches a quote) or drop the pattern
-        and continue down the ladder. Each path is its own `--path` argument and must be
-        repo-relative: no leading `/`, `~` or `-`, no `..` segment, only
-        letters, digits, `.`, `_`, `-` and `/`, and nothing under `.git`,
-        `.github`, `.claude` or `.envrc`; never type a path that breaks
-        this. count-sweep enforces the same rules as check-paths, and R7b
+        and continue down the ladder. Each path is its own single-quoted
+        `--path='<path>'` argument, quoted exactly like the pattern, and
+        must be repo-relative: it starts with a letter, digit or `_` (so no
+        leading `/`, `~`, `-` or `.`), uses only letters, digits, `.`, `_`,
+        `-` and `/`, has no `.` or `..` segment, and is nothing under
+        `.git`, `.github`, `.claude` or `.envrc`. Check each path against
+        these rules BEFORE writing the command: a path containing a quote,
+        a space, `$`, a backtick, `;`, `|`, `&` or any other character
+        outside that set is REFUSED, not escaped or quoted around. Drop it
+        and say so; never put it in a command. count-sweep enforces the
+        same allowlist and exits 2 before reading anything, and R7b
         re-checks the written file.
 
       R6 — choose guide_file for each promoted cluster:
@@ -1045,12 +1051,16 @@ stages:
             {"pattern", "paths"}, {"structural"} or {"procedure"} object,
             never a command. A structural or procedure sweep has no count;
             never state one. Re-count a pattern sweep once with the same
-            `./bin/workflow count-sweep --pattern='<pattern>' --path <path>`
+            `./bin/workflow count-sweep --pattern='<pattern>' --path='<path>'`
             command cluster-gaps R5 uses, under the same rules: the
             pattern is one single-quoted `--pattern=` argument, a pattern
             containing a single quote or a newline is REFUSED rather than
-            escaped, and each path is its own `--path` argument that passes
-            the R5 path rules. Never run the pattern through grep or write
+            escaped, and each path is its own single-quoted `--path=`
+            argument that passes the R5 path rules. Check every path BEFORE
+            writing the command: one containing a quote or any character
+            outside letters, digits, `.`, `_`, `-` and `/` (or not starting
+            with a letter, digit or `_`) is REFUSED, not escaped: drop the
+            entry and say why in the summary. Never run the pattern through grep or write
             it to a file. Exit 2 or 1 means the sweep is refused or its
             count is partial: fix the pattern or drop the entry and say why
             in the summary. Any hit count the summary states is the "hits"
