@@ -12,15 +12,7 @@ _REPO_DIRS = frozenset(
     ["src", "workflows", "tests", "bin", ".claude", "concerns", "configs"]
 )
 
-# Also catch bare <name>.<ext>:N without a leading directory.
-_BARE_PATTERN = re.compile(
-    r"`?(?:[A-Za-z0-9_.\-/]+/)?"  # optional directory prefix
-    r"([A-Za-z0-9_.\-]+\.(?:py|yaml|yml|sh|md))"  # filename with extension
-    r":(\d+)"  # :line-number
-    r"`?"
-)
-
-# Pattern that requires a known repo-dir prefix or a bare filename match.
+# <repo-dir>/<path>.<ext>:N under one of the known top-level directories.
 _DIR_PREFIX = re.compile(
     r"`?(?:"
     + "|".join(re.escape(d) for d in sorted(_REPO_DIRS))
@@ -28,6 +20,7 @@ _DIR_PREFIX = re.compile(
     r"`?"
 )
 
+# Any <name>.<ext>:N, including a bare filename with no leading directory.
 _BARE_FILE_PATTERN = re.compile(
     r"`?[A-Za-z0-9_.\-]+\.(?:py|yaml|yml|sh|md):\d+`?"
 )
