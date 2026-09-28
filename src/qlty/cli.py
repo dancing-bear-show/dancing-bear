@@ -256,6 +256,69 @@ def cmd_triage(args) -> int:
     return ExitCode.SUCCESS
 
 
+@app.command("grep-sweep", help="Count regex matches across paths; accepts a spec file to avoid shell interpolation")
+@app.argument("--spec", required=True, metavar="FILE",
+              help="JSON file: {\"pattern\": \"<regex>\", \"paths\": [\"<path>\", ...]}")
+def cmd_grep_sweep(args) -> int:
+    """Validate a regex/path sweep without shell interpolation.
+
+    The spec file decouples reviewer-derived pattern and path values from the
+    shell invocation: the caller writes those values through Python or a
+    file-write tool (never by interpolating them into a shell command), then
+    passes the file path here.  This command validates both values before
+    invoking grep, so an invalid pattern or suspicious path is rejected rather
+    than executed.
+    """
+    import json
+    import re
+    import subprocess
+    from pathlib import Path
+
+    spec_path = Path(args.spec)
+    if not spec_path.exists():
+        raise UsageError(f"spec file not found: {args.spec}")
+
+    try:
+        spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        raise UsageError(f"could not parse spec file: {exc}") from exc
+
+    pattern = spec.get("pattern")
+    paths = spec.get("paths")
+
+    if not isinstance(pattern, str) or not pattern:
+        raise UsageError("spec.pattern must be a non-empty string")
+    if not isinstance(paths, list) or not paths:
+        raise UsageError("spec.paths must be a non-empty list")
+    if not all(isinstance(p, str) and p for p in paths):
+        raise UsageError("each spec.paths entry must be a non-empty string")
+
+    # Validate the regex before handing it to grep so a bad pattern is a
+    # clean error, not a cryptic grep failure.
+    try:
+        re.compile(pattern)
+    except re.error as exc:
+        raise UsageError(f"invalid regex in spec.pattern: {exc}") from exc
+
+    # Reject paths that attempt directory traversal.  Reviewer-derived path
+    # strings are untrusted; a path containing ".." could reach outside the
+    # repo.  We only allow relative paths or paths starting with "./" or a
+    # bare directory/file name.
+    for p in paths:
+        if ".." in Path(p).parts:
+            raise UsageError(f"path traversal not allowed in spec.paths: {p!r}")
+
+    cmd = ["grep", "-rnE", "--", pattern] + list(paths)
+    result = subprocess.run(cmd, capture_output=True, text=True)  # nosec B603 - argv list, not shell
+    # grep exits 0 (matches), 1 (no matches), or 2 (error).
+    if result.returncode == 2:
+        print(f"error: grep reported an error: {result.stderr.strip()}", file=sys.stderr)
+        return ExitCode.ERROR
+    lines = [ln for ln in result.stdout.splitlines() if ln]
+    _emit(str(len(lines)))
+    return ExitCode.SUCCESS
+
+
 @app.command("rules", help="List known rules, tiers, and whether tooling exists")
 @app.argument("--counts", action="store_true", help="Include live finding counts (runs a scan)")
 @_format_argument

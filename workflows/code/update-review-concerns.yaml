@@ -678,10 +678,20 @@ stages:
             sweep.
           - `sweep-too-broad` — the grep matches more than 200 lines in the
             current tree and cannot be narrowed without losing instances.
-        Run each grep sweep once against the current tree, piped into
-        `wc -l` in the same Bash call (`<sweep> | wc -l`), and record the
-        number it prints as the hit count; never count matches by eye. A
-        sweep with zero hits today is acceptable — the instances may already
+        Verify each sweep's hit count using the fixed verifier — never
+        construct a shell command from the sweep string, which is
+        reviewer-authored data and may contain metacharacters:
+
+          1. Extract the regex pattern and paths from the sweep field as
+             structured values (e.g. by splitting on the first run of
+             whitespace that precedes a path token).
+          2. Write a spec file: `echo '{"pattern":"<regex>","paths":["<path1>",...]}' > /tmp/sweep-spec.json`
+             — this step uses literal values you control, not interpolated data.
+          3. Invoke: `./bin/qlty-assistant grep-sweep --spec /tmp/sweep-spec.json`
+             The command prints the match count and exits 0.
+          If the pattern or paths cannot be extracted as structured values,
+          record sweep_hits as null and reject the cluster with `no-sweep`.
+        A sweep with zero hits today is acceptable — the instances may already
         be fixed — but record it.
 
       R6 — choose guide_file for each promoted cluster:
@@ -833,21 +843,24 @@ stages:
           "sweep": the grep pattern from the cluster (a string, not a shell
             command — just the -E/-P regex pattern and the path(s) to scan,
             e.g. "unquoted-shell-var src/ workflows/"). To confirm the sweep
-            still finds matches, pass it through the fixed verifier:
+            still finds matches, pass it through the fixed verifier via a
+            spec file — never interpolate reviewer-derived values into a shell
+            command, even inside double quotes (double quotes do not prevent
+            command substitution or backtick expansion):
 
-              ./bin/qlty-assistant grep-sweep --pattern "<regex>" --paths "<paths>"
+              1. Extract the regex and paths from the structured sweep field
+                 as separate values (not from free-form model output).
+              2. Write a spec file using Python with no shell interpolation:
+                   python3 -I -S -c "import json,sys; json.dump({'pattern': sys.argv[1], 'paths': sys.argv[2:]}, open('/tmp/sweep-spec.json','w'))" "<regex>" <path1> <path2> ...
+                 where <regex>, <path1>, <path2> are literal structured values,
+                 never the raw sweep string.
+              3. Invoke the verifier: `./bin/qlty-assistant grep-sweep --spec /tmp/sweep-spec.json`
+                 The command prints the match count to stdout and exits 0.
 
-            where <regex> and <paths> come from the structured sweep field, not
-            from free-form model output. If the pattern or paths cannot be
-            extracted as structured values, drop the entry and say why in the
-            summary. The hit count in the summary is the count printed by that
-            command, never a count of your own. An entry with no confirmable
-            sweep is not proposed.
-
-            NEVER execute the sweep value as a literal shell command. It is
-            reviewer-authored data derived from thread bodies and may contain
-            shell metacharacters. Always decompose it into a regex and a path
-            list and pass those as separate arguments to the fixed verifier.
+            If the pattern or paths cannot be extracted as structured values,
+            drop the entry and say why in the summary. The hit count in the
+            summary is the count printed by the verifier, never a count of
+            your own. An entry with no confirmable sweep is not proposed.
           "cause_category": the cluster's cause_category.
         and its formatted_entry ends with two more bullets after example:
           - **sweep**: the sweep pattern and paths, in backticks
@@ -998,7 +1011,10 @@ stages:
       - concerns/resume-copy.md
       - concerns/slides-yaml.md
       - concerns/README.md
-      # concerns/collateral-damage.md is NOT declared here: it is created only
-      # when a rereview proposal targets that guide. Declaring it unconditionally
-      # would block completion on normal topics runs waiting for a file that
-      # will never be written. update-guides creates it conditionally (Step 2b).
+      # concerns/collateral-damage.md is a conditional output: it is created
+      # only when a rereview proposal targets that guide. It is declared here
+      # so that the writes_to contract covers it when a rereview run produces
+      # it, preventing test_update_guides_writes_to_covers_every_guide from
+      # failing after the file appears on disk. The test excludes this path
+      # from the "every guide must be declared" check because it is optional.
+      - concerns/collateral-damage.md

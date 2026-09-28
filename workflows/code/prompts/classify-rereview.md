@@ -47,8 +47,10 @@ open a round, though their threads can still appear here.
 `line` and `original_line` refer to different revisions of the file. For a
 thread with `outdated: true`, `line` is usually `null` and the flagged code
 may no longer exist at HEAD: read it at the commit the thread was opened on,
-`git show <commit>:<path>`, around `original_line`. For a current thread,
-read the working tree at `line`.
+`git show '<commit>:<path>'`, around `original_line`. For a current thread,
+read it at the thread's `commit` and `original_line` using
+`git show '<commit>:<path>'` — do not read the working tree, which reflects
+an unrelated revision when running a historical `--recent` scan.
 
 ## What to decide for EVERY thread (round 0 and null included)
 
@@ -59,9 +61,10 @@ A short kebab-case name for the defect TYPE, reusable across threads and PRs.
 **Reuse before you invent.** Before classifying, build your running class list:
 
 1. Start from the seed list below.
-2. Add every `class` already present in `outputs/classified/pr*.json` (other
-   agents' finished files; the set may be empty, and it grows while you work
-   — re-read it once more before you write).
+2. Add every `class` already present in `outputs/seed-classes.json` (the
+   stable snapshot written before fan-out began; do NOT scan
+   `outputs/classified/pr*.json` — those files are being written by sibling
+   agents in parallel and may be partial).
 3. Use an existing name whenever the thread is the same KIND of mistake, even
    if the wording differs. Invent a new name only when no listed class fits,
    and record it under `new_classes` with a one-line definition.
@@ -118,7 +121,12 @@ for the same class; map them to the canonical name, never emit the synonym.
 
 ### 2. `category`
 
-For a thread with `round` >= 1 (or `null`), exactly one of:
+For a thread with `round: null`, the commit could not be matched to a
+Copilot round. Classify these as `NOISE` (class `no-defect`) and exclude them
+from cause clustering. Do not assign `FIX_REGRESSION`, `SIBLING`, or any
+other cause category to a null-round thread.
+
+For a thread with `round` >= 1, exactly one of:
 
 - `FIX_REGRESSION` — flags a defect in code or text that an EARLIER FIX
   COMMIT on this PR introduced. The fix itself was buggy.

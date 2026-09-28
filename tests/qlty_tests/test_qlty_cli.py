@@ -514,6 +514,77 @@ class MetaTests(unittest.TestCase):
         self.assertNotEqual(META.bin_name, "./bin/qlty")
 
 
+class GrepSweepCommandTests(unittest.TestCase):
+    """grep-sweep: structured-argv sweep verifier that avoids shell interpolation."""
+
+    def setUp(self) -> None:
+        import tempfile
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = tmp.name
+        self._spec_path = f"{self.tmp}/spec.json"
+
+    def _write_spec(self, spec: dict) -> str:
+        with open(self._spec_path, "w") as f:
+            json.dump(spec, f)
+        return self._spec_path
+
+    def test_happy_path_prints_match_count(self) -> None:
+        """A valid spec produces a numeric count on stdout."""
+        # Write a small target file with a known number of matches.
+        target = f"{self.tmp}/target.txt"
+        with open(target, "w") as f:
+            f.write("hello world\nhello again\nno match\n")
+        spec = self._write_spec({"pattern": "hello", "paths": [target]})
+        code, out = run_cli(["grep-sweep", "--spec", spec])
+        self.assertEqual(code, 0)
+        self.assertEqual(out.strip(), "2")
+
+    def test_sad_path_missing_spec_file(self) -> None:
+        """A spec file that does not exist exits with an error."""
+        code, out, err = run_cli_streams(["grep-sweep", "--spec", "/tmp/nonexistent-spec-xyz.json"])
+        self.assertNotEqual(code, 0)
+        self.assertIn("spec file not found", err)
+
+    def test_sad_path_invalid_regex_rejected(self) -> None:
+        """An invalid regex in spec.pattern is rejected with a clear error."""
+        spec = self._write_spec({"pattern": "(unclosed", "paths": ["src/"]})
+        code, out, err = run_cli_streams(["grep-sweep", "--spec", spec])
+        self.assertNotEqual(code, 0)
+        self.assertIn("invalid regex", err)
+
+    def test_sad_path_path_traversal_rejected(self) -> None:
+        """Paths containing '..' are rejected to prevent directory traversal."""
+        spec = self._write_spec({"pattern": "hello", "paths": ["../../etc/passwd"]})
+        code, out, err = run_cli_streams(["grep-sweep", "--spec", spec])
+        self.assertNotEqual(code, 0)
+        self.assertIn("path traversal", err)
+
+    def test_sad_path_missing_pattern_rejected(self) -> None:
+        """A spec missing the pattern key is rejected."""
+        spec = self._write_spec({"paths": ["src/"]})
+        code, out, err = run_cli_streams(["grep-sweep", "--spec", spec])
+        self.assertNotEqual(code, 0)
+        self.assertIn("spec.pattern", err)
+
+    def test_sad_path_empty_paths_rejected(self) -> None:
+        """A spec with an empty paths list is rejected."""
+        spec = self._write_spec({"pattern": "hello", "paths": []})
+        code, out, err = run_cli_streams(["grep-sweep", "--spec", spec])
+        self.assertNotEqual(code, 0)
+        self.assertIn("spec.paths", err)
+
+    def test_zero_matches_exits_success(self) -> None:
+        """Zero matches is not an error — the count is 0 and exit is 0."""
+        target = f"{self.tmp}/empty.txt"
+        with open(target, "w") as f:
+            f.write("no matches here\n")
+        spec = self._write_spec({"pattern": "XXXXXXNOMATCH", "paths": [target]})
+        code, out = run_cli(["grep-sweep", "--spec", spec])
+        self.assertEqual(code, 0)
+        self.assertEqual(out.strip(), "0")
+
+
 class TestQltySeparatorCLI(SeparatorContractMixin, unittest.TestCase):
     """The shared ``--`` separator contract."""
 
