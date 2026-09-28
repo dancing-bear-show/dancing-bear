@@ -127,6 +127,22 @@ stages:
           "diff_ref": "{diff_ref}",
           "empty": true|false
         }
+
+      After writing target-meta.json, emit the list of underlying file paths
+      being critiqued to {workspace}/context/target-paths.txt (one path per
+      line, no blank lines):
+        - single mode: write the single {target} path
+        - multi mode: write each path from {targets} (one per line)
+        - diff mode: run `git diff --name-only {diff_ref}` (or
+          `git diff --name-only HEAD` for uncommitted) and write each
+          path on its own line. If the diff is empty, write an empty file.
+
+      Then run the canonical concern selector over those paths:
+        ./bin/workflow select-concerns --paths-file {workspace}/context/target-paths.txt --format json
+      Write the JSON output to {workspace}/context/concerns.json.
+      If target-paths.txt is empty or the file does not exist, write:
+        {"guides": ["patterns.md"], "matched": {}}
+      to concerns.json as a safe default.
     agent:
       role: researcher
       model: sonnet
@@ -136,6 +152,8 @@ stages:
     writes_to:
       - context/target.md
       - context/target-meta.json
+      - context/target-paths.txt
+      - context/concerns.json
 
   # ===========================================================================
   # G_final: Write back approved revisions — single-target mode only.

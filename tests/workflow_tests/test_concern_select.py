@@ -544,6 +544,10 @@ _CONSUMER_FILES = [
     ".claude/agents/code-writer-opus.md",
     ".claude/skills/code-review/SKILL.md",
     ".github/copilot-instructions.md",
+    # Adversarial critique pipeline
+    "workflows/shared/plan-critic.yaml",
+    "workflows/shared/critique.yaml",
+    ".claude/agents/critic.md",
 ]
 
 # Pattern that detects an inlined path→guide table row.
@@ -628,6 +632,30 @@ class TestConsumersReferenceSelector(unittest.TestCase):
             "selection.yaml",
             content,
             ".github/copilot-instructions.md must reference selection.yaml",
+        )
+
+    def test_plan_critic_references_select_concerns(self) -> None:
+        content = self._read("workflows/shared/plan-critic.yaml")
+        self.assertIn(
+            "select-concerns",
+            content,
+            "workflows/shared/plan-critic.yaml must reference select-concerns",
+        )
+
+    def test_critique_references_select_concerns(self) -> None:
+        content = self._read("workflows/shared/critique.yaml")
+        self.assertIn(
+            "select-concerns",
+            content,
+            "workflows/shared/critique.yaml must reference select-concerns",
+        )
+
+    def test_critic_agent_references_select_concerns(self) -> None:
+        content = self._read(".claude/agents/critic.md")
+        self.assertIn(
+            "select-concerns",
+            content,
+            ".claude/agents/critic.md must reference select-concerns",
         )
 
     # --- no hand-written path→guide tables ---
