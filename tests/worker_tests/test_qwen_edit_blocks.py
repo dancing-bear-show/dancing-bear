@@ -222,6 +222,26 @@ class ApplyEditBlocksTests(unittest.TestCase):
             with self.subTest(files=files):
                 self.assertEqual(self._apply_outcome(text, files), qwen_edits.EDIT_AMBIGUOUS_OUTCOME)
 
+    # A response meant to SEARCH "Title\n=======\nold body" but cut off before
+    # its real divider parses as SEARCH "Title", REPLACE "old body".
+    TRUNCATED_UNDERLINE = "FILE: docs/x.rst\n<<<<<<< SEARCH\nTitle\n=======\nold body\n>>>>>>> REPLACE\n"
+    RST_FILE = {"docs/x.rst": "Title\n=======\nold body\nmore\n"}
+
+    def test_match_followed_by_a_bare_divider_is_malformed(self) -> None:
+        self.assertEqual(self._apply_outcome(self.TRUNCATED_UNDERLINE, self.RST_FILE), qwen_edits.EDIT_MALFORMED_OUTCOME)
+        self.assertEqual(
+            _outcome(qwen_edits.edits_to_diff, self.TRUNCATED_UNDERLINE, dict(self.RST_FILE)), qwen_edits.EDIT_MALFORMED_OUTCOME
+        )
+
+    def test_divider_elsewhere_in_the_file_does_not_block_an_edit(self) -> None:
+        cases = (
+            ("old body", "new body", "Title\n=======\nnew body\nmore\n"),
+            ("more", "MORE", "Title\n=======\nold body\nMORE\n"),
+        )
+        for search, replace, expected in cases:
+            with self.subTest(search=search):
+                self.assertEqual(self._apply(edit_block("docs/x.rst", search, replace), self.RST_FILE), {"docs/x.rst": expected})
+
     def test_edits_that_change_nothing_are_no_change(self) -> None:
         cases = (
             edit_block("src/a.py", "two", "two"),

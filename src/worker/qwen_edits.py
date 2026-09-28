@@ -30,10 +30,15 @@ DIVIDER_MARKER = "======="
 REPLACE_MARKER = ">>>>>>> REPLACE"
 # The SEARCH and REPLACE markers never appear as body content. A divider
 # line can: an RST/Markdown underline reads as "=======". There is no
-# escaping in this format, so a block with more than one bare "======="
-# line before its REPLACE marker is genuinely ambiguous - it is never
-# guessed at (that would silently truncate the SEARCH body and apply a
-# partial edit) and is instead rejected as malformed.
+# escaping in this format, so two guards fail closed as malformed rather
+# than guess (a guess can silently truncate the SEARCH body and apply a
+# partial edit):
+# - parse time: a block with more than one bare "=======" line before its
+#   REPLACE marker (_parse_block_body).
+# - apply time: a block whose SEARCH match is immediately followed by a bare
+#   "=======" line in the file (_find_unique). With one divider the parser
+#   cannot tell a cut-off SEARCH of "Title / ======= / old body" from
+#   SEARCH "Title", REPLACE "old body"; the target file can.
 _BLOCK_MARKERS = frozenset({SEARCH_MARKER, REPLACE_MARKER})
 _STRAY_MARKERS = frozenset({DIVIDER_MARKER, REPLACE_MARKER})
 _FILE_LINE_RE = re.compile(r"\s*FILE:(.*)")
@@ -107,7 +112,8 @@ def _parse_block_body(lines: list[str], start: int) -> tuple[tuple[str, ...], tu
     A second bare "=======" line between the divider and the REPLACE marker
     means the body's own divider cannot be told apart from a legitimate
     "=======" line of content (SEARCH or REPLACE side); that block is
-    rejected rather than silently truncated."""
+    rejected rather than silently truncated. A single divider that was really
+    SEARCH content is caught at apply time by _find_unique."""
     divider = _find_marker(lines, start, DIVIDER_MARKER)
     end = _find_marker(lines, divider + 1, REPLACE_MARKER)
     if any(lines[i].strip() == DIVIDER_MARKER for i in range(divider + 1, end)):
@@ -165,6 +171,9 @@ def _find_unique(lines: list[str], search: tuple[str, ...]) -> int:
 
     An empty SEARCH matches at every position, so it can never identify a
     location: it is EDIT_AMBIGUOUS_OUTCOME, never an insert-at-top.
+    A match directly followed by a bare "=======" file line is
+    EDIT_MALFORMED_OUTCOME: the block's divider may have been SEARCH content
+    from a response cut off before its real divider.
     """
     if not search:
         raise EditBlockError(EDIT_AMBIGUOUS_OUTCOME)
@@ -174,6 +183,9 @@ def _find_unique(lines: list[str], search: tuple[str, ...]) -> int:
         raise EditBlockError(EDIT_NOT_FOUND_OUTCOME)
     if len(hits) > 1:
         raise EditBlockError(EDIT_AMBIGUOUS_OUTCOME)
+    after = hits[0] + n
+    if after < len(lines) and lines[after].strip() == DIVIDER_MARKER:
+        raise EditBlockError(EDIT_MALFORMED_OUTCOME)
     return hits[0]
 
 
