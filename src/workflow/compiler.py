@@ -391,8 +391,6 @@ def _validate_when(spec: StageSpec) -> None:
         )
 
 
-
-
 def _resolve_criteria(
     validation: ValidationSpec, params: dict[str, str]
 ) -> ValidationSpec:
