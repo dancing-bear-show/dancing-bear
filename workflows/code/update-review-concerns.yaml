@@ -698,7 +698,9 @@ stages:
         is two clusters; note the pairing, because a class that recurs as
         both SIBLING and FIX_REGRESSION is the strongest signal this mode
         produces. For each cluster count distinct PRs and threads, and keep
-        up to 3 example locations (path:line plus the evidence line).
+        up to 3 example locations, each written "#<pr> path:line — evidence"
+        (the PR number first, so propose-concerns can prefer examples from
+        distinct PRs when it groups a class's clusters).
 
       R5 — promote or reject EVERY cluster. Apply these tests in order. A
         cluster is promoted only if it passes all of them; otherwise it is
@@ -814,7 +816,7 @@ stages:
             "pr_numbers": ["..."],
             "file_types": [".yaml", ...],
             "guide_file": "collateral-damage.md",
-            "example_comments": ["path:line — evidence", ...],
+            "example_comments": ["#406 path:line — evidence", ...],
             "source": "rereview",
             "class": "unquoted-shell-var",
             "cause_category": "SIBLING",
@@ -993,7 +995,44 @@ stages:
           rationale (citing PR numbers and example comments from the cluster),
           and the formatted entry as a fenced markdown block.
 
+        Then prove the ids are safe to append, in either mode. This fixed
+        command prints one line per problem and ends with true or false; a
+        false exits non-zero and fails the stage. It fails on a missing
+        concern_id, on an id proposed twice, on an id already in
+        known-concern-ids.json, and on two proposals for one class:
+
+          jq -er --slurpfile k "{workspace}/outputs/known-concern-ids.json" '[(.[] | select((.concern_id | type) != "string" or (.concern_id | length) == 0) | "?: concern_id is missing"), (group_by(.concern_id)[] | select(length > 1) | "\(.[0].concern_id): proposed \(length) times"), (.[] | .concern_id as $c | select(any($k[0][]; . == $c)) | "\($c): collides with a known concern id"), ([.[] | select(.class != null)] | group_by(.class)[] | select(length > 1) | "class \(.[0].class): \(length) proposals, expected 1")] | (.[]), (length == 0)' "{workspace}/outputs/proposed-concerns.json"
+
+        A duplicate id would put two `### <id>` headings in one guide, and a
+        known id would shadow an existing concern.
+
       REREVIEW MODE additions (only when mode is rereview):
+
+      RG — one concern per class. cluster-gaps clusters by (class, category),
+        so one class can be promoted up to four times (a live run promoted
+        `incomplete-guard-coverage` as LATE_DISCOVERY, SIBLING,
+        FIX_REGRESSION and INCOMPLETE_FIX: 23 clusters, 9 classes). Drafting
+        one entry per cluster would put duplicate `### <id>` headings in a
+        guide. Before Step 1b, group the promoted clusters by class with
+        this one fixed command, and never by hand:
+
+          jq 'group_by(.class) | map({class: .[0].class, cluster_count: length, themes: map(.theme), cause_categories: (map(.cause_category) | unique), pr_numbers: (map(.pr_numbers[] | tostring) | unique), thread_count: (map(.thread_count) | add), file_types: (map(.file_types[]?) | unique), guide_file: (if any(.[]; .guide_file == "collateral-damage.md") then "collateral-damage.md" else (map(.guide_file) | group_by(.) | sort_by(-length) | .[0][0]) end), example_comments: ([.[].example_comments[]?] as $ex | ($ex | map({pr: ((capture("^#(?<n>[0-9]+) ") // {n: null}).n), text: .}) | group_by(.pr) | map(.[0].text)) as $firsts | ($firsts + ($ex - $firsts)) | .[:3]), picked: ((map(select(.sweep | has("pattern"))) + map(select(.sweep | has("structural"))) + map(select(.sweep | has("procedure"))))[0] // {})} | .occurrences = (.pr_numbers | length) | .sweep = .picked.sweep | .sweep_hits = .picked.sweep_hits | .sweep_hits_reason = .picked.sweep_hits_reason | del(.picked))' "{workspace}/outputs/gap-clusters.json" > "{workspace}/outputs/rereview-concern-groups.json"
+
+        It writes one group per class: cause_categories lists every
+        category the class was promoted under, pr_numbers is the union of
+        the clusters' PRs (occurrences is its size), thread_count is their
+        sum, and example_comments holds up to 3, one per distinct PR first.
+        guide_file is collateral-damage.md if any cluster chose it (R6 can
+        send one class's SIBLING and LATE_DISCOVERY clusters to different
+        guides), otherwise the most common choice, ties broken
+        alphabetically. The group keeps ONE sweep, taken from the first
+        cluster that has a pattern sweep, else a structural sweep, else a
+        procedure, in gap-clusters.json order; a pattern is preferred
+        because it carries a hit count. sweep_hits and sweep_hits_reason
+        come from that same cluster.
+        In rereview mode, every "cluster" in Steps 1b to 3 means one group
+        from {workspace}/outputs/rereview-concern-groups.json: draft
+        exactly one concern entry per group.
 
       RA — target guide. guide_file may be collateral-damage.md, which may
         not exist yet. If it does not, do not try to read it: use
@@ -1002,7 +1041,7 @@ stages:
 
       RB — two extra fields. Every rereview entry carries, in
         proposed-concerns.json:
-          "sweep": copied from the cluster unchanged in shape — a
+          "sweep": copied from the group unchanged in shape — a
             {"pattern", "paths"}, {"structural"} or {"procedure"} object,
             never a command. A structural or procedure sweep has no count;
             never state one. Re-count a pattern sweep once with the same
@@ -1017,7 +1056,8 @@ stages:
             in the summary. Any hit count the summary states is the "hits"
             value count-sweep printed, never a count of your own. An entry
             with no sweep is not proposed.
-          "cause_category": the cluster's cause_category.
+          "class": the group's class.
+          "cause_categories": the group's cause_categories, unchanged.
         and its formatted_entry ends with two more bullets after example:
           - **sweep**: for a pattern sweep, the pattern in backticks
             followed by "in" and the paths in backticks; for a structural
@@ -1026,9 +1066,10 @@ stages:
             steps as a numbered list indented two spaces under the bullet,
             one step per line in order, and a last indented line
             "Record: " plus the evidence
-          - **cause**: the cause category and one line on how a fix produced
-            it (e.g. "SIBLING — the fix repaired one call site; the same
-            unquoted expansion remained at three others")
+          - **cause**: the cause categories, comma-separated, and one line
+            on how a fix produced it (e.g. "SIBLING, FIX_REGRESSION — the
+            fix repaired one call site; the same unquoted expansion
+            remained at three others")
         The check and triggers must describe the defect shape itself, so the
         concern catches the first instance in round 0 and not only the
         siblings a fix leaves behind. For a procedure they are taken from

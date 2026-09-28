@@ -421,6 +421,84 @@ class TestRenderedJqExecutes(unittest.TestCase):
         self.assertTrue(from_prompt)
         self.assertEqual(from_prompt, in_gate)
 
+    def _propose_line(self, needle: str) -> str:
+        (line,) = [c for c in _jq_lines(_prompts(str(self.ws), mode="rereview")["propose-concerns"]) if needle in c]
+        return line
+
+    def _group(self, clusters: list[dict[str, object]]) -> list[dict[str, object]]:
+        self._write("outputs/gap-clusters.json", clusters)
+        res = self._run(self._propose_line("rereview-concern-groups.json"))
+        self.assertEqual(res.returncode, 0, res.stderr)
+        groups: list[dict[str, object]] = json.loads((self.ws / "outputs/rereview-concern-groups.json").read_text())
+        return groups
+
+    def test_one_class_in_three_categories_yields_one_group(self) -> None:
+        """The live run promoted incomplete-guard-coverage under four categories."""
+        procedure = {"procedure": _procedure()}
+        pattern = {"pattern": "check-params[^|]*--check", "paths": ["workflows/"]}
+        clusters = [
+            _cluster("incomplete-guard-coverage", "LATE_DISCOVERY", ["406", "395"], 5, "security.md", procedure,
+                     ["#406 a.py:1 — x", "#406 a.py:9 — y", "#395 b.py:2 — z"]),
+            _cluster("incomplete-guard-coverage", "SIBLING", ["395", "400"], 4, "collateral-damage.md", pattern,
+                     ["#395 c.py:3 — w", "#400 d.py:4 — v"], hits=7),
+            _cluster("incomplete-guard-coverage", "FIX_REGRESSION", ["400", "412"], 3, "security.md",
+                     {"structural": "every guard lists its input forms"}, ["#412 e.py:5 — u"]),
+            _cluster("unquoted-shell-var", "SIBLING", ["406", "412"], 2, "security.md", pattern, ["#406 f.sh:1 — t"]),
+        ]
+        groups = {g["class"]: g for g in self._group(clusters)}
+        self.assertEqual(set(groups), {"incomplete-guard-coverage", "unquoted-shell-var"})
+        g = groups["incomplete-guard-coverage"]
+        self.assertEqual(g["cause_categories"], ["FIX_REGRESSION", "LATE_DISCOVERY", "SIBLING"])
+        self.assertEqual(g["pr_numbers"], ["395", "400", "406", "412"])
+        self.assertEqual(g["occurrences"], 4)
+        self.assertEqual(g["thread_count"], 12)
+        self.assertEqual(g["cluster_count"], 3)
+        self.assertEqual(g["guide_file"], "collateral-damage.md")
+        self.assertEqual(g["sweep"], pattern)  # a pattern beats the earlier procedure
+        self.assertEqual(g["sweep_hits"], 7)
+        examples = g["example_comments"]
+        self.assertIsInstance(examples, list)
+        self.assertEqual(len(examples), 3)
+        self.assertEqual({str(e).split()[0] for e in examples}, {"#395", "#400", "#406"})
+        self.assertEqual(groups["unquoted-shell-var"]["cause_categories"], ["SIBLING"])
+
+    def test_group_guide_is_the_most_common_without_collateral(self) -> None:
+        sweep = {"structural": "x"}
+        clusters = [
+            _cluster("k", "SIBLING", ["1"], 1, "tests.md", sweep, []),
+            _cluster("k", "LATE_DISCOVERY", ["2"], 1, "security.md", sweep, []),
+            _cluster("k", "FIX_REGRESSION", ["3"], 1, "security.md", {"procedure": _procedure()}, []),
+        ]
+        (g,) = self._group(clusters)
+        self.assertEqual(g["guide_file"], "security.md")
+        self.assertEqual(g["sweep"], sweep)  # structural beats procedure
+        self.assertEqual(g["sweep_hits"], None)
+
+    def test_proposal_id_gate(self) -> None:
+        gate = self._propose_line("collides with a known concern id")
+        self._write("outputs/known-concern-ids.json", ["unquoted-shell-var-in-stage"])
+        good = [{"concern_id": "guard-input-forms-listed", "class": "incomplete-guard-coverage"},
+                {"concern_id": "topic-entry"}]  # topics entries carry no class
+        self._write("outputs/proposed-concerns.json", good)
+        res = self._run(gate)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertEqual(res.stdout.strip(), "true")
+        bad = {
+            "duplicate id": ([*good, {"concern_id": "guard-input-forms-listed", "class": "other-class"}],
+                             "guard-input-forms-listed: proposed 2 times"),
+            "known id": ([*good, {"concern_id": "unquoted-shell-var-in-stage"}],
+                         "unquoted-shell-var-in-stage: collides with a known concern id"),
+            "same class twice": ([*good, {"concern_id": "second-id", "class": "incomplete-guard-coverage"}],
+                                 "class incomplete-guard-coverage: 2 proposals, expected 1"),
+            "missing id": ([*good, {"class": "z"}], "?: concern_id is missing"),
+        }
+        for label, (doc, needle) in bad.items():
+            with self.subTest(case=label):
+                self._write("outputs/proposed-concerns.json", doc)
+                res = self._run(gate)
+                self.assertNotEqual(res.returncode, 0)
+                self.assertIn(needle, res.stdout)
+
     def _sweep_gate(self, stage: str, file: str) -> str:
         prompts = _prompts(str(self.ws), mode="rereview")
         (line,) = [c for c in _jq_lines(prompts[stage]) if f"outputs/{file}" in c and "structural" in c]
@@ -575,6 +653,15 @@ def _procedure(**over: object) -> dict[str, object]:
         "evidence": "each input form, paired with the test that covers it",
     }
     return {**base, **over}
+
+
+def _cluster(cls: str, category: str, prs: list[str], threads: int, guide: str,
+             sweep: dict[str, object], examples: list[str], hits: int | None = None) -> dict[str, object]:
+    """One promoted gap-clusters.json entry in the R7 shape."""
+    return {"theme": f"{cls} ({category})", "occurrences": len(prs), "pr_numbers": prs, "file_types": [".py"],
+            "guide_file": guide, "example_comments": examples, "source": "rereview", "class": cls,
+            "cause_category": category, "thread_count": threads, "sweep": sweep, "sweep_hits": hits,
+            "sweep_hits_reason": None if hits is not None else "no tree count"}
 
 
 def _gap(**over: object) -> dict[str, object]:
