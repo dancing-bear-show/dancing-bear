@@ -771,7 +771,8 @@ class TestAbsolutePathNormalization(unittest.TestCase):
         It must not crash and must not spuriously match a repo-relative glob
         — only extension/name rules apply, same as before this fix.
         """
-        guides = select_guides(paths=["/tmp/outside-the-checkout/src/phone/cli.py"])
+        outside = Path(tempfile.gettempdir()) / "outside-the-checkout" / "src" / "phone" / "cli.py"
+        guides = select_guides(paths=[str(outside)])
         self.assertNotIn(
             "phone-layout.md",
             guides,

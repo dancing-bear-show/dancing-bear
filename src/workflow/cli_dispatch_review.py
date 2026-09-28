@@ -350,6 +350,31 @@ def _cmd_check_unlisted(args: argparse.Namespace) -> int:
     return 0
 
 
+def _gather_paths(args: argparse.Namespace) -> tuple[list[str], int | None]:
+    """Collect paths from ``--paths`` and ``--paths-file``.
+
+    Returns ``(paths, None)`` on success or ``([], rc)`` on error, having
+    already written the error message to stderr.
+    """
+    paths: list[str] = list(args.paths or [])
+    if not args.paths_file:
+        return paths, None
+    pf = Path(args.paths_file)
+    if not pf.is_file():
+        print(f"select-concerns: paths-file not found: {pf}", file=sys.stderr)
+        return [], 1
+    try:
+        text = pf.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"select-concerns: paths-file unreadable: {exc}", file=sys.stderr)
+        return [], 1
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped:
+            paths.append(stripped)
+    return paths, None
+
+
 def _cmd_select_concerns(args: argparse.Namespace) -> int:
     """Select concern guides for a set of file paths and an optional task_type.
 
@@ -362,22 +387,9 @@ def _cmd_select_concerns(args: argparse.Namespace) -> int:
     """
     from workflow.concern_select import select_guides_with_reasons
 
-    paths: list[str] = list(args.paths or [])
-
-    if args.paths_file:
-        pf = Path(args.paths_file)
-        if not pf.is_file():
-            print(f"select-concerns: paths-file not found: {pf}", file=sys.stderr)
-            return 1
-        try:
-            paths_file_text = pf.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError) as exc:
-            print(f"select-concerns: paths-file unreadable: {exc}", file=sys.stderr)
-            return 1
-        for line in paths_file_text.splitlines():
-            stripped = line.strip()
-            if stripped:
-                paths.append(stripped)
+    paths, err_rc = _gather_paths(args)
+    if err_rc is not None:
+        return err_rc
 
     task_type: str | None = args.task_type or None
 
