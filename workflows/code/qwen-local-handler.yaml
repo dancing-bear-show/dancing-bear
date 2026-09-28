@@ -535,7 +535,7 @@ stages:
           "test_layout": {"dir": "...", "mocking_style": "..."},
           "telemetry": {"record_envelopes": ["..."], "value_keys": ["..."], "attribute_nesting": "...", "data_dir_env_var": "...", "collector_ports": {"grpc": N, "http": N}, "port_override_env_var": "...", "cost_absent_handling": "..."},
           "machine": {"ollama_installed": true|false, "ollama_responding": true|false, "model_present": true|false, "worker_agent_loaded": true|false, "memory_gb": N},
-          "baseline_generation": {"available": true|false, "unavailable_reason": "..." | null, "raw_response_excerpt": "...", "is_bare_diff": true|false, "wrapped_in_fence": true|false, "wrapped_in_prose": true|false, "header_style": "---/+++|diff --git|other", "hunk_headers_wellformed": true|false, "duration_ms": N}
+          "baseline_generation": {"available": true|false, "unavailable_reason": "..." | null, "raw_response_excerpt": "...", "has_search_replace_block": true|false, "search_matches_snippet": true|false, "wrapped_in_fence": true|false, "wrapped_in_prose": true|false, "duration_ms": N}
         }
 
       Record what you actually found. If the reaper has no timestamp field at
@@ -1287,9 +1287,10 @@ stages:
             LOCAL stub server or a monkeypatched urlopen — not the real
             model, which may not be installed yet at this stage. Prove the
             request shape and response parsing, nothing more.
-        C4  PATCH VALIDATES. Add diff extraction, `git apply --check`, and
-            the patch caps. Verify with a known-good diff and a known-bad
-            one; assert the caps reject an oversized one.
+        C4  EDIT BLOCKS APPLY. Add SEARCH/REPLACE block parsing, the patch
+            builder that turns blocks into a unified diff, and the patch caps.
+            Verify with a known-good block set and a known-bad one; assert
+            the caps reject an oversized result.
         C5  CONCURRENCY AND DEFERRALS. Add the lock, the wait ceiling, the
             deferral counter and the memory/disk prechecks. Verify the lock
             is released on both the success and the exception path — the
