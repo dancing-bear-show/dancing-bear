@@ -488,6 +488,54 @@ class TestCmdSelectConcerns(unittest.TestCase):
         self.assertIn("patterns.md", data["guides"])
 
 
+class TestCmdSelectConcernsPathsFileErrors(unittest.TestCase):
+    """--paths-file I/O and decode errors must return exit 1, not raise.
+
+    Covers the documented contract in _cmd_select_concerns's docstring:
+    "Exit codes: 0 success, 1 on I/O or parse error."
+    """
+
+    def test_non_utf8_paths_file_returns_exit_1(self) -> None:
+        with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as fh:
+            fh.write(b"src/foo.py\n\xff\xfe not valid utf-8 \x80\x81\n")
+            tmp_path = fh.name
+
+        import io
+        from contextlib import redirect_stderr
+
+        try:
+            args = _make_args(paths_file=tmp_path, format="json")
+            buf = io.StringIO()
+            with redirect_stderr(buf):
+                rc = _cmd_select_concerns(args)
+            self.assertEqual(rc, 1)
+            self.assertIn("select-concerns: paths-file unreadable", buf.getvalue())
+        finally:
+            Path(tmp_path).unlink(missing_ok=True)
+
+    def test_unreadable_paths_file_returns_exit_1(self) -> None:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".txt", delete=False, encoding="utf-8"
+        ) as fh:
+            fh.write("src/foo.py\n")
+            tmp_path = fh.name
+        Path(tmp_path).chmod(0o000)
+
+        import io
+        from contextlib import redirect_stderr
+
+        try:
+            args = _make_args(paths_file=tmp_path, format="json")
+            buf = io.StringIO()
+            with redirect_stderr(buf):
+                rc = _cmd_select_concerns(args)
+            self.assertEqual(rc, 1)
+            self.assertIn("select-concerns: paths-file unreadable", buf.getvalue())
+        finally:
+            Path(tmp_path).chmod(0o644)
+            Path(tmp_path).unlink(missing_ok=True)
+
+
 # ---------------------------------------------------------------------------
 # Guard: consumers reference select-concerns, not hand-written tables
 # ---------------------------------------------------------------------------
@@ -661,6 +709,76 @@ class TestConsumersReferenceSelector(unittest.TestCase):
             _TABLE_ROW_RE.search(ok_row),
             "The table-row detector incorrectly matched a CLI reference row.",
         )
+
+
+# ---------------------------------------------------------------------------
+# select_guides: absolute-path normalization
+# ---------------------------------------------------------------------------
+
+
+class TestAbsolutePathNormalization(unittest.TestCase):
+    """Absolute paths under the checkout must match repo-relative globs.
+
+    ``select_guides`` documents that callers may pass absolute paths. Before
+    this fix, an absolute path was left unconverted, so repo-relative globs
+    like ``src/phone/**`` and the resume overrides never matched it — only
+    extension/name rules fired.
+    """
+
+    def _repo_root(self) -> Path:
+        # tests/workflow_tests/test_concern_select.py -> repo root
+        return Path(__file__).resolve().parent.parent.parent
+
+    def test_absolute_src_phone_path_adds_phone_layout(self) -> None:
+        abs_path = str(self._repo_root() / "src" / "phone" / "cli.py")
+        guides = select_guides(paths=[abs_path])
+        self.assertIn(
+            "phone-layout.md",
+            guides,
+            "an absolute path under src/phone/ must match the src/phone/** glob",
+        )
+
+    def test_absolute_path_matches_relative_path_result(self) -> None:
+        """Sanity check: absolute and relative forms of the same path agree."""
+        abs_path = str(self._repo_root() / "src" / "phone" / "cli.py")
+        self.assertEqual(
+            select_guides(paths=[abs_path]),
+            select_guides(paths=["src/phone/cli.py"]),
+        )
+
+    def test_absolute_resume_config_path_adds_resume_copy_not_workflow(self) -> None:
+        abs_path = str(
+            self._repo_root() / "src" / "resume" / "config" / "profiles" / "bcs.yaml"
+        )
+        guides = select_guides(paths=[abs_path])
+        self.assertIn(
+            "resume-copy.md",
+            guides,
+            "an absolute resume-config path must match the resume override group",
+        )
+        self.assertNotIn(
+            "workflow.md",
+            guides,
+            "the resume override group must still suppress the generic yaml rule "
+            "for an absolute path, exactly as it does for a relative one",
+        )
+
+    def test_sad_path_absolute_outside_checkout_falls_back_to_extension_only(
+        self,
+    ) -> None:
+        """An absolute path outside the checkout cannot be made repo-relative.
+
+        It must not crash and must not spuriously match a repo-relative glob
+        — only extension/name rules apply, same as before this fix.
+        """
+        guides = select_guides(paths=["/tmp/outside-the-checkout/src/phone/cli.py"])
+        self.assertNotIn(
+            "phone-layout.md",
+            guides,
+            "a path outside the checkout must not match src/phone/** just "
+            "because its tail happens to look like one",
+        )
+        self.assertIn("correctness.md", guides)
 
 
 if __name__ == "__main__":

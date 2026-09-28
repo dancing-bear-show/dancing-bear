@@ -54,15 +54,21 @@ stages:
     description: >
       Select which guide files are relevant using the canonical selector.
 
-      Run:
+      file_paths is caller-controlled and MUST NOT be interpolated into a
+      shell command. Instead, split it into individual paths — the trigger
+      contract accepts either space- or comma-separated entries, so split on
+      commas first, then whitespace, discarding empty tokens — and write one
+      path per line to {workspace}/outputs/paths.txt (a plain data file, not
+      shell source).
+
+      Then run:
         ./bin/workflow select-concerns \
-          --paths {file_paths} \
+          --paths-file {workspace}/outputs/paths.txt \
           --task-type {task_type} \
           --format json
 
       The canonical rules live in concerns/selection.yaml — do not restate them
-      here. Pass individual paths as space-separated tokens to --paths. If
-      task_type is empty, omit --task-type.
+      here. If task_type is empty, omit --task-type.
 
       Parse the JSON output {"guides": [...]} and write it to
       {workspace}/outputs/selected-guides.json:
@@ -74,6 +80,7 @@ stages:
       access: read-write
     required: true
     writes_to:
+      - paths.txt
       - selected-guides.json
 
   # ============================================================================

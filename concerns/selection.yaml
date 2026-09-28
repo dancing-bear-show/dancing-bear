@@ -7,10 +7,12 @@
 # CLI:         ./bin/workflow select-concerns --paths p1 p2 ... [--task-type T]
 #
 # Rule evaluation order:
-#   1. glob_rules   — path-glob / extension patterns (first matching rule wins per guide)
-#   2. task_type_rules — task_type keyword additions
-#   3. always       — guides always included regardless of input
-#   4. Deduplicate, preserving first-seen order.
+#   1. always           — guides always included regardless of input, added first
+#   2. glob_rules       — path-glob / extension patterns, evaluated per path;
+#                         every matching rule fires (union, not first-match-wins)
+#   3. task_type_rules  — task_type keyword additions, unioned on top
+#   4. default_guides   — fallback used only when no paths and no task_type are given
+# Guides are deduplicated per the order above, preserving first-seen order.
 #
 # Overrides: some path patterns suppress the generic rule for that extension.
 # E.g. resume yaml paths override the generic .yaml → workflow-* set.

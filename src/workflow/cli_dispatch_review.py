@@ -369,7 +369,12 @@ def _cmd_select_concerns(args: argparse.Namespace) -> int:
         if not pf.is_file():
             print(f"select-concerns: paths-file not found: {pf}", file=sys.stderr)
             return 1
-        for line in pf.read_text(encoding="utf-8").splitlines():
+        try:
+            paths_file_text = pf.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            print(f"select-concerns: paths-file unreadable: {exc}", file=sys.stderr)
+            return 1
+        for line in paths_file_text.splitlines():
             stripped = line.strip()
             if stripped:
                 paths.append(stripped)

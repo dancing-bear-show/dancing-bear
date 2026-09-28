@@ -30,6 +30,7 @@ from typing import Any
 # module so it works regardless of the caller's working directory.
 _CONCERNS_DIR = Path(__file__).parent.parent.parent / "concerns"
 _SELECTION_YAML = _CONCERNS_DIR / "selection.yaml"
+_CHECKOUT_ROOT = _CONCERNS_DIR.parent
 
 
 # ---------------------------------------------------------------------------
@@ -115,7 +116,7 @@ def _apply_path_rules(
     glob_rules: list[dict[str, Any]] = rules.get("glob_rules", [])
 
     for path in paths:
-        norm = path.replace(os.sep, "/")
+        norm = _to_repo_relative(path.replace(os.sep, "/"))
         basename = os.path.basename(norm)
         _, dot_ext = os.path.splitext(basename)
 
@@ -188,6 +189,26 @@ def select_guides_with_reasons(
 # ---------------------------------------------------------------------------
 # Private helpers
 # ---------------------------------------------------------------------------
+
+
+def _to_repo_relative(norm_path: str) -> str:
+    """Normalize an absolute path under the checkout to a repo-relative one.
+
+    ``select_guides`` documents that callers may pass absolute paths, but the
+    glob rules (``src/phone/**``, the resume overrides, etc.) are all written
+    repo-relative. Left unconverted, an absolute path never matches those
+    globs and only the extension/name rules fire. A path outside the checkout
+    (or already relative) is returned unchanged, so extension/name matching
+    still applies to it.
+    """
+    if not os.path.isabs(norm_path):
+        return norm_path
+    try:
+        resolved = Path(norm_path).resolve()
+        relative = resolved.relative_to(_CHECKOUT_ROOT.resolve())
+    except ValueError:
+        return norm_path
+    return relative.as_posix()
 
 
 def _path_matches(
