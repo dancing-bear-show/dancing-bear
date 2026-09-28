@@ -474,7 +474,7 @@ class TestRenderedJqExecutes(unittest.TestCase):
         (g,) = self._group(clusters)
         self.assertEqual(g["guide_file"], "security.md")
         self.assertEqual(g["sweep"], sweep)  # structural beats procedure
-        self.assertEqual(g["sweep_hits"], None)
+        self.assertIsNone(g["sweep_hits"])
 
     def test_proposal_id_gate(self) -> None:
         gate = self._propose_line("collides with a known concern id")
