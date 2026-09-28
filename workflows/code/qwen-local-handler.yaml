@@ -1460,7 +1460,7 @@ stages:
 
         after C2:  git add src/worker/qwen.py src/worker/handlers.py
                    git commit -m "feat(worker): register the handler with input confinement"
-        after C5:  git add src/worker/qwen.py
+        after C5:  git add src/worker/qwen.py src/worker/qwen_edits.py
                    git commit -m "feat(worker): add Ollama transport, patch validation and concurrency guards"
         after C6:  chmod +x bin/qwen
                    git add src/worker/qwen_telemetry.py bin/qwen

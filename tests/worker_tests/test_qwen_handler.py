@@ -1427,6 +1427,55 @@ class QwenPersistResponseTests(QwenHandlerCase):
         self.assertIsNotNone(response_file, "persisted response file was not created")
         self.assertFalse(self.response_dir.is_symlink(), "response_dir should be a real directory")
 
+    def _outside_dir(self) -> Path:
+        """A 0755 directory outside the responses boundary, as a symlink target."""
+        outside = self.response_dir.parent / "outside"
+        outside.mkdir()
+        os.chmod(outside, 0o755)  # nosec B103 - temp test dir; asserted unchanged, a 0700 result would mean the chmod followed the link
+        return outside
+
+    def _assert_outside_untouched(self, outside: Path) -> None:
+        self.assertEqual(sorted(p.name for p in outside.iterdir()), [], "a file was written outside responses/")
+        self.assertEqual(oct(outside.stat().st_mode & 0o777), oct(0o755), "outside dir mode was changed")
+
+    def test_direct_persist_writes_masked_0600_file_in_0700_dir(self) -> None:
+        qwen._persist_response("qwen-test-job", f"token={_FAKE_TOKEN} tail")
+
+        saved = self.response_dir / "qwen-test-job.txt"
+        text = saved.read_text(encoding="utf-8")
+        self.assertNotIn(_FAKE_TOKEN, text)
+        self.assertIn("tail", text)
+        self.assertEqual(oct(saved.stat().st_mode & 0o777), oct(0o600))
+        self.assertEqual(oct(self.response_dir.stat().st_mode & 0o777), oct(0o700))
+        self.assertEqual([p.name for p in self.response_dir.iterdir()], ["qwen-test-job.txt"])
+
+    def test_direct_persist_refuses_planted_symlink_dir(self) -> None:
+        outside = self._outside_dir()
+        self.response_dir.symlink_to(outside)
+
+        qwen._persist_response("qwen-test-job", "some response")  # must not raise
+
+        self._assert_outside_untouched(outside)
+
+    def test_symlink_swapped_in_after_mkdir_is_not_followed(self) -> None:
+        """responses/ replaced by a symlink between its creation and its use:
+        neither the chmod nor the write may follow the link outside."""
+        outside = self._outside_dir()
+        real_mkdir = Path.mkdir
+        response_dir = self.response_dir
+
+        def racing_mkdir(path: Path, mode: int = 0o777, parents: bool = False, exist_ok: bool = False) -> None:
+            real_mkdir(path, mode, parents, exist_ok)
+            if path == response_dir and not path.is_symlink():
+                path.rmdir()
+                path.symlink_to(outside)
+
+        with mock.patch.object(Path, "mkdir", racing_mkdir):
+            qwen._persist_response("qwen-test-job", "some response")  # must not raise
+
+        self.assertTrue(self.response_dir.is_symlink(), "the race was not staged")
+        self._assert_outside_untouched(outside)
+
 
 if __name__ == "__main__":
     unittest.main()

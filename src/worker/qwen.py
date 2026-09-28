@@ -1754,26 +1754,72 @@ def response_path_for_job(job_id: str) -> Path:
     return job_scoped_path(_response_dir(), job_id, ".txt")
 
 
+def _open_private_dir(directory: Path) -> int:
+    """Create directory if absent, then open it once without following a symlink.
+
+    Returns a descriptor for a directory owned by this user, set to 0700
+    through the descriptor. O_NOFOLLOW refuses a symlink at the final
+    component, whenever it was planted. Parents above it are not
+    re-validated. The caller closes the descriptor.
+    """
+    try:
+        directory.mkdir(mode=0o700, parents=True)
+    except FileExistsError:  # nosec B110 - an existing entry is validated by the open below
+        pass
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    dfd = os.open(directory, flags)
+    try:
+        info = os.fstat(dfd)
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid():
+            raise OSError(f"not a directory owned by this user: {directory}")
+        os.fchmod(dfd, 0o700)
+    except BaseException:
+        os.close(dfd)
+        raise
+    return dfd
+
+
+def _replace_file_at(dfd: int, name: str, data: bytes) -> None:
+    """Write data to name inside the directory dfd: a 0600 temp file created
+    with O_EXCL|O_NOFOLLOW, then renamed over name, both relative to dfd."""
+    tmp_name = f".{name}.{uuid.uuid4().hex}"
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC
+    fd = os.open(tmp_name, flags, 0o600, dir_fd=dfd)
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+        os.replace(tmp_name, name, src_dir_fd=dfd, dst_dir_fd=dfd)
+    except BaseException:
+        try:
+            os.unlink(tmp_name, dir_fd=dfd)
+        except OSError:  # nosec B110 - cleanup is best-effort; the original error is re-raised
+            pass
+        raise
+
+
 def _persist_response(job_id: str, response_text: str) -> None:
     """Best-effort: keep the model's response after a post-response failure.
 
     The outcome string is content-free by contract, which leaves nothing to
     diagnose a rejected answer with, so the response is written - masked,
-    capped at MAX_PERSISTED_RESPONSE_BYTES - to response_path_for_job, in a
-    0700 directory. _write_job_file creates the file with mkstemp (O_EXCL,
-    mode 0600) and renames it into place, never following a symlink. Any
-    failure is logged and swallowed: diagnostics must never change the
-    job's outcome.
+    capped at MAX_PERSISTED_RESPONSE_BYTES - to response_path_for_job's
+    file name. The responses/ directory entry is the boundary: it is opened
+    once with O_NOFOLLOW (see _open_private_dir), and the chmod, the 0600
+    temp-file creation and the rename all go through that descriptor, so a
+    symlink swapped in at responses/ after creation is refused rather than
+    followed. Directories above responses/ are not re-validated. Any failure
+    is logged and swallowed: diagnostics must never change the job's
+    outcome.
     """
     try:
-        directory = _response_dir()
-        if directory.is_symlink():
-            raise OSError(f"responses directory path is a symlink: {directory}")
-        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-        os.chmod(directory, 0o700)
-        head = response_text[: _MASK_INPUT_CHARS + _MASK_MARGIN_CHARS]
-        capped = mask_text(head).encode("utf-8")[:MAX_PERSISTED_RESPONSE_BYTES]
-        _write_job_file(response_path_for_job(job_id), capped.decode("utf-8", errors="ignore"))
+        final_name = response_path_for_job(job_id).name
+        dfd = _open_private_dir(_response_dir())
+        try:
+            head = response_text[: _MASK_INPUT_CHARS + _MASK_MARGIN_CHARS]
+            capped = mask_text(head).encode("utf-8")[:MAX_PERSISTED_RESPONSE_BYTES]
+            _replace_file_at(dfd, final_name, capped.decode("utf-8", errors="ignore").encode("utf-8"))
+        finally:
+            os.close(dfd)
     except Exception as exc:  # nosec B110 - diagnostics are best-effort; the job's outcome is already decided
         _log.debug("qwen: could not persist the model response (non-fatal): %s", describe_exception(exc))
 
