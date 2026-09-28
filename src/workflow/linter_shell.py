@@ -22,8 +22,10 @@ never the surrounding prose -- and emit warnings with stable rule ids:
     explicit ``PYTHONPATH=...`` prefix is exempt: its author wants PYTHONPATH
     honoured, which ``-I`` would defeat.
 ``validate-stage-writes-output``
-    A ``kind: validate`` stage's description instructs writing a file. The
-    validate prompt is built from ``validation:`` alone and appends a
+    A ``kind: validate`` stage's description instructs writing a file (any
+    write-shaped verb -- ``Write``, ``Save``, ``Create``, ``Emit``, ``Output``,
+    ``Produce`` -- naming a ``{workspace}``-rooted path with any extension).
+    The validate prompt is built from ``validation:`` alone and appends a
     findings-array format, so the instruction never reaches the agent.
 ``shell-guard-refused``
     A heredoc or a ``for``/``while``/``until`` loop in shell text; the Bash
@@ -80,8 +82,9 @@ _BINDING_WORDS = frozenset({"for", "read"})
 _PYTHON_WORD_RE = re.compile(r"^(?:.*/)?python3?(?:\.\d+)?$")
 _HEREDOC_RE = re.compile(r"<<-?\s*['\"]?[A-Za-z_]")
 _WRITE_INSTRUCTION_RE = re.compile(
-    r"\b(?:Write|write|Save|save)\s+(?:it\s+to\s+|to\s+|the\s+\S+\s+to\s+)?"
-    r"\"?\{workspace\}/\S+\.(?:json|md|txt|yaml|csv)"
+    r"\b(?:Write|write|Save|save|Create|create|Emit|emit|Output|output|Produce|produce)\s+"
+    r"(?:it\s+to\s+|to\s+|the\s+\S+\s+to\s+)?"
+    r"\"?\{workspace\}/\S+\.[A-Za-z0-9]+\b"
 )
 
 # Set by the shell, the OS, or the harness -- never assigned in stage text.
@@ -258,13 +261,29 @@ def _is_environment(name: str) -> bool:
     return name in _ENVIRONMENT_VARS or name.startswith(_ENVIRONMENT_PREFIXES)
 
 
+def _is_escaped(text: str, pos: int) -> bool:
+    """True when a run of an odd number of backslashes immediately precedes *pos*.
+
+    POSIX sh: a backslash outside single quotes escapes the next character, so
+    ``\\$NAME`` expands nothing -- the ``$`` is literal. A *pair* of
+    backslashes (``\\\\$NAME``) is itself an escaped backslash, so the ``$``
+    is unescaped again; only an odd run counts.
+    """
+    run = 0
+    i = pos - 1
+    while i >= 0 and text[i] == "\\":
+        run += 1
+        i -= 1
+    return run % 2 == 1
+
+
 def _expanded_names(seg: ShellSegment) -> list[str]:
     """Upper-case ``$NAME`` expansions outside single quotes, in order."""
     ctx = quote_context(seg.text)
     return [
         m.group(1) or m.group(2)
         for m in _EXPANSION_RE.finditer(seg.text)
-        if ctx[m.start()] != "'"
+        if ctx[m.start()] != "'" and not _is_escaped(seg.text, m.start())
     ]
 
 
@@ -303,8 +322,20 @@ def _isolation_flags(args: list[str]) -> set[str]:
 
 
 def _is_invocation(args: list[str]) -> bool:
-    """True when the word is followed by an option or a script -- not prose."""
-    return bool(args) and (args[0].startswith("-") or args[0].endswith(".py"))
+    """True when the word is followed by an option or a script operand -- not prose.
+
+    A script operand need not end in ``.py``: ``python3 tools/run_checks`` and
+    ``python3 "$SCRIPT"`` both start the interpreter just as surely. Treat a
+    path-like operand (contains ``/``) or a variable reference (``$NAME`` --
+    shlex already stripped the quotes off ``"$SCRIPT"``) as an invocation too;
+    a single bare word (``is``, ``required``) stays prose.
+    """
+    if not args:
+        return False
+    first = args[0]
+    return bool(
+        first.startswith("-") or first.endswith(".py") or "/" in first or first.startswith("$")
+    )
 
 
 def _python_offenders(seg: ShellSegment) -> list[str]:
@@ -349,8 +380,22 @@ def _has_heredoc(text: str) -> bool:
     )
 
 
+def _as_command_separators(text: str) -> str:
+    """Replace unquoted newlines with ``;`` so a line boundary is a separator.
+
+    ``split_tokens`` treats a newline as ordinary whitespace, so a loop head
+    that merely follows setup text on the previous line -- not a command
+    separator -- reads as glued onto that text: ``echo setup\\nfor p in
+    items; do ...; done`` tokenizes with ``for`` immediately after ``setup``.
+    A newline still inside quotes (a multi-line string argument) is left
+    alone; only a line boundary between commands counts.
+    """
+    ctx = quote_context(text)
+    return "".join(";" if ch == "\n" and ctx[i] == "" else ch for i, ch in enumerate(text))
+
+
 def _has_loop(text: str) -> bool:
-    tokens = split_tokens(text)
+    tokens = split_tokens(_as_command_separators(text))
     for i, tok in enumerate(tokens):
         if i and tokens[i - 1] not in _COMMAND_SEPARATORS:
             continue

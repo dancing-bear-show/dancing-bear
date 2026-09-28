@@ -15,9 +15,9 @@ from __future__ import annotations
 import tempfile
 import textwrap
 import unittest
+import unittest.mock as mock
 from pathlib import Path
 from typing import cast
-from unittest import mock
 
 from workflow.linter import LintResult, lint_workflow
 from workflow.linter_shell import (
@@ -309,6 +309,17 @@ class TestUnboundVariable(_RuleCase):
     def test_prose_mention_is_silent(self) -> None:
         self.assert_silent(_workflow(_stage("Compare the result against $THREAD_ID from the plan.")))
 
+    def test_escaped_dollar_is_silent(self) -> None:
+        # Copilot PR #433 r4099834621: echo "\$NAME" is a literal $NAME in
+        # POSIX sh, not an expansion -- quote_context alone can't tell that.
+        self.assert_silent(_workflow(_stage('Print it literally:\n\n  echo "\\$NAME"\n')))
+
+    def test_unescaped_dollar_after_literal_backslash_still_fires(self) -> None:
+        # A doubled backslash is an escaped backslash, so the following $ is a
+        # real expansion again -- must not be swallowed by the escape check.
+        hits = self.assert_fires(_workflow(_stage('Run:\n\n  echo "\\\\$THREAD_ID"\n')))
+        self.assertIn("$THREAD_ID", hits[0].message)
+
     def test_assignment_in_another_stage_does_not_bind(self) -> None:
         yaml_text = _workflow(
             _stage("Bind it:\n\n  THREAD_ID=$(jq -r .id f.json)\n", name="a"),
@@ -360,6 +371,14 @@ class TestPythonNotIsolated(_RuleCase):
     def test_prose_is_silent(self) -> None:
         self.assert_silent(_workflow(_stage("Run:\n\n  python3 is required for this step\n")))
 
+    def test_fires_on_non_py_suffixed_script_operand(self) -> None:
+        # Copilot PR #433 r4099834636: a script path with no .py suffix, or a
+        # quoted variable holding the script path, still starts the
+        # interpreter with the ambient PYTHONPATH.
+        for command in ('python3 tools/run_checks', 'python3 "$SCRIPT"'):
+            with self.subTest(command=command):
+                self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))
+
     def test_has_teeth(self) -> None:
         self.assert_has_teeth(_workflow(_stage(_BARE_PYTHON)))
 
@@ -393,6 +412,20 @@ class TestValidateStageWritesOutput(_RuleCase):
 
     def test_validate_stage_without_write_instruction_is_silent(self) -> None:
         self.assert_silent(_workflow(_stage("Check the outputs agree.", kind="validate")))
+
+    def test_fires_on_create_verb_and_non_listed_extension(self) -> None:
+        # Copilot PR #433 r4099834597: only Write/Save and five extensions
+        # were recognised, so "Create ... result.json" passed silently.
+        hits = self.assert_fires(
+            _workflow(_stage("Create {workspace}/outputs/result.json with the findings.", kind="validate"))
+        )
+        self.assertIn("outputs/result.json", hits[0].message)
+
+    def test_fires_on_emit_output_produce_verbs(self) -> None:
+        for verb in ("Emit", "Output", "Produce"):
+            desc = f"{verb} {{workspace}}/outputs/summary.log now."
+            with self.subTest(verb=verb):
+                self.assert_fires(_workflow(_stage(desc, kind="validate")))
 
     def test_has_teeth(self) -> None:
         self.assert_has_teeth(_workflow(_stage(_VERIFY, kind="validate")))
@@ -440,6 +473,17 @@ class TestGuardRefused(_RuleCase):
     def test_python_for_loop_is_not_shell(self) -> None:
         desc = "Inline:\n\n  python3 -I -S -c \"\n  for parser in PARSERS:\n      print(parser)\n  \"\n"
         self.assert_silent(_workflow(_stage(desc)))
+
+    def test_fires_on_loop_preceded_by_setup_line_in_same_fence(self) -> None:
+        # Copilot PR #433 r4099834657: split_tokens discards newlines, so a
+        # loop head right after setup text in the same fenced block glued
+        # onto that text's last word instead of following a separator. The
+        # blank line here is only to survive the folded (`>`) YAML scalar
+        # this fixture format uses -- extract_shell_segments still returns
+        # the setup line and the loop as a single fence segment either way.
+        desc = "```bash\necho setup\n\nfor p in items; do echo \"$p\"; done\n```\n"
+        hits = self.assert_fires(_workflow(_stage(desc)))
+        self.assertIn("loop", hits[0].message)
 
     def test_has_teeth(self) -> None:
         self.assert_has_teeth(_workflow(_stage(_LOOP)))
