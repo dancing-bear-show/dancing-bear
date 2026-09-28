@@ -245,9 +245,14 @@ class TestMatchTimeBound(_Tree):
             count_sweep(pattern, ["src"], root=self.root)
 
     def test_worker_gets_the_job_as_stdin_data_with_no_shell(self) -> None:
+        # Shell-looking text as a valid regex: the escaped form matches the
+        # literal characters. A shell expanding it would count "uid=" output,
+        # not these two fixture lines, and the argv would carry the pattern.
+        self._put("src/shell.txt", "run $(id) here\nrun `id` here\nuid=501\n")
         real_popen = subprocess.Popen
         with patch.object(sweep_count.subprocess, "Popen", side_effect=real_popen) as popen:
-            count_sweep("$(id)|`id`", ["src"], root=self.root)
+            got = count_sweep(r"\$\(id\)|`id`", ["src/shell.txt"], root=self.root)
+        self.assertEqual((got.hits, got.files, got.truncated), (2, 1, False))
         args, kwargs = popen.call_args
         self.assertEqual(args[0][1:3], ["-I", "-S"])
         self.assertTrue(str(args[0][3]).endswith("_sweep_worker.py"))
