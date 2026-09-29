@@ -127,6 +127,34 @@ def resolve_paths(root: Path, paths: list[str]) -> list[Path]:
             for raw, normalised in zip(paths, normalised_paths, strict=True)]
 
 
+def repo_root() -> Path:
+    """This checkout's root: the directory holding its ``pyproject.toml``, resolved strictly."""
+    pyproject = Path(__file__).resolve(strict=True).parents[2] / "pyproject.toml"
+    try:
+        return pyproject.resolve(strict=True).parent
+    except OSError as exc:
+        raise SweepError(f"refused root: no pyproject.toml at {pyproject.parent}") from exc
+
+
+def cli_root(raw: str | None) -> Path:
+    """The trust anchor for the CLI: ``raw`` if it is the repo root or a directory under it.
+
+    ``None`` means the repo root. The library :func:`count_sweep` takes any
+    ``root``; only the CLI, whose ``--root`` is caller-supplied text, is held
+    to this checkout.
+    """
+    anchor = repo_root()
+    if raw is None:
+        return anchor
+    try:
+        real = Path(raw).resolve(strict=True)
+    except OSError as exc:
+        raise SweepError(f"refused root: {raw!r} is unusable: {exc}") from exc
+    if not real.is_dir() or not real.is_relative_to(anchor):
+        raise SweepError(f"refused root: {raw!r} is not the repository root or a directory inside it")
+    return real
+
+
 def _resolve_one(root_real: Path, raw: str, normalised: str) -> Path:
     """Resolve one checked path, refusing it when any component is a symlink.
 

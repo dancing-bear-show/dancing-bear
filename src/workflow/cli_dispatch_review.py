@@ -431,13 +431,14 @@ def _cmd_count_sweep(args: argparse.Namespace) -> int:
     """Count a sweep pattern's matching lines under repo-relative paths.
 
     The pattern is reviewer-derived text; it is compiled with ``re`` and never
-    reaches a shell. Exit 2 on an invalid pattern or a refused/missing path,
-    1 when the scan hit its work bound (the count would be partial), else 0.
+    reaches a shell. Exit 2 on an invalid pattern, a refused/missing path, or a
+    ``--root`` outside this checkout; 1 when the scan hit its work bound (the
+    count would be partial); else 0.
     """
-    from workflow.sweep_count import SweepError, count_sweep
+    from workflow.sweep_count import SweepError, cli_root, count_sweep
 
     try:
-        result = count_sweep(args.pattern, list(args.paths), root=Path(args.root))
+        result = count_sweep(args.pattern, list(args.paths), root=cli_root(args.root))
     except SweepError as exc:
         print(f"count-sweep: {exc}", file=sys.stderr)
         return int(ExitCode.USAGE)

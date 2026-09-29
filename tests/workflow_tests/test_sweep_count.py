@@ -458,12 +458,41 @@ class TestPathAllowlist(_Tree):
                 self.assertEqual(sweep_count.check_path(good), good.rstrip("/"))
 
 
+def _cli(*argv: str) -> tuple[int, str, str]:
+    out, err = io.StringIO(), io.StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        code = main(["count-sweep", *argv])
+    return code, out.getvalue(), err.getvalue()
+
+
 class TestCountSweepCLI(_Tree):
+    def setUp(self) -> None:
+        super().setUp()
+        # The CLI anchors --root to this checkout; pointing the anchor at the
+        # temp tree is a test-only seam, not something the CLI exposes.
+        anchor = patch.object(sweep_count, "repo_root", return_value=self.root.resolve())
+        anchor.start()
+        self.addCleanup(anchor.stop)
+
     def _run(self, *argv: str) -> tuple[int, str, str]:
-        out, err = io.StringIO(), io.StringIO()
-        with redirect_stdout(out), redirect_stderr(err):
-            code = main(["count-sweep", "--root", str(self.root), *argv])
-        return code, out.getvalue(), err.getvalue()
+        return _cli("--root", str(self.root), *argv)
+
+    def test_symlinked_root_escaping_the_anchor_refused(self) -> None:
+        outside = tempfile.TemporaryDirectory()
+        self.addCleanup(outside.cleanup)
+        Path(outside.name, "src").mkdir()
+        (self.root / "escape").symlink_to(outside.name)
+        code, out, err = _cli("--root", str(self.root / "escape"), "--pattern=x", "--path", "src")
+        self.assertEqual((code, out), (2, ""))
+        self.assertIn("refused root", err)
+
+    def test_file_or_missing_root_refused(self) -> None:
+        for root in (str(self.root / "src/c.py"), str(self.root / "missing")):
+            with self.subTest(root=root):
+                code, out, err = _cli("--root", root, "--pattern=x", "--path", "src")
+                self.assertEqual((code, out), (2, ""))
+                self.assertIn("refused root", err)
+
 
     def test_prints_hits_json(self) -> None:
         code, out, _ = self._run("--pattern=check-params[^|]*--check", "--path", "workflows/", "--path", "src")
@@ -503,6 +532,41 @@ class TestCountSweepCLI(_Tree):
         self.assertEqual(code, 1, err)
         self.assertIs(json.loads(out)["truncated"], True)
         self.assertIn("byte bound", err)
+
+
+class TestCountSweepCLIRoot(unittest.TestCase):
+    """``--root`` is caller text, so the CLI holds it to this checkout (no seam patched)."""
+
+    repo = Path(sweep_count.__file__).resolve().parents[2]
+
+    def test_repo_root_is_the_pyproject_directory(self) -> None:
+        self.assertEqual(sweep_count.repo_root(), self.repo)
+        self.assertTrue((self.repo / "pyproject.toml").is_file())
+
+    def test_roots_outside_the_checkout_refused(self) -> None:
+        for root in ("/", str(self.repo / ".."), str(self.repo / "src/../..")):
+            with self.subTest(root=root):
+                code, out, err = _cli("--root", root, "--pattern=root", "--path", "etc/passwd")
+                self.assertEqual((code, out), (2, ""))
+                self.assertIn("refused root", err)
+
+    def test_relative_dotdot_refused_from_the_repo_root(self) -> None:
+        self.addCleanup(os.chdir, os.getcwd())
+        os.chdir(self.repo)
+        code, out, err = _cli("--root", "..", "--pattern=x", "--path", "src")
+        self.assertEqual((code, out), (2, ""))
+        self.assertIn("refused root", err)
+
+    def test_directory_inside_the_checkout_accepted(self) -> None:
+        code, out, err = _cli("--root", str(self.repo / "src"), "--pattern=def cli_root",
+                              "--path", "workflow/sweep_count.py")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(out), {"hits": 1, "files": 1})
+
+    def test_default_root_is_the_repo_root(self) -> None:
+        code, out, err = _cli("--pattern=def cli_root", "--path", "src/workflow/sweep_count.py")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(out), {"hits": 1, "files": 1})
 
 
 if __name__ == "__main__":  # pragma: no cover
