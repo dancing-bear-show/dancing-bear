@@ -136,10 +136,11 @@ class TestStateDirectoryIsPrivate(unittest.TestCase):
         private dir may legitimately live outside /tmp.
         """
         val = os.environ.get(helpers.WORKER_STATE_DIR_ENV, "")
-        tmp_prefixes = ("/var/folders", "/tmp", "/private/tmp")  # nosec B108 - path prefix check only
+        tmp_root = Path(tempfile.gettempdir()).resolve()
         self.assertTrue(
-            any(val.startswith(p) for p in tmp_prefixes),
-            f"Bootstrap-created dir expected under a temp prefix, got {val!r}",
+            Path(val).resolve().is_relative_to(tmp_root),
+            f"Bootstrap-created dir expected under {tmp_root}, got {val!r}",
+        
         )
 
     def test_user_supplied_private_dir_is_accepted(self) -> None:
