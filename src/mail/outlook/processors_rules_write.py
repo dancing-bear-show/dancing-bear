@@ -17,19 +17,17 @@ from .consumers import (
 )
 from .processors_rules_helpers import (
     RuleContext,
-    _canon_rule,
     _criteria_key,
     _fetch_rules_with_provenance,
     _build_rule_criteria,
     _build_rule_action,
     _create_rule_key,
-    _norm_create_rule_key,
     _build_search_query,
     _resolve_destination_folder,
     _has_explicit_destination,
 )
 from .processors_rules_index import (
-    _build_norm_existing_keys,
+    _index_live_rules,
     _build_reconcile_index,
     _build_unmappable_criteria_index,
     _all_unmappable_ids,
@@ -144,7 +142,7 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
                     },
                 )
 
-            existing = {_canon_rule(r): r for r in existing_rules}
+            existing = _index_live_rules(existing_rules)
             name_to_id = client.get_label_id_map()
             folder_path_map = client.get_folder_path_map() if payload.move_to_folders else {}
 
@@ -353,50 +351,23 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
             return key, False, False, True, protect_id
         return None  # "no_match"
 
-    def _find_live_rule_id_by_norm_key(
-        self, criteria: dict[str, Any], action: dict[str, Any], existing: dict[str, Any]
-    ) -> str | None:
-        """Find the id of the live rule whose case-normalised key matches the desired spec.
-
-        Used for the case-only no-op path in ``_create_rule_if_new`` so that
-        ``--delete-missing`` can be told to skip the live rule: it already has
-        the correct action; only criteria case differs from the desired spec.
-        """
-        target = _norm_create_rule_key(criteria, action)
-        for live_rule in existing.values():
-            if _norm_create_rule_key(
-                live_rule.get("criteria") or {},
-                live_rule.get("action") or {},
-            ) == target:
-                return live_rule.get("id")
-        return None
-
     def _protected_live_rule_id(
         self,
         criteria: dict[str, Any],
-        action: dict[str, Any],
-        existing: dict[str, Any],
-        norm_existing_keys: set[str] | None,
         unmappable_index: dict[str, list[str]] | None,
     ) -> Any:
-        """Id of a live rule that already owns these criteria, or ``_NOT_PROTECTED``.
+        """Id of an unmappable live rule that owns these criteria, or ``_NOT_PROTECTED``.
 
-        Two reconcile-only cases mean "leave the live rule alone and create
-        nothing".  Both return an id for the protected set that
-        ``--delete-missing`` honours, because in both cases the live rule is the
-        correct authority for these criteria and deleting it would lose it:
+        Reconcile-only.  The live rule carries Graph conditions this codebase
+        cannot express, so reconcile must not rewrite it (the replacement would
+        drop the condition and match more mail) and must not create a second rule
+        beside it.  The returned id feeds the protected set that
+        ``--delete-missing`` honours.
 
-        1. Unmappable conditions: the live rule carries Graph conditions this
-           codebase cannot express, so reconcile must not rewrite it (the
-           replacement would drop the condition and match more mail) and must not
-           create a second rule beside it.
-        2. Case-only no-op: the live rule's action is already correct and only
-           criteria case differs (live rules store criteria UPPERCASE, derive
-           emits lowercase).  Without the protected id, ``_delete_missing_rules``
-           compares the live ``_canon_rule`` key against the lowercase desired
-           key, never matches, and deletes a correct rule.
+        A case-only difference needs no branch here: ``_create_rule_key`` folds
+        criteria case, so such a rule already matched ``key in existing``.
 
-        Returns ``_NOT_PROTECTED`` -- not None -- when neither applies. A
+        Returns ``_NOT_PROTECTED`` -- not None -- when nothing applies. A
         protected id of None is itself meaningful ("protected, id not found"), so
         the two must stay distinguishable.
         """
@@ -410,10 +381,6 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
                 # per-spec path, which an earlier check can return before.
                 return unmappable_ids[0]
 
-        if norm_existing_keys is not None:
-            if _norm_create_rule_key(criteria, action) in norm_existing_keys:
-                return self._find_live_rule_id_by_norm_key(criteria, action, existing)
-
         return _NOT_PROTECTED
 
     def _create_rule_if_new(
@@ -423,7 +390,6 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
         ctx: RuleContext,
         dry_run: bool,
         reconcile_index: dict[str, Any] | None = None,
-        norm_existing_keys: set[str] | None = None,
         unmappable_index: dict[str, list[str]] | None = None,
     ) -> tuple[str, bool, bool, bool, str | None] | None:
         """Build criteria/action/key for one spec and create it if missing.
@@ -433,14 +399,12 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
         is contributed to the desired-keys set in that case, so ``--delete-missing``
         does not treat a skipped spec as something to preserve.
 
-        ``protected_rule_id``: id of the live rule that already satisfies this
-        desired spec (case-only no-op path), or None.  The caller adds it to
-        ``reconciled_rule_ids_set`` so ``--delete-missing`` does not delete a
-        live rule that is already correct.  Without this protection,
-        ``_delete_missing_rules`` compares each live rule's ``_canon_rule`` key
-        (built from raw UPPERCASE criteria) against ``desired_keys`` (which holds
-        the desired lowercase key); they never match, and the live rule is deleted
-        silently even though its action is already correct.
+        ``protected_rule_id``: id of a live rule ``--delete-missing`` must not
+        touch (an unmappable rule owning these criteria, or a failed reconcile),
+        or None.  The caller adds it to ``reconciled_rule_ids_set``.  A live rule
+        that already satisfies the spec needs no id: its canon key equals ``key``
+        (criteria case is folded on both sides), and ``key`` lands in
+        ``desired_keys``.
 
         ``reconcile_index``: when provided (``--reconcile`` mode), maps a
         criteria-only key to the live rule it came from. When a desired rule's
@@ -474,9 +438,7 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
         if key in existing:
             return key, False, False, False, None
 
-        protected_id = self._protected_live_rule_id(
-            criteria, action, existing, norm_existing_keys, unmappable_index
-        )
+        protected_id = self._protected_live_rule_id(criteria, unmappable_index)
         if protected_id is not _NOT_PROTECTED:
             return key, False, False, False, protected_id
 
@@ -538,7 +500,6 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
         desired_keys: set[str] = set()
         reconciled_rule_ids_set: set[str] = set()
         reconcile_index = _build_reconcile_index(existing) if reconcile else None
-        norm_existing_keys = _build_norm_existing_keys(existing) if reconcile else None
         unmappable_index = _build_unmappable_criteria_index(existing) if reconcile else None
 
         # Seed the protected set from the index UP FRONT rather than relying on a
@@ -559,8 +520,7 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
 
         for spec in desired:
             result = self._create_rule_if_new(
-                spec, existing, ctx, dry_run, reconcile_index, norm_existing_keys,
-                unmappable_index,
+                spec, existing, ctx, dry_run, reconcile_index, unmappable_index,
             )
             if result is None:
                 continue
@@ -576,9 +536,10 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
             elif was_failed:
                 failed += 1
             # protected_id: --delete-missing must not issue a delete for this id.
-            # Two distinct reasons produce it:
-            #   - case-only no-op: the live rule already satisfies the desired
-            #     spec, so deleting it would destroy a correct rule.
+            # Distinct reasons produce it:
+            #   - unmappable: reconcile cannot faithfully recreate the live rule.
+            #   - delete_failed: the rule survives on its old action; deleting it
+            #     without a replacement leaves the criteria unfiltered.
             #   - create_failed: the rule was already deleted during reconcile,
             #     so a second delete has nothing to remove and would tally the
             #     same rule twice (Failed: 1 AND Deleted: 1).
@@ -606,15 +567,21 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
     ) -> int:
         """Delete rules that are not in desired set.
 
+        A live rule survives when its canon key is in ``desired_keys``.  Both
+        keys come from ``_create_rule_key``, which folds criteria case, so a rule
+        Graph stores as ``FROM=SCOUTSTRACKER.CA`` matches the config's
+        ``scoutstracker.ca``.  With raw-string keys it never matched, and every
+        UPPERCASE-stored rule was deleted as "missing" from the config.
+
         ``reconciled_rule_ids`` is a set of rule ids this call must NOT delete.
-        Three distinct cases put an id there, and only the first is literally
-        "already reconciled" (the name predates the other two):
+        Four distinct cases put an id there, and only the first is literally
+        "already reconciled" (the name predates the others):
 
         1. Reconciled: the live rule was deleted and replaced during reconcile.
-        2. Case-only no-op: the live rule already satisfies the desired spec and
-           differs only in criteria casing.  Deleting it would destroy a correct
-           rule -- this was a live data-loss defect, not a hypothetical.
-        3. ``create_failed``: reconcile's delete succeeded but the replacement
+        2. Unmappable: reconcile cannot faithfully recreate the live rule.
+        3. ``delete_failed``: the rule survives on its old action; deleting it
+           with no replacement leaves the criteria unfiltered.
+        4. ``create_failed``: reconcile's delete succeeded but the replacement
            create raised, so the rule is already gone.
 
         Excluding them is a correctness requirement, not an optimisation.  The
@@ -625,9 +592,9 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
         one rule report as both ``Failed: 1`` and ``Deleted: 1``, and made the
         number depend on whether Graph 404s or succeeds.
 
-        Note what is deliberately absent: a ``delete_failed`` id is NOT
-        protected.  There the live rule survives on its old action, so it does
-        not satisfy the desired spec and ``--delete-missing`` should retry it.
+        Live rules that collapsed onto one canon key in ``_index_live_rules``
+        are not in ``existing`` at all, so this never deletes them (known
+        under-deletion, never over-deletion).
 
         Args:
             existing: Map of canonical rule keys to rule objects

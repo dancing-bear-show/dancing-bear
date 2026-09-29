@@ -9,18 +9,16 @@ from core.pipeline import Processor, ResultEnvelope
 from .consumers import OutlookRulesPlanPayload
 from .processors_rules_helpers import (
     RuleContext,
-    _canon_rule,
     _criteria_key,
     _fetch_rules_with_resilience,
     _build_rule_criteria,
     _create_rule_key,
-    _norm_create_rule_key,
     _build_plan_action,
     _format_plan_action,
     _has_explicit_destination,
 )
 from .processors_rules_index import (
-    _build_norm_existing_keys,
+    _index_live_rules,
     _build_reconcile_index,
     _build_unmappable_criteria_index,
 )
@@ -49,7 +47,8 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
             existing_rules = _fetch_rules_with_resilience(
                 client, payload.use_cache, payload.cache_ttl
             )
-            existing_keys = {_canon_rule(r) for r in existing_rules}
+            # Same builder as sync, so both key (and collapse) live rules alike.
+            existing_map = _index_live_rules(existing_rules)
             name_to_id = client.get_label_id_map()
             # Path-keyed, matching sync (line 83) and sweep (line 285). Plan used
             # get_folder_id_map, which keys displayName only, so an explicit
@@ -93,9 +92,8 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
             need_folders = payload.move_to_folders or _has_explicit_destination(desired)
             folder_map = client.get_folder_path_map() if need_folders else {}
 
-            existing_map = {_canon_rule(r): r for r in existing_rules}
             plan_items, would_reconcile = self._build_plan_items(
-                desired, existing_keys, existing_map, name_to_id, folder_map,
+                desired, existing_map, name_to_id, folder_map,
                 payload.move_to_folders, payload.reconcile,
                 # Read-only client, for non-mutating folder lookups only. Without
                 # it plan falls back to the folder path string on a cache miss
@@ -122,11 +120,10 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
     def _plan_item_for_spec(
         self,
         spec: dict[str, Any],
-        existing_keys: set,
+        existing_map: dict[str, Any],
         ctx: RuleContext,
         folder_map: dict[str, str],
         reconcile_index: dict[str, Any] | None,
-        norm_existing_keys: set[str] | None,
         unmappable_index: dict[str, list[str]] | None = None,
     ) -> tuple[str, bool] | None:
         """Classify one desired spec and return (plan_line, is_reconcile) or None.
@@ -150,8 +147,10 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
             return None
         key = _create_rule_key(criteria, action)
 
-        if key in existing_keys:
-            return None  # exact match: no action needed
+        # Criteria case is folded in the key, so a live UPPERCASE rule with the
+        # same action matches here -- in both modes, exactly as sync does.
+        if key in existing_map:
+            return None
 
         # Mirror the sync skip: a live rule with these criteria carries Graph
         # conditions this codebase cannot express, so sync neither reconciles it
@@ -159,12 +158,6 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
         # promise a rule the apply will not create.
         if unmappable_index and _criteria_key(criteria) in unmappable_index:
             return None
-
-        # Case-normalised no-op: live rule already has the correct action;
-        # only criteria case differs.
-        if norm_existing_keys is not None:
-            if _norm_create_rule_key(criteria, action) in norm_existing_keys:
-                return None
 
         # Reconcile path: criteria match with a different action.
         if reconcile_index is not None:
@@ -185,7 +178,6 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
     def _build_plan_items(
         self,
         desired: list[dict[str, Any]],
-        existing_keys: set,
         existing_map: dict[str, Any],
         name_to_id: dict[str, str],
         folder_map: dict[str, str],
@@ -215,13 +207,11 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
         # Build the same indexes that sync uses so plan and apply classify each
         # desired rule identically.
         reconcile_index = _build_reconcile_index(existing_map) if reconcile else None
-        norm_existing_keys = _build_norm_existing_keys(existing_map) if reconcile else None
         unmappable_index = _build_unmappable_criteria_index(existing_map) if reconcile else None
 
         for spec in desired:
             item = self._plan_item_for_spec(
-                spec, existing_keys, ctx, folder_map, reconcile_index, norm_existing_keys,
-                unmappable_index,
+                spec, existing_map, ctx, folder_map, reconcile_index, unmappable_index,
             )
             if item is None:
                 continue
