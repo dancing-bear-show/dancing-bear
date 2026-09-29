@@ -14,10 +14,10 @@ text is inert.
 Work is bounded so a broad or pathological sweep fails the stage instead of
 hanging it: binary files and files over :data:`MAX_FILE_BYTES` are skipped,
 each line is matched on its first :data:`MAX_LINE_CHARS` characters, and a
-scan that reads more than :data:`MAX_TOTAL_BYTES` raw bytes is reported as
-truncated. The deadline (:data:`MAX_SECONDS`) is checked between directory
-listings, not inside one: a single slow ``scandir`` call in the parent can
-overshoot it by one listing before control returns to the check. A single
+scan that reads more than :data:`MAX_TOTAL_BYTES` raw bytes, or runs past
+:data:`MAX_SECONDS`, stops and is reported as truncated. The deadline is
+checked between directory listings, not inside one: a single slow ``scandir``
+call in the parent can overshoot it by that one listing. A single
 ``re.search`` cannot be interrupted in-process, so matching runs in a child
 interpreter (:mod:`workflow._sweep_worker`) that is killed at the deadline;
 the job reaches it as JSON on stdin, never via a shell.
