@@ -59,8 +59,11 @@ class TestOmittedRootUsesReassignedQueueRoot(unittest.TestCase):
         self.assertEqual(path, self.root / "pending" / "calltime1.json")
         pending = queue_ops.list_pending()
         self.assertEqual([p for p, _ in pending], [path])
-        claimed = queue_ops.start_processing(path)
-        self.assertEqual(claimed, self.root / "processing" / "calltime1.json")
+        claim = queue_ops.start_processing(path)
+        self.assertIsNotNone(claim)
+        assert claim is not None  # nosec B101 - narrows Optional for type checker
+        claimed_path, _tok = claim
+        self.assertEqual(claimed_path, self.root / "processing" / "calltime1.json")
 
     def test_metrics_use_reassigned_root(self):
         queue_ops.enqueue(Job(id="calltime2", type="noop", payload={}))
