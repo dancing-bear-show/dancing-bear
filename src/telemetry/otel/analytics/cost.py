@@ -1,10 +1,11 @@
 """Cost analysis engine for telemetry data.
 
 Aggregates api_request events and calculates costs, cache savings,
-and efficiency metrics. Model prices and the cost formula live in
-``telemetry.pricing``; costs here are unscaled list prices
-(``compute_raw_cost``), unlike the transcript provider, which applies the
-configured ``cost_multiplier``.
+and efficiency metrics. Model prices come from ``telemetry.pricing``.
+``get_all_costs`` and ``get_daily_costs`` use its ``compute_raw_cost``
+(unscaled list prices, unlike the transcript provider, which applies the
+configured ``cost_multiplier``). ``get_model_performance`` keeps a legacy
+formula (cache writes at 1x, cache reads omitted); unifying it is deferred.
 """
 
 from __future__ import annotations
@@ -396,6 +397,7 @@ def get_model_performance(
 
     results = []
     for model_name, data in sorted(model_data.items()):
+        # Legacy formula (cache writes at 1x, no cache reads); not yet on compute_raw_cost.
         input_price, output_price = get_model_pricing(model_name)
         cost = (
             (data["input_tokens"] * input_price / 1_000_000)

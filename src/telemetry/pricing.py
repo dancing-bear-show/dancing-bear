@@ -1,8 +1,15 @@
 """Pricing engine for Claude API cost calculation.
 
-Single source of model pricing for every telemetry cost path: the transcript
-provider (``compute_cost``) and the OTel analytics (``compute_raw_cost``,
-``get_model_pricing``).
+Holds the one model pricing table (``MODEL_PRICING`` and its resolver) used by
+every telemetry cost path, plus the shared cost helpers. ``compute_cost`` is
+called by the transcript provider; ``compute_raw_cost`` by OTel analytics
+``get_all_costs`` and ``get_daily_costs``.
+
+Two OTel formulas still read ``get_model_pricing`` but compute cost themselves:
+``get_model_performance`` (``otel/analytics/cost.py``) and
+``_process_api_request`` (``otel/analytics/prompts.py``). Both bill cache writes
+at 1x and omit cache reads; moving them onto ``compute_raw_cost`` is deferred
+because it changes reported costs.
 
 Locally-computed costs use Anthropic's public list prices. ``compute_cost``
 scales the result by ``cost_multiplier`` in ``~/.claude/claudestats.json`` for

@@ -184,6 +184,7 @@ def _process_api_request(event: OTLPEvent, acc: _PromptAccumulator) -> None:
     acc.cache_creation_tokens += cache_creation
 
     model = event.get_attr("model") or "unknown"
+    # Legacy formula (cache writes at 1x, no cache reads); not yet on compute_raw_cost.
     input_price, output_price = get_model_pricing(model)
     acc.cost += (
         (input_tokens * input_price / 1_000_000)

@@ -3,10 +3,14 @@
 The transcript provider (``pricing.compute_cost``) and OTel analytics
 (``analytics.cost``) once kept separate tables that drifted apart, so the same
 model was priced differently depending on which command reported it.
+
+Parity is asserted for the cost helpers only (``compute_cost`` vs the
+``compute_raw_cost`` path behind ``_build_model_costs``); the legacy formulas in
+``get_model_performance`` and prompt metrics are not covered.
 """
 
 import unittest
-from unittest import mock
+from unittest.mock import MagicMock, patch
 
 from telemetry.otel.analytics.cost import _build_model_costs
 from telemetry.providers.transcript import TranscriptProvider
@@ -34,8 +38,8 @@ def _otel_cost(model: str) -> float:
     return _build_model_costs(data)[0].cost
 
 
-@mock.patch("telemetry.pricing._cost_multiplier", return_value=1.0)
-def _transcript_cost(model: str, _mult: mock.MagicMock) -> float:
+@patch("telemetry.pricing._cost_multiplier", return_value=1.0)
+def _transcript_cost(model: str, _mult: MagicMock) -> float:
     return TranscriptProvider._compute_token_cost(
         model,
         _TOKENS["input_tokens"],
