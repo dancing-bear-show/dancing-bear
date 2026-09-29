@@ -1147,14 +1147,11 @@ stages:
             "procedure: applied per diff, no tree count").
           "class": the group's class.
           "cause_categories": the group's cause_categories, unchanged.
-        After recording sweep_hits for a pattern sweep, write the raw
-        count-sweep stdout ({"hits": N, "files": M}) to
-        {workspace}/outputs/sweep-recounts/<concern_id>.json.
-        concern_id is a kebab-case slug using only letters, digits and
-        hyphens and is therefore filename-safe. Also write a combined
-        {workspace}/outputs/sweep-recounts/all.json as a JSON object
-        mapping each concern_id to its recount (for the gate below);
-        entries without a pattern sweep have no recount and are omitted.
+        Always write {workspace}/outputs/sweep-recounts/all.json: a JSON
+        object mapping each pattern entry's concern_id to the raw
+        count-sweep stdout of its re-count ({"hits": N, "files": M}),
+        copied, not retyped. Entries without a pattern sweep are omitted;
+        with none, write {}. The gate below reads it.
         and its formatted_entry ends with two more bullets after example:
           - **sweep**: for a pattern sweep, the pattern in backticks
             followed by "in" and the paths in backticks; for a structural
@@ -1204,10 +1201,9 @@ stages:
       tools: [Read, Write, Bash]
       access: read-write
     required: true
-    # outputs/sweep-recounts/<concern_id>.json and outputs/sweep-recounts/all.json
-    # are NOT listed here: writes_to entries are fixed paths, and variable-named
-    # per-concern files cannot be listed. The engine would otherwise wait on a
-    # sentinel that nothing writes. The second jq gate reads all.json directly.
+    # outputs/sweep-recounts/all.json is NOT listed here: only rereview mode
+    # writes it, and a writes_to entry the topics path never writes would stall
+    # completion. The second jq gate reads it directly.
     writes_to:
       - outputs/proposed-concerns.json
       - outputs/proposed-concerns-summary.md
