@@ -183,6 +183,34 @@ class TestLoadConcernsSelectGuidesPrompt(unittest.TestCase):
         self.assertIn("check-params", self.prompt)
 
 
+class TestLoadConcernsTaskTypeCommand(unittest.TestCase):
+    """No rendered command may carry --task-type without a value.
+
+    With the default task_type="" the old block rendered
+    ``--task-type \\`` then ``--format json``, which argparse rejects.
+    """
+
+    _BARE_FLAG = re.compile(r"--task-type\s*(\\\s*)?(--|$)", re.MULTILINE)
+
+    def _select_guides(self, task_type: str) -> str:
+        return _prompts(_LOAD_CONCERNS, file_paths="src/a.py", task_type=task_type)["select-guides"]
+
+    def test_default_empty_task_type_has_a_runnable_command(self) -> None:
+        prompt = self._select_guides("")
+        self.assertIsNone(self._BARE_FLAG.search(prompt))
+        self.assertIn('--paths-file "', prompt)
+        self.assertIn("--format json", prompt)
+
+    def test_non_empty_task_type_is_passed_with_its_value(self) -> None:
+        prompt = self._select_guides("feature")
+        self.assertIn('--task-type "feature" --format json', prompt)
+        self.assertIsNone(self._BARE_FLAG.search(prompt))
+
+    def test_detector_flags_the_old_rendering(self) -> None:
+        old = "./bin/workflow select-concerns \\\n  --paths-file x \\\n  --task-type  \\\n  --format json"
+        self.assertIsNotNone(self._BARE_FLAG.search(old))
+
+
 class TestPlanCriticFallback(unittest.TestCase):
     """cli-standard-conformance has no prepare-target, so pc-critic selects."""
 

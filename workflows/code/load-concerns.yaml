@@ -91,15 +91,15 @@ stages:
       silently selects the default guide set. If the list is empty, write an
       empty paths.txt.
 
-      Step 3 — run the selector:
-        ./bin/workflow select-concerns \
-          --paths-file "{workspace}/outputs/paths.txt" \
-          --task-type {task_type} \
-          --format json
+      Step 3 — run the selector. This run's task_type is "{task_type}".
+      If that value is empty, run exactly:
+        ./bin/workflow select-concerns --paths-file "{workspace}/outputs/paths.txt" --format json
+      Otherwise run exactly:
+        ./bin/workflow select-concerns --paths-file "{workspace}/outputs/paths.txt" --task-type "{task_type}" --format json
+      Never pass --task-type without a value: argparse rejects a bare flag.
 
-      If task_type is empty, omit the --task-type line. The canonical rules
-      live in concerns/selection.yaml — do not restate them here. A non-zero
-      exit (2 = unknown task type) fails this stage.
+      The canonical rules live in concerns/selection.yaml — do not restate
+      them here. A non-zero exit (2 = unknown task type) fails this stage.
 
       Parse the JSON output {"guides": [...]} and write it to
       {workspace}/outputs/selected-guides.json:
