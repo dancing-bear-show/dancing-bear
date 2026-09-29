@@ -300,6 +300,37 @@ class TestUnvalidatedParam(_RuleCase):
     def test_has_teeth(self) -> None:
         self.assert_has_teeth(_workflow(_stage(_OLLAMA_PROBE), params=_OLLAMA_PARAMS))
 
+    # ------------------------------------------------------------------
+    # Grammar parity tests (shared PLACEHOLDER_RE from placeholders.py)
+    # ------------------------------------------------------------------
+
+    def test_placeholder_in_json_wrapper_fires(self) -> None:
+        # Missed-warning case: the old regex had a (?!\}) closing lookahead
+        # that skipped {name} when it was immediately followed by a }, as in
+        # '{"value": {name}}'. The engine substitutes this correctly, so the
+        # linter must flag it too.
+        desc = "Run:\n\n  curl -d '{\"value\": {name}}' http://example.com\n"
+        hits = self.assert_fires(_workflow(_stage(desc), params='name: "default"'))
+        self.assertIn("'{name}'", hits[0].message)
+
+    def test_shell_expansion_not_flagged_as_placeholder(self) -> None:
+        # False-warning case: the old regex lacked the $ lookbehind that
+        # placeholders.py has, so ${name} (a shell variable expansion) was
+        # wrongly treated as a workflow placeholder. It must not fire.
+        desc = "Run:\n\n  echo ${name}\n"
+        self.assert_silent(_workflow(_stage(desc), params='name: "default"'))
+
+    def test_plain_placeholder_still_fires(self) -> None:
+        # Happy path: the shared grammar still catches plain {name}.
+        desc = "Run:\n\n  echo {name}\n"
+        hits = self.assert_fires(_workflow(_stage(desc), params='name: "default"'))
+        self.assertIn("'{name}'", hits[0].message)
+
+    def test_escaped_placeholder_does_not_fire(self) -> None:
+        # Happy path: {{name}} must not be treated as a placeholder.
+        desc = "Run:\n\n  echo '{{name}}'\n"
+        self.assert_silent(_workflow(_stage(desc), params='name: "default"'))
+
 
 class TestIncludedFragmentsAreLinted(unittest.TestCase):
     """PR #433 review: an included fragment's context-free rules must run too.
