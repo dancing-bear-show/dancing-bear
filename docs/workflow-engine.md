@@ -299,7 +299,7 @@ writes_to:
 ```
 
 Bare filenames resolve under the workspace `outputs/` directory. A path already
-prefixed with `outputs/`, `validation/`, `stages/`, or `dispatch/` is used as-is.
+prefixed with `outputs/`, `validation/`, `stages/`, `dispatch/`, or `context/` is used as-is.
 
 ## Where to look next
 

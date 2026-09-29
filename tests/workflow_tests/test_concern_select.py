@@ -29,9 +29,9 @@ import subprocess  # nosec B404 - runs the repo's own ./bin/workflow wrapper
 import sys
 import tempfile
 import unittest
+import unittest.mock as mock
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
-from unittest import mock
 
 from workflow import concern_select
 from workflow.cli import main as workflow_main
@@ -1178,6 +1178,34 @@ class TestDoubleStarPrefixMatchesRootLevelPath(unittest.TestCase):
         """A file that only shares the suffix must not fire the iOS rule."""
         guides = select_guides(paths=["notios.iconlayout.json"])
         self.assertNotIn("phone-layout.md", guides)
+
+
+class TestWorkflowFragmentsRule(unittest.TestCase):
+    """.llm/ context files and .claude/agents/ definitions select workflow-fragments.md."""
+
+    def test_llm_context_file_adds_workflow_fragments(self) -> None:
+        guides = select_guides(paths=[".llm/CONTEXT.md"])
+        self.assertIn("workflow-fragments.md", guides)
+
+    def test_llm_flows_yaml_adds_workflow_fragments(self) -> None:
+        guides = select_guides(paths=[".llm/FLOWS.yaml"])
+        self.assertIn("workflow-fragments.md", guides)
+
+    def test_claude_agents_definition_adds_workflow_fragments(self) -> None:
+        guides = select_guides(paths=[".claude/agents/foo.md"])
+        self.assertIn("workflow-fragments.md", guides)
+
+    def test_plain_docs_file_does_not_add_workflow_fragments_via_agent_rule(
+        self,
+    ) -> None:
+        """docs/foo.md must not match the .claude/agents/ rule."""
+        reasons = select_guides_with_reasons(paths=["docs/foo.md"])
+        if "workflow-fragments.md" in reasons:
+            self.assertNotIn(
+                "glob:.claude/agents/**",
+                reasons["workflow-fragments.md"],
+                "docs/foo.md incorrectly matched the .claude/agents/** rule",
+            )
 
 
 if __name__ == "__main__":

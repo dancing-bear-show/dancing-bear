@@ -87,6 +87,18 @@ glob_rules:
       - patterns.md
       - docs.md
 
+  # .llm/ context and generated files (CONTEXT.md, FLOWS.yaml, AGENTS_CAPSULE.yaml, etc.)
+  - glob: ".llm/**"
+    guides:
+      - workflow-fragments.md
+      - docs.md
+
+  # Agent definitions under .claude/agents/
+  - glob: ".claude/agents/**"
+    guides:
+      - workflow-fragments.md
+      - docs.md
+
   # Markdown / README files
   - ext: .md
     guides:
