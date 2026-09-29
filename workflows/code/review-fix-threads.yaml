@@ -753,6 +753,14 @@ stages:
       of a threads.json entry: a lookup that silently yields nothing is
       exactly how these findings stayed invisible in the first place.
 
+      When its "prior_same_path" is non-empty, add one more synthetic comment
+      per listed id, BEFORE the current body, oldest first: that finding's
+      title and body from review-overview.json, prefixed "Earlier raise
+      (<path>:<line>):". The reviewer reworded the concern after an earlier
+      round ignored it, and the old wording often names the fix the new one
+      only implies. Those prior ids are stale, so they are never items of
+      their own — they ride along as context on the current finding only.
+
       Every item in a group MUST carry an id that is unique across the whole
       run, and a file_id that is unique and safe as a filename, because
       fix-threads writes one result file per file_id. Thread ids and

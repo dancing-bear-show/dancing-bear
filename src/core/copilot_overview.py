@@ -174,6 +174,10 @@ class Finding:
     body: str | None = None
     path_rejected: str | None = None
     path_rejected_reason: str | None = None
+    # The normalised path this finding's id was built from — `path` for a safe
+    # one, the withheld path for a protected one. Never dispatched; only used
+    # to match same-file findings for prior_same_path.
+    id_path: str | None = None
     source_review_id: int | None = None
     source_submitted_at: str | None = None
 
@@ -371,6 +375,7 @@ def _record_unlinked(findings: dict[str, Finding], pending: _Pending,
         linked=False, path=pending.path, line=pending.line,
         body=pending.body, path_rejected=pending.path_rejected,
         path_rejected_reason=pending.path_rejected_reason,
+        id_path=pending.path or pending.id_path,
     )
 
 
@@ -519,25 +524,6 @@ def _shortfall(claimed: int | None, findings: dict[str, Finding],
     return max(0, claimed - _open_findings(findings, newest_review_id))
 
 
-def _id_path_for(entry: Finding) -> str | None:
-    """The normalised path used in a finding's id, for prior_same_path lookup.
-
-    For an ordinary finding this is ``entry.path``.  For a protected-path
-    finding the path was withheld from ``entry.path`` but kept in
-    ``_Pending.id_path``; ``classify_repo_path`` returns the normalised form
-    as the first element even for protected paths, and ``_record_unlinked``
-    embeds that into the ``finding_id`` — so we can extract it from the id.
-    """
-    if entry.path:
-        return entry.path
-    if entry.path_rejected and entry.path_rejected_reason == PROTECTED_PATH:
-        # The id is "unlinked:<normalised>:<line>" — extract the path portion.
-        parts = entry.id.split(":", 2)
-        if len(parts) == 3:
-            return parts[1]
-    return None
-
-
 def _comment_index(threads: list[dict[str, Any]]) -> dict[str, str]:
     """Map every comment id to its thread, not just each thread's first.
 
@@ -568,7 +554,7 @@ def _stale_unlinked_by_path(findings: dict[str, Finding],
     for fid, entry in findings.items():
         if entry.linked or entry.source_review_id == newest_review_id:
             continue
-        id_path = _id_path_for(entry)
+        id_path = entry.id_path
         if id_path:
             by_path.setdefault(id_path, []).append(fid)
     return by_path
@@ -617,7 +603,7 @@ def _prior_same_path(entry: Finding, is_current: bool,
     """Stale unlinked finding ids on the same path as ``entry``, if current."""
     if not is_current or entry.linked:
         return []
-    id_path = _id_path_for(entry)
+    id_path = entry.id_path
     return by_path.get(id_path, []) if id_path else []
 
 

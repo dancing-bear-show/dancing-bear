@@ -1078,6 +1078,40 @@ class TestCurrentAndStaleUnlinked(unittest.TestCase):
         self.assertFalse(out["findings"]["111"]["current"])
         self.assertNotIn("111", out["stale_unlinked"])
 
+    def test_prior_same_path_joins_protected_path_findings(self):
+        """A protected path is withheld from `path`, but still links repeats."""
+        older = _review(
+            _body(_section("Previously missed", 1,
+                           _unlinked("Old title", ".claude/hooks/a:b.sh", 10))),
+            review_id=1, submitted_at="2026-09-22T22:00:00Z")
+        newer = _review(
+            _body(_section("Previously missed", 1,
+                           _unlinked("New title", ".claude/hooks/a:b.sh", 20))),
+            review_id=2, submitted_at="2026-09-22T23:00:00Z")
+
+        out = parse_overview([older, newer], [])
+
+        current = out["findings"]["unlinked:.claude/hooks/a:b.sh:20"]
+        self.assertIsNone(current["path"])
+        self.assertEqual(current["prior_same_path"],
+                         ["unlinked:.claude/hooks/a:b.sh:10"])
+
+    def test_colon_in_protected_path_does_not_join_different_files(self):
+        """Paths are matched whole, never recovered by splitting the id on ':'."""
+        older = _review(
+            _body(_section("Previously missed", 1,
+                           _unlinked("Old title", ".claude/hooks/a:b.sh", 10))),
+            review_id=1, submitted_at="2026-09-22T22:00:00Z")
+        newer = _review(
+            _body(_section("Previously missed", 1,
+                           _unlinked("New title", ".claude/hooks/a:c.sh", 20))),
+            review_id=2, submitted_at="2026-09-22T23:00:00Z")
+
+        out = parse_overview([older, newer], [])
+
+        current = out["findings"]["unlinked:.claude/hooks/a:c.sh:20"]
+        self.assertEqual(current["prior_same_path"], [])
+
     def test_prior_same_path_joins_stale_unlinked_on_matching_path(self):
         """A current unlinked finding with the same path as a stale one carries
         the stale id in prior_same_path — even if the title changed."""
