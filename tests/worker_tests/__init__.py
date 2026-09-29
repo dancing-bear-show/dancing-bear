@@ -1,8 +1,10 @@
 """Worker test package.
 
-Bootstraps the process-wide private worker state dir so that no test in this
-package can accidentally write to the user's real queue, regardless of how
-unittest discover was invoked (with or without ``-t .``).
+Bootstraps the process-wide private worker state dir (see
+tests/_private_worker_state.py) when unittest imports this package: under
+``discover -s tests`` without ``-t .``, and under ``-s tests/worker_tests -t .``.
+``discover -s tests/worker_tests`` without ``-t .`` never imports this file, so that
+form is unsupported (CLAUDE.md "Testing").
 """
 
 from __future__ import annotations

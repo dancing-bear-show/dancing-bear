@@ -3,33 +3,27 @@
 Per-test isolation via QueueRootIsolationMixin cannot protect against worker
 threads that outlive their test and finish after the per-test restore.  The fix
 is process-wide: DANCING_BEAR_WORKER_STATE_DIR is set to a temporary directory
-before any worker module is imported, so "restoring to the original" restores to
-that temp dir, never to the user's real queue.
+before the first test runs, so "restoring to the original" restores to that temp
+dir, never to the user's real queue.
 
 The bootstrap logic lives in tests/_private_worker_state.py and is called from
-tests/__init__.py AND from the __init__.py of every test package that reaches
-worker (worker_tests, workflow_tests, infra), so the guard fires under every
-supported discover form:
+tests/__init__.py and from the __init__.py of worker_tests, workflow_tests and
+infra.  It runs under every supported invocation:
 
   - make test / make cov (bare -m unittest)
   - coverage run -m unittest discover  (CI; no -s/-t)
   - python3 -m unittest discover -s tests -t .
-  - python3 -m unittest discover -s tests  (no -t; worker_tests/__init__.py fires)
-  - python3 -m unittest discover -s tests/worker_tests  (this file's bootstrap)
-  - python3 -m unittest discover -s tests/worker_tests -p test_commands_gaps.py
+  - python3 -m unittest discover -s tests/<pkg> -t .
+  - python3 -m unittest tests.<pkg>.<module>
+  - python3 -m unittest discover -s tests  (no -t; <pkg>/__init__.py fires)
 
-The last two forms are the hardest: with start_dir=tests/worker_tests and no -t,
-Python never imports worker_tests/__init__.py; discover alphabetically imports
-test_commands_gaps.py first, which triggers worker.queue_ops import and previously
-froze QUEUE_ROOT at the real queue before the bootstrap could run.
+``discover -s tests/<pkg>`` without ``-t .`` imports no package __init__.py and
+is unsupported (CLAUDE.md "Testing").  This module also bootstraps at module
+level, so it is private when run alone even in that form.
 
-The fix is two-layered:
-1. This file has a module-level bootstrap so DANCING_BEAR_WORKER_STATE_DIR is
-   set before the module-level ``from worker import queue_ops`` below.
-2. queue_ops._q(None) calls get_worker_state_dir("queue") at call time (not
-   QUEUE_ROOT at import time), so even if QUEUE_ROOT was frozen at the real path,
-   every omitted-root call resolves via the env var.  Layer 2 alone closes the
-   leak; layer 1 ensures QUEUE_ROOT itself is also private.
+Import order is irrelevant: queue_ops.QUEUE_ROOT has no import-time value.
+Unless explicitly assigned, every read of it, and every _q(None), resolves the
+env var at that moment (see test_queue_root_call_time.py).
 """
 
 from __future__ import annotations
@@ -43,9 +37,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-# Bootstrap the private worker state dir before any worker import, so
-# queue_ops.QUEUE_ROOT is computed from a private path regardless of how this
-# module was loaded (with or without worker_tests/__init__.py running first).
+# Bootstrap the private worker state dir even when no package __init__.py ran
+# (e.g. ``discover -s tests/worker_tests -p test_state_dir_is_private.py``).
 _BOOTSTRAP = Path(__file__).parent.parent / "_private_worker_state.py"
 _BOOTSTRAP_KEY = "_dancing_bear_private_worker_state"
 if _BOOTSTRAP_KEY not in sys.modules:
@@ -188,39 +181,26 @@ class TestStateDirectoryIsPrivate(unittest.TestCase):
             if created_dir and created_dir != real_default_str:
                 shutil.rmtree(created_dir, ignore_errors=True)
 
-    def test_q_none_resolves_via_env_at_call_time(self) -> None:
-        """queue_ops._q(None) must read the env var at call time, not QUEUE_ROOT.
+    def test_q_none_and_queue_root_resolve_privately(self) -> None:
+        """Neither _q(None) nor QUEUE_ROOT may resolve to the real queue.
 
-        This test catches the import-order leak: even if queue_ops.QUEUE_ROOT was
-        frozen at the real queue (because worker.queue_ops was imported before the
-        bootstrap set DANCING_BEAR_WORKER_STATE_DIR), a call that omits root must
-        still resolve to the private temp dir via get_worker_state_dir().
-
-        Simulate the worst-case by temporarily resetting QUEUE_ROOT to the real
-        queue root, then asserting that _q(None) still returns the private path
-        set by the bootstrap (the env var is already private at this point).
+        Both are read from the env var at access time, so they agree with each
+        other and with get_worker_state_dir("queue") however the test modules
+        were imported.
         """
-        real_queue = _real_default_state_dir() / "queue"
-        original_queue_root = queue_ops.QUEUE_ROOT
-        try:
-            queue_ops.QUEUE_ROOT = real_queue  # simulate a frozen-at-import QUEUE_ROOT
-            actual = queue_ops._q(None)
-        finally:
-            queue_ops.QUEUE_ROOT = original_queue_root
-
-        self.assertFalse(
-            actual == real_queue or str(actual).startswith(str(real_queue)),
-            f"_q(None) returned the REAL queue {actual!r} even though "
-            f"DANCING_BEAR_WORKER_STATE_DIR is set to a private dir.\n"
-            "queue_ops._q(None) must call get_worker_state_dir() at call time.",
-        )
+        real_default = _real_default_state_dir()
+        for label, actual in (("_q(None)", queue_ops._q(None)), ("QUEUE_ROOT", queue_ops.QUEUE_ROOT)):
+            with self.subTest(label=label):
+                self.assertFalse(
+                    actual == real_default or actual.is_relative_to(real_default),
+                    f"{label} resolved to the REAL queue {actual!r}",
+                )
 
     def test_q_raises_when_get_worker_state_dir_raises(self) -> None:
         """_q(None) must propagate exceptions from get_worker_state_dir, not fall back.
 
-        Thread 1 fix: the try/except fallback to QUEUE_ROOT was removed.  A
-        resolution failure must raise so callers know the queue root is unknown,
-        rather than silently touching the real queue via QUEUE_ROOT.
+        A resolution failure must raise so callers know the queue root is
+        unknown, rather than silently using some other path.
         """
         with patch("worker.queue_ops.get_worker_state_dir", side_effect=OSError("path error")):
             with self.assertRaises(OSError):
@@ -239,7 +219,7 @@ class TestStateDirectoryIsPrivate(unittest.TestCase):
 
 
 class TestIsPrivate(unittest.TestCase):
-    """Unit tests for _private_worker_state._is_private after Thread 2 fix."""
+    """Unit tests for _private_worker_state._is_private."""
 
     def setUp(self) -> None:
         self._mod = _load_bootstrap("_dancing_bear_private_worker_state_is_private_suite")
@@ -283,3 +263,46 @@ class TestIsPrivate(unittest.TestCase):
         """A real temporary directory is private."""
         with tempfile.TemporaryDirectory() as tmpdir:
             self.assertTrue(self._is_private(tmpdir))
+
+
+class TestEnsurePrivateChecksMkdtemp(unittest.TestCase):
+    """ensure_private() must not trust tempfile.mkdtemp() blindly.
+
+    mkdtemp honours TMPDIR, so a TMPDIR inside the real state dir would make the
+    "private" test queue the real one. The crafted mkdtemp result below goes
+    through a symlink to the real default; it is never created, and os.rmdir is
+    mocked, so nothing under the real state dir is touched.
+    """
+
+    def test_mkdtemp_inside_real_default_raises_and_leaves_env_alone(self) -> None:
+        mod = _load_bootstrap("_dancing_bear_private_worker_state_mkdtemp_suite")
+        with tempfile.TemporaryDirectory() as tmp:
+            link = Path(tmp) / "tmpdir-link"
+            link.symlink_to(_real_default_state_dir())
+            crafted = str(link / "dancing-bear-test-state-crafted")
+            with (
+                patch.dict(os.environ),
+                patch.object(mod.tempfile, "mkdtemp", return_value=crafted),
+                patch.object(mod.os, "rmdir") as rmdir,
+                patch.object(mod.atexit, "register") as register,
+            ):
+                os.environ.pop(helpers.WORKER_STATE_DIR_ENV, None)
+                with self.assertRaises(RuntimeError) as ctx:
+                    mod.ensure_private()
+                self.assertNotIn(helpers.WORKER_STATE_DIR_ENV, os.environ)
+            self.assertIn("TMPDIR", str(ctx.exception))
+            rmdir.assert_called_once_with(crafted)
+            register.assert_not_called()
+
+    def test_private_mkdtemp_result_is_used(self) -> None:
+        mod = _load_bootstrap("_dancing_bear_private_worker_state_mkdtemp_ok_suite")
+        with tempfile.TemporaryDirectory() as tmp:
+            made = str(Path(tmp) / "state")
+            with (
+                patch.dict(os.environ),
+                patch.object(mod.tempfile, "mkdtemp", return_value=made),
+                patch.object(mod.atexit, "register"),
+            ):
+                os.environ.pop(helpers.WORKER_STATE_DIR_ENV, None)
+                mod.ensure_private()
+                self.assertEqual(os.environ.get(helpers.WORKER_STATE_DIR_ENV), made)

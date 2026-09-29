@@ -1,9 +1,10 @@
 """Infrastructure and integration tests.
 
-Bootstraps the process-wide private worker state dir so that no test in this
-package can accidentally write to the user's real queue when worker modules are
-imported (e.g. test_qwen_wrapper.py lazily imports worker.qwen/handlers),
-regardless of how unittest discover was invoked (with or without ``-t .``).
+Bootstraps the process-wide private worker state dir (see
+tests/_private_worker_state.py) when unittest imports this package: under
+``discover -s tests`` without ``-t .``, and under ``-s tests/infra -t .``.
+``discover -s tests/infra`` without ``-t .`` never imports this file, so that
+form is unsupported (CLAUDE.md "Testing").
 """
 
 from __future__ import annotations

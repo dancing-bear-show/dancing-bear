@@ -41,9 +41,10 @@ if _SRC.is_dir():
 # restore and writes into the "original" value — which, without this guard, is
 # the user's real ~/Library/Application Support/dancing-bear/.
 #
-# The fix lives in tests/_private_worker_state.py and is called from the
-# __init__.py of every test package that can reach worker, so it runs regardless
-# of which discover form is used.  See CLAUDE.md "Testing" section.
+# The fix lives in tests/_private_worker_state.py and is also called from the
+# __init__.py of worker_tests, workflow_tests and infra, which covers
+# `discover -s tests` without -t.  `discover -s tests/<pkg>` without -t imports
+# none of these files and is unsupported.  See CLAUDE.md "Testing" section.
 _BOOTSTRAP = Path(__file__).parent / "_private_worker_state.py"
 _BOOTSTRAP_KEY = "_dancing_bear_private_worker_state"
 if _BOOTSTRAP_KEY not in sys.modules:

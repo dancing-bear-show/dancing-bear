@@ -91,8 +91,8 @@ class TestLogDirFollowsStateDir(unittest.TestCase):
 class TestPrivateQueueEndToEnd(unittest.TestCase):
     """Real ./bin/worker processes; the variable is read at process start.
 
-    queue_ops computes QUEUE_ROOT at import, so only a subprocess can prove the
-    variable takes effect the way a workflow stage uses it. HOME is pointed at a
+    Only a subprocess can prove the variable takes effect the way a workflow
+    stage uses it. HOME is pointed at a
     SECOND temp dir so that, if the seam were ignored, the job would land in
     that decoy location — observable, and never the developer's real queue.
     """
