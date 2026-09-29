@@ -27,7 +27,11 @@ always:
 # Path-glob / extension rules.
 # Evaluated against each path in the input set.
 # Each entry:
-#   glob:   fnmatch-style pattern matched against the full path
+#   glob:   fnmatch-style pattern matched against the full path. A leading
+#           "**/" also matches a root-level path with zero directory
+#           components (plain fnmatch would require at least one path
+#           separator there, so "**/README" alone would miss a repo-root
+#           README; the selector retries with the "**/" prefix stripped).
 #   ext:    file extension match (dot-prefixed), shorthand for glob="**/*<ext>"
 #   name:   exact basename match
 #   guides: list of guides to add when this rule fires
@@ -128,13 +132,7 @@ override_groups:
       - glob: "**/linkedin*.yaml"
         guides:
           - resume-copy.md
-      - glob: "linkedin*.yaml"
-        guides:
-          - resume-copy.md
       - glob: "**/linkedin*.yml"
-        guides:
-          - resume-copy.md
-      - glob: "linkedin*.yml"
         guides:
           - resume-copy.md
 

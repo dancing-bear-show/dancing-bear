@@ -273,7 +273,16 @@ def _path_matches(
 ) -> bool:
     """Return True if the path matches the rule's glob/ext/name pattern."""
     if "glob" in rule:
-        return fnmatch.fnmatch(norm_path, rule["glob"])
+        pattern = rule["glob"]
+        if fnmatch.fnmatch(norm_path, pattern):
+            return True
+        # fnmatch requires "**/" to consume at least one path separator, so a
+        # leading "**/" never matches a root-level file with no directory
+        # component (fnmatch("README", "**/README") is False). Also try the
+        # pattern with that prefix stripped, so a root-level path matches too.
+        if pattern.startswith("**/"):
+            return fnmatch.fnmatch(norm_path, pattern[3:])
+        return False
     if "ext" in rule:
         return dot_ext == rule["ext"]
     if "name" in rule:

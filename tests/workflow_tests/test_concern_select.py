@@ -1091,5 +1091,94 @@ class TestSelectConcernsWrapper(unittest.TestCase):
         self.assertIn("valid types", proc.stderr)
 
 
+# ---------------------------------------------------------------------------
+# select_guides: "**/"-prefixed globs must match a root-level path too
+# ---------------------------------------------------------------------------
+
+
+class TestDoubleStarPrefixMatchesRootLevelPath(unittest.TestCase):
+    """A leading "**/" in a glob must match a path with zero directories.
+
+    Plain fnmatch requires "**/" to consume at least one path separator, so
+    fnmatch("README", "**/README") is False and a repo-root README fell back
+    to only patterns.md instead of loading docs.md. _path_matches now retries
+    with the "**/" prefix stripped when the unmodified pattern fails.
+    """
+
+    # -- happy path: root-level files matching a "**/"-only pattern ---------
+
+    def test_root_readme_adds_docs(self) -> None:
+        guides = select_guides(paths=["README"])
+        self.assertIn("docs.md", guides)
+
+    def test_root_test_file_adds_tests_and_correctness(self) -> None:
+        guides = select_guides(paths=["test_x.py"])
+        self.assertIn("tests.md", guides)
+        self.assertIn("correctness.md", guides)
+
+    def test_root_ios_iconlayout_json_adds_phone_layout(self) -> None:
+        guides = select_guides(paths=["ios.iconlayout.json"])
+        self.assertIn("phone-layout.md", guides)
+
+    def test_root_pptx_adds_slides_yaml(self) -> None:
+        guides = select_guides(paths=["deck.pptx"])
+        self.assertIn("slides-yaml.md", guides)
+
+    def test_root_linkedin_yaml_adds_resume_copy(self) -> None:
+        guides = select_guides(paths=["linkedin-export.yaml"])
+        self.assertIn("resume-copy.md", guides)
+
+    def test_root_linkedin_yml_adds_resume_copy(self) -> None:
+        guides = select_guides(paths=["linkedin-export.yml"])
+        self.assertIn("resume-copy.md", guides)
+
+    # -- happy path: nested forms of the same patterns still match ----------
+
+    def test_nested_readme_still_adds_docs(self) -> None:
+        guides = select_guides(paths=["src/mail/README"])
+        self.assertIn("docs.md", guides)
+
+    def test_nested_test_file_still_adds_tests(self) -> None:
+        guides = select_guides(paths=["tests/workflow_tests/test_y.py"])
+        self.assertIn("tests.md", guides)
+
+    def test_nested_ios_iconlayout_json_still_adds_phone_layout(self) -> None:
+        guides = select_guides(paths=["src/phone/data/ios.iconlayout.json"])
+        self.assertIn("phone-layout.md", guides)
+
+    def test_nested_pptx_still_adds_slides_yaml(self) -> None:
+        guides = select_guides(paths=["out/decks/deck.pptx"])
+        self.assertIn("slides-yaml.md", guides)
+
+    # -- sad path: near-miss names must NOT match ----------------------------
+
+    def test_notreadme_does_not_add_docs_via_readme_rule(self) -> None:
+        """A name that merely ends with "README" is not the README rule.
+
+        NOTREADME is not matched by ext=.md either, so docs.md must be
+        entirely absent — proving the "**/" stripped-prefix retry does not
+        degrade into a substring/suffix match.
+        """
+        guides = select_guides(paths=["NOTREADME"])
+        self.assertNotIn("docs.md", guides)
+
+    def test_readme_dot_md_does_not_match_bare_readme_rule(self) -> None:
+        """README.md matches the *.md rule, not "**/README" (exact basename)."""
+        reasons = select_guides_with_reasons(paths=["README.md"])
+        self.assertIn("docs.md", reasons)
+        self.assertNotIn("glob:**/README", reasons["docs.md"])
+        self.assertIn("glob:*.md", reasons["docs.md"])
+
+    def test_suffix_match_does_not_fire_test_file_rule(self) -> None:
+        """A path merely ending in the stripped pattern text must not match."""
+        guides = select_guides(paths=["src/xtest_y.txt"])
+        self.assertNotIn("tests.md", guides)
+
+    def test_root_prefix_retry_does_not_widen_ios_rule(self) -> None:
+        """A file that only shares the suffix must not fire the iOS rule."""
+        guides = select_guides(paths=["notios.iconlayout.json"])
+        self.assertNotIn("phone-layout.md", guides)
+
+
 if __name__ == "__main__":
     unittest.main()
