@@ -382,7 +382,8 @@ class TestSweepWorker(_Tree):
         self.addCleanup(outside.cleanup)
         Path(outside.name, "real.txt").write_text("check\n", encoding="utf-8")
         path_seen_by_worker = str(target)
-        self.assertEqual(_sweep_worker.read_text(path_seen_by_worker, 1_000).text, "check\n")  # sanity: reads fine first
+        first = _sweep_worker.read_text(path_seen_by_worker, 1_000)
+        self.assertEqual(first.text if first else None, "check\n")  # sanity: reads fine first
         shutil.rmtree(self.root / "src")
         (self.root / "src").symlink_to(outside.name)
         self.assertIsNone(_sweep_worker.read_text(path_seen_by_worker, 1_000))
