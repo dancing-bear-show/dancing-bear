@@ -48,6 +48,10 @@ _JOB_SUFFIX = ".json"
 # Written by start_processing; identifies one claim of a job so a worker whose
 # job was requeued (and possibly re-claimed elsewhere) cannot complete it.
 CLAIM_TOKEN_FIELD = "claim_token"  # nosec B105 - JSON field name, not a secret
+# Written into a staged record, fresh, before it is published to pending/.
+# Claim and finish keep it, so a queue record carrying a staged file's value
+# proves that staged file was already published (see _published_copy_of).
+REQUEUE_ID_FIELD = "requeue_id"
 _TRANSITION_LOCK_NAME = ".transitions.lock"
 # Record statuses that name their own destination folder (see _write_finished).
 _TERMINAL_FOLDERS: tuple[str, ...] = ("done", "error")
@@ -445,6 +449,7 @@ def retry(
         data["not_before"] = nb.strftime(ISO_DATETIME_FORMAT)
         data[FIELD_UPDATED_AT] = iso_now()
         data.pop(CLAIM_TOKEN_FIELD, None)
+        data[REQUEUE_ID_FIELD] = uuid.uuid4().hex
         if reason:
             data["last_error"] = str(reason)
         atomic_write_json(staged, data)
@@ -628,8 +633,10 @@ def _normalize_requeued(data: dict[str, object], reason: str) -> None:
     """Set the metadata every requeued pending/ record carries.
 
     Eligible immediately, ``reason`` as ``last_error``, attempts untouched,
-    and no claim token: the next claim writes its own.
-    Shared by every path that publishes a staged record, so they cannot drift.
+    no claim token (the next claim writes its own), and a fresh
+    ``REQUEUE_ID_FIELD`` (``retry`` writes one too).
+    Shared by every requeue path that publishes a staged record, so they
+    cannot drift.
     """
     now = iso_now()
     data["status"] = "pending"
@@ -637,6 +644,7 @@ def _normalize_requeued(data: dict[str, object], reason: str) -> None:
     data[FIELD_UPDATED_AT] = now
     data["last_error"] = str(reason)
     data.pop(CLAIM_TOKEN_FIELD, None)
+    data[REQUEUE_ID_FIELD] = uuid.uuid4().hex
 
 
 def _rewrite_staged(staged: Path, reason: str, *, only_if_unnormalized: bool) -> None:
@@ -838,22 +846,89 @@ def _is_own_interrupted_publish(staged: Path, dest: Path) -> bool:
         return False  # nosec B110 - unreadable dest is treated as a rival, not a self-match
 
 
+def _requeue_id(data: object) -> str | None:
+    """A loaded record's ``REQUEUE_ID_FIELD``, or None if it has no usable one."""
+    value = data.get(REQUEUE_ID_FIELD) if isinstance(data, dict) else None
+    return value if isinstance(value, str) and value else None
+
+
+def _load_requeue_id(path: Path) -> str | None:
+    """``_requeue_id`` of the record at ``path``; None if missing or unreadable."""
+    return _requeue_id(safe_load_json(path, default=None))
+
+
+def _published_copy_of(staged: Path, dest: Path) -> Path | None:
+    """The processing/, done/ or error/ record ``staged`` was already published as.
+
+    An earlier publish can put ``staged``'s record at ``dest`` and stop before
+    ``staged.unlink()``; if that ``dest`` is claimed before recovery runs,
+    ``dest`` is gone and publishing ``staged`` again would run the job twice.
+    Every publisher writes a fresh ``REQUEUE_ID_FIELD`` into ``staged`` and
+    sets ``status: pending`` before publishing, and claim and finish keep the
+    field, so a record under ``dest``'s id carrying the same value descends
+    from this staged file. Only a ``pending`` staged record is checked: one
+    still saying ``processing`` was never rewritten, so never published, and
+    its field (if any) is from an earlier generation. A genuinely new enqueue
+    of the same id has no such field and is never matched.
+    """
+    data = safe_load_json(staged, default=None)
+    requeue_id = _requeue_id(data)
+    if requeue_id is None or data.get("status") != "pending":
+        return None
+    root = dest.parent.parent
+    for folder in ("processing", *_TERMINAL_FOLDERS):
+        candidate = _job_path(root / folder, dest.stem)
+        if _load_requeue_id(candidate) == requeue_id:
+            return candidate
+    return None
+
+
+def _discard_superseded_staged(staged: Path, dest: Path) -> bool:
+    """Remove ``staged`` and its leftover temps if it was already published; True if so.
+
+    See ``_published_copy_of``. Call with ``_transition_lock`` held, so no
+    ``_copy_exclusive`` temp matched here belongs to a publish in progress.
+    """
+    copy = _published_copy_of(staged, dest)
+    if copy is None:
+        return False
+    requeue_id = _load_requeue_id(copy)
+    for tmp in dest.parent.glob(f"{glob_escape(_publish_temp_prefix(dest))}*"):
+        if _load_requeue_id(tmp) == requeue_id:
+            tmp.unlink(missing_ok=True)
+    staged.unlink(missing_ok=True)
+    _log.warning(
+        "Not publishing %s: an earlier publish of it is already at %s", staged.name, copy
+    )
+    return True
+
+
 def _publish_no_clobber(staged: Path, dest: Path) -> bool:
     """Move ``staged`` to ``dest`` unless ``dest`` already holds another file.
 
     A hard link publishes atomically and fails if ``dest`` exists, so a
-    pending/ job with the same id is never overwritten. If ``dest`` is
-    already ``staged``'s record -- the same inode or identical bytes, left by
-    an earlier publish that stopped before its unlink (see
-    ``_is_own_interrupted_publish``) -- only the staging name and any leftover
-    temp link are removed. Without hard links the record
-    is copied into an exclusively created ``dest``; a crash mid-copy can
-    leave a partial ``dest`` beside the intact staged file, never a lost job.
-    Returns False when ``staged`` is gone (published by someone else) or,
-    leaving ``staged`` in place for a later recovery, when ``dest`` is a
-    different file.
+    pending/ job with the same id is never overwritten. Without hard links,
+    ``_copy_exclusive`` writes a hidden temp file and publishes it whole, so
+    ``dest`` is either absent or complete; a crash can leave only the temp
+    name and ``staged`` behind, never a partial ``dest`` or a lost job.
+
+    A crash after ``dest`` was published but before ``staged`` was unlinked
+    is recovered in both of its later states. If ``dest`` is still present
+    and is ``staged``'s record -- the same inode or identical bytes (see
+    ``_is_own_interrupted_publish``) -- only the staging name and any
+    leftover temp link are removed, and True is returned. If ``dest`` was
+    already claimed, or claimed and finished, the record carrying
+    ``staged``'s ``REQUEUE_ID_FIELD`` is found in processing/, done/ or
+    error/ (see ``_published_copy_of``); ``staged`` and its leftover temps
+    are removed and False is returned, since nothing was published.
+
+    Otherwise returns False when ``staged`` is gone (published by someone
+    else) or, leaving ``staged`` in place for a later recovery, when
+    ``dest`` is a different file.
     """
     dest.parent.mkdir(parents=True, exist_ok=True)
+    if _discard_superseded_staged(staged, dest):
+        return False
     try:
         os.link(staged, dest)
     except FileExistsError:
@@ -1071,7 +1146,9 @@ def recover_staged_requeues(root: Path | None = None) -> list[str]:
     ``requeue_processing`` would have, with ``SHUTDOWN_REQUEUE_REASON`` as
     ``last_error``; one already rewritten is published unchanged. An
     existing pending/ job with the same id is never overwritten, and a
-    second call is a no-op.
+    second call is a no-op. A staged file whose earlier publish already
+    reached pending/ and was claimed (or finished) is removed rather than
+    published again; see ``_publish_no_clobber``.
     """
     paths = _ensure_dirs(root)
     recovered: list[str] = []
