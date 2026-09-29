@@ -124,7 +124,7 @@ class AccountsExportSignaturesProcessor(SafeProcessor[AccountsExportSignaturesRe
 class AccountsExportSignaturesProducer(AccountsResultProducer[AccountsExportSignaturesResult]):
     def _produce_items(self, payload: AccountsExportSignaturesResult) -> None:
         for exp in payload.exports:
-            print(f"Exported signatures for {exp.account_name}: {exp.output_path}")
+            self._writer.print(f"Exported signatures for {exp.account_name}: {exp.output_path}")
 
 
 # -----------------------------------------------------------------------------
@@ -214,9 +214,9 @@ class AccountsSyncSignaturesProducer(AccountsResultProducer[AccountsSyncSignatur
     def _produce_items(self, payload: AccountsSyncSignaturesResult) -> None:
         for info in payload.synced:
             if info.status == "delegated":
-                print(f"{_LOG_PREFIX}{info.account_name} provider={info.provider} (delegated)")
+                self._writer.print(f"{_LOG_PREFIX}{info.account_name} provider={info.provider} (delegated)")
             elif info.status == "wrote_guidance":
                 assets_dir = output_dir("mail") / "signatures_assets"
-                print(f"{_LOG_PREFIX}{info.account_name} provider={info.provider} wrote guidance to {assets_dir}")
+                self._writer.print(f"{_LOG_PREFIX}{info.account_name} provider={info.provider} wrote guidance to {assets_dir}")
             else:
-                print(f"{_LOG_PREFIX}{info.account_name} provider={info.provider} status={info.status}")
+                self._writer.print(f"{_LOG_PREFIX}{info.account_name} provider={info.provider} status={info.status}")

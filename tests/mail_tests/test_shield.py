@@ -156,10 +156,30 @@ class TestMaskValue(unittest.TestCase):
         result = self._mask("bearer", "BearerTokenValueThatIsLong")
         self.assertIn("…", result)
 
-    # --- client_id is mildly sensitive but NOT in SECRET_KEYS exclusion ---
+    # --- client_id is excluded from the secret-key rule but still partially masked ---
     def test_client_id_is_masked(self):
         result = self._mask("client_id", "some_long_client_id_value_here12")
         self.assertIn("…", result)
+
+    # Every key name the pre-composition SECRET_KEYS tuple masked, plus
+    # compound and mixed-case spellings it caught through substring matching.
+    _PREVIOUSLY_MASKED_KEYS = (
+        "token", "secret", "password", "api_key", "apikey", "access_key",
+        "access_token", "refresh_token", "client_secret", "authorization",
+        "bearer", "key", "sort_key", "outlook_token", "X-Auth-Token",
+        "Authorization", "MY_API_KEY", "db_password_hash",
+    )
+
+    def test_keys_masked_before_core_composition_are_still_masked(self):
+        for key in self._PREVIOUSLY_MASKED_KEYS:
+            with self.subTest(key=key):
+                self.assertIn("…", self._mask(key, "abcdefghijklmnopqrstuvwxyz"))
+
+    def test_core_sensitive_keys_are_masked(self):
+        """Names core.secrets flags but no shield substring matches."""
+        for key in ("auth", "passwd", "signature", "gmail_credential", "outlook_credentials"):
+            with self.subTest(key=key):
+                self.assertIn("…", self._mask(key, "abcdefghijklmnopqrstuvwxyz"))
 
     # --- Non-sensitive keys ---
     def test_non_sensitive_key_returns_value_unchanged(self):

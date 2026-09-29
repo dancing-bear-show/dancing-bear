@@ -85,7 +85,7 @@ class AuthProcessor(SafeProcessor[AuthRequest, AuthResult]):
 
 class AuthProducer(BaseProducer):
     def _produce_success(self, payload: AuthResult, diagnostics: dict[str, Any] | None) -> None:
-        print(payload.message)
+        self._writer.print(payload.message)
 
 
 # -----------------------------------------------------------------------------
@@ -167,7 +167,7 @@ class BackupProcessor(SafeProcessor[BackupRequest, BackupResult]):
 
 class BackupProducer(BaseProducer):
     def _produce_success(self, payload: BackupResult, diagnostics: dict[str, Any] | None) -> None:
-        print(f"Backup written to {payload.out_path}")
+        self._writer.print(f"Backup written to {payload.out_path}")
 
 
 # -----------------------------------------------------------------------------
@@ -212,7 +212,7 @@ class CacheStatsProcessor(SafeProcessor[CacheStatsRequest, CacheStatsResult]):
 
 class CacheStatsProducer(BaseProducer):
     def _produce_success(self, payload: CacheStatsResult, diagnostics: dict[str, Any] | None) -> None:
-        print(f"Cache: {payload.path} files={payload.files} size={payload.size_bytes} bytes")
+        self._writer.print(f"Cache: {payload.path} files={payload.files} size={payload.size_bytes} bytes")
 
 
 # -----------------------------------------------------------------------------
@@ -253,9 +253,9 @@ class CacheClearProcessor(SafeProcessor[CacheClearRequest, CacheClearResult]):
 class CacheClearProducer(BaseProducer):
     def _produce_success(self, payload: CacheClearResult, diagnostics: dict[str, Any] | None) -> None:
         if payload.cleared:
-            print(f"Cleared cache: {payload.path}")
+            self._writer.print(f"Cleared cache: {payload.path}")
         else:
-            print("Cache does not exist.")
+            self._writer.print("Cache does not exist.")
 
 
 # -----------------------------------------------------------------------------
@@ -305,7 +305,7 @@ class CachePruneProcessor(SafeProcessor[CachePruneRequest, CachePruneResult]):
 
 class CachePruneProducer(BaseProducer):
     def _produce_success(self, payload: CachePruneResult, diagnostics: dict[str, Any] | None) -> None:
-        print(f"Pruned {payload.removed} files older than {payload.days} days from {payload.path}")
+        self._writer.print(f"Pruned {payload.removed} files older than {payload.days} days from {payload.path}")
 
 
 # -----------------------------------------------------------------------------
@@ -373,7 +373,7 @@ class ConfigInspectProcessor(SafeProcessor[ConfigInspectRequest, ConfigInspectRe
 class ConfigInspectProducer(BaseProducer):
     def _produce_success(self, payload: ConfigInspectResult, diagnostics: dict[str, Any] | None) -> None:
         for section in payload.sections:
-            print(f"[{section.name}]")
+            self._writer.print(f"[{section.name}]")
             for k, v in section.items:
-                print(f"{k} = {v}")
-            print("")
+                self._writer.print(f"{k} = {v}")
+            self._writer.print("")
