@@ -80,6 +80,7 @@ class TestPruneLiveThreadsRequeuesDeadRecords(unittest.TestCase, QueueRootIsolat
 
     def setUp(self) -> None:
         self.setup_queue_root()
+        self.join_new_threads_before_restore()
         base = _patch_queue_root(self.root)
         base.enter_context(patch.dict("worker.job_runtime.HANDLERS", {"fast": lambda _d: (True, "ok")}))
         self.addCleanup(base.close)
@@ -149,6 +150,7 @@ class TestStartProcessingReturnsTokenAtomically(unittest.TestCase, QueueRootIsol
 
     def setUp(self) -> None:
         self.setup_queue_root()
+        self.join_new_threads_before_restore()
 
     def test_happy_path_returned_token_matches_file_contents(self) -> None:
         """The token in the returned tuple matches what is written to disk."""
@@ -226,6 +228,7 @@ class TestDrainContinuesAfterRequeueError(unittest.TestCase, QueueRootIsolationM
 
     def setUp(self) -> None:
         self.setup_queue_root()
+        self.join_new_threads_before_restore()
         self._threads_before = set(threading.enumerate())
         self.addCleanup(self._join_new_threads)
 
@@ -321,6 +324,7 @@ class TestDrainRespectsDeadlineViaLockTimeout(unittest.TestCase, QueueRootIsolat
 
     def setUp(self) -> None:
         self.setup_queue_root()
+        self.join_new_threads_before_restore()
         # Registered after the temp-root cleanup, so it runs before it: a
         # handler thread released by a test's gate.set cleanup finishes its
         # queue transition before the temp tree is removed underneath it.

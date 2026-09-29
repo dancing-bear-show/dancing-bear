@@ -66,6 +66,7 @@ class TestPruneLiveThreadsSurvivesRequeueError(unittest.TestCase, QueueRootIsola
 
     def setUp(self) -> None:
         self.setup_queue_root()
+        self.join_new_threads_before_restore()
         base = _patch_queue_root(self.root)
         base.enter_context(patch.dict("worker.job_runtime.HANDLERS", {"fast": lambda _d: (True, "ok")}))
         self.addCleanup(base.close)
@@ -136,6 +137,7 @@ class TestDrainLockBudgetFloorsAtZero(unittest.TestCase, QueueRootIsolationMixin
 
     def setUp(self) -> None:
         self.setup_queue_root()
+        self.join_new_threads_before_restore()
 
     def test_happy_path_uncontended_lock_still_succeeds_at_zero_budget(self) -> None:
         """A lock_timeout of 0.0 still lets an uncontended lock succeed:

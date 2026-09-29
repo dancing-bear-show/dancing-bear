@@ -68,6 +68,7 @@ class TestMissingClaimTokenAbandonsClaim(unittest.TestCase, QueueRootIsolationMi
 
     def setUp(self) -> None:
         self.setup_queue_root()
+        self.join_new_threads_before_restore()
         base = _patch_queue_root(self.root)
         base.enter_context(patch.dict("worker.job_runtime.HANDLERS", {"fast": lambda _d: (True, "ok")}))
         self.addCleanup(base.close)
@@ -139,6 +140,7 @@ class TestDrainSkipsRequeueOnTokenMismatch(unittest.TestCase, QueueRootIsolation
 
     def setUp(self) -> None:
         self.setup_queue_root()
+        self.join_new_threads_before_restore()
         self.gate = threading.Event()
 
         def _gated(job_data: dict[str, object]) -> tuple[bool, object]:
@@ -289,6 +291,7 @@ class TestDrainRequeuesDeadThreadsWithResidualRecord(unittest.TestCase, QueueRoo
 
     def setUp(self) -> None:
         self.setup_queue_root()
+        self.join_new_threads_before_restore()
         base = _patch_queue_root(self.root)
         self.addCleanup(base.close)
 

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 import tempfile
+import threading
+import time
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -75,6 +77,32 @@ class QueueRootIsolationMixin:
         from worker import queue_ops as q
         q.QUEUE_ROOT = self.root
         return self.root
+
+    def join_new_threads_before_restore(self: "_QueueHost", timeout: float = 10.0) -> None:
+        """Join every thread started after this call before isolation is undone.
+
+        Call after ``setup_queue_root``/``isolate_queue_root``: cleanups run
+        LIFO, so this join then runs before ``_restore_queue_root``. A worker
+        thread still running at restore resolves ``QUEUE_ROOT`` to the real
+        queue and writes its outcome there. One deadline covers all threads;
+        any still alive after it fails the test rather than leaking.
+        """
+        if not hasattr(self, "_orig_queue_root"):
+            raise RuntimeError("call join_new_threads_before_restore after isolating QUEUE_ROOT")
+        before = set(threading.enumerate())
+
+        def _join() -> None:
+            deadline = time.monotonic() + timeout
+            started = [t for t in threading.enumerate() if t not in before and t.ident is not None]
+            for t in started:
+                t.join(timeout=max(0.0, deadline - time.monotonic()))
+            alive = [t.name for t in started if t.is_alive()]
+            if alive:
+                raise AssertionError(
+                    f"threads still running after {timeout}s, before queue isolation restore: {alive}"
+                )
+
+        self.addCleanup(_join)
 
     def _restore_queue_root(self):
         from worker import queue_ops as q

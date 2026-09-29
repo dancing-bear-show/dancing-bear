@@ -54,6 +54,7 @@ class TestProcessOneMissingClaimToken(unittest.TestCase, QueueRootIsolationMixin
 
     def setUp(self) -> None:
         self.setup_queue_root()
+        self.join_new_threads_before_restore()
         self.stack = _patch_queue_root(self.root)
         self.addCleanup(self.stack.close)
 

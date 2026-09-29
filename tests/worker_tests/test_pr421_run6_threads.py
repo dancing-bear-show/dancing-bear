@@ -63,6 +63,7 @@ class TestTokenlessRequeueVerifiesUnderLock(unittest.TestCase, QueueRootIsolatio
 
     def setUp(self) -> None:
         self.setup_queue_root()
+        self.join_new_threads_before_restore()
 
     def test_happy_path_none_token_requeues_when_record_still_tokenless(self) -> None:
         """A processing/ record with no claim token is requeued when

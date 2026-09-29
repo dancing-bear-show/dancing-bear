@@ -55,6 +55,7 @@ def _unlink_failing_for(name: str):
 class _Base(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self) -> None:
         self.setup_queue_root()
+        self.join_new_threads_before_restore()
         self.stack = _patch_queue_root(self.root)
         self.addCleanup(self.stack.close)
         self.paths = q._ensure_dirs(self.root)

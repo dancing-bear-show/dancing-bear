@@ -35,6 +35,9 @@ def _make_runner(**config_kwargs: Any) -> DaemonRunner:
 class _Base(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self) -> None:
         self.setup_queue_root()
+        # On unfixed code the duplicate runs on a runner thread; it must finish
+        # while QUEUE_ROOT still points at the temp tree.
+        self.join_new_threads_before_restore()
         self.pending = self.root / "pending"
         self.processing = self.root / "processing"
 

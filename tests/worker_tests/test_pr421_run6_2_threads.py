@@ -87,6 +87,7 @@ class _RuntimeTestBase(unittest.TestCase, QueueRootIsolationMixin):
 
     def setUp(self) -> None:
         self.setup_queue_root()
+        self.join_new_threads_before_restore()
         self.stack = _patch_queue_root(self.root)
         self.addCleanup(self.stack.close)
         self._threads_before = set(threading.enumerate())
@@ -338,6 +339,7 @@ class TestRecoverShutdownTimeoutMarkers(unittest.TestCase, QueueRootIsolationMix
 
     def setUp(self) -> None:
         self.setup_queue_root()
+        self.join_new_threads_before_restore()
 
     def test_requeues_processing_job_with_marker(self) -> None:
         """Sad path: processing/ record with a marker is moved back to pending/
