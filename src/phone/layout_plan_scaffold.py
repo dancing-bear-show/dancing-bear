@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.coerce import coerce_int
+
 from .constants import FOLDERS
 from .layout_normalize import (
     NormalizedLayout,
@@ -15,14 +17,6 @@ from .layout_normalize import (
     compute_location_map,
     compute_root_app_page_map,
 )
-
-
-def _safe_int(value: Any, default: int = 0) -> int:
-    """Safely convert a value to int, returning default if conversion fails."""
-    try:
-        return int(value)
-    except (ValueError, TypeError):
-        return default
 
 
 def _collect_pinned_apps(layout: NormalizedLayout, max_pins: int = 12) -> list[str]:
@@ -98,8 +92,8 @@ def _generate_page_instructions(
 ) -> list[str]:
     """Generate instructions for page organization."""
     instructions: list[str] = ["", "Page organization:"]
-    for page_key in sorted(pages_spec.keys(), key=_safe_int):
-        target_page = _safe_int(page_key)
+    for page_key in sorted(pages_spec.keys(), key=coerce_int):
+        target_page = coerce_int(page_key)
         if target_page == 0:
             continue
         spec = pages_spec.get(page_key) or {}

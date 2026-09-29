@@ -90,6 +90,29 @@ class TestLayoutFromExport(unittest.TestCase):
         self.assertEqual(layout.dock, [])
         self.assertEqual(layout.pages, [])
 
+    def test_layout_from_export_tolerates_empty_yaml_keys(self):
+        """`apps:` left blank loads as None and must read as no apps."""
+        from phone.helpers import _layout_from_export
+
+        export = {"dock": None, "pages": [{"apps": None, "folders": [{"name": "W", "apps": None}]}]}
+        layout = _layout_from_export(export)
+        self.assertEqual(layout.dock, [])
+        self.assertEqual(layout.pages, [[{"kind": "folder", "name": "W", "apps": []}]])
+
+    def test_layout_from_export_drops_non_string_ids(self):
+        from phone.helpers import _layout_from_export
+
+        export = {
+            "dock": [None, "com.dock", 7],
+            "pages": [{"apps": ["", "com.app1", 3], "folders": [{"name": "W", "apps": [None, "com.w"]}]}],
+        }
+        layout = _layout_from_export(export)
+        self.assertEqual(layout.dock, ["com.dock"])
+        self.assertEqual(
+            layout.pages[0],
+            [{"kind": "app", "id": "com.app1"}, {"kind": "folder", "name": "W", "apps": ["com.w"]}],
+        )
+
     def test_layout_from_export_mixed_apps_and_folders(self):
         from phone.helpers import _layout_from_export
 

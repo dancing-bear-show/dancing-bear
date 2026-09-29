@@ -58,16 +58,6 @@ def _finish_or_retry(
         )
 
 
-def _effective_job_timeout(job_data: dict[str, object], default_timeout: int) -> int:
-    """Resolve per-job timeout override, falling back to default_timeout."""
-    try:
-        raw = job_data.get("timeout_sec") or 0
-        per_job = int(raw) if isinstance(raw, (int, float, str)) else 0
-        return per_job if per_job > 0 else default_timeout
-    except (TypeError, ValueError):
-        return default_timeout
-
-
 def _write_shutdown_timeout_marker(job_id: str, claim_token: str | None, root: Path) -> None:
     """Delegate to queue_ops to write a shutdown-timeout sentinel for ``job_id``.
 
@@ -512,7 +502,7 @@ class JobProcessor:
         base_payload: dict[str, object] = dict(raw_payload or {})
 
         # Resolve effective per-job timeout
-        job_timeout_sec = _effective_job_timeout(job_data, self.config.job_timeout)
+        job_timeout_sec = q.effective_job_timeout(job_data, self.config.job_timeout)
         if job_timeout_sec > 0:
             base_payload["timeout"] = job_timeout_sec
         # Handlers always see an object payload, whether or not a timeout applies.
@@ -884,7 +874,7 @@ class DaemonRunner:
         results: list[int] = [0] * len(items)
 
         timeouts: list[int] = [
-            _effective_job_timeout(d, self.config.job_timeout) for _, d in items
+            q.effective_job_timeout(d, self.config.job_timeout) for _, d in items
         ]
 
         def _run(idx: int, pth: Path, dat: dict[str, object]) -> None:

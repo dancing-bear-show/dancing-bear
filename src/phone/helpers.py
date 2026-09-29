@@ -32,19 +32,26 @@ def read_yaml(in_path: Path) -> dict[str, Any]:
     return data
 
 
+def _bundle_ids(values: Any) -> list[str]:
+    """Return the non-empty string entries of a YAML list (None reads as empty)."""
+    return [v for v in values or [] if isinstance(v, str) and v]
+
+
 def _layout_from_export(export: dict[str, Any]) -> NormalizedLayout:
-    dock = export.get("dock") or []
+    """Convert a layout export dict to a NormalizedLayout.
+
+    Hand-edited YAML is tolerated: a key left empty (``apps:``) loads as None
+    and reads as no apps, and non-string entries are dropped.
+    """
     pages = []
     for p in export.get("pages") or []:
-        items = []
-        for a in p.get("apps", []):
-            items.append({"kind": "app", "id": a})
-        for f in p.get("folders", []):
+        items: list[dict[str, Any]] = [{"kind": "app", "id": a} for a in _bundle_ids(p.get("apps"))]
+        for f in p.get("folders") or []:
             items.append(
-                {"kind": "folder", "name": f.get("name"), "apps": f.get("apps", [])}
+                {"kind": "folder", "name": f.get("name"), "apps": _bundle_ids(f.get("apps"))}
             )
         pages.append(items)
-    return NormalizedLayout(dock=dock, pages=pages)
+    return NormalizedLayout(dock=_bundle_ids(export.get("dock")), pages=pages)
 
 
 def load_layout(

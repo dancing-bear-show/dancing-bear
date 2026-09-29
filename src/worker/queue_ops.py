@@ -238,9 +238,7 @@ def start_processing(job_path: Path, root: Path | None = None) -> tuple[Path, st
                 data[FIELD_UPDATED_AT] = iso_now()
                 atomic_write_json(new_path, data)
             except Exception as exc:
-                import logging as _logging
-
-                _logging.getLogger(__name__).debug(
+                _log.debug(
                     "Failed to update processing job %s: %s", new_path, exc
                 )
                 token = ""  # nosec B105 - empty string signals metadata-write failure, not a credential
@@ -1038,25 +1036,21 @@ def list_error(root: Path | None = None) -> list[tuple[Path, dict[str, object]]]
 
 def _apply_max_attempts(data: dict, new_max_attempts: int) -> None:
     """Set max_attempts on data, logging if the value cannot be coerced."""
-    import logging as _logging
-
     try:
         data["max_attempts"] = int(new_max_attempts)
     except Exception as exc:
-        _logging.getLogger(__name__).debug(
+        _log.debug(
             "Invalid new_max_attempts=%s: %s", new_max_attempts, exc
         )
 
 
 def _strip_error_field(data: dict, job_path: Path) -> None:
     """Move data['error'] to data['last_error'] and remove the original key."""
-    import logging as _logging
-
     data["last_error"] = str(data.get("error"))
     try:
         del data["error"]
     except Exception as exc:
-        _logging.getLogger(__name__).debug(
+        _log.debug(
             "Failed to strip error field for %s: %s", job_path, exc
         )
 
@@ -1068,12 +1062,10 @@ def _remove_job_file(job_path: Path) -> None:
     removes the old one. The message stays generic because the path itself
     identifies which queue directory the job came from.
     """
-    import logging as _logging
-
     try:
         job_path.unlink(missing_ok=True)
     except Exception as exc:
-        _logging.getLogger(__name__).debug(
+        _log.debug(
             "Failed to remove job file %s: %s", job_path, exc
         )
 
@@ -1126,9 +1118,7 @@ def _parse_timestamp_safe(ts_str: str, path: Path, field_name: str) -> datetime 
     try:
         return parse_iso_utc_strict(ts_str)
     except Exception as exc:
-        import logging as _logging
-
-        _logging.getLogger(__name__).debug(
+        _log.debug(
             "Invalid %s '%s' for %s: %s", field_name, ts_str, path, exc
         )
         return None
@@ -1139,9 +1129,7 @@ def _get_file_mtime(path: Path) -> datetime | None:
     try:
         return datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
     except Exception as exc:
-        import logging as _logging
-
-        _logging.getLogger(__name__).debug("Failed to stat %s: %s", path, exc)
+        _log.debug("Failed to stat %s: %s", path, exc)
         return None
 
 
@@ -1191,13 +1179,14 @@ def _reap_move_to_pending(ctx: ReapJobContext, log: logging.Logger) -> bool:
     return True
 
 
-def _reap_effective_timeout(data: dict, job_timeout: int) -> int:
-    """Resolve the per-job timeout override, falling back to the default."""
+def effective_job_timeout(data: dict, default_timeout: int) -> int:
+    """Resolve the per-job ``timeout_sec`` override, falling back to the default."""
     try:
-        per_job = int(data.get("timeout_sec") or 0)
-        return per_job if per_job > 0 else job_timeout
+        raw = data.get("timeout_sec") or 0
+        per_job = int(raw) if isinstance(raw, (int, float, str)) else 0
+        return per_job if per_job > 0 else default_timeout
     except (TypeError, ValueError):
-        return job_timeout
+        return default_timeout
 
 
 def _reap_one_job(p: Path, job_timeout: int, paths: dict, now: datetime, log: logging.Logger) -> str | None:
@@ -1215,7 +1204,7 @@ def _reap_one_job(p: Path, job_timeout: int, paths: dict, now: datetime, log: lo
         return None
 
     age = int((now - started).total_seconds())
-    effective_timeout = _reap_effective_timeout(data, job_timeout)
+    effective_timeout = effective_job_timeout(data, job_timeout)
     if effective_timeout <= 0 or age < effective_timeout:
         return None
 
@@ -1248,10 +1237,6 @@ def reap_stale_processing_jobs(
     root: Path | None = None,
 ) -> list[str]:
     """Move processing jobs older than their effective timeout back to pending/."""
-    import logging as _logging
-
-    _log = _logging.getLogger(__name__)
-
     paths = _ensure_dirs(root)
     now = datetime.now(UTC)
     reaped: list[str] = []
@@ -1274,9 +1259,7 @@ def _purge_file(p: Path, now: datetime, older_than_sec: int) -> bool:
         p.unlink(missing_ok=True)
         return True
     except Exception as exc:
-        import logging as _logging
-
-        _logging.getLogger(__name__).debug("Failed purge for %s: %s", p, exc)
+        _log.debug("Failed purge for %s: %s", p, exc)
         return False
 
 
