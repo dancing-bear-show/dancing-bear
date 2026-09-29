@@ -28,6 +28,7 @@ NO_CHANGE_OUTCOME = "terminal-no-change"
 SEARCH_MARKER = "<<<<<<< SEARCH"
 DIVIDER_MARKER = "======="
 REPLACE_MARKER = ">>>>>>> REPLACE"
+BARE_FENCE = "```"
 # A marker counts only at column 0: every marker comparison in this module
 # (response and target file alike) goes through _marker_text, which drops
 # trailing whitespace (a "\r" included) but keeps leading indentation. An
@@ -52,7 +53,8 @@ REPLACE_MARKER = ">>>>>>> REPLACE"
 #   ambiguous with a response truncated right after that in-body marker, so
 #   the whole block set is rejected.
 # - parse time: after the LAST block's REPLACE marker, every remaining line
-#   must be blank or a ``` fence (_is_truncation_residue). Truncation always
+#   must be blank or a bare closing ``` fence (_is_truncation_residue).
+#   Truncation always
 #   leaves its residue after the final block: had another block followed, the
 #   real closer left behind by an in-body marker would already be a stray
 #   marker. This catches the residue however many blank lines precede it.
@@ -148,19 +150,40 @@ def _parse_block_body(lines: list[str], start: int) -> tuple[tuple[str, ...], tu
     return tuple(lines[start:divider]), tuple(lines[divider + 1 : end]), end + 1
 
 
+def _is_bare_closing_fence(line: str) -> bool:
+    """True when line is a closing ``` fence with no info string, at column 0
+    (leading indentation is not a fence; trailing whitespace is dropped - the
+    same treatment _marker_text gives every other structural marker).
+
+    An info-string fence such as "```python" or "```diff" does NOT count: a
+    response truncated right after an in-body ">>>>>>> REPLACE" can end with
+    exactly that line (the model closing what it thinks is a fresh code
+    block), and accepting it here would silently truncate the replacement
+    instead of failing closed. A bare closing fence is unambiguous - it
+    carries no content of its own - so it stays safe both here and before the
+    first block, where an opening info-string fence is legitimate and is not
+    checked by this helper at all (fences before the first block are
+    ordinary ignored text, not a safety check)."""
+    return _marker_text(line) == BARE_FENCE
+
+
 def _is_unstructured_line_after_replace(line: str) -> bool:
     """True when line cannot be told apart from REPLACE body content cut off
     by truncation.
 
-    Legitimate text between blocks - prose, a closing ``` fence, the next
-    FILE: line, the next block's SEARCH marker - always reaches the line
+    Legitimate text between blocks - prose, a bare closing ``` fence, the
+    next FILE: line, the next block's SEARCH marker - always reaches the line
     right after REPLACE either blank or as one of those structural forms (the
     fences-and-prose fixture never places bare prose directly against a
     REPLACE marker; it is always separated by a blank line or a fence close).
     A non-blank line that is none of those is indistinguishable from a
     REPLACE body whose response was truncated right after an earlier,
     in-body ">>>>>>> REPLACE"-shaped line: failing closed here is the only
-    way to avoid silently dropping that trailing content.
+    way to avoid silently dropping that trailing content. An info-string
+    fence line (for example "```python") is NOT treated as safe: that is
+    exactly what a response truncated right after an in-body REPLACE marker
+    can look like, so it falls through to the final "unstructured" check
+    below and is rejected.
 
     After the last block _is_truncation_residue is stricter and subsumes
     this check; this one still applies after every non-final block, where
@@ -169,7 +192,7 @@ def _is_unstructured_line_after_replace(line: str) -> bool:
     stripped = line.strip()
     if not stripped:
         return False
-    if stripped.startswith("```"):
+    if _is_bare_closing_fence(line):
         return False
     if _marker_text(line) == SEARCH_MARKER:
         return False
@@ -179,29 +202,37 @@ def _is_unstructured_line_after_replace(line: str) -> bool:
 def _is_truncation_residue(line: str) -> bool:
     """True when line, found after the last block's REPLACE marker, may be
     REPLACE body content left behind by an in-body ">>>>>>> REPLACE"-shaped
-    line in a truncated response. Only blank lines and ``` fences are safe
-    there; prose, FILE: lines and everything else are rejected."""
+    line in a truncated response. Only blank lines and a bare closing ```
+    fence are safe there; an info-string fence (for example "```python"),
+    prose, FILE: lines and everything else are rejected - an info-string
+    fence is exactly what a response cut off right after an in-body REPLACE
+    marker can end with, so treating it as safe would silently accept a
+    truncated replacement."""
     stripped = line.strip()
-    return bool(stripped) and not stripped.startswith("```")
+    if not stripped:
+        return False
+    return not _is_bare_closing_fence(line)
 
 
 def parse_edit_blocks(response_text: str) -> list[EditBlock]:
     """Parse SEARCH/REPLACE blocks from a model response.
 
-    Lines before the first block and between blocks - prose, ``` fences -
-    are ignored, except that a "FILE: <path>" line names the file for every
+    Lines before the first block and between blocks - prose, ``` fences
+    (opening, with or without an info string, and closing alike) - are
+    ignored, except that a "FILE: <path>" line names the file for every
     block after it until the next FILE line. After the last block only blank
-    lines and ``` fences are allowed. Body lines are kept verbatim (only
-    "\\n" splits lines). Markers are recognised only at column 0 (trailing
-    whitespace is tolerated); an indented marker-shaped line is ordinary
-    text. Raises EditBlockError: NO_EDITS_OUTCOME when there is no block,
-    and EDIT_MALFORMED_OUTCOME for a block missing a marker (a response cut
-    off at num_predict), a stray divider/REPLACE marker, a non-blank,
-    non-structural line immediately after any REPLACE marker (see
-    _is_unstructured_line_after_replace), or any line other than a blank or
-    ``` fence after the last REPLACE marker (see _is_truncation_residue) - a
-    partial edit set is never applied. A response cut exactly at a true
-    closing REPLACE marker, with nothing after it, cannot be detected.
+    lines and a bare closing ``` fence (no info string) are allowed. Body
+    lines are kept verbatim (only "\\n" splits lines). Markers are recognised
+    only at column 0 (trailing whitespace is tolerated); an indented
+    marker-shaped line is ordinary text. Raises EditBlockError:
+    NO_EDITS_OUTCOME when there is no block, and EDIT_MALFORMED_OUTCOME for a
+    block missing a marker (a response cut off at num_predict), a stray
+    divider/REPLACE marker, a non-blank, non-structural line immediately
+    after any REPLACE marker (see _is_unstructured_line_after_replace), or
+    any line other than a blank or bare closing ``` fence after the last
+    REPLACE marker (see _is_truncation_residue) - a partial edit set is never
+    applied. A response cut exactly at a true closing REPLACE marker, with
+    nothing after it, cannot be detected.
     """
     lines = response_text.split("\n")
     blocks: list[EditBlock] = []

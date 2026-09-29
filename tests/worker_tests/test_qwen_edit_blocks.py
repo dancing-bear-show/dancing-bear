@@ -206,6 +206,33 @@ class ParseEditBlocksTests(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual(_outcome(qwen_edits.parse_edit_blocks, text), qwen_edits.EDIT_MALFORMED_OUTCOME)
 
+    def test_info_string_fence_after_the_last_block_is_malformed(self) -> None:
+        # A response truncated right after an in-body ">>>>>>> REPLACE" can
+        # end with an OPENING-shaped fence like "```python" - the model
+        # closing what it thinks is a fresh code block. Only a BARE closing
+        # fence (no info string) is safe there; "```python" must fail closed
+        # like any other truncation residue, not be accepted as a fence
+        # close. The blank line right after REPLACE keeps
+        # _is_unstructured_line_after_replace satisfied, so this exercises
+        # _is_truncation_residue specifically.
+        text = self.IN_BODY_MARKER + "\n```python\n"
+
+        self.assertEqual(_outcome(qwen_edits.parse_edit_blocks, text), qwen_edits.EDIT_MALFORMED_OUTCOME)
+        files = {"a.py": "old\n"}
+        self.assertEqual(_outcome(qwen_edits.edits_to_diff, text, files), qwen_edits.EDIT_MALFORMED_OUTCOME)
+        self.assertEqual(files, {"a.py": "old\n"})
+
+    def test_info_string_fence_directly_after_a_non_final_replace_is_malformed(self) -> None:
+        # Same truncation shape as above, but the in-body marker belongs to a
+        # non-final block, so the guard under test is
+        # _is_unstructured_line_after_replace rather than
+        # _is_truncation_residue: an "```python" line immediately after a
+        # REPLACE marker, followed by another block, must still be rejected
+        # rather than read as a legitimate fence close.
+        text = self.IN_BODY_MARKER + "```python\n" + edit_block("b.py", "x", "y")
+
+        self.assertEqual(_outcome(qwen_edits.parse_edit_blocks, text), qwen_edits.EDIT_MALFORMED_OUTCOME)
+
     def test_blank_lines_and_fences_after_the_last_block_still_parse(self) -> None:
         body = edit_block("src/a.py", "old", "new")
         cases = {
@@ -216,6 +243,7 @@ class ParseEditBlocksTests(unittest.TestCase):
             "closing fence then blank lines": "```python\n" + body + "```\n\n\n",
             "prose before the first block": "Sure, here is the change:\n\n" + body,
             "prose between two blocks": body + "\nNext, the second edit:\n\n" + edit_block("src/b.py", "x", "y"),
+            "wrapped in a diff fence": "```diff\n" + body + "```\n",
         }
         for name, text in cases.items():
             with self.subTest(name):
