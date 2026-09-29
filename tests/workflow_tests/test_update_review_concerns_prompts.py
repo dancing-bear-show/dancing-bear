@@ -438,6 +438,8 @@ class TestRenderedJqExecutes(unittest.TestCase):
         return self._run(self.invariants)
 
     def test_invariants_pass_on_clean_files(self) -> None:
+        # _classify copies path, line and original_line verbatim, so this is
+        # also the happy path for test_path_line_original_line_must_be_copied_verbatim.
         res = self._invariants_after()
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
         self.assertEqual(res.stdout.strip(), "true")
@@ -481,11 +483,6 @@ class TestRenderedJqExecutes(unittest.TestCase):
                 res = self._invariants_after({"T406-1": {field: bad}})
                 self.assertNotEqual(res.returncode, 0)
                 self.assertIn(f"406 T406-1: {needle}", res.stdout)
-
-    def test_path_line_original_line_pass_when_copied_verbatim(self) -> None:
-        res = self._invariants_after()
-        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        self.assertEqual(res.stdout.strip(), "true")
 
     def test_unknown_category_and_bad_class_fail(self) -> None:
         for fields, needle in (({"category": "UNPLACED"}, 'category "UNPLACED" is not allowed'),

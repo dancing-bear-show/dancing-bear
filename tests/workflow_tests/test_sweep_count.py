@@ -299,7 +299,7 @@ class TestMatchTimeBound(_Tree):
 
         with patch.object(sweep_count.time, "monotonic", side_effect=fake_monotonic):
             got = sweep_count.count_sweep("check", ["src"], root=self.root)
-        self.assertEqual(got.truncated, True)
+        self.assertTrue(got.truncated)
         self.assertEqual(got.reason, "time bound reached while listing files")
 
     def test_deadline_not_exceeded_walks_normally(self) -> None:
