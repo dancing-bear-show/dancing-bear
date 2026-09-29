@@ -63,6 +63,7 @@ class TestCitationPatternCoverage(unittest.TestCase):
         self.assertIsNotNone(
             _DIR_PREFIX.search("see `config/filters_unified.example.yaml:12` for detail")
         )
+        self.assertIsNone(_DIR_PREFIX.search("see config/filters_unified.example.yaml for detail"))
 
     def test_does_not_match_prose_without_line_ref(self) -> None:
         """Prose that merely mentions a file extension, with no trailing
