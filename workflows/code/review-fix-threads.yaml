@@ -286,12 +286,30 @@ stages:
           findings and are usually "Previously missed" ones, meaning the
           reviewer has already raised them once.
 
-          Triage them exactly like threads, from their "body", "path" and
-          "line", and dispatch fixes for them. They differ only at the end:
-          with no thread_id they cannot be replied to or resolved, so they
-          must never enter the resolve plan. Carry each one into the report
-          under its own heading so a human sees what was fixed with no thread
-          to close, and what still needs attention.
+          Before triaging, check the "current" field (true iff the finding
+          comes from the newest overview review):
+
+          - "current": false → the finding is in "stale_unlinked". The
+            newest overview no longer lists it; it was either fixed or
+            re-raised under a new title. Do NOT dispatch it. Carry it to
+            the report under a "Stale unlinked findings" heading so a human
+            can confirm whether it was resolved or superseded.
+
+          - "current": true → triage and dispatch exactly like threads, from
+            their "body", "path" and "line". With no thread_id they cannot be
+            replied to or resolved, so they must never enter the resolve plan.
+            Carry each one into the report under its own heading so a human
+            sees what was fixed with no thread to close, and what still needs
+            attention.
+
+            If "prior_same_path" is non-empty, the reviewer has already
+            raised this concern at least once on the same file path (under a
+            different title and possibly a shifted line). Give it the same
+            "previously missed" weight — it may NOT be classified "moot" or
+            "reject" on the absence of evidence, only on positive evidence
+            held to the same bar Step 3 sets for "moot". Pass the "body"
+            text of each prior finding (look them up in "findings" by their
+            id in prior_same_path) to the fixer agent as additional context.
 
           NEVER dispatch a finding whose "path_rejected" is non-null. Its path
           came from reviewer-authored HTML and failed the parser's safety
@@ -1696,10 +1714,17 @@ stages:
       Sections:
         Threads — total, and the count per directive
         Findings with no thread — every review-overview.json finding with
-          "linked": false, with its path:line, severity, and what was done
-          about it. These can never be replied to or resolved, so this section
-          is the only place a human learns they exist. Omit the section only
-          when there are none; never omit it silently when there are.
+          "linked": false AND "current": true, with its path:line, severity,
+          and what was done about it. These can never be replied to or
+          resolved, so this section is the only place a human learns they
+          exist. Omit the section only when there are none; never omit it
+          silently when there are.
+        Stale unlinked findings — every id in review-overview.json
+          "stale_unlinked", with its title, path:line, and severity. The
+          newest overview no longer lists these; they were either fixed or
+          re-raised under a new title (note which current finding on the
+          same path superseded each one, if any). Omit the section only
+          when "stale_unlinked" is empty.
         Unreachable citations — every review-overview.json "cited_not_found"
           entry. Each one means the reviewer cited a comment the thread fetch
           could not find, so the run acted on incomplete input. State that

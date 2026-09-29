@@ -190,7 +190,8 @@ class Finding:
             " ".join(s.lower().split()) == PREVIOUSLY_MISSED for s in self.sections
         )
 
-    def as_dict(self) -> dict[str, Any]:
+    def as_dict(self, *, current: bool = False,
+                prior_same_path: list[str] | None = None) -> dict[str, Any]:
         return {
             "title": self.title,
             "severity": self.severity,
@@ -211,6 +212,15 @@ class Finding:
             "file_id": _file_id(self.id),
             "source_review_id": self.source_review_id,
             "source_submitted_at": self.source_submitted_at,
+            # True iff this finding's source_review_id equals the newest
+            # overview's review_id. Stale findings came from an earlier run
+            # and are no longer listed by Copilot.
+            "current": current,
+            # For a CURRENT unlinked finding: sorted ids of non-current
+            # unlinked findings that cite the same path (a re-raise with a
+            # reworded title). Empty for linked findings and for non-current
+            # ones.
+            "prior_same_path": sorted(prior_same_path) if prior_same_path else [],
         }
 
 
@@ -435,11 +445,23 @@ def _claimed_count(review: dict[str, Any]) -> int | None:
     Reading only the first number understates it — on PR #400 that was 7
     against 15 — which hides a shortfall the count exists to expose. Sum every
     count on the line.
+
+    A line whose content (after stripping whitespace and inline HTML) is the
+    word "None" (case-insensitive) returns 0 rather than None. "None" is an
+    explicit zero from the reviewer and enables the ``parse_shortfall``
+    tripwire, while ``None`` (the Python value) means the line was absent and
+    the tripwire is disabled. A line with no parseable number and not "None"
+    returns None.
     """
     line = _CLAIMED_LINE.search(review.get("body") or "")
     if not line:
         return None
-    counts = [int(n) for n in _CLAIMED_COUNT.findall(line.group(1))]
+    content = line.group(1)
+    # Strip HTML tags to get the visible text, then check for the word "None".
+    visible = re.sub(r"<[^>]+>", "", content).strip()
+    if visible.lower() == "none":
+        return 0
+    counts = [int(n) for n in _CLAIMED_COUNT.findall(content)]
     return sum(counts) if counts else None
 
 
@@ -497,6 +519,25 @@ def _shortfall(claimed: int | None, findings: dict[str, Finding],
     return max(0, claimed - _open_findings(findings, newest_review_id))
 
 
+def _id_path_for(entry: Finding) -> str | None:
+    """The normalised path used in a finding's id, for prior_same_path lookup.
+
+    For an ordinary finding this is ``entry.path``.  For a protected-path
+    finding the path was withheld from ``entry.path`` but kept in
+    ``_Pending.id_path``; ``classify_repo_path`` returns the normalised form
+    as the first element even for protected paths, and ``_record_unlinked``
+    embeds that into the ``finding_id`` — so we can extract it from the id.
+    """
+    if entry.path:
+        return entry.path
+    if entry.path_rejected and entry.path_rejected_reason == PROTECTED_PATH:
+        # The id is "unlinked:<normalised>:<line>" — extract the path portion.
+        parts = entry.id.split(":", 2)
+        if len(parts) == 3:
+            return parts[1]
+    return None
+
+
 def _comment_index(threads: list[dict[str, Any]]) -> dict[str, str]:
     """Map every comment id to its thread, not just each thread's first.
 
@@ -516,16 +557,42 @@ def _comment_index(threads: list[dict[str, Any]]) -> dict[str, str]:
     return index
 
 
-def _reconcile(findings: dict[str, Finding], comment_to_thread: dict[str, str]
-               ) -> tuple[dict[str, Any], list[dict[str, Any]], set[str]]:
-    """Attach thread ids to findings and collect the citations that miss."""
+def _stale_unlinked_by_path(findings: dict[str, Finding],
+                             newest_review_id: Any) -> dict[str, list[str]]:
+    """Path → sorted list of stale unlinked finding ids that cite it.
+
+    "Stale" means the finding is unlinked and not from the newest review.
+    Used by ``_reconcile`` to fill ``prior_same_path`` for current findings.
+    """
+    by_path: dict[str, list[str]] = {}
+    for fid, entry in findings.items():
+        if entry.linked or entry.source_review_id == newest_review_id:
+            continue
+        id_path = _id_path_for(entry)
+        if id_path:
+            by_path.setdefault(id_path, []).append(fid)
+    return by_path
+
+
+def _reconcile(findings: dict[str, Finding], comment_to_thread: dict[str, str],
+               newest_review_id: Any,
+               ) -> tuple[dict[str, Any], list[dict[str, Any]], set[str], list[str]]:
+    """Attach thread ids to findings and collect the citations that miss.
+
+    Also computes per-finding ``current`` and ``prior_same_path`` fields and
+    returns a sorted ``stale_unlinked`` list of non-current unlinked ids.
+    """
+    by_path = _stale_unlinked_by_path(findings, newest_review_id)
     out: dict[str, Any] = {}
     cited_not_found: list[dict[str, Any]] = []
     cited_threads: set[str] = set()
+    stale_unlinked: list[str] = []
 
     for fid, entry in findings.items():
+        is_current = entry.source_review_id == newest_review_id
         thread_id = comment_to_thread.get(fid) if entry.linked else None
-        record = entry.as_dict()
+        prior = _prior_same_path(entry, is_current, by_path)
+        record = entry.as_dict(current=is_current, prior_same_path=prior)
         record["thread_id"] = thread_id
         record["resolvable"] = bool(thread_id)
         out[fid] = record
@@ -539,7 +606,19 @@ def _reconcile(findings: dict[str, Finding], comment_to_thread: dict[str, str]
                 {"database_id": fid, "title": entry.title, "section": entry.section}
             )
 
-    return out, cited_not_found, cited_threads
+        if not entry.linked and not is_current:
+            stale_unlinked.append(fid)
+
+    return out, cited_not_found, cited_threads, sorted(stale_unlinked)
+
+
+def _prior_same_path(entry: Finding, is_current: bool,
+                     by_path: dict[str, list[str]]) -> list[str]:
+    """Stale unlinked finding ids on the same path as ``entry``, if current."""
+    if not is_current or entry.linked:
+        return []
+    id_path = _id_path_for(entry)
+    return by_path.get(id_path, []) if id_path else []
 
 
 def parse_overview(review_bodies: list[dict[str, Any]],
@@ -555,6 +634,7 @@ def parse_overview(review_bodies: list[dict[str, Any]],
             "pr_number": pr_number, "present": False, "status": "ok",
             "parse_shortfall": 0, "findings": {}, "previously_missed": [],
             "cited_not_found": [], "threads_not_cited": [],
+            "stale_unlinked": [],
         }
 
     findings: dict[str, Finding] = {}
@@ -563,10 +643,13 @@ def parse_overview(review_bodies: list[dict[str, Any]],
     findings = _merge_drifted(findings)
 
     newest = overviews[-1]
+    newest_review_id = newest.get("review_id")
     claimed = _claimed_count(newest)
-    shortfall = _shortfall(claimed, findings, newest.get("review_id"))
+    shortfall = _shortfall(claimed, findings, newest_review_id)
     comment_to_thread = _comment_index(threads or [])
-    out, cited_not_found, cited_threads = _reconcile(findings, comment_to_thread)
+    out, cited_not_found, cited_threads, stale_unlinked = _reconcile(
+        findings, comment_to_thread, newest_review_id
+    )
 
     return {
         "pr_number": pr_number,
@@ -574,7 +657,7 @@ def parse_overview(review_bodies: list[dict[str, Any]],
         "status": "partial" if shortfall else "ok",
         "parse_shortfall": shortfall,
         "newest": {
-            "review_id": newest.get("review_id"),
+            "review_id": newest_review_id,
             "submitted_at": newest.get("submitted_at"),
             "verdict": _verdict(newest),
             "findings_claimed": claimed,
@@ -592,4 +675,8 @@ def parse_overview(review_bodies: list[dict[str, Any]],
             str(t["thread_id"]) for t in (threads or [])
             if t.get("thread_id") and t["thread_id"] not in cited_threads
         ),
+        # Sorted ids of unlinked findings that are NOT from the newest review.
+        # These were raised in an earlier run and the newest overview no
+        # longer lists them — either fixed, or re-raised under a new title.
+        "stale_unlinked": stale_unlinked,
     }

@@ -1029,5 +1029,220 @@ class TestRealPayload(unittest.TestCase):
         )
 
 
+class TestCurrentAndStaleUnlinked(unittest.TestCase):
+    """current, prior_same_path, and stale_unlinked fields."""
+
+    def test_finding_from_newest_review_is_current(self):
+        """A finding whose source_review_id equals the newest review is current."""
+        older = _review(
+            _body(_section("Previously missed", 1,
+                           _unlinked("Old concern", "src/a.py", 10))),
+            review_id=1, submitted_at="2026-09-22T22:00:00Z")
+        newer = _review(
+            _body(_section("Previously missed", 1,
+                           _unlinked("New concern", "src/b.py", 20))),
+            review_id=2, submitted_at="2026-09-22T23:00:00Z")
+
+        out = parse_overview([older, newer], [])
+
+        self.assertTrue(out["findings"]["unlinked:src/b.py:20"]["current"])
+        self.assertFalse(out["findings"]["unlinked:src/a.py:10"]["current"])
+
+    def test_stale_unlinked_contains_non_current_unlinked_ids(self):
+        older = _review(
+            _body(_section("Previously missed", 1,
+                           _unlinked("Old concern", "src/a.py", 10))),
+            review_id=1, submitted_at="2026-09-22T22:00:00Z")
+        newer = _review(
+            _body(_section("Previously missed", 1,
+                           _unlinked("New concern", "src/b.py", 20))),
+            review_id=2, submitted_at="2026-09-22T23:00:00Z")
+
+        out = parse_overview([older, newer], [])
+
+        self.assertEqual(out["stale_unlinked"], ["unlinked:src/a.py:10"])
+
+    def test_linked_finding_is_never_stale_unlinked(self):
+        older = _review(
+            _body(_section("Open", 1, _linked("111", "X"))),
+            review_id=1, submitted_at="2026-09-22T22:00:00Z")
+        newer = _review(
+            _body(_section("Open", 1, _linked("222", "Y"))),
+            review_id=2, submitted_at="2026-09-22T23:00:00Z")
+
+        out = parse_overview([older, newer], [_thread("A", 111), _thread("B", 222)])
+
+        self.assertEqual(out["stale_unlinked"], [])
+        # Older linked finding is not current (came from review_id=1, newest is 2)
+        # but it is linked, so it must never appear in stale_unlinked.
+        self.assertFalse(out["findings"]["111"]["current"])
+        self.assertNotIn("111", out["stale_unlinked"])
+
+    def test_prior_same_path_joins_stale_unlinked_on_matching_path(self):
+        """A current unlinked finding with the same path as a stale one carries
+        the stale id in prior_same_path — even if the title changed."""
+        older = _review(
+            _body(_section("Previously missed", 1,
+                           _unlinked("Old title", "src/a.py", 10))),
+            review_id=1, submitted_at="2026-09-22T22:00:00Z")
+        newer = _review(
+            _body(_section("Previously missed", 1,
+                           _unlinked("New title", "src/a.py", 20))),
+            review_id=2, submitted_at="2026-09-22T23:00:00Z")
+
+        out = parse_overview([older, newer], [])
+
+        current_id = "unlinked:src/a.py:20"
+        stale_id = "unlinked:src/a.py:10"
+        self.assertIn(current_id, out["findings"])
+        self.assertIn(stale_id, out["findings"])
+        self.assertTrue(out["findings"][current_id]["current"])
+        self.assertFalse(out["findings"][stale_id]["current"])
+        self.assertEqual(out["findings"][current_id]["prior_same_path"], [stale_id])
+        self.assertEqual(out["findings"][stale_id]["prior_same_path"], [])
+        self.assertEqual(out["stale_unlinked"], [stale_id])
+
+    def test_prior_same_path_empty_for_different_path(self):
+        """A stale finding on a DIFFERENT path does not appear in prior_same_path."""
+        older = _review(
+            _body(_section("Previously missed", 1,
+                           _unlinked("Old concern", "src/other.py", 5))),
+            review_id=1, submitted_at="2026-09-22T22:00:00Z")
+        newer = _review(
+            _body(_section("Previously missed", 1,
+                           _unlinked("New concern", "src/a.py", 20))),
+            review_id=2, submitted_at="2026-09-22T23:00:00Z")
+
+        out = parse_overview([older, newer], [])
+
+        self.assertEqual(out["findings"]["unlinked:src/a.py:20"]["prior_same_path"], [])
+
+    def test_finding_re_listed_in_newest_stays_current(self):
+        """A finding that was in review_id=1 and also in review_id=2 is current."""
+        older = _review(
+            _body(_section("Previously missed", 1,
+                           _unlinked("Persistent bug", "src/a.py", 10))),
+            review_id=1, submitted_at="2026-09-22T22:00:00Z")
+        newer = _review(
+            _body(_section("Previously missed", 1,
+                           _unlinked("Persistent bug", "src/a.py", 10))),
+            review_id=2, submitted_at="2026-09-22T23:00:00Z")
+
+        out = parse_overview([older, newer], [])
+
+        # After drift-merge, there is one entry; it comes from review_id=2.
+        self.assertEqual(len([f for f in out["findings"].values() if not f["linked"]]), 1)
+        entry = out["findings"]["unlinked:src/a.py:10"]
+        self.assertTrue(entry["current"])
+        self.assertEqual(out["stale_unlinked"], [])
+
+    def test_absent_overview_returns_stale_unlinked_empty_list(self):
+        out = parse_overview([], [])
+        self.assertIn("stale_unlinked", out)
+        self.assertEqual(out["stale_unlinked"], [])
+
+    def test_linked_finding_current_field_reflects_newest_review(self):
+        """Linked findings also carry current; it follows source_review_id."""
+        older = _review(_body(_section("Open", 1, _linked("111", "X"))),
+                        review_id=1, submitted_at="2026-09-22T22:00:00Z")
+        newer = _review(_body(_section("Open", 1, _linked("222", "Y"))),
+                        review_id=2, submitted_at="2026-09-22T23:00:00Z")
+
+        out = parse_overview([older, newer], [_thread("A", 111), _thread("B", 222)])
+
+        self.assertTrue(out["findings"]["222"]["current"])
+        self.assertFalse(out["findings"]["111"]["current"])
+
+
+class TestClaimedCountNone(unittest.TestCase):
+    """**Findings:** None means zero open findings, not unknown."""
+
+    def test_findings_none_returns_claimed_zero(self):
+        body = "\n".join([
+            OVERVIEW_MARKER,
+            "**Findings:** None",
+            _section("Open", 1, _linked("111", "A")),
+        ])
+        out = parse_overview([_review(body)], [_thread("A", 111)])
+
+        self.assertEqual(out["newest"]["findings_claimed"], 0)
+        # shortfall = max(0, 0 - 1 open) = 0
+        self.assertEqual(out["parse_shortfall"], 0)
+        self.assertEqual(out["status"], "ok")
+
+    def test_findings_none_with_real_pr436_newest_body(self):
+        """The newest overview on PR #436 says 'Findings: None'."""
+        import json
+        from pathlib import Path
+
+        data = json.loads(
+            (Path(__file__).parent / "data" / "copilot_overview_pr436.json")
+            .read_text(encoding="utf-8")
+        )
+
+        out = parse_overview(data["review_bodies"], data["threads"], pr_number="436")
+
+        # newest is review 5346472260 which says "Findings: None"
+        self.assertEqual(out["newest"]["findings_claimed"], 0)
+        self.assertEqual(out["status"], "ok")
+
+    def test_garbage_findings_line_returns_none(self):
+        body = "\n".join([OVERVIEW_MARKER, "**Findings:** ???"])
+        out = parse_overview([_review(body)], [])
+
+        self.assertIsNone(out["newest"]["findings_claimed"])
+
+    def test_findings_none_case_insensitive(self):
+        for text in ("None", "NONE", "none", "NoNe"):
+            with self.subTest(text=text):
+                body = "\n".join([OVERVIEW_MARKER, f"**Findings:** {text}"])
+                out = parse_overview([_review(body)], [])
+                self.assertEqual(out["newest"]["findings_claimed"], 0,
+                                 f"Expected 0 for 'Findings: {text}'")
+
+
+class TestRealPayloadPr436(unittest.TestCase):
+    """Pin the parse of real PR #436 data (two Copilot overview reviews).
+
+    data/copilot_overview_pr436.json holds the two Copilot review bodies for
+    the unlinked-finding scenario: review 5346218197 listed a "Substring check"
+    finding at line 89, then review 5346472260 re-raised it under a new title
+    "Track bootstrap directory ownership explicitly" at line 82.
+    """
+
+    def test_pr436_parses_current_and_stale_correctly(self):
+        import json
+        from pathlib import Path
+
+        data = json.loads(
+            (Path(__file__).parent / "data" / "copilot_overview_pr436.json")
+            .read_text(encoding="utf-8")
+        )
+
+        out = parse_overview(data["review_bodies"], data["threads"], pr_number="436")
+
+        CURRENT_ID = "unlinked:tests/worker_tests/test_state_dir_is_private.py:82"
+        STALE_ID = "unlinked:tests/worker_tests/test_state_dir_is_private.py:89"
+
+        self.assertEqual(out["status"], "ok")
+        self.assertIn(CURRENT_ID, out["findings"])
+        self.assertIn(STALE_ID, out["findings"])
+
+        # Line 82 is from the newest review — current.
+        current = out["findings"][CURRENT_ID]
+        self.assertTrue(current["current"])
+        self.assertEqual(current["prior_same_path"], [STALE_ID])
+
+        # Line 89 is from the older review — stale.
+        stale = out["findings"][STALE_ID]
+        self.assertFalse(stale["current"])
+        self.assertEqual(stale["prior_same_path"], [])
+
+        self.assertEqual(out["stale_unlinked"], [STALE_ID])
+
+        # The newest review says "Findings: None" — claimed count is 0.
+        self.assertEqual(out["newest"]["findings_claimed"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()
