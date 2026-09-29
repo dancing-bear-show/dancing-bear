@@ -10,6 +10,7 @@ from ._base import (
     RequestConsumer,
     check_service_required,
 )
+from calendars.selection import is_one_off_event
 
 
 @dataclass
@@ -38,11 +39,6 @@ class OutlookListOneOffsProcessor(SafeProcessor[OutlookListOneOffsRequest, Outlo
     def __init__(self, today_factory=None) -> None:
         self._window = DateWindowResolver(today_factory)
 
-    def _is_one_off(self, ev: dict[str, Any]) -> bool:
-        """Return True if the event is a single-instance (not part of a series)."""
-        etype = (ev.get("type") or "").lower()
-        return etype == "singleinstance" or not ev.get("seriesMasterId")
-
     def _event_to_row(self, ev: dict[str, Any]) -> dict[str, str]:
         """Convert an Outlook event dict to a flat row dict."""
         return {
@@ -64,7 +60,7 @@ class OutlookListOneOffsProcessor(SafeProcessor[OutlookListOneOffsRequest, Outlo
             end_iso=end_iso,
             calendar_name=payload.calendar,
         ))
-        one_offs = [ev for ev in (evs or []) if self._is_one_off(ev)]
+        one_offs = [ev for ev in (evs or []) if is_one_off_event(ev)]
         rows = [self._event_to_row(ev) for ev in one_offs[:max(0, payload.limit)]]
         return OutlookListOneOffsResult(
             rows=rows,

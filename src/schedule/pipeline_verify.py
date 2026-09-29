@@ -15,24 +15,9 @@ from schedule.pipeline_expand import _norm_dt_minute, _expand_recurring_occurren
 _ERR_NO_PLAN_EVENTS = "Invalid plan: no events found"
 
 
-@dataclass
-class OutlookAuth:
-    profile: str | None
-    client_id: str | None
-    tenant: str | None
-    token_path: str | None
-
-
-def _build_outlook_service(auth: OutlookAuth):
+def _build_outlook_service(config: OutlookServiceConfig):
     try:
-        return build_outlook_service(
-            OutlookServiceConfig(
-                profile=auth.profile,
-                client_id=auth.client_id,
-                tenant=auth.tenant,
-                token_path=auth.token_path,
-            )
-        ), None
+        return build_outlook_service(config), None
     except RuntimeError as exc:
         return None, str(exc)
     except (ImportError, OSError, ValueError) as exc:  # nosec B110 - surface provider init failures as error tuple
@@ -59,7 +44,7 @@ class VerifyRequest:
     from_date: str | None
     to_date: str | None
     match: str
-    auth: OutlookAuth
+    auth: OutlookServiceConfig
 
 
 # Type alias using generic RequestConsumer from core.pipeline
@@ -219,7 +204,7 @@ class SyncRequest:
     delete_missing: bool
     delete_unplanned_series: bool
     apply: bool
-    auth: OutlookAuth
+    auth: OutlookServiceConfig
 
 
 # Type alias using generic RequestConsumer from core.pipeline

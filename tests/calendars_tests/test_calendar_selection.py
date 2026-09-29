@@ -10,7 +10,16 @@ from __future__ import annotations
 import datetime as _dt
 import unittest
 
-from calendars.selection import _parse_dt, compute_window, filter_events_by_day_time
+from calendars.selection import (
+    compute_window,
+    extract_hhmm,
+    filter_events_by_day_time,
+    filter_events_in_window,
+    is_one_off_event,
+    iso_weekday_code,
+    parse_dt,
+    window_bounds_utc,
+)
 
 
 class TestComputeWindow(unittest.TestCase):
@@ -363,7 +372,7 @@ class TestFilterEventsUtcToLocal(unittest.TestCase):
 class TestParseDtGraphFractionalSeconds(unittest.TestCase):
     """Pin the assumption that let a fraction-trimming fallback be removed.
 
-    ``_parse_dt`` once retried through a helper that stripped an "over-long"
+    ``parse_dt`` once retried through a helper that stripped an "over-long"
     fractional part, on the premise that ``fromisoformat`` rejects Graph's
     seven digits. It does not, on any Python this project supports, so the
     retry path was unreachable and untested. These tests fail if that premise
@@ -382,14 +391,14 @@ class TestParseDtGraphFractionalSeconds(unittest.TestCase):
         for raw in self.GRAPH_FORMS:
             with self.subTest(raw=raw):
                 self.assertIsNotNone(
-                    _parse_dt(raw), f"fromisoformat no longer accepts {raw!r}"
+                    parse_dt(raw), f"fromisoformat no longer accepts {raw!r}"
                 )
 
     def test_offset_is_preserved_not_collapsed_to_utc(self):
         # The reason this does not delegate to core.date_utils.parse_iso_utc:
         # that helper returns the instant in UTC, losing the local offset
         # _as_local needs to express it in a target zone.
-        parsed = _parse_dt("2026-09-27T10:30:00-04:00")
+        parsed = parse_dt("2026-09-27T10:30:00-04:00")
         self.assertIsNotNone(parsed)
         self.assertEqual(parsed.utcoffset(), _dt.timedelta(hours=-4))
         self.assertEqual(parsed.hour, 10)
@@ -397,7 +406,55 @@ class TestParseDtGraphFractionalSeconds(unittest.TestCase):
     def test_unparseable_returns_none(self):
         for raw in ("", "   ", "not-a-date", "2026-13-45T99:99:99"):
             with self.subTest(raw=raw):
-                self.assertIsNone(_parse_dt(raw))
+                self.assertIsNone(parse_dt(raw))
+
+
+
+class TestIsoFieldHelpers(unittest.TestCase):
+    def test_extract_hhmm(self):
+        self.assertEqual(extract_hhmm("2025-01-06T17:05:00.0000000"), "17:05")
+        self.assertEqual(extract_hhmm("2025-01-06"), "")
+
+    def test_iso_weekday_code_keeps_source_offset(self):
+        # 23:30 at -05:00 is still Monday locally, Tuesday in UTC.
+        self.assertEqual(iso_weekday_code("2025-01-06T23:30:00-05:00"), "mo")
+        self.assertEqual(iso_weekday_code("2025-01-06T10:00:00Z"), "mo")
+        self.assertEqual(iso_weekday_code("not a date"), "")
+
+    def test_is_one_off_event(self):
+        self.assertTrue(is_one_off_event({"type": "singleInstance", "seriesMasterId": "x"}))
+        self.assertTrue(is_one_off_event({"type": "occurrence"}))
+        self.assertFalse(is_one_off_event({"type": "occurrence", "seriesMasterId": "x"}))
+
+
+class TestFilterEventsInWindow(unittest.TestCase):
+    def _ev(self, start: str, end: str, tz: str = "UTC") -> dict:
+        return {"start": {"dateTime": start, "timeZone": tz}, "end": {"dateTime": end, "timeZone": tz}}
+
+    def test_keeps_overlap_drops_outside_and_touching(self):
+        bounds = window_bounds_utc("2025-01-06T00:00:00", "2025-01-06T23:59:59")
+        inside = self._ev("2025-01-06T10:00:00", "2025-01-06T11:00:00")
+        straddles = self._ev("2025-01-05T23:00:00", "2025-01-06T01:00:00")
+        ends_at_start = self._ev("2025-01-05T23:00:00", "2025-01-06T00:00:00")
+        after = self._ev("2025-01-07T10:00:00", "2025-01-07T11:00:00")
+        self.assertEqual(
+            filter_events_in_window([inside, straddles, ends_at_start, after], *bounds),
+            [inside, straddles],
+        )
+
+    def test_converts_event_zone_before_comparing(self):
+        # 20:00 Toronto on the 6th is 01:00 UTC on the 7th: outside a UTC day window.
+        bounds = window_bounds_utc("2025-01-06T00:00:00", "2025-01-06T23:59:59")
+        ev = self._ev("2025-01-06T20:00:00", "2025-01-06T21:00:00", tz="America/Toronto")
+        self.assertEqual(filter_events_in_window([ev], *bounds), [])
+
+    def test_unparseable_start_is_kept(self):
+        bounds = window_bounds_utc("2025-01-06T00:00:00", "2025-01-06T23:59:59")
+        ev = self._ev("garbage", "garbage")
+        self.assertEqual(filter_events_in_window([ev], *bounds), [ev])
+
+    def test_window_bounds_utc_rejects_unparseable(self):
+        self.assertIsNone(window_bounds_utc("2025-01-06T00:00:00", "nope"))
 
 
 if __name__ == "__main__":  # pragma: no cover

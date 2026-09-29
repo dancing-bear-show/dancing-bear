@@ -5,6 +5,7 @@ from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
 from unittest import TestCase
 
+from core.auth import OutlookServiceConfig
 from core.pipeline import ResultEnvelope
 from schedule.pipeline import (
     ApplyProducer,
@@ -459,7 +460,7 @@ class BuildVerifyLinesSubjectTimeTests(TestCase):
     """Tests for _build_verify_lines_subject_time function."""
 
     def test_no_missing_no_extras(self):
-        from schedule.pipeline import VerifyRequest, OutlookAuth
+        from schedule.pipeline import VerifyRequest
 
         payload = VerifyRequest(
             plan_path=Path("plan.yaml"),
@@ -467,7 +468,7 @@ class BuildVerifyLinesSubjectTimeTests(TestCase):
             from_date="2025-01-15",
             to_date="2025-01-17",
             match="subject-time",
-            auth=OutlookAuth(profile=None, client_id=None, tenant=None, token_path=None),
+            auth=OutlookServiceConfig(),
         )
         plan_keys = {"a|2025-01-15T10:00|2025-01-15T11:00"}
         have_keys = {"a|2025-01-15T10:00|2025-01-15T11:00"}
@@ -476,7 +477,7 @@ class BuildVerifyLinesSubjectTimeTests(TestCase):
         self.assertTrue(any("Extras not in plan: none" in line for line in lines))
 
     def test_with_missing(self):
-        from schedule.pipeline import VerifyRequest, OutlookAuth
+        from schedule.pipeline import VerifyRequest
 
         payload = VerifyRequest(
             plan_path=Path("plan.yaml"),
@@ -484,7 +485,7 @@ class BuildVerifyLinesSubjectTimeTests(TestCase):
             from_date="2025-01-15",
             to_date="2025-01-17",
             match="subject-time",
-            auth=OutlookAuth(profile=None, client_id=None, tenant=None, token_path=None),
+            auth=OutlookServiceConfig(),
         )
         plan_keys = {"a|2025-01-15T10:00|2025-01-15T11:00", "b|2025-01-16T10:00|2025-01-16T11:00"}
         have_keys = {"a|2025-01-15T10:00|2025-01-15T11:00"}
@@ -496,7 +497,7 @@ class BuildVerifyLinesSubjectTests(TestCase):
     """Tests for _build_verify_lines_subject function."""
 
     def test_no_missing_no_extras(self):
-        from schedule.pipeline import VerifyRequest, OutlookAuth
+        from schedule.pipeline import VerifyRequest
 
         payload = VerifyRequest(
             plan_path=Path("plan.yaml"),
@@ -504,7 +505,7 @@ class BuildVerifyLinesSubjectTests(TestCase):
             from_date="2025-01-15",
             to_date="2025-01-17",
             match="subject",
-            auth=OutlookAuth(profile=None, client_id=None, tenant=None, token_path=None),
+            auth=OutlookServiceConfig(),
         )
         events = [{"subject": "Meeting"}]
         occ = [{"subject": "Meeting"}]
@@ -512,7 +513,7 @@ class BuildVerifyLinesSubjectTests(TestCase):
         self.assertTrue(any("Missing: none" in line for line in lines))
 
     def test_with_missing_subject(self):
-        from schedule.pipeline import VerifyRequest, OutlookAuth
+        from schedule.pipeline import VerifyRequest
 
         payload = VerifyRequest(
             plan_path=Path("plan.yaml"),
@@ -520,7 +521,7 @@ class BuildVerifyLinesSubjectTests(TestCase):
             from_date="2025-01-15",
             to_date="2025-01-17",
             match="subject",
-            auth=OutlookAuth(profile=None, client_id=None, tenant=None, token_path=None),
+            auth=OutlookServiceConfig(),
         )
         events = [{"subject": "Meeting"}, {"subject": "Standup"}]
         occ = [{"subject": "Meeting"}]

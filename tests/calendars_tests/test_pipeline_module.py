@@ -59,5 +59,76 @@ class TestLoadScheduleSources(unittest.TestCase):
         self.assertEqual(results[0].get("subject"), "Recurring Class")
 
 
+
+def _full_item():
+    from calendars.importer.model import ScheduleItem
+
+    return ScheduleItem(
+        subject="Swim",
+        start_iso="2025-01-10T17:00",
+        end_iso="2025-01-10T18:00",
+        recurrence="weekly",
+        byday=["MO", "WE"],
+        start_time="17:00",
+        end_time="18:00",
+        range_start="2025-01-06",
+        range_until="2025-03-31",
+        count=12,
+        location="Pool (1 Main St, Town, ON A1A 1A1)",
+        notes="<p>Bring goggles</p>",
+    )
+
+
+#: Every ScheduleItem field, as both callers must emit it.
+_FULL_EVENT = {
+    "subject": "Swim",
+    "start": "2025-01-10T17:00",
+    "end": "2025-01-10T18:00",
+    "repeat": "weekly",
+    "byday": ["MO", "WE"],
+    "start_time": "17:00",
+    "end_time": "18:00",
+    "range": {"start_date": "2025-01-06", "until": "2025-03-31"},
+    "count": 12,
+    "location": "Pool (1 Main St, Town, ON A1A 1A1)",
+    "body_html": "<p>Bring goggles</p>",
+}
+
+
+class TestLoadScheduleSourcesFieldCoverage(unittest.TestCase):
+    """The shared loader and the schedule plan caller map every ScheduleItem field."""
+
+    def test_calendars_loader_carries_every_field(self):
+        from calendars.pipeline_base import load_schedule_sources
+
+        with patch("calendars.importer.load_schedule", return_value=[_full_item()]):
+            results = load_schedule_sources(["sched.csv"], kind="csv")
+
+        self.assertEqual(results, [_FULL_EVENT])
+
+    def test_schedule_plan_carries_every_field(self):
+        from pathlib import Path
+
+        from schedule.pipeline import PlanProcessor, PlanRequest
+
+        with patch("calendars.importer.load_schedule", return_value=[_full_item()]):
+            env = PlanProcessor().process(
+                PlanRequest(sources=["sched.csv"], kind="csv", out_path=Path("plan.yaml"))
+            )
+
+        self.assertTrue(env.ok(), env.diagnostics)
+        self.assertEqual(env.payload.document, {"events": [_FULL_EVENT]})
+
+    def test_empty_range_is_dropped(self):
+        from calendars.importer.model import ScheduleItem
+        from calendars.pipeline_base import load_schedule_sources
+
+        item = ScheduleItem(subject="Once", start_iso="2025-01-10T17:00", end_iso="2025-01-10T18:00")
+        with patch("calendars.importer.load_schedule", return_value=[item]):
+            results = load_schedule_sources(["sched.csv"], kind="csv")
+
+        self.assertNotIn("range", results[0])
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
