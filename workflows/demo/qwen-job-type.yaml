@@ -792,8 +792,8 @@ stages:
            this drain (not incremented, not reset to 0 — the same number it
            had going in). The unchanged count is the entire point of the
            deferred- protocol: job_runtime's _handle_outcome calls
-           _undo_retry_attempt to restore the pre-drain attempts after a
-           deferred- requeue, precisely so a defer never consumes a retry.
+           q.retry(..., count_attempt=False) for a deferred- outcome, which
+           leaves attempts unchanged, precisely so a defer never consumes a retry.
            Asserting only "it did not complete" would also pass for a plain
            retry, which increments attempts — record the before/after
            attempts count for this case to prove it did NOT change.
