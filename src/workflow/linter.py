@@ -13,6 +13,10 @@ Additional checks beyond the parser:
   against the actual CLI binaries when ``check_commands=True``.
 - ``agent.access`` is cross-checked against the role's agent definition, because
   the field restricts nothing at runtime. See ``linter_access._check_agent_access``.
+- Shell embedded in stage prose is checked for unvalidated params, unquoted
+  fan-out keys, unbound variables, un-isolated python, and guard-refused
+  constructs; validate stages that instruct a write are flagged. Warnings carry
+  a stable ``rule`` id. See ``linter_shell``.
 """
 
 from __future__ import annotations
@@ -24,12 +28,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from workflow.models import StageSpec, WorkflowDefinition
+    from workflow.models import ParamRules, StageSpec, WorkflowDefinition
 
 from .harness_outputs import describe, find_refused_outputs
 from .include import extract_include_entries, resolve_fragment_path
 from .linter_access import _check_agent_access, _check_stage_access
+from .linter_shell import RULE_UNVALIDATED_PARAM, ShellLintContext, check_shell_rules
 from .linter_types import LintError, LintResult, LintWarning
+from .param_rules import ENGINE_BUILTIN_PARAMS
 from .placeholders import find_refs, in_backtick_span
 
 __all__ = [
@@ -121,13 +127,94 @@ def lint_workflow(path: str | Path, *, check_commands: bool = False) -> LintResu
     _check_inline_executor(defn, result)
     _check_agent_access(defn, result)
     _check_refused_output_names(defn.stages, defn.trigger.params or {}, result)
+    inlined = frozenset(s.name for s in defn.stages) - _own_stage_names(_top)
+    check_shell_rules(
+        defn.stages, _shell_context(defn.trigger.params, defn.trigger.rules, inlined), result
+    )
     _check_escape_style_braces(tuple(defn.stages), result)
 
     if check_commands:
         _check_cli_commands(defn, result)
 
+    _lint_included_fragments(text, p, result)
+
     result.valid = len(result.errors) == 0
     return result
+
+
+def _lint_included_fragments(text: str, workflow_path: Path, result: LintResult) -> None:
+    """Recursively lint every fragment reachable from ``include:``, own errors folded in.
+
+    ``check_shell_rules`` skips the context-free rules (unbound-variable, fan-out
+    quoting, isolation, guard-refused, validate-writes) for stages inlined from a
+    fragment, because those rules are judged against the fragment's own params --
+    not the importer's -- and get judged when the fragment is linted on its own
+    (see ``_lint_fragment``). Nothing previously did that second lint automatically,
+    so a normal ``workflow lint parent.yaml`` never ran them on an included stage at
+    all: the skip fired, and no other call site picked up the slack.
+
+    Each fragment file is linted at most once per top-level ``lint_workflow`` call
+    (`` _own_stage_names``/`` _check_include_files`` already error on a missing file
+    or a cycle, so this only needs to dedupe, not detect cycles itself). Fragment
+    warnings and errors are folded into *result* with the fragment path prefixed
+    onto the stage name, so they read distinctly from the importer's own findings
+    and from a second fragment reusing the same stage name.
+    """
+    seen: set[str] = set()
+    _lint_fragments_from(text, workflow_path, result, seen)
+
+
+def _lint_fragments_from(
+    text: str, source_path: Path, result: LintResult, seen: set[str]
+) -> None:
+    for inc in extract_include_entries(text):
+        if not isinstance(inc, dict) or "path" not in inc:
+            continue
+        frag_path = resolve_fragment_path(str(inc["path"]), source_path)
+        key = str(frag_path.resolve()) if frag_path.exists() else str(frag_path)
+        if key in seen or not frag_path.exists():
+            continue
+        seen.add(key)
+        frag_result = lint_workflow(frag_path)
+        _merge_fragment_findings(frag_path, frag_result, result)
+        try:
+            frag_text = frag_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        _lint_fragments_from(frag_text, frag_path, result, seen)
+
+
+def _merge_fragment_findings(frag_path: Path, frag_result: LintResult, result: LintResult) -> None:
+    """Fold a fragment's own lint findings into the importer's *result*.
+
+    Stage names are prefixed with the fragment's path so a warning reads as
+    belonging to the fragment, not the importer, and does not collide with an
+    importer stage of the same bare name.
+
+    ``shell-unvalidated-param`` is dropped here: it is the one shell rule that
+    is context-dependent (it asks whether a caller-overridable ``{param}`` is
+    constrained by ``trigger.param_rules`` or a ``check-params`` call), and the
+    fragment's standalone lint judges it only against the fragment's own
+    trigger -- not the importer's. The importer's own ``check_shell_rules``
+    call in ``lint_workflow`` already re-judges every inlined stage (including
+    this fragment's) under the importer's merged context, so re-including the
+    fragment's standalone verdict here would surface a false warning whenever
+    the importer supplies a ``param_rules`` entry the fragment lacks. The
+    context-free rules (unbound-variable, fan-out quoting, isolation,
+    guard-refused, validate-writes) have no such duplicate check for inlined
+    stages, so they are kept.
+    """
+    label = frag_path.name
+    for w in frag_result.warnings:
+        if w.rule == RULE_UNVALIDATED_PARAM:
+            continue
+        result.warnings.append(
+            LintWarning(stage=f"{label}:{w.stage}", field=w.field, message=w.message, rule=w.rule)
+        )
+    for e in frag_result.errors:
+        result.errors.append(
+            LintError(stage=f"{label}:{e.stage}", field=e.field, message=e.message)
+        )
 
 
 def _lint_fragment(p: Path, text: str, result: LintResult) -> LintResult:
@@ -151,13 +238,17 @@ def _lint_fragment(p: Path, text: str, result: LintResult) -> LintResult:
     # propagates to importers -- judge them here too, or a refused default
     # passes standalone lint until some importer happens to be linted.
     from workflow.include import _frag_trigger
+    from workflow.models import ParamRules
 
     try:
-        frag_params, _ = _frag_trigger(text, str(p))
+        frag_params, frag_rules = _frag_trigger(text, str(p))
     except WorkflowParseError as exc:
         result.errors.append(LintError(stage=_GLOBAL_STAGE, field="trigger", message=str(exc)))
-        frag_params = {}
+        frag_params, frag_rules = {}, ParamRules()
     _check_refused_output_names(stages, frag_params, result)
+    # Only the fragment's own params count as caller params here: the rest are
+    # the importer's, and each importer's lint judges them in its own context.
+    check_shell_rules(stages, _shell_context(frag_params, frag_rules), result)
     _check_escape_style_braces(tuple(stages), result)
     result.valid = len(result.errors) == 0
     return result
@@ -166,6 +257,33 @@ def _lint_fragment(p: Path, text: str, result: LintResult) -> LintResult:
 # ---------------------------------------------------------------------------
 # Private helpers
 # ---------------------------------------------------------------------------
+
+
+def _shell_context(
+    params: Mapping[str, str], rules: ParamRules, fragment_stages: frozenset[str] = frozenset()
+) -> ShellLintContext:
+    """Caller-overridable params and the ones the engine's param_rules constrain.
+
+    ``work_dir`` is excluded: the engine checks it with require_shell_safe_path.
+    """
+    return ShellLintContext(
+        caller_params=frozenset(params) - ENGINE_BUILTIN_PARAMS,
+        ruled_params=frozenset(c.name for c in rules.checks),
+        fragment_stages=fragment_stages,
+    )
+
+
+def _own_stage_names(top: object) -> frozenset[str]:
+    """Names of the stages written in the file itself, not inlined by ``include:``.
+
+    ``_fragment_stage_names`` keys on the include prefix, and an include with
+    ``prefix: ""`` inlines stages under their own names, so it cannot tell them
+    apart. The raw YAML can.
+    """
+    stages = top.get("stages") if isinstance(top, dict) else None
+    if not isinstance(stages, list):
+        return frozenset()
+    return frozenset(str(s["name"]) for s in stages if isinstance(s, dict) and "name" in s)
 
 
 def _fragment_stage_names(defn: object) -> frozenset[str]:

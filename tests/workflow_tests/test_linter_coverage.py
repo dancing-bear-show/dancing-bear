@@ -638,5 +638,137 @@ stages:
         self.assertEqual(len(caller_warnings), 1)
 
 
+# ---------------------------------------------------------------------------
+# _merge_fragment_findings -- drop shell-unvalidated-param from fragment merge
+# (PR #433 review r4122812441)
+# ---------------------------------------------------------------------------
+
+# A fragment stage whose shell substitutes an unruled {host} into curl. Its own
+# trigger declares "host" as a param (so shell-unvalidated-param treats it as
+# caller-overridable when the fragment is linted standalone) but has no
+# param_rules entry for it, so standalone lint always fires here regardless of
+# what an importer later constrains.
+_FRAG_HOST_PROBE = (
+    "fragment: true\n"
+    "trigger:\n"
+    "  params:\n"
+    '    host: "http://example.com"\n'
+    "stages:\n"
+    "  - name: probe\n"
+    "    kind: execute\n"
+    "    description: >\n"
+    "      Probe the host:\n\n"
+    "        curl -sS -m 3 {host}/health\n"
+    "    agent:\n"
+    "      role: code-writer\n"
+)
+
+# A fragment stage with a context-free finding (python-not-isolated) that has
+# no param at all -- must survive the merge regardless of the importer's
+# trigger, because no importer-side check_shell_rules call re-judges it.
+_FRAG_BARE_PYTHON = (
+    "fragment: true\n"
+    "stages:\n"
+    "  - name: run-script\n"
+    "    kind: execute\n"
+    "    description: >\n"
+    "      Run it:\n\n"
+    "        python3 tests/fixtures/build.py\n"
+    "    agent:\n"
+    "      role: code-writer\n"
+)
+
+
+def _parent_yaml(frag_path: Path, *, rules: str = "") -> str:
+    trigger_rules = f"  param_rules:\n    host: '{rules}'\n" if rules else ""
+    return (
+        "name: test-wf\n"
+        'version: "1.0"\n'
+        "description: Test\n"
+        "trigger:\n"
+        "  source: manual\n"
+        "  params:\n"
+        '    host: "http://example.com"\n'
+        f"{trigger_rules}"
+        "include:\n"
+        f"  - path: {frag_path}\n"
+        "    prefix: frag\n"
+        "stages:\n"
+        "  - name: gather\n"
+        "    kind: gather\n"
+        "    description: Gather\n"
+        "    agent:\n"
+        "      role: researcher\n"
+    )
+
+
+class TestMergeFragmentFindingsDropsUnvalidatedParam(unittest.TestCase):
+    """Reviewer PRRT_kwDOQr1kjM6ms2UA: a fragment linted standalone reports
+    shell-unvalidated-param against its own (ruleless) trigger even when the
+    importer's trigger.param_rules already constrains that param for the
+    inlined stage. _merge_fragment_findings must drop that rule id from what
+    it folds in, because lint_workflow's own check_shell_rules call already
+    re-judges every inlined stage -- including this fragment's -- under the
+    importer's merged context.
+    """
+
+    def test_sad_path_importer_param_rules_suppresses_fragment_warning(self) -> None:
+        # SAD path (this is the bug): the parent constrains {host} with a
+        # param_rules entry the fragment itself does not declare. Without the
+        # fix, the fragment's standalone shell-unvalidated-param finding for
+        # "host" still gets merged into the parent's result as a false
+        # positive, because the fragment's own trigger has no rule for it.
+        with tempfile.TemporaryDirectory() as tmp:
+            frag = Path(tmp) / "frag.yaml"
+            frag.write_text(_FRAG_HOST_PROBE, encoding="utf-8")
+            wf = Path(tmp) / "wf.yaml"
+            wf.write_text(
+                _parent_yaml(frag, rules=r"https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?/?"),
+                encoding="utf-8",
+            )
+            result = lint_workflow(wf)
+
+        unvalidated = [w for w in result.warnings if w.rule == "shell-unvalidated-param"]
+        self.assertEqual(
+            unvalidated,
+            [],
+            f"fragment's standalone shell-unvalidated-param leaked through despite "
+            f"the importer's param_rules entry: {unvalidated}",
+        )
+
+    def test_happy_path_unconstrained_param_still_warns_from_parent_context(self) -> None:
+        # HAPPY path: the parent does NOT constrain {host} at all. The
+        # warning must still appear -- not from the fragment's merged-in
+        # standalone finding (which is now dropped), but from the importer's
+        # own check_shell_rules pass over its inlined stages, which sees the
+        # same unruled {host} in its own merged context.
+        with tempfile.TemporaryDirectory() as tmp:
+            frag = Path(tmp) / "frag.yaml"
+            frag.write_text(_FRAG_HOST_PROBE, encoding="utf-8")
+            wf = Path(tmp) / "wf.yaml"
+            wf.write_text(_parent_yaml(frag), encoding="utf-8")
+            result = lint_workflow(wf)
+
+        unvalidated = [w for w in result.warnings if w.rule == "shell-unvalidated-param"]
+        self.assertEqual(len(unvalidated), 1)
+        self.assertIn("{host}", unvalidated[0].message)
+
+    def test_happy_path_context_free_fragment_finding_still_merged(self) -> None:
+        # A context-free rule (python-not-isolated) in the fragment has no
+        # importer-side re-check for inlined stages, so it must still surface
+        # through the merge -- proving the fix only drops
+        # shell-unvalidated-param, not every fragment finding.
+        with tempfile.TemporaryDirectory() as tmp:
+            frag = Path(tmp) / "frag.yaml"
+            frag.write_text(_FRAG_BARE_PYTHON, encoding="utf-8")
+            wf = Path(tmp) / "wf.yaml"
+            wf.write_text(_parent_yaml(frag), encoding="utf-8")
+            result = lint_workflow(wf)
+
+        isolated = [w for w in result.warnings if w.rule == "python-not-isolated"]
+        self.assertEqual(len(isolated), 1)
+        self.assertIn("frag.yaml:", isolated[0].stage)
+
+
 if __name__ == "__main__":
     unittest.main()
