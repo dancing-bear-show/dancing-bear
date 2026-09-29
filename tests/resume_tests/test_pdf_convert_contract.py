@@ -120,7 +120,7 @@ class TestConvertArgvIsAList(unittest.TestCase):
             convert_docx_to_pdf("/in/resume.docx", "/out/resume.pdf")
 
         argv = runner.call_args[0][0]
-        self.assertIsInstance(argv, (list, tuple))
+        self.assertIsInstance(argv, list)
         for element in argv:
             self.assertIsInstance(element, str)
         # shell=True would reintroduce the injection surface the list form avoids.
@@ -210,6 +210,19 @@ class TestConvertResultTruthiness(unittest.TestCase):
 
         self.assertFalse(result)
         self.assertIs(result.failure, ConversionFailure.CONVERTER_TIMEOUT)
+
+    def test_soffice_exiting_124_is_an_error_not_a_timeout(self) -> None:
+        """rc 124 is only a timeout when TimeoutExpired actually fired."""
+        result, _call = _capture_convert("/in/a.docx", "/out/a.pdf", returncode=124)
+
+        self.assertFalse(result)
+        self.assertIs(result.failure, ConversionFailure.CONVERTER_ERROR)
+
+    def test_soffice_exiting_127_is_an_error_not_missing(self) -> None:
+        result, _call = _capture_convert("/in/a.docx", "/out/a.pdf", returncode=127)
+
+        self.assertFalse(result)
+        self.assertIs(result.failure, ConversionFailure.CONVERTER_ERROR)
 
     def test_invalid_other_oserror_is_not_swallowed(self) -> None:
         """Only TimeoutExpired and FileNotFoundError are caught.

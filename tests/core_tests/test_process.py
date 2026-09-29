@@ -74,11 +74,26 @@ class RunBinaryFailureTests(unittest.TestCase):
         self.assertIsInstance(res.exec_error, FileNotFoundError)
 
     def test_real_exit_127_has_no_exec_error(self):
-        # rc 127 alone is ambiguous; exec_error separates a spawn failure from
-        # a process that genuinely exited 127.
+        # rc 127 alone is ambiguous; a process that genuinely exited 127 was
+        # found and run, so it is not "not found".
         res = run_binary(["sh", "-c", "exit 127"])
-        self.assertTrue(res.not_found)
+        self.assertEqual(res.returncode, 127)
+        self.assertFalse(res.not_found)
         self.assertIsNone(res.exec_error)
+
+    def test_real_exit_124_is_not_a_timeout(self):
+        res = run_binary(["sh", "-c", "exit 124"], timeout=5)
+        self.assertEqual(res.returncode, 124)
+        self.assertFalse(res.timed_out)
+
+    def test_argv_reaches_subprocess_as_a_list(self):
+        with patch("core.process.subprocess.run") as run:
+            run.return_value.returncode = 0
+            run.return_value.stdout = ""
+            run.return_value.stderr = ""
+            res = run_binary(("echo", "x"))
+        self.assertEqual(run.call_args[0][0], ["echo", "x"])
+        self.assertEqual(res.command, ("echo", "x"))
 
     def test_non_executable_binary_is_not_reported_as_missing(self):
         # rc 127 covers every exec failure, not just ENOENT. A file that exists
@@ -114,6 +129,7 @@ class RunBinaryFailureTests(unittest.TestCase):
         # still produce a message rather than crash on command[0].
         res = run_binary([])
         self.assertEqual(res.returncode, RC_NOT_FOUND)
+        self.assertTrue(res.not_found)
         self.assertIn("<empty>", res.stderr)
 
 
@@ -168,10 +184,12 @@ class CompletedRunTests(unittest.TestCase):
             res.returncode = 1
 
     def test_sentinel_properties_are_exclusive(self):
-        self.assertTrue(CompletedRun("", "", RC_TIMEOUT).timed_out)
-        self.assertFalse(CompletedRun("", "", RC_TIMEOUT).not_found)
-        self.assertTrue(CompletedRun("", "", RC_NOT_FOUND).not_found)
-        self.assertFalse(CompletedRun("", "", RC_NOT_FOUND).timed_out)
+        timeout = CompletedRun("", "", RC_TIMEOUT, timed_out=True)
+        self.assertTrue(timeout.timed_out)
+        self.assertFalse(timeout.not_found)
+        missing = CompletedRun("", "", RC_NOT_FOUND, exec_error=FileNotFoundError())
+        self.assertTrue(missing.not_found)
+        self.assertFalse(missing.timed_out)
         self.assertTrue(CompletedRun("", "", 0).ok)
 
 

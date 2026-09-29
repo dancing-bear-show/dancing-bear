@@ -371,6 +371,14 @@ class TestValidateCliCommand(unittest.TestCase):
         assert result is not None  # nosec B101 - type narrowing for mypy only
         self.assertIn("command not found", result.message)
 
+    def test_real_exit_124_is_not_reported_as_timeout(self) -> None:
+        # rc 124 from a process that ran is an ordinary failure, not a timeout.
+        with tempfile.TemporaryDirectory() as tmp:
+            self._real_bin(tmp, "echo boom >&2; exit 124")
+            with contextlib.chdir(tmp):
+                result = _validate_cli_command("fake", "x", "stage1")
+        self.assertIsNone(result)
+
     def test_real_exit_127_is_not_reported_missing(self) -> None:
         # rc 127 from a process that ran is an ordinary failure, not a missing bin.
         with tempfile.TemporaryDirectory() as tmp:

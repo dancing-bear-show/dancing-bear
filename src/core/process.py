@@ -21,6 +21,7 @@ where the error message can say what the failure meant.
 """
 from __future__ import annotations
 
+import errno
 import subprocess  # nosec B404 - deliberate; the single call site below is B603-reviewed
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -41,9 +42,12 @@ class CompletedRun:
     stderr: str
     returncode: int
     command: tuple[str, ...] = field(default=())
-    # The OSError that prevented exec, when there was one. ``not_found`` alone
-    # cannot tell a missing binary from a non-executable one, nor either from a
-    # process that really exited 127.
+    # Set only when subprocess.TimeoutExpired fired. The return code cannot
+    # carry this: a process may genuinely exit 124.
+    timed_out: bool = False
+    # The OSError that prevented exec, when there was one. It separates a
+    # missing binary from a non-executable one, and either from a process that
+    # genuinely exited 127.
     exec_error: OSError | None = field(default=None, compare=False, repr=False)
 
     @property
@@ -56,14 +60,9 @@ class CompletedRun:
         return self.returncode == 0
 
     @property
-    def timed_out(self) -> bool:
-        """True when the call exceeded its timeout."""
-        return self.returncode == RC_TIMEOUT
-
-    @property
     def not_found(self) -> bool:
-        """True when the binary could not be executed."""
-        return self.returncode == RC_NOT_FOUND
+        """True when the binary could not be executed (not merely rc 127)."""
+        return self.exec_error is not None
 
 
 def _as_text(value: object, fallback: str = "") -> str:
@@ -88,7 +87,9 @@ def run_binary(
     Never uses ``shell=True``, so no metacharacter in an argument or resolved
     path can be interpreted. Never raises on a non-zero exit; a timeout yields
     ``RC_TIMEOUT`` and a missing or non-executable binary yields
-    ``RC_NOT_FOUND``, both with whatever output was captured.
+    ``RC_NOT_FOUND``, both with whatever output was captured. Test
+    ``timed_out`` / ``not_found`` rather than those codes: a process can exit
+    124 or 127 on its own.
 
     ``errors`` is the decode error handler (e.g. ``"replace"``); the default
     ``None`` is strict, so undecodable output raises ``UnicodeDecodeError``.
@@ -98,11 +99,14 @@ def run_binary(
         # subprocess indexes args[0] before any OSError can be raised, so an
         # empty vector escapes the handler below as IndexError.
         return CompletedRun(
-            stdout="", stderr="<empty>: no command given", returncode=RC_NOT_FOUND
+            stdout="",
+            stderr="<empty>: no command given",
+            returncode=RC_NOT_FOUND,
+            exec_error=FileNotFoundError(errno.ENOENT, "no command given"),
         )
     try:
         proc = subprocess.run(  # nosec B603 - fixed arg vector from the caller, never shell=True
-            command,
+            list(command),
             capture_output=True,
             text=True,
             cwd=str(cwd) if cwd is not None else None,
@@ -117,6 +121,7 @@ def run_binary(
             stderr=_as_text(exc.stderr, "timeout") or "timeout",
             returncode=RC_TIMEOUT,
             command=command,
+            timed_out=True,
         )
     except FileNotFoundError as exc:
         # ENOENT specifically: the binary is absent. Callers key terser
