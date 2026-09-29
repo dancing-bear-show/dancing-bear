@@ -68,13 +68,11 @@ def is_copilot_reviewer(
 ) -> bool:
     """True when the author is the Copilot pull-request reviewer.
 
-    Both halves are required: a typed field must confirm the account is a bot
-    (``typename == "Bot"`` checked first, then ``user_type == "Bot"``) AND the
-    normalised login must equal ``COPILOT_LOGIN``.  When neither typed field is
-    present this returns ``False`` — the login alone is not sufficient to
-    identify Copilot, as that would allow a ``User`` account with a matching
-    login to be misidentified.
+    Both halves are required: the first typed field present (``typename``, then
+    ``user_type``, as in ``classify_author``) must be ``"Bot"``, and the
+    normalised login must equal ``COPILOT_LOGIN``. With neither typed field
+    present this is ``False``: the login alone never identifies Copilot.
     """
-    if typename == "Bot" or user_type == "Bot":
-        return normalize_login(login) == COPILOT_LOGIN
-    return False
+    if (typename or user_type) != "Bot":
+        return False
+    return normalize_login(login) == COPILOT_LOGIN

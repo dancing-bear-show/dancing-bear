@@ -390,6 +390,11 @@ class TestIsCopilotReviewer(unittest.TestCase):
     def test_typename_user_with_copilot_login_is_not_copilot(self):
         self.assertFalse(is_copilot_reviewer("copilot-pull-request-reviewer", typename="User"))
 
+    def test_typename_decides_over_user_type(self):
+        self.assertFalse(
+            is_copilot_reviewer("copilot-pull-request-reviewer", typename="User", user_type="Bot")
+        )
+
     def test_bot_typed_non_copilot_login_is_not_copilot(self):
         self.assertFalse(is_copilot_reviewer("github-code-quality", typename="Bot"))
 
