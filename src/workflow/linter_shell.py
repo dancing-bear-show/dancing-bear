@@ -152,7 +152,13 @@ _PYTHONPATH_IGNORING_FLAGS = frozenset({"I", "E"})
 # .claude/hooks/_bash_write_targets.py, and the nested-shell check in
 # block-destructive-bash.sh (which adds fish).
 _SHELLS = frozenset({"sh", "bash", "zsh", "ksh", "dash", "fish"})
-_SHELL_VALUE_OPTS = frozenset({"--rcfile", "--init-file"})
+# h_shell's option spec: short letters and long names that take a value.
+_SHELL_SHORT_VALUE = "oO"
+_SHELL_LONG_VALUE = ("rcfile", "init-file")
+# block-destructive-bash.sh's nested-shell regex: after the shell name, any
+# run of letter-only clusters, then one ending in ``c``.
+_LETTER_CLUSTER_RE = re.compile(r"-[a-zA-Z]*")
+_NESTED_C_CLUSTER_RE = re.compile(r"-[a-zA-Z]*c")
 # h_find's actions (_bash_write_targets.py _FIND_OUTPUTS and _FIND_EXECS):
 # -delete acts on the roots, -fprint* write a file, -exec* run a command.
 _FIND_WRITE_ACTIONS = frozenset({"-delete", "-fprint", "-fprint0", "-fls", "-fprintf"})
@@ -645,36 +651,100 @@ class _ShellArgs:
     """What a ``sh``/``bash``/``zsh`` command line asks the shell to run."""
 
     has_c: bool  # -c: the first operand is shell code
+    has_s: bool  # -s: the program comes from stdin; operands are its arguments
     operand: str | None  # the first operand: the -c string, or a script file
 
 
-def _shell_option_width(arg: str) -> int:
-    """Words the shell option *arg* consumes; 0 when it is the first operand.
+def _drop_plus_options(args: list[str]) -> list[str]:
+    """*args* without ``+o NAME``/``+O NAME`` pairs and other ``+x`` words.
 
-    Mirrors h_shell's option table: ``-o``/``-O`` and ``--rcfile``/
-    ``--init-file`` take a value, and ``+o NAME`` unsets an option.
+    Mirrors ``_drop_plus_options`` in _bash_write_targets.py, which removes
+    them anywhere in the list before option parsing.
     """
-    if arg in ("+o", "+O") or arg in _SHELL_VALUE_OPTS:
-        return 2
-    if arg.startswith("-") and len(arg) > 1 and not arg.startswith("--"):
-        return 2 if arg[-1] in "oO" else 1
-    return 1 if arg.startswith(("+", "--")) and len(arg) > 1 else 0
+    kept: list[str] = []
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg.startswith("+") and len(arg) > 1:
+            i += 2 if arg in ("+o", "+O") else 1
+            continue
+        kept.append(arg)
+        i += 1
+    return kept
+
+
+def _takes_long_value(raw: str) -> bool:
+    """True when ``--raw`` (no ``=``) names a value-taking long option.
+
+    GNU getopt accepts a unique prefix, as ``_long_name`` does in the guard.
+    """
+    if raw in _SHELL_LONG_VALUE:
+        return True
+    matches = [name for name in _SHELL_LONG_VALUE if raw and name.startswith(raw)]
+    return len(matches) == 1
+
+
+def _cluster_letters(arg: str) -> tuple[str, bool]:
+    """Flag letters of the short cluster *arg*, and whether it takes the next word.
+
+    A value letter (``o``/``O``) ends the cluster: the rest of the word is
+    its value (``-oc`` sets option ``c``), or the next word is when nothing
+    follows it (``-eo pipefail``). Mirrors the guard's ``_OptReader._cluster``.
+    """
+    for k, ch in enumerate(arg[1:], start=1):
+        if ch in _SHELL_SHORT_VALUE:
+            return arg[1:k], k == len(arg) - 1
+    return arg[1:], False
 
 
 def _shell_args(args: list[str]) -> _ShellArgs:
-    """The ``-c`` flag and first operand of a shell's own argument list."""
-    has_c = False
+    """The ``-c``/``-s`` flags and first operand of a shell's own argument list.
+
+    Reads options the way h_shell does (getopt, stopping at the first
+    operand): letters combine in clusters (``-es``, ``-ec``), ``-o``/``-O``
+    and ``--rcfile``/``--init-file`` take a value, and ``--`` ends options.
+    """
+    args = _drop_plus_options(args)
+    letters = ""
     i = 0
-    while i < len(args) and (width := _shell_option_width(args[i])):
-        has_c = has_c or (not args[i].startswith(("--", "+")) and "c" in args[i][1:])
-        i += width
-    return _ShellArgs(has_c, args[i] if i < len(args) else None)
+    while i < len(args) and args[i].startswith("-") and args[i] != "-":
+        arg = args[i]
+        i += 1
+        if arg == "--":
+            break
+        if arg.startswith("--"):
+            raw, eq, _ = arg[2:].partition("=")
+            i += 1 if not eq and _takes_long_value(raw) else 0
+            continue
+        cluster, takes_next = _cluster_letters(arg)
+        letters += cluster
+        i += 1 if takes_next else 0
+    return _ShellArgs("c" in letters, "s" in letters, args[i] if i < len(args) else None)
 
 
 def _shell_reads_stdin(cmd: SimpleCommand) -> bool:
-    """h_shell refuses a shell with no ``-c`` and no script: its program comes from stdin."""
+    """h_shell refuses a shell with no ``-c`` and no script: its program comes from stdin.
+
+    ``-s`` in any cluster (``-s``, ``-es``) says so even with operands, which
+    are then the program's arguments; ``-c`` wins when both are given.
+    """
     shell = _shell_args(cmd.args)
-    return not shell.has_c and (shell.operand is None or "-s" in cmd.args)
+    return not shell.has_c and (shell.has_s or shell.operand is None)
+
+
+def _has_nested_c_cluster(args: list[str]) -> bool:
+    """block-destructive-bash.sh's test for ``sh -c``: a ``c``-ending letter cluster.
+
+    Its regex accepts only letter clusters before it, so ``bash -ec x``
+    matches while ``bash -o pipefail -c x`` and ``bash --norc -c x`` do not
+    (h_shell still parses those strings; see :func:`_inner_commands`).
+    """
+    for arg in args:
+        if _NESTED_C_CLUSTER_RE.fullmatch(arg):
+            return True
+        if not _LETTER_CLUSTER_RE.fullmatch(arg):
+            return False
+    return False
 
 
 def _find_parts(cmd: SimpleCommand) -> tuple[list[str], list[tuple[ShellToken, ...]]]:
@@ -771,7 +841,8 @@ def _is_nested_shell(cmd: SimpleCommand) -> bool:
     """A command block-destructive-bash.sh refuses anywhere, loop or not.
 
     Its "Nested shell evaluation: fail closed" check blocks ``eval``, a
-    bare-named shell with a ``-c`` option cluster, and ``xargs`` into a
+    bare-named shell with a ``c``-ending option cluster (see
+    :func:`_has_nested_c_cluster`), and ``xargs`` into a
     shell, without inspecting the string. A path-qualified ``/bin/sh -c``
     escapes that check (README "Known gaps"); its string is judged through
     :func:`_expanded_commands` instead, as _bash_write_targets.py does.
@@ -785,7 +856,7 @@ def _is_nested_shell(cmd: SimpleCommand) -> bool:
         return False
     if any(w.text.rsplit("/", 1)[-1] == "xargs" for w in cmd.words[:cmd.command_index]):
         return True
-    return "/" not in word.text and _shell_args(cmd.args).has_c
+    return "/" not in word.text and _has_nested_c_cluster(cmd.args)
 
 
 def _refused_construct(script: ShellScript) -> str:

@@ -22,9 +22,10 @@ only with a ``then``. A wrapper from :data:`shell_parse.WRAPPER_NAMES`
 (``env``, ``timeout``, ``sudo``, ``time`` ...) counts only when the command it
 runs is itself a command by these rules, so "timeout to interrupt a handler"
 stays prose. A bare or path-prefixed ``python``/``python3`` interpreter
-(optionally version-suffixed, e.g. ``python3.11``) counts on its own or before
-shell-looking operands; a bare operand followed by another bare word ("python3
-is required") is prose. A line whose unquoted ``)`` closes
+(optionally version-suffixed, e.g. ``python3.11``) counts unless the word after
+it is English -- a function word, verb, or version number ("python3 is
+required", "python 3.11 or newer"); ``python3 runner input`` is a command. A
+line whose unquoted ``)`` closes
 nothing is prose wrapped mid-parenthesis. Everything else, including a label
 before a command ("2. Server: curl ..."), is treated as prose: precision over
 recall.
@@ -98,12 +99,22 @@ _LABEL_RE = re.compile(r"^[^`:]*:[ \t]+(?=[A-Za-z_]\w*=)")
 # saw it. An interpreter word is judged by _interpreter_line_is_command,
 # which keeps "python3 is required" out while letting "python3 runner" in.
 _PYTHON_WORD_RE = re.compile(r"^(?:.*/)?python3?(?:\.\d+)?$")
+# Words that, right after an interpreter name, make the line English rather
+# than a command: function words and verbs ("python3 is required", "python3
+# and pip"), plus the nouns workflow prose puts there ("a short python3
+# script for", "every python invocation", "use python3 inline"). No script
+# is plausibly named one of these; any other first operand is a script.
+_INTERPRETER_PROSE_WORDS: frozenset[str] = frozenset({
+    "a", "an", "the", "and", "or", "not", "to", "for", "with", "on", "in", "of", "from", "as",
+    "is", "are", "was", "must", "should", "will", "can", "may",
+    "version", "interpreter", "installed", "required",
+    "script", "command", "invocation", "snippet", "inline", "there",
+})
+_PROSE_TRAILING_PUNCTUATION = ".,;:!?"
+# "python 3.11 or newer": a version number, never a script name.
+_VERSION_WORD_RE = re.compile(r"^\d")
 _PROMPT_PREFIX = "$ "
 _SHELLISH_ARG_PREFIXES = ("-", '"', "'", "$", ".", "/", "~", "{")
-# An interpreter operand that is shell rather than English: a path, an
-# assignment, an operator, or a file name with an extension (``run.py``).
-_SHELLISH_CHARS = frozenset("/=;|&<>")
-_FILE_NAME_RE = re.compile(r"\w\.\w")
 # A stray apostrophe in a trailing comment would otherwise pull prose in until
 # the next quote; a blank line or this many lines ends a continuation.
 _MAX_CONTINUATION_LINES = 30
@@ -210,26 +221,16 @@ def _is_command_word(word: str) -> bool:
     return word.endswith("/qlty") or word in _STRONG_COMMANDS
 
 
-def _looks_shellish(word: str) -> bool:
-    """True when an operand reads as shell: an option, quote, path, operator, or file name."""
-    return (
-        word.startswith(_SHELLISH_ARG_PREFIXES)
-        or any(ch in _SHELLISH_CHARS for ch in word)
-        or _FILE_NAME_RE.search(word) is not None
-    )
+def _interpreter_line_is_command(operand: str) -> bool:
+    """An interpreter line is a command unless its first operand is English.
 
-
-def _interpreter_line_is_command(operands: list[str]) -> bool:
-    """An interpreter word counts alone, or before a shell-looking operand.
-
-    ``python3 runner`` runs a script whose name has no suffix, so a single
-    bare operand counts. A bare operand followed by another bare word
-    ("python3 is required") is prose. Known approximation: ``python3 runner
-    arg`` reads as prose too -- precision over recall.
+    Only the word right after the interpreter decides: ``python3 runner
+    input``, ``python3 runner --flag`` and ``python3 -m pkg x`` are commands,
+    while "python3 is required" and "python 3.11 or newer" are prose (see
+    :data:`_INTERPRETER_PROSE_WORDS`). A bare interpreter (*operand* "") counts.
     """
-    if not operands or _looks_shellish(operands[0]):
-        return True
-    return len(operands) == 1 or _looks_shellish(operands[1])
+    word = operand.rstrip(_PROSE_TRAILING_PUNCTUATION).lower()
+    return word not in _INTERPRETER_PROSE_WORDS and not _VERSION_WORD_RE.match(word)
 
 
 def _wrapper_line_is_command(body: str) -> bool:
@@ -275,9 +276,9 @@ def is_command_line(line: str) -> bool:
     first = words[0]
     if _ASSIGN_START_RE.match(first) or _is_command_word(first):
         return True
-    if _PYTHON_WORD_RE.match(first.lstrip("(")):
-        return _interpreter_line_is_command(words[1:3])
     second = words[1] if len(words) > 1 else ""
+    if _PYTHON_WORD_RE.match(first.lstrip("(")):
+        return _interpreter_line_is_command(second)
     if first in _WEAK_COMMANDS and _weak_word_is_command(first, second, line):
         return True
     return first in WRAPPER_NAMES and _wrapper_line_is_command(body)

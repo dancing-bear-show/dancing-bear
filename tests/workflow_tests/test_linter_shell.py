@@ -973,6 +973,24 @@ class TestPythonNotIsolated(_RuleCase):
                 hits = self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))
                 self.assertIn("python3 runner", hits[0].message)
 
+    def test_fires_on_bare_script_with_further_operands(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6nGwUo: the word-count heuristic read
+        # `python3 runner input` as prose, so it was never linted. Only the
+        # word after the interpreter decides now.
+        for command in ("python3 runner input", "python3 runner --flag",
+                        "python3 tools/gen.py a b", "python3 -m pkg x"):
+            with self.subTest(command=command):
+                hits = self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))
+                self.assertIn(command, hits[0].message)
+
+    def test_interpreter_prose_sentences_are_silent(self) -> None:
+        # Happy path for the same thread: English after the interpreter word.
+        for line in ("python3 is required", "python3 must be installed", "python3 and pip",
+                     "Python 3.11 or newer", "python 3.11 or newer",
+                     "python3 script for the aggregation; it is deterministic."):
+            with self.subTest(line=line):
+                self.assert_silent(_workflow(_stage(f"Setup:\n\n  {line}\n")))
+
     def test_python_is_required_prose_is_silent(self) -> None:
         # Happy path for the same thread: with the operand heuristic gone,
         # "python3 is required" stays silent because it is never a segment.
@@ -1402,6 +1420,45 @@ class TestGuardRefused(_RuleCase):
             with self.subTest(command=command):
                 self.assertIn("loop", self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))[0].message)
 
+    def test_fires_on_stdin_shell_with_clustered_s(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6nGwTd: only a standalone `-s` was
+        # read, so `bash -es name` -- stdin program, `name` its $0 -- passed
+        # while h_shell refuses it. Options are read as clusters now,
+        # mirroring the guard's getopt: `-o` takes a value, `+o NAME` and
+        # `--rcfile FILE` are skipped, and the first operand ends options.
+        for command in ('for p in files; do /bin/bash -es name < "$p"; done',
+                        'for p in files; do bash -se name < "$p"; done',
+                        'for p in files; do bash -eo pipefail -s name < "$p"; done',
+                        'for p in files; do bash +o posix -s name < "$p"; done',
+                        'for p in files; do bash --rcfile rc -s < "$p"; done'):
+            with self.subTest(command=command):
+                hits = self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))
+                self.assertIn("loop", hits[0].message)
+
+    def test_shell_running_a_script_file_in_loop_is_silent(self) -> None:
+        # Happy path: a script operand with no -s runs a file (command
+        # semantics). A `-s` after the script, after `--`, or as `-o`'s value
+        # is not the -s option; with -c present the string is judged instead.
+        for command in ("for p in files; do /bin/bash -e script.sh; done",
+                        "for p in files; do /bin/bash script.sh -s; done",
+                        "for p in files; do /bin/bash -- -s; done",
+                        "for p in files; do /bin/bash -os script.sh; done",
+                        "for p in files; do /bin/bash -cs 'wc -l x' name; done"):
+            with self.subTest(command=command):
+                self.assert_silent(_workflow(_stage(f"Run:\n\n  {command}\n")))
+
+    def test_nested_shell_check_follows_the_destructive_guard_regex(self) -> None:
+        # block-destructive-bash.sh blocks a bare shell only when letter-only
+        # clusters lead to one ending in `c`; `-oc` matches that regex even
+        # though getopt reads `c` as -o's value.
+        for command in ("bash -oc 'echo hi'", "sh -e -c 'echo hi'"):
+            with self.subTest(command=command):
+                desc = f"Run:\n\n  ```bash\n  {command}\n  ```\n"
+                self.assertIn("eval/sh -c", self.assert_fires(_workflow(_stage(desc)))[0].message)
+        for command in ("bash -o pipefail -c 'echo hi'", "bash --norc -c 'echo hi'"):
+            with self.subTest(command=command):
+                self.assert_silent(_workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n")))
+
     def test_read_only_qualified_shell_forms_are_silent(self) -> None:
         # Happy path: a read-only -c string, a script file (command semantics,
         # out of the guard's reach), and a qualified shell outside a loop.
@@ -1558,9 +1615,18 @@ class TestExtractShellSegments(unittest.TestCase):
         self.assertEqual(self._texts("  python3 runner\n"), ["python3 runner"])
         self.assertEqual(self._texts("  python3 runner -v\n"), ["python3 runner -v"])
 
+    def test_bare_script_with_further_operands_is_a_command_line(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6nGwUo.
+        for line in ("python3 runner input", "python3 runner --flag",
+                     "python3 tools/gen.py a b", "python3 -m pkg x"):
+            with self.subTest(line=line):
+                self.assertEqual(self._texts(f"  {line}\n"), [line])
+
     def test_interpreter_prose_is_not_a_command_line(self) -> None:
         for line in ("python3 is required", "python3 is required for this step",
-                     "python must be 3.11 or newer"):
+                     "python must be 3.11 or newer", "python3 must be installed",
+                     "python3 and pip", "Python 3.11 or newer", "python 3.11 or newer",
+                     "python3 is."):
             with self.subTest(line=line):
                 self.assertEqual(self._texts(f"  {line}\n"), [])
 
