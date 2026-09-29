@@ -36,6 +36,7 @@ from collections.abc import Mapping
 
 __all__ = [
     "IDENTIFIER_RE",
+    "PLACEHOLDER_RE",
     "find_refs",
     "in_backtick_span",
     "is_identifier",
@@ -52,7 +53,7 @@ IDENTIFIER_RE = re.compile(r"[A-Za-z_]\w*", re.ASCII)
 #   is not a placeholder — it is shell variable expansion, not a workflow param).
 # - No closing-brace lookahead: {name} inside a JSON wrapper such as
 #   '{"value": {name}}' is a valid placeholder and must be found.
-_PLACEHOLDER_RE = re.compile(r"(?<![{$])\{([A-Za-z_]\w*)\}", re.ASCII)
+PLACEHOLDER_RE = re.compile(r"(?<![{$])\{([A-Za-z_]\w*)\}", re.ASCII)
 
 
 def is_identifier(name: str) -> bool:
@@ -76,11 +77,11 @@ def find_refs(text: str, *, skip_code: bool = False) -> set[str]:
         A ``set[str]`` of placeholder names (without braces).
     """
     if not skip_code:
-        return {m.group(1) for m in _PLACEHOLDER_RE.finditer(text)}
+        return {m.group(1) for m in PLACEHOLDER_RE.finditer(text)}
 
     result: set[str] = set()
     for line in text.splitlines():
-        for m in _PLACEHOLDER_RE.finditer(line):
+        for m in PLACEHOLDER_RE.finditer(line):
             if not in_backtick_span(line, m.start()):
                 result.add(m.group(1))
     return result
@@ -98,7 +99,7 @@ def in_backtick_span(line: str, pos: int) -> bool:
 def substitute(text: str, mapping: Mapping[str, str]) -> str:
     """Replace ``{key}`` with the corresponding value for identifier-shaped keys.
 
-    Uses :data:`_PLACEHOLDER_RE` so the scanner and the replacer share one
+    Uses :data:`PLACEHOLDER_RE` so the scanner and the replacer share one
     grammar: a match is replaced only when its captured name is a key in
     *mapping*.  This guarantees:
 
@@ -118,4 +119,4 @@ def substitute(text: str, mapping: Mapping[str, str]) -> str:
         name = m.group(1)
         return mapping[name] if name in mapping else m.group(0)
 
-    return _PLACEHOLDER_RE.sub(_replace, text)
+    return PLACEHOLDER_RE.sub(_replace, text)
