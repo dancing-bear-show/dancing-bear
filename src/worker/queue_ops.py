@@ -250,6 +250,7 @@ def start_processing(job_path: Path, root: Path | None = None) -> tuple[Path, st
                     "Failed to update processing job %s: %s", new_path, exc
                 )
                 token = ""  # nosec B105 - empty string signals metadata-write failure, not a credential
+            _reconcile_staged_on_claim(job_path)
         return new_path, token
     except FileNotFoundError:
         # Claimed elsewhere; ignore
@@ -652,11 +653,17 @@ def _rewrite_staged(staged: Path, reason: str, *, only_if_unnormalized: bool) ->
 
     ``only_if_unnormalized`` leaves a record that already says
     ``status: pending`` untouched: its requeue (or retry) finished the
-    rewrite before it was interrupted. An unreadable record is published
-    as-is rather than replaced with near-empty metadata; stale metadata
-    beats a lost job.
+    rewrite before it was interrupted. A record that is not a JSON object is
+    published as-is rather than replaced with near-empty metadata; stale
+    metadata beats a lost job. A read or write failure raises, and the
+    caller must then leave ``staged`` unpublished: a record published
+    without its fresh ``REQUEUE_ID_FIELD`` cannot be recognised by
+    ``_published_copy_of`` once it is claimed.
     """
-    data = safe_load_json(staged, default=None)
+    try:
+        data = _read_json_strict(staged)
+    except ValueError:
+        data = None
     if not isinstance(data, dict):
         _log.debug("Staged job %s is not a JSON object; publishing unchanged", staged)
         return
@@ -857,7 +864,37 @@ def _load_requeue_id(path: Path) -> str | None:
     return _requeue_id(safe_load_json(path, default=None))
 
 
-def _published_copy_of(staged: Path, dest: Path) -> Path | None:
+def _read_json_strict(path: Path) -> object:
+    """Parsed JSON at ``path``, or None if ``path`` does not exist.
+
+    Unlike ``safe_load_json``, a present file that cannot be read raises
+    OSError and one that is not valid JSON raises ValueError, so the caller
+    can tell "no record" apart from "a record it could not see".
+    """
+    try:
+        raw = path.read_bytes()
+    except FileNotFoundError:
+        return None
+    return json.loads(raw)
+
+
+class _PublishUndecidable(Exception):
+    """A record ``_published_copy_of`` must inspect is present but unreadable.
+
+    ``staged`` may already have been published and claimed, so it is not
+    published; ``_publish_no_clobber`` leaves it for a later recovery pass.
+    """
+
+
+def _candidate_requeue_id(path: Path) -> str | None:
+    """``_requeue_id`` of ``path``; None if absent. Raises ``_PublishUndecidable``."""
+    try:
+        return _requeue_id(_read_json_strict(path))
+    except (OSError, ValueError) as exc:
+        raise _PublishUndecidable(f"{path}: {exc}") from exc
+
+
+def _published_copy_of(staged: Path, dest: Path) -> tuple[Path, str] | None:
     """The processing/, done/ or error/ record ``staged`` was already published as.
 
     An earlier publish can put ``staged``'s record at ``dest`` and stop before
@@ -870,29 +907,47 @@ def _published_copy_of(staged: Path, dest: Path) -> Path | None:
     still saying ``processing`` was never rewritten, so never published, and
     its field (if any) is from an earlier generation. A genuinely new enqueue
     of the same id has no such field and is never matched.
+
+    Returns the matching record's path and the shared id. Only a candidate
+    that does not exist is skipped: one that is present but cannot be read
+    or parsed (EIO, EACCES, corrupt JSON) might be the claimed copy, so
+    ``_PublishUndecidable`` is raised and ``staged`` must stay unpublished.
+    ``staged`` itself is read the same way, except that one which is not
+    valid JSON has no identity and is never matched.
+
+    The match lasts only while a descendant stays in processing/, done/ or
+    error/; ``start_processing`` therefore discards a superseded staged
+    file at claim time (see ``_reconcile_staged_on_claim``), before
+    ``purge`` or a same-id replacement could remove that descendant.
     """
-    data = safe_load_json(staged, default=None)
+    try:
+        data = _read_json_strict(staged)
+    except OSError as exc:
+        raise _PublishUndecidable(f"{staged}: {exc}") from exc
+    except ValueError:
+        return None
     requeue_id = _requeue_id(data)
-    if requeue_id is None or data.get("status") != "pending":
+    if requeue_id is None or not isinstance(data, dict) or data.get("status") != "pending":
         return None
     root = dest.parent.parent
     for folder in ("processing", *_TERMINAL_FOLDERS):
         candidate = _job_path(root / folder, dest.stem)
-        if _load_requeue_id(candidate) == requeue_id:
-            return candidate
+        if _candidate_requeue_id(candidate) == requeue_id:
+            return candidate, requeue_id
     return None
 
 
 def _discard_superseded_staged(staged: Path, dest: Path) -> bool:
     """Remove ``staged`` and its leftover temps if it was already published; True if so.
 
-    See ``_published_copy_of``. Call with ``_transition_lock`` held, so no
-    ``_copy_exclusive`` temp matched here belongs to a publish in progress.
+    See ``_published_copy_of``, whose ``_PublishUndecidable`` propagates.
+    Call with ``_transition_lock`` held, so no ``_copy_exclusive`` temp
+    matched here belongs to a publish in progress.
     """
-    copy = _published_copy_of(staged, dest)
-    if copy is None:
+    match = _published_copy_of(staged, dest)
+    if match is None:
         return False
-    requeue_id = _load_requeue_id(copy)
+    copy, requeue_id = match
     for tmp in dest.parent.glob(f"{glob_escape(_publish_temp_prefix(dest))}*"):
         if _load_requeue_id(tmp) == requeue_id:
             tmp.unlink(missing_ok=True)
@@ -901,6 +956,26 @@ def _discard_superseded_staged(staged: Path, dest: Path) -> bool:
         "Not publishing %s: an earlier publish of it is already at %s", staged.name, copy
     )
     return True
+
+
+def _reconcile_staged_on_claim(claimed: Path) -> None:
+    """Discard a staged requeue that ``start_processing`` just claimed a copy of.
+
+    ``claimed`` is the pending/ path the claim renamed from. Call with
+    ``_transition_lock`` held, right after the claim. A staged file left by
+    a publish interrupted before ``staged.unlink()`` is recognised only
+    while its descendant stays in processing/, done/ or error/; discarding
+    it here, while the claimed record certainly carries its identity, keeps
+    a later ``purge`` or same-id replacement from making it look unpublished.
+    Any failure is logged: ``recover_staged_requeues`` checks again.
+    """
+    staged = claimed.parent.parent / "processing" / f"{claimed.name}{_REQUEUE_STAGING_SUFFIX}"
+    if not staged.exists():
+        return
+    try:
+        _discard_superseded_staged(staged, claimed)
+    except Exception as exc:  # nosec B110 - recovery re-checks; the claim itself succeeded
+        _log.warning("Could not reconcile staged requeue %s on claim: %s", staged.name, exc)
 
 
 def _publish_no_clobber(staged: Path, dest: Path) -> bool:
@@ -924,10 +999,20 @@ def _publish_no_clobber(staged: Path, dest: Path) -> bool:
 
     Otherwise returns False when ``staged`` is gone (published by someone
     else) or, leaving ``staged`` in place for a later recovery, when
-    ``dest`` is a different file.
+    ``dest`` is a different file or a record that check must read is
+    present but unreadable (``_PublishUndecidable``).
     """
     dest.parent.mkdir(parents=True, exist_ok=True)
-    if _discard_superseded_staged(staged, dest):
+    try:
+        if _discard_superseded_staged(staged, dest):
+            return False
+    except _PublishUndecidable as exc:
+        _log.warning(
+            "Not publishing %s yet: cannot tell whether it was already published (%s); "
+            "left for a later recovery pass",
+            staged.name,
+            exc,
+        )
         return False
     try:
         os.link(staged, dest)
@@ -1031,6 +1116,8 @@ def _stage_and_requeue(
     written and recovery never sees it half-done. Returns the pending/ path,
     or None when ``src`` was already gone (nothing is written) or the publish
     was refused (the staged file stays for ``recover_staged_requeues``).
+    A failed metadata rewrite re-raises with the staged file kept for that
+    recovery, which rewrites it before publishing (see ``_rewrite_staged``).
     A record ``finish`` already rewrote to a terminal status is moved to its
     terminal folder instead and None is returned (see
     ``_complete_interrupted_finish``): requeueing it would run it again.
@@ -1076,8 +1163,18 @@ def _stage_and_requeue(
             return None
         try:
             _rewrite_staged(staged, reason, only_if_unnormalized=False)
-        except Exception as exc:  # still move the job: stale metadata beats a stranded file
-            _log.debug("Failed to update metadata for requeued job %s: %s", src.stem, exc)
+        except Exception as exc:
+            # Publishing now would put a record with no fresh REQUEUE_ID_FIELD
+            # in pending/; once claimed, recovery could not recognise it and
+            # would publish the job again. recover_staged_requeues rewrites
+            # and publishes the staged file instead.
+            _log.warning(
+                "Failed to update metadata for requeued job %s: %s; "
+                "left staged for recovery",
+                src.stem,
+                exc,
+            )
+            raise
         new_path = _job_path(pending_dir, src.stem)
         return new_path if _publish_no_clobber(staged, new_path) else None
 
@@ -1148,7 +1245,9 @@ def recover_staged_requeues(root: Path | None = None) -> list[str]:
     existing pending/ job with the same id is never overwritten, and a
     second call is a no-op. A staged file whose earlier publish already
     reached pending/ and was claimed (or finished) is removed rather than
-    published again; see ``_publish_no_clobber``.
+    published again; see ``_publish_no_clobber``. A staged file that cannot
+    be read, or whose possible descendant is present but unreadable, is left
+    for a later pass.
     """
     paths = _ensure_dirs(root)
     recovered: list[str] = []
