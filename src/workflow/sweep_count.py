@@ -149,7 +149,7 @@ def cli_root(raw: str | None) -> Path:
     A root whose repo-relative path is protected (e.g. ``.git``, ``.claude``,
     ``.github``) is refused with the same policy as :func:`check_path`.
     """
-    from core.copilot_overview import _is_protected
+    from core.copilot_overview import PROTECTED_PATH, classify_repo_path
 
     anchor = repo_root()
     if raw is None:
@@ -163,7 +163,7 @@ def cli_root(raw: str | None) -> Path:
     # Reject a root whose repo-relative path is itself protected, so that
     # --root .git --path config cannot bypass check_path.
     rel = real.relative_to(anchor)
-    if rel != Path(".") and _is_protected(rel.as_posix()):
+    if rel != Path(".") and classify_repo_path(rel.as_posix())[1] == PROTECTED_PATH:
         raise SweepError(f"refused root: {raw!r} is a protected path")
     return real
 
