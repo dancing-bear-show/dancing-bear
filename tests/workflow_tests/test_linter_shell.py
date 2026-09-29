@@ -12,6 +12,7 @@ Every rule has three kinds of test:
 
 from __future__ import annotations
 
+import json
 import tempfile
 import textwrap
 import unittest
@@ -98,12 +99,14 @@ def _hits(result: LintResult, rule: str) -> list[LintWarning]:
 class _RuleCase(unittest.TestCase):
     rule: str = ""
 
-    def assert_fires(self, yaml_text: str, *, count: int = 1) -> list[LintWarning]:
+    def assert_fires(
+        self, yaml_text: str, *, count: int = 1, field: str = "description"
+    ) -> list[LintWarning]:
         result = _lint(yaml_text)
         hits = _hits(result, self.rule)
         self.assertEqual(len(hits), count, msg=[w.message for w in result.warnings])
         for w in hits:
-            self.assertEqual(w.field, "description")
+            self.assertEqual(w.field, field)
             self.assertTrue(w.message.startswith(f"[{self.rule}] "))
         self.assertTrue(result.valid, msg="shell rules are warnings, never errors")
         return hits
@@ -174,6 +177,37 @@ class TestUnvalidatedParam(_RuleCase):
         hits = self.assert_fires(_workflow(_stage(desc), params=_OLLAMA_PARAMS))
         self.assertIn("'{ollama_host}'", hits[0].message)
 
+    def test_check_params_run_by_another_program_does_not_validate(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6m6V99: any path-qualified program
+        # word used to count as the workflow CLI, so an arbitrary executable
+        # given a check-params operand suppressed the rule though no
+        # check-params ever ran. A bare `check-params` names no executable.
+        for program in ("/tmp/anything", "./bin/evil", "check-params"):  # nosec B108 - fixture text, never opened
+            with self.subTest(program=program):
+                operands = "" if program == "check-params" else " check-params"
+                desc = _fenced(f"{program}{operands} m.json --check host=trusted\n\necho {{host}}")
+                hits = self.assert_fires(_workflow(_stage(desc), params='host: "example.com"'))
+                self.assertIn("'{host}'", hits[0].message)
+
+    def test_workflow_cli_by_any_path_validates(self) -> None:
+        # Fenced so the parser, not the prose heuristic that picks shell
+        # lines out of a description, decides what the call runs.
+        for program in ("./bin/workflow", "/opt/repo/bin/workflow", "workflow"):
+            with self.subTest(program=program):
+                desc = _fenced(f"{program} check-params m.json --check host=trusted\n\necho {{host}}")
+                self.assert_silent(_workflow(_stage(desc), params='host: "example.com"'))
+
+    def test_placeholder_in_shell_comment_still_fires(self) -> None:
+        # Copilot "Previously missed" on PR #437 asked for comments to be
+        # skipped. Not for this rule: the value is substituted into the text
+        # before the shell reads it, so a newline in it ends the comment and
+        # the rest runs -- the break-out param_guard.py documents for a
+        # quoted heredoc. shell-unbound-variable does skip comments.
+        desc = "Run:\n\n  echo ok # document {host} and $UNBOUND\n"
+        result = _lint(_workflow(_stage(desc), params='host: "example.com"'))
+        self.assertEqual(len(_hits(result, self.rule)), 1, msg=[w.message for w in result.warnings])
+        self.assertEqual(_hits(result, RULE_UNBOUND_VARIABLE), [])
+
     def test_check_params_after_the_use_does_not_validate_it(self) -> None:
         # PR #433 review: check-params validation must respect ordering. A
         # {ollama_host} used BEFORE a same-stage check-params --check call has
@@ -195,7 +229,7 @@ class TestUnvalidatedParam(_RuleCase):
             "Probe {host}:\n\n"
             "  echo {host}\n\n"
             "```bash\n"
-            "check-params --check host=trusted\n"
+            "./bin/workflow check-params m.json --check host=trusted\n"
             "```\n"
         )
         hits = self.assert_fires(_workflow(_stage(desc), params='host: "example.com"'))
@@ -208,7 +242,7 @@ class TestUnvalidatedParam(_RuleCase):
         # confirms the fix orders by real offset, not just "line beats fence".
         desc = (
             "```bash\n"
-            "check-params --check host=trusted\n"
+            "./bin/workflow check-params m.json --check host=trusted\n"
             "```\n\n"
             "Probe {host}:\n\n"
             "  echo {host}\n"
@@ -414,8 +448,71 @@ class TestUnquotedFanOutKey(_RuleCase):
     def test_key_in_prose_is_silent(self) -> None:
         self.assert_silent(_fan_out_workflow("Record findings for {domain} only."))
 
+    def test_key_after_apostrophe_in_comment_fires(self) -> None:
+        # An apostrophe in a comment opens no quote; read raw, it marked the
+        # rest of the segment single-quoted and hid the unquoted key.
+        self.assert_fires(_worker_queue_workflow("echo ok # don't\nrm {domain}"), field="fan_out.script")
+
+    def test_key_in_comment_is_silent(self) -> None:
+        # Agent fan-out keys are held to [A-Za-z0-9][A-Za-z0-9._-]* by the
+        # orchestrator (SKILL.md SAFE_KEY_VALUE): no newline can end a comment.
+        self.assert_silent(_fan_out_workflow("echo ok # sweep {domain}"))
+
     def test_has_teeth(self) -> None:
         self.assert_has_teeth(_fan_out_workflow(self._HISTORICAL))
+
+
+def _worker_queue_workflow(
+    script: str, *, description: str = "Enqueued once per domain.", stage_script: str = ""
+) -> str:
+    """worker-queue-fanout.yaml check-domain shape: a worker_queue fan-out over domains."""
+    extra = (
+        "    reads_from: [gather]\n"
+        "    fan_out:\n      source: gather\n      field: domains\n      key: domain\n"
+        f"      mode: worker_queue\n      script: {json.dumps(script)}\n"
+    )
+    if stage_script:
+        extra += f"    executor: worker_queue\n    script: {json.dumps(stage_script)}\n"
+    return _workflow(
+        _stage("List domains.", name="gather", extra="    writes_to:\n      - domains.json\n"),
+        _stage(description, name="check-domain", depends_on="[gather]", extra=extra),
+    )
+
+
+class TestUnquotedFanOutKeyWorkerQueue(unittest.TestCase):
+    """PR #437 thread PRRT_kwDOQr1kjM6m6V-G: a worker_queue fan-out runs its script, not its prose."""
+
+    def _hits(self, yaml_text: str) -> list[LintWarning]:
+        result = _lint(yaml_text)
+        self.assertTrue(result.valid, msg=result.errors)
+        return _hits(result, RULE_UNQUOTED_FAN_OUT_KEY)
+
+    def test_unquoted_key_in_fan_out_script_fires(self) -> None:
+        hits = self._hits(_worker_queue_workflow("rm {domain}"))
+        self.assertEqual([w.field for w in hits], ["fan_out.script"])
+        self.assertIn("'{domain}'", hits[0].message)
+        self.assertIn("rm {domain}", hits[0].message)
+
+    def test_unquoted_key_in_enqueued_stage_script_fires(self) -> None:
+        # WorkerQueueDispatcher enqueues the stage-level script as the job's payload.
+        hits = self._hits(_worker_queue_workflow('rm "{domain}"', stage_script="ls {domain}/"))
+        self.assertEqual([w.field for w in hits], ["script"])
+
+    def test_quoted_key_in_script_is_silent(self) -> None:
+        self.assertEqual(self._hits(_worker_queue_workflow('rm "{domain}"', stage_script="ls '{domain}'/")), [])
+
+    def test_description_is_not_checked_in_worker_queue_mode(self) -> None:
+        # Neither prose nor a shell-shaped line in the description reaches a
+        # shell or an agent in this mode.
+        for description in ("Remove the {domain} directory.", "Remove it:\n\n  rm -r {domain}\n"):
+            with self.subTest(description=description):
+                self.assertEqual(self._hits(_worker_queue_workflow('rm "{domain}"', description=description)), [])
+
+    def test_has_teeth(self) -> None:
+        yaml_text = _worker_queue_workflow("rm {domain}")
+        self.assertTrue(self._hits(yaml_text))
+        with mock.patch("workflow.linter_shell._unquoted_fan_out_keys", return_value=[]):
+            self.assertEqual(_lint(yaml_text).warnings, [])
 
 
 # ---------------------------------------------------------------------------
@@ -587,6 +684,24 @@ class TestUnboundVariable(_RuleCase):
 
     def test_has_teeth(self) -> None:
         self.assert_has_teeth(_workflow(_stage(_UNBOUND)))
+
+    def test_expansion_in_shell_comment_is_silent(self) -> None:
+        # Copilot "Previously missed" on PR #437: the shell never expands a
+        # comment, so a $NAME there is not a use.
+        self.assert_silent(_workflow(_stage("Run:\n\n  echo ok # document {host} and $UNBOUND\n")))
+
+    def test_hash_inside_a_word_is_not_a_comment(self) -> None:
+        for line in ("echo $FOO#bar", "echo a#b $FOO", 'echo "${#x}" "$FOO"'):
+            with self.subTest(line=line):
+                hits = self.assert_fires(_workflow(_stage(f"Run:\n\n  {line}\n")))
+                self.assertIn("$FOO", hits[0].message)
+
+    def test_apostrophe_in_comment_does_not_quote_later_lines(self) -> None:
+        # Read raw, the ' in "don't" opened a single quote that ran to the
+        # end of the segment and hid $FOO.
+        desc = "```bash\n\necho ok # don't\n\necho $FOO\n\n```\n"
+        hits = self.assert_fires(_workflow(_stage(desc)))
+        self.assertIn("$FOO", hits[0].message)
 
     def test_quoted_heredoc_body_does_not_spuriously_fire_unbound(self) -> None:
         # PR #433 review: a quoted-delimiter heredoc returned from

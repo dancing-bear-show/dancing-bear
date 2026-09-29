@@ -166,15 +166,23 @@ class LoopVariable:
 
 @dataclass(frozen=True)
 class ShellScript:
-    """Every simple command, heredoc, and loop variable in a piece of shell text."""
+    """Every simple command, heredoc, loop variable, and comment in a piece of shell text."""
 
     commands: tuple[SimpleCommand, ...]
     heredocs: tuple[Heredoc, ...]
     loop_variables: tuple[LoopVariable, ...]
+    # (start, end) of each comment: a ``#`` that begins a word, outside quotes
+    # and heredoc bodies, through the end of its line. ``a#b`` and ``${#x}``
+    # are not comments.
+    comments: tuple[Span, ...] = ()
 
-    def inert_spans(self) -> list[tuple[int, int]]:
+    def inert_spans(self) -> list[Span]:
         """(start, end) of each quoted heredoc body: text the shell never expands."""
         return [(d.start, d.start + len(d.body)) for d in self.heredocs if d.quoted]
+
+    def heredoc_spans(self) -> list[Span]:
+        """(start, end) of every heredoc body, quoted or not: data, where quotes are literal."""
+        return [(d.start, d.start + len(d.body)) for d in self.heredocs]
 
 
 @dataclass
@@ -227,6 +235,7 @@ class _Lexer:
         self.base = base
         self.pos = pos
         self.heredocs: list[Heredoc] = []
+        self.comments: list[Span] = []
         self._pending: list[ShellToken] = []  # heredoc delimiters awaiting their body
         self._want_delimiter = False
 
@@ -275,7 +284,9 @@ class _Lexer:
                 self.pos += 2
             elif text[self.pos] == "#":
                 eol = text.find("\n", self.pos)
-                self.pos = len(text) if eol < 0 else eol
+                eol = len(text) if eol < 0 else eol
+                self.comments.append((self.base + self.pos, self.base + eol))
+                self.pos = eol
             else:
                 return
 
@@ -677,6 +688,7 @@ def parse_shell(
         commands=tuple(splitter.commands) + tuple(c for s in nested for c in s.commands),
         heredocs=tuple(lexer.heredocs) + tuple(d for s in nested for d in s.heredocs),
         loop_variables=tuple(splitter.loop_variables) + tuple(v for s in nested for v in s.loop_variables),
+        comments=tuple(lexer.comments) + tuple(c for s in nested for c in s.comments),
     )
 
 

@@ -45,6 +45,22 @@ class TestParseShell(unittest.TestCase):
         self.assertEqual([(d.quoted, d.body) for d in script.heredocs],
                          [(True, "rm -rf /\nFOO=1\n"), (False, "$(date)\n")])
 
+    def test_comment_spans(self) -> None:
+        # A `#` that begins a word, outside quotes and heredoc bodies, runs to
+        # the end of its line. Offsets include a nested substitution's base.
+        cases: dict[str, list[str]] = {
+            "echo ok # {host} $UNBOUND": ["# {host} $UNBOUND"],
+            "echo a;#x\necho b": ["#x"],
+            "X=$(echo a # in sub\n)": ["# in sub"],
+            "echo a#b ${#x} $FOO#bar": [],
+            "echo '# q' \"# dq\" \\#esc": [],
+            "cat <<'EOF'\n# body\nEOF\ncat <<EOF\n# body\nEOF": [],
+        }
+        for text, comments in cases.items():
+            with self.subTest(text=text):
+                spans = parse_shell(text).comments
+                self.assertEqual([text[lo:hi] for lo, hi in spans], comments)
+
     def test_loop_membership_and_bindings(self) -> None:
         script = parse_shell('for f in a; do rm "$f"; done; mv a b\nwhile read -r L; do :; done')
         self.assertEqual([(c.name, c.in_loop) for c in script.commands],

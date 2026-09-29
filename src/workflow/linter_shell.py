@@ -7,12 +7,18 @@ never the surrounding prose -- and emit warnings with stable rule ids:
 
 ``shell-unvalidated-param``
     A caller-overridable ``{param}`` is substituted into shell text, and
-    neither ``trigger.param_rules`` nor a ``check-params --check`` in this
-    stage or an ancestor constrains it. Quoting is not the control: double
-    quotes do not stop ``$(...)``.
+    neither ``trigger.param_rules`` nor a ``workflow check-params --check`` in
+    this stage or an ancestor constrains it. Quoting is not the control: double
+    quotes do not stop ``$(...)``. Nor is a shell comment: the value is
+    substituted into the text before the shell reads it, so a newline in it
+    ends the comment (the same break-out ``param_guard`` documents for a
+    quoted heredoc), and this rule still reads comment text.
 ``shell-unquoted-fan-out-key``
     A fan-out key placeholder -- a value read from a prior stage's JSON, which
-    no param rule can constrain -- sits unquoted in shell text.
+    no param rule can constrain -- sits unquoted in shell text. For
+    ``fan_out.mode: worker_queue`` the text checked is the script the worker
+    runs (``fan_out.script``, and the stage ``script`` it enqueues), not the
+    description, which no shell and no agent ever reads in that mode.
 ``shell-unbound-variable``
     ``$NAME`` (upper case) is expanded in shell text but no shell text in the
     same stage assigns it; each stage is a fresh shell. An assignment inside a
@@ -45,7 +51,10 @@ Every rule that asks "which command runs here" reads the same model:
 ``shell_parse.parse_shell``, which identifies the program word of each simple
 command through separators, reserved words, wrappers, and substitutions, and
 keeps heredoc bodies out of it. A rule never matches a bare token or a
-substring of the raw text to decide that.
+substring of the raw text to decide that. Rules that do scan the raw text for
+an expansion (``$NAME``, ``{key}``) skip what the parser reports as comments,
+and read quoting from the text with comments and heredoc bodies masked, since
+an apostrophe in either opens no quote.
 
 Fragment stages inlined into a workflow get only the context-dependent rule
 (``shell-unvalidated-param``) there, because their params are the importer's;
@@ -108,6 +117,8 @@ _DECLARING_COMMANDS = frozenset({"export", "local", "declare", "readonly", "type
 # ``read`` options whose value is the next word, not a variable name.
 _READ_VALUE_OPTS = frozenset({"-d", "-i", "-n", "-N", "-p", "-t", "-u"})
 _CHECK_PARAMS = "check-params"
+_WORKFLOW_CLI = "workflow"  # the only program that runs check-params
+_WORKER_QUEUE = "worker_queue"  # FanOutMode.WORKER_QUEUE, and the executor of that name
 
 # Set by the shell, the OS, or the harness -- never assigned in stage text.
 _ENVIRONMENT_VARS: frozenset[str] = frozenset({
@@ -173,12 +184,33 @@ class _ParsedSegment:
     def text(self) -> str:
         return self.segment.text
 
-    def live_matches(self, pattern: re.Pattern[str]) -> Iterable[re.Match[str]]:
-        """Matches of *pattern* outside quoted heredoc bodies, which never expand."""
-        inert = self.script.inert_spans()
+    def live_matches(
+        self, pattern: re.Pattern[str], *, in_comments: bool = False
+    ) -> Iterable[re.Match[str]]:
+        """Matches of *pattern* outside quoted heredoc bodies and shell comments.
+
+        The shell expands neither. *in_comments* keeps matches inside
+        comments, for a placeholder substituted into the text before the
+        shell reads it -- a newline in the value ends the comment.
+        """
+        dead = self.script.inert_spans()
+        if not in_comments:
+            dead += self.script.comments
         for m in pattern.finditer(self.segment.text):
-            if not any(lo <= m.start() < hi for lo, hi in inert):
+            if not any(lo <= m.start() < hi for lo, hi in dead):
                 yield m
+
+    def quote_context(self) -> list[str]:
+        """:func:`shell_text.quote_context` of the text, ignoring comments and heredoc bodies.
+
+        Neither is shell words: an apostrophe in ``# don't`` or in a heredoc
+        body opens no quote, and read raw it would mark the rest of the
+        segment single-quoted.
+        """
+        chars = list(self.segment.text)
+        for lo, hi in (*self.script.comments, *self.script.heredoc_spans()):
+            chars[lo:hi] = " " * (hi - lo)
+        return quote_context("".join(chars))
 
 
 @dataclass(frozen=True)
@@ -188,6 +220,8 @@ class _StageShell:
     stage: StageSpec
     segments: tuple[_ParsedSegment, ...]
     labels: tuple[ShellScript, ...] = ()  # assignments behind a prose label
+    # Worker-queue scripts with their field names: whole shell text, no prose.
+    scripts: tuple[tuple[str, _ParsedSegment], ...] = ()
 
     @classmethod
     def parse(cls, stage: StageSpec) -> _StageShell:
@@ -195,7 +229,11 @@ class _StageShell:
             _ParsedSegment(seg, parse_shell(seg.text)) for seg in extract_shell_segments(stage.description)
         )
         labels = tuple(parse_shell(seg.text) for seg in extract_labelled_assignments(stage.description))
-        return cls(stage, segments, labels)
+        scripts = tuple(
+            (field, _ParsedSegment(ShellSegment(text, "script"), parse_shell(text)))
+            for field, text in _worker_scripts(stage)
+        )
+        return cls(stage, segments, labels, scripts)
 
     def commands(self) -> Iterable[SimpleCommand]:
         for seg in self.segments:
@@ -220,8 +258,25 @@ def check_shell_rules(
         result.warnings.extend(_validate_writes_output(item.stage))
 
 
-def _warn(stage: str, rule: str, message: str) -> LintWarning:
-    return LintWarning(stage=stage, field=_FIELD, message=f"[{rule}] {message}", rule=rule)
+def _worker_scripts(stage: StageSpec) -> list[tuple[str, str]]:
+    """(field, text) of each script a worker runs through bash for *stage*.
+
+    ``handle_run_shell`` writes the script to a file and runs ``bash FILE``,
+    so the whole field is shell text. A worker_queue fan-out substitutes the
+    item's key into ``fan_out.script``; the dispatcher enqueues the stage
+    ``script`` of an ``executor: worker_queue`` stage.
+    """
+    fan_out = stage.fan_out
+    scripts = []
+    if fan_out is not None and fan_out.mode == _WORKER_QUEUE and fan_out.script.strip():
+        scripts.append(("fan_out.script", fan_out.script))
+    if stage.executor == _WORKER_QUEUE and stage.script.strip():
+        scripts.append(("script", stage.script))
+    return scripts
+
+
+def _warn(stage: str, rule: str, message: str, field: str = _FIELD) -> LintWarning:
+    return LintWarning(stage=stage, field=field, message=f"[{rule}] {message}", rule=rule)
 
 
 def _snippet(text: str) -> str:
@@ -236,23 +291,21 @@ def _snippet(text: str) -> str:
 
 
 def _check_params_call(cmd: SimpleCommand) -> tuple[int, list[str]] | None:
-    """(offset, operands) when *cmd* runs check-params, else None.
+    """(offset, operands) when *cmd* runs ``workflow check-params``, else None.
 
-    Either the program itself is ``check-params`` or a repo wrapper runs it
-    as a subcommand (``./bin/workflow check-params ...``). The word
-    ``check-params`` as an argument to another command (``echo
-    check-params``) is not an invocation. Only this command's own operands
-    are returned, so a later command's ``--check`` never donates a spec.
+    check-params is a subcommand of the workflow CLI, so the program word's
+    basename must be ``workflow`` (``./bin/workflow``, an absolute path to
+    it, or a bare ``workflow``) and its first operand ``check-params``. Any
+    other program runs something else, path-qualified or not:
+    ``/tmp/anything check-params --check ...`` validates nothing, and neither
+    does ``echo check-params`` or a bare ``check-params``, which names no
+    executable. Only this command's own operands are returned, so a later
+    command's ``--check`` never donates a spec.
     """
-    word = cmd.word
-    if word is None:
-        return None
-    if cmd.name == _CHECK_PARAMS:
-        return word.start, cmd.args
     rest = cmd.arguments
-    if rest and rest[0].text == _CHECK_PARAMS and (cmd.name == "workflow" or "/" in word.text):
-        return rest[0].start, [tok.text for tok in rest[1:]]
-    return None
+    if cmd.name != _WORKFLOW_CLI or not rest or rest[0].text != _CHECK_PARAMS:
+        return None
+    return rest[0].start, [tok.text for tok in rest[1:]]
 
 
 def _check_param_names(operands: list[str]) -> list[str]:
@@ -328,7 +381,7 @@ def _unvalidated_params(
     own_checks = _checked_param_positions(item.segments)
     reported: dict[str, str] = {}
     for seg_index, seg in enumerate(item.segments):
-        for m in seg.live_matches(PLACEHOLDER_RE):
+        for m in seg.live_matches(PLACEHOLDER_RE, in_comments=True):
             name = m.group(1)
             if name not in caller or name in validated:
                 continue
@@ -352,12 +405,25 @@ def _unvalidated_params(
 # ---------------------------------------------------------------------------
 
 
+def _fan_out_shell(item: _StageShell) -> Iterable[tuple[str, _ParsedSegment]]:
+    """(field, segment) of the shell text a fan-out stage substitutes its key into.
+
+    A worker_queue fan-out runs its scripts and never renders the description
+    for anyone, so prose there is not checked; an agent fan-out's shell lives
+    in the description.
+    """
+    fan_out = item.stage.fan_out
+    if fan_out is not None and fan_out.mode == _WORKER_QUEUE:
+        return item.scripts
+    return ((_FIELD, seg) for seg in item.segments)
+
+
 def _unquoted_fan_out_keys(item: _StageShell) -> list[LintWarning]:
     fan_out = item.stage.fan_out
     if fan_out is None or not fan_out.key:
         return []
-    for seg in item.segments:
-        ctx = quote_context(seg.text)
+    for field, seg in _fan_out_shell(item):
+        ctx = seg.quote_context()
         for m in seg.live_matches(PLACEHOLDER_RE):
             if m.group(1) == fan_out.key and ctx[m.start()] == "":
                 return [_warn(
@@ -365,6 +431,7 @@ def _unquoted_fan_out_keys(item: _StageShell) -> list[LintWarning]:
                     RULE_UNQUOTED_FAN_OUT_KEY,
                     f"fan-out key '{{{fan_out.key}}}' is prior-stage data, unquoted in "
                     f"shell (`{_snippet(seg.text)}`); quote it or read it from the file",
+                    field,
                 )]
     return []
 
@@ -450,8 +517,8 @@ def _is_escaped(text: str, pos: int) -> bool:
 
 
 def _expanded_names(seg: _ParsedSegment) -> list[tuple[str, int]]:
-    """Upper-case ``$NAME`` expansions, with offsets, outside single quotes and inert heredoc bodies."""
-    ctx = quote_context(seg.text)
+    """Upper-case ``$NAME`` expansions, with offsets, outside single quotes, comments, and inert heredocs."""
+    ctx = seg.quote_context()
     return [
         (m.group(1) or m.group(2), m.start())
         for m in seg.live_matches(_EXPANSION_RE)
