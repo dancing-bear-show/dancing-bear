@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from core.gh_cli import GhCLI, GhError
 
-from .authors import classify_author, normalize_login
+from .authors import classify_author, is_copilot_reviewer, normalize_login
 from .mutations import (
     forged_run_marker,
     has_run_marker,
@@ -48,6 +48,7 @@ __all__ = [
     "fetch_thread_states",
     "forged_run_marker",
     "has_run_marker",
+    "is_copilot_reviewer",
     "mark_body",
     "normalize_login",
     "render_summary",
