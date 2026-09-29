@@ -393,5 +393,41 @@ class TestDrainProbesEveryClaimWithinTheDeadline(_Base):
         self.assertEqual(budgets, [0.0])
 
 
+# ---------------------------------------------------------------------------
+# No-clobber publish: an interrupted copy-publish is recognised by content
+# ---------------------------------------------------------------------------
+
+
+class TestPublishRecognisesInterruptedCopy(_Base):
+    """A dest left by an interrupted _copy_exclusive shares staged's bytes, not its inode."""
+
+    def _staged_and_dest(self, dest_record: dict[str, Any]) -> tuple[Path, Path]:
+        record = {"id": "cp1", "type": "noop", "payload": {}, "status": "pending"}
+        staged = self.paths["processing"] / "cp1.json.requeue"
+        _write(staged, record)
+        dest = self.paths["pending"] / "cp1.json"
+        _write(dest, dest_record)
+        return staged, dest
+
+    def test_identical_dest_is_our_own_publish(self) -> None:
+        staged, dest = self._staged_and_dest(
+            {"id": "cp1", "type": "noop", "payload": {}, "status": "pending"}
+        )
+        self.assertFalse(dest.samefile(staged), "precondition: separate inodes")
+        self.assertTrue(q._publish_no_clobber(staged, dest))
+        self.assertFalse(staged.exists(), "staged must not be stranded beside its own publish")
+        self.assertTrue(dest.exists())
+
+    def test_different_dest_is_still_a_rival(self) -> None:
+        staged, dest = self._staged_and_dest(
+            {"id": "cp1", "type": "noop", "payload": {"rival": True}, "status": "pending"}
+        )
+        rival_bytes = dest.read_bytes()
+        with self.assertLogs(q.__name__, "WARNING"):
+            self.assertFalse(q._publish_no_clobber(staged, dest))
+        self.assertTrue(staged.exists(), "a refused publish keeps staged for recovery")
+        self.assertEqual(dest.read_bytes(), rival_bytes, "the rival's record is untouched")
+
+
 if __name__ == "__main__":
     unittest.main()

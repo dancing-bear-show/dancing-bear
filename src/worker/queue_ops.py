@@ -799,7 +799,10 @@ def _publish_no_clobber(staged: Path, dest: Path) -> bool:
     try:
         os.link(staged, dest)
     except FileExistsError:
-        if not dest.samefile(staged):
+        # A dest published by an interrupted _copy_exclusive is linked to its
+        # temp file, not to staged, so samefile() alone would call our own
+        # record a rival and strand staged; check the content as that branch does.
+        if not (dest.samefile(staged) or _is_own_interrupted_publish(staged, dest)):
             _log.warning("Not publishing %s: %s already exists", staged.name, dest)
             return False
     except FileNotFoundError:
