@@ -11,10 +11,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from telemetry.otel.analytics.cost import get_model_pricing
 from telemetry.otel.analytics.perf import get_session_id
 from telemetry.otel.cost_models import PromptMetrics
 from telemetry.otel.reader import OTLPDataDir, OTLPReader
+from telemetry.pricing import get_model_pricing
 from telemetry.timeutil import now_utc, parse_window
 
 if TYPE_CHECKING:

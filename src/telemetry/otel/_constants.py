@@ -11,7 +11,7 @@ from __future__ import annotations
 # Name of the OTel metric emitted directly by the Claude Code CLI with
 # Anthropic's real, authoritative cost computation for each API call (as
 # opposed to ``claude_code.token.usage``, which carries only token counts that
-# analytics.cost recomputes cost from using MODEL_PRICING — a fragile
-# approximation that has been observed to diverge meaningfully from actual
-# billed spend).
+# analytics.cost recomputes cost from using telemetry.pricing.MODEL_PRICING —
+# a fragile approximation that has been observed to diverge meaningfully from
+# actual billed spend).
 METRIC_COST_USAGE = "claude_code.cost.usage"
