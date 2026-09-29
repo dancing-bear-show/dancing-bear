@@ -87,5 +87,57 @@ class TestPricingParity(unittest.TestCase):
         self.assertEqual(resolve_pricing_key("claude-sonnet-4-9[1m]"), "claude-sonnet-4-8-1m")
 
 
+def _id_variants(key: str) -> dict[str, str]:
+    """Spellings of ``key`` seen in the wild: case, dated, Bedrock, Vertex, 1M."""
+    return {
+        "upper": key.upper(),
+        "dated": f"{key}-20991231",
+        "bedrock": f"us.anthropic.{key}-20991231-v1:0",
+        "vertex": f"{key}@20991231",
+        "1m": f"{key}[1m]",
+    }
+
+
+class TestPricingKeyVariants(unittest.TestCase):
+    """Every spelling of a table key is priced like the key itself."""
+
+    def test_every_variant_of_every_key_keeps_the_key_price(self):
+        from telemetry.pricing import MODEL_PRICING, get_cache_read_multiplier, get_model_pricing
+
+        for key, price in MODEL_PRICING.items():
+            for form, model in _id_variants(key).items():
+                with self.subTest(key=key, form=form, model=model):
+                    self.assertEqual(get_model_pricing(model), price)
+                    self.assertEqual(get_cache_read_multiplier(model), get_cache_read_multiplier(key))
+
+    def test_opus_4_1_variants_price_at_15_75(self):
+        from telemetry.pricing import get_model_pricing
+
+        for model in (
+            "CLAUDE-OPUS-4-1",
+            "claude-opus-4-1-20250901",
+            "us.anthropic.claude-opus-4-1-20250805-v1:0",
+            "claude-opus-4-1@20250805",
+            "claude-opus-4-1[1m]",
+        ):
+            with self.subTest(model=model):
+                self.assertEqual(get_model_pricing(model), (15.0, 75.0))
+
+    def test_embedded_key_requires_a_token_boundary(self):
+        from telemetry.pricing import resolve_pricing_key
+
+        cases = {
+            "claude-opus-4-10": "claude-opus",
+            "claude-opus-4-1m": "claude-opus-4-7-1m",
+            "claude-opus-5[1m]": "claude-opus-4-7-1m",
+            "claude-opus-5-5[1m]": "claude-opus-5-5",
+            "some-sonnet-1m-extended-context": "claude-sonnet-4-8-1m",
+            "completely-unrecognized-model-xyz": "claude-haiku-4-5",
+        }
+        for model, expected in cases.items():
+            with self.subTest(model=model):
+                self.assertEqual(resolve_pricing_key(model), expected)
+
+
 if __name__ == "__main__":
     unittest.main()

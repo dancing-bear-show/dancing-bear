@@ -135,7 +135,7 @@ class TokenMetrics:
 
 
 # Ordered fallback rules for resolve_pricing_key(): evaluated top-to-bottom
-# after an exact MODEL_PRICING match fails. Each predicate takes the
+# after exact and embedded-key matching fail. Each predicate takes the
 # lowercased model id; the first match wins. Order matters — opus-5-5,
 # sonnet-5 and the "1m" combos must be checked before the generic
 # opus/sonnet substring checks, and fable/mythos before the haiku default.
@@ -154,11 +154,45 @@ _PRICING_FALLBACK_RULES: list[tuple[Callable[[str], bool], str]] = [
 ]
 
 
+# Family-only keys are fallback targets, not ids to find inside another id —
+# otherwise "claude-opus" would shadow the "1m" and version rules below.
+_GENERIC_PRICING_KEYS = frozenset({"claude-opus", "claude-sonnet", "claude-haiku"})
+
+# Specific keys, longest first, so a dated key beats its undated prefix.
+_EMBEDDABLE_PRICING_KEYS: tuple[str, ...] = tuple(
+    sorted((k for k in MODEL_PRICING if k not in _GENERIC_PRICING_KEYS), key=len, reverse=True)
+)
+
+
+def _embedded_pricing_key(lower: str) -> str | None:
+    """Return the longest specific key embedded in ``lower`` at a token boundary.
+
+    Matches provider-prefixed and suffixed ids ("us.anthropic.claude-opus-4-1-
+    20250805-v1:0", "claude-opus-4-1@20250805"). The key must not be followed by
+    a letter or digit, so "claude-opus-4-1" does not match "claude-opus-4-10".
+    """
+    for key in _EMBEDDABLE_PRICING_KEYS:
+        start = lower.find(key)
+        while start != -1:
+            end = start + len(key)
+            if end == len(lower) or not lower[end].isalnum():
+                return key
+            start = lower.find(key, start + 1)
+    return None
+
+
 def resolve_pricing_key(model: str) -> str:
-    """Map a model ID to its MODEL_PRICING key, with fallback matching."""
+    """Map a model ID to its MODEL_PRICING key.
+
+    Order: exact key; longest specific key embedded in the lowercased id (with
+    a ``[1m]`` suffix read as ``-1m``); the ordered fallback rules; the default.
+    """
     if model in MODEL_PRICING:
         return model
     lower = model.lower()
+    embedded = _embedded_pricing_key(lower.replace("[1m]", "-1m"))
+    if embedded is not None:
+        return embedded
     for predicate, key in _PRICING_FALLBACK_RULES:
         if predicate(lower):
             return key
