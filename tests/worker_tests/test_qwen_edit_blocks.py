@@ -186,6 +186,49 @@ class ParseEditBlocksTests(unittest.TestCase):
 
         self.assertEqual(block, qwen_edits.EditBlock("src/a.py", ("old",), ("new",)))
 
+    def test_indented_divider_in_a_truncated_search_is_not_a_divider(self) -> None:
+        # SEARCH was meant to be "Title / <indented underline> / old ..." but
+        # the response lost its real divider. The indented line must never be
+        # promoted to the separator (that turned Title into old).
+        cases = {
+            "closer present": "FILE: docs/x.rst\n<<<<<<< SEARCH\nTitle\n  =======\nold\n>>>>>>> REPLACE\n",
+            "cut off in search": "FILE: docs/x.rst\n<<<<<<< SEARCH\nTitle\n  =======\nold\n",
+        }
+        for name, text in cases.items():
+            with self.subTest(name):
+                self.assertEqual(_outcome(qwen_edits.parse_edit_blocks, text), qwen_edits.EDIT_MALFORMED_OUTCOME)
+                self.assertEqual(
+                    _outcome(qwen_edits.edits_to_diff, text, {"docs/x.rst": "Title\nexisting\n"}),
+                    qwen_edits.EDIT_MALFORMED_OUTCOME,
+                )
+
+    def test_indented_markers_inside_a_block_are_body_content(self) -> None:
+        text = (
+            "FILE: docs/x.rst\n<<<<<<< SEARCH\nTitle\n  =======\nold\n=======\n"
+            "Title\n  =======\nnew\n  >>>>>>> REPLACE\n>>>>>>> REPLACE\n"
+        )
+
+        [block] = qwen_edits.parse_edit_blocks(text)
+
+        self.assertEqual(block.search, ("Title", "  =======", "old"))
+        self.assertEqual(block.replace, ("Title", "  =======", "new", "  >>>>>>> REPLACE"))
+        self.assertEqual(
+            qwen_edits.apply_edit_blocks([block], {"docs/x.rst": "Title\n  =======\nold\nrest\n"}),
+            {"docs/x.rst": "Title\n  =======\nnew\n  >>>>>>> REPLACE\nrest\n"},
+        )
+
+    def test_an_indented_block_is_not_a_block(self) -> None:
+        text = "FILE: a.py\n  <<<<<<< SEARCH\n  x\n  =======\n  y\n  >>>>>>> REPLACE\n"
+
+        self.assertEqual(_outcome(qwen_edits.parse_edit_blocks, text), qwen_edits.NO_EDITS_OUTCOME)
+
+    def test_markers_with_trailing_whitespace_still_parse(self) -> None:
+        text = "FILE: src/a.py\n<<<<<<< SEARCH  \nold\n=======\r\nnew\n>>>>>>> REPLACE\t\n"
+
+        [block] = qwen_edits.parse_edit_blocks(text)
+
+        self.assertEqual(block, qwen_edits.EditBlock("src/a.py", ("old",), ("new",)))
+
     def test_empty_search_parses_as_an_empty_tuple(self) -> None:
         [block] = qwen_edits.parse_edit_blocks("FILE: src/a.py\n<<<<<<< SEARCH\n=======\nnew\n>>>>>>> REPLACE\n")
 
@@ -315,6 +358,16 @@ class ApplyEditBlocksTests(unittest.TestCase):
         self.assertEqual(
             _outcome(qwen_edits.edits_to_diff, self.TRUNCATED_UNDERLINE, dict(self.RST_FILE)), qwen_edits.EDIT_MALFORMED_OUTCOME
         )
+
+    def test_match_followed_by_a_bare_divider_with_trailing_whitespace_is_malformed(self) -> None:
+        files = {"docs/x.rst": "Title\n======= \nold body\nmore\n"}
+
+        self.assertEqual(self._apply_outcome(self.TRUNCATED_UNDERLINE, files), qwen_edits.EDIT_MALFORMED_OUTCOME)
+
+    def test_match_followed_by_an_indented_divider_applies(self) -> None:
+        files = {"docs/x.rst": "Title\n  =======\nbody\n"}
+
+        self.assertEqual(self._apply(edit_block("docs/x.rst", "Title", "TITLE"), files), {"docs/x.rst": "TITLE\n  =======\nbody\n"})
 
     def test_divider_elsewhere_in_the_file_does_not_block_an_edit(self) -> None:
         cases = (

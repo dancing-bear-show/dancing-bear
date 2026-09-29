@@ -28,6 +28,11 @@ NO_CHANGE_OUTCOME = "terminal-no-change"
 SEARCH_MARKER = "<<<<<<< SEARCH"
 DIVIDER_MARKER = "======="
 REPLACE_MARKER = ">>>>>>> REPLACE"
+# A marker counts only at column 0: every marker comparison in this module
+# (response and target file alike) goes through _marker_text, which drops
+# trailing whitespace (a "\r" included) but keeps leading indentation. An
+# indented "  =======" or "  >>>>>>> REPLACE" is body content, never
+# structure, so a truncated response cannot promote it to a separator.
 # The SEARCH and REPLACE markers never appear as body content. A divider
 # line can: an RST/Markdown underline reads as "=======". There is no
 # escaping in this format, so three guards fail closed as malformed rather
@@ -104,14 +109,20 @@ class _FileLines:
         return "\n".join(self.lines) + ("\n" if self.final_newline else "")
 
 
+def _marker_text(line: str) -> str:
+    """line as compared with a marker: trailing whitespace dropped, leading
+    indentation kept, so only a column-0 marker ever matches."""
+    return line.rstrip()
+
+
 def _find_marker(lines: list[str], start: int, marker: str) -> int:
-    """Index of the first line from start that is marker; another block
-    marker first, or no marker at all, is a malformed block."""
+    """Index of the first line from start that is marker at column 0; another
+    column-0 block marker first, or no marker at all, is a malformed block."""
     for i in range(start, len(lines)):
-        stripped = lines[i].strip()
-        if stripped == marker:
+        text = _marker_text(lines[i])
+        if text == marker:
             return i
-        if stripped in _BLOCK_MARKERS:
+        if text in _BLOCK_MARKERS:
             break
     raise EditBlockError(EDIT_MALFORMED_OUTCOME)
 
@@ -120,14 +131,15 @@ def _parse_block_body(lines: list[str], start: int) -> tuple[tuple[str, ...], tu
     """(search, replace, index after the REPLACE marker) for the block whose
     SEARCH marker is lines[start - 1].
 
-    A second bare "=======" line between the divider and the REPLACE marker
-    means the body's own divider cannot be told apart from a legitimate
-    "=======" line of content (SEARCH or REPLACE side); that block is
-    rejected rather than silently truncated. A single divider that was really
-    SEARCH content is caught at apply time by _find_unique."""
+    A second bare (column-0) "=======" line between the divider and the
+    REPLACE marker means the body's own divider cannot be told apart from a
+    legitimate "=======" line of content (SEARCH or REPLACE side); that block
+    is rejected rather than silently truncated. An indented "=======" is
+    plain content. A single divider that was really SEARCH content is caught
+    at apply time by _find_unique."""
     divider = _find_marker(lines, start, DIVIDER_MARKER)
     end = _find_marker(lines, divider + 1, REPLACE_MARKER)
-    if any(lines[i].strip() == DIVIDER_MARKER for i in range(divider + 1, end)):
+    if any(_marker_text(lines[i]) == DIVIDER_MARKER for i in range(divider + 1, end)):
         raise EditBlockError(EDIT_MALFORMED_OUTCOME)
     return tuple(lines[start:divider]), tuple(lines[divider + 1 : end]), end + 1
 
@@ -151,7 +163,7 @@ def _is_unstructured_line_after_replace(line: str) -> bool:
         return False
     if stripped.startswith("```"):
         return False
-    if stripped == SEARCH_MARKER:
+    if _marker_text(line) == SEARCH_MARKER:
         return False
     return _FILE_LINE_RE.fullmatch(line) is None
 
@@ -162,7 +174,8 @@ def parse_edit_blocks(response_text: str) -> list[EditBlock]:
     Lines outside blocks - prose, ``` fences - are ignored, except that a
     "FILE: <path>" line names the file for every block after it until the
     next FILE line. Body lines are kept verbatim (only "\\n" splits lines).
-    Raises EditBlockError: NO_EDITS_OUTCOME when there is no block, and
+    Markers are recognised only at column 0 (trailing whitespace is
+    tolerated); an indented marker-shaped line is ordinary text. Raises EditBlockError: NO_EDITS_OUTCOME when there is no block, and
     EDIT_MALFORMED_OUTCOME for a block missing a marker (a response cut off
     at num_predict), a stray divider/REPLACE marker, or a non-blank,
     non-structural line immediately after a REPLACE marker (see
@@ -174,14 +187,14 @@ def parse_edit_blocks(response_text: str) -> list[EditBlock]:
     current_file = ""
     i = 0
     while i < len(lines):
-        stripped = lines[i].strip()
-        if stripped == SEARCH_MARKER:
+        text = _marker_text(lines[i])
+        if text == SEARCH_MARKER:
             search, replace, i = _parse_block_body(lines, i + 1)
             blocks.append(EditBlock(current_file, search, replace))
             if i < len(lines) and _is_unstructured_line_after_replace(lines[i]):
                 raise EditBlockError(EDIT_MALFORMED_OUTCOME)
             continue
-        if stripped in _STRAY_MARKERS:
+        if text in _STRAY_MARKERS:
             raise EditBlockError(EDIT_MALFORMED_OUTCOME)
         file_match = _FILE_LINE_RE.fullmatch(lines[i])
         if file_match is not None:
@@ -210,9 +223,10 @@ def _find_unique(lines: list[str], search: tuple[str, ...]) -> int:
 
     An empty SEARCH matches at every position, so it can never identify a
     location: it is EDIT_AMBIGUOUS_OUTCOME, never an insert-at-top.
-    A match directly followed by a bare "=======" file line is
+    A match directly followed by a bare (column-0) "=======" file line is
     EDIT_MALFORMED_OUTCOME: the block's divider may have been SEARCH content
-    from a response cut off before its real divider.
+    from a response cut off before its real divider. An indented "======="
+    file line could never have been parsed as a divider, so it is content.
     """
     if not search:
         raise EditBlockError(EDIT_AMBIGUOUS_OUTCOME)
@@ -223,7 +237,7 @@ def _find_unique(lines: list[str], search: tuple[str, ...]) -> int:
     if len(hits) > 1:
         raise EditBlockError(EDIT_AMBIGUOUS_OUTCOME)
     after = hits[0] + n
-    if after < len(lines) and lines[after].strip() == DIVIDER_MARKER:
+    if after < len(lines) and _marker_text(lines[after]) == DIVIDER_MARKER:
         raise EditBlockError(EDIT_MALFORMED_OUTCOME)
     return hits[0]
 
