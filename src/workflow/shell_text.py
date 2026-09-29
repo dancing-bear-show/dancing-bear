@@ -24,11 +24,13 @@ runs is itself a command by these rules, so "timeout to interrupt a handler"
 stays prose. A bare or path-prefixed ``python``/``python3`` interpreter
 (optionally version-suffixed, e.g. ``python3.11``) counts unless the word after
 it is English -- a function word, verb, or version number ("python3 is
-required", "python 3.11 or newer"); ``python3 runner input`` is a command. A
-line whose unquoted ``)`` closes
-nothing is prose wrapped mid-parenthesis. Everything else, including a label
-before a command ("2. Server: curl ..."), is treated as prose: precision over
-recall.
+required", "python 3.11 or newer"); ``python3 runner input`` is a command.
+Neither the interpreter nor the wrapper exception applies to a line whose
+unquoted operator leads into more shell (see :func:`_has_shell_operator`):
+``python3 is; rm -rf scratch`` runs ``rm`` whatever its first operand says.
+A line whose unquoted ``)`` closes nothing is prose wrapped
+mid-parenthesis. Everything else, including a label before a command
+("2. Server: curl ..."), is treated as prose: precision over recall.
 
 Quoting is resolved with :func:`quote_context`, a small lexer, rather than by
 regex over the shell text.
@@ -115,6 +117,8 @@ _PROSE_TRAILING_PUNCTUATION = ".,;:!?"
 # Matched whole after trailing punctuation is stripped, so "3.11," is a
 # version while "3.py", "2026_job.py" and "3x" are scripts.
 _VERSION_WORD_RE = re.compile(r"\d+(?:\.\d+)*")
+# Operators that join a further command onto a line (see _has_shell_operator).
+_JOINING_OPS: frozenset[str] = frozenset({";", "&&", "||", "|", "|&"})
 _PROMPT_PREFIX = "$ "
 _SHELLISH_ARG_PREFIXES = ("-", '"', "'", "$", ".", "/", "~", "{")
 # A stray apostrophe in a trailing comment would otherwise pull prose in until
@@ -251,6 +255,41 @@ def _wrapper_line_is_command(body: str) -> bool:
     return is_command_line(body[word.start:])
 
 
+def _has_shell_operator(body: str) -> bool:
+    """True when an unquoted operator in *body* introduces more shell.
+
+    The interpreter and wrapper prose exceptions judge one word, or the
+    first simple command; a line such as ``python3 is; rm -rf scratch``
+    still runs everything after the operator. So a line is shell, whatever
+    its first operand says, when it joins on a command (``;``, ``&&``,
+    ``||``, ``|`` followed by a command line), substitutes one (``$(...)``,
+    backticks, ``<(...)`` whose body is a command line), or redirects to a
+    path-shaped target (``> /dev/null``, ``< "$F"``). The lexer decides, so
+    an operator inside quotes or a comment does not count.
+
+    What follows each operator must itself look like shell because workflow
+    prose uses the same characters: "python3 script for the aggregation; it
+    is deterministic", "timeout to interrupt a handler; read job_runtime
+    before", "(>= 3.11)", and Markdown code spans that lex as backticks.
+    """
+    tokens = _Lexer(body).tokens()
+    for tok, nxt in zip(tokens, [*tokens[1:], None]):
+        if tok.kind == "op" and tok.text in _JOINING_OPS:
+            if is_command_line(body[tok.start + len(tok.text):]):
+                return True
+        elif tok.kind == "redirect":
+            if nxt is not None and nxt.kind == "word" and _is_path_shaped(nxt.raw):
+                return True
+        elif any(is_command_line(sub) for sub, _ in tok.subs):
+            return True
+    return False
+
+
+def _is_path_shaped(word: str) -> bool:
+    """A redirect target that reads as a path or an expansion, not an English word."""
+    return word.startswith(_SHELLISH_ARG_PREFIXES) or "/" in word
+
+
 def _closes_unopened_paren(line: str) -> bool:
     """True when an unquoted ``)`` on *line* closes nothing.
 
@@ -280,10 +319,10 @@ def is_command_line(line: str) -> bool:
         return True
     second = words[1] if len(words) > 1 else ""
     if _PYTHON_WORD_RE.match(first.lstrip("(")):
-        return _interpreter_line_is_command(second)
+        return _interpreter_line_is_command(second) or _has_shell_operator(body)
     if first in _WEAK_COMMANDS and _weak_word_is_command(first, second, line):
         return True
-    return first in WRAPPER_NAMES and _wrapper_line_is_command(body)
+    return first in WRAPPER_NAMES and (_wrapper_line_is_command(body) or _has_shell_operator(body))
 
 
 def _fence_segments(
@@ -373,28 +412,30 @@ def _line_segments(
 
 
 def _absorb_heredoc_body(chunk: list[str], lines: list[str], i: int, consumed: set[int]) -> int:
-    """Consume a heredoc's body lines up to its closer; append them only if unquoted.
+    """Append a heredoc's body lines, through its closer, to *chunk*.
 
     A heredoc opener (``cat <<EOF``) has no unclosed quote or trailing
     backslash, so :func:`_can_continue` stops right after it -- the body is
-    otherwise never part of any segment's text, and a placeholder substituted
-    into an unquoted (shell-expanding) body line never reaches a caller
-    scanning segment text for ``{param}`` uses. An unquoted delimiter's body
-    is live shell, so it is appended to *chunk*. A quoted one
-    (``<<'EOF'``/``<<"EOF"``) makes the body inert data, never shell-expanded,
-    so it must not be appended -- but its lines still need to be marked
-    *consumed* here, or :func:`_line_segments` revisits a command-looking body
-    line (``echo "$UNBOUND"``) as its own independent segment and a caller
-    wrongly treats inert heredoc text as live shell. Several heredocs opened
-    on one line (``cat <<A <<B``) have their bodies one after another.
+    otherwise never part of any segment's text, and a placeholder in it never
+    reaches a caller scanning segment text for ``{param}`` uses.
+
+    The body is appended whether or not the delimiter is quoted. A quoted
+    one (``<<'EOF'``) stops the *shell* expanding the body, and the parser
+    reports it as inert so the expansion rules skip it; but a ``{param}`` is
+    substituted into the text before bash parses it, so a value carrying a
+    newline and the delimiter closes the heredoc early (``param_guard``'s
+    documented break-out). The pre-shell rule must see that body. Its lines
+    are also marked *consumed*, or :func:`_line_segments` revisits a
+    command-looking body line (``echo "$UNBOUND"``) as its own live segment.
+    Several heredocs opened on one line (``cat <<A <<B``) have their bodies
+    one after another.
     """
     for delimiter in _heredoc_delimiters("\n".join(chunk)):
         end = next((k for k in range(i + 1, len(lines)) if lines[k].strip() == delimiter.text), None)
         if end is None:
             return i
         for k in range(i + 1, end + 1):
-            if not delimiter.quoted:
-                chunk.append(lines[k].strip())
+            chunk.append(lines[k].strip())
             consumed.add(k)
         i = end
     return i

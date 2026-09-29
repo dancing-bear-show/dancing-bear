@@ -260,12 +260,25 @@ class TestUnvalidatedParam(_RuleCase):
         hits = self.assert_fires(_workflow(_stage(desc), params='host: "example.com"'))
         self.assertIn("'{host}'", hits[0].message)
 
-    def test_quoted_heredoc_body_placeholder_does_not_validate(self) -> None:
-        # Happy-path sibling: a QUOTED delimiter's body is inert to the shell
-        # (no expansion happens at all), so a {host} placeholder there is not
-        # a real unvalidated-param exposure and must stay silent.
+    def test_quoted_heredoc_body_placeholder_fires(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6nOAmF: a quoted delimiter stops the
+        # SHELL expanding the body, but {host} is substituted into the text
+        # before bash parses it, so a value of "EOF\n<command>" closes the
+        # heredoc and runs the rest (param_guard.py's module docstring). The
+        # body was dropped from line segments and skipped as inert in fences.
+        for desc in (
+            "Write the file:\n\n  cat > \"$TMPDIR/notes.txt\" <<'EOF'\n  {host}\n  EOF\n",
+            "```bash\n\ncat > \"$TMPDIR/notes.txt\" <<'EOF'\n\n{host}\n\nEOF\n\n```\n",
+        ):
+            with self.subTest(desc=desc):
+                hits = self.assert_fires(_workflow(_stage(desc), params='host: "example.com"'))
+                self.assertIn("'{host}'", hits[0].message)
+
+    def test_quoted_heredoc_body_placeholder_with_param_rule_is_silent(self) -> None:
+        # Happy path: an engine-enforced rule constrains the value first.
         desc = "Write the file:\n\n  cat > \"$TMPDIR/notes.txt\" <<'EOF'\n  {host}\n  EOF\n"
-        self.assert_silent(_workflow(_stage(desc), params='host: "example.com"'))
+        self.assert_silent(_workflow(
+            _stage(desc), params='host: "example.com"', rules="host: '[a-z.]+'"))
 
     def test_check_params_in_ancestor_stage_validates(self) -> None:
         yaml_text = _workflow(
@@ -458,12 +471,19 @@ class TestUnquotedFanOutKey(_RuleCase):
         # orchestrator (SKILL.md SAFE_KEY_VALUE): no newline can end a comment.
         self.assert_silent(_fan_out_workflow("echo ok # sweep {domain}"))
 
+    def test_key_in_quoted_heredoc_body_is_silent(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6nOAmF, checked for this rule too: the
+        # same allowlist means no value can carry the newline that ends a
+        # quoted heredoc, so the body stays inert here (unlike a {param}).
+        self.assert_silent(_fan_out_workflow("cat <<'EOF'\n  {domain}\n  EOF"))
+
     def test_has_teeth(self) -> None:
         self.assert_has_teeth(_fan_out_workflow(self._HISTORICAL))
 
 
 def _worker_queue_workflow(
-    script: str, *, description: str = "Enqueued once per domain.", stage_script: str = ""
+    script: str, *, description: str = "Enqueued once per domain.", stage_script: str = "",
+    params: str = "",
 ) -> str:
     """worker-queue-fanout.yaml check-domain shape: a worker_queue fan-out over domains."""
     extra = (
@@ -476,6 +496,7 @@ def _worker_queue_workflow(
     return _workflow(
         _stage("List domains.", name="gather", extra="    writes_to:\n      - domains.json\n"),
         _stage(description, name="check-domain", depends_on="[gather]", extra=extra),
+        params=params,
     )
 
 
@@ -558,6 +579,61 @@ class TestUnquotedFanOutKeyWorkerQueue(unittest.TestCase):
         self.assertTrue(self._hits(yaml_text))
         with mock.patch("workflow.linter_shell._unquoted_fan_out_keys", return_value=[]):
             self.assertEqual(_lint(yaml_text).warnings, [])
+
+
+class TestWorkerScriptsAreLinted(unittest.TestCase):
+    """PR #437 thread PRRT_kwDOQr1kjM6nOAmz: a worker runs its scripts, so every shell rule reads them."""
+
+    def _warnings(self, yaml_text: str) -> list[tuple[str, str]]:
+        result = _lint(yaml_text)
+        self.assertTrue(result.valid, msg=result.errors)
+        return [(w.rule, w.field) for w in result.warnings]
+
+    def test_unisolated_python_in_stage_script_fires(self) -> None:
+        warnings = self._warnings(_worker_queue_workflow("ls data/", stage_script="python3 runner"))
+        self.assertEqual(warnings, [(RULE_PYTHON_NOT_ISOLATED, "script")])
+
+    def test_unisolated_python_in_fan_out_script_fires(self) -> None:
+        warnings = self._warnings(_worker_queue_workflow("python3 runner data/"))
+        self.assertEqual(warnings, [(RULE_PYTHON_NOT_ISOLATED, "fan_out.script")])
+
+    def test_unbound_variable_in_script_fires(self) -> None:
+        warnings = self._warnings(_worker_queue_workflow('ls "$UNBOUND"', stage_script='wc -l "$OTHER"'))
+        self.assertEqual(warnings, [(RULE_UNBOUND_VARIABLE, "fan_out.script"), (RULE_UNBOUND_VARIABLE, "script")])
+
+    def test_each_script_is_its_own_shell(self) -> None:
+        # Each field runs as a separate `bash FILE`: a binding in one does
+        # not reach the other.
+        warnings = self._warnings(_worker_queue_workflow("X=1", stage_script='echo "$X"'))
+        self.assertEqual(warnings, [(RULE_UNBOUND_VARIABLE, "script")])
+
+    def test_guard_refused_construct_in_script_fires(self) -> None:
+        warnings = self._warnings(_worker_queue_workflow('for f in a b; do rm "$f"; done'))
+        self.assertEqual(warnings, [(RULE_GUARD_REFUSED, "fan_out.script")])
+
+    def test_clean_scripts_are_silent(self) -> None:
+        # Happy path: isolated interpreter, variable bound in the same script.
+        self.assertEqual(self._warnings(_worker_queue_workflow(
+            'X=data; ls "$X"', stage_script="python3 -I x.py")), [])
+
+    def test_description_is_not_checked_or_double_reported(self) -> None:
+        # The description never executes in this mode: a bare interpreter,
+        # an unbound variable and a refused loop there report nothing, and
+        # the script's own offender is reported once, under its field.
+        description = 'Run:\n\n  python3 runner\n  echo "$UNBOUND"\n  for f in a; do rm "$f"; done\n'
+        self.assertEqual(self._warnings(_worker_queue_workflow(
+            "ls data/", description=description, stage_script="python3 -I x.py")), [])
+        self.assertEqual(self._warnings(_worker_queue_workflow(
+            "ls data/", description=description, stage_script="python3 runner")),
+            [(RULE_PYTHON_NOT_ISOLATED, "script")])
+
+    def test_caller_params_in_scripts_are_not_reported(self) -> None:
+        # The engine substitutes caller params into the description only
+        # (compiler.resolve_params); a script's {host} is never replaced, so
+        # shell-unvalidated-param stays off for scripts.
+        warnings = self._warnings(_worker_queue_workflow(
+            "curl {host}", stage_script="curl {host}", params='host: "example.com"'))
+        self.assertEqual(warnings, [])
 
 
 # ---------------------------------------------------------------------------
@@ -1050,6 +1126,13 @@ class TestPythonNotIsolated(_RuleCase):
             with self.subTest(line=line):
                 self.assert_silent(_workflow(_stage(f"Setup:\n\n  {line}\n")))
 
+    def test_fires_on_interpreter_prose_word_before_control_operator(self) -> None:
+        # Copilot "Previously missed" on shell_text.py:286: the line is now
+        # shell, so its unisolated interpreter is reported.
+        for line in ("python3 is; rm -rf scratch", "python3 is && rm -rf scratch"):
+            with self.subTest(line=line):
+                self.assert_fires(_workflow(_stage(f"Run:\n\n  {line}\n")))
+
     def test_python_is_required_prose_is_silent(self) -> None:
         # Happy path for the same thread: with the operand heuristic gone,
         # "python3 is required" stays silent because it is never a segment.
@@ -1516,6 +1599,23 @@ class TestGuardRefused(_RuleCase):
                 hits = self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))
                 self.assertIn("loop", hits[0].message)
 
+    def test_fires_on_stdin_shell_outside_a_loop(self) -> None:
+        # Copilot "Previously missed" on linter_shell.py:927: h_shell
+        # (_bash_write_targets.py) refuses a shell reading its program from
+        # stdin unconditionally, not only inside a loop.
+        for command in ("bash -s name", "/bin/bash < script", "echo x | sh", "bash -es name < f",
+                        "zsh"):
+            with self.subTest(command=command):
+                hits = self.assert_fires(_workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n")))
+                self.assertIn("shell reading its program from stdin", hits[0].message)
+
+    def test_shell_running_a_script_file_outside_a_loop_is_silent(self) -> None:
+        # Happy path: a script operand is a file (command semantics); fish is
+        # not a shell h_shell handles, so the guard never refuses it.
+        for command in ("bash script.sh", "/bin/bash -e script.sh", "sh -- run.sh", "fish < f"):
+            with self.subTest(command=command):
+                self.assert_silent(_workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n")))
+
     def test_shell_running_a_script_file_in_loop_is_silent(self) -> None:
         # Happy path: a script operand with no -s runs a file (command
         # semantics). A `-s` after the script, after `--`, or as `-o`'s value
@@ -1815,29 +1915,51 @@ class TestExtractShellSegments(unittest.TestCase):
         self.assertIn("{host}", segments[0].text)
         self.assertEqual(segments[0].text, "cat <<EOF\n{host}\nEOF")
 
-    def test_quoted_heredoc_body_is_not_absorbed(self) -> None:
-        # Happy-path sibling: a quoted delimiter's body is inert (no shell
-        # expansion happens inside it at all), so absorbing it into the
-        # segment TEXT is unnecessary -- confirms the fix only widens the
-        # unquoted case's appended text, matching linter_shell.py's own
-        # quoted/unquoted heredoc distinction.
+    def test_quoted_heredoc_body_is_absorbed(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6nOAmF: a {param} is substituted
+        # before bash parses the heredoc, so the pre-shell rule needs a quoted
+        # body's text too. The parser still marks it inert for the
+        # shell-expansion rules (see TestUnboundVariable's quoted-heredoc tests).
         desc = "cat <<'EOF'\n{host}\nEOF\n"
         segments = extract_shell_segments(desc)
         self.assertEqual(len(segments), 1)
-        self.assertNotIn("{host}", segments[0].text)
-        self.assertEqual(segments[0].text, "cat <<'EOF'")
+        self.assertEqual(segments[0].text, "cat <<'EOF'\n{host}\nEOF")
 
-    def test_quoted_heredoc_body_is_still_consumed_as_its_own_segment(self) -> None:
-        # PR #433 review: the quoted-delimiter branch used to return early
-        # without marking the body lines CONSUMED, so _line_segments revisited
-        # a command-looking body line as an INDEPENDENT segment of its own --
-        # even though the same body text is correctly excluded from the
-        # opener's segment text above. A quoted heredoc body must produce
-        # exactly one segment total (the opener), not two.
+    def test_quoted_heredoc_body_is_not_its_own_segment(self) -> None:
+        # PR #433 review: a command-looking body line must not be revisited
+        # as an INDEPENDENT live segment. One segment in total, the opener
+        # with its body.
         desc = "cat <<'EOF'\necho \"$UNBOUND\"\nEOF\n"
         segments = extract_shell_segments(desc)
         self.assertEqual(len(segments), 1, msg=segments)
-        self.assertEqual(segments[0].text, "cat <<'EOF'")
+        self.assertEqual(segments[0].text, "cat <<'EOF'\necho \"$UNBOUND\"\nEOF")
+
+    def test_control_operator_after_interpreter_prose_word_is_shell(self) -> None:
+        # Copilot "Previously missed" on shell_text.py:286: the interpreter
+        # prose exception judged only `is`, so the rm after the operator was
+        # never extracted and every rule missed it.
+        for line in ("python3 is; rm -rf scratch", "python3 is && rm -rf scratch",
+                     "python3 is || rm -rf scratch", "python3 is | grep x",
+                     "python3 is $(rm -rf scratch)", "python3 is > /dev/null"):
+            with self.subTest(line=line):
+                self.assertEqual(self._texts(f"  {line}\n"), [line])
+
+    def test_control_operator_after_wrapper_that_runs_nothing_is_shell(self) -> None:
+        # Same finding, wrapper-led: `env` alone resolves no command, so the
+        # pipe into grep was dropped with it.
+        self.assertEqual(self._texts("  env | grep OTEL_\n"), ["env | grep OTEL_"])
+        self.assertEqual(self._texts("  timeout to x; rm -rf y\n"), ["timeout to x; rm -rf y"])
+
+    def test_prose_with_operator_characters_stays_prose(self) -> None:
+        # Happy path: English interpreter lines, including ones whose
+        # punctuation lexes as an operator not followed by a command, and
+        # operators inside quotes or a comment.
+        for line in ("python3 is required", "Note: python3 is fast", "python3 is fast; use it",
+                     "python3 script for the aggregation; it is deterministic.",
+                     "python 3.11 or newer (>= 3.11)", 'python3 is "x; rm y"',
+                     "python3 is # a; rm x", "timeout to interrupt a handler; read job_runtime before"):
+            with self.subTest(line=line):
+                self.assertEqual(self._texts(f"  {line}\n"), [])
 
 
 
