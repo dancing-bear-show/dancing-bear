@@ -1088,5 +1088,110 @@ class TestSweepCounting(unittest.TestCase):
                 self.assertIn("refused path", res.stderr)
 
 
+@unittest.skipUnless(shutil.which("jq") and shutil.which("bash"), "needs jq and bash")
+class TestReviewRecountGate(unittest.TestCase):
+    """The second jq gate verifies each proposal's sweep_hits against its recount file."""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.ws = Path(tmp.name)
+        (self.ws / "outputs/sweep-recounts").mkdir(parents=True)
+        prompts = _prompts(str(self.ws), mode="rereview")
+        jq_lines = _jq_lines(prompts["propose-concerns"])
+        (self.gate,) = [c for c in jq_lines if "sweep-recounts/all.json" in c]
+
+    def _write(self, rel: str, doc: object) -> None:
+        (self.ws / rel).write_text(json.dumps(doc), encoding="utf-8")
+
+    def _run(self, cmd: str) -> subprocess.CompletedProcess[str]:
+        argv = [str(shutil.which("bash")), "-c", cmd]
+        return subprocess.run(argv, capture_output=True, text=True, check=False)  # nosec B603 - rendered workflow gate against a temp dir
+
+    def _set_up_happy(self) -> None:
+        """Write proposed-concerns.json and all.json for the happy path."""
+        proposals = [
+            {"concern_id": "missing-guard", "sweep": {"pattern": "x", "paths": ["src"]},
+             "sweep_hits": 3, "sweep_hits_reason": None},
+            {"concern_id": "stale-docs", "sweep": {"structural": "every guide mentions the new flag"},
+             "sweep_hits": None, "sweep_hits_reason": "structural: no pattern to count"},
+            {"concern_id": "proc-concern", "sweep": {"procedure": _procedure()},
+             "sweep_hits": None, "sweep_hits_reason": "procedure: applied per diff, no tree count"},
+        ]
+        self._write("outputs/proposed-concerns.json", proposals)
+        self._write("outputs/sweep-recounts/all.json", {"missing-guard": {"hits": 3, "files": 2}})
+
+    def test_happy_path_passes(self) -> None:
+        """Matching counts for pattern, null+reason for non-pattern: gate must pass."""
+        self._set_up_happy()
+        res = self._run(self.gate)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertEqual(res.stdout.strip(), "true")
+
+    def test_fabricated_sweep_hits_fails(self) -> None:
+        """A sweep_hits that does not match the recount must fail the gate."""
+        proposals = [
+            {"concern_id": "missing-guard", "sweep": {"pattern": "x", "paths": ["src"]},
+             "sweep_hits": 99, "sweep_hits_reason": None},
+        ]
+        self._write("outputs/proposed-concerns.json", proposals)
+        self._write("outputs/sweep-recounts/all.json", {"missing-guard": {"hits": 3, "files": 2}})
+        res = self._run(self.gate)
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("missing-guard", res.stdout)
+        self.assertIn("99", res.stdout)
+        self.assertIn("3", res.stdout)
+
+    def test_pattern_entry_with_null_sweep_hits_fails(self) -> None:
+        """A pattern sweep with null sweep_hits must fail — a count is required."""
+        proposals = [
+            {"concern_id": "missing-guard", "sweep": {"pattern": "x", "paths": ["src"]},
+             "sweep_hits": None, "sweep_hits_reason": None},
+        ]
+        self._write("outputs/proposed-concerns.json", proposals)
+        self._write("outputs/sweep-recounts/all.json", {})
+        res = self._run(self.gate)
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("missing-guard", res.stdout)
+
+    def test_non_pattern_entry_with_integer_sweep_hits_fails(self) -> None:
+        """A structural sweep with a numeric sweep_hits must fail."""
+        proposals = [
+            {"concern_id": "stale-docs", "sweep": {"structural": "every guide mentions the new flag"},
+             "sweep_hits": 5, "sweep_hits_reason": "structural: should not have a count"},
+        ]
+        self._write("outputs/proposed-concerns.json", proposals)
+        self._write("outputs/sweep-recounts/all.json", {})
+        res = self._run(self.gate)
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("stale-docs", res.stdout)
+
+    def test_non_pattern_entry_missing_sweep_hits_reason_fails(self) -> None:
+        """A non-pattern entry with null sweep_hits_reason must fail."""
+        proposals = [
+            {"concern_id": "proc-concern", "sweep": {"procedure": _procedure()},
+             "sweep_hits": None, "sweep_hits_reason": None},
+        ]
+        self._write("outputs/proposed-concerns.json", proposals)
+        self._write("outputs/sweep-recounts/all.json", {})
+        res = self._run(self.gate)
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("proc-concern", res.stdout)
+
+    def test_empty_proposals_pass(self) -> None:
+        """An empty proposals array trivially passes."""
+        self._write("outputs/proposed-concerns.json", [])
+        self._write("outputs/sweep-recounts/all.json", {})
+        res = self._run(self.gate)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertEqual(res.stdout.strip(), "true")
+
+    def test_gate_is_in_propose_concerns_prompt(self) -> None:
+        """The gate is extracted from the rendered prompt (smoke test)."""
+        self.assertIn("sweep-recounts/all.json", self.gate)
+        self.assertIn("proposed-concerns.json", self.gate)
+        self.assertIn("non-negative integer", self.gate)
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

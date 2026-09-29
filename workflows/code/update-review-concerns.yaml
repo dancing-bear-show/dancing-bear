@@ -1138,8 +1138,23 @@ stages:
             in the summary. Any hit count the summary states is the "hits"
             value count-sweep printed, never a count of your own. An entry
             with no sweep is not proposed.
+          "sweep_hits": for a pattern sweep, the integer "hits" value
+            count-sweep printed on the re-count above; for a structural
+            or procedure sweep, null.
+          "sweep_hits_reason": null for a pattern sweep; for a structural
+            or procedure sweep, a non-empty string explaining why no tree
+            count applies (e.g. "structural: no pattern to count" or
+            "procedure: applied per diff, no tree count").
           "class": the group's class.
           "cause_categories": the group's cause_categories, unchanged.
+        After recording sweep_hits for a pattern sweep, write the raw
+        count-sweep stdout ({"hits": N, "files": M}) to
+        {workspace}/outputs/sweep-recounts/<concern_id>.json.
+        concern_id is a kebab-case slug using only letters, digits and
+        hyphens and is therefore filename-safe. Also write a combined
+        {workspace}/outputs/sweep-recounts/all.json as a JSON object
+        mapping each concern_id to its recount (for the gate below);
+        entries without a pattern sweep have no recount and are omitted.
         and its formatted_entry ends with two more bullets after example:
           - **sweep**: for a pattern sweep, the pattern in backticks
             followed by "in" and the paths in backticks; for a structural
@@ -1164,6 +1179,12 @@ stages:
 
           jq -er '[.[] | select(((.sweep | type == "object") and (if (.sweep | has("structural")) then (.sweep | keys == ["structural"] and (.structural | type == "string" and length > 0)) elif (.sweep | has("procedure")) then (.sweep | keys == ["procedure"] and (.procedure | type == "object" and keys == ["evidence", "steps", "trigger"] and (.trigger | type == "string" and test("\\S")) and (.evidence | type == "string" and test("\\S")) and (.steps | type == "array" and length >= 2 and length <= 6 and all(.[]; type == "string" and test("\\S") and test("\\?\\s*$"))) and ([.trigger, .evidence, .steps[]] | all(.[]; test("carefully|for accuracy|looks? (right|correct|good|fine)|as appropriate|judge?ment"; "i") | not)))) else (.sweep | keys == ["paths", "pattern"] and (.pattern | type == "string" and length > 0 and (test("[\u0027\n\r]") | not)) and (.paths | type == "array" and length > 0 and all(.[]; type == "string" and test("^[A-Za-z0-9_][A-Za-z0-9._/-]*$") and (split("/") | all(. != ".." and . != ".")) and (ascii_downcase | split("/") | (.[0] != ".github" and .[0] != ".claude" and all(. != ".git" and . != ".envrc")))))) end)) | not) | "\(.concern_id // "?"): \(.sweep | tojson)"] | (.[]), (length == 0)' "{workspace}/outputs/proposed-concerns.json"
 
+        Then run a second, separate gate that machine-checks each entry's
+        sweep_hits against its recount. The summary's stated hit count must
+        equal sweep_hits. A false fails the stage:
+
+          jq -er --slurpfile r "{workspace}/outputs/sweep-recounts/all.json" '[.[] | (.sweep | has("pattern")) as $is_pat | if $is_pat then if ((.sweep_hits | type) != "number" or .sweep_hits < 0 or (.sweep_hits | . != floor)) then "\(.concern_id // "?"): sweep_hits must be a non-negative integer for a pattern sweep, got \(.sweep_hits | tojson)" elif (($r[0][.concern_id] | type) != "object") then "\(.concern_id // "?"): no recount found in sweep-recounts/all.json" elif (.sweep_hits != $r[0][.concern_id].hits) then "\(.concern_id // "?"): sweep_hits \(.sweep_hits) != recount hits \($r[0][.concern_id].hits); the summary must state \($r[0][.concern_id].hits)" else empty end elif (.sweep_hits != null) then "\(.concern_id // "?"): sweep_hits must be null for a non-pattern sweep, got \(.sweep_hits | tojson)" elif ((.sweep_hits_reason | type) != "string" or (.sweep_hits_reason | test("\\S") | not)) then "\(.concern_id // "?"): sweep_hits_reason must be a non-empty string for a non-pattern sweep" else empty end] | (.[]), (length == 0)' "{workspace}/outputs/proposed-concerns.json"
+
       RC — the enforcement gaps and the rejected list reach the human gate.
         Copy the "## Enforcement gaps" section of
         {workspace}/outputs/cluster-summary.md, verbatim, to the end of
@@ -1183,6 +1204,10 @@ stages:
       tools: [Read, Write, Bash]
       access: read-write
     required: true
+    # outputs/sweep-recounts/<concern_id>.json and outputs/sweep-recounts/all.json
+    # are NOT listed here: writes_to entries are fixed paths, and variable-named
+    # per-concern files cannot be listed. The engine would otherwise wait on a
+    # sentinel that nothing writes. The second jq gate reads all.json directly.
     writes_to:
       - outputs/proposed-concerns.json
       - outputs/proposed-concerns-summary.md
