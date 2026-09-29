@@ -8,10 +8,13 @@ from pathlib import Path
 
 from workflow.dispatch import (
     KNOWN_ROLES,
+    WORKSPACE_ROOT_PREFIXES,
     build_agent_prompt,
     build_dispatch_instruction,
     build_group_dispatch,
+    writes_to_relpath,
 )
+from workflow.dispatchers import LocalDispatcher
 from workflow.models import StageKind
 
 from tests.workflow_tests.helpers.factories import (
@@ -558,6 +561,62 @@ class TestSkillFanOutSummaryPropagatesFailure(unittest.TestCase):
         self.assertIn('Its `status` is `"success"` only when EVERY per-position result is `"success"`', text)
         self.assertIn('write `"status": "failed"` and list each failed position in `errors`', text)
         self.assertIn("never write a successful summary over a failed item", text)
+
+
+# ---------------------------------------------------------------------------
+# writes_to resolution — one rule for the prompt and the dispatcher
+# ---------------------------------------------------------------------------
+
+
+class TestWritesToResolution(unittest.TestCase):
+    """A ``context/...`` entry must resolve to ``{workspace}/context/...``.
+
+    Every workflow that declares one (critique, optimize-code,
+    design-criteria-*) tells its agents and readers to use
+    ``{workspace}/context/...``. Before ``context/`` was a workspace-root
+    prefix, the Output Files list said ``{workspace}/outputs/context/...`` for
+    the same entry, so a single prompt named two different files.
+    """
+
+    def test_root_prefixes_resolve_against_the_workspace_root(self) -> None:
+        for prefix in WORKSPACE_ROOT_PREFIXES:
+            with self.subTest(prefix=prefix):
+                self.assertEqual(writes_to_relpath(f"{prefix}x.json"), f"{prefix}x.json")
+
+    def test_context_prefix_is_a_root_prefix(self) -> None:
+        self.assertEqual(writes_to_relpath("context/concerns.json"), "context/concerns.json")
+
+    def test_bare_name_goes_under_outputs(self) -> None:
+        self.assertEqual(writes_to_relpath("report.json"), "outputs/report.json")
+
+    def test_prefix_needs_its_slash(self) -> None:
+        # "contextual.json" merely starts with the letters of a prefix.
+        self.assertEqual(writes_to_relpath("contextual.json"), "outputs/contextual.json")
+
+    def test_prompt_names_the_workspace_context_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            stage = make_stage_spec(
+                name="prepare",
+                kind=StageKind.gather,
+                writes_to=("context/concerns.json", "report.json"),
+            )
+            prompt = build_agent_prompt(make_resolved_stage(spec=stage), "wf", tmp_dir)
+            self.assertIn(f"{tmp_dir}/context/concerns.json", prompt)
+            self.assertNotIn(f"{tmp_dir}/outputs/context/concerns.json", prompt)
+            self.assertIn(f"{tmp_dir}/outputs/report.json", prompt)
+
+    def test_local_dispatcher_writes_where_the_prompt_points(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            ws = Path(tmp_dir)
+            stage = make_stage_spec(
+                name="prepare",
+                kind=StageKind.gather,
+                writes_to=("context/concerns.json", "report.json"),
+            )
+            LocalDispatcher()._write_output_files(make_resolved_stage(spec=stage), {"k": 1}, ws)
+            self.assertTrue((ws / "context" / "concerns.json").is_file())
+            self.assertFalse((ws / "outputs" / "context" / "concerns.json").exists())
+            self.assertTrue((ws / "outputs" / "report.json").is_file())
 
 
 if __name__ == "__main__":

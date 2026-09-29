@@ -521,6 +521,30 @@ class TestSkipStage(unittest.TestCase):
                 result.stage_results["conditional"].status, StageStatus.skipped
             )
 
+    def test_skip_sentinel_for_context_entry_lands_at_workspace_context(self) -> None:
+        # Same resolution as the prompt builder: context/ is a workspace-root
+        # prefix, so the sentinel must not land under outputs/context/.
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            stage_spec = make_stage_spec(
+                name="conditional",
+                when='"never" contains "yes"',
+                writes_to=("context/c.json", "bare.json"),
+            )
+            resolved = {"conditional": make_resolved_stage(spec=stage_spec, index=0)}
+            wf = make_workflow_definition(stages=(stage_spec,))
+            manifest = make_workflow_manifest(
+                definition=wf,
+                parallel_groups=(("conditional",),),
+                resolved_stages=resolved,
+            )
+            dispatcher = _make_success_dispatcher(("conditional",))
+            orch = _make_orch(manifest, tmp_dir, run_id="r-skip-ctx", dry_run=False, dispatcher=dispatcher)
+            orch.run()
+            ws = Path(orch._workspace_dir)  # init_workspace nests the run dir under tmp_dir
+            self.assertTrue((ws / "context" / "c.json").is_file())
+            self.assertFalse((ws / "outputs" / "context" / "c.json").exists())
+            self.assertTrue((ws / "outputs" / "bare.json").is_file())
+
 
 # ---------------------------------------------------------------------------
 # dispatcher exception fallback

@@ -28,6 +28,11 @@ from typing import Any
 
 # Path to the canonical selection rules file, resolved relative to this
 # module so it works regardless of the caller's working directory.
+#
+# Checkout-only: concerns/ sits at the repository root, outside the package,
+# and is not shipped as package data. From an installed wheel this path does
+# not exist, and _load_rules raises SelectionRulesNotFoundError naming it
+# rather than a bare FileNotFoundError from deep inside the selector.
 _CONCERNS_DIR = Path(__file__).parent.parent.parent / "concerns"
 _SELECTION_YAML = _CONCERNS_DIR / "selection.yaml"
 _CHECKOUT_ROOT = _CONCERNS_DIR.parent
@@ -38,16 +43,53 @@ _CHECKOUT_ROOT = _CONCERNS_DIR.parent
 # ---------------------------------------------------------------------------
 
 
+class SelectionRulesNotFoundError(FileNotFoundError):
+    """``concerns/selection.yaml`` is missing: the selector needs a checkout."""
+
+    def __init__(self, path: Path) -> None:
+        super().__init__(
+            f"concern selection rules not found at {path}; select-concerns reads"
+            " concerns/selection.yaml from a repository checkout and does not"
+            " work from an installed package"
+        )
+
+
 @lru_cache(maxsize=1)
 def _load_rules() -> dict[str, Any]:
-    """Load and cache concerns/selection.yaml. Raises on parse error."""
+    """Load and cache concerns/selection.yaml.
+
+    Raises:
+        SelectionRulesNotFoundError: the rules file is absent (not a checkout).
+        ValueError: the file does not hold a mapping.
+    """
     import yaml  # lazy — optional dep
 
+    if not _SELECTION_YAML.is_file():
+        raise SelectionRulesNotFoundError(_SELECTION_YAML)
     text = _SELECTION_YAML.read_text(encoding="utf-8")
     data = yaml.safe_load(text)
     if not isinstance(data, dict):
         raise ValueError(f"selection.yaml must be a mapping, got {type(data).__name__}")
     return data
+
+
+class UnknownTaskTypeError(ValueError):
+    """Raised when ``task_type`` is not a key of ``task_type_rules``.
+
+    An unknown task type used to be accepted silently: it matched no rule and
+    also suppressed the ``default_guides`` fallback, so a typo selected fewer
+    guides than passing nothing at all.
+    """
+
+    def __init__(self, valid: list[str]) -> None:
+        # The rejected value is deliberately not echoed: it may be untrusted
+        # caller input, and a message is how it would reach a log.
+        super().__init__(f"unknown task type; valid types: {', '.join(valid)}")
+
+
+def valid_task_types() -> list[str]:
+    """Return the task types defined in ``selection.yaml``, in file order."""
+    return list(_load_rules().get("task_type_rules", {}))
 
 
 # ---------------------------------------------------------------------------
@@ -64,12 +106,19 @@ def _collect_guides(
     Applies always-rules, glob rules (with override-group suppression),
     task_type rules, and the default fallback when no input is given.
 
+    Raises:
+        UnknownTaskTypeError: ``task_type`` is non-empty and not defined in
+            ``task_type_rules``.
+
     Reasons are deduplicated per guide: the same reason string is recorded at
     most once, so two ``.py`` files matching ``glob:*.py`` produce a single
     ``"glob:*.py"`` entry rather than one per path. Use path-prefixed reasons
     (``"src/x.py: glob:*.py"``) when per-path detail is needed.
     """
     rules = _load_rules()
+    task_rules: dict[str, list[str]] = rules.get("task_type_rules", {})
+    if task_type and task_type not in task_rules:
+        raise UnknownTaskTypeError(list(task_rules))
 
     # order: dict preserves insertion order (Python 3.7+); reason_sets tracks
     # seen reasons per guide to avoid duplicates.
@@ -93,7 +142,6 @@ def _collect_guides(
 
     # 3. task_type rules
     if task_type:
-        task_rules: dict[str, list[str]] = rules.get("task_type_rules", {})
         for guide in task_rules.get(task_type, []):
             _add(guide, f"task_type:{task_type}")
 
@@ -171,6 +219,9 @@ def select_guides(
     Returns:
         A list of guide filenames (e.g. ``["patterns.md", "correctness.md"]``).
         ``patterns.md`` is always first (it is in the ``always`` list).
+
+    Raises:
+        UnknownTaskTypeError: ``task_type`` is not defined in selection.yaml.
     """
     return list(_collect_guides(list(paths or []), task_type or None).keys())
 
@@ -182,6 +233,9 @@ def select_guides_with_reasons(
     """Like :func:`select_guides` but returns ``{guide: [reasons]}`` mapping.
 
     Used by the CLI ``--format json`` output to produce the ``matched`` field.
+
+    Raises:
+        UnknownTaskTypeError: ``task_type`` is not defined in selection.yaml.
     """
     return _collect_guides(list(paths or []), task_type or None)
 

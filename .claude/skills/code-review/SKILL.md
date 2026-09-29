@@ -80,8 +80,7 @@ by the actual changes, so validators only spend time on relevant checks.
 Guide selection is canonical — use the selector to get the exact list:
 
 ```bash
-git diff main...HEAD --name-only > /tmp/changed.txt
-./bin/workflow select-concerns --paths-file /tmp/changed.txt --format json
+git diff main...HEAD --name-only | ./bin/workflow select-concerns --paths-file - --format json
 ```
 
 The canonical rules live in `concerns/selection.yaml`.

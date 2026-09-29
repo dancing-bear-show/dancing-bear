@@ -401,9 +401,11 @@ For each stage, construct the prompt:
 4. **Output instructions**: for each entry in `writes_to`, tell the agent to
    write to `{workspace}/{file}`. Path resolution:
    - Bare filenames → `{workspace}/outputs/{name}`
-   - Paths starting with `outputs/`, `validation/`, `stages/`, `dispatch/` →
-     `{workspace}/{path}` (workspace-root)
-   - Other explicit paths → `{workspace}/{path}`
+   - Paths starting with `outputs/`, `validation/`, `stages/`, `dispatch/`,
+     `context/` → `{workspace}/{path}` (workspace-root)
+   - Any other path → `{workspace}/outputs/{path}`
+   The engine's single copy of this rule is
+   `workflow.dispatch.writes_to_relpath` (prefixes in `WORKSPACE_ROOT_PREFIXES`).
 
 5. **Stage description verbatim**: copy CLI commands exactly as written —
    never paraphrase or substitute command names.

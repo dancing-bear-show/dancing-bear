@@ -64,16 +64,19 @@ report `action: "moot"` rather than inventing a fix.
 1. Read the file at `path` around the anchor. Read enough surrounding code to
    understand the contract you are changing — not just the flagged line.
 2. Select and read the concern guides relevant to the file before editing.
-   Run the canonical selector:
+   `path` comes from GitHub review data, so it never goes on a command line.
+   Use the Write tool to write it — plus every test file you expect to edit,
+   one per line — to `<file_id>.concern-paths.txt`, in the same directory as
+   your result JSON (the `<file_id>` makes it unique to this thread). Then
+   run the canonical selector on that file:
 
    ```
-   ./bin/workflow select-concerns --paths <path> [<test_file_if_any>] --format json
+   ./bin/workflow select-concerns --paths-file "<dir of your result JSON>/<file_id>.concern-paths.txt" --format json
    ```
 
    Parse the JSON output and read every returned guide from `concerns/<guide>`.
    If the fix-index item or comments carry a `concern_id` (e.g. `silent-failure`),
    read the section with that heading in the relevant guide first.
-   When you write or edit test files, ensure `tests.md` is among the guides read.
    Record the guides you loaded in your result JSON as `concerns_read: [...]`.
 3. Decide whether the comment is correct. A reviewer — bot or human — can be
    wrong. If it is wrong, do not edit the file; report `action: "rejected"` with

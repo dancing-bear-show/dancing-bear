@@ -47,8 +47,7 @@ branch that prints "✔ No issues" whether or not anything was scanned.
 Guide selection is canonical — run the selector to get the exact list for a diff:
 
 ```bash
-git diff main...HEAD --name-only > /tmp/changed.txt
-./bin/workflow select-concerns --paths-file /tmp/changed.txt --format json
+git diff main...HEAD --name-only | ./bin/workflow select-concerns --paths-file - --format json
 ```
 
 The canonical rules live in `concerns/selection.yaml`. All guides live at `concerns/`.

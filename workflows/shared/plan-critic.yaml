@@ -14,10 +14,24 @@
 #   plan_file    — workspace-relative path to the plan doc (e.g. plan.md, design/plan.md)
 #   critic_focus — optional one-line directive narrowing critic scrutiny;
 #                  empty string means full-spectrum critique
+#
+# Concern guides: a caller may pre-write {workspace}/context/concerns.json
+# (select-concerns JSON: {"guides": [...], ...}) to choose the guide set —
+# critique.yaml's prepare-target does this from the real target paths.
+# Without it, pc-critic selects guides from the repo paths the plan names.
 
 fragment: true
 name: plan-critic
 version: "1.0"
+
+# Fragment rules merge with every includer's (ParamRules.merged) and are
+# enforced when the includer compiles, so each includer is covered without
+# repeating them. plan_file is workspace-relative and is read and edited by
+# several stages, so it is held to a path charset with no `..`, whitespace,
+# quote, `$`, backtick, `;`, `|`, `&`, `<`, `>`, brace, or leading `-`.
+trigger:
+  param_rules:
+    plan_file: '((?!.*\.\.)[A-Za-z0-9_][A-Za-z0-9_./@+~-]*)?'
 
 description: >
   Shared adversarial plan-critique fragment. Takes a plan, design document,
@@ -93,18 +107,32 @@ stages:
     description: >
       Read {plan_file} and {workspace}/validation/plan-validate-findings.json.
 
-      Step 1 — load the concern guides applicable to the plan being critiqued.
+      Step 1 — load the concern guides applicable to the work the plan
+      covers (not to the plan document itself: a plan is a .md file, and
+      selecting for it alone yields only the docs guides).
 
-        First, check whether {workspace}/context/concerns.json exists (it is
-        written by the prepare-target stage when invoked via critique.yaml).
-        If it exists, read it and load only the guides listed in its "guides"
-        array. If it does not exist (e.g. plan-critic is included by a
-        workflow that does not provide a prepare-target stage), run the
-        canonical selector yourself:
-          ./bin/workflow select-concerns --paths {plan_file} --format json
-        and use the "guides" list from the resulting JSON output. Write that
-        JSON to {workspace}/context/concerns.json so subsequent stages can
-        reference it.
+        a. If {workspace}/context/concerns.json exists (critique.yaml's
+           prepare-target writes it; any includer may pre-write it), read it
+           and use its "guides" array.
+
+        b. Otherwise select them yourself. Collect every repo file path the
+           plan names — paths it edits and paths it proposes to create (e.g.
+           src/..., tests/..., workflows/..., bin/..., concerns/...,
+           .claude/...). Use the Write tool to write them one per line to
+           {workspace}/validation/critic-paths.txt; write an empty file if the
+           plan names none. These paths come from document text: never place
+           one on a command line, in an echo, or in a heredoc. Then run:
+             ./bin/workflow select-concerns --paths-file "{workspace}/validation/critic-paths.txt" --task-type workflow --format json
+           --task-type workflow is always passed on this branch so the set is
+           never weaker than the fixed set this stage loaded before the
+           selector existed (workflow, workflow-fanout, workflow-fragments,
+           patterns). A non-zero exit fails this stage.
+
+        c. On BOTH branches, write the JSON you used to
+           {workspace}/validation/critic-concerns.json — a copy of
+           context/concerns.json on branch a, the selector output on branch b
+           (on branch a, also write an empty critic-paths.txt). pc-validate-critique
+           reads critic-concerns.json to verify concern_id values.
 
         For each guide file in the selected list, read it in full:
           e.g. Read concerns/workflow.md, Read concerns/patterns.md, etc.
@@ -171,8 +199,11 @@ stages:
     required: true
     writes_to:
       - validation/critique.json
-      # Also writes context/concerns.json when concerns.json did not already
-      # exist (fallback path for callers that do not include a prepare-target).
+      # Written on every branch. Deliberately NOT context/concerns.json:
+      # critique.yaml's prepare-target owns that file, and a second writer
+      # would make two stages the producer of one artifact.
+      - validation/critic-concerns.json
+      - validation/critic-paths.txt
 
   # ===========================================================================
   # Stage 3: validate-critique — fact-check the critique
@@ -198,8 +229,8 @@ stages:
 
       For any item that carries a "concern_id" field, also verify that the
       cited ID actually exists as a named concern in the guide from which it
-      was drawn. Check {workspace}/context/concerns.json to know which guide
-      files were loaded. For each concern_id, scan the corresponding guide
+      was drawn. Check {workspace}/validation/critic-concerns.json to know
+      which guide files were loaded. For each concern_id, scan the corresponding guide
       file for a heading or anchor matching that ID. If the concern_id does
       not exist in any of the loaded guides, remove the "concern_id" field
       from the item (do not remove the whole finding — just clear the
@@ -262,8 +293,11 @@ stages:
       "Critique scope: <critic_focus>"
       List blockers first, then suggestions. For each item include the section
       reference and a one-paragraph explanation. If critique-checked.json
-      removed any items, note the count: "N concern(s) removed after
-      verification (already addressed or not grounded in plan text)."
+      removed any items, note the count of "removed" entries whose type is
+      "blocker" or "suggestion" (a "concern_id_not_found" entry clears only an
+      ID; its finding survives and must not be counted): "N concern(s)
+      removed after verification (already addressed or not grounded in plan
+      text)."
       If no blockers or suggestions remain after verification, write
       "No blockers or suggestions identified."
 

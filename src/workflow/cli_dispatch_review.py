@@ -353,18 +353,25 @@ def _cmd_check_unlisted(args: argparse.Namespace) -> int:
 def _gather_paths(args: argparse.Namespace) -> tuple[list[str], int | None]:
     """Collect paths from ``--paths`` and ``--paths-file``.
 
+    ``--paths-file -`` reads stdin, so a caller can pipe
+    ``git diff --name-only`` straight in instead of sharing a fixed temp file
+    that concurrent agents would overwrite.
+
     Returns ``(paths, None)`` on success or ``([], rc)`` on error, having
     already written the error message to stderr.
     """
     paths: list[str] = list(args.paths or [])
     if not args.paths_file:
         return paths, None
-    pf = Path(args.paths_file)
-    if not pf.is_file():
-        print(f"select-concerns: paths-file not found: {pf}", file=sys.stderr)
-        return [], 1
     try:
-        text = pf.read_text(encoding="utf-8")
+        if args.paths_file == "-":
+            text = sys.stdin.read()
+        else:
+            pf = Path(args.paths_file)
+            if not pf.is_file():
+                print(f"select-concerns: paths-file not found: {pf}", file=sys.stderr)
+                return [], 1
+            text = pf.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
         print(f"select-concerns: paths-file unreadable: {exc}", file=sys.stderr)
         return [], 1
@@ -383,9 +390,11 @@ def _cmd_select_concerns(args: argparse.Namespace) -> int:
 
         {"guides": [...], "matched": {guide: [reasons]}}
 
-    Exit codes: 0 success, 1 on I/O or parse error.
+    Exit codes: 0 success, 1 on I/O or parse error (including a missing
+    concerns/selection.yaml outside a checkout), 2 on an unknown
+    ``--task-type`` (the message lists the valid types from selection.yaml).
     """
-    from workflow.concern_select import select_guides_with_reasons
+    from workflow.concern_select import UnknownTaskTypeError, select_guides_with_reasons
 
     paths, err_rc = _gather_paths(args)
     if err_rc is not None:
@@ -395,6 +404,9 @@ def _cmd_select_concerns(args: argparse.Namespace) -> int:
 
     try:
         matched = select_guides_with_reasons(paths=paths, task_type=task_type)
+    except UnknownTaskTypeError as exc:
+        print(f"select-concerns: {exc}", file=sys.stderr)
+        return 2
     except Exception as exc:  # nosec B110 - surface parse errors to the caller
         print(f"select-concerns: {exc}", file=sys.stderr)
         return 1

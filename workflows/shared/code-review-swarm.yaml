@@ -607,10 +607,12 @@ stages:
            If no matching entry exists, write {workspace}/outputs/findings/{index}.json
            with verdict: "failed" and exit.
 
-        2. Reads the full concern definition from the appropriate guide file in
-           concerns/ for concern_id (correctness.md, security.md, tests.md,
-           patterns.md, reuse.md, complexity.md, workflow.md, workflow-fanout.md,
-           workflow-fragments.md, or docs.md).
+        2. Reads the full concern definition for concern_id. Locate its guide
+           by searching concerns/*.md for the heading (Grep tool, pattern
+           "^### <concern_id>$", path concerns/) — do not assume a fixed list
+           of guide files: the sweep selects guides with select-concerns, so
+           any concerns/*.md guide can supply the concern_id. If no guide has
+           that heading, write verdict: "needs-context" naming the missing ID.
 
         3. Reads the actual file at the path given (Read tool, not Bash).
 
@@ -647,11 +649,8 @@ stages:
       Only write confirmed or needs-context findings. Discard not-present
       verdicts after writing them (they are noise for the consolidation step).
 
-      Read the appropriate guide file from concerns/
-      (correctness.md, security.md, tests.md, patterns.md, reuse.md,
-      complexity.md, workflow.md, workflow-fanout.md, workflow-fragments.md,
-      or docs.md) for the authoritative concern definition before evaluating.
-      Do not infer checks from memory.
+      Read the guide found in step 2 for the authoritative concern
+      definition before evaluating. Do not infer checks from memory.
     agent:
       role: unit-validator
       model: haiku

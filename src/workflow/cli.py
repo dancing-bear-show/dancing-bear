@@ -197,8 +197,8 @@ def cmd_check_paths(args: argparse.Namespace) -> int:
     help="Select concern guides for given file paths and optional task type",
 )
 @app.argument("--paths", nargs="*", default=[], metavar="PATH", help="File paths to evaluate")
-@app.argument("--paths-file", dest="paths_file", default="", help="Newline-delimited file of paths")
-@app.argument("--task-type", dest="task_type", default="", help="Task type: feature|test|security|docs|refactor|workflow")
+@app.argument("--paths-file", dest="paths_file", default="", help="Newline-delimited file of paths (- for stdin)")
+@app.argument("--task-type", dest="task_type", default="", help="Task type: a task_type_rules key in concerns/selection.yaml")
 @app.argument("--format", "-f", choices=["text", "json"], default="text", help="Output format (default: text)")
 def cmd_select_concerns(args: argparse.Namespace) -> int:
     return _cmd_select_concerns(args)

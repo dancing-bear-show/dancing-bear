@@ -52,12 +52,28 @@ trigger:
                           # {plan_file} in place") — the fragment always resolves this
                           # against {workspace}, i.e. {workspace}/context/target.md, the
                           # SAME concrete path prepare-target's writes_to: [context/target.md]
-                          # resolves to via the workflow orchestrator's own path rule
-                          # ("other explicit paths -> {workspace}/{path}", see
-                          # .claude/skills/workflow/SKILL.md's Output Instructions). Both
+                          # resolves to via the engine's path rule (context/ is a
+                          # workspace-root prefix; see workflow.dispatch.writes_to_relpath
+                          # and .claude/skills/workflow/SKILL.md's Output Instructions). Both
                           # paths agree by construction — do not "fix" this into
                           # outputs/target.md, that would be a different, non-existent file.
                           # prepare-target always writes here — do not override.
+  # Enforced by the engine in compile_workflow, BEFORE any {param} is
+  # substituted, so no stage sees a rejected value. target, targets and
+  # diff_ref all reach shell command lines (path-guard, git diff, git diff
+  # --name-only), where double quotes do not stop `$(...)`, so each is held
+  # to a path or git-ref charset: no whitespace (except after a comma in
+  # targets), quote, `$`, backtick, `;`, `|`, `&`, `<`, `>`, brace, or
+  # newline, and no leading `-` (a leading dash would be read as an option).
+  # `..` is rejected in paths. plan_file is pinned to its only valid value.
+  # The patterns admit the empty string because prepare-target repeats them
+  # with check-params (defence in depth), which has no blank exemption, and a
+  # test requires the two copies to be identical.
+  param_rules:
+    target: '((?!.*\.\.)[A-Za-z0-9_.][A-Za-z0-9_./@+~-]*)?'
+    targets: '((?!.*\.\.)[A-Za-z0-9_.][A-Za-z0-9_./@+~-]*(, ?[A-Za-z0-9_.][A-Za-z0-9_./@+~-]*)*)?'
+    diff_ref: '([A-Za-z0-9_][A-Za-z0-9_./~^-]*)?'
+    plan_file: 'context/target\.md'
 
 workspace_dir: "{work_dir}/critique"
 
@@ -75,15 +91,19 @@ stages:
       read, so the same fragment works whether the caller named a single doc,
       several files, or wants the current diff reviewed.
 
-      Guardrail — check this FIRST, before anything else: if {plan_file} is
-      set to anything other than the literal string "context/target.md", halt
-      immediately with a clear error ("plan_file is not intended to be
-      overridden by callers — it exists only so the included plan-critic
-      fragment can reference it as a trigger-param placeholder; prepare-target
-      always writes to context/target.md regardless, so overriding plan_file
-      would make pc-validate/pc-critic/pc-revise read or edit a different,
-      likely nonexistent file"). Do not proceed to write target.md if this
-      check fails.
+      Guardrail — check this FIRST, before anything else. Re-validate the
+      caller-supplied params as data read from the engine-written manifest
+      (defence in depth; the engine already enforced trigger.param_rules at
+      compile time):
+        ./bin/workflow check-params "{workspace}/manifest.json" --check 'target=((?!.*\.\.)[A-Za-z0-9_.][A-Za-z0-9_./@+~-]*)?' --check 'targets=((?!.*\.\.)[A-Za-z0-9_.][A-Za-z0-9_./@+~-]*(, ?[A-Za-z0-9_.][A-Za-z0-9_./@+~-]*)*)?' --check 'diff_ref=([A-Za-z0-9_][A-Za-z0-9_./~^-]*)?' --check 'plan_file=context/target\.md'
+      A non-zero exit fails this stage: relay the stderr lines and stop
+      without writing anything. The plan_file rule pins it to
+      "context/target.md": plan_file is not intended to be overridden by
+      callers — it exists only so the included plan-critic fragment can
+      reference it as a trigger-param placeholder; prepare-target always
+      writes to context/target.md regardless, so overriding plan_file would
+      make pc-validate/pc-critic/pc-revise read or edit a different, likely
+      nonexistent file.
 
       Precedence:
         1. {target} is set — a single existing file path.
@@ -131,18 +151,20 @@ stages:
       After writing target-meta.json, emit the list of underlying file paths
       being critiqued to {workspace}/context/target-paths.txt (one path per
       line, no blank lines):
-        - single mode: write the single {target} path
-        - multi mode: write each path from {targets} (one per line)
-        - diff mode: run `git diff --name-only {diff_ref}` (or
-          `git diff --name-only HEAD` for uncommitted) and write each
-          path on its own line. If the diff is empty, write an empty file.
+        - single mode: use the Write tool to write the single {target} path
+        - multi mode: use the Write tool to write each path from {targets}
+          (one per line)
+        - diff mode: run
+            git diff --name-only {diff_ref} > "{workspace}/context/target-paths.txt"
+          (or `git diff --name-only HEAD` for uncommitted). If the diff is
+          empty, the file is empty.
 
-      Then run the canonical concern selector over those paths:
-        ./bin/workflow select-concerns --paths-file {workspace}/context/target-paths.txt --format json
-      Write the JSON output to {workspace}/context/concerns.json.
-      If target-paths.txt is empty or the file does not exist, write:
-        {"guides": ["patterns.md"], "matched": {}}
-      to concerns.json as a safe default.
+      Then ALWAYS run the canonical concern selector over that file — an
+      empty file is valid input and yields the selector's own default guide
+      set, so never hand-write a guide list here:
+        ./bin/workflow select-concerns --paths-file "{workspace}/context/target-paths.txt" --format json
+      Write the JSON output to {workspace}/context/concerns.json. A non-zero
+      exit fails this stage.
     agent:
       role: researcher
       model: sonnet
