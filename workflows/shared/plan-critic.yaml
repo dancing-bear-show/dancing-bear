@@ -171,7 +171,7 @@ stages:
               "detail": "<2-4 sentences: why it matters and what would fix it>",
               "section": "<section heading or description of where in the plan>",
               "concern_id": "<optional: the named concern ID from the guide that maps to this finding, e.g. 'missing-human-gate', 'hardcoded-absolute-path'. Omit the field if no concern in the loaded guides directly corresponds.>"
-            }}
+            }
           ],
           "suggestions": [
             {
@@ -179,7 +179,7 @@ stages:
               "detail": "<2-4 sentences: reasoning and improvement>",
               "section": "<section heading or description>",
               "concern_id": "<optional: named concern ID from the guide, or omit>"
-            }}
+            }
           ],
           "strengths": ["<one-sentence strength>", ...]
         }
@@ -245,11 +245,11 @@ stages:
           "suggestions": [...],
           "strengths": [...],
           "removed": [
-            {{
+            {
               "concern": "<original concern summary or concern_id for id-only removals>",
               "type": "blocker|suggestion|concern_id_not_found",
               "reason": "<why it was removed: already-addressed|not-grounded|hallucinated-section|concern_id_not_found>"
-            }}
+            }
           ]
         }
 

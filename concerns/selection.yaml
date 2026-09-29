@@ -59,6 +59,15 @@ glob_rules:
       - tests.md
       - correctness.md
 
+  # Collateral damage from fixes — mirrors the triggers declared in
+  # concerns/collateral-damage.md (src/**/*.py and workflows/**/*.yaml).
+  - glob: "src/**/*.py"
+    guides:
+      - collateral-damage.md
+  - glob: "workflows/**/*.yaml"
+    guides:
+      - collateral-damage.md
+
   # YAML / YML workflow files (generic rule — overridden for resume paths)
   - ext: .yaml
     guides:

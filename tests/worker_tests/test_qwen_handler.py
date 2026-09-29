@@ -326,7 +326,8 @@ class QwenBackwardCompatibilityTests(QwenHandlerCase):
         queue_root = Path(self.tmpdir) / "queue"
         job = q.Job(id="qwen-reaper-job", type="qwen_patch", payload={"files": [GREET_PATH], "instruction": "x"})
         self.assertEqual(job.timeout_sec, 0)
-        proc_path = require(q.start_processing(q.enqueue(job, root=queue_root), root=queue_root))
+        claim = require(q.start_processing(q.enqueue(job, root=queue_root), root=queue_root))
+        proc_path, _tok = claim
         day_old = time.time() - 86_400
         os.utime(proc_path, (day_old, day_old))
 
@@ -630,18 +631,15 @@ class QwenDeferralBoundTests(QwenHandlerCase):
     def test_deferral_counter_persists_across_a_real_retry_cycle(self) -> None:
         """retry() reloads the job from disk and writes only attempts,
         not_before, updated_at and last_error, so a payload-embedded counter
-        is inert. The side-channel file must survive retry() plus
-        _undo_retry_attempt()."""
-        from worker.job_runtime import _undo_retry_attempt
-
+        is inert. The side-channel file must survive a deferral retry()."""
         queue_root = Path(self.tmpdir) / "queue"
         job = q.Job(id="deferral-persist-job", type="qwen_patch", payload={"files": [GREET_PATH], "instruction": "x"})
-        proc_path = require(q.start_processing(q.enqueue(job, root=queue_root), root=queue_root))
+        claim = require(q.start_processing(q.enqueue(job, root=queue_root), root=queue_root))
+        proc_path, _tok = claim
 
         with self._lock_unavailable():
             ok, out = qwen.handle_qwen_patch(self.job(id=job.id))
-        q.retry(proc_path, delay_sec=60, reason=str(out), root=queue_root)
-        _undo_retry_attempt(proc_path.stem, 0, q_root=queue_root)
+        q.retry(proc_path, delay_sec=60, reason=str(out), root=queue_root, count_attempt=False)
         with self._lock_unavailable():
             qwen.handle_qwen_patch(self.job(id=job.id))
 
