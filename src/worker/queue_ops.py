@@ -15,6 +15,7 @@ import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
+from glob import escape as glob_escape
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -708,7 +709,7 @@ def _copy_exclusive(staged: Path, dest: Path) -> None:
     this check is what catches a collision with it.
     """
     content = staged.read_bytes()
-    tmp = dest.with_name(f".{dest.name}.tmp.{uuid.uuid4().hex}")
+    tmp = dest.with_name(f"{_publish_temp_prefix(dest)}{uuid.uuid4().hex}")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
         with os.fdopen(fd, "wb") as fh:
@@ -760,24 +761,46 @@ def _copy_exclusive(staged: Path, dest: Path) -> None:
     tmp.unlink(missing_ok=True)
 
 
-def _is_own_interrupted_publish(staged: Path, dest: Path) -> bool:
-    """True if ``dest``'s bytes already match ``staged``'s (a self-publish).
+def _publish_temp_prefix(dest: Path) -> str:
+    """Name prefix of the hidden temp files ``_copy_exclusive`` writes for ``dest``."""
+    return f".{dest.name}.tmp."
 
-    Without hard links, ``dest`` and ``staged`` are never the same inode, so
-    the ``samefile()`` self-recognition the hard-link branch of
-    ``_publish_no_clobber`` uses is unavailable. A prior call can still have
-    published ``dest`` successfully via ``_copy_exclusive`` and then crashed
-    before reaching ``staged.unlink()`` -- that is our own interrupted
-    publish, not a rival, and treating it as a rival strands ``staged``
-    forever: once ``dest`` is later consumed (claimed into processing/) a
-    subsequent recovery pass would see ``dest`` gone and republish the stale
-    ``staged`` copy, duplicating the job. Content comparison is the only
-    signal available without inode identity: identical bytes mean self-
-    recognition; different bytes (or an unreadable file) mean a genuine
-    rival, which is left for the caller to refuse.
+
+def _discard_publish_temps(dest: Path) -> None:
+    """Remove ``_copy_exclusive`` temp files left beside ``dest`` that are ``dest``.
+
+    A crash after ``os.link(tmp, dest)`` but before ``tmp.unlink()`` leaves the
+    temp name as a second link to the published record. Only temps that are
+    the same inode as ``dest`` are removed, so nothing but a redundant name
+    for the record already published is ever deleted.
+    """
+    for tmp in dest.parent.glob(f"{glob_escape(_publish_temp_prefix(dest))}*"):
+        try:
+            if tmp.samefile(dest):
+                tmp.unlink()
+        except OSError:
+            pass  # nosec B110 - a leftover name is harmless; the record itself is published
+
+
+def _is_own_interrupted_publish(staged: Path, dest: Path) -> bool:
+    """True if ``dest`` is ``staged``'s record from an earlier, interrupted publish.
+
+    An earlier publish can create ``dest`` and then crash before
+    ``staged.unlink()``. Treating that ``dest`` as a rival strands ``staged``:
+    once ``dest`` is claimed into processing/, a later recovery pass finds
+    pending/ free and publishes ``staged`` again, running the job twice.
+
+    Inode identity recognises only the direct hard-link publish. The
+    ``_copy_exclusive`` fallback links ``dest`` to its hidden temp file (or
+    renames the temp over ``dest``), so ``dest`` is never ``staged``'s inode
+    there, and a retry's ``os.link(staged, dest)`` reports FileExistsError
+    before the fallback is ever reached. Identical bytes are therefore also
+    recognised: every publisher writes ``staged`` before publishing it, so
+    ``dest`` holds exactly those bytes. A rival with a different record (or an
+    unreadable ``dest``) is not a match and is left for the caller to refuse.
     """
     try:
-        return dest.read_bytes() == staged.read_bytes()
+        return dest.samefile(staged) or dest.read_bytes() == staged.read_bytes()
     except OSError:
         return False  # nosec B110 - unreadable dest is treated as a rival, not a self-match
 
@@ -787,8 +810,10 @@ def _publish_no_clobber(staged: Path, dest: Path) -> bool:
 
     A hard link publishes atomically and fails if ``dest`` exists, so a
     pending/ job with the same id is never overwritten. If ``dest`` is
-    already a link to ``staged`` (an earlier publish stopped before its
-    unlink), only the staging name is removed. Without hard links the record
+    already ``staged``'s record -- the same inode or identical bytes, left by
+    an earlier publish that stopped before its unlink (see
+    ``_is_own_interrupted_publish``) -- only the staging name and any leftover
+    temp link are removed. Without hard links the record
     is copied into an exclusively created ``dest``; a crash mid-copy can
     leave a partial ``dest`` beside the intact staged file, never a lost job.
     Returns False when ``staged`` is gone (published by someone else) or,
@@ -799,12 +824,10 @@ def _publish_no_clobber(staged: Path, dest: Path) -> bool:
     try:
         os.link(staged, dest)
     except FileExistsError:
-        # A dest published by an interrupted _copy_exclusive is linked to its
-        # temp file, not to staged, so samefile() alone would call our own
-        # record a rival and strand staged; check the content as that branch does.
-        if not (dest.samefile(staged) or _is_own_interrupted_publish(staged, dest)):
+        if not _is_own_interrupted_publish(staged, dest):
             _log.warning("Not publishing %s: %s already exists", staged.name, dest)
             return False
+        _discard_publish_temps(dest)
     except FileNotFoundError:
         _log.debug("Not publishing %s: it is already gone", staged.name)
         return False
@@ -814,6 +837,7 @@ def _publish_no_clobber(staged: Path, dest: Path) -> bool:
             _copy_exclusive(staged, dest)
         except FileExistsError:
             if _is_own_interrupted_publish(staged, dest):
+                _discard_publish_temps(dest)
                 staged.unlink(missing_ok=True)
                 return True
             _log.warning("Not publishing %s: %s already exists", staged.name, dest)
