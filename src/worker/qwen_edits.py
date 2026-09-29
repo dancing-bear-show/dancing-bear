@@ -30,15 +30,26 @@ DIVIDER_MARKER = "======="
 REPLACE_MARKER = ">>>>>>> REPLACE"
 # The SEARCH and REPLACE markers never appear as body content. A divider
 # line can: an RST/Markdown underline reads as "=======". There is no
-# escaping in this format, so two guards fail closed as malformed rather
-# than guess (a guess can silently truncate the SEARCH body and apply a
-# partial edit):
+# escaping in this format, so three guards fail closed as malformed rather
+# than guess (a guess can silently truncate the SEARCH or REPLACE body and
+# apply a partial edit):
 # - parse time: a block with more than one bare "=======" line before its
 #   REPLACE marker (_parse_block_body).
 # - apply time: a block whose SEARCH match is immediately followed by a bare
 #   "=======" line in the file (_find_unique). With one divider the parser
 #   cannot tell a cut-off SEARCH of "Title / ======= / old body" from
 #   SEARCH "Title", REPLACE "old body"; the target file can.
+# - parse time: a REPLACE marker immediately followed by a non-blank,
+#   non-structural line (_is_unstructured_line_after_replace). A genuine
+#   ">>>>>>> REPLACE" line inside a REPLACE body still closes the block early
+#   (the format has no escaping for that), but content that follows can no
+#   longer be silently read as inter-block prose and dropped - it is
+#   ambiguous with a response truncated right after that in-body marker, so
+#   the whole block set is rejected. This does not close every truncation:
+#   a response cut immediately after the true closing REPLACE marker, with
+#   nothing else following, is indistinguishable from a well-formed response
+#   and is accepted (see parse_edit_blocks and _is_unstructured_line_after_replace
+#   docstrings).
 _BLOCK_MARKERS = frozenset({SEARCH_MARKER, REPLACE_MARKER})
 _STRAY_MARKERS = frozenset({DIVIDER_MARKER, REPLACE_MARKER})
 _FILE_LINE_RE = re.compile(r"\s*FILE:(.*)")
@@ -121,6 +132,30 @@ def _parse_block_body(lines: list[str], start: int) -> tuple[tuple[str, ...], tu
     return tuple(lines[start:divider]), tuple(lines[divider + 1 : end]), end + 1
 
 
+def _is_unstructured_line_after_replace(line: str) -> bool:
+    """True when line cannot be told apart from REPLACE body content cut off
+    by truncation.
+
+    Legitimate text between blocks - prose, a closing ``` fence, the next
+    FILE: line, the next block's SEARCH marker - always reaches the line
+    right after REPLACE either blank or as one of those structural forms (the
+    fences-and-prose fixture never places bare prose directly against a
+    REPLACE marker; it is always separated by a blank line or a fence close).
+    A non-blank line that is none of those is indistinguishable from a
+    REPLACE body whose response was truncated right after an earlier,
+    in-body ">>>>>>> REPLACE"-shaped line: failing closed here is the only
+    way to avoid silently dropping that trailing content.
+    """
+    stripped = line.strip()
+    if not stripped:
+        return False
+    if stripped.startswith("```"):
+        return False
+    if stripped == SEARCH_MARKER:
+        return False
+    return _FILE_LINE_RE.fullmatch(line) is None
+
+
 def parse_edit_blocks(response_text: str) -> list[EditBlock]:
     """Parse SEARCH/REPLACE blocks from a model response.
 
@@ -129,8 +164,10 @@ def parse_edit_blocks(response_text: str) -> list[EditBlock]:
     next FILE line. Body lines are kept verbatim (only "\\n" splits lines).
     Raises EditBlockError: NO_EDITS_OUTCOME when there is no block, and
     EDIT_MALFORMED_OUTCOME for a block missing a marker (a response cut off
-    at num_predict) or a stray divider/REPLACE marker - a partial edit set
-    is never applied.
+    at num_predict), a stray divider/REPLACE marker, or a non-blank,
+    non-structural line immediately after a REPLACE marker (see
+    _is_unstructured_line_after_replace) - a partial edit set is never
+    applied.
     """
     lines = response_text.split("\n")
     blocks: list[EditBlock] = []
@@ -141,6 +178,8 @@ def parse_edit_blocks(response_text: str) -> list[EditBlock]:
         if stripped == SEARCH_MARKER:
             search, replace, i = _parse_block_body(lines, i + 1)
             blocks.append(EditBlock(current_file, search, replace))
+            if i < len(lines) and _is_unstructured_line_after_replace(lines[i]):
+                raise EditBlockError(EDIT_MALFORMED_OUTCOME)
             continue
         if stripped in _STRAY_MARKERS:
             raise EditBlockError(EDIT_MALFORMED_OUTCOME)

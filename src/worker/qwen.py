@@ -107,6 +107,12 @@ class QwenThresholds:
     max_lane_depth: int = 10
     ollama_request_timeout_sec: float = 600
     num_ctx: int = 8192
+    # Retention for responses/ (see _prune_responses): a persisted response
+    # older than the age is removed on the next persist, and at most
+    # max_files responses are kept, newest first. At the 256 KiB per-file
+    # cap, 200 files bounds the directory at ~50 MiB.
+    response_retention_days: float = 14
+    response_retention_max_files: int = 200
 
 
 THRESHOLDS = QwenThresholds()
@@ -1797,6 +1803,58 @@ def _replace_file_at(dfd: int, name: str, data: bytes) -> None:
         raise
 
 
+# _replace_file_at's temp name for a response: .<job_id>.txt.<uuid4 hex>.
+_RESPONSE_TEMP_RE = re.compile(r"\.(.+)\.[0-9a-f]{32}")
+
+
+def _is_response_name(name: str) -> bool:
+    """True for a name _persist_response writes: <job_id>.txt or its temp file."""
+    temp = _RESPONSE_TEMP_RE.fullmatch(name)
+    base = temp.group(1) if temp else name
+    return base.endswith(".txt") and is_safe_job_id(base[: -len(".txt")])
+
+
+def _response_entries(dfd: int) -> list[tuple[float, str]]:
+    """(mtime, name) of each regular file in dfd with a response name.
+
+    Entries are lstat'd relative to dfd, so a symlink is skipped rather
+    than followed, as is any name _persist_response does not write.
+    """
+    entries = []
+    for name in os.listdir(dfd):
+        if not _is_response_name(name):
+            continue
+        try:
+            info = os.stat(name, dir_fd=dfd, follow_symlinks=False)
+        except OSError:  # nosec B112 - removed concurrently; nothing to prune
+            continue
+        if stat.S_ISREG(info.st_mode):
+            entries.append((info.st_mtime, name))
+    return entries
+
+
+def _prune_responses(dfd: int, keep: str, now: float) -> None:
+    """Remove responses older than THRESHOLDS.response_retention_days, and
+    all but the newest response_retention_max_files, from the directory dfd.
+
+    keep (the response just written) is never removed. Temp files count
+    only toward the age limit, so a concurrent write in flight survives.
+    Unlinks go through dfd; a failed unlink is logged and skipped.
+    """
+    cutoff = now - THRESHOLDS.response_retention_days * 86400
+    room = THRESHOLDS.response_retention_max_files - 1
+    for mtime, name in sorted(_response_entries(dfd), reverse=True):
+        if name == keep:
+            continue
+        counted = not name.startswith(".")
+        room -= counted
+        if mtime < cutoff or (counted and room < 0):
+            try:
+                os.unlink(name, dir_fd=dfd)
+            except OSError as exc:
+                _log.debug("qwen: could not prune response %s (non-fatal): %s", name, describe_exception(exc))
+
+
 def _persist_response(job_id: str, response_text: str) -> None:
     """Best-effort: keep the model's response after a post-response failure.
 
@@ -1807,9 +1865,14 @@ def _persist_response(job_id: str, response_text: str) -> None:
     once with O_NOFOLLOW (see _open_private_dir), and the chmod, the 0600
     temp-file creation and the rename all go through that descriptor, so a
     symlink swapped in at responses/ after creation is refused rather than
-    followed. Directories above responses/ are not re-validated. Any failure
-    is logged and swallowed: diagnostics must never change the job's
-    outcome.
+    followed. Directories above responses/ are not re-validated.
+
+    After the write, older responses are pruned through the same
+    descriptor (see _prune_responses), so retention is bounded by
+    THRESHOLDS.response_retention_days and response_retention_max_files.
+    Only regular files with a response name are removed; symlinks and other
+    entries are left alone. Any failure is logged and swallowed:
+    diagnostics must never change the job's outcome.
     """
     try:
         final_name = response_path_for_job(job_id).name
@@ -1818,6 +1881,7 @@ def _persist_response(job_id: str, response_text: str) -> None:
             head = response_text[: _MASK_INPUT_CHARS + _MASK_MARGIN_CHARS]
             capped = mask_text(head).encode("utf-8")[:MAX_PERSISTED_RESPONSE_BYTES]
             _replace_file_at(dfd, final_name, capped.decode("utf-8", errors="ignore").encode("utf-8"))
+            _prune_responses(dfd, final_name, time.time())
         finally:
             os.close(dfd)
     except Exception as exc:  # nosec B110 - diagnostics are best-effort; the job's outcome is already decided

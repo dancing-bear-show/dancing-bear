@@ -1457,6 +1457,79 @@ class QwenPersistResponseTests(QwenHandlerCase):
 
         self._assert_outside_untouched(outside)
 
+    def _plant_response(self, name: str, age_days: float) -> Path:
+        """A regular file in responses/ whose mtime is age_days in the past."""
+        self.response_dir.mkdir(parents=True, mode=0o700, exist_ok=True)
+        path = self.response_dir / name
+        path.write_text("old response", encoding="utf-8")
+        stamp = time.time() - age_days * 86400
+        os.utime(path, (stamp, stamp))
+        return path
+
+    def _response_names(self) -> list[str]:
+        return sorted(p.name for p in self.response_dir.iterdir())
+
+    def test_persist_prunes_stale_responses_and_keeps_fresh_ones(self) -> None:
+        stale_days = qwen.THRESHOLDS.response_retention_days + 1
+        self._plant_response("old-job.txt", stale_days)
+        self._plant_response(f".old-job.txt.{'a' * 32}", stale_days)
+        self._plant_response("new-job.txt", 1)
+        self._plant_response(f".new-job.txt.{'b' * 32}", 1)
+
+        qwen._persist_response("qwen-test-job", "some response")
+
+        self.assertEqual(
+            self._response_names(),
+            [f".new-job.txt.{'b' * 32}", "new-job.txt", "qwen-test-job.txt"],
+        )
+
+    def test_persist_keeps_only_the_newest_responses_over_the_count_cap(self) -> None:
+        for age, name in enumerate(["a-job.txt", "b-job.txt", "c-job.txt"], start=1):
+            self._plant_response(name, age)
+
+        with mock.patch.object(qwen, "THRESHOLDS", qwen.QwenThresholds(response_retention_max_files=2)):
+            qwen._persist_response("qwen-test-job", "some response")
+
+        self.assertEqual(self._response_names(), ["a-job.txt", "qwen-test-job.txt"])
+
+    def test_prune_leaves_symlinks_and_foreign_names_untouched(self) -> None:
+        stale_days = qwen.THRESHOLDS.response_retention_days + 1
+        outside_file = self.response_dir.parent / "outside.txt"
+        outside_file.write_text("keep me", encoding="utf-8")
+        foreign = [self._plant_response(n, stale_days).name for n in ("notes.md", ".hidden", "-bad.txt")]
+        link = self.response_dir / "linked-job.txt"
+        link.symlink_to(outside_file)
+        stamp = time.time() - stale_days * 86400
+        os.utime(link, (stamp, stamp), follow_symlinks=False)
+
+        qwen._persist_response("qwen-test-job", "some response")
+
+        self.assertEqual(self._response_names(), sorted([*foreign, "linked-job.txt", "qwen-test-job.txt"]))
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(outside_file.read_text(encoding="utf-8"), "keep me")
+
+    def test_failed_unlink_does_not_stop_the_new_response_being_written(self) -> None:
+        stale = self._plant_response("old-job.txt", qwen.THRESHOLDS.response_retention_days + 1)
+
+        with mock.patch.object(qwen.os, "unlink", side_effect=PermissionError("denied")) as unlink:
+            qwen._persist_response("qwen-test-job", "some response")
+
+        unlink.assert_called_once()
+        self.assertTrue(stale.exists())
+        saved = self.response_dir / "qwen-test-job.txt"
+        self.assertEqual(saved.read_text(encoding="utf-8"), "some response")
+
+    def test_prune_error_does_not_change_the_job_outcome(self) -> None:
+        self.generate_response = model_says("no edit blocks here")
+
+        with mock.patch.object(qwen, "_response_entries", side_effect=OSError("listdir failed")) as entries:
+            ok, out = self.run_handler()
+
+        entries.assert_called_once()
+        self.assertFalse(ok)
+        self.assertEqual(out, "terminal-no-edits-found")
+        self.assertIsNotNone(self._response_file(), "persisted response file was not created")
+
     def test_symlink_swapped_in_after_mkdir_is_not_followed(self) -> None:
         """responses/ replaced by a symlink between its creation and its use:
         neither the chmod nor the write may follow the link outside."""

@@ -139,6 +139,53 @@ class ParseEditBlocksTests(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual(_outcome(qwen_edits.parse_edit_blocks, text), qwen_edits.EDIT_MALFORMED_OUTCOME)
 
+    def test_in_body_replace_marker_followed_by_the_real_closer_is_malformed(self) -> None:
+        # A literal ">>>>>>> REPLACE" line inside the REPLACE body ends the
+        # block early. The block's own SEARCH/REPLACE marker pairing means a
+        # stray marker always follows somewhere in the response - either
+        # more replacement lines and then the real closer, or the marker
+        # sitting as the last replacement line with the real closer right
+        # after it. Both must fail closed rather than silently drop the
+        # lines the stray marker cut off.
+        cases = {
+            "more lines then the real closer": (
+                "FILE: a.py\n<<<<<<< SEARCH\nold\n=======\nnew1\n>>>>>>> REPLACE\nnew2\n>>>>>>> REPLACE\n"
+            ),
+            "marker as the last replace line": (
+                "FILE: a.py\n<<<<<<< SEARCH\nold\n=======\nnew1\n>>>>>>> REPLACE\n>>>>>>> REPLACE\n"
+            ),
+        }
+        for name, text in cases.items():
+            with self.subTest(name):
+                self.assertEqual(_outcome(qwen_edits.parse_edit_blocks, text), qwen_edits.EDIT_MALFORMED_OUTCOME)
+
+    def test_truncation_right_after_an_in_body_replace_marker_is_malformed(self) -> None:
+        # response_text ends right after "...=======\nnew1\n>>>>>>> REPLACE\n"
+        # with one more bare line ("new2") that is neither blank, a fence, a
+        # FILE: line, nor the next block's SEARCH marker. That line is
+        # indistinguishable from REPLACE body content whose response was
+        # truncated immediately after an earlier, in-body REPLACE-shaped
+        # line - it must not be read as trailing prose and dropped.
+        text = "FILE: a.py\n<<<<<<< SEARCH\nold\n=======\nnew1\n>>>>>>> REPLACE\nnew2\n"
+
+        self.assertEqual(_outcome(qwen_edits.parse_edit_blocks, text), qwen_edits.EDIT_MALFORMED_OUTCOME)
+
+    def test_well_formed_fenced_response_with_trailing_prose_still_parses(self) -> None:
+        # Trailing model chatter after the final block is legitimate output
+        # (the prompt asks for edit blocks only, but this model has been
+        # observed to add a closing remark); it must still parse as long as
+        # it is separated from REPLACE by a blank line or a fence close, per
+        # the existing fences-and-prose fixture.
+        text = (
+            "```python\n"
+            + edit_block("src/a.py", "old", "new")
+            + "```\n\nLet me know if you need anything else!\n"
+        )
+
+        [block] = qwen_edits.parse_edit_blocks(text)
+
+        self.assertEqual(block, qwen_edits.EditBlock("src/a.py", ("old",), ("new",)))
+
     def test_empty_search_parses_as_an_empty_tuple(self) -> None:
         [block] = qwen_edits.parse_edit_blocks("FILE: src/a.py\n<<<<<<< SEARCH\n=======\nnew\n>>>>>>> REPLACE\n")
 

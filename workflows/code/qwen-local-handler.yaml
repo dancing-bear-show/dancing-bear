@@ -955,12 +955,15 @@ stages:
              contains lines lifted verbatim from the input files, and the
              diff built locally from the applied blocks (via difflib)
              likewise carries them. Say instead what is actually true: the
-             prompt is never persisted, and file contents reach disk only
-             inside the patch artifact, which is the reviewable output this
-             workflow exists to produce.
+             prompt is never persisted, and contents reach disk in exactly
+             two places — the patch artifact, which is the reviewable output
+             this workflow exists to produce, and the masked model response
+             kept after a post-response failure at
+             output_dir("qwen")/responses/<job_id>.txt (capped at 256 KiB,
+             file 0600, dir 0700), whose SEARCH sections quote input lines.
 
-             That makes the patch artifact's LOCATION a confidentiality
-             boundary, not just a tidiness question — it is written under
+             That makes both artifacts' LOCATION a confidentiality
+             boundary, not just a tidiness question — both are written under
              core.paths.output_dir(), outside the checkout, and
              validate-config verifies that. Say so here.
 
@@ -1686,8 +1689,21 @@ stages:
           with no heartbeat key at all. This applies under every route, since
           run_cli/run_shell/workflow_stage jobs never write the field
           regardless of which liveness route was chosen.
-        - Patch validation: a response whose diff fails `git apply --check` is
-          reported as such and not silently treated as a success.
+        - Patch validation: edit blocks that apply cleanly to the confined
+          input content but whose locally built diff (via difflib) fails
+          `git apply --check` return `terminal-patch-does-not-apply` — the
+          fail-closed backstop, not silently treated as a success. Also cover
+          the edit-block-to-diff failure paths themselves, per
+          `src/worker/qwen_edits.py`'s outcome strings: a response with no
+          SEARCH/REPLACE block (`terminal-no-edits-found`), a block missing a
+          marker (`terminal-edit-malformed`), a block naming a file that is
+          not an input (`terminal-edit-outside-inputs`), a SEARCH body
+          matching zero times or more than once (`terminal-edit-not-found` /
+          `terminal-edit-ambiguous`), and edits that apply but change nothing
+          (`terminal-no-change`). The handler does not accept a model-authored
+          diff; it parses edit blocks and validates the diff it builds
+          locally, so no test should assert against a raw model-supplied
+          diff.
         - TELEMETRY SHAPE: the emitted OTLP payload parses back through
           src/telemetry/otel's own models (OTLPSpansRecord.from_dict and
           friends) and yields the expected attributes. Assert round-trip
