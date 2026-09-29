@@ -55,6 +55,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from .linter_types import LintResult, LintWarning
+from .placeholders import PLACEHOLDER_RE
 from .shell_text import (
     ShellScript,
     ShellSegment,
@@ -89,8 +90,6 @@ RULE_GUARD_REFUSED = "shell-guard-refused"
 _FIELD = "description"
 _SNIPPET_LEN = 72
 
-# Same shape as linter._VAR_RE: a single-brace identifier, not {{escaped}}.
-_PLACEHOLDER_RE = re.compile(r"(?<!\{)\{([a-z_][a-z0-9_]*)\}(?!\})")
 # ``$NAME`` or exactly ``${NAME}``. ``${NAME:-default}``, ``${NAME:+x}`` and
 # friends handle an unset NAME, so the braced form must close right after it.
 _EXPANSION_RE = re.compile(r"\$(?:\{([A-Z_][A-Z0-9_]*)\}|([A-Z_][A-Z0-9_]*))")
@@ -315,7 +314,7 @@ def _unvalidated_params(
     own_checks = _checked_param_positions(item.segments)
     reported: dict[str, str] = {}
     for seg_index, seg in enumerate(item.segments):
-        for m in seg.live_matches(_PLACEHOLDER_RE):
+        for m in seg.live_matches(PLACEHOLDER_RE):
             name = m.group(1)
             if name not in caller or name in validated:
                 continue
@@ -345,7 +344,7 @@ def _unquoted_fan_out_keys(item: _StageShell) -> list[LintWarning]:
         return []
     for seg in item.segments:
         ctx = quote_context(seg.text)
-        for m in seg.live_matches(_PLACEHOLDER_RE):
+        for m in seg.live_matches(PLACEHOLDER_RE):
             if m.group(1) == fan_out.key and ctx[m.start()] == "":
                 return [_warn(
                     item.stage.name,
