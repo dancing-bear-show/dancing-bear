@@ -169,6 +169,19 @@ def _processing_stems(root: Path) -> set[str]:
     return {p.stem for p in q._list_job_paths(folder)}
 
 
+def _claimable(
+    pending: list[tuple[Path, dict[str, object]]], skip: set[str]
+) -> list[tuple[Path, dict[str, object]]]:
+    """Drop pending jobs in ``skip`` or whose id is already in processing/.
+
+    ``start_processing`` refuses such a duplicate, so selecting it would spend
+    a slot of the ``allowed`` slice on a claim that cannot succeed -- every
+    tick, while the original runs. The claim itself re-checks under the lock.
+    """
+    busy = skip | _processing_stems(q.QUEUE_ROOT)
+    return [(p, d) for p, d in pending if p.stem not in busy]
+
+
 def _reap_stale_unowned(job_timeout: int, root: Path, owned: set[str]) -> list[str]:
     """Reap stale processing/ jobs under ``root``, skipping stems in ``owned``.
 
@@ -242,8 +255,10 @@ class WorkerConfig:
     job_timeout: int = 0
     interval: float = 5.0
     # Seconds the daemon waits for running jobs after a stop request before
-    # requeueing them. Kept below launchd's default ExitTimeOut (20s) so the
-    # requeue finishes before launchd escalates to SIGKILL.
+    # requeueing them; also bounds the requeue's transition-lock wait, but not
+    # its filesystem I/O. Kept below launchd's default ExitTimeOut (20s) to
+    # leave the requeue room before SIGKILL; a requeue killed mid-way is
+    # recovered at the next start from its shutdown-timeout marker.
     shutdown_grace: float = 10.0
 
 
@@ -602,9 +617,7 @@ class DaemonRunner:
         if allowed <= 0:
             return 0
 
-        items = [
-            (p, d) for p, d in q.list_pending() if p.stem not in self._live_threads
-        ][:allowed]
+        items = _claimable(q.list_pending(), set(self._live_threads))[:allowed]
         if not items:
             return 0
 
@@ -859,7 +872,7 @@ class DaemonRunner:
         if allowed <= 0:
             return 0
 
-        items = q.list_pending()[:allowed]
+        items = _claimable(q.list_pending(), set())[:allowed]
         if not items:
             return 0
 
@@ -926,8 +939,13 @@ class DaemonRunner:
     def drain_live_threads(self, grace: float) -> list[str]:
         """Wait up to ``grace`` seconds for live job threads; requeue the rest.
 
-        One deadline covers every thread, so the total wait never exceeds
-        ``grace``. After the deadline every registered claim is probed,
+        One deadline covers every thread, so the wait for running jobs never
+        exceeds ``grace``, and each requeue's lock acquisition is bounded by
+        what remains of it. Filesystem I/O is not bounded: a requeue that
+        stalls in the filesystem can run past ``grace`` (see
+        ``_drain_one_stem``), and the marker written before each attempt
+        makes a job interrupted there recoverable at the next start.
+        After the deadline every registered claim is probed,
         whatever its thread's state: a thread that died outside the handler
         guard can leave its record behind, and ``requeue_processing`` is a
         no-op once a normal completion has moved the record. A record still in

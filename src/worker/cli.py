@@ -124,7 +124,7 @@ def cmd_run_once(args: argparse.Namespace) -> int:
 @app.argument("--backoff", type=int, default=60)
 @app.argument("--max-inflight", type=int, default=0, help="Hard cap of concurrent processing jobs; 0 disables clamping")
 @app.argument("--job-timeout", type=int, default=0, help="Job timeout in seconds; 0 disables timeout (default 0)")
-@app.argument("--shutdown-grace", type=float, default=10.0, help="Seconds to wait for running jobs on stop, then requeue (default 10)")
+@app.argument("--shutdown-grace", type=float, default=10.0, help="Seconds to wait for running jobs and the requeue lock on stop; not filesystem I/O (default 10)")
 def cmd_daemon(args: argparse.Namespace) -> int:
     """Run worker daemon."""
     return _run_processor(args, "daemon")

@@ -62,6 +62,26 @@ def _names(folder: Path) -> list[str]:
     return sorted(p.name for p in folder.iterdir()) if folder.exists() else []
 
 
+def _fake_claim(proc: Path, token: str) -> Any:
+    """Stand-in for ``start_processing``: move the pending record to ``proc``.
+
+    Planting ``proc`` before ``tick()`` instead would leave a pending/ and a
+    processing/ record with the same id, which the claim loop skips as a
+    duplicate of a running job, so the mocked claim would never be reached.
+    """
+
+    def _claim(job_path: Path, root: Path | None = None) -> tuple[Path, str]:
+        record = _read(job_path)
+        if token:
+            record["claim_token"] = token
+        proc.parent.mkdir(parents=True, exist_ok=True)
+        proc.write_text(json.dumps(record), encoding="utf-8")
+        job_path.unlink()
+        return proc, token
+
+    return _claim
+
+
 class _RuntimeTestBase(unittest.TestCase, QueueRootIsolationMixin):
     """Temp queue root, every job_runtime queue call redirected to it."""
 
@@ -139,11 +159,9 @@ class TestStartBatchTokenlessRequeueIOError(_RuntimeTestBase):
         enqueue(Job(id="sb1", type="noop", payload={}), root=self.root)
         runner = _make_runner(self.root, max_per_tick=1)
         fake_proc = self.root / "processing" / "sb1.json"
-        fake_proc.parent.mkdir(parents=True, exist_ok=True)
-        fake_proc.write_text(json.dumps({"id": "sb1"}), encoding="utf-8")
 
         with (
-            patch.object(q, "start_processing", return_value=(fake_proc, "")),
+            patch.object(q, "start_processing", side_effect=_fake_claim(fake_proc, "")),
             patch.object(q, "requeue_processing", side_effect=OSError("disk full")),
             self.assertLogs("worker.job_runtime", "ERROR"),
         ):
@@ -157,11 +175,9 @@ class TestStartBatchTokenlessRequeueIOError(_RuntimeTestBase):
         enqueue(Job(id="sb2", type="noop", payload={}), root=self.root)
         runner = _make_runner(self.root, max_per_tick=1)
         fake_proc = self.root / "processing" / "sb2.json"
-        fake_proc.parent.mkdir(parents=True, exist_ok=True)
-        fake_proc.write_text(json.dumps({"id": "sb2"}), encoding="utf-8")
 
         with (
-            patch.object(q, "start_processing", return_value=(fake_proc, "")),
+            patch.object(q, "start_processing", side_effect=_fake_claim(fake_proc, "")),
             patch.object(q, "requeue_processing", return_value=None),
             self.assertLogs("worker.job_runtime", "WARNING"),
         ):
@@ -178,13 +194,12 @@ class TestAbandonClaimRequeueIOError(_RuntimeTestBase):
 
         # Make start_processing succeed with a real token
         fake_proc = self.root / "processing" / "ac1.json"
-        fake_proc.parent.mkdir(parents=True, exist_ok=True)
-        fake_proc.write_text(json.dumps({"id": "ac1", "claim_token": "8eff29a31dc1faa7f1fb93d57908faa8"}), encoding="utf-8")
+        token = "8eff29a31dc1faa7f1fb93d57908faa8"  # nosec B105 - fake claim token, not a secret
 
         import threading as _threading
 
         with (
-            patch.object(q, "start_processing", return_value=(fake_proc, "8eff29a31dc1faa7f1fb93d57908faa8")),
+            patch.object(q, "start_processing", side_effect=_fake_claim(fake_proc, token)),
             patch.object(_threading.Thread, "start", side_effect=RuntimeError("thread fail")),
             patch.object(q, "requeue_processing", side_effect=OSError("disk full")),
             self.assertLogs("worker.job_runtime", "ERROR"),
@@ -196,9 +211,8 @@ class TestAbandonClaimRequeueIOError(_RuntimeTestBase):
         # leaving the claim in processing/ with nothing tracking it.
         self.assertIn("ac1", runner._live_threads)
 
-        # start_processing was mocked, so drop the pending/ copy a real claim
-        # would have moved; the retry then publishes the processing/ record.
-        (self.root / "pending" / "ac1.json").unlink()
+        # The fake claim moved the pending/ copy, so the retry publishes the
+        # processing/ record.
         runner._prune_live_threads()
         self.assertNotIn("ac1", runner._live_threads)
         self.assertEqual(sorted(p.name for p in (self.root / "pending").iterdir()), ["ac1.json"])
@@ -210,13 +224,12 @@ class TestAbandonClaimRequeueIOError(_RuntimeTestBase):
         runner = _make_runner(self.root, max_per_tick=1)
 
         fake_proc = self.root / "processing" / "ac2.json"
-        fake_proc.parent.mkdir(parents=True, exist_ok=True)
-        fake_proc.write_text(json.dumps({"id": "ac2", "claim_token": "f11c903fff6ddba6fa0a0452143bf001"}), encoding="utf-8")
+        token = "f11c903fff6ddba6fa0a0452143bf001"  # nosec B105 - fake claim token, not a secret
 
         import threading as _threading
 
         with (
-            patch.object(q, "start_processing", return_value=(fake_proc, "f11c903fff6ddba6fa0a0452143bf001")),
+            patch.object(q, "start_processing", side_effect=_fake_claim(fake_proc, token)),
             patch.object(_threading.Thread, "start", side_effect=RuntimeError("thread fail")),
             patch.object(q, "requeue_processing", return_value=None),
             self.assertLogs("worker.job_runtime", "ERROR"),

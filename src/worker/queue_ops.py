@@ -202,6 +202,15 @@ def start_processing(job_path: Path, root: Path | None = None) -> tuple[Path, st
     than None (None would widen the return to three states and lose the path).
     Callers that need a non-empty token to establish ownership must check for
     an empty string and requeue; see ``_start_batch`` and ``process_one``.
+
+    Also returns None, leaving ``job_path`` in pending/, when processing/
+    already holds a record with the same id. ``enqueue`` accepts an explicit
+    id and never looks at processing/, so a pending copy of a running job is
+    possible; renaming over it would replace the active claim's record, token
+    and payload before any ownership check could protect them. Every writer
+    of processing/ holds the transition lock, so the existence check below
+    stays valid until the rename. The duplicate becomes claimable once the
+    active claim leaves processing/.
     """
     paths = _ensure_dirs(root)
     job_id = job_path.stem
@@ -209,6 +218,13 @@ def start_processing(job_path: Path, root: Path | None = None) -> tuple[Path, st
     token: str = ""
     try:
         with _transition_lock(root):
+            if new_path.exists():
+                _log.warning(
+                    "Not claiming job %s: processing/ already holds a claim for this id; "
+                    "leaving the duplicate in pending/",
+                    job_id,
+                )
+                return None
             # Claim the job atomically: rename then write metadata before the
             # lock is released, so a reaper cannot observe the processing/
             # record in a partially-initialised state.
