@@ -105,7 +105,7 @@ class ParseEditBlocksTests(unittest.TestCase):
             + edit_block("src/a.py", "old", "new")
             + "```\n\nAnd a second one:\n```\n"
             + edit_block("src/b.py", "x", "y")
-            + "```\nAnything else?"
+            + "```\n"
         )
 
         blocks = qwen_edits.parse_edit_blocks(text)
@@ -170,21 +170,57 @@ class ParseEditBlocksTests(unittest.TestCase):
 
         self.assertEqual(_outcome(qwen_edits.parse_edit_blocks, text), qwen_edits.EDIT_MALFORMED_OUTCOME)
 
-    def test_well_formed_fenced_response_with_trailing_prose_still_parses(self) -> None:
-        # Trailing model chatter after the final block is legitimate output
-        # (the prompt asks for edit blocks only, but this model has been
-        # observed to add a closing remark); it must still parse as long as
-        # it is separated from REPLACE by a blank line or a fence close, per
-        # the existing fences-and-prose fixture.
+    def test_trailing_prose_after_the_last_block_is_malformed(self) -> None:
+        # The prompt asks for edit blocks ONLY. Prose after the final block,
+        # even behind a fence close and a blank line, cannot be told apart
+        # from REPLACE lines left behind by a truncated in-body marker.
         text = (
             "```python\n"
             + edit_block("src/a.py", "old", "new")
             + "```\n\nLet me know if you need anything else!\n"
         )
 
-        [block] = qwen_edits.parse_edit_blocks(text)
+        self.assertEqual(_outcome(qwen_edits.parse_edit_blocks, text), qwen_edits.EDIT_MALFORMED_OUTCOME)
 
-        self.assertEqual(block, qwen_edits.EditBlock("src/a.py", ("old",), ("new",)))
+    # A REPLACE body whose first line after "new1" is a literal
+    # ">>>>>>> REPLACE" line, truncated before its real closer.
+    IN_BODY_MARKER = "FILE: a.py\n<<<<<<< SEARCH\nold\n=======\nnew1\n>>>>>>> REPLACE\n"
+
+    def test_truncation_after_an_in_body_marker_then_a_blank_line_is_malformed(self) -> None:
+        text = self.IN_BODY_MARKER + "\nnew2"
+
+        self.assertEqual(_outcome(qwen_edits.parse_edit_blocks, text), qwen_edits.EDIT_MALFORMED_OUTCOME)
+        files = {"a.py": "old\n"}
+        self.assertEqual(_outcome(qwen_edits.edits_to_diff, text, files), qwen_edits.EDIT_MALFORMED_OUTCOME)
+        self.assertEqual(files, {"a.py": "old\n"})
+
+    def test_truncation_residue_anywhere_after_the_last_block_is_malformed(self) -> None:
+        cases = {
+            "several blank lines": self.IN_BODY_MARKER + "\n\n\nnew2\n",
+            "text two lines later": self.IN_BODY_MARKER + "\n\nnew2\nnew3",
+            "after a fence close": self.IN_BODY_MARKER + "```\n\nnew2\n",
+            "a FILE: line": self.IN_BODY_MARKER + "\nFILE: b.py\n",
+            "after a second block": edit_block("b.py", "x", "y") + self.IN_BODY_MARKER + "\nnew2\n",
+        }
+        for name, text in cases.items():
+            with self.subTest(name):
+                self.assertEqual(_outcome(qwen_edits.parse_edit_blocks, text), qwen_edits.EDIT_MALFORMED_OUTCOME)
+
+    def test_blank_lines_and_fences_after_the_last_block_still_parse(self) -> None:
+        body = edit_block("src/a.py", "old", "new")
+        cases = {
+            "ends at the closer": body.rstrip("\n"),
+            "ends at the closer newline": body,
+            "blank lines": body + "\n\n  \n",
+            "closing fence": "```\n" + body + "```",
+            "closing fence then blank lines": "```python\n" + body + "```\n\n\n",
+            "prose before the first block": "Sure, here is the change:\n\n" + body,
+            "prose between two blocks": body + "\nNext, the second edit:\n\n" + edit_block("src/b.py", "x", "y"),
+        }
+        for name, text in cases.items():
+            with self.subTest(name):
+                blocks = qwen_edits.parse_edit_blocks(text)
+                self.assertEqual(blocks[0], qwen_edits.EditBlock("src/a.py", ("old",), ("new",)))
 
     def test_indented_divider_in_a_truncated_search_is_not_a_divider(self) -> None:
         # SEARCH was meant to be "Title / <indented underline> / old ..." but

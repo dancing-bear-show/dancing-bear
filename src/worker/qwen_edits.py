@@ -35,7 +35,7 @@ REPLACE_MARKER = ">>>>>>> REPLACE"
 # structure, so a truncated response cannot promote it to a separator.
 # The SEARCH and REPLACE markers never appear as body content. A divider
 # line can: an RST/Markdown underline reads as "=======". There is no
-# escaping in this format, so three guards fail closed as malformed rather
+# escaping in this format, so four guards fail closed as malformed rather
 # than guess (a guess can silently truncate the SEARCH or REPLACE body and
 # apply a partial edit):
 # - parse time: a block with more than one bare "=======" line before its
@@ -50,11 +50,15 @@ REPLACE_MARKER = ">>>>>>> REPLACE"
 #   (the format has no escaping for that), but content that follows can no
 #   longer be silently read as inter-block prose and dropped - it is
 #   ambiguous with a response truncated right after that in-body marker, so
-#   the whole block set is rejected. This does not close every truncation:
-#   a response cut immediately after the true closing REPLACE marker, with
-#   nothing else following, is indistinguishable from a well-formed response
-#   and is accepted (see parse_edit_blocks and _is_unstructured_line_after_replace
-#   docstrings).
+#   the whole block set is rejected.
+# - parse time: after the LAST block's REPLACE marker, every remaining line
+#   must be blank or a ``` fence (_is_truncation_residue). Truncation always
+#   leaves its residue after the final block: had another block followed, the
+#   real closer left behind by an in-body marker would already be a stray
+#   marker. This catches the residue however many blank lines precede it.
+# The only undetectable case left is a response cut exactly at a true
+# closing REPLACE marker with nothing after it: that is indistinguishable
+# from a well-formed response and is accepted.
 _BLOCK_MARKERS = frozenset({SEARCH_MARKER, REPLACE_MARKER})
 _STRAY_MARKERS = frozenset({DIVIDER_MARKER, REPLACE_MARKER})
 _FILE_LINE_RE = re.compile(r"\s*FILE:(.*)")
@@ -157,6 +161,10 @@ def _is_unstructured_line_after_replace(line: str) -> bool:
     REPLACE body whose response was truncated right after an earlier,
     in-body ">>>>>>> REPLACE"-shaped line: failing closed here is the only
     way to avoid silently dropping that trailing content.
+
+    After the last block _is_truncation_residue is stricter and subsumes
+    this check; this one still applies after every non-final block, where
+    it rejects prose directly abutting a REPLACE marker.
     """
     stripped = line.strip()
     if not stripped:
@@ -168,29 +176,44 @@ def _is_unstructured_line_after_replace(line: str) -> bool:
     return _FILE_LINE_RE.fullmatch(line) is None
 
 
+def _is_truncation_residue(line: str) -> bool:
+    """True when line, found after the last block's REPLACE marker, may be
+    REPLACE body content left behind by an in-body ">>>>>>> REPLACE"-shaped
+    line in a truncated response. Only blank lines and ``` fences are safe
+    there; prose, FILE: lines and everything else are rejected."""
+    stripped = line.strip()
+    return bool(stripped) and not stripped.startswith("```")
+
+
 def parse_edit_blocks(response_text: str) -> list[EditBlock]:
     """Parse SEARCH/REPLACE blocks from a model response.
 
-    Lines outside blocks - prose, ``` fences - are ignored, except that a
-    "FILE: <path>" line names the file for every block after it until the
-    next FILE line. Body lines are kept verbatim (only "\\n" splits lines).
-    Markers are recognised only at column 0 (trailing whitespace is
-    tolerated); an indented marker-shaped line is ordinary text. Raises EditBlockError: NO_EDITS_OUTCOME when there is no block, and
-    EDIT_MALFORMED_OUTCOME for a block missing a marker (a response cut off
-    at num_predict), a stray divider/REPLACE marker, or a non-blank,
-    non-structural line immediately after a REPLACE marker (see
-    _is_unstructured_line_after_replace) - a partial edit set is never
-    applied.
+    Lines before the first block and between blocks - prose, ``` fences -
+    are ignored, except that a "FILE: <path>" line names the file for every
+    block after it until the next FILE line. After the last block only blank
+    lines and ``` fences are allowed. Body lines are kept verbatim (only
+    "\\n" splits lines). Markers are recognised only at column 0 (trailing
+    whitespace is tolerated); an indented marker-shaped line is ordinary
+    text. Raises EditBlockError: NO_EDITS_OUTCOME when there is no block,
+    and EDIT_MALFORMED_OUTCOME for a block missing a marker (a response cut
+    off at num_predict), a stray divider/REPLACE marker, a non-blank,
+    non-structural line immediately after any REPLACE marker (see
+    _is_unstructured_line_after_replace), or any line other than a blank or
+    ``` fence after the last REPLACE marker (see _is_truncation_residue) - a
+    partial edit set is never applied. A response cut exactly at a true
+    closing REPLACE marker, with nothing after it, cannot be detected.
     """
     lines = response_text.split("\n")
     blocks: list[EditBlock] = []
     current_file = ""
+    last_end = 0
     i = 0
     while i < len(lines):
         text = _marker_text(lines[i])
         if text == SEARCH_MARKER:
             search, replace, i = _parse_block_body(lines, i + 1)
             blocks.append(EditBlock(current_file, search, replace))
+            last_end = i
             if i < len(lines) and _is_unstructured_line_after_replace(lines[i]):
                 raise EditBlockError(EDIT_MALFORMED_OUTCOME)
             continue
@@ -202,6 +225,8 @@ def parse_edit_blocks(response_text: str) -> list[EditBlock]:
         i += 1
     if not blocks:
         raise EditBlockError(NO_EDITS_OUTCOME)
+    if any(_is_truncation_residue(line) for line in lines[last_end:]):
+        raise EditBlockError(EDIT_MALFORMED_OUTCOME)
     return blocks
 
 
