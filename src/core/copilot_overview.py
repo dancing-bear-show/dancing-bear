@@ -505,23 +505,59 @@ def _open_findings(findings: dict[str, Finding], newest_review_id: Any) -> int:
     )
 
 
-def _shortfall(claimed: int | None, findings: dict[str, Finding],
-               newest_review_id: Any) -> int:
-    """How many open findings the newest overview claimed but we did not parse.
+def _parsed_section_counts(findings: dict[str, Finding],
+                           newest_review_id: Any) -> dict[str, int]:
+    """How many entries the newest review actually parsed into each section.
 
-    Compare like with like. The headline count matches the ``Open`` section —
-    on PR #395 ``Findings: 4`` sits beside ``Open (4)`` while
-    ``Resolved since last review (2)`` is extra — so counting every parsed
-    finding from every section lets resolved and previously-missed entries
-    mask a genuinely missing open one and still report ``status: ok``.
-
-    This is the only available evidence that a parse broke rather than the PR
-    being clean: a shape change returns zero findings and looks identical to a
-    PR with none.
+    Counts both linked and unlinked findings — a declared ``Previously missed``
+    block with no ``#discussion_r`` anchor is exactly the case a headline-only
+    check cannot see, since unlinked findings never touch the ``Findings:``
+    count in the first place.
     """
-    if claimed is None:
-        return 0
-    return max(0, claimed - _open_findings(findings, newest_review_id))
+    counts: dict[str, int] = {}
+    for f in findings.values():
+        if f.source_review_id != newest_review_id:
+            continue
+        key = " ".join((f.section or "").lower().split())
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def _shortfall(claimed: int | None, findings: dict[str, Finding],
+               newest_review_id: Any, declared_sections: dict[str, int]) -> int:
+    """How much the newest overview declared but we did not parse.
+
+    Two independent checks, and the worse of the two wins:
+
+    1. The headline vs. ``Open``. The ``Findings:`` count matches the ``Open``
+       section — on PR #395 ``Findings: 4`` sits beside ``Open (4)`` while
+       ``Resolved since last review (2)`` is extra — so counting every parsed
+       finding from every section would let resolved entries mask a genuinely
+       missing open one.
+    2. Every declared section (``Previously missed``, ``Resolved since last
+       review``, and ``Open`` too) against how many entries actually parsed into it
+       from the newest review. This is the only way to notice a section whose
+       entries are unlinked and therefore invisible to the headline count: an
+       explicit ``Findings: None`` can never produce a shortfall under check 1
+       alone, so a ``Previously missed (1)`` block that fails to parse would
+       report ``status: ok`` with zero evidence anything broke.
+
+    A section whose declared count matches its parsed count contributes no
+    shortfall — a fully-parsed ``Resolved since last review (4)`` is not
+    penalised for not being ``Open``.
+    """
+    parsed = _parsed_section_counts(findings, newest_review_id)
+    open_shortfall = 0 if claimed is None else max(
+        0, claimed - _open_findings(findings, newest_review_id)
+    )
+
+    section_shortfall = 0
+    for name, declared_count in declared_sections.items():
+        key = " ".join(name.lower().split())
+        gap = declared_count - parsed.get(key, 0)
+        section_shortfall = max(section_shortfall, gap)
+
+    return max(open_shortfall, section_shortfall)
 
 
 def _comment_index(threads: list[dict[str, Any]]) -> dict[str, str]:
@@ -631,7 +667,8 @@ def parse_overview(review_bodies: list[dict[str, Any]],
     newest = overviews[-1]
     newest_review_id = newest.get("review_id")
     claimed = _claimed_count(newest)
-    shortfall = _shortfall(claimed, findings, newest_review_id)
+    declared_sections = _section_counts(newest)
+    shortfall = _shortfall(claimed, findings, newest_review_id, declared_sections)
     comment_to_thread = _comment_index(threads or [])
     out, cited_not_found, cited_threads, stale_unlinked = _reconcile(
         findings, comment_to_thread, newest_review_id
@@ -647,7 +684,7 @@ def parse_overview(review_bodies: list[dict[str, Any]],
             "submitted_at": newest.get("submitted_at"),
             "verdict": _verdict(newest),
             "findings_claimed": claimed,
-            "sections": _section_counts(newest),
+            "sections": declared_sections,
         },
         "findings": out,
         "previously_missed": sorted(

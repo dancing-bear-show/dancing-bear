@@ -348,6 +348,51 @@ class TestShortfall(unittest.TestCase):
         self.assertEqual(out["parse_shortfall"], 4)
         self.assertEqual(out["status"], "partial")
 
+    def test_unparseable_unlinked_section_flags_partial_despite_explicit_zero(self):
+        """A declared 'Previously missed' block that fails to parse is a real gap.
+
+        'Findings: None' can never produce a shortfall against Open alone —
+        Copilot's headline count never covers unlinked entries in the first
+        place. Comparing every declared section's own count against what
+        actually parsed out of it is the only way to catch this: the block
+        below declares one entry but has no severity-badge summary line, so
+        nothing is recorded under it.
+        """
+        body = "\n".join([
+            OVERVIEW_MARKER, "", "## Copilot review overview", "",
+            "**Findings:** None", "",
+            "<details>",
+            "<summary><strong>Previously missed (1)</strong></summary>",
+            "",
+            "<details>",
+            "<summary>Not a real finding block</summary>",
+            "some text with no path line",
+            "</details>",
+            "</details>",
+        ])
+        out = parse_overview([_review(body)], [])
+
+        self.assertEqual(out["newest"]["findings_claimed"], 0)
+        self.assertEqual(out["findings"], {})
+        self.assertEqual(out["parse_shortfall"], 1)
+        self.assertEqual(out["status"], "partial")
+
+    def test_fully_parsed_non_open_section_stays_ok(self):
+        """A section that parses in full must not itself trip the tripwire."""
+        body = "\n".join([
+            OVERVIEW_MARKER, "", "## Copilot review overview", "",
+            "**Findings:** 1 <picture></picture>", "",
+            _section("Open", 1, _linked("111", "A")),
+            _section("Resolved since last review", 2,
+                     _linked("222", "B"), _linked("333", "C")),
+        ])
+        threads = [_thread(f"T{i}", d) for i, d in enumerate((111, 222, 333))]
+
+        out = parse_overview([_review(body)], threads)
+
+        self.assertEqual(out["parse_shortfall"], 0)
+        self.assertEqual(out["status"], "ok")
+
 
 class TestAbsentOverview(unittest.TestCase):
     def test_human_only_pr_reports_absent_not_failed(self):
