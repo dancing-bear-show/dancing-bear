@@ -13,8 +13,10 @@ builders. These tests fail if a new app reintroduces a hand-rolled module.
 from __future__ import annotations
 
 import importlib
+import io
 import pathlib
 import unittest
+import unittest.mock
 
 # Modules that legitimately do not call make_domain_llm_module.
 #   core - defines the factory and LlmConfig themselves.
@@ -102,6 +104,53 @@ class TestLlmCliUniformity(unittest.TestCase):
                     self.assertTrue(
                         value.strip(), f"{pkg}.CONFIG.{field}() returned blank"
                     )
+
+    def test_agentic_subcommand_accepts_compact_flag(self):
+        # Regression: --compact was accepted by `llm agentic` but not by
+        # `llm --app <app> agentic`, causing exit 2 for every per-app route.
+        for pkg in _domain_llm_packages():
+            with self.subTest(package=pkg):
+                mod = importlib.import_module(f"{pkg}.llm_cli")
+                buf = io.StringIO()
+                with (
+                    unittest.mock.patch("sys.stdout", buf),
+                    unittest.mock.patch("sys.stderr", io.StringIO()),
+                ):
+                    rc = mod.main(["agentic", "--stdout", "--compact"])
+                self.assertEqual(
+                    rc,
+                    0,
+                    f"{pkg}: main(['agentic','--stdout','--compact']) returned {rc}",
+                )
+                output = buf.getvalue()
+                self.assertTrue(output.strip(), f"{pkg}: --compact produced empty output")
+                self.assertTrue(
+                    output.startswith("agentic:"),
+                    f"{pkg}: expected output starting with 'agentic:', got {output[:60]!r}",
+                )
+
+    def test_agentic_compact_output_matches_without_compact(self):
+        # The flag is a no-op for per-app capsules; output must be identical.
+        for pkg in _domain_llm_packages():
+            with self.subTest(package=pkg):
+                mod = importlib.import_module(f"{pkg}.llm_cli")
+
+                def _run(argv: list[str]) -> str:
+                    buf = io.StringIO()
+                    with (
+                        unittest.mock.patch("sys.stdout", buf),
+                        unittest.mock.patch("sys.stderr", io.StringIO()),
+                    ):
+                        mod.main(argv)
+                    return buf.getvalue()
+
+                without = _run(["agentic", "--stdout"])
+                with_compact = _run(["agentic", "--stdout", "--compact"])
+                self.assertEqual(
+                    without,
+                    with_compact,
+                    f"{pkg}: --compact changed output",
+                )
 
     def test_agentic_falls_back_when_the_agentic_module_is_broken(self):
         # The regression that motivated this file: phone imported outside the

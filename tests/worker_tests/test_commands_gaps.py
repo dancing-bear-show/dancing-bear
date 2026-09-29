@@ -76,32 +76,6 @@ class TestJobContext(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# _undo_retry_attempt
-# ---------------------------------------------------------------------------
-
-class TestUndoRetryAttempt(unittest.TestCase, QueueRootIsolationMixin):
-    def setUp(self):
-        self.setup_queue_root()
-
-    def test_resets_attempts_on_pending_job(self):
-        from worker.queue_ops import Job, enqueue
-        from worker.job_runtime import _undo_retry_attempt
-        from worker import queue_ops as q
-        q.QUEUE_ROOT = self.root
-        enqueue(Job(id="undo1", type="noop", payload={}, attempts=1), root=self.root)
-        _undo_retry_attempt("undo1", 0, self.root)
-        data = json.loads((self.root / "pending" / "undo1.json").read_text())
-        self.assertEqual(data["attempts"], 0)
-
-    def test_does_not_raise_when_job_missing(self):
-        from worker.job_runtime import _undo_retry_attempt
-        from worker.queue_ops import _ensure_dirs
-        _ensure_dirs(self.root)
-        # Should not raise even if job doesn't exist
-        _undo_retry_attempt("nonexistent-job", 0, self.root)
-
-
-# ---------------------------------------------------------------------------
 # _handle_outcome
 # ---------------------------------------------------------------------------
 
@@ -119,8 +93,9 @@ class TestHandleOutcome(unittest.TestCase, QueueRootIsolationMixin):
         q.QUEUE_ROOT = self.root
         job = Job(id=job_id, type="noop", payload={})
         pending = enqueue(job, root=self.root)
-        proc = start_processing(pending, self.root)
-        assert proc is not None  # nosec B101 - narrows Optional for mypy
+        result = start_processing(pending, self.root)
+        assert result is not None  # nosec B101 - narrows Optional for type checker
+        proc, _tok = result
         return proc
 
     def _make_ctx(self, job_id: str, attempts: int = 0, max_attempts: int = 3):
@@ -171,7 +146,6 @@ class TestHandleOutcome(unittest.TestCase, QueueRootIsolationMixin):
         proc = self._make_proc_path("h_defer")
         ctx = self._make_ctx("h_defer")
         with patch("worker.job_runtime.log_perf_jsonl"), \
-             patch("worker.job_runtime._undo_retry_attempt"), \
              patch("worker.job_runtime.q.retry", side_effect=self._patched_retry):
             _handle_outcome(self._make_outcome_ctx(proc, ctx), False, "deferred-needs-resource")
         self.assertTrue((self.root / "pending" / "h_defer.json").exists())
@@ -457,7 +431,12 @@ class TestDaemonRunnerTick(unittest.TestCase, QueueRootIsolationMixin):
         # tick() returns before its threads run; join them before asserting.
         _join_live_threads(self, runner)
         self.assertEqual(result, 1)
-        mock_proc.process_one.assert_called_once_with(pending_path, job_data)
+        # tick() claims the job itself, then hands the thread the processing/ path.
+        proc = self.root / "processing" / "tick1.json"
+        token = q.claim_token(proc)
+        self.assertTrue(token, "start_processing must record a claim token")
+        mock_proc.process_claimed.assert_called_once_with(proc, job_data, claim_token=token)
+        mock_proc.process_one.assert_not_called()
 
     def test_run_once_returns_zero(self):
         from worker.queue_ops import _ensure_dirs
@@ -507,12 +486,12 @@ class TestDaemonRunnerTick(unittest.TestCase, QueueRootIsolationMixin):
         # Join before asserting, or a count of 0 (threads not yet run) passes.
         _join_live_threads(self, runner)
         self.assertEqual(result, 2)
-        self.assertEqual(mock_proc.process_one.call_count, 2)
+        self.assertEqual(mock_proc.process_claimed.call_count, 2)
 
 
 def _join_live_threads(test: unittest.TestCase, runner: Any, timeout: float = 5.0) -> None:
     """Join every thread a non-blocking tick() started, failing if one hangs."""
-    for stem, thread in list(runner._live_threads.items()):
+    for stem, (thread, _tok) in list(runner._live_threads.items()):
         thread.join(timeout=timeout)
         test.assertFalse(thread.is_alive(), f"worker thread for {stem} never finished")
 
