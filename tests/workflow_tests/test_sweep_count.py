@@ -389,7 +389,8 @@ class TestSweepWorker(_Tree):
 
     def test_open_nofollow_along_path_rejects_relative_paths(self) -> None:
         with self.assertRaisesRegex(ValueError, "not an absolute path"):
-            _sweep_worker._open_nofollow_along_path("workflows/a.yaml")
+            fd = _sweep_worker._open_nofollow_along_path("workflows/a.yaml")
+            os.close(fd)  # reached only if the guard regresses; never leak the descriptor
 
 
 class TestPathAllowlist(_Tree):
