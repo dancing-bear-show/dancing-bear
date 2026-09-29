@@ -7,7 +7,7 @@ import json
 import unittest
 from unittest.mock import patch
 
-from telemetry.otel.cli.prompts import _format_duration_ms, _truncate, main
+from telemetry.otel.cli.prompts import _format_duration_ms, main
 from telemetry.otel.cost_models import PromptMetrics
 
 
@@ -38,21 +38,6 @@ def _make_prompt_metrics(
         tool_failures=tool_failures,
         duration_ms=duration_ms,
     )
-
-
-# ---------------------------------------------------------------------------
-# _truncate
-# ---------------------------------------------------------------------------
-
-
-class TestTruncate(unittest.TestCase):
-    def test_short_string_unchanged(self):
-        self.assertEqual(_truncate("abc", 10), "abc")
-
-    def test_long_string_truncated(self):
-        result = _truncate("a" * 20, 10)
-        self.assertTrue(result.endswith("..."))
-        self.assertEqual(len(result), 10)
 
 
 # ---------------------------------------------------------------------------
@@ -101,6 +86,18 @@ class TestPromptsMain(unittest.TestCase):
             with patch("sys.stdout", buf):
                 result = main([])
         self.assertEqual(result, 0)
+
+    def test_table_truncates_long_ids_with_ascii_ellipsis(self):
+        metrics = [_make_prompt_metrics(prompt_id="p" * 20, session_id="s" * 20)]
+        with patch("telemetry.otel.cli.prompts.get_prompt_metrics", return_value=metrics):
+            buf = io.StringIO()
+            with patch("sys.stdout", buf):
+                main([])
+        out = buf.getvalue()
+        self.assertIn("p" * 11 + "...", out)
+        self.assertIn("s" * 9 + "...", out)
+        self.assertNotIn("p" * 12, out)
+        self.assertNotIn("…", out)
 
     def test_json_format_returns_0_and_valid_json(self):
         metrics = [_make_prompt_metrics()]
