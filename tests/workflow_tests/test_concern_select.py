@@ -1208,5 +1208,39 @@ class TestWorkflowFragmentsRule(unittest.TestCase):
             )
 
 
+class TestInnerDoubleStarMatchesZeroDirectories(unittest.TestCase):
+    """A ``**/`` anywhere in a glob must also match zero directories.
+
+    fnmatch needs a separator for every ``**/``, so ``workflows/**/*.yaml``
+    missed ``workflows/ios-reorg.yaml`` and ``tests/**/*.py`` missed
+    ``tests/fixtures.py`` -- the leading-only fix did not cover these.
+    """
+
+    def test_top_level_workflow_file_gets_collateral_damage(self) -> None:
+        guides = select_guides(paths=["workflows/ios-reorg.yaml"])
+        self.assertIn("collateral-damage.md", guides)
+
+    def test_nested_workflow_file_still_matches(self) -> None:
+        guides = select_guides(paths=["workflows/code/x.yaml"])
+        self.assertIn("collateral-damage.md", guides)
+
+    def test_top_level_tests_file_matches_tests_rule(self) -> None:
+        reasons = select_guides_with_reasons(paths=["tests/fixtures.py"])
+        self.assertIn("glob:tests/**/*.py", reasons["tests.md"])
+
+    def test_top_level_src_file_gets_collateral_damage(self) -> None:
+        guides = select_guides(paths=["src/setup_helper.py"])
+        self.assertIn("collateral-damage.md", guides)
+
+    def test_sibling_directory_with_shared_prefix_does_not_match(self) -> None:
+        """Dropping ``**/`` must not let ``workflowsx/`` pass as ``workflows/``."""
+        guides = select_guides(paths=["workflowsx/a.yaml"])
+        self.assertNotIn("collateral-damage.md", guides)
+
+    def test_yaml_outside_workflows_does_not_get_collateral_damage(self) -> None:
+        guides = select_guides(paths=["config/filters.yaml"])
+        self.assertNotIn("collateral-damage.md", guides)
+
+
 if __name__ == "__main__":
     unittest.main()

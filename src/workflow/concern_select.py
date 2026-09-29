@@ -265,6 +265,21 @@ def _to_repo_relative(norm_path: str) -> str:
     return relative.as_posix()
 
 
+def _zero_dir_variants(pattern: str) -> list[str]:
+    """Return *pattern* plus every form with some ``**/`` segments removed.
+
+    fnmatch requires each ``**/`` to consume at least one path separator, so
+    ``**/README`` misses a root ``README`` and ``workflows/**/*.yaml`` misses
+    ``workflows/x.yaml``. Dropping a ``**/`` lets it match zero directories,
+    wherever it sits, while leaving every other fnmatch rule unchanged.
+    """
+    head, sep, tail = pattern.partition("**/")
+    if not sep:
+        return [pattern]
+    rests = _zero_dir_variants(tail)
+    return list(dict.fromkeys([head + "**/" + r for r in rests] + [head + r for r in rests]))
+
+
 def _path_matches(
     norm_path: str,
     basename: str,
@@ -273,16 +288,7 @@ def _path_matches(
 ) -> bool:
     """Return True if the path matches the rule's glob/ext/name pattern."""
     if "glob" in rule:
-        pattern = rule["glob"]
-        if fnmatch.fnmatch(norm_path, pattern):
-            return True
-        # fnmatch requires "**/" to consume at least one path separator, so a
-        # leading "**/" never matches a root-level file with no directory
-        # component (fnmatch("README", "**/README") is False). Also try the
-        # pattern with that prefix stripped, so a root-level path matches too.
-        if pattern.startswith("**/"):
-            return fnmatch.fnmatch(norm_path, pattern[3:])
-        return False
+        return any(fnmatch.fnmatch(norm_path, p) for p in _zero_dir_variants(rule["glob"]))
     if "ext" in rule:
         return dot_ext == rule["ext"]
     if "name" in rule:
