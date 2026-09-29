@@ -31,11 +31,16 @@ You are a code implementation agent for dancing-bear. Use this agent when the ta
 
 ## Review Concerns (Self-Check Before Finishing)
 
-Get the guides for your changed files using the canonical selector:
+Get the guides for your changed files using the canonical selector. Pipe the
+list from git so no path is ever placed in shell text (a filename with spaces
+splits, and one with shell metacharacters executes):
 
 ```bash
-./bin/workflow select-concerns --paths <file1> [<file2> ...] --format json
+git diff --name-only HEAD | ./bin/workflow select-concerns --paths-file - --format json
 ```
+
+For files not yet changed, Write the paths one per line to a uniquely named file
+and pass `--paths-file "<that file>"` instead.
 
 The rules live in `concerns/selection.yaml`.
 

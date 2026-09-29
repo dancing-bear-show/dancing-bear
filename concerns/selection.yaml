@@ -4,7 +4,9 @@
 # to a set of changed files and an optional task_type.
 #
 # Consumed by: src/workflow/concern_select.py (Python selector)
-# CLI:         ./bin/workflow select-concerns --paths p1 p2 ... [--task-type T]
+# CLI:         ./bin/workflow select-concerns --paths-file FILE|- [--task-type T]
+#              (--paths p1 p2 ... also works, but agents must use --paths-file:
+#              paths placed in shell text split on spaces and run metacharacters)
 #
 # Rule evaluation order:
 #   1. always           — guides always included regardless of input, added first

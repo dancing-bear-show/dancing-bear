@@ -1208,6 +1208,43 @@ class TestWorkflowFragmentsRule(unittest.TestCase):
             )
 
 
+class TestNoInlinePathsInAgentInstructions(unittest.TestCase):
+    """Agent-facing text must pass paths via --paths-file, never --paths.
+
+    ``select-concerns --paths <file>`` puts repository filenames into shell
+    text: a space splits one, a metacharacter executes. thread-fixer.md was
+    fixed first; code-writer.md and code-writer-opus.md kept the unsafe form
+    until review found them, so this scans every agent, skill and workflow.
+    """
+
+    _INLINE = _re.compile(r"select-concerns\b[^\n]*--paths(?!-file)\b")
+
+    def _instruction_files(self) -> list[Path]:
+        root = _REPO_ROOT
+        return sorted(
+            [*root.glob(".claude/agents/*.md"),
+             *root.glob(".claude/skills/**/*.md"),
+             *root.glob("workflows/**/*.yaml")]
+        )
+
+    def test_no_instruction_passes_paths_inline(self) -> None:
+        offenders = [
+            f"{path.relative_to(_REPO_ROOT)}:{n}"
+            for path in self._instruction_files()
+            for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+            if self._INLINE.search(line)
+        ]
+        self.assertEqual(offenders, [], "use --paths-file, not inline --paths")
+
+    def test_detector_flags_inline_form(self) -> None:
+        self.assertTrue(self._INLINE.search(
+            "./bin/workflow select-concerns --paths <file1> --format json"))
+
+    def test_detector_allows_paths_file_form(self) -> None:
+        self.assertFalse(self._INLINE.search(
+            "git diff --name-only | ./bin/workflow select-concerns --paths-file - --format json"))
+
+
 class TestInnerDoubleStarMatchesZeroDirectories(unittest.TestCase):
     """A ``**/`` anywhere in a glob must also match zero directories.
 

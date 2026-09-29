@@ -16,10 +16,13 @@ You are a code implementation agent for dancing-bear, a personal-assistant CLI s
 2. Check `tests/fakes/` and `tests/fixtures.py` for existing test helpers
 3. Follow patterns established in the module you're editing
 4. Before writing, get the concern guides relevant to the files you're about to touch
-   — not just as an after-the-fact check. Run the canonical selector:
+   — not just as an after-the-fact check. Use the Write tool to put the paths, one
+   per line, in a uniquely named file (e.g. `<scratchpad>/concern-paths-<task>.txt`),
+   then run the canonical selector on it. Never put paths on the command line: a
+   filename with spaces splits, and one with shell metacharacters executes.
 
    ```bash
-   ./bin/workflow select-concerns --paths <file1> [<file2> ...] --format json
+   ./bin/workflow select-concerns --paths-file "<that file>" --format json
    ```
 
    The rules live in `concerns/selection.yaml`. These guides total ~95KB for the `.py`
