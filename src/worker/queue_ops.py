@@ -6,6 +6,7 @@ for the file-based job queue under QUEUE_ROOT.
 
 from __future__ import annotations
 
+import errno
 import json
 import logging
 import os
@@ -719,46 +720,78 @@ def _copy_exclusive(staged: Path, dest: Path) -> None:
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
-    # Publish atomically: os.link raises FileExistsError if dest exists,
-    # preserving the no-clobber guarantee.
     try:
-        os.link(tmp, dest)
-    except FileExistsError:
-        tmp.unlink(missing_ok=True)
-        raise
-    except OSError:
-        # Hard links unavailable even within the directory. dest.exists()
-        # never creates a placeholder there, so a pre-existing rival is
-        # refused exactly as the hard-link path refuses one.
-        if dest.exists():
-            tmp.unlink(missing_ok=True)
-            raise FileExistsError(dest)
-        # Second existence check, immediately before the replace, to catch a
-        # rival that created dest in the gap between the check above and now.
-        # This does not eliminate the window but narrows it to the shortest
-        # possible interval before the replace, making any remaining gap
-        # detectable by the post-replace content re-read below (which catches
-        # a rival that replaces us after our own write).
-        if dest.exists():
-            tmp.unlink(missing_ok=True)
-            raise FileExistsError(dest)
-        tmp.replace(dest)
-        # Detect a rival that claimed dest in the narrow gap between the
-        # second check above and this replace: re-read what is on disk now and
-        # compare it to the bytes we just wrote. A mismatch means a rival
-        # overwrote our record (or we overwrote theirs and a still-later rival
-        # then overwrote us) -- raise so the caller leaves staged in place for
-        # recover_staged_requeues rather than trusting a publish that may have
-        # destroyed another worker's record.
+        # Publish atomically: os.link raises FileExistsError if dest exists,
+        # preserving the no-clobber guarantee. EEXIST is not in
+        # _LINK_UNSUPPORTED_ERRNOS, so it re-raises here unchanged, as does
+        # every failure that is not "this filesystem has no hard links".
         try:
-            observed = dest.read_bytes()
-        except FileNotFoundError:
-            # Gone already -- something else raced past our own publish.
-            raise _NoClobberRaceLost(dest) from None
-        if observed != content:
-            raise _NoClobberRaceLost(dest)
-        return
-    tmp.unlink(missing_ok=True)
+            os.link(tmp, dest)
+        except OSError as exc:
+            if not _links_unsupported(exc):
+                raise
+            _replace_if_absent(tmp, dest, content)
+    finally:
+        # No outcome needs the temp name: after a link it is a second name
+        # for dest, after a replace it is gone, and on any error it holds
+        # bytes nothing will publish.
+        tmp.unlink(missing_ok=True)
+
+
+# errno values link(2) returns when the filesystem cannot hard-link at all.
+# Only these select _copy_exclusive's check-then-replace fallback; any other
+# link failure (EIO, EACCES, ENOSPC, EMLINK, ...) re-raises, because treating
+# a transient or permission error as "no links" would give up the atomic
+# no-clobber publish on a filesystem that supports it.
+# - EPERM: Linux's "filesystem does not support hard links" (vfat, some
+#   FUSE/SMB mounts). link(2) reports a denied directory write as EACCES, not
+#   EPERM, and the other EPERM causes (directory source, immutable file,
+#   protected_hardlinks on a file owned by someone else) do not arise for the
+#   queue's own regular files. If one did, the fallback is still safe: its
+#   O_EXCL temp create fails on a real permission problem, and otherwise it
+#   copies rather than links.
+# - ENOTSUP / EOPNOTSUPP: macOS and FUSE "operation not supported" (the two
+#   are distinct values on macOS, equal on Linux).
+# - ENOSYS: a FUSE filesystem that does not implement link at all.
+# - EXDEV: cross-device; cannot happen for a same-directory temp, but it is a
+#   "no link possible here" condition, not a transient one.
+_LINK_UNSUPPORTED_ERRNOS: frozenset[int] = frozenset(
+    {errno.EPERM, errno.ENOTSUP, errno.EOPNOTSUPP, errno.ENOSYS, errno.EXDEV}
+)
+
+
+def _links_unsupported(exc: OSError) -> bool:
+    """True if ``exc`` from ``os.link`` means hard links are unavailable here."""
+    return exc.errno in _LINK_UNSUPPORTED_ERRNOS
+
+
+def _replace_if_absent(tmp: Path, dest: Path, content: bytes) -> None:
+    """Publish ``tmp`` as ``dest`` without hard links; see ``_copy_exclusive``.
+
+    Raises FileExistsError if ``dest`` exists and ``_NoClobberRaceLost`` if a
+    post-replace re-read does not return ``content``.
+    """
+    # dest.exists() never creates a placeholder, so a pre-existing rival is
+    # refused exactly as the hard-link path refuses one.
+    if dest.exists():
+        raise FileExistsError(dest)
+    # Second check, immediately before the replace, narrows the window for a
+    # rival that created dest since the first; the re-read below catches what
+    # remains.
+    if dest.exists():
+        raise FileExistsError(dest)
+    tmp.replace(dest)
+    # A mismatch means a rival overwrote our record (or we overwrote theirs
+    # and a still-later rival then overwrote us): raise so the caller leaves
+    # staged in place for recover_staged_requeues rather than trusting a
+    # publish that may have destroyed another worker's record.
+    try:
+        observed = dest.read_bytes()
+    except FileNotFoundError:
+        # Gone already -- something else raced past our own publish.
+        raise _NoClobberRaceLost(dest) from None
+    if observed != content:
+        raise _NoClobberRaceLost(dest)
 
 
 def _publish_temp_prefix(dest: Path) -> str:
@@ -824,37 +857,54 @@ def _publish_no_clobber(staged: Path, dest: Path) -> bool:
     try:
         os.link(staged, dest)
     except FileExistsError:
-        if not _is_own_interrupted_publish(staged, dest):
-            _log.warning("Not publishing %s: %s already exists", staged.name, dest)
-            return False
-        _discard_publish_temps(dest)
+        return _settle_existing_dest(staged, dest)
     except FileNotFoundError:
         _log.debug("Not publishing %s: it is already gone", staged.name)
         return False
-    except OSError:
-        # No hard links on this filesystem: exclusive create, never check-then-replace.
-        try:
-            _copy_exclusive(staged, dest)
-        except FileExistsError:
-            if _is_own_interrupted_publish(staged, dest):
-                _discard_publish_temps(dest)
-                staged.unlink(missing_ok=True)
-                return True
-            _log.warning("Not publishing %s: %s already exists", staged.name, dest)
-            return False
-        except FileNotFoundError:
-            _log.debug("Not publishing %s: it is already gone", staged.name)
-            return False
-        except _NoClobberRaceLost:
-            # A rival (most likely a lock-free enqueue() of the same id)
-            # claimed dest in the narrow check-then-replace gap this
-            # filesystem class cannot close atomically. staged is left in
-            # place for recover_staged_requeues rather than trusting a
-            # replace that may have destroyed the rival's record.
-            _log.warning(
-                "Not publishing %s: lost a no-clobber race for %s", staged.name, dest
-            )
-            return False
+    except OSError as exc:
+        # Any other link failure re-raises with staged in place, so a later
+        # recovery pass retries it; only "no hard links here" takes the copy.
+        if not _links_unsupported(exc):
+            raise
+        return _publish_by_copy(staged, dest)
+    staged.unlink(missing_ok=True)
+    return True
+
+
+def _settle_existing_dest(staged: Path, dest: Path) -> bool:
+    """Handle a publish that found ``dest`` present; True if it is ``staged``'s own.
+
+    ``dest`` left by an earlier interrupted publish of ``staged`` completes
+    that publish (the staging name and any leftover temp link are removed).
+    Any other ``dest`` is a rival: ``staged`` is kept and False is returned.
+    """
+    if not _is_own_interrupted_publish(staged, dest):
+        _log.warning("Not publishing %s: %s already exists", staged.name, dest)
+        return False
+    _discard_publish_temps(dest)
+    staged.unlink(missing_ok=True)
+    return True
+
+
+def _publish_by_copy(staged: Path, dest: Path) -> bool:
+    """``_publish_no_clobber`` for a filesystem without hard links."""
+    try:
+        _copy_exclusive(staged, dest)
+    except FileExistsError:
+        return _settle_existing_dest(staged, dest)
+    except FileNotFoundError:
+        _log.debug("Not publishing %s: it is already gone", staged.name)
+        return False
+    except _NoClobberRaceLost:
+        # A rival (most likely a lock-free enqueue() of the same id)
+        # claimed dest in the narrow check-then-replace gap this
+        # filesystem class cannot close atomically. staged is left in
+        # place for recover_staged_requeues rather than trusting a
+        # replace that may have destroyed the rival's record.
+        _log.warning(
+            "Not publishing %s: lost a no-clobber race for %s", staged.name, dest
+        )
+        return False
     staged.unlink(missing_ok=True)
     return True
 
