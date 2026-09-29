@@ -468,7 +468,7 @@ def _validate_cli_command(cli: str, sub: str, stage_name: str) -> LintWarning | 
     if allowlisted_subs is not None and sub in allowlisted_subs:
         return _cmd_warning(stage_name, not_found) if not bin_path.exists() else None
 
-    run = run_binary([bin_path, sub, "--help"], timeout=3, errors="replace")
+    run = run_binary([str(bin_path), sub, "--help"], timeout=3, errors="replace")
     if isinstance(run.exec_error, FileNotFoundError):
         return _cmd_warning(stage_name, not_found)
     if run.exec_error is not None:
