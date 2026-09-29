@@ -75,11 +75,13 @@ def _load_bootstrap(key: str):
 def _bootstrap_created_dir() -> bool:
     """Return True if tests/__init__.py created the current state dir.
 
-    The bootstrap names its temp dirs with the prefix "dancing-bear-test-state-".
-    A user-supplied dir will not have that prefix.
+    Delegates to the bootstrap module's own marker
+    (``created_by_bootstrap()``) instead of inferring ownership from the path
+    text: a user-supplied private override can legally contain the
+    "dancing-bear-test-state-" substring, and a substring match would
+    misclassify it as bootstrap-created.
     """
-    val = os.environ.get(helpers.WORKER_STATE_DIR_ENV, "")
-    return "dancing-bear-test-state-" in val
+    return sys.modules[_BOOTSTRAP_KEY].created_by_bootstrap()  # type: ignore[attr-defined]
 
 
 class TestStateDirectoryIsPrivate(unittest.TestCase):
@@ -306,3 +308,50 @@ class TestEnsurePrivateChecksMkdtemp(unittest.TestCase):
                 os.environ.pop(helpers.WORKER_STATE_DIR_ENV, None)
                 mod.ensure_private()
                 self.assertEqual(os.environ.get(helpers.WORKER_STATE_DIR_ENV), made)
+
+
+class TestCreatedByBootstrap(unittest.TestCase):
+    """created_by_bootstrap() must track ownership via a marker, not path text.
+
+    A user-supplied private override can legally contain the
+    "dancing-bear-test-state-" substring in its path; only a directory
+    ensure_private() itself created should read as bootstrap-created.
+    """
+
+    def test_user_dir_containing_bootstrap_substring_is_not_bootstrap_created(self) -> None:
+        """Sad path: env points at a user dir whose path contains the bootstrap
+        prefix, but the created-marker is unset (or names something else).
+
+        Before this fix, _bootstrap_created_dir() inferred ownership from a
+        substring match on the path and would misclassify this dir as
+        bootstrap-created.
+        """
+        mod = _load_bootstrap("_dancing_bear_private_worker_state_created_marker_sad")
+        with tempfile.TemporaryDirectory() as parent:
+            user_dir = Path(parent) / "dancing-bear-test-state-project" / "state"
+            user_dir.mkdir(parents=True)
+            with patch.dict(os.environ):
+                os.environ.pop(mod._CREATED_MARKER_ENV, None)
+                os.environ[helpers.WORKER_STATE_DIR_ENV] = str(user_dir)
+                self.assertFalse(
+                    mod.created_by_bootstrap(),
+                    "a user-supplied dir must not read as bootstrap-created just "
+                    "because its path contains the bootstrap prefix",
+                )
+
+    def test_bootstrap_created_dir_is_recognized(self) -> None:
+        """Happy path: after ensure_private() creates a dir, the marker matches it."""
+        mod = _load_bootstrap("_dancing_bear_private_worker_state_created_marker_happy")
+        import shutil
+
+        created_dir: str | None = None
+        try:
+            with patch.dict(os.environ):
+                os.environ.pop(helpers.WORKER_STATE_DIR_ENV, None)
+                os.environ.pop(mod._CREATED_MARKER_ENV, None)
+                mod.ensure_private()
+                created_dir = os.environ.get(helpers.WORKER_STATE_DIR_ENV)
+                self.assertTrue(mod.created_by_bootstrap())
+        finally:
+            if created_dir:
+                shutil.rmtree(created_dir, ignore_errors=True)

@@ -37,6 +37,21 @@ from pathlib import Path
 _WORKER_STATE_ENV = "DANCING_BEAR_WORKER_STATE_DIR"
 _REAL_DEFAULT = (Path.home() / "Library" / "Application Support" / "dancing-bear").resolve()
 
+# Marks the directory ensure_private() itself created, so callers can tell a
+# bootstrap-created dir apart from a user-supplied private override without
+# guessing from the path text (a user override can legally contain the
+# "dancing-bear-test-state-" substring, e.g. ".../dancing-bear-test-state-
+# project/state", and a substring match would misclassify it).
+#
+# An env var survives this module being loaded more than once by path under
+# different sys.modules keys -- every package __init__.py and the test file
+# itself do this -- which a plain module-level variable would not: a fresh
+# module instance starts with fresh globals. Set only after the privacy check
+# passes, so a failed/rejected mkdtemp never marks anything. Child processes
+# inherit this env var, which is harmless -- it only ever names a temp dir
+# this process already created and will clean up at exit.
+_CREATED_MARKER_ENV = "DANCING_BEAR_TEST_STATE_CREATED"
+
 
 def _is_private(val: str) -> bool:
     """Return True if *val* is set and is not the real default location.
@@ -85,6 +100,7 @@ def ensure_private() -> None:
             f"{_WORKER_STATE_ENV} was not set to it."
         )
     os.environ[_WORKER_STATE_ENV] = tmp_dir
+    os.environ[_CREATED_MARKER_ENV] = tmp_dir
 
     def _cleanup(_d: str = tmp_dir) -> None:
         import shutil
@@ -94,3 +110,17 @@ def ensure_private() -> None:
             pass
 
     atexit.register(_cleanup)
+
+
+def created_by_bootstrap() -> bool:
+    """Return True if ensure_private() created the current state dir.
+
+    Tracks ownership via _CREATED_MARKER_ENV rather than inferring it from the
+    path text: a user-supplied private override is free to contain the
+    "dancing-bear-test-state-" substring (e.g. a dir named
+    "dancing-bear-test-state-project"), and a substring match would wrongly
+    call that bootstrap-created.
+    """
+    marker = os.environ.get(_CREATED_MARKER_ENV, "")
+    current = os.environ.get(_WORKER_STATE_ENV, "")
+    return bool(marker) and marker == current
