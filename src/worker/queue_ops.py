@@ -18,6 +18,7 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from core.coerce import coerce_int
 from core.date_utils import iso_now, parse_iso_utc_strict
 from core.fileutil import atomic_write_json, safe_load_json
 from worker._helpers import (
@@ -1180,13 +1181,13 @@ def _reap_move_to_pending(ctx: ReapJobContext, log: logging.Logger) -> bool:
 
 
 def effective_job_timeout(data: dict, default_timeout: int) -> int:
-    """Resolve the per-job ``timeout_sec`` override, falling back to the default."""
-    try:
-        raw = data.get("timeout_sec") or 0
-        per_job = int(raw) if isinstance(raw, (int, float, str)) else 0
-        return per_job if per_job > 0 else default_timeout
-    except (TypeError, ValueError):
-        return default_timeout
+    """Resolve the per-job ``timeout_sec`` override, falling back to the default.
+
+    Any value ``int()`` rejects -- None, a list, "abc", NaN, or +/-Infinity
+    (which ``json`` decodes from a hand-edited record) -- means "no override".
+    """
+    per_job = coerce_int(data.get("timeout_sec"))
+    return per_job if per_job > 0 else default_timeout
 
 
 def _reap_one_job(p: Path, job_timeout: int, paths: dict, now: datetime, log: logging.Logger) -> str | None:
