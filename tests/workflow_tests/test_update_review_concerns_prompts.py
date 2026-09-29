@@ -294,12 +294,15 @@ class TestRenderedJqExecutes(unittest.TestCase):
         thread_ids match the source rounds data (T{pr}-{i}) so the multiset
         comparison passes; round, category and class obey the prompt's rules.
         ``path``, ``line`` and ``original_line`` are copied verbatim from the
-        on-disk source rounds file, as the classifier prompt requires.
+        sanitised copy (fetch-round-history Steps 5 and 6 are run first), which
+        is what the classifier is given, so an unsafe path is copied as null.
         ``override`` maps a thread_id to fields replacing the valid ones, and
         ``counts`` is always the true tally of what is written.
         """
-        source = {t["thread_id"]: t for t in
-                  json.loads((self.ws / f"outputs/rounds/pr{pr}.json").read_text())["threads"]}
+        for cmd in (self.gate, self.sanitise):
+            self.assertEqual(self._run(cmd).returncode, 0, cmd)
+        given = json.loads((self.ws / "outputs/rounds-sanitised.json").read_text())
+        source = {t["thread_id"]: t for t in given[str(pr)]["threads"]}
         threads: list[dict[str, object]] = []
         for i in range(n):
             tid = f"T{pr}-{i}"
@@ -603,6 +606,46 @@ class TestRenderedJqExecutes(unittest.TestCase):
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertEqual(json.loads((self.ws / "outputs/rounds-safe/pr406.json").read_text()), safe["406"])
         self.assertNotEqual(self._run(self.extract.replace("{pr}", "999")).returncode, 0)
+
+    def test_unsafe_path_copied_as_the_sanitised_null_passes(self) -> None:
+        """The classifier reads rounds-sanitised.json, so a null it copies for an
+        unsafe path is correct; Step 4 must compare against that copy."""
+        self._rounds_406(("src/$(id).py", "src/a.py"))
+        res = self._invariants_after()
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertEqual(res.stdout.strip(), "true")
+
+    def test_unsafe_path_copied_back_from_the_raw_source_fails(self) -> None:
+        self._rounds_406(("src/$(id).py", "src/a.py"))
+        res = self._invariants_after({"T406-0": {"path": "src/$(id).py"}})
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn('406 T406-0: path "src/$(id).py" copied, input has null', res.stdout)
+
+    def test_safe_path_copied_verbatim_passes_and_altered_fails(self) -> None:
+        self._rounds_406(("src/$(id).py", "src/a.py"))
+        with self.subTest(case="verbatim"):
+            res = self._invariants_after()
+            self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        with self.subTest(case="altered"):
+            res = self._invariants_after({"T406-1": {"path": "src/b.py"}})
+            self.assertNotEqual(res.returncode, 0)
+            self.assertIn('406 T406-1: path "src/b.py" copied, input has "src/a.py"', res.stdout)
+
+    def test_round_is_still_checked_against_the_untouched_source(self) -> None:
+        """Only path/line/original_line come from the sanitised copy: a doctored
+        round there must not launder a miscopied round."""
+        self._index()
+        self._classify(406, 2, {"T406-1": {"round": 0, "category": "ROUND0"}})
+        self._classify(395, 1)
+        safe_file = self.ws / "outputs/rounds-sanitised.json"
+        safe = json.loads(safe_file.read_text())
+        safe["406"]["threads"][1]["round"] = 0
+        safe_file.write_text(json.dumps(safe), encoding="utf-8")
+        for cmd in (self.merge, self.counts, self.check):
+            self.assertEqual(self._run(cmd).returncode, 0, cmd)
+        res = self._run(self.invariants)
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("406 T406-1: category ROUND0 with input round 2; round 0 copied, input has 2", res.stdout)
 
     def test_aggregate_multiset_passes_on_sanitised_data(self) -> None:
         self._rounds_406(("src/$(id).py", "docs/my file.md"))

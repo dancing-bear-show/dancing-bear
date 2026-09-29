@@ -382,7 +382,9 @@ stages:
       rounds object keyed by PR number, with `path` set to null on each
       thread unsafe-paths.json lists. The originals in rounds/pr*.json are
       left as fetched; aggregate-rereview checks thread_ids and rounds
-      against them, and sanitising changes neither. Run this fixed command
+      against them, and sanitising changes neither. It checks the copied
+      path, line and original_line against this sanitised copy instead,
+      because that is what the classifier was given. Run this fixed command
       as its own Bash call; a non-zero exit fails the stage:
 
         jq -es --slurpfile u "{workspace}/outputs/rounds/unsafe-paths.json" 'map(.pr as $p | .threads |= ((. // []) | map(. as $t | if any($u[0][]; .pr == $p and .thread_id == $t.thread_id) then .path = null else . end)) | {key: (.pr | tostring), value: .}) | from_entries' "{workspace}"/outputs/rounds/pr*.json > "{workspace}/outputs/rounds-sanitised.json"
@@ -596,10 +598,18 @@ stages:
       instances can fall below the 2-PR bar without anyone seeing why, and a
       duplicated thread ID inflates class counts in the same silent way.
 
-      Step 4 — every classified thread obeys the prompt's mechanical rules,
-      checked against the INPUT round in outputs/rounds/pr<N>.json rather
-      than the classifier's copy. Step 3 has already proved the thread_ids
-      match, so this step does not repeat that check. One command both names
+      Step 4 — every classified thread obeys the prompt's mechanical rules.
+      Each field is checked against a fixed file, never the classifier's own
+      copy. round (and the category and class rules keyed on it) is checked
+      against the untouched source, outputs/rounds/pr<N>.json: sanitising
+      never changes it, and a provenance check must not trust a derived
+      file. path, line and original_line are checked against
+      outputs/rounds-sanitised.json, the copy the classifier was actually
+      given: fetch-round-history Step 6 nulls unsafe paths there, so a
+      classifier that correctly copies such a null passes, and one that
+      writes back the original unsafe path fails. Step 3 has already proved
+      the thread_ids match the untouched source, so this step does not
+      repeat that check. One command both names
       each violation ("<pr> <thread_id>: <reason>", or "<pr>: counts ...")
       and fails: its last line is true when there are none and false
       otherwise, and -e turns false into a non-zero exit. The rules:
@@ -614,13 +624,13 @@ stages:
           appears as no-defect only under NOISE or ROUND0, and is no-defect
           for every round-null thread;
         - path, line and original_line are each copied verbatim from the
-          input, null included, the same way round is: a classifier that
+          sanitised input, null included: a classifier that
           relocates or drops the evidence location while keeping every
           thread_id/round/category/class/count correct still fails here;
         - counts, ignoring zero entries, equals the per-category tally of
           threads[].
 
-        jq -ers --slurpfile got "{workspace}/outputs/rereview-classified.json" '(map({key: (.pr | tostring), value: ([.threads[] | {key: .thread_id, value: {round: .round, path: .path, line: .line, original_line: .original_line}}] | from_entries)}) | from_entries) as $src | ["ROUND0", "FIX_REGRESSION", "SIBLING", "INCOMPLETE_FIX", "COLLATERAL_DOC", "NEW_SURFACE", "LATE_DISCOVERY", "NOISE"] as $cats | ["spec-or-logic-error", "logic-error", "bug", "correctness", "misc", "other", "general", "unknown", "edge-case", "incorrect-behavior", "wrong-logic", "needs-fix", "code-quality"] as $banned | [$got[0][] | (.pr | tostring) as $p | ($src[$p] // {}) as $r | . as $d | (.threads[] | . as $t | $r[$t.thread_id] as $s | ($s.round) as $want | [if ($t.category | IN($cats[])) | not then "category \($t.category | tojson) is not allowed" elif ($t.category == "ROUND0") != ($want == 0) then "category \($t.category) with input round \($want | tojson)" elif $want == null and $t.category != "NOISE" then "category \($t.category) with input round null (must be NOISE)" else empty end, if ($t | has("round") | not) or $t.round != $want then "round \($t.round | tojson) copied, input has \($want | tojson)" else empty end, if ($t.class | type) != "string" or ($t.class | length) == 0 then "class is missing" elif ($t.class | IN($banned[])) then "class \($t.class) is a forbidden catch-all" elif ($t.class | test("^[a-z][a-z0-9]*(-[a-z0-9]+)*$") | not) then "class \($t.class | tojson) is not kebab-case" elif ($t.class | test("-(error|issue|problem|bug)$")) then "class \($t.class) ends in a catch-all suffix" elif $t.class == "no-defect" and ($t.category | IN("NOISE", "ROUND0") | not) then "class no-defect with category \($t.category)" elif $want == null and $t.class != "no-defect" then "class \($t.class) with input round null (must be no-defect)" else empty end, if ($t | has("path") | not) or $t.path != $s.path then "path \($t.path | tojson) copied, input has \($s.path | tojson)" else empty end, if ($t | has("line") | not) or $t.line != $s.line then "line \($t.line | tojson) copied, input has \($s.line | tojson)" else empty end, if ($t | has("original_line") | not) or $t.original_line != $s.original_line then "original_line \($t.original_line | tojson) copied, input has \($s.original_line | tojson)" else empty end] | select(length > 0) | "\($p) \($t.thread_id): \(join("; "))"), ([$d.threads[].category | tostring] | group_by(.) | map({key: .[0], value: length}) | from_entries) as $tally | if ($d.counts | type) != "object" then "\($p): counts is not an object" elif ($d.counts | with_entries(select(.value != 0))) != $tally then "\($p): counts \($d.counts | with_entries(select(.value != 0)) | tojson) != tally \($tally | tojson)" else empty end] | (.[]), (length == 0)' "{workspace}"/outputs/rounds/pr*.json
+        jq -ers --slurpfile got "{workspace}/outputs/rereview-classified.json" --slurpfile safe "{workspace}/outputs/rounds-sanitised.json" '(map({key: (.pr | tostring), value: ([.threads[] | {key: .thread_id, value: {round: .round}}] | from_entries)}) | from_entries) as $src | ($safe[0] | map_values([(.threads // [])[] | {key: .thread_id, value: {path: .path, line: .line, original_line: .original_line}}] | from_entries)) as $given | ["ROUND0", "FIX_REGRESSION", "SIBLING", "INCOMPLETE_FIX", "COLLATERAL_DOC", "NEW_SURFACE", "LATE_DISCOVERY", "NOISE"] as $cats | ["spec-or-logic-error", "logic-error", "bug", "correctness", "misc", "other", "general", "unknown", "edge-case", "incorrect-behavior", "wrong-logic", "needs-fix", "code-quality"] as $banned | [$got[0][] | (.pr | tostring) as $p | ($src[$p] // {}) as $r | ($given[$p] // {}) as $gv | . as $d | (.threads[] | . as $t | $r[$t.thread_id] as $s | $gv[$t.thread_id] as $g | ($s.round) as $want | [if ($t.category | IN($cats[])) | not then "category \($t.category | tojson) is not allowed" elif ($t.category == "ROUND0") != ($want == 0) then "category \($t.category) with input round \($want | tojson)" elif $want == null and $t.category != "NOISE" then "category \($t.category) with input round null (must be NOISE)" else empty end, if ($t | has("round") | not) or $t.round != $want then "round \($t.round | tojson) copied, input has \($want | tojson)" else empty end, if ($t.class | type) != "string" or ($t.class | length) == 0 then "class is missing" elif ($t.class | IN($banned[])) then "class \($t.class) is a forbidden catch-all" elif ($t.class | test("^[a-z][a-z0-9]*(-[a-z0-9]+)*$") | not) then "class \($t.class | tojson) is not kebab-case" elif ($t.class | test("-(error|issue|problem|bug)$")) then "class \($t.class) ends in a catch-all suffix" elif $t.class == "no-defect" and ($t.category | IN("NOISE", "ROUND0") | not) then "class no-defect with category \($t.category)" elif $want == null and $t.class != "no-defect" then "class \($t.class) with input round null (must be no-defect)" else empty end, if ($t | has("path") | not) or $t.path != $g.path then "path \($t.path | tojson) copied, input has \($g.path | tojson)" else empty end, if ($t | has("line") | not) or $t.line != $g.line then "line \($t.line | tojson) copied, input has \($g.line | tojson)" else empty end, if ($t | has("original_line") | not) or $t.original_line != $g.original_line then "original_line \($t.original_line | tojson) copied, input has \($g.original_line | tojson)" else empty end] | select(length > 0) | "\($p) \($t.thread_id): \(join("; "))"), ([$d.threads[].category | tostring] | group_by(.) | map({key: .[0], value: length}) | from_entries) as $tally | if ($d.counts | type) != "object" then "\($p): counts is not an object" elif ($d.counts | with_entries(select(.value != 0))) != $tally then "\($p): counts \($d.counts | with_entries(select(.value != 0)) | tojson) != tally \($tally | tojson)" else empty end] | (.[]), (length == 0)' "{workspace}"/outputs/rounds/pr*.json
 
       A violation halts the run. A later-round thread filed as ROUND0 is
       dropped from clustering by cluster-gaps R2 without any error: a live

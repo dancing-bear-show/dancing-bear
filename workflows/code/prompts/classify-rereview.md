@@ -227,8 +227,10 @@ counts differ.
 ```
 
 `pr` is an integer. Copy `thread_id` verbatim from the input — never
-reconstruct, shorten, or invent one. Copy `round`, `line` and `original_line`
-as given, `null` included; never fill one from the other.
+reconstruct, shorten, or invent one. Copy `round`, `path`, `line` and
+`original_line` as given in your input file, `null` included; never fill one
+from the other. A `path` the gate replaced with `null` stays `null`:
+aggregate-rereview fails the run if you write any other value.
 
 Do not tally `counts` by hand. After writing the file, compute the category
 counts in one Bash call and copy them into `counts`:
