@@ -61,7 +61,8 @@ class _Base(unittest.TestCase, QueueRootIsolationMixin):
 
     def _claim(self) -> tuple[Path, str]:
         claim = q.start_processing(self.dest, self.root)
-        assert claim is not None
+        if claim is None:
+            self.fail(f"could not claim {self.dest.name}")
         self.runs += 1
         return claim
 
