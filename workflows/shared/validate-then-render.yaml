@@ -61,7 +61,7 @@ stages:
       strategy: unit
       criteria:
         - Every quantitative claim traces to a source file in the workspace
-        - All criteria in {validation_criteria} are checked
+        - '{validation_criteria}'
       max_revisions: 2
     required: true
     writes_to:

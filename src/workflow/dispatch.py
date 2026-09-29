@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .models import ResolvedStage, StageKind, ValidationSpec
+from .placeholders import substitute
 
 logger = logging.getLogger(__name__)
 
@@ -72,9 +73,6 @@ def _ws(workspace_dir: str | Path) -> str:
     return str(Path(workspace_dir).resolve())
 
 
-_WORKSPACE_PLACEHOLDER = "{workspace}"
-
-
 def _resolve_ws(text: str, ws: str) -> str:
     """Substitute the resolved workspace path for every ``{workspace}`` token.
 
@@ -88,7 +86,7 @@ def _resolve_ws(text: str, ws: str) -> str:
     ``{workspace}`` always names the shared workspace they must NOT touch
     ("do not write {workspace}/..."), never their own cwd.
     """
-    return text.replace(_WORKSPACE_PLACEHOLDER, ws)
+    return substitute(text, {"workspace": ws})
 
 
 #: Placeholder the orchestrator fills with a fan-out item's zero-based position

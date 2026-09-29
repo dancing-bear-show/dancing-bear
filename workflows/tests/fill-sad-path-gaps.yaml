@@ -58,8 +58,8 @@ stages:
         4. REGROUP items by test_file. Emit one work item per DISTINCT test_file:
              - test_file (repo-relative path)
              - file_slug (test_file with "/" "." ":" -> "_")
-             - symbols   (list of {{module, symbol, happy_test_count,
-                          suggested_sad_cases}} whose test_file is this path)
+             - symbols   (list of {module, symbol, happy_test_count,
+                          suggested_sad_cases} whose test_file is this path)
         5. Apply the cap: keep at most {max_files} files, ranked by total
            happy_test_count across their symbols (highest-value first). Record
            dropped_files (count + names) — never truncate silently.

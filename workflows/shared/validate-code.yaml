@@ -72,13 +72,13 @@ stages:
 
       Step 4 — write findings.
       Write {workspace}/validation/code-review-findings.json:
-        {{
+        {
           "critical": [
-            {{"id": "<concern-id>", "file": "<path>", "line": <n>, "detail": "..."}}
+            {"id": "<concern-id>", "file": "<path>", "line": <n>, "detail": "..."}
           ],
           "minor": [...],
           "passed": ["<concern-id>: <brief confirmation>", ...]
-        }}
+        }
     agent:
       role: reviewer
       model: sonnet
