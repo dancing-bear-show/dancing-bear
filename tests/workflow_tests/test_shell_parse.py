@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import unittest
 
-from workflow.shell_parse import WRAPPER_NAMES, command_from_words, parse_shell
+from workflow.shell_parse import WRAPPER_NAMES, LoopVariable, command_from_words, parse_shell
 from workflow.shell_text import extract_labelled_assignments
 
 
@@ -49,7 +49,51 @@ class TestParseShell(unittest.TestCase):
         script = parse_shell('for f in a; do rm "$f"; done; mv a b\nwhile read -r L; do :; done')
         self.assertEqual([(c.name, c.in_loop) for c in script.commands],
                          [("rm", True), ("mv", False), ("read", False), (":", True)])
-        self.assertEqual(script.loop_variables, ("f",))
+        self.assertEqual(script.loop_variables, (LoopVariable("f"),))
+
+    def _scopes(self, text: str) -> list[tuple[str, tuple[int, int] | None]]:
+        """(first assignment or program word, child-shell span) per command, in parse order."""
+        return [
+            ((cmd.assignments[0].text if cmd.assignments else cmd.name), cmd.subshell)
+            for cmd in parse_shell(text).commands
+        ]
+
+    def test_commands_in_child_shells_record_their_span(self) -> None:
+        # PR #433 review: commands in $(...) were flattened into
+        # script.commands with nothing marking them as a child shell.
+        cases = {
+            'echo "$(FOO=bar true)"; echo "$FOO"': [("echo", None), ("echo", None), ("FOO=bar", (8, 20))],
+            "echo `FOO=1 true`": [("echo", None), ("FOO=1", (6, 16))],
+            "diff <(Q=1 sort a) b": [("diff", None), ("Q=1", (7, 17))],
+            "cat <<EOF\n$(Z=1 true)\nEOF\n": [("cat", None), ("Z=1", (12, 20))],
+            '( FOO=1 ); echo "$FOO"': [("FOO=1", (0, 9)), ("echo", None)],
+        }
+        for text, scopes in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(self._scopes(text), scopes)
+
+    def test_nested_groups_keep_the_innermost_span(self) -> None:
+        self.assertEqual(
+            self._scopes("( A=1; ( B=2 ); C=3 ); D=4"),
+            [("A=1", (0, 21)), ("B=2", (7, 14)), ("C=3", (0, 21)), ("D=4", None)],
+        )
+
+    def test_parent_shell_constructs_are_not_child_shells(self) -> None:
+        # Brace groups, function bodies, loop and if bodies run in the
+        # current shell; a function definition's ( ) opens no group.
+        cases = [
+            "{ FOO=1; }",
+            "f() { FOO=1; }",
+            "for x in a; do FOO=1; done",
+            "if true; then FOO=1; fi",
+        ]
+        for text in cases:
+            with self.subTest(text=text):
+                self.assertEqual({cmd.subshell for cmd in parse_shell(text).commands}, {None})
+
+    def test_loop_variable_records_its_child_shell(self) -> None:
+        script = parse_shell("( for V in a; do :; done ); for W in b; do :; done")
+        self.assertEqual(script.loop_variables, (LoopVariable("V", (0, 26)), LoopVariable("W")))
 
     def test_redirect_classification(self) -> None:
         cmd = parse_shell('x 2>&1 >&- < in 3<>rw > "o" >> a &> b <<< s').commands[0]

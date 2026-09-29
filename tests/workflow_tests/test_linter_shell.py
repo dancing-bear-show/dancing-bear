@@ -438,6 +438,11 @@ _UNBOUND = """
 """
 
 
+def _fenced(line: str) -> str:
+    """*line* as a fenced bash block; blank lines survive the folded scalar as line breaks."""
+    return f"```bash\n\n{line}\n\n```\n"
+
+
 class TestUnboundVariable(_RuleCase):
     rule = RULE_UNBOUND_VARIABLE
 
@@ -641,6 +646,38 @@ class TestUnboundVariable(_RuleCase):
         desc = 'Write the file:\n\n  cat <<EOF\n  echo "$UNBOUND"\n  EOF\n'
         hits = self.assert_fires(_workflow(_stage(desc)))
         self.assertIn("$UNBOUND", hits[0].message)
+
+    # PR #433 review (linter_shell.py _assigned_names): parse_shell flattened
+    # commands from command substitutions into script.commands, so an
+    # assignment made in a child shell counted as a binding for the stage's
+    # shell, which never sees it.
+
+    def test_assignment_in_child_shell_does_not_bind_the_parent(self) -> None:
+        cases = {
+            "command substitution": 'echo "$(FOO=bar true)"; echo "$FOO"',
+            "subshell group": '( FOO=1 ); echo "$FOO"',
+            "backticks": 'echo `FOO=1 true`; echo "$FOO"',
+            "process substitution": 'diff <(FOO=1 sort a) b; echo "$FOO"',
+            "loop variable in a group": '( for FOO in a; do :; done ); echo "$FOO"',
+            "sibling child shell": '( FOO=1 ); ( echo "$FOO" )',
+        }
+        for label, line in cases.items():
+            with self.subTest(label):
+                hits = self.assert_fires(_workflow(_stage(_fenced(line))))
+                self.assertIn("$FOO", hits[0].message)
+
+    def test_binding_visible_where_the_shell_sees_it(self) -> None:
+        cases = {
+            "parent binding inside a child": 'FOO=1; echo "$(echo "$FOO")"',
+            "brace group": '{ FOO=1; }; echo "$FOO"',
+            "export": 'export FOO=1; echo "$FOO"',
+            "binding and use in one child": '( FOO=1; echo "$FOO" )',
+            "read and use in one substitution": 'echo "$(read -r FOO; echo "$FOO")"',
+            "outer child binding inside an inner one": '( FOO=1; ( echo "$FOO" ) )',
+        }
+        for label, line in cases.items():
+            with self.subTest(label):
+                self.assert_silent(_workflow(_stage(_fenced(line))))
 
 
 # ---------------------------------------------------------------------------

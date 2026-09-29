@@ -15,7 +15,9 @@ never the surrounding prose -- and emit warnings with stable rule ids:
     no param rule can constrain -- sits unquoted in shell text.
 ``shell-unbound-variable``
     ``$NAME`` (upper case) is expanded in shell text but no shell text in the
-    same stage assigns it; each stage is a fresh shell.
+    same stage assigns it; each stage is a fresh shell. An assignment inside a
+    child shell -- ``$(...)``, backticks, ``<(...)``, ``( ... )`` -- binds only
+    for expansions inside that same child shell.
 ``python-not-isolated``
     A ``python``/``python3`` invocation lacks ``-I`` (or ``-E``), so a foreign
     ``PYTHONPATH`` entry's ``sitecustomize`` runs at startup. A command with an
@@ -59,7 +61,7 @@ from typing import TYPE_CHECKING
 
 from .linter_types import LintResult, LintWarning
 from .placeholders import PLACEHOLDER_RE
-from .shell_parse import ShellScript, ShellToken, SimpleCommand, command_from_words, parse_shell
+from .shell_parse import ShellScript, ShellToken, SimpleCommand, Span, command_from_words, parse_shell
 from .shell_text import (
     ShellSegment,
     extract_labelled_assignments,
@@ -395,24 +397,36 @@ def _command_bindings(cmd: SimpleCommand) -> Iterable[str]:
         yield from _read_names(cmd.args)
 
 
-def _script_bindings(script: ShellScript) -> set[str]:
-    names = set(script.loop_variables)
+def _script_bindings(script: ShellScript) -> Iterator[tuple[str, Span | None]]:
+    """Each name *script* binds, with the child shell it is bound in (None: the stage's shell)."""
+    for var in script.loop_variables:
+        yield var.name, var.subshell
     for cmd in script.commands:
-        names.update(_command_bindings(cmd))
-    return names
+        for name in _command_bindings(cmd):
+            yield name, cmd.subshell
 
 
 def _assigned_names(item: _StageShell) -> set[str]:
-    """Names bound anywhere in the stage's shell, or in an assignment behind a prose label.
+    """Names the stage's own shell binds, or an assignment behind a prose label binds.
 
     Bindings come from parsed commands only, so an assignment-shaped word
     that is quoted text, an argument (``echo FOO=literal``), or heredoc data
-    binds nothing.
+    binds nothing. A binding made in a child shell is left out: the stage's
+    shell never sees it (see :func:`_child_bindings`).
     """
     names: set[str] = set()
     for script in (*(seg.script for seg in item.segments), *item.labels):
-        names |= _script_bindings(script)
+        names.update(name for name, subshell in _script_bindings(script) if subshell is None)
     return names
+
+
+def _child_bindings(script: ShellScript) -> dict[str, list[Span]]:
+    """Name -> the child shells in *script* that bind it, visible only inside those spans."""
+    spans: dict[str, list[Span]] = {}
+    for name, subshell in _script_bindings(script):
+        if subshell is not None:
+            spans.setdefault(name, []).append(subshell)
+    return spans
 
 
 def _is_environment(name: str) -> bool:
@@ -435,11 +449,11 @@ def _is_escaped(text: str, pos: int) -> bool:
     return run % 2 == 1
 
 
-def _expanded_names(seg: _ParsedSegment) -> list[str]:
-    """Upper-case ``$NAME`` expansions outside single quotes and inert heredoc bodies."""
+def _expanded_names(seg: _ParsedSegment) -> list[tuple[str, int]]:
+    """Upper-case ``$NAME`` expansions, with offsets, outside single quotes and inert heredoc bodies."""
     ctx = quote_context(seg.text)
     return [
-        m.group(1) or m.group(2)
+        (m.group(1) or m.group(2), m.start())
         for m in seg.live_matches(_EXPANSION_RE)
         if ctx[m.start()] != "'" and not _is_escaped(seg.text, m.start())
     ]
@@ -449,8 +463,11 @@ def _unbound_variables(item: _StageShell) -> list[LintWarning]:
     assigned = _assigned_names(item)
     reported: dict[str, str] = {}
     for seg in item.segments:
-        for name in _expanded_names(seg):
-            if name not in assigned and not _is_environment(name):
+        child = _child_bindings(seg.script)
+        for name, pos in _expanded_names(seg):
+            if name in assigned or _is_environment(name):
+                continue
+            if not any(lo <= pos < hi for lo, hi in child.get(name, ())):
                 reported.setdefault(name, seg.text)
     return [
         _warn(

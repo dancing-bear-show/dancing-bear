@@ -11,6 +11,10 @@ wrappers (``env``, ``sudo``, ``xargs``, ``timeout N`` ...; see
 than as commands. shlex cannot do this: it reports no offsets, strips the
 quotes that tell ``"rm"`` from ``rm``, and has no notion of heredocs.
 
+Each command and loop variable records the child shell it runs in
+(:attr:`SimpleCommand.subshell`), so a binding made inside ``$(...)`` or
+``( ... )`` is not mistaken for one the enclosing shell can see.
+
 This module is a pure extraction of the parser that previously lived in
 ``shell_text``; ``shell_text`` imports the public symbols back for its own
 internal use (``_Lexer`` for :func:`_heredoc_delimiters`).
@@ -19,14 +23,16 @@ internal use (``_Lexer`` for :func:`_heredoc_delimiters`).
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 __all__ = [
     "Heredoc",
+    "LoopVariable",
     "Redirect",
     "ShellScript",
     "ShellToken",
     "SimpleCommand",
+    "Span",
     "WRAPPER_NAMES",
     "command_from_words",
     "parse_shell",
@@ -59,6 +65,9 @@ _START_STATES = {
     "[[": "test",                             # < and > compare inside [[ ]]
 }
 _CASE_ENDS = frozenset({";;", ";&", ";;&"})
+
+# (start, end) offsets of a region of the text given to parse_shell, plus its base.
+Span = tuple[int, int]
 
 
 @dataclass(frozen=True)
@@ -118,6 +127,13 @@ class SimpleCommand:
     redirects: tuple[Redirect, ...]
     command_index: int  # index in *words* of the program that runs; -1 for none
     in_loop: bool = False  # inside a for/while/until body (do ... done)
+    # The innermost child shell this command runs in -- the body of a $(...),
+    # backtick, <(...)/>(...) substitution, or a ( ... ) group -- or None for
+    # the shell the text runs in. Pipeline members are not modelled as child
+    # shells (bash's default, lastpipe off, forks every member): treating
+    # them as the parent errs toward seeing a binding, never toward inventing
+    # a missing one.
+    subshell: Span | None = None
 
     @property
     def word(self) -> ShellToken | None:
@@ -141,12 +157,20 @@ class SimpleCommand:
 
 
 @dataclass(frozen=True)
+class LoopVariable:
+    """The variable a ``for``/``select`` header binds, and the child shell it is bound in."""
+
+    name: str
+    subshell: Span | None = None  # as for SimpleCommand.subshell
+
+
+@dataclass(frozen=True)
 class ShellScript:
     """Every simple command, heredoc, and loop variable in a piece of shell text."""
 
     commands: tuple[SimpleCommand, ...]
     heredocs: tuple[Heredoc, ...]
-    loop_variables: tuple[str, ...]
+    loop_variables: tuple[LoopVariable, ...]
 
     def inert_spans(self) -> list[tuple[int, int]]:
         """(start, end) of each quoted heredoc body: text the shell never expands."""
@@ -487,13 +511,17 @@ class _CommandSplitter:
     and ``>`` compare rather than redirect), subshells, and loop bodies.
     """
 
-    def __init__(self, in_loop: bool) -> None:
+    def __init__(self, in_loop: bool, subshell: Span | None) -> None:
         self.outer_loop = in_loop
+        self.subshell = subshell
         self.loop_depth = 0
         self.state = "start"
         self.commands: list[SimpleCommand] = []
-        self.loop_variables: list[str] = []
+        self.loop_variables: list[LoopVariable] = []
         self.nested: list[ShellScript] = []
+        # One entry per open "(": (its offset, commands and loop variables
+        # recorded before it) for a ( ... ) group; None for a name ( ) definition.
+        self._groups: list[tuple[int, int, int] | None] = []
         self._words: list[ShellToken] = []
         self._assignments: list[ShellToken] = []
         self._redirects: list[Redirect] = []
@@ -513,7 +541,7 @@ class _CommandSplitter:
 
     def feed(self, tok: ShellToken) -> None:
         for body, offset in tok.subs:
-            self.nested.append(parse_shell(body, offset, self.inside_loop))
+            self.nested.append(parse_shell(body, offset, self.inside_loop, (offset, offset + len(body))))
         if tok.kind == "word" and self._redirect_op is not None:
             self._redirects.append(Redirect(self._redirect_op, tok.text))
             self._redirect_op = None
@@ -522,7 +550,7 @@ class _CommandSplitter:
         elif tok.kind == "redirect" and self.state != "test":
             self._redirect_op = tok.text
         elif tok.kind == "op":
-            self._operator(tok.text)
+            self._operator(tok)
         elif tok.kind == "arith":
             self.state = "loop_head" if self.state == "loop_var" else self.state
 
@@ -532,7 +560,7 @@ class _CommandSplitter:
             index, env_assignments = _resolve_command(words)
             self.commands.append(SimpleCommand(
                 words, tuple(self._assignments + env_assignments), tuple(self._redirects),
-                index, self._in_loop,
+                index, self._in_loop, self.subshell,
             ))
         self._words.clear()
         self._assignments = []
@@ -541,7 +569,8 @@ class _CommandSplitter:
         self._in_loop = self.inside_loop
         self._after_time = False
 
-    def _operator(self, op: str) -> None:
+    def _operator(self, tok: ShellToken) -> None:
+        op = tok.text
         if self.state == "test" and op != "\n":
             return  # && || ( ) are test logic inside [[ ]]
         if self.state == "case_pattern":
@@ -549,15 +578,36 @@ class _CommandSplitter:
             return
         if op == "(" and self.state == "args" and len(self._words) == 1:
             self._words.clear()  # name ( ): a function definition
+            self._groups.append(None)
             self.state = "start"
             return
         if op == "(":
+            self._groups.append((tok.start, len(self.commands), len(self.loop_variables)))
             return
         self.finish()
         if op == ")":
+            self._close_group(tok.start + 1)
             self.state = "after"
         else:
             self.state = "case_pattern" if op in _CASE_ENDS else "start"
+
+    def _close_group(self, end: int) -> None:
+        """Mark what a closing ( ... ) group recorded as running in that child shell.
+
+        Only entries still at this splitter's own scope move: one already in a
+        deeper group, closed earlier, keeps that innermost span.
+        """
+        group = self._groups.pop() if self._groups else None
+        if group is None:
+            return
+        start, first_command, first_variable = group
+        span = (start, end)
+        for i in range(first_command, len(self.commands)):
+            if self.commands[i].subshell == self.subshell:
+                self.commands[i] = replace(self.commands[i], subshell=span)
+        for i in range(first_variable, len(self.loop_variables)):
+            if self.loop_variables[i].subshell == self.subshell:
+                self.loop_variables[i] = replace(self.loop_variables[i], subshell=span)
 
     def _start_word(self, tok: ShellToken) -> None:
         word = tok.raw  # only an unquoted word can be a reserved word
@@ -584,7 +634,7 @@ class _CommandSplitter:
             self.state = "after"
 
     def _loop_var_word(self, tok: ShellToken) -> None:
-        self.loop_variables.append(tok.text)
+        self.loop_variables.append(LoopVariable(tok.text, self.subshell))
         self.state = "loop_head"
 
     def _loop_head_word(self, tok: ShellToken) -> None:
@@ -604,20 +654,25 @@ class _CommandSplitter:
         self.state = "start"
 
 
-def parse_shell(text: str, base: int = 0, in_loop: bool = False) -> ShellScript:
+def parse_shell(
+    text: str, base: int = 0, in_loop: bool = False, subshell: Span | None = None
+) -> ShellScript:
     """Every simple command in shell *text*, including those in substitutions.
 
     Offsets in the result are positions in *text* plus *base*. *in_loop*
-    marks every command as inside a loop body (a substitution within one).
+    marks every command as inside a loop body (a substitution within one);
+    *subshell* is the child shell *text* runs in, None for the outermost.
     """
     lexer = _Lexer(text, base)
-    splitter = _CommandSplitter(in_loop)
+    splitter = _CommandSplitter(in_loop, subshell)
     for tok in lexer.tokens():
         splitter.feed(tok)
     splitter.finish()
     nested = list(splitter.nested)
     for doc in lexer.heredocs:
-        nested.extend(parse_shell(body, offset, in_loop) for body, offset in doc.subs)
+        nested.extend(
+            parse_shell(body, offset, in_loop, (offset, offset + len(body))) for body, offset in doc.subs
+        )
     return ShellScript(
         commands=tuple(splitter.commands) + tuple(c for s in nested for c in s.commands),
         heredocs=tuple(lexer.heredocs) + tuple(d for s in nested for d in s.heredocs),
