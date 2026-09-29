@@ -255,7 +255,9 @@ def _completion(stage: ResolvedStage, ws: str) -> str:
         "as an absolute path under your own cwd — NOT under the shared "
         "workspace, and never as a bare relative path (that resolves against "
         "the orchestrator's cwd, outside your worktree). The orchestrator "
-        "copies your outputs/ and stages/ files back after you finish."
+        "copies your outputs/, validation/, stages/, dispatch/, and context/ "
+        "files back after you finish (every directory in WORKSPACE_ROOT_PREFIXES "
+        "in workflow.dispatch)."
         if _is_isolated(stage)
         else ""
     )

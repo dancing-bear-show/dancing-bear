@@ -564,6 +564,111 @@ class TestSkillFanOutSummaryPropagatesFailure(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# SKILL.md copy-back completeness drift test
+# ---------------------------------------------------------------------------
+
+
+class TestSkillCopyBackCoversAllPrefixes(unittest.TestCase):
+    """SKILL.md's copy-back rule must name every WORKSPACE_ROOT_PREFIXES entry.
+
+    An isolated stage declaring ``writes_to: [context/x.json]`` (or any
+    workspace-root prefix) leaves ``{workspace}/context/x.json`` missing and
+    the completion check waits forever unless the orchestrator instructions say
+    to copy that directory back.  This test ensures SKILL.md stays in sync with
+    the authoritative prefix list in ``dispatch.py``.
+
+    Teeth: remove a prefix from the copy-back paragraph and this test fails.
+    Add a new prefix to WORKSPACE_ROOT_PREFIXES without updating SKILL.md and
+    this test fails.
+    """
+
+    _SKILL = Path(__file__).resolve().parents[2] / ".claude/skills/workflow/SKILL.md"
+
+    def _skill_text(self) -> str:
+        return " ".join(self._SKILL.read_text(encoding="utf-8").split())
+
+    def _copy_back_rule(self) -> str:
+        """Return rule 7b only: from its heading up to rule 7c's heading.
+
+        Searching the whole file proves nothing: words like ``context`` and
+        ``outputs`` appear throughout SKILL.md, so a prefix dropped from the
+        copy-back rule itself would still be "found" elsewhere.
+        """
+        text = self._skill_text()
+        start = text.find("b. **Copy back")
+        end = text.find("c. **Merge", start)
+        self.assertGreater(start, -1, "rule 7b heading not found in SKILL.md")
+        self.assertGreater(end, start, "rule 7c heading not found after 7b")
+        return text[start:end]
+
+    def test_every_workspace_root_prefix_named_in_copy_back_rule(self) -> None:
+        """Rule 7b must name every prefix, backticked with its trailing slash."""
+        rule = self._copy_back_rule()
+        missing = [p for p in WORKSPACE_ROOT_PREFIXES if f"`{p}`" not in rule]
+        self.assertEqual(
+            missing,
+            [],
+            f"WORKSPACE_ROOT_PREFIXES entries absent from SKILL.md rule 7b: {missing}",
+        )
+
+    def test_skill_references_workspace_root_prefixes_constant(self) -> None:
+        """SKILL.md must name the source of truth so the list stays in sync."""
+        text = self._skill_text()
+        self.assertIn("WORKSPACE_ROOT_PREFIXES", text)
+
+    def test_isolated_agent_note_in_prompt_names_all_prefixes(self) -> None:
+        """The completion section's isolated note must list every prefix dir.
+
+        ``_completion`` in dispatch.py embeds a short list for the agent.  If
+        it names only ``outputs/`` and ``stages/``, an agent writing
+        ``context/x.json`` will not know it should land there.
+        """
+        from workflow.models import AgentSpec
+
+        spec = make_stage_spec(
+            name="iso",
+            agent=AgentSpec(role="code-writer", isolation="worktree"),
+            writes_to=("context/x.json",),
+        )
+        prompt = build_agent_prompt(make_resolved_stage(spec=spec, index=1), "wf", "/ws")
+        for prefix in WORKSPACE_ROOT_PREFIXES:
+            bare = prefix.rstrip("/")
+            with self.subTest(prefix=prefix):
+                self.assertIn(bare, prompt)
+
+
+class TestIsolatedStageContextWritePath(unittest.TestCase):
+    """An isolated stage with ``writes_to: context/x.json`` must render the
+    output path under ``<your-cwd>/context/x.json``, not under
+    ``<your-cwd>/outputs/context/x.json``.
+    """
+
+    def _prompt(self, writes_to: tuple[str, ...], isolation: str | None) -> str:
+        from workflow.models import AgentSpec
+
+        spec = make_stage_spec(
+            name="ctx-stage",
+            agent=AgentSpec(role="code-writer", isolation=isolation),
+            writes_to=writes_to,
+        )
+        return build_agent_prompt(make_resolved_stage(spec=spec, index=3), "wf", "/ws")
+
+    def test_isolated_context_path_not_under_outputs(self) -> None:
+        prompt = self._prompt(("context/x.json",), "worktree")
+        self.assertNotIn("<your-cwd>/outputs/context/x.json", prompt)
+        self.assertNotIn("/ws/", prompt)
+
+    def test_isolated_context_path_under_own_cwd(self) -> None:
+        prompt = self._prompt(("context/x.json",), "worktree")
+        self.assertIn("<your-cwd>/context/x.json", prompt)
+
+    def test_non_isolated_context_path_under_workspace(self) -> None:
+        prompt = self._prompt(("context/x.json",), None)
+        self.assertIn("/ws/context/x.json", prompt)
+        self.assertNotIn("/ws/outputs/context/x.json", prompt)
+
+
+# ---------------------------------------------------------------------------
 # writes_to resolution — one rule for the prompt and the dispatcher
 # ---------------------------------------------------------------------------
 
