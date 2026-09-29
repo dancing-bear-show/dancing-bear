@@ -122,6 +122,48 @@ All CLIs use argparse with positional subcommand dispatch. Arguments are passed 
 
 ## Testing and Code Quality
 
+**Worker state dir is private during tests — under the supported invocations
+below.** `tests/_private_worker_state.py` sets `DANCING_BEAR_WORKER_STATE_DIR`
+to a fresh `tempfile.mkdtemp()` (and raises if `mkdtemp` lands inside the real
+state dir, e.g. via `TMPDIR`), so the "original" value that per-test isolation
+restores to (via `QueueRootIsolationMixin`) is already a private temp directory.
+Per-test isolation alone cannot stop a worker thread that outlives its test and
+finishes after the restore — it would write into whatever the "restored" value
+is.  The invariant is pinned by `tests/worker_tests/test_state_dir_is_private.py`.
+
+Import order does not matter: `worker.queue_ops.QUEUE_ROOT` has no import-time
+value.  Unless explicitly assigned, every read of it (and every `_q(None)`)
+resolves the env var at that moment, so a `worker` import that happens before
+the bootstrap is harmless.  What matters is only that the bootstrap has run
+before the first test does.  To pin `QUEUE_ROOT` in a test, use
+`mock.patch.object(q, "QUEUE_ROOT", ...)` or `QueueRootIsolationMixin`; both
+delete the attribute afterwards.  Re-assigning a saved value would pin it.
+
+The bootstrap is called from `tests/__init__.py` and from the `__init__.py` of
+`worker_tests`, `workflow_tests`, and `infra` (each loads it by path, so it works
+whether or not `tests` is the top-level package).  It runs whenever unittest
+imports one of those packages — which a `-s tests/<pkg>` discovery **without
+`-t .`** never does: the start directory becomes the top level, and unittest
+does not import a top-level directory's `__init__.py`.
+
+| Invocation | Bootstrap via | Supported |
+|---|---|---|
+| `make test` / `make cov` (bare `-m unittest`) | `tests/__init__.py` | Yes |
+| `coverage run -m unittest discover` (CI, no `-s`/`-t`) | `tests/__init__.py` | Yes |
+| `python3 -m unittest discover -s tests -t .` | `tests/__init__.py` | Yes |
+| `python3 -m unittest discover -s tests/<pkg> -t .` | `tests/__init__.py` + `<pkg>/__init__.py` | Yes |
+| `python3 -m unittest tests.<pkg>.<module>` (dotted) | `tests/__init__.py` | Yes |
+| `python3 -m unittest discover -s tests` (no `-t`) | subpackage `__init__.py` | Yes |
+| `python3 -m unittest discover -s tests/<pkg>` (no `-t`) | only if a loaded module imports the `tests` package | **No** |
+
+The last row is not protected.  A whole-directory run of `worker_tests`,
+`infra`, or `workflow_tests` happens to end up private today, because some
+module in each imports `tests.*`; a narrowed run does not — a load-only probe
+of `-s tests/infra -p test_qwen_wrapper.py` and
+`-s tests/worker_tests -p test_worker_state_dir.py` leaves the variable unset.
+Always pass `-t .` with `-s tests/<pkg>` (the repo requires it anyway:
+`tests/resume_tests/docx` shadows python-docx without it).
+
 **Linting (qlty):**
 - Check files: `~/.qlty/bin/qlty check path/to/file.py`
 - Check module: `~/.qlty/bin/qlty check src/mail/`
@@ -285,7 +327,7 @@ silently resolves `core`/`mail`/`worker` to the **main checkout's** source. Test
 then pass against unmodified code — a false green that looks identical to a real
 one, and only turns red once a newly added module is imported by name.
 
-- Use `make test`, or `PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests`
+- Use `make test`, or `PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests -t .`
 - `make check-env` verifies imports resolve to the current checkout and fails loudly if not
 - This applies to subagents too: an agent verifying with bare `python3` in an
   isolated worktree is not verifying anything

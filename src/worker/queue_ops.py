@@ -1,7 +1,8 @@
 """Core queue operations: enqueue, claim, finish, retry, requeue, purge.
 
 Provides the Job dataclass, path helpers, and all state-transition functions
-for the file-based job queue under QUEUE_ROOT.
+for the file-based job queue under QUEUE_ROOT, which is resolved from
+DANCING_BEAR_WORKER_STATE_DIR on every read unless explicitly assigned.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from core.date_utils import iso_now, parse_iso_utc_strict
 from core.fileutil import atomic_write_json, safe_load_json
@@ -28,6 +30,36 @@ from worker._helpers import (
 
 _log = logging.getLogger(__name__)
 
+_QUEUE_ROOT_ATTR = "QUEUE_ROOT"
+
+if TYPE_CHECKING:
+    # Declared for the type checker only: at runtime QUEUE_ROOT is served by
+    # the module ``__getattr__`` below unless something assigns it.
+    QUEUE_ROOT: Path
+else:
+
+    def __getattr__(name: str) -> Path:
+        """Resolve ``QUEUE_ROOT`` at read time (PEP 562).
+
+        There is deliberately no module-level ``QUEUE_ROOT`` assignment: an
+        import-time value would freeze whatever ``DANCING_BEAR_WORKER_STATE_DIR``
+        held when this module was first imported, and callers that pass
+        ``root=q.QUEUE_ROOT`` explicitly would keep using it after the variable
+        changed.  Each read of ``q.QUEUE_ROOT`` therefore calls
+        ``get_worker_state_dir("queue")``.
+
+        Assigning ``q.QUEUE_ROOT = path`` stores it in the module ``__dict__``,
+        which Python consults before this hook, so an explicit override wins
+        until it is deleted (``del q.QUEUE_ROOT``; ``mock.patch.object`` does
+        this on exit).  Defined outside ``TYPE_CHECKING`` so mypy keeps
+        reporting unknown attributes of this module instead of typing them all
+        as ``Path``.
+        """
+        if name == _QUEUE_ROOT_ATTR:
+            return get_worker_state_dir("queue")
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 # Sentinel distinguishing "caller has no token concept, skip the check"
 # (the parameter's default) from "caller expects the record to carry no
 # token" (an explicit None passed as the expected value). Both states use
@@ -35,11 +67,6 @@ _log = logging.getLogger(__name__)
 # default cannot tell them apart; the check in _stage_and_requeue keys off
 # identity against this sentinel instead.
 _NO_TOKEN_CHECK = object()
-
-try:
-    QUEUE_ROOT = get_worker_state_dir("queue")
-except Exception:  # pragma: no cover - defensive fallback  # nosec B110 - best-effort path resolution
-    QUEUE_ROOT = Path("_data/queue")
 
 QUEUE_FOLDERS: tuple[str, ...] = ("pending", "processing", "done", "error")
 _JOB_SUFFIX = ".json"
@@ -52,14 +79,24 @@ _TERMINAL_FOLDERS: tuple[str, ...] = ("done", "error")
 
 
 def _q(root: Path | None) -> Path:
-    """Return *root* if given, otherwise the current module-level QUEUE_ROOT.
+    """Return *root* if given, otherwise the current ``QUEUE_ROOT``.
 
-    Resolving here at call time, rather than writing QUEUE_ROOT as the parameter
-    default, matters: a default is bound at import, so a caller that omits ``root`` would
-    reach the user's real queue even after a test reassigned QUEUE_ROOT, and the
-    live daemon would then run the test's jobs.
+    ``QUEUE_ROOT`` is an explicit assignment when one is in effect, and is
+    otherwise resolved from ``DANCING_BEAR_WORKER_STATE_DIR`` at call time, so
+    ``_q(None)`` and ``q.QUEUE_ROOT`` always agree and neither depends on when
+    this module was imported.
+
+    Raises:
+        Any exception raised by ``get_worker_state_dir`` propagates to the
+        caller.  There is no fallback path: a silent fallback could point the
+        queue somewhere the caller did not choose.
     """
-    return root if root is not None else QUEUE_ROOT
+    if root is not None:
+        return root
+    override = globals().get(_QUEUE_ROOT_ATTR)
+    if override is not None:
+        return Path(override)
+    return get_worker_state_dir("queue")
 
 
 def _ensure_dirs(root: Path | None = None) -> dict[str, Path]:

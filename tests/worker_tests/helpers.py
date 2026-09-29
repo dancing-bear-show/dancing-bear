@@ -23,6 +23,7 @@ class _QueueHost(Protocol):
     tmp: tempfile.TemporaryDirectory
     root: Path
     _orig_queue_root: Any
+    _orig_queue_root_assigned: bool
     _orig_worker_state_dir_env: Any
 
     def addCleanup(self, function: Any, /, *args: Any, **kwargs: Any) -> None: ...
@@ -38,24 +39,28 @@ def _make_root() -> tuple[tempfile.TemporaryDirectory, Path]:
 class QueueRootIsolationMixin:
     """Save/restore QUEUE_ROOT and DANCING_BEAR_WORKER_STATE_DIR around each test.
 
-    Callers typically want a scratch queue directory plus isolation of the
-    module-level ``queue_ops.QUEUE_ROOT``. Use ``self.setup_queue_root()`` in
+    Callers typically want a scratch queue directory plus isolation of
+    ``queue_ops.QUEUE_ROOT``. Use ``self.setup_queue_root()`` in
     ``setUp`` to get both in one call; use ``isolate_queue_root()`` alone when
     the caller manages its own tempdir (see ``test_worker_purge_selective``
     and ``test_worker_retry_purge_status`` where ``self.root`` intentionally
     points at the tempdir root, not a ``queue`` subdirectory).
 
     ``DANCING_BEAR_WORKER_STATE_DIR`` is also redirected to the temp tree so
-    that any call that resolves the queue root via ``get_worker_state_dir``
-    (rather than the already-imported ``QUEUE_ROOT`` constant) also lands in
-    the temp directory.  This closes the window where a function that does a
-    fresh ``get_worker_state_dir`` call or a new-process invocation could still
-    reach the user's real queue.
+    that any call that resolves the queue root via ``get_worker_state_dir``,
+    including a new process, also lands in the temp directory.
+
+    ``QUEUE_ROOT`` is normally not stored on the module at all: ``queue_ops``
+    serves it from a module ``__getattr__`` that reads the env var on each
+    access.  Restore therefore *deletes* the attribute when it was not assigned
+    at save time.  Re-assigning the saved value instead would pin QUEUE_ROOT to
+    whatever path the env var named at save time, for every later test.
     """
 
     def isolate_queue_root(self: "_QueueHost"):
         from worker import queue_ops as q
-        self._orig_queue_root = q.QUEUE_ROOT
+        self._orig_queue_root_assigned = "QUEUE_ROOT" in vars(q)
+        self._orig_queue_root = vars(q).get("QUEUE_ROOT")
         self._orig_worker_state_dir_env = os.environ.get(WORKER_STATE_DIR_ENV)
         self.addCleanup(self._restore_queue_root)
 
@@ -73,7 +78,8 @@ class QueueRootIsolationMixin:
         # any call resolving the state dir via the env var (including new
         # process spawns) lands in the temp tree instead of the real queue.
         os.environ[WORKER_STATE_DIR_ENV] = str(self.tmp.name)
-        # Also update the already-imported module-level QUEUE_ROOT.
+        # Pin QUEUE_ROOT to the exact path tests compare against (the env var
+        # alone would give its resolved form, e.g. /private/var/... on macOS).
         from worker import queue_ops as q
         q.QUEUE_ROOT = self.root
         return self.root
@@ -87,7 +93,7 @@ class QueueRootIsolationMixin:
         queue and writes its outcome there. One deadline covers all threads;
         any still alive after it fails the test rather than leaking.
         """
-        if not hasattr(self, "_orig_queue_root"):
+        if not hasattr(self, "_orig_queue_root_assigned"):
             raise RuntimeError("call join_new_threads_before_restore after isolating QUEUE_ROOT")
         before = set(threading.enumerate())
 
@@ -106,7 +112,10 @@ class QueueRootIsolationMixin:
 
     def _restore_queue_root(self):
         from worker import queue_ops as q
-        q.QUEUE_ROOT = self._orig_queue_root
+        if self._orig_queue_root_assigned:
+            q.QUEUE_ROOT = self._orig_queue_root
+        else:
+            vars(q).pop("QUEUE_ROOT", None)
         if self._orig_worker_state_dir_env is None:
             os.environ.pop(WORKER_STATE_DIR_ENV, None)
         else:

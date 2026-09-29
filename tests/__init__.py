@@ -8,11 +8,14 @@ MAIN checkout's code instead of the worktree's. Prepending the local ``src``
 (the same effect as the Makefile's ``PYTHONPATH=src``) makes tests always
 exercise the tree they were launched from.
 
-Also installs the interactive-auth guard below.
+Also installs the interactive-auth guard below, and sets a process-wide
+private worker state directory so that no test can accidentally write to the
+user's real queue (see CLAUDE.md "Testing" section).
 """
 
 from __future__ import annotations
 
+import importlib.util as _ilu
 import sys
 import webbrowser
 from pathlib import Path
@@ -29,6 +32,28 @@ if _SRC.is_dir():
         if p != _src_str and not (p.endswith("/src") and "/dancing-bear/" in p)
     ]
     sys.path.insert(0, _src_str)
+
+
+# --- Process-wide private worker state dir ----------------------------------
+# Per-test isolation (QueueRootIsolationMixin) redirects queue_ops.QUEUE_ROOT
+# and DANCING_BEAR_WORKER_STATE_DIR per test and restores them on teardown.
+# That is NOT enough: a worker thread that outlives its test finishes after the
+# restore and writes into the "original" value — which, without this guard, is
+# the user's real ~/Library/Application Support/dancing-bear/.
+#
+# The fix lives in tests/_private_worker_state.py and is also called from the
+# __init__.py of worker_tests, workflow_tests and infra, which covers
+# `discover -s tests` without -t.  `discover -s tests/<pkg>` without -t imports
+# none of these files and is unsupported.  See CLAUDE.md "Testing" section.
+_BOOTSTRAP = Path(__file__).parent / "_private_worker_state.py"
+_BOOTSTRAP_KEY = "_dancing_bear_private_worker_state"
+if _BOOTSTRAP_KEY not in sys.modules:
+    _spec = _ilu.spec_from_file_location(_BOOTSTRAP_KEY, _BOOTSTRAP)
+    if _spec is not None and _spec.loader is not None:
+        _mod = _ilu.module_from_spec(_spec)
+        sys.modules[_BOOTSTRAP_KEY] = _mod
+        _spec.loader.exec_module(_mod)  # type: ignore[union-attr]
+sys.modules[_BOOTSTRAP_KEY].ensure_private()  # type: ignore[attr-defined]
 
 
 # --- Interactive-auth guard -------------------------------------------------
