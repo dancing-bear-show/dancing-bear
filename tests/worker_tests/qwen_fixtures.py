@@ -45,9 +45,35 @@ GIB = 1024**3
 GREET_PATH = "src/example/greet.py"
 GREET_ORIGINAL = 'def greet(name):\n    print("hello " + name)\n    return None\n'
 
+# A literal single blank line as a SEARCH or REPLACE body: edit_block("", ...)
+# now omits the body line entirely (the marker lines sit directly adjacent,
+# parsing as an empty tuple - "no content"), which is not the same thing as
+# one line that is itself empty. Pass this sentinel instead of "" when the
+# body must be exactly one blank line.
+BLANK_LINE = "\n"
+
+
+def _body(text: str) -> str:
+    """The body segment for one side of a block: nothing for "" (omits the
+    line entirely, so the marker lines end up adjacent), one blank line for
+    BLANK_LINE, and the text itself otherwise."""
+    if text == "":
+        return ""
+    if text == BLANK_LINE:
+        return "\n"
+    return f"\n{text}"
+
+
 def edit_block(path: str, search: str, replace: str) -> str:
-    """One SEARCH/REPLACE block; search and replace are newline-joined lines."""
-    return f"FILE: {path}\n<<<<<<< SEARCH\n{search}\n=======\n{replace}\n>>>>>>> REPLACE\n"
+    """One SEARCH/REPLACE block; search and replace are newline-joined lines.
+
+    An empty string ("") omits the body line entirely, so the SEARCH or
+    REPLACE marker lines sit directly adjacent - this is what
+    qwen_edits.parse_edit_blocks parses as an empty tuple (), never a
+    single blank line. To search for or insert one literal blank line,
+    pass BLANK_LINE instead of "".
+    """
+    return f"FILE: {path}\n<<<<<<< SEARCH{_body(search)}\n======={_body(replace)}\n>>>>>>> REPLACE\n"
 
 
 GREET_EDIT = edit_block(GREET_PATH, '    print("hello " + name)', '    return f"hello {name}"')

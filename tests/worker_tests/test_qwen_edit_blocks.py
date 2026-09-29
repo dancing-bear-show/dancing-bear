@@ -20,6 +20,7 @@ from pathlib import Path
 
 from tests.fixtures import TempDirMixin
 from tests.worker_tests.qwen_fixtures import (
+    BLANK_LINE,
     GREET_EDIT,
     GREET_ORIGINAL,
     GREET_PATH,
@@ -43,6 +44,41 @@ def _outcome(fn: Callable[..., object], *args: object) -> str:
     raise AssertionError("expected an EditBlockError")
 
 
+class EditBlockHelperTests(unittest.TestCase):
+    """The edit_block() test fixture itself: empty search/replace must omit
+    the body line (marker lines adjacent), never emit a blank line."""
+
+    def test_non_empty_search_and_replace_are_unchanged(self) -> None:
+        self.assertEqual(
+            edit_block("src/a.py", "old", "new"),
+            "FILE: src/a.py\n<<<<<<< SEARCH\nold\n=======\nnew\n>>>>>>> REPLACE\n",
+        )
+
+    def test_empty_search_omits_the_search_body_line(self) -> None:
+        self.assertEqual(
+            edit_block("src/a.py", "", "new"),
+            "FILE: src/a.py\n<<<<<<< SEARCH\n=======\nnew\n>>>>>>> REPLACE\n",
+        )
+
+    def test_empty_replace_omits_the_replace_body_line(self) -> None:
+        self.assertEqual(
+            edit_block("src/a.py", "old", ""),
+            "FILE: src/a.py\n<<<<<<< SEARCH\nold\n=======\n>>>>>>> REPLACE\n",
+        )
+
+    def test_empty_search_and_replace_omit_both_body_lines(self) -> None:
+        self.assertEqual(
+            edit_block("src/a.py", "", ""),
+            "FILE: src/a.py\n<<<<<<< SEARCH\n=======\n>>>>>>> REPLACE\n",
+        )
+
+    def test_blank_line_sentinel_produces_one_empty_body_line(self) -> None:
+        self.assertEqual(
+            edit_block("src/a.py", BLANK_LINE, "new"),
+            "FILE: src/a.py\n<<<<<<< SEARCH\n\n=======\nnew\n>>>>>>> REPLACE\n",
+        )
+
+
 class ParseEditBlocksTests(unittest.TestCase):
     def test_single_block(self) -> None:
         [block] = qwen_edits.parse_edit_blocks(edit_block("src/a.py", "old", "new"))
@@ -58,7 +94,7 @@ class ParseEditBlocksTests(unittest.TestCase):
             blocks,
             [
                 qwen_edits.EditBlock("src/a.py", ("a1",), ("A1",)),
-                qwen_edits.EditBlock("src/b.py", ("b1", "b2"), ("",)),
+                qwen_edits.EditBlock("src/b.py", ("b1", "b2"), ()),
                 qwen_edits.EditBlock("src/a.py", ("a2",), ("A2",)),
             ],
         )
@@ -187,7 +223,7 @@ class ApplyEditBlocksTests(unittest.TestCase):
     def test_whole_line_blank_search_matches_a_blank_line(self) -> None:
         files = {"src/c.py": "a\n\nb\n"}
 
-        self.assertEqual(self._apply(edit_block("src/c.py", "", "x"), files), {"src/c.py": "a\nx\nb\n"})
+        self.assertEqual(self._apply(edit_block("src/c.py", BLANK_LINE, "x"), files), {"src/c.py": "a\nx\nb\n"})
 
     def test_path_spellings_that_normalise_to_an_input_are_accepted(self) -> None:
         for path in ("./src/a.py", "src//a.py", "`src/a.py`", "src/x/../a.py"):
@@ -332,7 +368,7 @@ class BuildUnifiedDiffGitApplyTests(TempDirMixin, unittest.TestCase):
         self.assertIsNone(qwen.check_patch_caps(diff))
 
     def test_deleting_every_line(self) -> None:
-        self._assert_round_trip({"src/e.py": "only\n"}, edit_block("src/e.py", "only", "").replace("=======\n\n", "=======\n"))
+        self._assert_round_trip({"src/e.py": "only\n"}, edit_block("src/e.py", "only", ""))
 
     def test_diff_without_the_marker_is_rejected_by_git(self) -> None:
         """Pins why the marker exists: strip it and git apply --check refuses."""
