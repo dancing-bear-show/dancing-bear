@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import unittest
 
-from workflow.shell_parse import WRAPPER_NAMES, LoopVariable, command_from_words, parse_shell
+from workflow.shell_parse import MAX_DEPTH, WRAPPER_NAMES, LoopVariable, command_from_words, parse_shell
 from workflow.shell_text import extract_labelled_assignments
 
 
@@ -140,6 +140,39 @@ class TestParseShell(unittest.TestCase):
     def test_labelled_assignment_is_extracted_outside_segments_only(self) -> None:
         desc = "Bash tool: F=\"x\"\n```bash\nNote: G=1\n```\ncat <<'EOF'\nLabel: H=1\nEOF\n"
         self.assertEqual([s.text for s in extract_labelled_assignments(desc)], ['F="x"'])
+
+
+
+class TestParseDepth(unittest.TestCase):
+    """Nesting depth as the Bash guard counts it (_bash_write_targets.py MAX_DEPTH)."""
+
+    @staticmethod
+    def _subs(levels: int) -> str:
+        text = "wc -l x"
+        for _ in range(levels):
+            text = f"echo $({text})"
+        return text
+
+    def test_each_substitution_is_one_level(self) -> None:
+        script = parse_shell("a $(b `c`) <(d)")
+        self.assertEqual({c.name: c.depth for c in script.commands}, {"a": 0, "b": 1, "c": 2, "d": 1})
+        self.assertEqual(script.max_depth, 2)
+        self.assertFalse(script.too_deep)
+
+    def test_nesting_past_max_depth_is_recorded_not_dropped(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6nH40K: past MAX_DEPTH parsing stops,
+        # and the result says so, so a caller can refuse it as the guard does.
+        at_limit, past = parse_shell(self._subs(MAX_DEPTH)), parse_shell(self._subs(MAX_DEPTH + 1))
+        self.assertFalse(at_limit.too_deep)
+        self.assertIn("wc", [c.name for c in at_limit.commands])
+        self.assertTrue(past.too_deep)
+        self.assertEqual(past.max_depth, MAX_DEPTH + 1)
+
+    def test_depth_argument_offsets_the_count(self) -> None:
+        script = parse_shell("a $(b)", depth=MAX_DEPTH)
+        self.assertTrue(script.too_deep)
+        self.assertEqual([c.name for c in script.commands], ["a"])
+        self.assertEqual(command_from_words(script.commands[0].words, depth=5).depth, 5)
 
 
 if __name__ == "__main__":

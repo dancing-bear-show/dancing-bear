@@ -42,6 +42,9 @@ __all__ = [
 # Tokens and simple commands
 # ---------------------------------------------------------------------------
 
+# _bash_write_targets.py MAX_DEPTH: the guard refuses a command whose
+# substitutions and nested shell strings go deeper than this.
+MAX_DEPTH = 32
 _METACHARS = frozenset(" \t\n;&|<>()")
 _CONTROL_OPS = (";;&", ";;", ";&", "&&", "||", "|&", ";", "&", "|", "(", ")", "\n")
 _REDIRECT_OPS = ("&>>", "&>", "<<<", "<<-", "<<", "<>", "<&", ">>", ">|", ">&", "<", ">")
@@ -134,6 +137,9 @@ class SimpleCommand:
     # them as the parent errs toward seeing a binding, never toward inventing
     # a missing one.
     subshell: Span | None = None
+    # Parsers the Bash guard nests to reach this command: one per enclosing
+    # $(...), backtick, <(...)/>(...) substitution or ``sh -c`` string.
+    depth: int = 0
 
     @property
     def word(self) -> ShellToken | None:
@@ -175,6 +181,14 @@ class ShellScript:
     # and heredoc bodies, through the end of its line. ``a#b`` and ``${#x}``
     # are not comments.
     comments: tuple[Span, ...] = ()
+    # The deepest nesting level parsed (see SimpleCommand.depth). Past
+    # MAX_DEPTH parsing stops, and this records that it did.
+    max_depth: int = 0
+
+    @property
+    def too_deep(self) -> bool:
+        """True when nesting exceeds the guard's MAX_DEPTH, which it refuses outright."""
+        return self.max_depth > MAX_DEPTH
 
     def inert_spans(self) -> list[Span]:
         """(start, end) of each quoted heredoc body: text the shell never expands."""
@@ -503,7 +517,9 @@ def _resolve_command(words: tuple[ShellToken, ...]) -> tuple[int, list[ShellToke
     return -1, assigned
 
 
-def command_from_words(words: tuple[ShellToken, ...], in_loop: bool = False) -> SimpleCommand:
+def command_from_words(
+    words: tuple[ShellToken, ...], in_loop: bool = False, depth: int = 0
+) -> SimpleCommand:
     """A :class:`SimpleCommand` for *words* that some other command runs.
 
     For argv a command hands on rather than shell text -- ``find -exec``'s
@@ -511,7 +527,7 @@ def command_from_words(words: tuple[ShellToken, ...], in_loop: bool = False) -> 
     redirects, since the shell never sees these words as a command line.
     """
     index, env_assignments = _resolve_command(words)
-    return SimpleCommand(words, tuple(env_assignments), (), index, in_loop)
+    return SimpleCommand(words, tuple(env_assignments), (), index, in_loop, depth=depth)
 
 
 class _CommandSplitter:
@@ -522,9 +538,10 @@ class _CommandSplitter:
     and ``>`` compare rather than redirect), subshells, and loop bodies.
     """
 
-    def __init__(self, in_loop: bool, subshell: Span | None) -> None:
+    def __init__(self, in_loop: bool, subshell: Span | None, depth: int = 0) -> None:
         self.outer_loop = in_loop
         self.subshell = subshell
+        self.depth = depth
         self.loop_depth = 0
         self.state = "start"
         self.commands: list[SimpleCommand] = []
@@ -552,7 +569,9 @@ class _CommandSplitter:
 
     def feed(self, tok: ShellToken) -> None:
         for body, offset in tok.subs:
-            self.nested.append(parse_shell(body, offset, self.inside_loop, (offset, offset + len(body))))
+            self.nested.append(
+                parse_shell(body, offset, self.inside_loop, (offset, offset + len(body)), self.depth + 1)
+            )
         if tok.kind == "word" and self._redirect_op is not None:
             self._redirects.append(Redirect(self._redirect_op, tok.text))
             self._redirect_op = None
@@ -571,7 +590,7 @@ class _CommandSplitter:
             index, env_assignments = _resolve_command(words)
             self.commands.append(SimpleCommand(
                 words, tuple(self._assignments + env_assignments), tuple(self._redirects),
-                index, self._in_loop, self.subshell,
+                index, self._in_loop, self.subshell, self.depth,
             ))
         self._words.clear()
         self._assignments = []
@@ -666,29 +685,36 @@ class _CommandSplitter:
 
 
 def parse_shell(
-    text: str, base: int = 0, in_loop: bool = False, subshell: Span | None = None
+    text: str, base: int = 0, in_loop: bool = False, subshell: Span | None = None, depth: int = 0
 ) -> ShellScript:
     """Every simple command in shell *text*, including those in substitutions.
 
     Offsets in the result are positions in *text* plus *base*. *in_loop*
     marks every command as inside a loop body (a substitution within one);
     *subshell* is the child shell *text* runs in, None for the outermost.
+    *depth* is how many parsers enclose *text* (see SimpleCommand.depth).
+    Past :data:`MAX_DEPTH` nothing is parsed and the result's ``too_deep``
+    is set: the guard refuses there, so the text is reported, not dropped.
     """
+    if depth > MAX_DEPTH:
+        return ShellScript((), (), (), (), max_depth=depth)
     lexer = _Lexer(text, base)
-    splitter = _CommandSplitter(in_loop, subshell)
+    splitter = _CommandSplitter(in_loop, subshell, depth)
     for tok in lexer.tokens():
         splitter.feed(tok)
     splitter.finish()
     nested = list(splitter.nested)
     for doc in lexer.heredocs:
         nested.extend(
-            parse_shell(body, offset, in_loop, (offset, offset + len(body))) for body, offset in doc.subs
+            parse_shell(body, offset, in_loop, (offset, offset + len(body)), depth + 1)
+            for body, offset in doc.subs
         )
     return ShellScript(
         commands=tuple(splitter.commands) + tuple(c for s in nested for c in s.commands),
         heredocs=tuple(lexer.heredocs) + tuple(d for s in nested for d in s.heredocs),
         loop_variables=tuple(splitter.loop_variables) + tuple(v for s in nested for v in s.loop_variables),
         comments=tuple(lexer.comments) + tuple(c for s in nested for c in s.comments),
+        max_depth=max((depth, *(s.max_depth for s in nested))),
     )
 
 

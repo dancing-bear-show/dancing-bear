@@ -111,8 +111,10 @@ _INTERPRETER_PROSE_WORDS: frozenset[str] = frozenset({
     "script", "command", "invocation", "snippet", "inline", "there",
 })
 _PROSE_TRAILING_PUNCTUATION = ".,;:!?"
-# "python 3.11 or newer": a version number, never a script name.
-_VERSION_WORD_RE = re.compile(r"^\d")
+# "python 3.11 or newer": an all-numeric dotted version, never a script name.
+# Matched whole after trailing punctuation is stripped, so "3.11," is a
+# version while "3.py", "2026_job.py" and "3x" are scripts.
+_VERSION_WORD_RE = re.compile(r"\d+(?:\.\d+)*")
 _PROMPT_PREFIX = "$ "
 _SHELLISH_ARG_PREFIXES = ("-", '"', "'", "$", ".", "/", "~", "{")
 # A stray apostrophe in a trailing comment would otherwise pull prose in until
@@ -230,7 +232,7 @@ def _interpreter_line_is_command(operand: str) -> bool:
     :data:`_INTERPRETER_PROSE_WORDS`). A bare interpreter (*operand* "") counts.
     """
     word = operand.rstrip(_PROSE_TRAILING_PUNCTUATION).lower()
-    return word not in _INTERPRETER_PROSE_WORDS and not _VERSION_WORD_RE.match(word)
+    return word not in _INTERPRETER_PROSE_WORDS and not _VERSION_WORD_RE.fullmatch(word)
 
 
 def _wrapper_line_is_command(body: str) -> bool:

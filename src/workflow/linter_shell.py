@@ -15,10 +15,14 @@ never the surrounding prose -- and emit warnings with stable rule ids:
     quoted heredoc), and this rule still reads comment text.
 ``shell-unquoted-fan-out-key``
     A fan-out key placeholder -- a value read from a prior stage's JSON, which
-    no param rule can constrain -- sits unquoted in shell text. For
-    ``fan_out.mode: worker_queue`` the text checked is the script the worker
-    runs (``fan_out.script``, and the stage ``script`` it enqueues), not the
-    description, which no shell and no agent ever reads in that mode.
+    no param rule can constrain -- sits unquoted in shell text. For a stage
+    a worker runs (``fan_out.mode: worker_queue`` or ``executor:
+    worker_queue``) the text checked is the script the worker runs
+    (``fan_out.script``, and the stage ``script`` it enqueues), not the
+    description, which no shell and no agent ever reads in that mode; and
+    there every occurrence counts, quoted or in a comment, because no
+    allowlist constrains the value before worker dispatch and it is
+    substituted before bash parses the script.
 ``shell-unbound-variable``
     ``$NAME`` (upper case) is expanded in shell text but no shell text in the
     same stage assigns it; each stage is a fresh shell. An assignment inside a
@@ -70,7 +74,15 @@ from typing import TYPE_CHECKING
 
 from .linter_types import LintResult, LintWarning
 from .placeholders import PLACEHOLDER_RE
-from .shell_parse import ShellScript, ShellToken, SimpleCommand, Span, command_from_words, parse_shell
+from .shell_parse import (
+    MAX_DEPTH,
+    ShellScript,
+    ShellToken,
+    SimpleCommand,
+    Span,
+    command_from_words,
+    parse_shell,
+)
 from .shell_text import (
     ShellSegment,
     extract_labelled_assignments,
@@ -164,7 +176,6 @@ _NESTED_C_CLUSTER_RE = re.compile(r"-[a-zA-Z]*c")
 _FIND_WRITE_ACTIONS = frozenset({"-delete", "-fprint", "-fprint0", "-fls", "-fprintf"})
 _FIND_EXEC_ACTIONS = frozenset({"-exec", "-execdir", "-ok", "-okdir"})
 _FIND_EXEC_ENDS = frozenset({";", "+"})
-_MAX_NESTING = 32  # _bash_write_targets.py MAX_DEPTH
 
 
 @dataclass(frozen=True)
@@ -411,24 +422,19 @@ def _unvalidated_params(
 # ---------------------------------------------------------------------------
 
 
-def _fan_out_shell(item: _StageShell) -> Iterable[tuple[str, _ParsedSegment]]:
-    """(field, segment) of the shell text a fan-out stage substitutes its key into.
-
-    A worker_queue fan-out runs its scripts and never renders the description
-    for anyone, so prose there is not checked; an agent fan-out's shell lives
-    in the description.
-    """
-    fan_out = item.stage.fan_out
-    if fan_out is not None and fan_out.mode == _WORKER_QUEUE:
-        return item.scripts
-    return ((_FIELD, seg) for seg in item.segments)
+def _is_worker_dispatched(stage: StageSpec) -> bool:
+    """True when a worker runs *stage*'s scripts and no agent reads its description."""
+    fan_out = stage.fan_out
+    return stage.executor == _WORKER_QUEUE or (fan_out is not None and fan_out.mode == _WORKER_QUEUE)
 
 
 def _unquoted_fan_out_keys(item: _StageShell) -> list[LintWarning]:
     fan_out = item.stage.fan_out
     if fan_out is None or not fan_out.key:
         return []
-    for field, seg in _fan_out_shell(item):
+    if _is_worker_dispatched(item.stage):
+        return _worker_key_references(item, fan_out.key)
+    for seg in item.segments:
         ctx = seg.quote_context()
         for m in seg.live_matches(PLACEHOLDER_RE):
             if m.group(1) == fan_out.key and ctx[m.start()] == "":
@@ -437,9 +443,34 @@ def _unquoted_fan_out_keys(item: _StageShell) -> list[LintWarning]:
                     RULE_UNQUOTED_FAN_OUT_KEY,
                     f"fan-out key '{{{fan_out.key}}}' is prior-stage data, unquoted in "
                     f"shell (`{_snippet(seg.text)}`); quote it or read it from the file",
-                    field,
                 )]
     return []
+
+
+def _worker_key_references(item: _StageShell, key: str) -> list[LintWarning]:
+    """One warning per worker script that names *key* anywhere in its text.
+
+    An agent fan-out's key is held to SKILL.md's ``SAFE_KEY_VALUE`` before
+    it is substituted, so quoting and comments are real controls there. No
+    such allowlist runs before worker dispatch, and the value is substituted
+    into the script before bash parses it: a quote, ``$(...)`` or newline in
+    it escapes a quoted string, a comment, or a quoted heredoc alike. So
+    every occurrence counts, in whatever shell context it sits.
+    """
+    warnings = []
+    for field, seg in item.scripts:
+        count = sum(1 for m in PLACEHOLDER_RE.finditer(seg.text) if m.group(1) == key)
+        if count:
+            warnings.append(_warn(
+                item.stage.name,
+                RULE_UNQUOTED_FAN_OUT_KEY,
+                f"fan-out key '{{{key}}}' is interpolated into a worker script {count} time(s) "
+                f"(`{_snippet(seg.text)}`); it is not allowlisted before worker dispatch and is "
+                f"substituted before bash parses the script, so quoting and comments do not "
+                f"contain it -- pass it as data (read it from a file or environment variable)",
+                field,
+            ))
+    return warnings
 
 
 # ---------------------------------------------------------------------------
@@ -737,7 +768,7 @@ def _has_nested_c_cluster(args: list[str]) -> bool:
 
     Its regex accepts only letter clusters before it, so ``bash -ec x``
     matches while ``bash -o pipefail -c x`` and ``bash --norc -c x`` do not
-    (h_shell still parses those strings; see :func:`_inner_commands`).
+    (h_shell still parses those strings; see :func:`_inner_script`).
     """
     for arg in args:
         if _NESTED_C_CLUSTER_RE.fullmatch(arg):
@@ -800,7 +831,7 @@ def _is_mutating(cmd: SimpleCommand) -> bool:
     `patch` unless `--dry-run` or `-o FILE` is present, `find` with
     ``-delete`` or ``-fprint``, and a shell reading its program from stdin.
     What ``find -exec`` and ``sh -c`` run is judged as commands of its own
-    (see :func:`_expanded_commands`). This is deliberately narrower than the
+    (see :func:`_expanded`). This is deliberately narrower than the
     guard's full write-target parser -- it is enough to stop flagging the
     read-only loops the guard actually allows.
     """
@@ -810,31 +841,44 @@ def _is_mutating(cmd: SimpleCommand) -> bool:
     return check is not None and check(cmd)
 
 
-def _inner_commands(cmd: SimpleCommand) -> tuple[SimpleCommand, ...]:
-    """Commands *cmd* runs from its arguments: ``find -exec`` bodies and ``sh -c`` strings.
+def _inner_script(cmd: SimpleCommand) -> ShellScript | None:
+    """What *cmd* runs from its arguments: ``find -exec`` bodies and ``sh -c`` strings.
 
     Mirrors ``_find_exec`` and ``h_shell`` in _bash_write_targets.py, which
-    parse and judge both. Each inner command stays in its parent's loop.
+    parse and judge both. Each inner command stays in its parent's loop. As
+    in the guard, an ``sh -c`` string is one nesting level deeper than the
+    command running it, while a ``find -exec`` body is judged at its own.
     """
     if cmd.name == "find":
-        return tuple(command_from_words(body, cmd.in_loop) for body in _find_parts(cmd)[1])
+        bodies = _find_parts(cmd)[1]
+        return ShellScript(
+            tuple(command_from_words(body, cmd.in_loop, cmd.depth) for body in bodies), (), (),
+            max_depth=cmd.depth,
+        )
     if cmd.name in _SHELLS:
         shell = _shell_args(cmd.args)
         if shell.has_c and shell.operand is not None:
-            return parse_shell(shell.operand, in_loop=cmd.in_loop).commands
-    return ()
+            return parse_shell(shell.operand, in_loop=cmd.in_loop, depth=cmd.depth + 1)
+    return None
 
 
-def _expanded_commands(commands: Iterable[SimpleCommand], depth: int = 0) -> Iterator[SimpleCommand]:
-    """*commands*, each followed by the commands it runs from its arguments.
+def _expanded(script: ShellScript) -> ShellScript:
+    """*script*'s commands, each followed by the commands it runs from its arguments.
 
-    Nesting stops at the guard's own ``MAX_DEPTH``; past it the guard refuses
-    outright, and no workflow prose nests that deep.
+    ``max_depth`` covers the inner scripts too, so nesting past the guard's
+    ``MAX_DEPTH`` -- which :func:`parse_shell` stops at and records rather
+    than drops -- surfaces as ``too_deep`` instead of being cut off silently.
     """
-    for cmd in commands:
-        yield cmd
-        if depth < _MAX_NESTING:
-            yield from _expanded_commands(_inner_commands(cmd), depth + 1)
+    commands: list[SimpleCommand] = []
+    max_depth = script.max_depth
+    for cmd in script.commands:
+        commands.append(cmd)
+        inner = _inner_script(cmd)
+        if inner is not None:
+            inner = _expanded(inner)
+            commands.extend(inner.commands)
+            max_depth = max(max_depth, inner.max_depth)
+    return ShellScript(tuple(commands), script.heredocs, script.loop_variables, script.comments, max_depth)
 
 
 def _is_nested_shell(cmd: SimpleCommand) -> bool:
@@ -845,7 +889,7 @@ def _is_nested_shell(cmd: SimpleCommand) -> bool:
     :func:`_has_nested_c_cluster`), and ``xargs`` into a
     shell, without inspecting the string. A path-qualified ``/bin/sh -c``
     escapes that check (README "Known gaps"); its string is judged through
-    :func:`_expanded_commands` instead, as _bash_write_targets.py does.
+    :func:`_expanded` instead, as _bash_write_targets.py does.
     """
     word = cmd.word
     if word is None:
@@ -866,10 +910,17 @@ def _refused_construct(script: ShellScript) -> str:
     runs a substitution: the guard cannot inspect what that expands to. A
     quoted delimiter (``<<'EOF'``) makes the body inert, and a static body
     has nothing to expand -- the guard's contract allows both.
+
+    Nesting deeper than the guard's ``MAX_DEPTH`` is refused whether or not
+    a loop is involved: _bash_write_targets.py raises ``ParseError`` for the
+    whole command there, and ``analyse_command`` turns that into a refusal.
     """
     if any(not doc.quoted and doc.subs for doc in script.heredocs):
         return "heredoc"
-    commands = list(_expanded_commands(script.commands))
+    expanded = _expanded(script)
+    if expanded.too_deep:
+        return f"nesting deeper than {MAX_DEPTH}"
+    commands = expanded.commands
     if any(_is_nested_shell(cmd) for cmd in commands):
         return "eval/sh -c"
     if any(cmd.in_loop and _is_mutating(cmd) for cmd in commands):

@@ -451,7 +451,7 @@ class TestUnquotedFanOutKey(_RuleCase):
     def test_key_after_apostrophe_in_comment_fires(self) -> None:
         # An apostrophe in a comment opens no quote; read raw, it marked the
         # rest of the segment single-quoted and hid the unquoted key.
-        self.assert_fires(_worker_queue_workflow("echo ok # don't\nrm {domain}"), field="fan_out.script")
+        self.assert_fires(_fan_out_workflow("echo ok # don't\n  rm {domain}"))
 
     def test_key_in_comment_is_silent(self) -> None:
         # Agent fan-out keys are held to [A-Za-z0-9][A-Za-z0-9._-]* by the
@@ -493,20 +493,65 @@ class TestUnquotedFanOutKeyWorkerQueue(unittest.TestCase):
         self.assertIn("'{domain}'", hits[0].message)
         self.assertIn("rm {domain}", hits[0].message)
 
-    def test_unquoted_key_in_enqueued_stage_script_fires(self) -> None:
+    def test_key_in_enqueued_stage_script_fires(self) -> None:
         # WorkerQueueDispatcher enqueues the stage-level script as the job's payload.
-        hits = self._hits(_worker_queue_workflow('rm "{domain}"', stage_script="ls {domain}/"))
+        hits = self._hits(_worker_queue_workflow("ls data/", stage_script="ls {domain}/"))
         self.assertEqual([w.field for w in hits], ["script"])
 
-    def test_quoted_key_in_script_is_silent(self) -> None:
-        self.assertEqual(self._hits(_worker_queue_workflow('rm "{domain}"', stage_script="ls '{domain}'/")), [])
+    def test_quoted_key_in_script_fires(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6nH4zT: a worker_queue key is never
+        # checked against SAFE_KEY_VALUE, and it is substituted before bash
+        # parses the script, so a value like `x'; rm -rf ~; '` escapes quotes.
+        for script in ("rm '{domain}'", 'rm "{domain}"'):
+            with self.subTest(script=script):
+                hits = self._hits(_worker_queue_workflow(script))
+                self.assertEqual([w.field for w in hits], ["fan_out.script"])
+                self.assertIn("not allowlisted before worker dispatch", hits[0].message)
+                self.assertIn("pass it as data", hits[0].message)
+
+    def test_key_in_comment_of_script_fires(self) -> None:
+        # Same thread: a newline in the value ends the comment.
+        hits = self._hits(_worker_queue_workflow("ls data/  # {domain}"))
+        self.assertEqual([w.field for w in hits], ["fan_out.script"])
+
+    def test_key_in_quoted_heredoc_of_script_fires(self) -> None:
+        # Same thread: a line equal to the delimiter in the value ends the heredoc.
+        hits = self._hits(_worker_queue_workflow("cat <<'EOF'\n{domain}\nEOF"))
+        self.assertEqual([w.field for w in hits], ["fan_out.script"])
+
+    def test_every_occurrence_is_counted_per_script(self) -> None:
+        hits = self._hits(_worker_queue_workflow(
+            "ls \"{domain}/\" || echo 'no dir: {domain}'", stage_script="ls '{domain}'"))
+        self.assertEqual([w.field for w in hits], ["fan_out.script", "script"])
+        self.assertIn("2 time(s)", hits[0].message)
+        self.assertIn("1 time(s)", hits[1].message)
+
+    def test_executor_worker_queue_with_agent_fan_out_checks_the_script(self) -> None:
+        # CompositeDispatcher routes on executor: the stage script runs, the
+        # description reaches no agent.
+        yaml_text = _workflow(
+            _stage("List domains.", name="gather", extra="    writes_to:\n      - domains.json\n"),
+            _stage(
+                'Check:\n\n  ls "{domain}/"\n', name="check-domain", depends_on="[gather]",
+                extra=(
+                    "    reads_from: [gather]\n"
+                    "    fan_out:\n      source: gather\n      field: domains\n      key: domain\n"
+                    f"    executor: worker_queue\n    script: {json.dumps('ls {domain}')}\n"
+                ),
+            ),
+        )
+        self.assertEqual([w.field for w in self._hits(yaml_text)], ["script"])
+
+    def test_script_without_key_is_silent(self) -> None:
+        # Happy path: a script that takes nothing from the fan-out item.
+        self.assertEqual(self._hits(_worker_queue_workflow("ls data/", stage_script="wc -l data/x")), [])
 
     def test_description_is_not_checked_in_worker_queue_mode(self) -> None:
         # Neither prose nor a shell-shaped line in the description reaches a
         # shell or an agent in this mode.
         for description in ("Remove the {domain} directory.", "Remove it:\n\n  rm -r {domain}\n"):
             with self.subTest(description=description):
-                self.assertEqual(self._hits(_worker_queue_workflow('rm "{domain}"', description=description)), [])
+                self.assertEqual(self._hits(_worker_queue_workflow("ls data/", description=description)), [])
 
     def test_has_teeth(self) -> None:
         yaml_text = _worker_queue_workflow("rm {domain}")
@@ -991,6 +1036,20 @@ class TestPythonNotIsolated(_RuleCase):
             with self.subTest(line=line):
                 self.assert_silent(_workflow(_stage(f"Setup:\n\n  {line}\n")))
 
+    def test_fires_on_digit_led_script_name(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6nH402: any operand starting with a
+        # digit read as a version, so these scripts were never linted.
+        for command in ("python3 3.py", "python3 2026_job.py", "python3 3x"):
+            with self.subTest(command=command):
+                hits = self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))
+                self.assertIn(command, hits[0].message)
+
+    def test_dotted_version_prose_is_silent(self) -> None:
+        # Happy path for the same thread: an all-numeric dotted version.
+        for line in ("python 3.11 or newer", "python3 3.11,", "python3 3", "python 3.11.4 only"):
+            with self.subTest(line=line):
+                self.assert_silent(_workflow(_stage(f"Setup:\n\n  {line}\n")))
+
     def test_python_is_required_prose_is_silent(self) -> None:
         # Happy path for the same thread: with the operand heuristic gone,
         # "python3 is required" stays silent because it is never a segment.
@@ -1099,6 +1158,28 @@ _HEREDOC = """
 # read" -> allow), so the original `do make test; done` body -- a false
 # positive Copilot PR #433 flagged -- must not fire this rule any more.
 _LOOP = "Run twice:\n\n  for pass in 1 2; do rm -rf \"$TMPDIR/scratch-$pass\"; done\n"
+
+
+def _nested_subs(levels: int) -> str:
+    """A read-only command inside *levels* nested ``$(...)`` substitutions."""
+    text = "wc -l x"
+    for _ in range(levels):
+        text = f"echo $({text})"
+    return text
+
+
+def _nested_sh_c(inner: str, levels: int) -> str:
+    """*inner* run through *levels* nested path-qualified ``/bin/sh -c`` strings.
+
+    Double-quote escaping doubles the backslashes at every level, so a pure
+    33-level ``sh -c`` chain is gigabytes long; the depth tests combine a few
+    ``sh -c`` levels with substitutions, which the guard counts the same way.
+    """
+    text = inner
+    for _ in range(levels):
+        escaped = "".join("\\" + ch if ch in '\\"$`' else ch for ch in text)
+        text = f'/bin/sh -c "{escaped}"'
+    return text
 
 
 class TestGuardRefused(_RuleCase):
@@ -1459,6 +1540,32 @@ class TestGuardRefused(_RuleCase):
             with self.subTest(command=command):
                 self.assert_silent(_workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n")))
 
+    def test_fires_on_nesting_deeper_than_the_guard_parses(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6nH40K: expansion stopped at depth 32
+        # and dropped the rest, while _bash_write_targets.py raises ParseError
+        # ("nested too deeply") for the whole command -- loop or not. Every
+        # sh -c string and every substitution is one level; 33 is refused.
+        # Boundaries checked against analyse_command on the same strings.
+        for command in (_nested_subs(33), _nested_sh_c(_nested_subs(32), 1),
+                        _nested_sh_c(_nested_subs(31), 2), _nested_sh_c(_nested_subs(30), 3),
+                        "for f in a; do " + _nested_sh_c(_nested_subs(31), 2) + "; done"):
+            with self.subTest(command=command[:40]):
+                hits = self.assert_fires(_workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n")))
+                self.assertIn("nesting deeper than 32", hits[0].message)
+
+    def test_nesting_within_the_guard_limit_is_silent(self) -> None:
+        # Happy path: depth 32 exactly, and ordinary 2-3 level sh -c nesting.
+        for command in (_nested_subs(32), _nested_sh_c(_nested_subs(30), 2),
+                        _nested_sh_c("wc -l x", 2), _nested_sh_c("wc -l x", 3),
+                        "for f in a; do " + _nested_sh_c("wc -l x", 3) + "; done"):
+            with self.subTest(command=command[:40]):
+                self.assert_silent(_workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n")))
+
+    def test_inner_mutator_is_found_through_nested_shells(self) -> None:
+        # The depth tracking keeps the innermost command of a real chain.
+        command = "for f in a; do " + _nested_sh_c("rm -f x", 3) + "; done"
+        self.assertIn("loop", self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))[0].message)
+
     def test_read_only_qualified_shell_forms_are_silent(self) -> None:
         # Happy path: a read-only -c string, a script file (command semantics,
         # out of the guard's reach), and a qualified shell outside a loop.
@@ -1627,6 +1734,17 @@ class TestExtractShellSegments(unittest.TestCase):
                      "python must be 3.11 or newer", "python3 must be installed",
                      "python3 and pip", "Python 3.11 or newer", "python 3.11 or newer",
                      "python3 is."):
+            with self.subTest(line=line):
+                self.assertEqual(self._texts(f"  {line}\n"), [])
+
+    def test_digit_led_script_is_a_command_line(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6nH402.
+        for line in ("python3 3.py", "python3 2026_job.py", "python3 3x"):
+            with self.subTest(line=line):
+                self.assertEqual(self._texts(f"  {line}\n"), [line])
+
+    def test_dotted_version_is_prose(self) -> None:
+        for line in ("python3 3.11,", "python3 3", "python 3.11.4 only"):
             with self.subTest(line=line):
                 self.assertEqual(self._texts(f"  {line}\n"), [])
 
