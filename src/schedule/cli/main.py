@@ -23,7 +23,7 @@ from ..meta import META
 from core.cli_errors import CLIError, ExitCode
 from core.cli_output import OutputWriter
 from core.date_utils import day_range_to_iso
-from core.auth import build_outlook_service_from_args
+from core.auth import OutlookServiceConfig, build_outlook_service_from_args
 from core.cli_framework import CLIApp
 from core.paths import output_dir
 from core.cli_help_text import HELP_START_DATE
@@ -38,7 +38,6 @@ from ..pipeline import (
     ExportScheduleProducer,
     ExportScheduleRequest,
     ExportScheduleRequestConsumer,
-    OutlookAuth,
     PlanProducer,
     PlanProcessor,
     PlanRequest,
@@ -285,7 +284,7 @@ def _build_outlook_service_from_args(args: argparse.Namespace):
 @app.argument("--tenant", help="Azure tenant (default consumers)")
 @app.argument("--token", help="Path to Outlook token cache")
 def cmd_verify(args: argparse.Namespace) -> int:
-    auth = OutlookAuth(
+    auth = OutlookServiceConfig(
         profile=getattr(args, "profile", None),
         client_id=getattr(args, "client_id", None),
         tenant=getattr(args, "tenant", None),
@@ -319,7 +318,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
 @app.argument("--tenant", help="Azure tenant (default consumers)")
 @app.argument("--token", help="Path to Outlook token cache")
 def cmd_sync(args: argparse.Namespace) -> int:
-    auth = OutlookAuth(
+    auth = OutlookServiceConfig(
         profile=getattr(args, "profile", None),
         client_id=getattr(args, "client_id", None),
         tenant=getattr(args, "tenant", None),
@@ -435,7 +434,7 @@ def cmd_apply(args: argparse.Namespace) -> int:
     plan_value = getattr(args, "plan", None)
     if not plan_value:
         raise CLIError("Missing --plan PATH", ExitCode.USAGE)
-    auth = OutlookAuth(
+    auth = OutlookServiceConfig(
         profile=getattr(args, "profile", None),
         client_id=getattr(args, "client_id", None),
         tenant=getattr(args, "tenant", None),

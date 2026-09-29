@@ -6,7 +6,6 @@ from ._base import (
     Any,
     dataclass,
     defaultdict,
-    _dt,
     BaseProducer,
     DateWindowResolver,
     RequestConsumer,
@@ -14,7 +13,7 @@ from ._base import (
     check_service_required,
 )
 from ._context import DedupSelectionContext
-from calendars.selection import weekday_code
+from calendars.selection import extract_hhmm, iso_weekday_code
 
 __all__ = [
     "OutlookDedupRequest",
@@ -140,15 +139,7 @@ class OutlookDedupProcessor(SafeProcessor[OutlookDedupRequest, OutlookDedupResul
         subject = (event.get("subject") or "").strip().lower()
         start = ((event.get("start") or {}).get("dateTime") or "")
         end = ((event.get("end") or {}).get("dateTime") or "")
-        t1 = start.split("T", 1)[1][:5] if "T" in start else ""
-        t2 = end.split("T", 1)[1][:5] if "T" in end else ""
-        weekday = ""
-        try:
-            dt = _dt.datetime.fromisoformat(start.replace("Z", "+00:00"))
-            weekday = weekday_code(dt)
-        except Exception:
-            weekday = ""
-        return subject, weekday, t1, t2
+        return subject, iso_weekday_code(start), extract_hhmm(start), extract_hhmm(end)
 
     def _select_series(
         self,

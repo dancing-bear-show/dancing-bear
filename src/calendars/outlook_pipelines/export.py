@@ -13,6 +13,8 @@ from ._base import (
     RequestConsumer,
     check_service_required,
 )
+from calendars.selection import extract_hhmm, is_one_off_event
+from core.date_utils import DAY_MAP
 
 # Graph recurrence pattern types we can reverse
 _SUPPORTED_PATTERNS = {"daily", "weekly", "absolutemonthly"}
@@ -25,17 +27,6 @@ _TZ_FALLBACK = "America/Toronto"
 # helpers up to the processor. Stripped before the event reaches the plan file —
 # it is provenance for the run report, not part of the plan schema.
 _TZ_SOURCE_KEY = "_tz_source"
-
-# Map Graph lowercase full day names to RRULE 2-char uppercase codes
-_GRAPH_DAY_MAP: dict[str, str] = {
-    "monday": "MO",
-    "tuesday": "TU",
-    "wednesday": "WE",
-    "thursday": "TH",
-    "friday": "FR",
-    "saturday": "SA",
-    "sunday": "SU",
-}
 
 # Map Graph repeat type to plan repeat value
 _REPEAT_MAP: dict[str, str] = {
@@ -102,13 +93,6 @@ def _record_event(acc: _ExportAccumulator, plan_ev: dict[str, Any]) -> None:
     acc.events.append(plan_ev)
 
 
-def _extract_time(dt_str: str) -> str:
-    """Extract HH:MM from a dateTime string like '2026-03-10T09:00:00'."""
-    if "T" in dt_str:
-        return dt_str.split("T", 1)[1][:5]
-    return ""
-
-
 def _date_part(dt_str: str | None) -> str:
     """Return the YYYY-MM-DD prefix of an ISO datetime, or "" when absent."""
     s = (dt_str or "").strip()
@@ -165,7 +149,7 @@ def _apply_recurrence_byday(
     if ptype != "weekly":
         return
     raw_days = pattern.get("daysOfWeek") or []
-    byday = [_GRAPH_DAY_MAP[d.lower()] for d in raw_days if d.lower() in _GRAPH_DAY_MAP]
+    byday = [DAY_MAP[d.lower()] for d in raw_days if d.lower() in DAY_MAP]
     if byday:
         ev["byday"] = byday
 
@@ -208,9 +192,9 @@ def _apply_recurrence_times(
     start_dt = master_start.get("dateTime") or ""
     end_dt = master_end.get("dateTime") or ""
     if start_dt:
-        ev["start_time"] = _extract_time(start_dt)
+        ev["start_time"] = extract_hhmm(start_dt)
     if end_dt:
-        ev["end_time"] = _extract_time(end_dt)
+        ev["end_time"] = extract_hhmm(end_dt)
 
     tz, tz_source = _resolve_tz(master_start, svc)
     if tz:
@@ -339,7 +323,7 @@ def _partition_events(
     Classification is entirely the caller's ``is_one_off`` predicate; this
     function only routes. The ``mid`` guard drops a non-one-off that carries no
     seriesMasterId, since there is no series to attribute it to -- but with the
-    production predicate (OutlookExportProcessor._is_one_off, which already
+    production predicate (calendars.selection.is_one_off_event, which already
     returns True when seriesMasterId is falsy) that case cannot arise. The
     guard is kept for predicates that classify differently, not because the
     current call site can reach it.
@@ -465,10 +449,6 @@ class OutlookExportProcessor(SafeProcessor[OutlookExportRequest, OutlookExportRe
     def __init__(self, today_factory=None) -> None:
         self._window = DateWindowResolver(today_factory)
 
-    def _is_one_off(self, ev: dict[str, Any]) -> bool:
-        etype = (ev.get("type") or "").lower()
-        return etype == "singleinstance" or not ev.get("seriesMasterId")
-
     def _process_safe(self, payload: OutlookExportRequest) -> OutlookExportResult:
         check_service_required(payload.service)
         svc = payload.service
@@ -482,7 +462,7 @@ class OutlookExportProcessor(SafeProcessor[OutlookExportRequest, OutlookExportRe
         ))
 
         acc = _ExportAccumulator()
-        one_offs, by_master = _partition_events(all_events, self._is_one_off)
+        one_offs, by_master = _partition_events(all_events, is_one_off_event)
 
         for ev in one_offs:
             _record_event(acc, _convert_one_off(ev, svc))
