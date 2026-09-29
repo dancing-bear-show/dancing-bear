@@ -51,7 +51,8 @@ A stage spawns an agent when:
 - Every stage in `reads_from` must be transitively reachable via `depends_on`
 - Files in `writes_to` must be written on ALL code paths (use a sentinel on error/skip paths)
 - Never use `./bin/workflow run` inside a stage description — sub-workflows use the skill dispatcher
-- Escape `{` and `}` as `{{` and `}}` in Python code snippets inside stage descriptions
+- Placeholders are `{ident}` with `ident` matching `[A-Za-z_]\w*`. `{name}` matching a trigger param is substituted; unknown names are left as-is. `{{name}}` and `${name}` are never substituted — `{{` renders verbatim, not as an escape for `{`. There is no way to pass a literal `{name}` to an agent when `name` is a declared param.
+- Write JSON examples and code snippets with single braces. The undeclared-variable lint skips `{refs}` in backtick spans, but substitution does not — a declared param in backticks is still replaced.
 - Never commit hardcoded absolute paths (`/Users/...`) in workflow YAML
 
 ## Validation Checklist

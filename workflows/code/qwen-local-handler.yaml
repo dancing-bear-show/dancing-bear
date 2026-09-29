@@ -746,8 +746,8 @@ stages:
            - On acquiring within the ceiling: proceed normally.
            - On timing out: return "deferred-qwen-busy" so the job goes back
              to pending without consuming an attempt (survey's retry_protocol
-             confirms `_handle_outcome` calls `_undo_retry_attempt` for the
-             deferred- prefix), and increment the deferral counter from 5b2 —
+             confirms `_handle_outcome` calls `q.retry(...,
+             count_attempt=False)` for the deferred- prefix), and increment the deferral counter from 5b2 —
              a job that can never win the lock must eventually fail loudly
              rather than cycle forever.
            - Never hold a queue slot indefinitely.
@@ -756,9 +756,9 @@ stages:
          "deferred-" outcome (5b busy, 5c low-memory, 5g low-disk).
 
          THE PROBLEM, verified in source: job_runtime's `_handle_outcome`
-         routes any "deferred-" prefix to `q.retry(...)` and then calls
-         `_undo_retry_attempt(...)`, which rewrites `attempts` back to its
-         previous value. That is deliberate and correct — waiting on a
+         routes any "deferred-" prefix to `q.retry(..., count_attempt=False)`,
+         which moves the job back to pending/ with `attempts` unchanged,
+         inside the same transition. That is deliberate and correct — waiting on a
          transient condition must not burn a job's attempts — but it means
          max_attempts NEVER bounds a deferral. Nothing else bounds it either:
          the reaper only looks at processing/, and purge only touches
@@ -777,11 +777,10 @@ stages:
          this design got it wrong in exactly the way it warned against. The
          handler can mutate `job["payload"]` in memory, but nothing writes
          that back: `_handle_outcome` calls `q.retry(proc_path, ...)`, and
-         `retry` (queue_ops.py:206) starts with
-         `data = safe_load_json(job_path, ...)` — it RELOADS the job from
-         disk and writes only attempts, not_before, updated_at and
-         last_error. `_undo_retry_attempt` then rewrites attempts alone. The
-         handler's increment is discarded on every single deferral, so a
+         `queue_ops.retry` RELOADS the job from disk (via `_owned_record`)
+         and writes only status, not_before, updated_at, last_error, the
+         claim-token removal, and — unless `count_attempt=False`, as it is
+         for a deferral — attempts. The handler's increment is discarded on every single deferral, so a
          naive "deferrals" payload key never exceeds 1 and
          terminal-deferral-limit is unreachable. The guard would look
          present and do nothing.
@@ -1364,12 +1363,13 @@ stages:
         - DEFERRAL BOUND, per contract.json's "deferral_bound", implemented
           with the EXACT mechanism the contract records — not a payload key.
           A payload mutation does not persist: `q.retry` reloads the job from
-          disk (queue_ops.py:206) and writes only attempts, not_before,
-          updated_at and last_error, so an in-memory increment is discarded
+          disk and writes only status, not_before, updated_at, last_error,
+          the claim-token removal and (when counted) attempts, so an
+          in-memory increment is discarded
           every time and the ceiling is never reached. Whatever mechanism the
           design chose, prove it survives a real retry cycle before relying
           on it. Without a working bound a deferred job is unbounded:
-          `_undo_retry_attempt` resets attempts, and neither the reaper
+          `count_attempt=False` leaves attempts unchanged, and neither the reaper
           (processing/ only) nor purge (done/ and error/ only) can see a job
           cycling through pending.
         - EXCEPTION BOUNDARY, per contract.json's redaction section: catch
@@ -1759,13 +1759,14 @@ stages:
           path.
         - DEFERRAL BOUND — test the PERSISTENCE first, because that is where
           the first design failed. Drive the counter through a REAL retry
-          cycle, not a simulated one: call the actual `queue_ops.retry`
-          against a temp queue root, then `_undo_retry_attempt`, then read the
+          cycle, not a simulated one: call the actual `queue_ops.retry` with
+          `count_attempt=False` against a temp queue root, then read the
           job back off disk and assert the counter is still there. A test
           that keeps the job dict in memory between deferrals passes against
           a mechanism that persists nothing, which is exactly the bug
-          (`retry` reloads from disk and writes only attempts, not_before,
-          updated_at, last_error).
+          (`retry` reloads from disk and writes only status, not_before,
+          updated_at, last_error, the claim-token removal and, when counted,
+          attempts).
           Then, with the lock permanently held, assert the handler returns
           "terminal-deferral-limit" AT the specified ceiling — the exact
           prefix, at the exact count, not merely eventually — and that the

@@ -61,7 +61,7 @@ stages:
         mode: generate
         description: >
           JSON object with key "methods": flat list of
-          {{file, cls, method, line}} for every test_* method.
+          {file, cls, method, line} for every test_* method.
     validates_output:
       - path: outputs/test-methods.json
         checks: [is_json, has_key:methods]
@@ -82,7 +82,7 @@ stages:
       Write {workspace}/outputs/batch-list.json with a top-level "items" array.
       Each item is one batch:
         - batch  (integer index, e.g. 0)
-        - files  (list of {{file, slug}} where slug = file with "/" and "."
+        - files  (list of {file, slug} where slug = file with "/" and "."
                   replaced by "_", e.g. tests_test_charts_cli_py)
 
       One agent will be spawned per batch (not per file), so ~440 files at
@@ -97,7 +97,7 @@ stages:
       - name: batch-list
         mode: generate
         description: >
-          JSON object with key "items": list of {{batch, files:[{{file,slug}}]}}
+          JSON object with key "items": list of {batch, files:[{file,slug}]}
           — one entry per fan-out batch.
     validates_output:
       - path: outputs/batch-list.json
@@ -215,7 +215,7 @@ stages:
       Artifact B — {workspace}/outputs/sad-path-gaps.json:
         Aggregate targets into a per-symbol matrix keyed by the CANONICAL
         (module, symbol). For each distinct symbol:
-          - happy_tests: [{{file,method}}] where any targeting method has
+          - happy_tests: [{file,method}] where any targeting method has
             "happy" in its categories
           - sad_tests:   same for "sad"
           - GAP iff len(happy_tests) >= 1 AND len(sad_tests) == 0.

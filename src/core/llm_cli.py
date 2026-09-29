@@ -194,20 +194,24 @@ def _add_emit_subcommand(
     help_text: str,
     builder: Callable[[], str] | None,
     fallback: str,
-) -> None:
+) -> argparse.ArgumentParser:
     """Add an emit-style subcommand to a parser."""
     cmd = subparsers.add_parser(name, help=help_text)
     cmd.add_argument("--write", help="Write output path")
     cmd.add_argument("--stdout", action="store_true", help="Print to stdout")
     cmd.set_defaults(func=_make_emit_command_handler(builder, fallback))
+    return cmd
 
 
 def _build_app_parser(config: LlmConfig) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog=config.prog, description=config.description)
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    _add_emit_subcommand(
+    agentic_cmd = _add_emit_subcommand(
         sub, "agentic", "Emit the agentic capsule", config.agentic, "agentic: (not available)"
+    )
+    agentic_cmd.add_argument(
+        "--compact", action="store_true", help="Accepted for parity; per-app capsules are already compact"
     )
     _add_emit_subcommand(
         sub, "domain-map", "Emit domain map", config.domain_map, _DOMAIN_MAP_UNAVAILABLE

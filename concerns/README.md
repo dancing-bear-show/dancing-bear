@@ -5,7 +5,7 @@ Code review concern guides for dancing-bear. Each file covers a domain:
 | File | Domain | Concerns |
 |------|--------|----------|
 | correctness.md | Python correctness, type safety, logic errors | 52 |
-| security.md | Security vulnerabilities, credential handling, input validation | 8 |
+| security.md | Security vulnerabilities, credential handling, input validation | 11 |
 | tests.md | Test quality, coverage, fixture patterns (unittest) | 25 |
 | patterns.md | Code patterns, CLI framework, lazy imports, plan/apply safety | 34 |
 | reuse.md | DRY, intra-domain duplication, shared extraction | 5 |
@@ -18,6 +18,7 @@ Code review concern guides for dancing-bear. Each file covers a domain:
 | workflow-fanout.md | Fan-out patterns, writes-to contracts, worker queue correctness | 16 |
 | phone-layout.md | iOS home screen layout: icon map, folder/page structure, profile install | 7 |
 | slides-yaml.md | Slide deck YAML: bullet forms, layouts, silent-drop failure modes | 13 |
+| collateral-damage.md | Defects that fixes introduce: siblings, regressions, incomplete fixes, collateral doc drift | 5 |
 
 Used by: code review agents and the `reviewer` agent defined in CLAUDE.md.
 Load guides selectively based on the file types in the diff.

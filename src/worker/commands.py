@@ -122,13 +122,14 @@ class StatusCommand:
     def _load_completed_job_rows(path: Path) -> list[dict]:
         """Parse today's perf log, keeping only successful daemon run_cli records."""
         rows: list[dict] = []
-        for line in path.open("r", encoding="utf-8"):
-            try:
-                rec = json.loads(line)
-            except Exception:  # nosec B112 - skip malformed log lines
-                continue
-            if rec.get("args") == ["daemon", "run_cli", "ok"]:
-                rows.append(rec)
+        with path.open("r", encoding="utf-8") as fh:
+            for line in fh:
+                try:
+                    rec = json.loads(line)
+                except Exception:  # nosec B112 - skip malformed log lines
+                    continue
+                if rec.get("args") == ["daemon", "run_cli", "ok"]:
+                    rows.append(rec)
         return rows
 
     @staticmethod
