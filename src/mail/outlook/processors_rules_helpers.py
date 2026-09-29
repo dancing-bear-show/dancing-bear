@@ -56,18 +56,8 @@ class RuleContext:
 
 
 def _canon_rule(rule: dict) -> str:
-    """Create a canonical key for comparing rules."""
-    crit = rule.get("criteria") or {}
-    act = rule.get("action") or {}
-    return str({
-        "from": crit.get("from"),
-        "to": crit.get("to"),
-        "subject": crit.get("subject"),
-        "add": tuple(sorted((act.get("addLabelIds") or []))),
-        "forward": act.get("forward"),
-        "move": act.get("moveToFolderId"),
-    })
-
+    """Create a canonical key for a live rule; see ``_create_rule_key``."""
+    return _create_rule_key(rule.get("criteria") or {}, rule.get("action") or {})
 
 
 def _norm_criteria_field(value: str | None) -> tuple[str, ...] | None:
@@ -88,9 +78,9 @@ def _norm_criteria_field(value: str | None) -> tuple[str, ...] | None:
 def _criteria_key(criteria: dict[str, Any]) -> str:
     """Create a criteria-only key for reconciliation matching.
 
-    Used alongside ``_canon_rule`` / ``_create_rule_key`` for the
-    ``--reconcile`` path only.  Matching by criteria alone lets a rule whose
-    action changed be recognised as the same rule rather than a new one.
+    The criteria half of ``_create_rule_key``, for the ``--reconcile`` path
+    only.  Matching by criteria alone lets a rule whose action changed be
+    recognised as the same rule rather than a new one.
 
     Case-insensitive: live rules store criteria in UPPERCASE; desired rules use
     lowercase from the derive step.  ``_norm_criteria_field`` case-folds and
@@ -246,28 +236,22 @@ def _build_rule_action(action_spec: dict[str, Any], ctx: RuleContext) -> dict[st
 
 
 def _create_rule_key(criteria: dict[str, Any], action: dict[str, Any]) -> str:
-    """Create canonical key for a rule."""
-    return str({
-        "from": criteria.get("from"),
-        "to": criteria.get("to"),
-        "subject": criteria.get("subject"),
-        "add": tuple(sorted(action.get("addLabelIds", []) or [])),
-        "forward": action.get("forward"),
-        "move": action.get("moveToFolderId"),
-    })
+    """Create the canonical (criteria + action) key for a rule.
 
+    The single key both sides of every comparison use: ``_canon_rule`` keys the
+    live rules with it, and sync/plan key each desired spec with it.
 
-def _norm_create_rule_key(criteria: dict[str, Any], action: dict[str, Any]) -> str:
-    """Create a case-normalised canonical key for a rule.
-
-    Identical to ``_create_rule_key`` except that the criteria fields are passed
-    through ``_norm_criteria_field`` for case-insensitive, order-insensitive
-    comparison.  Used to detect a live rule that already satisfies a desired spec
-    where the only difference is criteria case (e.g. live stores UPPERCASE
-    criteria, desired emits lowercase from the derive step).
+    Criteria fields go through ``_norm_criteria_field`` (case-folded, OR tokens
+    sorted).  Graph returns live criteria UPPERCASE (``SCOUTSTRACKER.CA``) while
+    derive emits lowercase, and a raw-string key made every such rule look
+    missing: plain ``rules.sync`` reported ``Created: 25`` against a mailbox
+    that needed 3, and would have created 22 duplicates.  The same mismatch made
+    ``--delete-missing`` treat each UPPERCASE-stored rule as absent from the
+    config and delete it.  Outlook's sender/recipient/subject conditions are
+    case-insensitive substring matches, so folding loses nothing.
 
     Action fields (addLabelIds, moveToFolderId, forward) are Graph ids or email
-    addresses and are kept as-is; the case mismatch is criteria-specific.
+    addresses and are kept as-is.
     """
     return str({
         "from": _norm_criteria_field(criteria.get("from")),
