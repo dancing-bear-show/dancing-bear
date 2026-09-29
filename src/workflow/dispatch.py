@@ -312,7 +312,14 @@ def _header(stage: ResolvedStage, workflow_name: str, ws: str, verb: str = "exec
 def _gather(stage: ResolvedStage, wf: str, ws: str) -> str:
     lines = _header(stage, wf, ws)
     write_root = _ISOLATED_ROOT if _is_isolated(stage) else ws
-    lines += ["## Workspace", f"Write all output to: {write_root}/outputs/", ""]
+    lines += [
+        "## Workspace",
+        (
+            f"Write each output file to the exact path listed under Output Files below; "
+            f"bare filenames (no directory prefix) go under {write_root}/outputs/."
+        ),
+        "",
+    ]
     if stage.cli_commands:
         lines += _section("CLI Commands\nRun these commands and capture their output", [f"`{c}`" for c in stage.cli_commands])
     wp = _write_paths(stage, ws)

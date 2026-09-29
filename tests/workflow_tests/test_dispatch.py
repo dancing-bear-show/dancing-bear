@@ -724,5 +724,88 @@ class TestWritesToResolution(unittest.TestCase):
             self.assertTrue((ws / "outputs" / "report.json").is_file())
 
 
+# ---------------------------------------------------------------------------
+# Workspace instruction consistency — gather and other kinds
+# ---------------------------------------------------------------------------
+
+
+class TestWorkspaceInstructionConsistency(unittest.TestCase):
+    """The ## Workspace section must not contain an unconditional
+    "Write all output to: <ws>/outputs/" line, which contradicts writes_to
+    entries that resolve to context/, validation/, etc.
+
+    Instead the instruction must direct agents to the specific paths listed
+    under Output Files and only fall back to outputs/ for bare filenames.
+    """
+
+    def _gather_prompt(
+        self,
+        writes_to: tuple[str, ...],
+        ws: str = "/ws",
+        isolation: str | None = None,
+    ) -> str:
+        from workflow.models import AgentSpec
+
+        spec = make_stage_spec(
+            name="gather-stage",
+            kind=StageKind.gather,
+            agent=AgentSpec(role="researcher", isolation=isolation),
+            writes_to=writes_to,
+        )
+        return build_agent_prompt(make_resolved_stage(spec=spec, index=0), "wf", ws)
+
+    def _execute_prompt(
+        self,
+        writes_to: tuple[str, ...],
+        ws: str = "/ws",
+        isolation: str | None = None,
+    ) -> str:
+        from workflow.models import AgentSpec
+
+        spec = make_stage_spec(
+            name="execute-stage",
+            kind=StageKind.execute,
+            agent=AgentSpec(role="code-writer", isolation=isolation),
+            writes_to=writes_to,
+        )
+        return build_agent_prompt(make_resolved_stage(spec=spec, index=1), "wf", ws)
+
+    def test_gather_with_context_and_bare_lists_correct_paths(self) -> None:
+        prompt = self._gather_prompt(("context/target.md", "report.json"), ws="/ws")
+        self.assertIn("/ws/context/target.md", prompt)
+        self.assertIn("/ws/outputs/report.json", prompt)
+
+    def test_gather_with_context_no_unconditional_outputs_line(self) -> None:
+        prompt = self._gather_prompt(("context/target.md", "report.json"), ws="/ws")
+        self.assertNotIn("Write all output to: /ws/outputs/", prompt)
+
+    def test_gather_isolated_with_context_no_unconditional_outputs_line(self) -> None:
+        prompt = self._gather_prompt(
+            ("context/target.md", "report.json"),
+            ws="/ws",
+            isolation="worktree",
+        )
+        self.assertNotIn("Write all output to: <your-cwd>/outputs/", prompt)
+
+    def test_gather_isolated_with_context_lists_own_cwd_paths(self) -> None:
+        prompt = self._gather_prompt(
+            ("context/target.md", "report.json"),
+            ws="/ws",
+            isolation="worktree",
+        )
+        self.assertIn("<your-cwd>/context/target.md", prompt)
+        self.assertIn("<your-cwd>/outputs/report.json", prompt)
+
+    def test_execute_with_context_and_bare_lists_correct_paths(self) -> None:
+        prompt = self._execute_prompt(("context/target.md", "report.json"), ws="/ws")
+        self.assertIn("/ws/context/target.md", prompt)
+        self.assertIn("/ws/outputs/report.json", prompt)
+
+    def test_gather_workspace_instruction_mentions_outputs_fallback(self) -> None:
+        """The Workspace section must still tell agents where bare names land."""
+        prompt = self._gather_prompt(("report.json",), ws="/ws")
+        self.assertIn("/ws/outputs/", prompt)
+
+
 if __name__ == "__main__":
     unittest.main()

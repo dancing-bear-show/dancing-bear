@@ -101,7 +101,7 @@ If compile fails, report the error and stop.
 This prints the workspace path. Store it. If `--workspace` was provided, pass
 it as `--base-dir` (init-workspace has no `--workspace` flag; the path must be
 shell-safe or it is refused). The workspace will contain `manifest.json`, `stages/`, `outputs/`,
-`validation/`, and `dispatch/` subdirectories.
+`validation/`, `dispatch/`, and `context/` subdirectories.
 
 Generate a `RUN_ID` in the format `{workflow_name}-{YYYYMMDD}-{8_hex_chars}`.
 
