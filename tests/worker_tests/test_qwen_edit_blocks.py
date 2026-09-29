@@ -433,7 +433,7 @@ class ApplyEditBlocksTests(unittest.TestCase):
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(  # nosec B603 B607 - fixed git argv inside a test temp dir
-        ["git", *args], cwd=str(repo), capture_output=True, text=True, check=False
+        ["git", *args], cwd=str(repo), capture_output=True, text=True, check=False, timeout=30
     )
 
 
@@ -513,6 +513,51 @@ class BuildUnifiedDiffGitApplyTests(TempDirMixin, unittest.TestCase):
         diff = qwen_edits.edits_to_diff(edit_block("src/n.py", "b", "B"), {"src/n.py": "a\nb"})
 
         self.assertFalse(REAL_GIT_APPLY_CHECK(diff.replace("\\ No newline at end of file\n", ""), self.repo))
+
+    def test_path_containing_a_tab_is_quoted_and_git_apply_accepts_it(self) -> None:
+        rel = "src/a\tb.py"
+        diff = self._assert_round_trip({rel: "x\n"}, edit_block(rel, "x", "y"))
+
+        self.assertIn('"a/src/a\\tb.py"', diff)
+        self.assertIn('"b/src/a\\tb.py"', diff)
+        self.assertNotIn("a/src/a\tb.py", diff)
+
+    def test_path_containing_a_double_quote_is_quoted_and_git_apply_accepts_it(self) -> None:
+        rel = 'src/a"b.py'
+        diff = self._assert_round_trip({rel: "x\n"}, edit_block(rel, "x", "y"))
+
+        self.assertIn('"a/src/a\\"b.py"', diff)
+        self.assertIn('"b/src/a\\"b.py"', diff)
+
+    def test_path_containing_a_backslash_is_quoted_and_git_apply_accepts_it(self) -> None:
+        """A backslash in the path never reaches _file_diff through an edit
+        block (_normalise_edit_path refuses it, matching a real POSIX repo
+        never holding such a name via this path) - build_unified_diff is
+        exercised directly, as apply_edit_blocks would call it for any path
+        already present in the repo-relative `files` mapping."""
+        rel = "src/a\\b.py"
+        path = self.repo / "src" / "a\\b.py"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"x\n")
+        original = {rel: "x\n"}
+        updated = {rel: "y\n"}
+        diff = qwen_edits.build_unified_diff(original, updated)
+
+        self.assertIn('"a/src/a\\\\b.py"', diff)
+        self.assertIn('"b/src/a\\\\b.py"', diff)
+        self.assertTrue(REAL_GIT_APPLY_CHECK(diff, self.repo), diff)
+        patch = Path(self.tmpdir) / "backslash.patch"
+        patch.write_text(diff, encoding="utf-8")
+        applied = _git(self.repo, "apply", str(patch))
+        self.assertEqual(applied.returncode, 0, applied.stderr)
+        self.assertEqual(path.read_bytes(), b"y\n")
+
+    def test_plain_path_is_unquoted_and_byte_identical(self) -> None:
+        diff = self._assert_round_trip({"src/plain.py": "x\n"}, edit_block("src/plain.py", "x", "y"))
+
+        self.assertIn("--- a/src/plain.py\n", diff)
+        self.assertIn("+++ b/src/plain.py\n", diff)
+        self.assertNotIn('"', diff)
 
 
 class PromptLabelTests(QwenHandlerCase):

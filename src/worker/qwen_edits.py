@@ -301,12 +301,49 @@ def _diff_lines(text: str) -> list[str]:
     return lines
 
 
+_QUOTE_ESCAPES = {"\a": "\\a", "\b": "\\b", "\t": "\\t", "\n": "\\n", "\v": "\\v", "\f": "\\f", "\r": "\\r", '"': '\\"', "\\": "\\\\"}
+
+
+def _quote_diff_label(label: str) -> str:
+    """label (an "a/<path>" or "b/<path>" diff header value) as git itself
+    would write it in a "---"/"+++"/"diff --git" header.
+
+    A byte-identical label needs no quoting and is returned as-is. A label
+    carrying a tab, other ASCII control character (< 0x20 or 0x7f), a double
+    quote, or a backslash is wrapped whole in double quotes with those bytes
+    C-style escaped, matching core.quotePath's default: git quotes the
+    complete "a/..."/"b/..." value, not just the path portion. Other bytes
+    (including multi-byte UTF-8 sequences) pass through unescaped, matching
+    git's default UTF-8 handling. Without this, a control/quote/backslash
+    character inside an unquoted header desynchronises git apply's header
+    parser and a valid edit is rejected as terminal-patch-does-not-apply.
+    """
+    if not any(ord(ch) < 0x20 or ord(ch) == 0x7F or ch in ('"', "\\") for ch in label):
+        return label
+    out = ['"']
+    for ch in label:
+        code = ord(ch)
+        if ch in _QUOTE_ESCAPES:
+            out.append(_QUOTE_ESCAPES[ch])
+        elif code < 0x20 or code == 0x7F:
+            out.append(f"\\{code:03o}")
+        else:
+            out.append(ch)
+    out.append('"')
+    return "".join(out)
+
+
 def _file_diff(rel: str, old: str, new: str) -> str:
     """One file's unified diff with a/ and b/ headers. A line without a
     newline can only be a file's last line; git needs it followed by the
-    "\\ No newline at end of file" marker."""
+    "\\ No newline at end of file" marker. Header labels are C-style quoted
+    the way git itself would quote them (see _quote_diff_label) so a control
+    character, quote, or backslash in the pathname cannot desynchronise git
+    apply's header parser."""
+    a_label = _quote_diff_label(f"a/{rel}")
+    b_label = _quote_diff_label(f"b/{rel}")
     out: list[str] = []
-    for line in difflib.unified_diff(_diff_lines(old), _diff_lines(new), f"a/{rel}", f"b/{rel}"):
+    for line in difflib.unified_diff(_diff_lines(old), _diff_lines(new), a_label, b_label):
         out.append(line if line.endswith("\n") else f"{line}\n{_NO_NEWLINE_MARKER}\n")
     return "".join(out)
 
