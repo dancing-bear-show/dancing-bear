@@ -48,6 +48,7 @@ from typing import Any
 from workflow.models import ParamRules
 from workflow.param_guard import ParamCheck, ParamGuardResult, check_params
 from workflow.parser_errors import WorkflowParseError
+from workflow.placeholders import is_identifier
 
 __all__ = [
     "ENGINE_BUILTIN_PARAMS",
@@ -68,8 +69,6 @@ __all__ = [
 # as an override would let ``--params workspace=...`` bypass the path check.
 ENGINE_BUILTIN_PARAMS: frozenset[str] = frozenset({"work_dir"})
 
-_IDENTIFIER_RE = re.compile(r"[A-Za-z_]\w*", re.ASCII)  # ASCII: a bare \w admits Unicode letters
-
 # A path that is substituted into stage text an agent may run as shell must
 # not be able to break out of quoting: no whitespace, quotes, ``$``, backtick,
 # ``;&|<>()``, globs, braces, backslash, or newline. ``:`` is allowed because
@@ -80,11 +79,6 @@ _SHELL_SAFE_PATH_HINT = "allowed: letters, digits, and . _ / + @ % = , : ~ -"
 
 class UnsafePathError(ValueError):
     """A workspace-related path contains characters unsafe for shell rendering."""
-
-
-def is_identifier(name: str) -> bool:
-    """True if *name* is a ``[A-Za-z_][A-Za-z0-9_]*`` placeholder name."""
-    return _IDENTIFIER_RE.fullmatch(name) is not None
 
 
 def undeclared_overrides(declared: Iterable[str], overrides: Iterable[str]) -> list[str]:

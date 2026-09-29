@@ -45,7 +45,7 @@ stages:
         {test_cmd}
 
         If the run exits 0: write validation/fixes-verified.json with
-          {{"tests_green": true, "retry_count": 0}}
+          {"tests_green": true, "retry_count": 0}
         and stop — the stage is done.
 
       Step 2 — targeted fix (only if Step 1 fails):
@@ -57,11 +57,11 @@ stages:
         Re-run {test_cmd} once more (this is the only allowed retry).
 
         If exit 0: write validation/fixes-verified.json with
-          {{"tests_green": true, "retry_count": 1}}
+          {"tests_green": true, "retry_count": 1}
         and stop.
 
         If still failing: write validation/fixes-verified.json with
-          {{"tests_green": false, "retry_count": 1, "failures": ["<test-id>: <brief reason>", ...]}}
+          {"tests_green": false, "retry_count": 1, "failures": ["<test-id>: <brief reason>", ...]}
         and exit non-zero so the workflow marks this stage failed.
 
       Do NOT run ruff, mypy, or any other linter in this stage — test-only.
