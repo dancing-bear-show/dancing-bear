@@ -495,6 +495,40 @@ class TestCountSweepCLI(_Tree):
                 self.assertEqual((code, out), (2, ""))
                 self.assertIn("refused root", err)
 
+    def test_protected_roots_refused(self) -> None:
+        # --root .git / .claude / .github are protected paths; they must be
+        # refused with exit 2 even when the directories exist under the anchor.
+        for name in (".git", ".claude", ".github"):
+            protected = self.root / name
+            protected.mkdir(exist_ok=True)
+            with self.subTest(root=name):
+                code, out, err = _cli("--root", str(protected), "--pattern=x", "--path", "config")
+                self.assertEqual((code, out), (2, ""), f"expected exit 2 for --root {name}")
+                self.assertIn("refused root", err)
+
+    def test_protected_root_subdirectory_refused(self) -> None:
+        # A subdirectory of .git is also protected (e.g. .git/hooks).
+        hooks = self.root / ".git" / "hooks"
+        hooks.mkdir(parents=True, exist_ok=True)
+        code, out, err = _cli("--root", str(hooks), "--pattern=x", "--path", ".")
+        self.assertEqual((code, out), (2, ""))
+        self.assertIn("refused root", err)
+
+    def test_normal_subdirectory_root_accepted(self) -> None:
+        # Happy path: a non-protected subdirectory is a valid --root.
+        code, out, err = _cli("--root", str(self.root / "src"), "--pattern=no match here",
+                               "--path", "c.py")
+        self.assertEqual(code, 0, err)
+        import json as _json
+        self.assertEqual(_json.loads(out), {"hits": 1, "files": 1})
+
+    def test_symlink_loop_root_refused_as_sweep_error(self) -> None:
+        # A symlink loop as --root must raise SweepError (exit 2), not propagate RuntimeError.
+        loop = self.root / "loop"
+        loop.symlink_to(loop)
+        code, out, err = _cli("--root", str(loop), "--pattern=x", "--path", "src")
+        self.assertEqual((code, out), (2, ""))
+        self.assertIn("refused root", err)
 
     def test_prints_hits_json(self) -> None:
         code, out, _ = self._run("--pattern=check-params[^|]*--check", "--path", "workflows/", "--path", "src")

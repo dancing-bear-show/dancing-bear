@@ -124,7 +124,7 @@ def resolve_paths(root: Path, paths: list[str]) -> list[Path]:
     normalised_paths = [check_path(raw) for raw in paths]
     try:
         root_real = root.resolve(strict=True)
-    except OSError as exc:
+    except (OSError, RuntimeError) as exc:  # RuntimeError: a symlink loop in the root path
         raise SweepError(f"repository root is unusable: {exc}") from exc
     return [_resolve_one(root_real, raw, normalised)
             for raw, normalised in zip(paths, normalised_paths, strict=True)]
@@ -145,16 +145,26 @@ def cli_root(raw: str | None) -> Path:
     ``None`` means the repo root. The library :func:`count_sweep` takes any
     ``root``; only the CLI, whose ``--root`` is caller-supplied text, is held
     to this checkout.
+
+    A root whose repo-relative path is protected (e.g. ``.git``, ``.claude``,
+    ``.github``) is refused with the same policy as :func:`check_path`.
     """
+    from core.copilot_overview import _is_protected
+
     anchor = repo_root()
     if raw is None:
         return anchor
     try:
         real = Path(raw).resolve(strict=True)
-    except OSError as exc:
+    except (OSError, RuntimeError) as exc:  # RuntimeError: a symlink loop in the root path
         raise SweepError(f"refused root: {raw!r} is unusable: {exc}") from exc
     if not real.is_dir() or not real.is_relative_to(anchor):
         raise SweepError(f"refused root: {raw!r} is not the repository root or a directory inside it")
+    # Reject a root whose repo-relative path is itself protected, so that
+    # --root .git --path config cannot bypass check_path.
+    rel = real.relative_to(anchor)
+    if rel != Path(".") and _is_protected(rel.as_posix()):
+        raise SweepError(f"refused root: {raw!r} is a protected path")
     return real
 
 
