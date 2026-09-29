@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.doc_metadata import parse_doc_metadata
 from slides._parse_bullets import _body_to_bullets, _parse_bullets
 from slides.constants import (
     DEFAULT_TEMPLATE_SLIDE_INDEX,
@@ -16,10 +17,8 @@ from slides.constants import (
     LAYOUT_BULLET,
     LAYOUT_TABLE,
     RESERVED_LAYOUT_KEY,
-    YAML_AUTHOR,
     YAML_BODY,
     YAML_BULLETS,
-    YAML_DATE,
     YAML_FIRST_COL_WIDTH,
     YAML_HEADERS,
     YAML_IMAGE,
@@ -168,10 +167,11 @@ def load_deck_from_dict(
     """
     layout_map = _parse_layout_map(data.get(YAML_LAYOUT_MAP))
 
+    doc = parse_doc_metadata(data, DEFAULT_TITLE)
     metadata = DeckMetadata(
-        title=data.get(YAML_TITLE, DEFAULT_TITLE),
-        author=data.get(YAML_AUTHOR),
-        date=str(data[YAML_DATE]) if data.get(YAML_DATE) is not None else None,
+        title=doc.title,
+        author=doc.author,
+        date=doc.date,
         template_slide_index=data.get(YAML_TEMPLATE_SLIDE_INDEX, DEFAULT_TEMPLATE_SLIDE_INDEX),
         theme_color=data.get(YAML_THEME_COLOR, DEFAULT_THEME_COLOR),
         layout_map=layout_map,

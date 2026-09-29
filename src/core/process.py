@@ -41,6 +41,10 @@ class CompletedRun:
     stderr: str
     returncode: int
     command: tuple[str, ...] = field(default=())
+    # The OSError that prevented exec, when there was one. ``not_found`` alone
+    # cannot tell a missing binary from a non-executable one, nor either from a
+    # process that really exited 127.
+    exec_error: OSError | None = field(default=None, compare=False, repr=False)
 
     @property
     def ok(self) -> bool:
@@ -77,6 +81,7 @@ def run_binary(
     cwd: str | Path | None = None,
     timeout: float | None = None,
     env: Mapping[str, str] | None = None,
+    errors: str | None = None,
 ) -> CompletedRun:
     """Run ``cmd`` as a fixed argument vector and capture its text output.
 
@@ -84,6 +89,9 @@ def run_binary(
     path can be interpreted. Never raises on a non-zero exit; a timeout yields
     ``RC_TIMEOUT`` and a missing or non-executable binary yields
     ``RC_NOT_FOUND``, both with whatever output was captured.
+
+    ``errors`` is the decode error handler (e.g. ``"replace"``); the default
+    ``None`` is strict, so undecodable output raises ``UnicodeDecodeError``.
     """
     command = tuple(str(part) for part in cmd)
     if not command:
@@ -100,6 +108,7 @@ def run_binary(
             cwd=str(cwd) if cwd is not None else None,
             timeout=timeout,
             env=dict(env) if env is not None else None,
+            errors=errors,
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
@@ -109,7 +118,7 @@ def run_binary(
             returncode=RC_TIMEOUT,
             command=command,
         )
-    except FileNotFoundError:
+    except FileNotFoundError as exc:
         # ENOENT specifically: the binary is absent. Callers key terser
         # messaging off this, so it must not absorb other OSErrors.
         return CompletedRun(
@@ -117,6 +126,7 @@ def run_binary(
             stderr=f"{command[0]}: not found",
             returncode=RC_NOT_FOUND,
             command=command,
+            exec_error=exc,
         )
     except OSError as exc:
         # Everything else that prevents exec -- permission denied, exec format
@@ -128,6 +138,7 @@ def run_binary(
             stderr=f"{command[0]}: {exc}",
             returncode=RC_NOT_FOUND,
             command=command,
+            exec_error=exc,
         )
     return CompletedRun(
         stdout=proc.stdout or "",

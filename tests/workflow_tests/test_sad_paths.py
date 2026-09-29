@@ -1,7 +1,7 @@
 """SAD-PATH tests for workflow error/edge branches.
 
 Covers the silent-fallback ``except`` handlers in:
-- core.fileutil.safe_read_text  (FileNotFoundError → None)
+- core.textio.read_text(suppress=FileNotFoundError)  (missing → None)
 - workflow.persistence.read_stage_result  (FileNotFoundError on glob → None)
 - workflow.cli_compile._fragment_bytes  (OSError on read_bytes → skip)
 - workflow.cli_compile._try_read_cached_compile  (OSError → None)
@@ -21,7 +21,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from core.fileutil import safe_read_text
+from core.textio import read_text
 from workflow.cli_compile import _fragment_bytes, _try_read_cached_compile
 from workflow.cli_dispatch import _stage_names_from_manifest, _stage_names_from_plan
 from workflow.include import extract_include_entries
@@ -31,25 +31,31 @@ from workflow.persistence import read_stage_result
 
 
 # ---------------------------------------------------------------------------
-# core.fileutil.safe_read_text  (FileNotFoundError → None)
+# core.textio.read_text(suppress=FileNotFoundError)  (missing → None)
 # ---------------------------------------------------------------------------
 
 
-class TestSafeReadText(unittest.TestCase):
-    """safe_read_text returns file text on success, None on missing file."""
+class TestReadTextMissingOnly(unittest.TestCase):
+    """read_text scoped to FileNotFoundError: text on success, None on missing,
+    and any other read error propagates (the compiler relies on this)."""
 
     def test_returns_text_for_existing_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             p = Path(tmp_dir) / "file.txt"
             p.write_text("hello world", encoding="utf-8")
-            result = safe_read_text(p)
+            result = read_text(p, default=None, suppress=FileNotFoundError)
         self.assertEqual(result, "hello world")
 
     def test_returns_none_for_missing_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             p = Path(tmp_dir) / "nonexistent.txt"
-            result = safe_read_text(p)
+            result = read_text(p, default=None, suppress=FileNotFoundError)
         self.assertIsNone(result)
+
+    def test_other_read_errors_propagate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            with self.assertRaises(IsADirectoryError):
+                read_text(Path(tmp_dir), default=None, suppress=FileNotFoundError)
 
 
 # ---------------------------------------------------------------------------

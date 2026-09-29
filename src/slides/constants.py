@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.doc_metadata import HEADER_BG_HEX
+
 # =============================================================================
 # Bullet Characters
 # =============================================================================
@@ -96,7 +98,7 @@ def table_header_bg() -> Any:
     """Dark blue-gray RGBColor for the table header row."""
     from pptx.dml.color import RGBColor
 
-    return RGBColor(0x2D, 0x3A, 0x4F)
+    return RGBColor.from_string(HEADER_BG_HEX)
 
 
 def table_row_even_bg() -> Any:

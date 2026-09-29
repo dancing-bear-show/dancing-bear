@@ -69,7 +69,7 @@ flowchart LR
 
 **I/O utilities**
 - `context.py` — `AppContext`: lightweight args/config/root-path carrier.
-- `textio.py` — UTF-8 read/write helpers.
+- `textio.py` — UTF-8 read/write helpers; `read_text(suppress=...)` scopes which read errors fall back to the default.
 - `yamlio.py` — YAML read/write; errors raise `CLIError`.
 - `fileutil.py` — `atomic_write_json`, `safe_load_json`, `find_rotated_files`, `iter_jsonl_file`; errors raise `CLIError`.
 - `text_utils.py` — `strip_css_boilerplate`, `html_to_text`, `normalize_unicode`, `truncate_text`, time-range parsing.
@@ -79,9 +79,10 @@ flowchart LR
 - `parallel.py` — `chunked`, `parallel_map`.
 - `cache.py` — `ConfigCacheMixin`: JSON cache with TTL.
 - `patterns.py` — shared regex patterns for HTML and time-expression parsing.
+- `doc_metadata.py` — `parse_doc_metadata` (title/author/date) and `HEADER_BG_HEX`, shared by `slides` and `sheets`.
 
 **Network / secrets**
 - `http.py` — `HttpClient`: requests-based HTTP with retry, timeouts, secret masking.
 - `secrets.py` — `mask_text`, `mask_headers`, `mask_url`.
-- `gh_cli.py` — `GhCLI`: thin `gh` CLI wrapper for JSON-friendly api/graphql/pr calls; errors raise `CLIError`. `graphql_checked` raises on a GraphQL `errors` array (gh exits 0 on those). `graphql_checked` and `api_post` send the request as JSON on stdin (`gh api --input -`), so no body reaches gh's argv and `@path` is never read as a file. `field_args` (strings via `-f`) remains only for `api()` and the legacy `graphql()`.
+- `gh_cli.py` — `GhCLI`: thin `gh` CLI wrapper for JSON-friendly api/graphql/pr calls; errors raise `CLIError`. `graphql_checked` raises on a GraphQL `errors` array (gh exits 0 on those). `graphql_checked` and `api_post` send the request as JSON on stdin (`gh api --input -`), so no body reaches gh's argv and `@path` is never read as a file. `field_args` (strings via `-f`) remains only for `api()`.
 - `github/` — the one GitHub access layer: paginated review-thread fetch (`threads`), bot/human classification (`authors`), verified reply/resolve (`mutations`), repo identity (`repo`), PR porcelain (`pulls`). `./bin/github`, `bin/pr-assistant`, and workflow stages all go through it — do not re-implement these calls with raw `gh`.

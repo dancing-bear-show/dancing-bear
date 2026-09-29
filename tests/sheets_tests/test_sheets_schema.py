@@ -6,7 +6,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from core.doc_metadata import HEADER_BG_HEX
 from sheets.generator import load_workbook_from_yaml
+from sheets.schema import HeaderStyle
 
 
 class TestLoadWorkbookFromYaml(unittest.TestCase):
@@ -129,3 +131,28 @@ sheets:
             self.assertFalse(wb.sheets[0].alternating_rows)
         finally:
             Path(path).unlink()
+
+
+class TestWorkbookMetadataParsing(unittest.TestCase):
+    """title/author/date parse the same way the slides generator parses them."""
+
+    CASES = [
+        ("missing", "sheets: []\n", ("Untitled", None, None)),
+        ("null", "title: T\nauthor: null\ndate: null\nsheets: []\n", ("T", None, None)),
+        ("empty", "title: ''\nauthor: ''\ndate: ''\nsheets: []\n", ("", "", "")),
+        ("present", "title: T\nauthor: A\ndate: 2026-01-15\nsheets: []\n",
+         ("T", "A", "2026-01-15")),
+    ]
+
+    def test_cases(self):
+        for name, text, (title, author, date) in self.CASES:
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "wb.yaml"
+                path.write_text(text, encoding="utf-8")
+                meta = load_workbook_from_yaml(str(path)).metadata
+                self.assertEqual((meta.title, meta.author, meta.date), (title, author, date))
+
+
+class TestHeaderStyleDefault(unittest.TestCase):
+    def test_default_bg_matches_shared_header_colour(self):
+        self.assertEqual(HeaderStyle().bg_color, f"#{HEADER_BG_HEX}")

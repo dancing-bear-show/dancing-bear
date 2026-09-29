@@ -5,13 +5,13 @@ Converts DOCX to PDF and rotates 180 degrees for Australian reading orientation.
 
 from __future__ import annotations
 
-import subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
 import sys
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
 from core.cli_output import OutputWriter
+from core.process import run_binary
 
 _writer = OutputWriter()
 
@@ -108,28 +108,20 @@ def convert_docx_to_pdf(docx_path: str, pdf_path: str) -> ConversionResult:
         A ConversionResult that is falsy on failure and carries the reason.
     """
     outdir = Path(pdf_path).parent
-    try:
-        # Try LibreOffice command line conversion
-        result = subprocess.run(  # nosec B603 B607 - invoking known system PDF tool with trusted arguments
-            [
-                "soffice",
-                "--headless",
-                "--convert-to",
-                "pdf",
-                "--outdir",
-                str(outdir),
-                docx_path,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=CONVERT_TIMEOUT_SECONDS,
-        )
-    except subprocess.TimeoutExpired:
-        return ConversionResult(ok=False, failure=ConversionFailure.CONVERTER_TIMEOUT)
-    except FileNotFoundError:
+    result = run_binary(
+        ["soffice", "--headless", "--convert-to", "pdf", "--outdir", str(outdir), docx_path],
+        timeout=CONVERT_TIMEOUT_SECONDS,
+    )
+    if isinstance(result.exec_error, FileNotFoundError):
         return ConversionResult(ok=False, failure=ConversionFailure.CONVERTER_MISSING)
+    if result.exec_error is not None:
+        # Only a missing binary is an expected failure; a permission or exec
+        # format error is an environment fault and propagates.
+        raise result.exec_error
+    if result.timed_out:
+        return ConversionResult(ok=False, failure=ConversionFailure.CONVERTER_TIMEOUT)
 
-    stderr = result.stderr or ""
+    stderr = result.stderr
     if result.returncode != 0:
         return ConversionResult(
             ok=False, failure=ConversionFailure.CONVERTER_ERROR, stderr=stderr

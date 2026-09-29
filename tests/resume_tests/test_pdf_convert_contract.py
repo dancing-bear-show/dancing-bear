@@ -89,7 +89,7 @@ def _capture_convert(
     use non-existent paths like ``/in/resume.docx``.
     """
     runner = _fake_run(returncode, stderr)
-    with patch("resume.australian_rotate.subprocess.run", runner):
+    with patch("core.process.subprocess.run", runner):
         with patch.object(Path, "is_file", lambda _self: writes_output):
             result = convert_docx_to_pdf(docx_path, pdf_path)
     runner.assert_called_once()
@@ -116,11 +116,11 @@ class TestConvertArgvIsAList(unittest.TestCase):
 
     def test_argv_is_a_list_of_strings_with_shell_disabled(self) -> None:
         runner = _fake_run(0)
-        with patch("resume.australian_rotate.subprocess.run", runner):
+        with patch("core.process.subprocess.run", runner):
             convert_docx_to_pdf("/in/resume.docx", "/out/resume.pdf")
 
         argv = runner.call_args[0][0]
-        self.assertIsInstance(argv, list)
+        self.assertIsInstance(argv, (list, tuple))
         for element in argv:
             self.assertIsInstance(element, str)
         # shell=True would reintroduce the injection surface the list form avoids.
@@ -144,7 +144,7 @@ class TestConvertArgvIsAList(unittest.TestCase):
 
     def test_run_is_bounded_by_a_timeout_and_captures_output(self) -> None:
         runner = _fake_run(0)
-        with patch("resume.australian_rotate.subprocess.run", runner):
+        with patch("core.process.subprocess.run", runner):
             convert_docx_to_pdf("/in/resume.docx", "/out/resume.pdf")
 
         kwargs = runner.call_args.kwargs
@@ -193,7 +193,7 @@ class TestConvertResultTruthiness(unittest.TestCase):
     def test_invalid_missing_soffice_binary_is_falsy(self) -> None:
         """No ``soffice`` on PATH: FileNotFoundError is swallowed, no traceback."""
         with patch(
-            "resume.australian_rotate.subprocess.run",
+            "core.process.subprocess.run",
             side_effect=FileNotFoundError(2, "No such file or directory", "soffice"),
         ):
             result = convert_docx_to_pdf("/in/a.docx", "/out/a.pdf")
@@ -203,7 +203,7 @@ class TestConvertResultTruthiness(unittest.TestCase):
 
     def test_invalid_timeout_is_falsy_without_hanging(self) -> None:
         with patch(
-            "resume.australian_rotate.subprocess.run",
+            "core.process.subprocess.run",
             side_effect=subprocess.TimeoutExpired(cmd="soffice", timeout=30),
         ):
             result = convert_docx_to_pdf("/in/a.docx", "/out/a.pdf")
@@ -218,7 +218,7 @@ class TestConvertResultTruthiness(unittest.TestCase):
         clause becomes a deliberate, visible change rather than a silent one.
         """
         with patch(
-            "resume.australian_rotate.subprocess.run",
+            "core.process.subprocess.run",
             side_effect=PermissionError(13, "Permission denied", "soffice"),
         ):
             with self.assertRaises(PermissionError):
@@ -396,7 +396,7 @@ class TestExportPdfSadPaths(unittest.TestCase):
             docx.write_bytes(b"fake docx")
 
             runner = _fake_run(3, stderr="Error: cannot open input")
-            with patch("resume.australian_rotate.subprocess.run", runner):
+            with patch("core.process.subprocess.run", runner):
                 with self.assertRaises(CLIError) as ctx:
                     cmd_export_pdf(_export_args(str(docx), str(Path(td, "out.pdf"))))
 
@@ -412,7 +412,7 @@ class TestExportPdfSadPaths(unittest.TestCase):
             docx.write_bytes(b"fake docx")
 
             with patch(
-                "resume.australian_rotate.subprocess.run",
+                "core.process.subprocess.run",
                 side_effect=subprocess.TimeoutExpired(cmd="soffice", timeout=30),
             ):
                 with self.assertRaises(CLIError) as ctx:
@@ -435,7 +435,7 @@ class TestExportPdfSadPaths(unittest.TestCase):
             convert = MagicMock(return_value=_ok_result(Path(td, "out.pdf")))
             runner = _fake_run(0)
             with patch("resume.australian_rotate.convert_docx_to_pdf", convert):
-                with patch("resume.australian_rotate.subprocess.run", runner):
+                with patch("core.process.subprocess.run", runner):
                     with self.assertRaises(CLIError) as ctx:
                         cmd_export_pdf(_export_args(str(absent), str(Path(td, "out.pdf"))))
 
@@ -589,7 +589,7 @@ class TestConverterRequiresAnOutputFile(unittest.TestCase):
             requested = Path(td, "final.pdf")
 
             runner = _fake_run(0)
-            with patch("resume.australian_rotate.subprocess.run", runner):
+            with patch("core.process.subprocess.run", runner):
                 result = convert_docx_to_pdf(str(docx), str(requested))
 
             self.assertTrue(result)
@@ -616,7 +616,7 @@ class TestExportPdfFailsLoudlyWhenNoPdfIsWritten(unittest.TestCase):
         # A real subprocess-level silent success: exit 0, no file produced.
         runner = _fake_run(0, stderr="Error: source file could not be loaded")
         buf = io.StringIO()
-        with patch("resume.australian_rotate.subprocess.run", runner):
+        with patch("core.process.subprocess.run", runner):
             with redirect_stdout(buf):
                 try:
                     cmd_export_pdf(_export_args(str(docx), str(requested)))
@@ -669,7 +669,7 @@ class TestExportPdfFailsLoudlyWhenNoPdfIsWritten(unittest.TestCase):
             docx.write_bytes(b"fake docx")
 
             with patch(
-                "resume.australian_rotate.subprocess.run",
+                "core.process.subprocess.run",
                 side_effect=FileNotFoundError(2, "No such file or directory", "soffice"),
             ):
                 with self.assertRaises(CLIError) as ctx:
@@ -691,7 +691,7 @@ class TestConversionNeverShellsOut(unittest.TestCase):
     def test_no_real_soffice_is_invoked_when_subprocess_is_patched(self) -> None:
         """A patched runner intercepts the call, so PATH is never consulted."""
         runner = _fake_run(0)
-        with patch("resume.australian_rotate.subprocess.run", runner):
+        with patch("core.process.subprocess.run", runner):
             with patch.object(Path, "is_file", lambda _self: True):
                 result = convert_docx_to_pdf("/in/a.docx", "/out/a.pdf")
 
@@ -707,7 +707,7 @@ class TestConversionNeverShellsOut(unittest.TestCase):
         """
         with patch.dict(os.environ, {"PATH": ""}, clear=False):
             with patch(
-                "resume.australian_rotate.subprocess.run",
+                "core.process.subprocess.run",
                 side_effect=FileNotFoundError(2, "No such file or directory", "soffice"),
             ):
                 result = convert_docx_to_pdf("/in/a.docx", "/out/a.pdf")

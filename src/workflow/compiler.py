@@ -9,14 +9,14 @@ from __future__ import annotations
 
 import logging
 import re
-from collections import deque
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 
 from core.cli_errors import CLIError, ExitCode
-from core.fileutil import safe_read_text
 from core.date_utils import iso_now
+from core.textio import read_text
+from workflow.dag import bfs_levels
 from workflow.dispatch import RESERVED_PLACEHOLDERS
 from workflow.harness_outputs import describe, find_refused_outputs
 from workflow.models import (
@@ -229,27 +229,24 @@ def compile_workflow(
 
 def _build_dependency_graph(
     stages: tuple[StageSpec, ...],
-) -> tuple[set[str], dict[str, StageSpec], dict[str, set[str]], dict[str, int]]:
-    """Build dependency graph structures from stage specs."""
-    stage_names = {s.name for s in stages}
+) -> tuple[dict[str, StageSpec], dict[str, set[str]]]:
+    """Build the spec map and dependency sets, rejecting unknown dependencies."""
     spec_map = {s.name: s for s in stages}
     deps: dict[str, set[str]] = {}
-    in_degree: dict[str, int] = {}
 
     for spec in stages:
         for dep in spec.depends_on:
-            if dep not in stage_names:
+            if dep not in spec_map:
                 raise WorkflowCompileError(
                     f"Stage '{spec.name}' depends on unknown stage '{dep}'"
                 )
         deps[spec.name] = set(spec.depends_on)
-        in_degree[spec.name] = len(spec.depends_on)
 
-    return stage_names, spec_map, deps, in_degree
+    return spec_map, deps
 
 
 def _bfs_level(
-    current_level: list[str],
+    current_level: tuple[str, ...],
     spec_map: dict[str, StageSpec],
 ) -> tuple[list[str], list[str]]:
     """Split a sorted BFS level into normal and human-gated stages."""
@@ -263,31 +260,7 @@ def _bfs_level(
     return normal, gated
 
 
-def _drain_level(queue: deque[str], assigned: dict[str, int], level: int) -> list[str]:
-    """Pop every stage currently queued, assigning it to level. Returns them sorted."""
-    current_level: list[str] = []
-    while queue:
-        name = queue.popleft()
-        assigned[name] = level
-        current_level.append(name)
-    current_level.sort()
-    return current_level
-
-
-def _next_ready_queue(
-    stages: tuple[StageSpec, ...],
-    deps: dict[str, set[str]],
-    assigned: dict[str, int],
-) -> deque[str]:
-    """Return stages whose dependencies are all assigned but are not yet themselves."""
-    return deque(
-        spec.name
-        for spec in stages
-        if spec.name not in assigned and all(d in assigned for d in deps[spec.name])
-    )
-
-
-def _groups_for_level(current_level: list[str], spec_map: dict[str, StageSpec]) -> list[tuple[str, ...]]:
+def _groups_for_level(current_level: tuple[str, ...], spec_map: dict[str, StageSpec]) -> list[tuple[str, ...]]:
     """Split one BFS level into its normal group plus one group per human-gated stage."""
     normal, gated = _bfs_level(current_level, spec_map)
     groups: list[tuple[str, ...]] = []
@@ -309,29 +282,17 @@ def _compute_parallel_groups(
         WorkflowCompileError: If the dependency graph contains a cycle or
             references an unknown stage.
     """
-    stage_names, spec_map, deps, in_degree = _build_dependency_graph(stages)
-
-    assigned: dict[str, int] = {}
-    queue: deque[str] = deque(
-        name for name in stage_names if in_degree[name] == 0
-    )
-
-    level = 0
-    groups: list[tuple[str, ...]] = []
-
-    while queue:
-        current_level = _drain_level(queue, assigned, level)
-        groups.extend(_groups_for_level(current_level, spec_map))
-        queue = _next_ready_queue(stages, deps, assigned)
-        level += 1
-
-    if len(assigned) != len(stage_names):
-        unresolved = stage_names - set(assigned)
+    spec_map, deps = _build_dependency_graph(stages)
+    walk = bfs_levels(deps)
+    if walk.unresolved:
         raise WorkflowCompileError(
             f"Cyclic dependency detected involving stages: "
-            f"{', '.join(sorted(unresolved))}"
+            f"{', '.join(sorted(walk.unresolved))}"
         )
 
+    groups: list[tuple[str, ...]] = []
+    for level in walk.levels:
+        groups.extend(_groups_for_level(level, spec_map))
     return tuple(groups)
 
 
@@ -343,7 +304,7 @@ def _load_referenced_file(
 ) -> str:
     """Load a stage-referenced file (template or writing guide)."""
     path = project_root / ref
-    content = safe_read_text(path)
+    content = read_text(path, default=None, suppress=FileNotFoundError)
     if content is None:
         raise WorkflowCompileError(
             f"Stage '{stage_name}': {kind} not found at {path}"
