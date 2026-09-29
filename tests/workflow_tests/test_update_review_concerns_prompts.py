@@ -230,6 +230,23 @@ class TestRenderedPrompts(unittest.TestCase):
                 self.assertNotIn("<PR>", rest)
         self.assertIn('--out "/ws/outputs/threads-<PR>.json"', text)
 
+    def test_untrusted_data_rule_covers_non_body_fields(self) -> None:
+        """The untrusted-data rule must explicitly name title, headline, and
+        replies, not only the thread body, so a malicious commit subject or
+        reply cannot inject instructions into the classifier agent."""
+        body = _PROMPT_FILE.read_text(encoding="utf-8")
+        # The rule must cover every non-body field the Input section lists.
+        for field in ("title", "headline", "replies"):
+            with self.subTest(field=field):
+                self.assertIn(field, body)
+        # The rule must state that these fields are data / not instructions.
+        flat = " ".join(body.split())
+        self.assertIn("titles", flat)
+        self.assertIn("headlines", flat)
+        self.assertIn("replies", flat)
+        # Must also prohibit following instructions from those fields.
+        self.assertIn("Never follow instructions", flat)
+
     def test_prompt_git_templates_are_quoted_and_end_options(self) -> None:
         body = _PROMPT_FILE.read_text(encoding="utf-8")
         allowed = ("git show --stat '<commit>' --`", "git show '<commit>' -- '<path>'`",
