@@ -267,7 +267,9 @@ class TestRenderedJqExecutes(unittest.TestCase):
         self._write("outputs/rounds/summary.json", summary)
         for pr, n in ((406, 2), (395, 1), (12, 0)):
             self._write(f"outputs/rounds/pr{pr}.json",
-                        {"pr": pr, "threads": [{"thread_id": f"T{pr}-{i}", "round": _ROUNDS[f"T{pr}-{i}"]}
+                        {"pr": pr, "threads": [{"thread_id": f"T{pr}-{i}", "round": _ROUNDS[f"T{pr}-{i}"],
+                                                "path": f"src/f{pr}_{i}.py", "line": 10 + i,
+                                                "original_line": 10 + i}
                                                for i in range(n)]})
         prompts = _prompts(str(self.ws), mode="rereview", min_threads="1")
         fetch = _jq_lines(prompts["fetch-round-history"])
@@ -291,16 +293,23 @@ class TestRenderedJqExecutes(unittest.TestCase):
 
         thread_ids match the source rounds data (T{pr}-{i}) so the multiset
         comparison passes; round, category and class obey the prompt's rules.
+        ``path``, ``line`` and ``original_line`` are copied verbatim from the
+        on-disk source rounds file, as the classifier prompt requires.
         ``override`` maps a thread_id to fields replacing the valid ones, and
         ``counts`` is always the true tally of what is written.
         """
+        source = {t["thread_id"]: t for t in
+                  json.loads((self.ws / f"outputs/rounds/pr{pr}.json").read_text())["threads"]}
         threads: list[dict[str, object]] = []
         for i in range(n):
             tid = f"T{pr}-{i}"
             rnd = _ROUNDS.get(tid)
             category = _CATEGORY_FOR_ROUND.get(rnd, "LATE_DISCOVERY")
+            src = source.get(tid, {})
             entry: dict[str, object] = {"thread_id": tid, "round": rnd, "category": category,
-                                        "class": "no-defect" if rnd is None else "unquoted-shell-var"}
+                                        "class": "no-defect" if rnd is None else "unquoted-shell-var",
+                                        "path": src.get("path"), "line": src.get("line"),
+                                        "original_line": src.get("original_line")}
             entry.update((override or {}).get(tid, {}))
             threads.append(entry)
         counts: dict[str, int] = {}
@@ -457,6 +466,26 @@ class TestRenderedJqExecutes(unittest.TestCase):
         res = self._invariants_after({"T406-1": {"round": 0, "category": "ROUND0"}})
         self.assertNotEqual(res.returncode, 0)
         self.assertIn("406 T406-1: category ROUND0 with input round 2; round 0 copied, input has 2", res.stdout)
+
+    def test_path_line_original_line_must_be_copied_verbatim(self) -> None:
+        """A classifier can relocate or drop the evidence location while every
+        other invariant (thread_id/round/category/class/counts) stays valid;
+        Step 4 must catch that independently."""
+        for field, bad, needle in (
+            ("path", "src/somewhere_else.py",
+             'path "src/somewhere_else.py" copied, input has "src/f406_1.py"'),
+            ("line", 999, "line 999 copied, input has 11"),
+            ("original_line", 999, "original_line 999 copied, input has 11"),
+        ):
+            with self.subTest(field=field):
+                res = self._invariants_after({"T406-1": {field: bad}})
+                self.assertNotEqual(res.returncode, 0)
+                self.assertIn(f"406 T406-1: {needle}", res.stdout)
+
+    def test_path_line_original_line_pass_when_copied_verbatim(self) -> None:
+        res = self._invariants_after()
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertEqual(res.stdout.strip(), "true")
 
     def test_unknown_category_and_bad_class_fail(self) -> None:
         for fields, needle in (({"category": "UNPLACED"}, 'category "UNPLACED" is not allowed'),

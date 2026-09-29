@@ -59,6 +59,10 @@ class SweepError(ValueError):
     """The pattern or a path is unusable; nothing was counted."""
 
 
+class _DeadlineExceeded(Exception):
+    """Raised from inside the walk when the deadline passes before a file yields."""
+
+
 @dataclass(frozen=True)
 class SweepCount:
     hits: int
@@ -170,11 +174,16 @@ def _is_walkable_dir(path: Path, root_real: Path) -> bool:
     return mode is not None and stat.S_ISDIR(mode) and _inside(path, root_real)
 
 
-def _iter_files(target: Path, root_real: Path) -> Iterator[Path]:
+def _iter_files(target: Path, root_real: Path, deadline: float) -> Iterator[Path]:
     if _is_regular(target, root_real):
         yield target
         return
     for dirpath, dirnames, filenames in os.walk(target):  # followlinks=False: symlinked dirs are not entered
+        # Checked once per directory, not only per yielded file: a tree of
+        # empty or slow-to-list directories would otherwise never reach the
+        # per-file check below and could walk past the deadline indefinitely.
+        if time.monotonic() > deadline:
+            raise _DeadlineExceeded
         base = Path(dirpath)
         dirnames[:] = sorted(d for d in dirnames if d not in _SKIP_DIRS and _is_walkable_dir(base / d, root_real))
         for name in sorted(filenames):
@@ -183,7 +192,7 @@ def _iter_files(target: Path, root_real: Path) -> Iterator[Path]:
                 yield candidate
 
 
-def _unique_files(targets: list[Path], root_real: Path) -> Iterator[Path]:
+def _unique_files(targets: list[Path], root_real: Path, deadline: float) -> Iterator[Path]:
     """Every file under ``targets`` once, even when listed paths overlap.
 
     Targets are already resolved and no symlink is ever followed, so each
@@ -191,7 +200,7 @@ def _unique_files(targets: list[Path], root_real: Path) -> Iterator[Path]:
     """
     seen: set[Path] = set()
     for target in targets:
-        for path in _iter_files(target, root_real):
+        for path in _iter_files(target, root_real, deadline):
             if path not in seen:
                 seen.add(path)
                 yield path
@@ -208,10 +217,13 @@ def count_sweep(pattern: str, paths: list[str], *, root: Path) -> SweepCount:
     root_real = root.resolve(strict=True)
     deadline = time.monotonic() + MAX_SECONDS
     files: list[str] = []
-    for path in _unique_files(targets, root_real):
-        if time.monotonic() > deadline:
-            return SweepCount(0, 0, truncated=True, reason="time bound reached while listing files")
-        files.append(str(path))
+    try:
+        for path in _unique_files(targets, root_real, deadline):
+            if time.monotonic() > deadline:
+                return SweepCount(0, 0, truncated=True, reason="time bound reached while listing files")
+            files.append(str(path))
+    except _DeadlineExceeded:
+        return SweepCount(0, 0, truncated=True, reason="time bound reached while listing files")
     job = {
         "pattern": pattern,
         "files": files,

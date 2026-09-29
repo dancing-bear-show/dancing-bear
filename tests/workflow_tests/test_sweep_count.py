@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import shutil
 import socket
 import subprocess  # nosec B404 - wraps the real Popen to inspect the argv count-sweep builds
 import tempfile
@@ -269,9 +270,60 @@ class TestMatchTimeBound(_Tree):
         got = sweep_count._parse_worker_output('{"hits": 2, "files": 1}\n{"hits": 5, "fi', fallback_reason="x")
         self.assertEqual((got.hits, got.files, got.truncated, got.reason), (2, 1, True, "x"))
 
+    def test_deadline_is_enforced_while_walking_empty_directories(self) -> None:
+        # Regression: a tree of only empty directories never yields a file, so
+        # a deadline checked only after a file yields would never fire. Force
+        # the deadline into the past before the walk starts so the very first
+        # per-directory check in _iter_files must be what catches it.
+        for i in range(5):
+            (self.root / f"src/empty{i}").mkdir(parents=True)
+        root_real = self.root.resolve(strict=True)
+        past_deadline = time.monotonic() - 1
+        with self.assertRaises(sweep_count._DeadlineExceeded):
+            list(sweep_count._iter_files(root_real / "src", root_real, past_deadline))
+
+    def test_count_sweep_reports_truncated_when_deadline_hits_during_listing(self) -> None:
+        # End-to-end: count_sweep must catch _DeadlineExceeded raised from the
+        # walk (not just the post-yield check) and report a truncated result
+        # rather than letting the exception escape or hanging.
+        for i in range(5):
+            (self.root / f"src/empty{i}").mkdir(parents=True)
+        real_monotonic = time.monotonic
+        calls = {"n": 0}
+
+        def fake_monotonic() -> float:
+            calls["n"] += 1
+            # First call establishes the deadline; every call after that
+            # (inside the walk) reports time already past it.
+            return real_monotonic() if calls["n"] == 1 else real_monotonic() + sweep_count.MAX_SECONDS + 1
+
+        with patch.object(sweep_count.time, "monotonic", side_effect=fake_monotonic):
+            got = sweep_count.count_sweep("check", ["src"], root=self.root)
+        self.assertEqual(got.truncated, True)
+        self.assertEqual(got.reason, "time bound reached while listing files")
+
+    def test_deadline_not_exceeded_walks_normally(self) -> None:
+        # Happy path: a normal deadline far in the future does not interfere
+        # with a complete, non-truncated walk.
+        root_real = self.root.resolve(strict=True)
+        future_deadline = time.monotonic() + 60
+        found = sorted(p.name for p in sweep_count._iter_files(root_real / "workflows", root_real, future_deadline))
+        self.assertEqual(found, ["a.yaml", "b.yaml"])
+
 
 class TestSweepWorker(_Tree):
-    """The child's matcher, run in-process so its branches are measured."""
+    """The child's matcher, run in-process so its branches are measured.
+
+    ``self.root`` is resolved to its canonical form here: the real pipeline
+    (``sweep_count.resolve_paths``) always hands the worker a fully resolved
+    path, never one through an OS-level symlink such as macOS's
+    ``/var -> /private/var``, and the worker's per-component ``O_NOFOLLOW``
+    reopen (see ``_open_nofollow_along_path``) depends on that being true.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.root = self.root.resolve(strict=True)
 
     def _run(self, files: list[str], **caps: int) -> list[dict[str, object]]:
         job: dict[str, object] = {"pattern": "check", "files": files, "max_file_bytes": 1_000,
@@ -312,6 +364,32 @@ class TestSweepWorker(_Tree):
         self._put("src/bin.dat", b"check\0")
         files = [str(self.root / "src/bin.dat"), str(self.root / "workflows/a.yaml"), str(self.root / "nope")]
         self.assertEqual(self._run(files, max_file_bytes=10)[-1], {"hits": 0, "files": 0, "done": True})
+
+    def test_read_text_still_reads_a_normal_nested_file(self) -> None:
+        # Happy path for the directory-relative reopen: an ordinary file several
+        # components deep must still be read like a plain O_NOFOLLOW open would.
+        got = _sweep_worker.read_text(str(self.root / "workflows/sub/b.yaml"), 1_000)
+        self.assertEqual((got.text, got.nbytes) if got else None, ("check-params --check z\n", 23))
+
+    def test_read_text_refuses_an_intermediate_directory_swapped_for_a_symlink(self) -> None:
+        # The TOCTOU this fix closes: the parent validated the path while
+        # "src" was a real directory, then something replaced "src" with a
+        # symlink before the worker reopened it. A single O_NOFOLLOW on the
+        # final component alone would still follow this, because only the
+        # last name is checked; the component-by-component reopen must not.
+        target = self._put("src/real.txt", "check\n")
+        outside = tempfile.TemporaryDirectory()
+        self.addCleanup(outside.cleanup)
+        Path(outside.name, "real.txt").write_text("check\n", encoding="utf-8")
+        path_seen_by_worker = str(target)
+        self.assertEqual(_sweep_worker.read_text(path_seen_by_worker, 1_000).text, "check\n")  # sanity: reads fine first
+        shutil.rmtree(self.root / "src")
+        (self.root / "src").symlink_to(outside.name)
+        self.assertIsNone(_sweep_worker.read_text(path_seen_by_worker, 1_000))
+
+    def test_open_nofollow_along_path_rejects_relative_paths(self) -> None:
+        with self.assertRaisesRegex(ValueError, "not an absolute path"):
+            _sweep_worker._open_nofollow_along_path("workflows/a.yaml")
 
 
 class TestPathAllowlist(_Tree):

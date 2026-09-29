@@ -39,17 +39,51 @@ class FileText:
     nbytes: int
 
 
+def _open_nofollow_along_path(path: str) -> int:
+    """Open ``path`` by walking it one component at a time, each ``O_NOFOLLOW``.
+
+    A single ``os.open(path, O_NOFOLLOW)`` only refuses a symlink in the final
+    component: the kernel still resolves every earlier component by name, so a
+    directory swapped for a symlink between the parent's validation and this
+    open still lets the open escape through it. Opening each component with
+    ``dir_fd`` set to its *already-open* parent closes that window: once a
+    directory is open, further opens beneath it resolve against that open
+    inode, not against a name that could be re-pointed afterward.
+
+    ``path`` must be absolute; the parent only ever sends absolute, fully
+    resolved paths (see :mod:`workflow.sweep_count`), and treating a relative
+    one as root-relative here would silently look in the wrong place.
+    """
+    if not os.path.isabs(path):
+        raise ValueError(f"not an absolute path: {path!r}")
+    parts = [p for p in path.split(os.sep) if p]
+    if not parts:
+        raise ValueError(f"no such file or directory: {path!r}")
+    dir_fd = os.open(os.sep, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for part in parts[:-1]:
+            next_fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=dir_fd)
+            os.close(dir_fd)
+            dir_fd = next_fd
+        flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
+        return os.open(parts[-1], flags, dir_fd=dir_fd)
+    finally:
+        os.close(dir_fd)
+
+
 def read_text(path: str, max_file_bytes: int) -> FileText | None:
     """Return a file's text, or None for a binary, oversized, non-regular or unreadable file.
 
-    The open refuses a symlink and never blocks, and ``fstat`` re-checks the
-    opened file, so a file swapped for a FIFO or link after the parent's
-    ``lstat`` is still skipped.
+    Every path component, not just the last, is opened ``O_NOFOLLOW`` and
+    relative to its already-open parent (see :func:`_open_nofollow_along_path`),
+    so a directory swapped for a symlink after the parent process validated
+    this path is still refused rather than silently followed. ``fstat``
+    re-checks the opened file, so a file swapped for a FIFO or link after the
+    parent's ``lstat`` is still skipped.
     """
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
     try:
-        fd = os.open(path, flags)
-    except OSError:
+        fd = _open_nofollow_along_path(path)
+    except (OSError, ValueError, NotImplementedError):
         return None
     with os.fdopen(fd, "rb") as fh:
         try:
