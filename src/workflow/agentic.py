@@ -53,6 +53,10 @@ def build_agentic_capsule() -> str:
     lines.append(
         "  - count-sweep: ./bin/workflow count-sweep --pattern='<regex>' --path='<p>' [--path='<p>' ...]"
     )
+    lines.append(
+        "  - sweep-record: ./bin/workflow sweep-record write --head <sha40> --workspace <dir> "
+        "| waive --head <sha40> --reason '<text>' | check --head <sha40>"
+    )
     lines.append("notes:")
     lines.append("  - ./bin/workflow list is the authoritative live catalog of available workflows")
     lines.append(
@@ -63,6 +67,12 @@ def build_agentic_capsule() -> str:
         "the N most recent PRs by number, any state, 1-200, count-checked; --min-threads "
         "defaults to 15 for --recent and 0 for --prs; exactly one of --prs/--recent; exit 1 "
         "on bad args, API failure or truncation"
+    )
+    lines.append(
+        "  - sweep-record: record at <git common dir>/dancing-bear/concern-sweeps/<sha>.json, "
+        "shared by all worktrees; write needs --head == HEAD, outputs/concern-sweep-index.json "
+        "listing collateral-damage.md and outputs/consolidated.json; exit 2 refused; check "
+        "exits 0 found (prints mode), 1 none, 2 bad sha; the PR-create hook requires one"
     )
     lines.append("  - file arguments are positional (./bin/workflow run <file>), not --input")
     lines.append("  - --params accepts k=v pairs; repeat for multiple params")
