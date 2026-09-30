@@ -1748,7 +1748,7 @@ class TestGuardRefused(_RuleCase):
                 self.assertIn("nesting deeper than 32", hits[0].message)
 
     def test_deep_find_exec_chain_does_not_raise(self) -> None:
-        # _expanded recursed once per nested find -exec body, with no bound.
+        # shell_guard._expanded recursed once per nested find -exec body, with no bound.
         command = "for f in a; do " + "find . -exec " * 1200 + "rm -f x; done"
         hits = self.assert_fires(_workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n")))
         self.assertIn("loop", hits[0].message)
