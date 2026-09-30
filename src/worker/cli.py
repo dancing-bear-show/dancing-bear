@@ -9,7 +9,7 @@ Subcommands:
 - show: print a job JSON by id
 - requeue-errors: move error jobs back to pending
 - retry: requeue a single error job by id
-- purge: delete old done/error jobs
+- purge: delete old done/error jobs or saved qwen responses
 """
 
 from __future__ import annotations
@@ -174,9 +174,9 @@ def cmd_retry(args: argparse.Namespace) -> int:
     return RetryCommand.run(args)
 
 
-@app.command("purge", help="Delete old done/error jobs")
+@app.command("purge", help="Delete old done/error jobs or saved qwen responses")
 @app.argument("--older-than", default="30d", help="Age threshold (e.g., 7d, 24h). Default 30d")
-@app.argument("--folders", default="done,error", help="Comma-separated folders (done,error)")
+@app.argument("--folders", default="done,error", help="Comma-separated folders (done,error,qwen-responses)")
 def cmd_purge(args: argparse.Namespace) -> int:
     """Delete old done/error jobs."""
     return PurgeCommand.run(args)

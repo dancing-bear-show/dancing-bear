@@ -1318,7 +1318,34 @@ class QwenOptionValidationTests(QwenHandlerCase):
                 self.assertEqual((options["temperature"], options["num_predict"]), (temperature, 1))
 
 
-class QwenPersistResponseTests(QwenHandlerCase):
+class _ResponseDirHelpers(QwenHandlerCase):
+    """Planting and inspecting files in the patched responses/ directory."""
+
+    def _outside_dir(self) -> Path:
+        """A 0755 directory outside the responses boundary, as a symlink target."""
+        outside = self.response_dir.parent / "outside"
+        outside.mkdir()
+        os.chmod(outside, 0o755)  # nosec B103 - temp test dir; asserted unchanged, a 0700 result would mean the chmod followed the link
+        return outside
+
+    def _assert_outside_untouched(self, outside: Path) -> None:
+        self.assertEqual(sorted(p.name for p in outside.iterdir()), [], "a file was written outside responses/")
+        self.assertEqual(oct(outside.stat().st_mode & 0o777), oct(0o755), "outside dir mode was changed")
+
+    def _plant_response(self, name: str, age_days: float) -> Path:
+        """A regular file in responses/ whose mtime is age_days in the past."""
+        self.response_dir.mkdir(parents=True, mode=0o700, exist_ok=True)
+        path = self.response_dir / name
+        path.write_text("old response", encoding="utf-8")
+        stamp = time.time() - age_days * 86400
+        os.utime(path, (stamp, stamp))
+        return path
+
+    def _response_names(self) -> list[str]:
+        return sorted(p.name for p in self.response_dir.iterdir())
+
+
+class QwenPersistResponseTests(_ResponseDirHelpers):
     """_persist_response: directory permissions, masking bounds, and the
     broad-catch coverage that ensures every post-response failure persists."""
 
@@ -1440,17 +1467,6 @@ class QwenPersistResponseTests(QwenHandlerCase):
         self.assertIsNotNone(response_file, "persisted response file was not created")
         self.assertFalse(self.response_dir.is_symlink(), "response_dir should be a real directory")
 
-    def _outside_dir(self) -> Path:
-        """A 0755 directory outside the responses boundary, as a symlink target."""
-        outside = self.response_dir.parent / "outside"
-        outside.mkdir()
-        os.chmod(outside, 0o755)  # nosec B103 - temp test dir; asserted unchanged, a 0700 result would mean the chmod followed the link
-        return outside
-
-    def _assert_outside_untouched(self, outside: Path) -> None:
-        self.assertEqual(sorted(p.name for p in outside.iterdir()), [], "a file was written outside responses/")
-        self.assertEqual(oct(outside.stat().st_mode & 0o777), oct(0o755), "outside dir mode was changed")
-
     def test_direct_persist_writes_masked_0600_file_in_0700_dir(self) -> None:
         qwen._persist_response("qwen-test-job", f"token={_FAKE_TOKEN} tail")
 
@@ -1469,18 +1485,6 @@ class QwenPersistResponseTests(QwenHandlerCase):
         qwen._persist_response("qwen-test-job", "some response")  # must not raise
 
         self._assert_outside_untouched(outside)
-
-    def _plant_response(self, name: str, age_days: float) -> Path:
-        """A regular file in responses/ whose mtime is age_days in the past."""
-        self.response_dir.mkdir(parents=True, mode=0o700, exist_ok=True)
-        path = self.response_dir / name
-        path.write_text("old response", encoding="utf-8")
-        stamp = time.time() - age_days * 86400
-        os.utime(path, (stamp, stamp))
-        return path
-
-    def _response_names(self) -> list[str]:
-        return sorted(p.name for p in self.response_dir.iterdir())
 
     def test_persist_prunes_stale_responses_and_keeps_fresh_ones(self) -> None:
         stale_days = qwen.THRESHOLDS.response_retention_days + 1
@@ -1561,6 +1565,91 @@ class QwenPersistResponseTests(QwenHandlerCase):
 
         self.assertTrue(self.response_dir.is_symlink(), "the race was not staged")
         self._assert_outside_untouched(outside)
+
+
+class QwenPruneResponsesTests(_ResponseDirHelpers):
+    """prune_responses: the scoped purge behind `worker purge --folders qwen-responses`."""
+
+    window_sec = 7 * 86400
+
+    def test_removes_stale_responses_and_temp_files_and_keeps_fresh_ones(self) -> None:
+        self._plant_response("old-job.txt", 8)
+        self._plant_response(f".old-job.txt.{'a' * 32}", 8)
+        self._plant_response("new-job.txt", 1)
+        self._plant_response(f".new-job.txt.{'b' * 32}", 1)
+
+        removed = qwen.prune_responses(self.window_sec)
+
+        self.assertEqual(removed, 2)
+        self.assertEqual(self._response_names(), [f".new-job.txt.{'b' * 32}", "new-job.txt"])
+
+    def test_has_no_count_cap(self) -> None:
+        for age, name in enumerate(["a-job.txt", "b-job.txt", "c-job.txt"], start=1):
+            self._plant_response(name, age)
+
+        with mock.patch.object(qwen, "THRESHOLDS", qwen.QwenThresholds(response_retention_max_files=1)):
+            removed = qwen.prune_responses(self.window_sec)
+
+        self.assertEqual(removed, 0)
+        self.assertEqual(self._response_names(), ["a-job.txt", "b-job.txt", "c-job.txt"])
+
+    def test_now_sets_the_cutoff(self) -> None:
+        self._plant_response("old-job.txt", 3)
+
+        self.assertEqual(qwen.prune_responses(self.window_sec), 0)
+        self.assertEqual(qwen.prune_responses(self.window_sec, now=time.time() + 5 * 86400), 1)
+        self.assertEqual(self._response_names(), [])
+
+    def test_leaves_symlinks_and_foreign_names_untouched(self) -> None:
+        outside_file = self.response_dir.parent / "outside.txt"
+        outside_file.write_text("keep me", encoding="utf-8")
+        foreign = [self._plant_response(n, 30).name for n in ("notes.md", ".hidden", "-bad.txt")]
+        link = self.response_dir / "linked-job.txt"
+        link.symlink_to(outside_file)
+        stamp = time.time() - 30 * 86400
+        os.utime(link, (stamp, stamp), follow_symlinks=False)
+
+        removed = qwen.prune_responses(self.window_sec)
+
+        self.assertEqual(removed, 0)
+        self.assertEqual(self._response_names(), sorted([*foreign, "linked-job.txt"]))
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(outside_file.read_text(encoding="utf-8"), "keep me")
+
+    def test_absent_directory_returns_zero_and_is_not_created(self) -> None:
+        self.assertEqual(qwen.prune_responses(self.window_sec), 0)
+        self.assertFalse(self.response_dir.exists())
+        self.assertFalse(self.response_dir.is_symlink())
+
+    def test_symlinked_directory_is_refused_and_nothing_is_deleted(self) -> None:
+        outside = self._outside_dir()
+        target = outside / "old-job.txt"
+        target.write_text("outside response", encoding="utf-8")
+        stamp = time.time() - 30 * 86400
+        os.utime(target, (stamp, stamp))
+        self.response_dir.symlink_to(outside)
+
+        with self.assertRaises(OSError):
+            qwen.prune_responses(self.window_sec)
+
+        self.assertTrue(target.exists(), "a file was deleted through the symlinked responses/")
+        self.assertEqual(oct(outside.stat().st_mode & 0o777), oct(0o755), "outside dir mode was changed")
+
+    def test_failed_unlink_is_skipped_and_not_counted(self) -> None:
+        self._plant_response("a-job.txt", 8)
+        self._plant_response("b-job.txt", 9)
+        real_unlink = os.unlink
+
+        def flaky_unlink(name: str, *, dir_fd: int | None = None) -> None:
+            if name == "a-job.txt":
+                raise PermissionError("denied")
+            real_unlink(name, dir_fd=dir_fd)
+
+        with mock.patch.object(qwen.os, "unlink", side_effect=flaky_unlink):
+            removed = qwen.prune_responses(self.window_sec)
+
+        self.assertEqual(removed, 1)
+        self.assertEqual(self._response_names(), ["a-job.txt"])
 
 
 if __name__ == "__main__":

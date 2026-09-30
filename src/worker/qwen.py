@@ -58,7 +58,8 @@ prompt itself is never persisted. File contents reach disk in two places,
 both outside the checkout: the generated patch artifact, and - only when a
 job fails after the model answered - the model's raw response, masked and
 capped, at ``output_dir("qwen")/responses/<job_id>.txt`` (mode 0600) for
-diagnosis. See ``_persist_response``.
+diagnosis. See ``_persist_response``; ``prune_responses`` backs
+``worker purge --folders qwen-responses``.
 """
 
 from __future__ import annotations
@@ -109,10 +110,11 @@ class QwenThresholds:
     max_lane_depth: int = 10
     ollama_request_timeout_sec: float = 600
     num_ctx: int = 8192
-    # Retention for responses/ (see _prune_responses): a persisted response
-    # older than the age is removed on the next persist, and at most
-    # max_files responses are kept, newest first. At the 256 KiB per-file
-    # cap, 200 files bounds the directory at ~50 MiB.
+    # Retention for responses/ (see _prune_response_entries): a persisted
+    # response older than the age is removed on the next persist, and at
+    # most max_files responses are kept, newest first. At the 256 KiB
+    # per-file cap, 200 files bounds the directory at ~50 MiB. An idle
+    # worker prunes nothing; `worker purge --folders qwen-responses` does.
     response_retention_days: float = 14
     response_retention_max_files: int = 200
 
@@ -1767,17 +1769,24 @@ def response_path_for_job(job_id: str) -> Path:
 
 
 def _open_private_dir(directory: Path) -> int:
-    """Create directory if absent, then open it once without following a symlink.
-
-    Returns a descriptor for a directory owned by this user, set to 0700
-    through the descriptor. O_NOFOLLOW refuses a symlink at the final
-    component, whenever it was planted. Parents above it are not
-    re-validated. The caller closes the descriptor.
-    """
+    """Create directory if absent, then open it as _open_existing_private_dir does."""
     try:
         directory.mkdir(mode=0o700, parents=True)
     except FileExistsError:  # nosec B110 - an existing entry is validated by the open below
         pass
+    return _open_existing_private_dir(directory)
+
+
+def _open_existing_private_dir(directory: Path) -> int:
+    """Open directory once without following a symlink; never create it.
+
+    Returns a descriptor for a directory owned by this user, set to 0700
+    through the descriptor. O_NOFOLLOW refuses a symlink at the final
+    component, whenever it was planted. Parents above it are not
+    re-validated. Raises FileNotFoundError when directory is absent, and
+    OSError for a symlink or a directory this user does not own. The caller
+    closes the descriptor.
+    """
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
     dfd = os.open(directory, flags)
     try:
@@ -1839,26 +1848,56 @@ def _response_entries(dfd: int) -> list[tuple[float, str]]:
     return entries
 
 
-def _prune_responses(dfd: int, keep: str, now: float) -> None:
-    """Remove responses older than THRESHOLDS.response_retention_days, and
-    all but the newest response_retention_max_files, from the directory dfd.
+def _prune_response_entries(dfd: int, cutoff: float, *, max_files: int | None = None, keep: str | None = None) -> int:
+    """Remove responses in the directory dfd with an mtime before cutoff and,
+    when max_files is set, all but the newest max_files responses.
 
-    keep (the response just written) is never removed. Temp files count
-    only toward the age limit, so a concurrent write in flight survives.
-    Unlinks go through dfd; a failed unlink is logged and skipped.
+    Returns the number of files removed. keep (a response just written) is
+    never removed but occupies one of the max_files slots. Temp files count
+    only toward the age limit, so a concurrent write in flight survives the
+    cap. Only regular files with a response name are considered (see
+    _response_entries). Unlinks go through dfd; a failed unlink is logged
+    and skipped.
     """
-    cutoff = now - THRESHOLDS.response_retention_days * 86400
-    room = THRESHOLDS.response_retention_max_files - 1
+    room = None if max_files is None else max_files - (keep is not None)
+    removed = 0
     for mtime, name in sorted(_response_entries(dfd), reverse=True):
         if name == keep:
             continue
         counted = not name.startswith(".")
-        room -= counted
-        if mtime < cutoff or (counted and room < 0):
+        if room is not None:
+            room -= counted
+        if mtime < cutoff or (counted and room is not None and room < 0):
             try:
                 os.unlink(name, dir_fd=dfd)
             except OSError as exc:
                 _log.debug("qwen: could not prune response %s (non-fatal): %s", name, describe_exception(exc))
+            else:
+                removed += 1
+    return removed
+
+
+def prune_responses(older_than_sec: float, *, now: float | None = None) -> int:
+    """Remove saved responses older than older_than_sec; return the count.
+
+    The scoped purge behind `worker purge --folders qwen-responses`: the
+    per-write pruning in _persist_response runs only when a new response is
+    written, so an idle worker otherwise keeps its responses indefinitely.
+    responses/ is opened once with O_NOFOLLOW (see
+    _open_existing_private_dir) and is never created: when it is absent this
+    returns 0. A symlink or foreign-owned directory there raises OSError and
+    nothing is removed. Removal follows _prune_response_entries with no
+    count cap and no kept name.
+    """
+    cutoff = (time.time() if now is None else now) - older_than_sec
+    try:
+        dfd = _open_existing_private_dir(_response_dir())
+    except FileNotFoundError:
+        return 0
+    try:
+        return _prune_response_entries(dfd, cutoff)
+    finally:
+        os.close(dfd)
 
 
 def _persist_response(job_id: str, response_text: str) -> None:
@@ -1874,7 +1913,7 @@ def _persist_response(job_id: str, response_text: str) -> None:
     followed. Directories above responses/ are not re-validated.
 
     After the write, older responses are pruned through the same
-    descriptor (see _prune_responses), so retention is bounded by
+    descriptor (see _prune_response_entries), so retention is bounded by
     THRESHOLDS.response_retention_days and response_retention_max_files.
     Only regular files with a response name are removed; symlinks and other
     entries are left alone. Any failure is logged and swallowed:
@@ -1887,7 +1926,12 @@ def _persist_response(job_id: str, response_text: str) -> None:
             head = response_text[: _MASK_INPUT_CHARS + _MASK_MARGIN_CHARS]
             capped = mask_text(head).encode("utf-8")[:MAX_PERSISTED_RESPONSE_BYTES]
             _replace_file_at(dfd, final_name, capped.decode("utf-8", errors="ignore").encode("utf-8"))
-            _prune_responses(dfd, final_name, time.time())
+            _prune_response_entries(
+                dfd,
+                time.time() - THRESHOLDS.response_retention_days * 86400,
+                max_files=THRESHOLDS.response_retention_max_files,
+                keep=final_name,
+            )
         finally:
             os.close(dfd)
     except Exception as exc:  # nosec B110 - diagnostics are best-effort; the job's outcome is already decided
