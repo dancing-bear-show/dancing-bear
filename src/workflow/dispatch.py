@@ -207,7 +207,24 @@ def _read_paths(stage: ResolvedStage, ws: str) -> list[str]:
     return paths
 
 
-_WORKSPACE_SUBDIRS = ("outputs/", "validation/", "stages/", "dispatch/")
+# writes_to entries under one of these prefixes resolve against the workspace
+# root; any other entry resolves under outputs/. ``context/`` is here because
+# every workflow that declares a ``context/...`` output (critique,
+# optimize-code, design-criteria-*) also tells its agents and readers to use
+# ``{workspace}/context/...``; without the prefix the engine resolved the same
+# entry to ``outputs/context/...`` and the prompt named two different files.
+# This is the single copy: the prompt builder, the subprocess dispatcher and
+# the when-skip sentinel writer all resolve through writes_to_relpath.
+WORKSPACE_ROOT_PREFIXES: tuple[str, ...] = (
+    "outputs/", "validation/", "stages/", "dispatch/", "context/",
+)
+
+
+def writes_to_relpath(filename: str) -> str:
+    """Return a ``writes_to`` entry's path relative to the workspace root."""
+    if filename.startswith(WORKSPACE_ROOT_PREFIXES):
+        return filename
+    return f"outputs/{filename}"
 
 
 def _write_paths(stage: ResolvedStage, ws: str) -> list[str]:
@@ -219,13 +236,7 @@ def _write_paths(stage: ResolvedStage, ws: str) -> list[str]:
     cannot satisfy while the orchestrator waits on files that never appear.
     """
     root = _ISOLATED_ROOT if _is_isolated(stage) else ws
-    paths: list[str] = []
-    for f in stage.spec.writes_to:
-        if any(f.startswith(prefix) for prefix in _WORKSPACE_SUBDIRS):
-            paths.append(f"{root}/{f}")
-        else:
-            paths.append(f"{root}/outputs/{f}")
-    return paths
+    return [f"{root}/{writes_to_relpath(f)}" for f in stage.spec.writes_to]
 
 
 def _completion(stage: ResolvedStage, ws: str) -> str:
@@ -242,7 +253,9 @@ def _completion(stage: ResolvedStage, ws: str) -> str:
         "as an absolute path under your own cwd — NOT under the shared "
         "workspace, and never as a bare relative path (that resolves against "
         "the orchestrator's cwd, outside your worktree). The orchestrator "
-        "copies your outputs/ and stages/ files back after you finish."
+        "copies your outputs/, validation/, stages/, dispatch/, and context/ "
+        "files back after you finish (every directory in WORKSPACE_ROOT_PREFIXES "
+        "in workflow.dispatch)."
         if _is_isolated(stage)
         else ""
     )
@@ -299,7 +312,14 @@ def _header(stage: ResolvedStage, workflow_name: str, ws: str, verb: str = "exec
 def _gather(stage: ResolvedStage, wf: str, ws: str) -> str:
     lines = _header(stage, wf, ws)
     write_root = _ISOLATED_ROOT if _is_isolated(stage) else ws
-    lines += ["## Workspace", f"Write all output to: {write_root}/outputs/", ""]
+    lines += [
+        "## Workspace",
+        (
+            f"Write each output file to the exact path listed under Output Files below; "
+            f"bare filenames (no directory prefix) go under {write_root}/outputs/."
+        ),
+        "",
+    ]
     if stage.cli_commands:
         lines += _section("CLI Commands\nRun these commands and capture their output", [f"`{c}`" for c in stage.cli_commands])
     wp = _write_paths(stage, ws)

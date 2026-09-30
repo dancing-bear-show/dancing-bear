@@ -101,7 +101,7 @@ If compile fails, report the error and stop.
 This prints the workspace path. Store it. If `--workspace` was provided, pass
 it as `--base-dir` (init-workspace has no `--workspace` flag; the path must be
 shell-safe or it is refused). The workspace will contain `manifest.json`, `stages/`, `outputs/`,
-`validation/`, and `dispatch/` subdirectories.
+`validation/`, `dispatch/`, and `context/` subdirectories.
 
 Generate a `RUN_ID` in the format `{workflow_name}-{YYYYMMDD}-{8_hex_chars}`.
 
@@ -140,11 +140,15 @@ Generate a `RUN_ID` in the format `{workflow_name}-{YYYYMMDD}-{8_hex_chars}`.
 
       Copy **every declared output of every upstream stage**, preserving its
       relative path: an upstream `outputs/design.md` arrives as
-      `<agent-cwd>/inputs/outputs/design.md`. Do not collapse a dependency to
-      one synthetic `<name>.json` — a stage may declare several outputs of
-      different types (`design.md` AND `design.json`), and naming only one
-      points the agent at a file that does not exist while silently dropping
-      the rest. Copy each upstream stage's result JSON to
+      `<agent-cwd>/inputs/outputs/design.md`; an upstream `context/foo.json`
+      arrives as `<agent-cwd>/inputs/context/foo.json`. This applies to every
+      workspace-root prefix (`outputs/`, `validation/`, `stages/`, `dispatch/`,
+      `context/` — the full list is `WORKSPACE_ROOT_PREFIXES` in
+      `src/workflow/dispatch.py`). Do not collapse a dependency to one synthetic
+      `<name>.json` — a stage may declare several outputs of different types
+      (`design.md` AND `design.json`), and naming only one points the agent at
+      a file that does not exist while silently dropping the rest. Copy each
+      upstream stage's result JSON to
       `<agent-cwd>/inputs/stages/<name>.json` as well.
 
       The prompt built by the engine already points an isolated agent at
@@ -158,11 +162,13 @@ Generate a `RUN_ID` in the format `{workflow_name}-{YYYYMMDD}-{8_hex_chars}`.
       that is isolated must refer to its inputs by absolute own-cwd path.
 
    b. **Copy back each agent's outputs — as part of THAT stage's completion,
-      before releasing any dependent stage.** An isolated agent writes to
-      `<its-cwd>/outputs/` and `<its-cwd>/stages/`, never to `{workspace}`
-      (see the workspace-lock exception below). As soon as the agent returns,
-      copy those files into `{workspace}/outputs/` and
-      `{workspace}/stages/` yourself.
+      before releasing any dependent stage.** An isolated agent writes to its
+      own cwd, never to `{workspace}` (see the workspace-lock exception below).
+      As soon as the agent returns, copy every workspace-root prefix directory
+      it wrote into the matching path under `{workspace}`: `outputs/`,
+      `validation/`, `stages/`, `dispatch/`, and `context/` — the authoritative
+      list is `WORKSPACE_ROOT_PREFIXES` in `src/workflow/dispatch.py`. Preserve
+      relative paths: `<its-cwd>/context/foo.json` → `{workspace}/context/foo.json`.
 
       Do NOT defer this to a later stage. The completion check in 2c waits for
       each declared `writes_to` path under `{workspace}`; if the copy-back is
@@ -386,13 +392,15 @@ For each stage, construct the prompt:
    bare relative path resolves against the orchestrator's CWD (the shared repo
    tree), leaking outside the worktree. Use instead:
 
-   > Workspace: you run in your OWN git worktree. Write ALL output files to absolute paths under YOUR cwd (`<your-cwd>/outputs/<name>`). Do NOT write to {workspace}/... and do NOT use bare relative paths.
+   > Workspace: you run in your OWN git worktree. Write ALL output files to absolute paths under YOUR cwd (e.g. `<your-cwd>/outputs/<name>`, `<your-cwd>/context/<name>`). Do NOT write to {workspace}/... and do NOT use bare relative paths.
 
    The orchestrator is then responsible for copying those outputs back into
-   `{workspace}/outputs/` after the stage completes and before any downstream
-   stage reads them — see the merge step in rule 7 above. Skipping the copy-back
-   leaves the monitor waiting for a file in the shared workspace that the agent
-   never wrote there, so the stage can never signal completion.
+   the matching paths under `{workspace}` (every directory in
+   `WORKSPACE_ROOT_PREFIXES`: `outputs/`, `validation/`, `stages/`, `dispatch/`,
+   `context/`) after the stage completes and before any downstream stage reads
+   them — see rule 7b above. Skipping the copy-back leaves the monitor waiting
+   for a file in the shared workspace that the agent never wrote there, so the
+   stage can never signal completion.
 
 3. **Input data**: for each entry in `reads_from`, read the actual output files
    now (with the Read tool) and inline relevant content into the prompt. Do NOT
@@ -401,9 +409,11 @@ For each stage, construct the prompt:
 4. **Output instructions**: for each entry in `writes_to`, tell the agent to
    write to `{workspace}/{file}`. Path resolution:
    - Bare filenames → `{workspace}/outputs/{name}`
-   - Paths starting with `outputs/`, `validation/`, `stages/`, `dispatch/` →
-     `{workspace}/{path}` (workspace-root)
-   - Other explicit paths → `{workspace}/{path}`
+   - Paths starting with `outputs/`, `validation/`, `stages/`, `dispatch/`,
+     `context/` → `{workspace}/{path}` (workspace-root)
+   - Any other path → `{workspace}/outputs/{path}`
+   The engine's single copy of this rule is
+   `workflow.dispatch.writes_to_relpath` (prefixes in `WORKSPACE_ROOT_PREFIXES`).
 
 5. **Stage description verbatim**: copy CLI commands exactly as written —
    never paraphrase or substitute command names.
