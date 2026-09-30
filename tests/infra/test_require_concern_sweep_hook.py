@@ -27,10 +27,11 @@ from workflow.sweep_record import write_waived
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HOOK = Path(
     os.environ.get("REQUIRE_CONCERN_SWEEP_HOOK")
-    or REPO_ROOT / "staging" / "hooks" / "require-concern-sweep.sh"
+    or REPO_ROOT / ".claude" / "hooks" / "require-concern-sweep.sh"
 )
 HELPER = HOOK.parent / "_pr_create_targets.py"
-SETTINGS_ENTRY = REPO_ROOT / "staging" / "settings-hook-entry.json"
+SETTINGS = REPO_ROOT / ".claude" / "settings.json"
+HOOK_COMMAND = 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/require-concern-sweep.sh"'
 
 _ENV = {
     **{k: v for k, v in os.environ.items() if not k.startswith("GIT_") and k != "PYTHONPATH"},
@@ -247,10 +248,15 @@ class RequireConcernSweepHookTests(unittest.TestCase):
     # --- isolation -------------------------------------------------------------
 
     def test_hook_and_settings_entry_never_start_an_unisolated_interpreter(self) -> None:
-        entry = json.loads(SETTINGS_ENTRY.read_text())
+        # Read the real settings file: a hook with passing tests and no
+        # PreToolUse entry never runs.
+        pre = json.loads(SETTINGS.read_text())["hooks"]["PreToolUse"]
+        entries = [e for e in pre if any(h.get("command") == HOOK_COMMAND for h in e["hooks"])]
+        self.assertEqual(len(entries), 1, "require-concern-sweep.sh is not wired exactly once")
+        entry = entries[0]
         self.assertEqual(entry["matcher"], "Bash")
         commands = [h["command"] for h in entry["hooks"]]
-        self.assertEqual(commands, ['bash "$CLAUDE_PROJECT_DIR/.claude/hooks/require-concern-sweep.sh"'])
+        self.assertEqual(commands, [HOOK_COMMAND])
         for text in (*commands, HOOK.read_text()):
             self.assertFalse(_launches_unisolated_python(text))
         launches = [
