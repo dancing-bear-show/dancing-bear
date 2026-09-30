@@ -97,6 +97,16 @@ trigger:
         reviewer agent — faster for PRs with ≤ 10 changed files or ≤ 300 diff
         lines. "large" runs the full fan-out pipeline (9+ agents). Override to
         "large" for big PRs where deeper parallel coverage is worth the cost.
+    local:
+      type: string
+      default: "false"
+      description: >
+        When "true": run in local mode (no GitHub access). Diff is computed from
+        merge-base(origin/main, HEAD)..HEAD; commit_id is git rev-parse HEAD.
+        human-gate and post-comments stages are skipped. Findings stay in the
+        workspace. Use this before a PR exists (e.g. from /open-pr).
+  param_rules:
+    local: 'true|false'
 
 stages:
   # ===========================================================================
@@ -115,6 +125,56 @@ stages:
       Do NOT create directories outside {workspace}. If you import
       workflow.persistence, do not call init_workspace() — it will
       generate a new path and orphan your outputs.
+
+      LOCAL MODE CHECK — check {local} first. If {local} is "true", follow the
+      LOCAL MODE path below. Otherwise follow the GITHUB MODE path.
+
+      ===========================================================================
+      LOCAL MODE (when {local} is "true") — no GitHub calls
+      ===========================================================================
+
+      Step 0 — create output directories:
+          mkdir -p {workspace}/outputs/diffs {workspace}/outputs/findings {workspace}/validation
+
+      Step 1 — compute diff bounds from the local branch:
+          HEAD_SHA=$(git rev-parse HEAD)
+          MERGE_BASE=$(git merge-base origin/main HEAD 2>/dev/null || git rev-parse origin/main)
+        Fail fast if `git diff ${MERGE_BASE}..${HEAD_SHA} --name-only` produces
+        no output (nothing changed vs merge-base — empty diff means no review).
+        Write {workspace}/outputs/pr-context.json:
+          {
+            "number": 0,
+            "title": "(local branch — no PR yet)",
+            "body": "",
+            "baseRefName": "main",
+            "headRefName": "<git rev-parse --abbrev-ref HEAD>",
+            "author": "",
+            "commit_id": "<HEAD_SHA>",
+            "owner_repo": "",
+            "merge_base": "<MERGE_BASE>",
+            "head_sha": "<HEAD_SHA>",
+            "local": true
+          }
+
+      Step 2 — changed files and raw diff (local):
+          git diff ${MERGE_BASE}..${HEAD_SHA} --name-only > {workspace}/outputs/changed-files.txt
+          git diff ${MERGE_BASE}..${HEAD_SHA}             > {workspace}/outputs/full-diff.patch
+        Per-file diffs:
+          for each file in changed-files.txt:
+            SAFE=$(echo "<file>" | tr '/' '_')
+            git diff ${MERGE_BASE}..${HEAD_SHA} -- <file> > {workspace}/outputs/diffs/${SAFE}.patch
+
+      Step 3 — commit history (local):
+          git log ${MERGE_BASE}..${HEAD_SHA} --oneline > {workspace}/outputs/commit-history.txt
+
+      Step 4 — write empty PR description placeholder:
+          Write {workspace}/outputs/pr-description.md with content "(local branch — no PR yet)".
+
+      Stop after Step 4. Do not call ./bin/github or gh.
+
+      ===========================================================================
+      GITHUB MODE (when {local} is "false" or blank) — original behavior
+      ===========================================================================
 
       Step 0 — create output directories (this stage is self-contained;
         callers need not provide an init stage for directory creation):
@@ -218,9 +278,10 @@ stages:
         - .yaml/.yml files present   → workflow.md, workflow-fanout.md, workflow-fragments.md, patterns.md
         - SKILL.md files present     → workflow.md, workflow-fanout.md, workflow-fragments.md, patterns.md, docs.md
         - .md / README files present → docs.md
-        - always                     → patterns.md
+        - always                     → patterns.md, collateral-damage.md
 
-      Deduplicate the list (patterns.md appears once even if selected multiple times).
+      Deduplicate the list (patterns.md and collateral-damage.md each appear once even if
+      selected multiple times).
 
       Write {workspace}/outputs/concern-sweep-index.json:
         {
@@ -889,6 +950,7 @@ stages:
     kind: propose
     depends_on: [fact-check-findings]
     reads_from: [fact-check-findings, consolidate]
+    when: '"{local}" does not contain "true"'
     description: >
       WORKSPACE LOCK — write ALL output files under {workspace}. Do NOT call
       init_workspace(), create_workspace(), or any Python workspace function.
@@ -931,6 +993,7 @@ stages:
     executor: inline
     depends_on: [human-gate]
     reads_from: [human-gate, fact-check-findings, fetch-pr-context]
+    when: '"{local}" does not contain "true"'
     description: >
       WORKSPACE LOCK — write ALL output files under {workspace}. Do NOT call
       init_workspace(), create_workspace(), or any Python workspace function.
