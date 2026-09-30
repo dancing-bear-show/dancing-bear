@@ -2,17 +2,24 @@ name: open-pr
 version: "1.0"
 description: >
   Comprehensive pre-PR validation and pull request creation for the dancing-bear
-  project. Covers six phases: auth pre-flight, code quality gate (mypy + qlty +
+  project. Covers eight phases: auth pre-flight, code quality gate (mypy + qlty +
   ruff + coverage, each reporting PASS/FAIL/UNAVAILABLE rather than treating a
-  missing tool as a pass), PR description generation from diff and commits, human review gate,
-  branch push and PR creation, and fact-check of the description against the
-  actual diff.
+  missing tool as a pass), the concern swarm in local mode (included from
+  code-review-swarm.yaml, stages prefixed swarm-), a sweep record for HEAD that
+  the require-concern-sweep hook checks before any PR is created, PR description
+  generation from diff and commits, human review gate, branch push and PR
+  creation, and fact-check of the description against the actual diff.
 
   Stage dependency graph:
 
     check-auth
         |
     scan-validate
+        |
+    swarm-* (local: fetch-pr-context -> concern-sweep-dispatch -> review ->
+             fact-check-findings; posting stages skipped)
+        |
+    record-sweep
         |
     generate-description
         |
