@@ -1987,11 +1987,11 @@ stages:
       nothing).
 
       First, read {workspace}/validation/merge-baselines.json. This file was
-      written by the orchestrator (one 40-hex SHA per impl stage) before each
-      agent was spawned; it is the per-stage base for the scope check below.
-      If the file is absent, record scope_ok: null for every stage and note
-      that the orchestrator did not write baselines — that is an orchestrator
-      protocol violation, not a stage failure.
+      written by the orchestrator (one entry per impl stage) as each merge
+      completed; it is the per-stage base for the scope check below. If the
+      file is absent, that is an orchestrator protocol violation: for every
+      stage that has a commit_sha, record scope_ok: false, out_of_scope_paths:
+      [], reason: "baselines missing", and set all_landed: false.
 
       For each of impl-handler, impl-heartbeat and impl-tests:
 
@@ -2067,7 +2067,9 @@ stages:
            A path in the post-merge window but absent from the three-dot diff
            means a file was clobbered or reverted — record it in
            out_of_scope_paths and set scope_ok: false. If merge-baselines.json
-           has no entry for this stage, record scope_ok: null.
+           has no entry for this stage (and the stage has a commit_sha), that
+           is an orchestrator protocol violation: record scope_ok: false,
+           out_of_scope_paths: [], reason: "baselines entry missing".
 
       Then record the tree's state:
         git status --porcelain
@@ -2077,7 +2079,7 @@ stages:
 
       Write {workspace}/validation/merge.json:
         {
-          "verified": [{"stage": "...", "commit_sha": "...", "is_ancestor_of_head": true|false, "checkpoints_passed": N, "checkpoints_failed": ["..."], "commit_shas_reachable": true|false, "scope_ok": true|false|null, "out_of_scope_paths": [...]}],
+          "verified": [{"stage": "...", "commit_sha": "...", "is_ancestor_of_head": true|false, "checkpoints_passed": N, "checkpoints_failed": ["..."], "commit_shas_reachable": true|false, "scope_ok": true|false, "out_of_scope_paths": [...], "scope_reason": "..." | null}],
           "no_change_stages": [{"stage": "...", "reason": "..."}],
           "missing_commits": [{"stage": "...", "detail": "..."}],
           "unmerged_branches": [{"stage": "...", "commit_sha": "...", "detail": "..."}],
@@ -2089,9 +2091,10 @@ stages:
         }
       all_landed is true only when every stage is either verified as an
       ancestor of HEAD or is a recorded legitimate no-change, AND
-      files_missing is empty. scope_ok: false on any stage is a blocking
-      finding but does not change all_landed — the commits landed; the
-      scope violation is a separate concern for the orchestrator to resolve.
+      files_missing is empty, AND every stage with a commit_sha has
+      scope_ok: true. scope_ok is always true or false for a stage with a
+      commit (null is reserved for no-change stages that committed nothing
+      and need no scope check).
     agent:
       role: unit-validator
       model: sonnet
