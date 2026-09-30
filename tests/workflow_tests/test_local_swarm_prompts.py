@@ -199,7 +199,7 @@ class TestOpenPrRecordSweepStage(unittest.TestCase):
     depended-on by generate-description. The human-gate must read from it."""
 
     def setUp(self) -> None:
-        defn, self.manifest = _compile_open_pr()
+        _, self.manifest = _compile_open_pr()
         self.stages = self.manifest.resolved_stages
         self.group_of: dict[str, int] = {}
         for g_idx, stage_names in enumerate(self.manifest.parallel_groups):
@@ -292,19 +292,19 @@ class TestCodeReviewPathsCompile(unittest.TestCase):
     """Small and large paths must compile cleanly, with and without local mode."""
 
     def test_small_path_default_compiles(self) -> None:
-        defn, manifest = _compile_cr()
+        _, manifest = _compile_cr()
         self.assertGreater(len(manifest.resolved_stages), 0)
 
     def test_small_path_local_true_compiles(self) -> None:
-        defn, manifest = _compile_cr(local="true")
+        _, manifest = _compile_cr(local="true")
         self.assertGreater(len(manifest.resolved_stages), 0)
 
     def test_large_path_compiles(self) -> None:
-        defn, manifest = _compile_cr(pr_size="large", pr_number="123")
+        _, manifest = _compile_cr(pr_size="large", pr_number="123")
         self.assertGreater(len(manifest.resolved_stages), 0)
 
     def test_large_path_local_true_compiles(self) -> None:
-        defn, manifest = _compile_cr(pr_size="large", pr_number="123", local="true")
+        _, manifest = _compile_cr(pr_size="large", pr_number="123", local="true")
         self.assertGreater(len(manifest.resolved_stages), 0)
 
     def test_human_gate_skipped_in_local_mode(self) -> None:
@@ -324,7 +324,7 @@ class TestCodeReviewPathsCompile(unittest.TestCase):
         self.assertIn("post-comments", running)
 
     def test_open_pr_compiles_with_default_local_true(self) -> None:
-        defn, manifest = _compile_open_pr()
+        _, manifest = _compile_open_pr()
         self.assertGreater(len(manifest.resolved_stages), 0)
 
 
