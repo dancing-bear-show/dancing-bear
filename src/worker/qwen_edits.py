@@ -263,7 +263,7 @@ def parse_edit_blocks(response_text: str) -> list[EditBlock]:
     return blocks
 
 
-def _normalise_edit_path(raw: str) -> str | None:
+def _normalise_markdown_path(raw: str) -> str | None:
     """raw as a normalised repo-relative POSIX path, or None when it is empty,
     absolute, or climbs out of the root. Surrounding backticks and quotes
     (markdown habits) are dropped; nothing else is forgiven."""
@@ -274,6 +274,37 @@ def _normalise_edit_path(raw: str) -> str | None:
     if norm in (".", "..") or norm.startswith("../"):
         return None
     return norm
+
+
+def _resolve_edit_path(raw: str, files: dict[str, str]) -> str:
+    """The `files` key raw's FILE line refers to.
+
+    Resolution is two-step so that markdown normalisation can never make one
+    input shadow another. (1) Exact: if raw, with only surrounding whitespace
+    stripped, is itself a key of files, that key wins outright - an input
+    literally named `` `src/a.py` `` is never reinterpreted. (2) Fallback:
+    otherwise raw is normalised (backticks/quotes stripped, `./`/`..`
+    resolved) and matched against every input's own normalised form. A
+    fallback match is used only when it names exactly one input; matching
+    none raises EDIT_OUTSIDE_INPUTS_OUTCOME (as for any other unknown path),
+    and matching more than one - e.g. `` `src/a.py` `` and a literal
+    "src/a.py" both present as inputs - raises EDIT_AMBIGUOUS_OUTCOME: the
+    FILE line does not identify a single target, which is the same shape of
+    failure _find_unique reports for an ambiguous SEARCH location, not a
+    plain "not one of the inputs" miss.
+    """
+    exact = raw.strip()
+    if exact in files:
+        return exact
+    norm = _normalise_markdown_path(raw)
+    if norm is None:
+        raise EditBlockError(EDIT_OUTSIDE_INPUTS_OUTCOME)
+    matches = [name for name in files if _normalise_markdown_path(name) == norm]
+    if not matches:
+        raise EditBlockError(EDIT_OUTSIDE_INPUTS_OUTCOME)
+    if len(matches) > 1:
+        raise EditBlockError(EDIT_AMBIGUOUS_OUTCOME)
+    return matches[0]
 
 
 def _find_unique(lines: list[str], search: tuple[str, ...]) -> int:
@@ -305,15 +336,19 @@ def apply_edit_blocks(blocks: list[EditBlock], files: dict[str, str]) -> dict[st
 
     Each SEARCH is matched against the file's CURRENT content, earlier
     blocks' edits included. Returns the new content of every file that
-    changed. Raises EditBlockError: EDIT_OUTSIDE_INPUTS_OUTCOME for a path
-    that is not a key of files (no file is ever created), the _find_unique
-    outcomes, and NO_CHANGE_OUTCOME when nothing changed.
+    changed. A block's path is resolved with _resolve_edit_path: an exact
+    match against a key of files wins outright, so markdown normalisation
+    never makes one input shadow another; otherwise the normalised path must
+    name exactly one input. Raises EditBlockError: EDIT_OUTSIDE_INPUTS_OUTCOME
+    for a path that is not (and does not normalise to exactly one) key of
+    files (no file is ever created), EDIT_AMBIGUOUS_OUTCOME when the
+    normalised path names more than one input as well as for the
+    _find_unique outcome of the same name, and NO_CHANGE_OUTCOME when nothing
+    changed.
     """
     working = {rel: _FileLines.from_text(text) for rel, text in files.items()}
     for block in blocks:
-        rel = _normalise_edit_path(block.path)
-        if rel is None or rel not in working:
-            raise EditBlockError(EDIT_OUTSIDE_INPUTS_OUTCOME)
+        rel = _resolve_edit_path(block.path, files)
         target = working[rel]
         start = _find_unique(target.lines, block.search)
         target.lines[start : start + len(block.search)] = block.replace

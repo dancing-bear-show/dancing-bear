@@ -406,6 +406,47 @@ class ApplyEditBlocksTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertEqual(self._apply(edit_block(path, "one", "1")), {"src/a.py": "1\ntwo\nthree\n"})
 
+    def test_exact_backticked_input_name_is_matched_before_normalisation(self) -> None:
+        """An input literally named `src/a.py` (backticks and all) is a
+        distinct file from src/a.py. Both are accepted as inputs, and a FILE
+        line naming one must never touch the other - the whole point of
+        resolving the exact raw path before falling back to markdown
+        normalisation."""
+        files = {"`src/a.py`": "backticked\n", "src/a.py": "plain\n"}
+
+        backticked = self._apply(edit_block("`src/a.py`", "backticked", "BACKTICKED"), files)
+        self.assertEqual(backticked, {"`src/a.py`": "BACKTICKED\n"})
+
+        plain = self._apply(edit_block("src/a.py", "plain", "PLAIN"), files)
+        self.assertEqual(plain, {"src/a.py": "PLAIN\n"})
+
+    def test_exact_quoted_input_name_is_matched_before_normalisation(self) -> None:
+        """Same collision, via a leading/trailing double-quote instead of
+        backticks."""
+        files = {'"src/a.py"': "quoted\n", "src/a.py": "plain\n"}
+
+        quoted = self._apply(edit_block('"src/a.py"', "quoted", "QUOTED"), files)
+        self.assertEqual(quoted, {'"src/a.py"': "QUOTED\n"})
+
+        plain = self._apply(edit_block("src/a.py", "plain", "PLAIN"), files)
+        self.assertEqual(plain, {"src/a.py": "PLAIN\n"})
+
+    def test_fallback_normalisation_still_applies_when_unambiguous(self) -> None:
+        """With only the plain name as an input, a decorated FILE spelling
+        still resolves via the markdown-normalisation fallback."""
+        files = {"src/a.py": "one\ntwo\nthree\n"}
+        for path in ("`src/a.py`", "./src/a.py"):
+            with self.subTest(path=path):
+                self.assertEqual(self._apply(edit_block(path, "one", "1"), files), {"src/a.py": "1\ntwo\nthree\n"})
+
+    def test_ambiguous_fallback_normalisation_is_rejected(self) -> None:
+        """Two inputs that both normalise to the same name, with a raw FILE
+        value that matches neither exactly, cannot be resolved to a single
+        target and must be rejected rather than silently picking one."""
+        files = {"`src/a.py`": "backticked\n", '"src/a.py"': "quoted\n"}
+
+        self.assertEqual(self._apply_outcome(edit_block("./src/a.py", "x", "y"), files), qwen_edits.EDIT_AMBIGUOUS_OUTCOME)
+
     def test_paths_outside_the_inputs_are_refused(self) -> None:
         for path in ("", "src/c.py", "SRC/a.py", "/src/a.py", "../src/a.py", "src\\a.py", "a.py", ".", "src/a.py/.."):
             with self.subTest(path=path):
@@ -581,7 +622,7 @@ class BuildUnifiedDiffGitApplyTests(TempDirMixin, unittest.TestCase):
 
     def test_path_containing_a_backslash_is_quoted_and_git_apply_accepts_it(self) -> None:
         """A backslash in the path never reaches _file_diff through an edit
-        block (_normalise_edit_path refuses it, matching a real POSIX repo
+        block (_resolve_edit_path refuses it, matching a real POSIX repo
         never holding such a name via this path) - build_unified_diff is
         exercised directly, as apply_edit_blocks would call it for any path
         already present in the repo-relative `files` mapping."""
