@@ -437,6 +437,11 @@ class TestUnlinkedFindingTriageAndDispatchRules(unittest.TestCase):
             "only shows that an earlier finding cited the SAME FILE",
             self.triage_prompt,
         )
+        # Positive rule: a same-concern prior IS recorded.
+        self.assertIn(
+            "record its id in this triage entry's \"repeat_of\" list",
+            self.triage_prompt,
+        )
         self.assertIn("do NOT add it to \"repeat_of\"", self.triage_prompt)
 
     def test_own_previously_missed_keeps_weight_with_empty_repeat_of(self) -> None:
@@ -505,6 +510,24 @@ class TestUnlinkedFindingTriageAndDispatchRules(unittest.TestCase):
             'When BOTH "path" and "path_rejected" are null', self.report_prompt
         )
         self.assertIn('labelled "(path unavailable)"', self.report_prompt)
+
+    def test_partial_parse_stale_guidance_in_triage_and_report(self) -> None:
+        # (g) when review-overview.json status is "partial", current: false
+        # only means the finding was not parsed — it may still be live.
+        # Triage must check the raw body before calling it stale; report must
+        # label each such entry "staleness indeterminate (partial parse)".
+        self.assertIn(
+            "partial",
+            self.triage_prompt,
+        )
+        self.assertIn(
+            "staleness indeterminate: partial parse",
+            self.triage_prompt,
+        )
+        self.assertIn(
+            "staleness indeterminate (partial parse)",
+            self.report_prompt,
+        )
 
 
 if __name__ == "__main__":

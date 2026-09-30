@@ -535,11 +535,16 @@ def _shortfall(claimed: int | None, findings: dict[str, Finding],
        missing open one.
     2. Every declared section (``Previously missed``, ``Resolved since last
        review``, and ``Open`` too) against how many entries actually parsed into it
-       from the newest review. This is the only way to notice a section whose
-       entries are unlinked and therefore invisible to the headline count: an
-       explicit ``Findings: None`` can never produce a shortfall under check 1
-       alone, so a ``Previously missed (1)`` block that fails to parse would
-       report ``status: ok`` with zero evidence anything broke.
+       from the newest review. The positive per-section gaps are summed so that
+       two sections each missing one entry are counted as two, not one. This is
+       the only way to notice a section whose entries are unlinked and therefore
+       invisible to the headline count: an explicit ``Findings: None`` can never
+       produce a shortfall under check 1 alone, so a ``Previously missed (1)``
+       block that fails to parse would report ``status: ok`` with zero evidence
+       anything broke.
+
+    The ``max(open_shortfall, section_sum)`` avoids double-counting the ``Open``
+    section when the headline shortfall already covers those missing entries.
 
     A section whose declared count matches its parsed count contributes no
     shortfall — a fully-parsed ``Resolved since last review (4)`` is not
@@ -550,13 +555,14 @@ def _shortfall(claimed: int | None, findings: dict[str, Finding],
         0, claimed - _open_findings(findings, newest_review_id)
     )
 
-    section_shortfall = 0
+    section_sum = 0
     for name, declared_count in declared_sections.items():
         key = " ".join(name.lower().split())
         gap = declared_count - parsed.get(key, 0)
-        section_shortfall = max(section_shortfall, gap)
+        if gap > 0:
+            section_sum += gap
 
-    return max(open_shortfall, section_shortfall)
+    return max(open_shortfall, section_sum)
 
 
 def _comment_index(threads: list[dict[str, Any]]) -> dict[str, str]:
