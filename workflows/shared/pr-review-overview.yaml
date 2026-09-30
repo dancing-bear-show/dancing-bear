@@ -286,7 +286,9 @@ stages:
               "file_id": "4077827266-62002c04",
               "source_review_id": 5285429513,
               "source_submitted_at": "2026-09-23T00:12:35Z",
-              "thread_id": "PRRT_kwDOQr1kjM6k9-X0"
+              "thread_id": "PRRT_kwDOQr1kjM6k9-X0",
+              "current": true,
+              "prior_same_path": []
             },
             "unlinked:.claude/hooks/block-readonly-role-writes.sh:357": {
               "title": "Classify command destinations instead of blocking all operands",
@@ -304,7 +306,9 @@ stages:
               "file_id": "unlinked-.claude-hooks-block-readonly-role-writes.sh-357-4f722789",
               "source_review_id": 5284630625,
               "source_submitted_at": "2026-09-22T22:32:33Z",
-              "thread_id": null
+              "thread_id": null,
+              "current": false,
+              "prior_same_path": []
             }
           },
           "previously_missed": [
@@ -314,7 +318,11 @@ stages:
           "cited_not_found": [
             {"database_id": 123, "title": "...", "section": "Open"}
           ],
-          "threads_not_cited": ["PRRT_kwDO..."]
+          "threads_not_cited": ["PRRT_kwDO..."],
+          "stale_unlinked": [
+            "unlinked:.claude/hooks/block-readonly-role-writes.sh:357",
+            "unlinked:src/workflow/linter.py:408"
+          ]
         }
 
       Both finding entries above are the parser's REAL output for PR #395
@@ -329,6 +337,36 @@ stages:
           reason "protected-path". Its id still carries the path and stays
           stable.
 
+      Per-finding fields added in the staleness update:
+
+        "current" — true iff the finding's source_review_id equals the
+          newest overview's review_id. A finding with current: false was
+          raised in an earlier review and the newest no longer lists it:
+          either fixed or re-raised under a new title (see prior_same_path).
+          Both linked and unlinked findings carry this field.
+
+        "prior_same_path" — for a CURRENT unlinked finding, a sorted list
+          of non-current unlinked finding CANDIDATE ids that cite the same
+          normalised path. Copilot sometimes re-raises the same concern with
+          a reworded title and a shifted line number (a drift-merge would not
+          collapse them because the title changed). A non-empty list only
+          means an earlier finding touched the same file — it may describe a
+          different issue, so a consumer must confirm the same concern by
+          title/body before treating it as a repeat (review-fix-threads
+          records confirmed ids in triage.json's "repeat_of"). Forward only
+          those confirmed bodies to the fixer as context, never every
+          candidate in prior_same_path. Empty list for linked findings and
+          for non-current unlinked ones.
+
+      Top-level field:
+
+        "stale_unlinked" — sorted list of unlinked finding ids with
+          current: false. The newest overview no longer lists these, so they
+          are either fixed or re-raised under a different title (check
+          prior_same_path on the current ones). Do NOT dispatch them. Carry
+          them to the report under their own heading so a human can see
+          which old concerns were dropped or superseded.
+
       "verdict" MAY BE NULL, and that is not a parse error. It comes from the
       overview's `### ` heading, which a degraded review omits entirely. When
       Copilot "was unable to run its full agentic suite" it posts a body
@@ -339,17 +377,36 @@ stages:
 
       "findings_claimed" is the reviewer's own count from the `**Findings:**`
       line — the SUM of every per-severity number on it
-      (`**Findings:** 7 <High> · 8 <Medium>` is 15). Carry it through verbatim
-      even when it disagrees with the entries actually listed — the
-      disagreement is signal, and a stage that silently reconciles it
-      destroys the evidence.
+      (`**Findings:** 7 <High> · 8 <Medium>` is 15). A line whose visible
+      content (after stripping HTML) is the word "None" (case-insensitive)
+      yields 0, not null — it is an explicit zero from the reviewer, and the
+      tripwire below fires if the parse disagreed (PR #436's newest review
+      says `**Findings:** None` and yields findings_claimed: 0). A line with
+      no parseable number and not "None" yields null, which disables the
+      tripwire. Carry findings_claimed verbatim even when it disagrees with
+      the entries actually listed — the disagreement is signal, and a stage
+      that silently reconciles it destroys the evidence.
 
       Act on that signal rather than only recording it. "parse_shortfall" is
-      findings_claimed minus the number of findings the NEWEST overview lists
-      under Open — the section the headline count describes (on PR #395,
-      "Findings: 4" sits beside "Open (4)"; the "Resolved (2)" beside it are
-      extra). Counting every section would let resolved entries mask a missing
-      open one. "status" is "partial" whenever the shortfall is above zero.
+      the WORSE of two independent checks:
+
+      1. findings_claimed minus the number of findings the NEWEST overview
+      lists under Open — the section the headline count describes (on PR
+      #395, "Findings: 4" sits beside "Open (4)"; the "Resolved (2)" beside
+      it are extra). Counting every section would let resolved entries mask a
+      missing open one.
+      2. Every section's own declared count (`Previously missed (1)`,
+      `Resolved since last review (4)`, and `Open` too) against how many entries the
+      NEWEST review actually parsed into that section. This catches a gap the
+      headline check cannot: `Previously missed` entries are unlinked and
+      never touch the `**Findings:**` count, so an explicit
+      `**Findings:** None` — as PR #436's newest review has — can never
+      produce a shortfall under check 1 even if that section's block fails to
+      parse entirely. A section whose parsed count meets its declared count
+      contributes nothing; PR #436's `Resolved since last review (4)`, fully
+      parsed, does not count against `Previously missed`.
+
+      "status" is "partial" whenever either check's shortfall is above zero.
 
       This is the tripwire for the failure this fragment cannot otherwise
       detect. Every rule in Step 2b keys on Copilot's current HTML — a nested

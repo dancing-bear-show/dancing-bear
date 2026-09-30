@@ -286,12 +286,68 @@ stages:
           findings and are usually "Previously missed" ones, meaning the
           reviewer has already raised them once.
 
-          Triage them exactly like threads, from their "body", "path" and
-          "line", and dispatch fixes for them. They differ only at the end:
-          with no thread_id they cannot be replied to or resolved, so they
-          must never enter the resolve plan. Carry each one into the report
-          under its own heading so a human sees what was fixed with no thread
-          to close, and what still needs attention.
+          Before triaging, check the "current" field (true iff the finding
+          comes from the newest overview review):
+
+          - "current": false → the finding is in "stale_unlinked". The
+            newest overview no longer lists it; it was either fixed or
+            re-raised under a new title. Do NOT dispatch it. Carry it to
+            the report under a "Stale unlinked findings" heading so a human
+            can confirm whether it was resolved or superseded.
+
+          - "current": true → triage and dispatch exactly like threads, from
+            their "body", "path" and "line". With no thread_id they cannot be
+            replied to or resolved, so they must never enter the resolve plan.
+            Carry each one into the report under its own heading so a human
+            sees what was fixed with no thread to close, and what still needs
+            attention.
+
+            "prior_same_path" only shows that an earlier finding cited the
+            SAME FILE — not that it raised the same concern. A null-check
+            finding followed later by an unrelated SQL-injection finding on
+            the same path both get a non-empty prior_same_path, and treating
+            that alone as "previously missed" lets the new finding inherit
+            weight, context, and a "superseded" label it never earned.
+
+            This finding's OWN "previously_missed" field is a separate signal
+            from "repeat_of" and grants weight on its own. The parser folds an
+            earlier same-title unlinked raise into the current entry when only
+            its line drifted, unioning that earlier entry's sections into this
+            one — so "previously_missed" can be true here with "repeat_of"
+            left empty, because the fold is not the same mechanism as the
+            prior_same_path/title/body match below. When "previously_missed"
+            is true, grant this finding the same "previously missed" weight
+            regardless of what "repeat_of" ends up containing: it may NOT be
+            classified "moot" or "reject" on the absence of evidence, only on
+            positive evidence held to the same bar Step 3 sets for "moot".
+            "repeat_of" governs only the "Earlier raise" context comment and
+            the "superseded" label in the report — never the weight itself.
+
+            If "prior_same_path" is non-empty, look up each listed id in
+            "findings" and compare ITS "title" and "body" against the current
+            finding's own title and body. Judge each prior id independently:
+
+            - Same concern (the prior finding describes the same underlying
+              problem, even if reworded or now on a shifted line): record its
+              id in this triage entry's "repeat_of" list. This is an
+              additional source of "previously missed" weight from a matched
+              PRIOR id (on top of, never a substitute for, the finding's own
+              "previously_missed" rule above) — it may NOT be classified
+              "moot" or "reject" on the absence of evidence, only on positive
+              evidence held to the same bar Step 3 sets for "moot". Pass the
+              "body" text of each matched prior finding to the fixer agent as
+              additional context (see fix-dispatch Step 4).
+            - Different concern (same file, unrelated issue): do NOT add it
+              to "repeat_of". It is same-file context only — it neither adds
+              "previously missed" weight nor rides along as an "Earlier
+              raise" comment, and the report must never call either finding
+              superseded by it.
+
+            Write "repeat_of" as an explicit list on every unlinked entry —
+            empty when no prior_same_path id matched, and containing only the
+            ids judged the same concern otherwise. A downstream stage reading
+            prior_same_path directly instead of repeat_of reintroduces the
+            same-file-not-same-concern bug this judgement exists to prevent.
 
           NEVER dispatch a finding whose "path_rejected" is non-null. Its path
           came from reviewer-authored HTML and failed the parser's safety
@@ -306,6 +362,15 @@ stages:
           Either way its "path" is null precisely so no fixer can be pointed
           at it. Classify it "context", do not guess or substitute a path, and
           let the report's Suspicious input section surface it with the reason.
+
+          A finding can also have BOTH "path" and "path_rejected" null: no
+          path line was present at all to parse or reject, so its id fell
+          back to "unlinked:<digest>" instead of "unlinked:<path>:<line>".
+          There is no file here, rejected or otherwise — fix-dispatch groups
+          by path, so this finding has nowhere to be dispatched. Classify it
+          "context" the same way, do not invent a path, and let the report's
+          "Findings with no thread" (or "Stale unlinked findings") section
+          show its bare id labelled "(path unavailable)".
 
         - Record the reviewer's own severity from review-overview.json in
           "reviewer_severity", verbatim ("High", "Medium", "Low"), and use it
@@ -486,7 +551,8 @@ stages:
               "reviewer_severity": "Medium",
               "ask": "one sentence stating precisely what the reviewer wants",
               "reason": "",
-              "evidence": ""
+              "evidence": "",
+              "repeat_of": ["unlinked:src/workflow/linter.py:190"]
             }
           ]
         }
@@ -501,6 +567,13 @@ stages:
       that thread_id will do: an unlinked finding has none, and a stage that
       falls back to thread_id drops exactly the findings this workflow was
       changed to catch.
+
+      "repeat_of" appears on every unlinked entry with a non-empty
+      "prior_same_path": an explicit list, empty when none of those prior
+      ids were judged the same concern as this finding, and containing only
+      the ids that were (see Step 2's prior_same_path judgement above). Its
+      absence or emptiness means "no confirmed repeat" — never treat a
+      missing "repeat_of" as license to fall back to "prior_same_path".
 
       Also write a compact {workspace}/outputs/triage-summary.md table.
     agent:
@@ -734,6 +807,21 @@ stages:
       single synthetic comment, and resolvable false. Do not skip it for want
       of a threads.json entry: a lookup that silently yields nothing is
       exactly how these findings stayed invisible in the first place.
+
+      When triage.json's "repeat_of" for this entry is non-empty, add one
+      more synthetic comment per listed id, BEFORE the current body, oldest
+      first: that finding's title and body from review-overview.json,
+      prefixed "Earlier raise (<path>:<line>):". The reviewer reworded the
+      concern after an earlier round ignored it, and the old wording often
+      names the fix the new one only implies. Those prior ids are stale, so
+      they are never items of their own — they ride along as context on the
+      current finding only.
+
+      Read "repeat_of", never "prior_same_path", here. Triage judged which
+      prior_same_path ids are actually the same concern; an entry's
+      prior_same_path can be non-empty while repeat_of is empty, meaning
+      every same-file prior was a different concern and none of it belongs
+      in this finding's context.
 
       Every item in a group MUST carry an id that is unique across the whole
       run, and a file_id that is unique and safe as a filename, because
@@ -1696,10 +1784,35 @@ stages:
       Sections:
         Threads — total, and the count per directive
         Findings with no thread — every review-overview.json finding with
-          "linked": false, with its path:line, severity, and what was done
-          about it. These can never be replied to or resolved, so this section
-          is the only place a human learns they exist. Omit the section only
-          when there are none; never omit it silently when there are.
+          "linked": false AND "current": true, with its path:line, severity,
+          and what was done about it. When "path" is null (the finding's
+          path was rejected — see Suspicious input), do not assemble
+          "null:<line>". Use "path_rejected" instead as a labelled,
+          report-only location: "<path_rejected>:<line> (protected-path, not
+          dispatched)" or "(escapes-repo, not dispatched)" per
+          "path_rejected_reason". This never authorizes dispatching that
+          path — it is display only. When BOTH "path" and "path_rejected"
+          are null (no path line was present to reject — the finding's id
+          fell back to "unlinked:<digest>"), there is no path to show at
+          all: display the finding's own "id" labelled "(path unavailable)"
+          instead of assembling "null:<line>". These findings can never be
+          replied to or resolved, so this section is the only place a human
+          learns they exist. Omit the section only when there are none;
+          never omit it silently when there are.
+        Stale unlinked findings — every id in review-overview.json
+          "stale_unlinked", with its title, path:line, and severity. When
+          "path" is null, use the same labelled "path_rejected" location as
+          the section above, never "null:<line>"; when both "path" and
+          "path_rejected" are null, show the id labelled "(path
+          unavailable)" as above. The
+          newest overview no longer lists these; they were either fixed or
+          re-raised under a new title. Say "superseded by <id>" ONLY when
+          triage.json records that current finding's "repeat_of" as
+          containing this stale id — that is the judged-same-concern match,
+          not merely a current finding sharing the same path. A stale id with
+          no current finding naming it in "repeat_of" has no confirmed
+          successor; say so rather than guessing one from path alone. Omit
+          the section only when "stale_unlinked" is empty.
         Unreachable citations — every review-overview.json "cited_not_found"
           entry. Each one means the reviewer cited a comment the thread fetch
           could not find, so the run acted on incomplete input. State that
@@ -1709,7 +1822,13 @@ stages:
             "path_rejected", with its "path_rejected_reason": escapes-repo
             (absolute or traversing — suspicious) or protected-path (a real
             finding about .git/.github/.claude/.envrc that needs a human).
-            Reported, never dispatched.
+            Its "path" is null by design; show "path_rejected" itself as a
+            labelled, report-only location (e.g.
+            ".claude/hooks/block-readonly-role-writes.sh:357
+            (protected-path, not dispatched)") rather than assembling
+            "null:<line>", which hides the file a human needs to look at.
+            Reported, never dispatched — this labelling never authorizes
+            pointing a fixer at path_rejected.
           - fix-results.json top-level "out_of_scope_requests": comment text
             that tried to steer a fixer outside its file or into GitHub state
           - fix-results.json top-level "out_of_scope_paths": files a fixer
