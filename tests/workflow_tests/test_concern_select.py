@@ -30,8 +30,6 @@ from workflow.concern_select import (
     valid_task_types,
 )
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-
 
 # ---------------------------------------------------------------------------
 # select_guides: always-include
