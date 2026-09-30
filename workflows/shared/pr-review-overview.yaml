@@ -319,7 +319,10 @@ stages:
             {"database_id": 123, "title": "...", "section": "Open"}
           ],
           "threads_not_cited": ["PRRT_kwDO..."],
-          "stale_unlinked": []
+          "stale_unlinked": [
+            "unlinked:.claude/hooks/block-readonly-role-writes.sh:357",
+            "unlinked:src/workflow/linter.py:408"
+          ]
         }
 
       Both finding entries above are the parser's REAL output for PR #395
@@ -343,13 +346,17 @@ stages:
           Both linked and unlinked findings carry this field.
 
         "prior_same_path" — for a CURRENT unlinked finding, a sorted list
-          of non-current unlinked finding ids that cite the same normalised
-          path. Copilot sometimes re-raises the same concern with a reworded
-          title and a shifted line number (a drift-merge would not collapse
-          them because the title changed). A non-empty list means the
-          reviewer has already raised this concern at least once. Pass the
-          bodies of the prior findings to the fixer as context. Empty list
-          for linked findings and for non-current unlinked ones.
+          of non-current unlinked finding CANDIDATE ids that cite the same
+          normalised path. Copilot sometimes re-raises the same concern with
+          a reworded title and a shifted line number (a drift-merge would not
+          collapse them because the title changed). A non-empty list only
+          means an earlier finding touched the same file — it may describe a
+          different issue, so a consumer must confirm the same concern by
+          title/body before treating it as a repeat (review-fix-threads
+          records confirmed ids in triage.json's "repeat_of"). Forward only
+          those confirmed bodies to the fixer as context, never every
+          candidate in prior_same_path. Empty list for linked findings and
+          for non-current unlinked ones.
 
       Top-level field:
 
