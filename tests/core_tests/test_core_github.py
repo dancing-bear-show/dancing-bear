@@ -22,6 +22,7 @@ from core.github import (
     fetch_thread_states,
     forged_run_marker,
     has_run_marker,
+    is_copilot_reviewer,
     mark_body,
     render_summary,
     reply_and_resolve,
@@ -359,6 +360,46 @@ class TestClassifyAuthor(unittest.TestCase):
         self.assertEqual(entry["author_kind"], "bot")
         self.assertEqual(entry["latest_author_kind"], "human")
         self.assertEqual(doc["counts"]["bot"], 1)
+
+
+# ---------------------------------------------------------------------------
+# is_copilot_reviewer
+# ---------------------------------------------------------------------------
+
+
+class TestIsCopilotReviewer(unittest.TestCase):
+    # Happy path: typed field present and confirms Bot.
+    def test_typename_bot_with_copilot_login_is_copilot(self):
+        self.assertTrue(is_copilot_reviewer("copilot-pull-request-reviewer", typename="Bot"))
+
+    def test_user_type_bot_with_copilot_login_is_copilot(self):
+        self.assertTrue(is_copilot_reviewer("copilot-pull-request-reviewer[bot]", user_type="Bot"))
+
+    def test_typename_bot_with_rest_spelling_is_copilot(self):
+        self.assertTrue(is_copilot_reviewer("copilot-pull-request-reviewer[bot]", typename="Bot"))
+
+    # Sad path: no typed field → False even with the Copilot login.
+    def test_copilot_login_without_typed_field_is_not_copilot(self):
+        # Both API spellings of the login must fail without a typed field.
+        self.assertFalse(is_copilot_reviewer("copilot-pull-request-reviewer"))
+        self.assertFalse(is_copilot_reviewer("copilot-pull-request-reviewer[bot]"))
+
+    def test_user_type_user_with_copilot_login_is_not_copilot(self):
+        self.assertFalse(is_copilot_reviewer("copilot-pull-request-reviewer", user_type="User"))
+
+    def test_typename_user_with_copilot_login_is_not_copilot(self):
+        self.assertFalse(is_copilot_reviewer("copilot-pull-request-reviewer", typename="User"))
+
+    def test_typename_decides_over_user_type(self):
+        self.assertFalse(
+            is_copilot_reviewer("copilot-pull-request-reviewer", typename="User", user_type="Bot")
+        )
+
+    def test_bot_typed_non_copilot_login_is_not_copilot(self):
+        self.assertFalse(is_copilot_reviewer("github-code-quality", typename="Bot"))
+
+    def test_none_login_without_typed_field_is_not_copilot(self):
+        self.assertFalse(is_copilot_reviewer(None))
 
 
 # ---------------------------------------------------------------------------
