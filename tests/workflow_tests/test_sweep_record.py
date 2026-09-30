@@ -38,9 +38,13 @@ def _make_repo(root: Path) -> Path:
     return repo
 
 
-def _make_workspace(root: Path, guides: list[str], review: str | None = "consolidated.json") -> Path:
+def _make_workspace(root: Path, guides: list[str], review: str | None = "consolidated.json",
+                    commit_id: str | None = None) -> Path:
+    """A swarm workspace; ``commit_id`` defaults to the repo's HEAD, the commit it swept."""
     ws = root / "ws"
     (ws / "outputs").mkdir(parents=True)
+    swept = commit_id if commit_id is not None else _git(root / "repo", "rev-parse", "HEAD")
+    (ws / "outputs" / "pr-context.json").write_text(json.dumps({"commit_id": swept}))
     index = {
         "total": len(guides),
         "items": [{"index": str(i), "data": {"guide": g}} for i, g in enumerate(guides)],
@@ -132,6 +136,23 @@ class SweepRecordTests(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("is not this checkout's HEAD", err)
         self.assertFalse(self._record_file(old).exists())
+
+    def test_write_refuses_a_workspace_that_swept_an_earlier_commit(self) -> None:
+        ws = _make_workspace(self.root, GUIDES)  # swept the first commit
+        (self.repo / "a.txt").write_text("b\n")
+        _git(self.repo, "commit", "-q", "-am", "two")
+        new = _git(self.repo, "rev-parse", "HEAD")
+        code, _, err = _run(self.repo, "write", "--head", new, "--workspace", str(ws))
+        self.assertEqual(code, 2)
+        self.assertIn("re-run the swarm on HEAD", err)
+        self.assertFalse(self._record_file(new).exists())
+
+    def test_write_refuses_a_workspace_without_pr_context(self) -> None:
+        ws = _make_workspace(self.root, GUIDES)
+        (ws / "outputs" / "pr-context.json").unlink()
+        code, _, err = _run(self.repo, "write", "--head", self.head, "--workspace", str(ws))
+        self.assertEqual(code, 2)
+        self.assertIn("pr-context.json", err)
 
     def test_malformed_sha_exits_2_for_every_subcommand(self) -> None:
         ws = _make_workspace(self.root, GUIDES)

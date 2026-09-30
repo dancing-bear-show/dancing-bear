@@ -31,6 +31,7 @@ from pathlib import Path
 RECORD_SUBDIR = ("dancing-bear", "concern-sweeps")
 REQUIRED_GUIDE = "collateral-damage.md"
 INDEX_NAME = "concern-sweep-index.json"
+CONTEXT_NAME = "pr-context.json"
 # Both swarm paths write the same file: the small path's review-consolidated
 # stage and the large path's consolidate stage each list consolidated.json in
 # writes_to (workflows/shared/code-review-swarm.yaml). Either satisfies this.
@@ -169,6 +170,22 @@ def _require_review_output(workspace: Path) -> None:
     )
 
 
+def _require_workspace_swept_head(workspace: Path, head: str) -> None:
+    """The swarm must have reviewed ``head`` itself, not an earlier commit.
+
+    fetch-pr-context writes the reviewed commit as ``commit_id`` in
+    ``outputs/pr-context.json``; without this check one old workspace would
+    authorise every later HEAD.
+    """
+    path = workspace / "outputs" / CONTEXT_NAME
+    data = _load_json(path, CONTEXT_NAME)
+    swept = data.get("commit_id") if isinstance(data, dict) else None
+    if swept != head:
+        raise SweepRecordError(
+            f"the workspace swept commit {swept!r}, not --head {head}; re-run the swarm on HEAD"
+        )
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -213,6 +230,7 @@ def write_swept(repo: Path, head: str, workspace: Path) -> tuple[Path, SweepReco
             f"{INDEX_NAME} does not include {REQUIRED_GUIDE}; the swarm did not sweep it"
         )
     _require_review_output(ws)
+    _require_workspace_swept_head(ws, head)
     record = SweepRecord(
         head_sha=head, mode=MODE_SWEPT, guides=guides, workspace=str(ws),
         reason=None, recorded_at=_now(),
