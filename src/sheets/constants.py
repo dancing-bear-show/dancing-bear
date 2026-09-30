@@ -9,12 +9,14 @@ the generator.
 
 from __future__ import annotations
 
+from core.doc_metadata import HEADER_BG_HEX
+
 # =============================================================================
 # Default Colors (6-character RGB hex, no leading #)
 # =============================================================================
 
 # Header row background — dark blue-gray
-DEFAULT_HEADER_BG_COLOR = "2D3A4F"
+DEFAULT_HEADER_BG_COLOR = HEADER_BG_HEX
 DEFAULT_HEADER_TEXT_COLOR = "FFFFFF"
 
 # Alternating row (zebra) fill colors

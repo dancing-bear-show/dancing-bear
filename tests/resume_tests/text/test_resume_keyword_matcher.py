@@ -208,10 +208,6 @@ class TestKeywordMatcherKeywordRegistration(KeywordMatcherTestMixin, unittest.Te
 class TestKeywordMatcherTextMatching(KeywordMatcherTestMixin, unittest.TestCase):
     """Tests for KeywordMatcher text matching."""
 
-    def test_normalize(self):
-        self.assertEqual(KeywordMatcher.normalize("  Hello  World  "), "hello world")
-        self.assertEqual(KeywordMatcher.normalize(""), "")
-
     def test_match_keyword(self):
         self.assertTrue(self.matcher.match_keyword("I love Python", "Python"))
         self.assertFalse(self.matcher.match_keyword("I love Java", "Python"))
@@ -366,6 +362,7 @@ class TestConvenienceFunctions(unittest.TestCase):
 
     def test_normalize_text(self):
         self.assertEqual(normalize_text("  Hello  World  "), "hello world")
+        self.assertEqual(normalize_text(""), "")
 
     def test_keyword_match(self):
         self.assertTrue(keyword_match("Python developer", "Python"))

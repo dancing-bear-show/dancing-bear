@@ -4,7 +4,6 @@ import json
 import os
 import shutil
 import subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
-import sys
 from collections.abc import Callable
 from typing import Any
 
@@ -168,7 +167,7 @@ class GhCLI:
 
         The request body — query and variables together — is sent as JSON on
         stdin (``gh api graphql --input -``), not through ``-f``/``-F`` field
-        flags or a ``query=@tempfile`` reference. Every variable, including
+        flags. Every variable, including
         review-derived text such as a reply body, therefore never touches the
         ``gh`` process argv: nothing here can appear in process listings, hit
         the OS argv-size limit, or be misread as an ``@path`` file reference.
@@ -275,72 +274,6 @@ class GhCLI:
                 k, v = line.split(":", 1)
                 headers[k.strip()] = v.strip()
         return (status, headers, body)
-
-    def graphql(self, query: str, variables: dict[str, Any] | None = None, *, debug: bool = False) -> Any:
-        """Execute a GraphQL query/mutation using `gh api graphql` and return parsed JSON.
-
-        Uses a temp file for the query payload to avoid shell quoting/newline issues.
-        """
-        qfile_path = None
-        try:
-            qfile_path = self._write_query_tempfile(query)
-            cmd = self._build_graphql_cmd(query, qfile_path, variables)
-            res = self._exec(cmd)
-            return self._parse_graphql_result(res, debug)
-        finally:
-            self._cleanup_tempfile(qfile_path)
-
-    @staticmethod
-    def _write_query_tempfile(query: str) -> str | None:
-        """Write the GraphQL query to a temp file for safe shell transport."""
-        import tempfile as _tempfile
-        try:
-            with _tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8") as tf:
-                tf.write(query)
-                return tf.name
-        except Exception:  # nosec B110 - tempfile create/write failure falls back to inline query
-            return None
-
-    @staticmethod
-    def _build_graphql_cmd(
-        query: str,
-        qfile_path: str | None,
-        variables: dict[str, Any] | None,
-    ) -> list[str]:
-        """Assemble the ``gh api graphql`` command list."""
-        cmd: list[str] = ["gh", "api", "graphql"]
-        if qfile_path:
-            cmd.extend(["-F", f"query=@{qfile_path}"])
-        else:
-            cmd.extend(["-f", f"query={query}"])
-        cmd.extend(field_args(variables))
-        return cmd
-
-    @staticmethod
-    def _parse_graphql_result(res: subprocess.CompletedProcess[str], debug: bool) -> Any:
-        """Parse the subprocess result from a GraphQL call."""
-        if res.returncode != 0:
-            if debug:
-                err_msg = mask_text(res.stdout or res.stderr or "gh api graphql failed")
-                print(err_msg, file=sys.stderr)
-            return None
-        try:
-            return json.loads(res.stdout or "{}")
-        except Exception:  # nosec B110 - return None on malformed GraphQL JSON
-            if debug:
-                print("Failed to parse gh api graphql output", file=sys.stderr)
-            return None
-
-    @staticmethod
-    def _cleanup_tempfile(path: str | None) -> None:
-        """Remove a temp file if it exists."""
-        if not path:
-            return
-        import os as _os
-        try:
-            _os.unlink(path)
-        except OSError:  # nosec B110 - best-effort cleanup; the temp file may already be gone
-            pass
 
     # ---------------- Convenience wrappers ----------------
     def pr_view(self, pr: str, *, repo: str | None = None, fields: list[str] | None = None) -> Any:
