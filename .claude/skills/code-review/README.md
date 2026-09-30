@@ -51,6 +51,7 @@ Guide selection is canonical — the concern-sweep stage runs the selector, and
 you can run it yourself to see the exact list for a diff:
 
 ```bash
+set -o pipefail
 git diff main...HEAD --name-only | ./bin/workflow select-concerns --paths-file - --format json
 ```
 

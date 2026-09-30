@@ -47,6 +47,7 @@ branch that prints "✔ No issues" whether or not anything was scanned.
 Guide selection is canonical — run the selector to get the exact list for a diff:
 
 ```bash
+set -o pipefail
 git diff main...HEAD --name-only | ./bin/workflow select-concerns --paths-file - --format json
 ```
 

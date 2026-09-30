@@ -338,6 +338,41 @@ class TestNoInlinePathsInAgentInstructions(unittest.TestCase):
         self.assertFalse(self._INLINE.search(
             "git diff --name-only | ./bin/workflow select-concerns --paths-file - --format json"))
 
+    @staticmethod
+    def _stdin_pipes_without_pipefail(text: str) -> list[int]:
+        """Line numbers of ``| ... select-concerns --paths-file -`` lacking pipefail.
+
+        Without ``set -o pipefail`` a failed upstream ``git diff`` is masked by
+        the selector's exit 0 on empty stdin, which then selects only the
+        default guides. The pipefail must appear in the same fenced code block,
+        before the pipeline.
+        """
+        bad: list[int] = []
+        block_has_pipefail = False
+        for n, line in enumerate(text.splitlines(), 1):
+            if line.lstrip().startswith("```"):
+                block_has_pipefail = False
+                continue
+            if "set -o pipefail" in line:
+                block_has_pipefail = True
+            if "select-concerns" in line and "--paths-file -" in line and not block_has_pipefail:
+                bad.append(n)
+        return bad
+
+    def test_stdin_pipelines_set_pipefail(self) -> None:
+        offenders = [
+            f"{path.relative_to(_REPO_ROOT)}:{n}"
+            for path in self._instruction_files()
+            for n in self._stdin_pipes_without_pipefail(path.read_text(encoding="utf-8"))
+        ]
+        self.assertEqual(offenders, [], "set -o pipefail before piping into --paths-file -")
+
+    def test_pipefail_detector_has_teeth(self) -> None:
+        bare = "```bash\ngit diff main...HEAD --name-only | ./bin/workflow select-concerns --paths-file - --format json\n```\n"
+        guarded = "```bash\nset -o pipefail\n" + bare.split("\n", 1)[1]
+        self.assertEqual(self._stdin_pipes_without_pipefail(bare), [2])
+        self.assertEqual(self._stdin_pipes_without_pipefail(guarded), [])
+
 
 if __name__ == "__main__":
     unittest.main()

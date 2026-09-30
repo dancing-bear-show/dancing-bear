@@ -80,6 +80,7 @@ by the actual changes, so validators only spend time on relevant checks.
 Guide selection is canonical — use the selector to get the exact list:
 
 ```bash
+set -o pipefail
 git diff main...HEAD --name-only | ./bin/workflow select-concerns --paths-file - --format json
 ```
 
