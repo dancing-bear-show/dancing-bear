@@ -407,5 +407,105 @@ class TestQltyPathsComeFromThePushedCommit(unittest.TestCase):
         self.assertNotEqual(res.returncode, 0)
 
 
+class TestUnlinkedFindingTriageAndDispatchRules(unittest.TestCase):
+    """PR #443 review threads PRRT_kwDOQr1kjM6nUv2O / PRRT_kwDOQr1kjM6nUv2h:
+    no rendered-prompt regression checks pinned the unlinked-finding rules —
+    stale exclusion, independent repeat_of judgement (including the
+    previously_missed-without-repeat_of case a drifted-line merge produces),
+    and dispatch/report reading confirmed ids only."""
+
+    def setUp(self) -> None:
+        self.triage_prompt = _flat(_prompts()["triage-threads"])
+        self.dispatch_prompt = _flat(_prompts()["fix-dispatch"])
+        self.report_prompt = _flat(_prompts()["report"])
+
+    def test_stale_current_false_findings_are_not_dispatched(self) -> None:
+        # (a) current: false -> stale_unlinked reporting, never dispatch.
+        self.assertIn('"current": false', self.triage_prompt)
+        self.assertIn("stale_unlinked", self.triage_prompt)
+        self.assertIn("Do NOT dispatch it", self.triage_prompt)
+
+    def test_repeat_of_is_judged_per_prior_id_by_title_and_body(self) -> None:
+        # (b) prior_same_path alone grants nothing; each id is compared by
+        # its own title/body before it can enter repeat_of.
+        self.assertIn(
+            "compare ITS \"title\" and \"body\" against the current finding's "
+            "own title and body. Judge each prior id independently",
+            self.triage_prompt,
+        )
+        self.assertIn(
+            "only shows that an earlier finding cited the SAME FILE",
+            self.triage_prompt,
+        )
+        self.assertIn("do NOT add it to \"repeat_of\"", self.triage_prompt)
+
+    def test_own_previously_missed_keeps_weight_with_empty_repeat_of(self) -> None:
+        # (c) the Uv2O fix: _merge_drifted folds an earlier same-title raise
+        # into the current entry (previously_missed stays true) without
+        # populating repeat_of. That must still carry full weight.
+        self.assertIn(
+            "\"previously_missed\" can be true here with \"repeat_of\" left "
+            "empty",
+            self.triage_prompt,
+        )
+        self.assertIn(
+            "grant this finding the same \"previously missed\" weight "
+            "regardless of what \"repeat_of\" ends up containing",
+            self.triage_prompt,
+        )
+
+    def test_earlier_raise_embedding_reads_repeat_of_not_prior_same_path(self) -> None:
+        # (d) fix-dispatch must source the "Earlier raise" context from the
+        # triage-judged repeat_of list, not the raw prior_same_path list.
+        self.assertIn(
+            'When triage.json\'s "repeat_of" for this entry is non-empty, add '
+            'one more synthetic comment per listed id',
+            self.dispatch_prompt,
+        )
+        self.assertIn(
+            'Read "repeat_of", never "prior_same_path", here', self.dispatch_prompt
+        )
+        self.assertIn('prefixed "Earlier raise (<path>:<line>):"', self.dispatch_prompt)
+        # Negative: the dispatch prose must never instruct sourcing the
+        # embedded comment directly from prior_same_path.
+        self.assertNotIn(
+            "add one more synthetic comment per listed id in "
+            '"prior_same_path"',
+            self.dispatch_prompt,
+        )
+
+    def test_superseded_by_requires_repeat_of_not_shared_path_alone(self) -> None:
+        # (e) report: "superseded by" only fires from a triage-confirmed
+        # repeat_of match, and a rejected path is shown labelled, not
+        # "null:<line>".
+        self.assertIn(
+            'Say "superseded by <id>" ONLY when', self.report_prompt
+        )
+        self.assertIn(
+            'triage.json records that current finding\'s "repeat_of" as '
+            'containing this stale id', self.report_prompt
+        )
+        self.assertIn("not merely a current finding sharing the same path", self.report_prompt)
+        self.assertIn("never \"null:<line>\"", self.report_prompt)
+
+    def test_both_path_and_path_rejected_null_falls_back_to_id(self) -> None:
+        # (f) a bare "unlinked:<digest>" finding (no path line was present to
+        # parse or reject) has neither "path" nor "path_rejected" to show.
+        # triage-threads must classify it "context" instead of dispatching a
+        # null path, and report must label its bare id rather than
+        # assembling "null:<line>".
+        self.assertIn(
+            'A finding can also have BOTH "path" and "path_rejected" null',
+            self.triage_prompt,
+        )
+        self.assertIn(
+            "this finding has nowhere to be dispatched", self.triage_prompt
+        )
+        self.assertIn(
+            'When BOTH "path" and "path_rejected" are null', self.report_prompt
+        )
+        self.assertIn('labelled "(path unavailable)"', self.report_prompt)
+
+
 if __name__ == "__main__":
     unittest.main()
