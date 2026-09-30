@@ -66,6 +66,8 @@ description: >
         |
     merge-impl                               (G3 — verify the merges landed; merges nothing)
         |
+    reconcile-impl                           (G3b — run tests against merged impl; fix name/sig drift)
+        |
     adversarial-test-review                  (G4 — Opus attacks the suite; teeth-tests it)
         |
     integrate                                (G5 — act on findings, then lint/typecheck/suite)
@@ -1235,6 +1237,34 @@ stages:
       orchestrator copies them back after the stage completes. Every path
       below in this and other isolated stages is written accordingly.
 
+      ISOLATED WORKTREE BRANCHING — your worktree is cut from the LATEST main
+      at spawn time, not from the workflow's feature branch. This means the
+      orchestrator's feature branch may already have commits (from earlier
+      stages, or from prior work on this branch) that your worktree does not
+      contain. Copying files directly back onto the feature branch can silently
+      REVERT those commits — your file's content wins and the prior commit is
+      gone. To prevent this, the orchestrator MUST, for this stage:
+        1. Before spawning this agent, record the feature branch tip SHA with
+             git rev-parse HEAD
+           and store it alongside this stage's name so the merge step has it.
+        2. After this agent finishes and reports its commit SHA, bring its work
+           onto the feature branch with a 3-way merge or cherry-pick against
+           the agent's own base (the latest main SHA the agent was cut from),
+           NOT by copying files over the feature branch working tree.
+           The correct form is:
+             git cherry-pick <agent-commit-sha>
+           or, for a range of commits:
+             git cherry-pick <agent-base-sha>..<agent-tip-sha>
+           against the feature branch (checked out, not the agent's worktree).
+        3. After the cherry-pick or merge, verify with
+             git log --oneline <feature-branch-tip-before-spawn>..HEAD
+           that the commits already on the feature branch are still reachable
+           and that no commit was reverted. If any prior commit is missing from
+           the graph, STOP and report — do not proceed to merge-impl.
+      Never copy the agent's files by hand over the feature branch tree: that
+      path silently drops all commits the feature branch had that the agent's
+      worktree did not, and the loss looks exactly like a clean merge.
+
       Implement the "{job_type}" handler exactly as approved in
       <your-cwd>/inputs/outputs/design/contract.json (see the survey artifact
       at <your-cwd>/inputs/outputs/analysis/survey.json for the recorded
@@ -1530,6 +1560,14 @@ stages:
       cannot read or write; the orchestrator copies your outputs back after
       the stage completes.
 
+      ISOLATED WORKTREE BRANCHING — see impl-handler's ISOLATED WORKTREE
+      BRANCHING section for the full protocol. Your worktree is cut from
+      the LATEST main, not the feature branch. The orchestrator must record
+      the feature branch tip before spawning you, then cherry-pick your
+      commit(s) onto the feature branch after you finish — never copy files
+      over the working tree. A file copy silently reverts any prior commits on
+      the feature branch that your worktree does not contain.
+
       FIRST, read `<your-cwd>/inputs/outputs/design/contract.json`'s
       heartbeat/liveness section and check which
       route the approved design chose. If it chose route (a) — nothing
@@ -1648,6 +1686,14 @@ stages:
       path resolves against the orchestrator's shared tree, which this agent
       cannot read or write; the orchestrator copies your outputs back after
       the stage completes.
+
+      ISOLATED WORKTREE BRANCHING — see impl-handler's ISOLATED WORKTREE
+      BRANCHING section for the full protocol. Your worktree is cut from
+      the LATEST main, not the feature branch. The orchestrator must record
+      the feature branch tip before spawning you, then cherry-pick your
+      commit(s) onto the feature branch after you finish — never copy files
+      over the working tree. A file copy silently reverts any prior commits on
+      the feature branch that your worktree does not contain.
 
       Write tests against the contract in
       `<your-cwd>/inputs/outputs/design/contract.json`.
@@ -2006,12 +2052,171 @@ stages:
         checks: [is_json, has_key:verified, has_key:all_landed]
 
   # ===========================================================================
+  # G3b: Reconcile — run tests against merged impl; fix name/signature drift
+  # ===========================================================================
+  - name: reconcile-impl
+    kind: execute
+    depends_on: [merge-impl]
+    reads_from: [merge-impl, impl-handler, impl-heartbeat, impl-tests, design]
+    description: >
+      The three implementation stages ran in PARALLEL in separate isolated
+      worktrees: impl-handler wrote against contract.json's signatures, and
+      impl-tests also wrote against contract.json — but contract.json is a
+      plan, not the code. Parallel development against a shared spec almost
+      always drifts in function names, argument order, outcome strings, or
+      helper signatures. This stage finds and fixes that drift while the
+      merged tree is still fresh and before the adversarial review (which
+      needs a working suite to attack).
+
+      Read {workspace}/validation/merge.json first. If all_landed is false or
+      files_missing is non-empty, STOP — reconciling a partial tree produces
+      wrong findings and masks the real problem. Record the failure and set
+      reconciled: false.
+
+      RULE FOR RESOLVING DRIFT. The contract is the source of truth.
+        - If the IMPLEMENTATION departs from a contract.json value (wrong
+          function name, wrong outcome string prefix, wrong argument type),
+          fix the IMPLEMENTATION. Do not weaken the contract to match code
+          that is wrong.
+        - If the TESTS depart from contract.json (testing a function name or
+          outcome string that differs from what the contract says, asserting
+          a wrong return shape), fix the TESTS. Do not weaken an assertion to
+          match code that happens to be present; strengthen the assertion to
+          match what the contract requires.
+        - If both code and tests agree on something that CONTRACT.json does
+          not specify (an undocumented helper, an extra field), leave both
+          alone and note the gap in reconcile.json for integrate to review.
+        - Never change contract.json here — that is the approved design.
+
+      WHAT TO CHECK. Run the test suite restricted to the new qwen tests first,
+      then fix errors and re-run. Common drift categories:
+
+        1. FUNCTION NAME MISMATCHES. The test imports or patches a name that
+           qwen.py does not export, or patches a method the implementation
+           calls by a different name. Import errors and AttributeError are
+           the symptom. Fix by aligning to the contract.json name; if the
+           contract is ambiguous, align tests to the implementation and note
+           the gap.
+
+        2. OUTCOME STRING MISMATCHES. Tests assert an exact terminal- or
+           deferred- prefix that the implementation returns spelled differently.
+           These fail with AssertionError or assertEqual failures on strings.
+           Fix by aligning to contract.json's retry_map and outcome strings.
+
+        3. SIGNATURE DRIFT. A test calls the handler function or a helper with
+           arguments in the wrong order, or with keyword arguments the
+           implementation does not accept. Fix by aligning to the
+           implementation's actual signature, which must itself match the
+           contract.
+
+        4. SCHEMA DRIFT. Tests build payload or result dicts with fields the
+           handler does not recognise, or omit required fields. Align to
+           contract.json's payload_schema and result_schema.
+
+        5. MOCK TARGET DRIFT. Tests patch a module path that does not exist in
+           the merged implementation (e.g. the test patches
+           `worker.qwen.urlopen` but the handler imports it under a different
+           alias, so the patch does not take effect). This is the hardest to
+           catch without running; a mock that misses leaves the real function
+           in place and may produce a false pass. Fix by matching the patch
+           target to the actual import path in the merged code.
+
+      RUN THE TESTS — do not reason about drift from reading alone. A test
+      that imports correctly and passes silently may still be asserting the
+      wrong thing; a broken import is visible immediately. Run the qwen tests
+      with the suite restricted to tests/worker_tests/:
+
+        make test > /tmp/reconcile-check.log 2>&1; echo "EXIT=$?"
+        grep -E "^Ran [0-9]+ tests|^OK|^FAILED|^ERROR" /tmp/reconcile-check.log
+
+      Capture both the exit code and the summary line. Fix errors and
+      failures, re-run. Stop when the suite passes (or when you reach a
+      failure that requires a non-trivial implementation change — record those
+      as blocking findings for integrate rather than resolving them here;
+      this stage fixes DRIFT, not design mistakes).
+
+      LIMIT. This stage fixes naming and structural drift only. Do NOT:
+        - Add new test cases (that is adversarial-test-review and integrate's
+          job).
+        - Change the implementation's behaviour to match a test that asserts
+          something the contract does not require.
+        - Fix logic bugs discovered while running (record them as findings for
+          integrate instead).
+        - Weaken assertions to get tests passing when the assertion is correct
+          and the implementation is wrong.
+
+      After each fix, record it in reconcile.json under "fixes" with: the
+      category (function-name|outcome-string|signature|schema|mock-target),
+      the file changed, the old value, the new value, and which side you
+      changed (implementation|tests) and why.
+
+      Commit any changes:
+        git add <specific files changed>
+        git commit -m "fix(worker): reconcile test/impl drift after parallel build"
+      Stage only the files this stage changed, by name. If no drift was found,
+      do not commit (record commit_sha: null). Confirm with
+      `git log --oneline -1` and record the SHA if a commit was made.
+
+      Write {workspace}/validation/reconcile.json:
+        {
+          "reconciled": true|false,
+          "not_reconciled_reason": "..." | null,
+          "fixes": [
+            {
+              "category": "function-name|outcome-string|signature|schema|mock-target",
+              "file": "...",
+              "old_value": "...",
+              "new_value": "...",
+              "side_changed": "implementation|tests",
+              "reason": "..."
+            }
+          ],
+          "blocking_findings": [
+            {
+              "description": "...",
+              "file": "...",
+              "action_needed": "..."
+            }
+          ],
+          "suite_result": {
+            "exit_code": N,
+            "summary_line": "...",
+            "failures": N,
+            "errors": N
+          },
+          "commit_sha": "..." | null,
+          "notes": "..."
+        }
+
+      reconciled is true when the suite passed (or all remaining failures are
+      recorded as blocking findings for integrate). Set it false only if you
+      could not run the suite or if merge.json reported all_landed false.
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Write, Edit, Bash, Glob, Grep]
+      access: read-write
+    required: true
+    outputs:
+      - name: reconcile_record
+        mode: generate
+        description: >
+          reconcile.json recording each name/signature/outcome-string fix
+          applied to close the gap between parallel test and implementation
+          branches, and the suite result after reconciliation.
+    writes_to:
+      - validation/reconcile.json
+    validates_output:
+      - path: validation/reconcile.json
+        checks: [is_json, has_key:reconciled, has_key:suite_result]
+
+  # ===========================================================================
   # G4: Adversarial test review — attack the suite before trusting it
   # ===========================================================================
   - name: adversarial-test-review
     kind: execute
-    depends_on: [merge-impl]
-    reads_from: [merge-impl, impl-tests, impl-handler, impl-heartbeat, design, survey]
+    depends_on: [reconcile-impl]
+    reads_from: [reconcile-impl, merge-impl, impl-tests, impl-handler, impl-heartbeat, design, survey]
     description: >
       Adversarial review of the test suite. You are NOT checking that tests
       pass — a suite of vacuous tests passes perfectly. You are looking for
@@ -2176,20 +2381,29 @@ stages:
   # ===========================================================================
   - name: integrate
     kind: execute
-    depends_on: [merge-impl, adversarial-test-review]
-    reads_from: [merge-impl, adversarial-test-review, impl-handler, impl-heartbeat, impl-tests, design]
+    depends_on: [reconcile-impl, adversarial-test-review]
+    reads_from: [reconcile-impl, merge-impl, adversarial-test-review, impl-handler, impl-heartbeat, impl-tests, design]
     description: >
-      merge-impl has already landed the three implementation branches, so you
-      are working in one coherent tree. Read validation/merge.json first: if
-      all_landed is false, or files_missing is non-empty, STOP and report —
-      running gates against a tree that is missing half the implementation
-      produces a meaningless green.
+      merge-impl has already landed the three implementation branches, and
+      reconcile-impl has already fixed naming/signature drift so the suite
+      passes. Read validation/merge.json first: if all_landed is false, or
+      files_missing is non-empty, STOP and report — running gates against a
+      tree that is missing half the implementation produces a meaningless
+      green.
 
-      Then reconcile drift: impl-tests wrote against contract.json while the
-      implementation was being written in parallel. Where they disagree, fix
-      the side that departs from the approved contract. Do not weaken a test
-      to match a wrong implementation; do not bend the implementation to match
-      a test that misread the contract.
+      Read validation/reconcile.json. If reconciled is false, STOP and report
+      the not_reconciled_reason — the suite was not in a passing state when
+      the adversarial review ran, so the review's findings may be against
+      broken code. Also check reconcile.json's blocking_findings: each one
+      that has not yet been fixed by the time you run is work for this stage.
+
+      The name/signature/outcome-string drift that reconcile-impl addresses is
+      no longer your job here; it was handled before the adversarial review
+      ran. What IS your job is acting on the adversarial review's findings
+      and fixing any logic bugs or missing coverage they identified. Do not
+      re-do the reconciliation work. Do not weaken a test to match a wrong
+      implementation; do not bend the implementation to match a test that
+      misread the contract.
 
       Then act on {workspace}/validation/test-review.json. Fix every BLOCKING
       finding before running the gates, and add a test for every row in
@@ -2496,11 +2710,37 @@ stages:
 
         Then RECORD THE DIGEST, whether or not you pulled. `{model_tag}` is a
         mutable tag — Ollama can serve a different build under the same name
-        later, silently changing output quality with no signal. Read the
-        model's digest (the survey recorded which API field carries it) and
-        write it into the install record, so validate-config and the handler
-        can detect a swap. If the digest cannot be read, record null and say
-        why rather than omitting the field.
+        later, silently changing output quality with no signal.
+
+        Read the model's digest from Ollama's GET /api/tags endpoint (the
+        survey recorded the exact field: the "models" array entry matching the
+        tag carries "digest"). Then write it to TWO places:
+
+          (a) The install record (install.json's model_digest field in the
+              "model_present" step entry) — so validate-config can read it.
+
+          (b) The handler's digest file — this is the file the handler reads
+              at every job to detect a model swap, and WITHOUT it the handler
+              reports the model as "unpinned" on every job. The path is:
+                <worker_state_dir>/qwen/model_digest.json
+              where <worker_state_dir> is the directory returned by
+              get_worker_state_dir() from src/worker/_helpers.py (the survey
+              recorded this path). Write a JSON object mapping the model tag
+              to its digest:
+                {"<model_tag>": "<digest>"}
+              Write atomically: write to a temp file in the same directory,
+              then rename it over the target (Python's tempfile + os.replace,
+              or any write-then-rename approach). Create the directory if it
+              does not exist (mode 0o700).
+              After writing, read it back and confirm the key and value match
+              what you wrote. Record the path and whether the readback
+              succeeded in install.json.
+
+        If the digest cannot be read from the API, record null in install.json
+        and leave model_digest.json unwritten — do not write a null value into
+        the file, since the handler treats a missing key the same as no file
+        (unpinned), which is the honest result. Say why in install.json.
+
         If the machine's memory_gb from survey.json is under 24, note in the
         record that a 14B model will be tight and a 7B tag is the fallback —
         but pull the requested tag regardless; sizing is the user's call.
@@ -2571,7 +2811,7 @@ stages:
           "steps": [
             {"step": "ollama_binary",  "already_satisfied": true|false, "action_taken": "...", "ok": true|false},
             {"step": "ollama_server",  "already_satisfied": true|false, "action_taken": "...", "ok": true|false},
-            {"step": "model_present",  "already_satisfied": true|false, "action_taken": "...", "ok": true|false, "model_digest": "..." | null},
+            {"step": "model_present",  "already_satisfied": true|false, "action_taken": "...", "ok": true|false, "model_digest": "..." | null, "model_digest_file": "..." | null, "model_digest_file_written": true|false},
             {"step": "worker_launchd", "already_satisfied": true|false, "action_taken": "...", "ok": true|false, "daemon_repo_root": "...", "daemon_serves_this_code": true|false, "detail": "..."},
             {"step": "queue_dirs",     "already_satisfied": true|false, "action_taken": "...", "ok": true|false}
           ],
@@ -2712,11 +2952,30 @@ stages:
         merely reported. An unenforced cap that nobody wrote down as
         unenforced is the failure to catch here.
 
-      Check 7 — MODEL DIGEST RECORDED. Confirm the install stage recorded a
-        digest for {model_tag} and that the currently-loaded model's digest
-        matches it. A mismatch is not blocking — the tag is mutable by
-        design — but it must be reported, since it means the model in use is
-        not provably the one this run validated.
+      Check 7 — MODEL DIGEST FILE PRESENT AND CURRENT. The handler reads
+        <worker_state_dir>/qwen/model_digest.json to detect model swaps —
+        without this file it reports the model as "unpinned" on every job.
+
+        (a) Confirm the file exists at that path (the install stage wrote it).
+            If it does not exist, this is a BLOCKING finding: every job will
+            report "unpinned" regardless of whether the model is correct, and
+            the model_pinning guard is effectively disabled.
+
+        (b) Read the file and confirm it contains a JSON object with a key
+            matching {model_tag}. If the key is absent, that is also a
+            blocking finding — the file exists but the handler will still
+            report "unpinned" for this tag.
+
+        (c) Compare the digest in the file against the currently-running
+            model's digest (re-query GET /api/tags). A mismatch is not
+            blocking — the tag is mutable by design — but it must be reported,
+            since it means the model in use is not provably the one this run
+            validated.
+
+        Record the file path, whether it exists, the recorded digest (or
+        "absent"), the currently-running digest, and whether they match. A
+        missing file or missing key is a blocking failure; a digest mismatch
+        is a non-blocking warning.
 
       Check 8 — PATCH OUTPUT DIRECTORY. Resolve core.paths.output_dir for
         this domain and confirm it exists, is writable, and sits OUTSIDE the
@@ -2745,7 +3004,7 @@ stages:
             {"check": "timeout_coherent",    "passed": true|false, "blocking": true|false, "detail": "...", "job_timeout_passed": true|false, "design_route": "..."},
             {"check": "guards_present",      "passed": true|false, "blocking": true|false, "detail": "...", "found": {"input_confinement": true|false, "patch_caps": true|false, "redaction": true|false, "disk_guard": true|false, "explain_mode": true|false, "deferral_counter": true|false, "admission": "handler-side|operator-limit|follow-up|MISSING"}},
             {"check": "guards_wired",        "passed": true|false, "blocking": true|false, "detail": "...", "probes": [{"probe": "nonexistent-path-outside-allowlist", "expected": "terminal confinement string", "observed": "...", "ordering_correct": true|false}, {"probe": "allowed-existing-file", "expected": "success", "observed": "..."}]},
-            {"check": "model_digest",        "passed": true|false, "blocking": false,      "detail": "...", "recorded": "...", "observed": "...", "matches": true|false},
+            {"check": "model_digest",        "passed": true|false, "blocking": true|false, "detail": "...", "digest_file": "...", "digest_file_exists": true|false, "tag_key_present": true|false, "recorded": "...", "observed": "...", "matches": true|false},
             {"check": "patch_output_dir",    "passed": true|false, "blocking": true|false, "detail": "...", "path": "...", "inside_repo": true|false, "writable": true|false, "free_gb": N},
             {"check": "ollama_concurrency",  "passed": true|false, "blocking": false,      "detail": "...", "num_parallel": "...", "max_loaded_models": "..."}
           ],
