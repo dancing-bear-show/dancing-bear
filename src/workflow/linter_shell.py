@@ -43,7 +43,9 @@ never the surrounding prose -- and emit warnings with stable rule ids:
 ``shell-guard-refused``
     An unquoted-delimiter heredoc (``<<EOF``, not ``<<'EOF'``), whose body the
     Bash guard hook cannot inspect because ``$(...)`` and backticks in it expand
-    before the guard ever sees the result; ``eval``, a bare ``sh -c``/``bash
+    before the guard ever sees the result, including one inside an ``sh -c``
+    string; ``env -S``, which splits a string into the command line it runs;
+    ``eval``, a bare ``sh -c``/``bash
     -c``, or ``xargs`` into a shell, which the guard blocks anywhere; or a
     ``for``/``while``/``until`` loop whose body contains a command the guard's
     write-target scan would refuse -- including one run by ``find -exec`` or

@@ -39,7 +39,6 @@ _MUTATING_COMMANDS = frozenset({
     "rm", "rmdir", "unlink", "shred", "chmod", "chown", "chgrp", "mv", "cp",
     "ln", "install", "touch", "tee", "truncate", "dd", "mkdir",
 })
-_SED_COMMANDS = frozenset({"sed", "gsed"})
 # The guard refuses `patch` unless one of these is present (it writes the
 # files named *inside the diff*, so the guard cannot resolve a write target
 # without one of these).
@@ -276,9 +275,13 @@ def _expanded(script: ShellScript) -> ShellScript:
     ``max_depth`` covers the inner scripts too, so nesting past the guard's
     ``MAX_DEPTH`` -- which :func:`parse_shell` stops at and records rather
     than drops -- surfaces as ``too_deep`` instead of being cut off silently.
+    The heredocs of every inner ``sh -c`` string are carried up as well: the
+    guard parses that string like any other command line, so an expanding
+    heredoc inside it is refused just as one outside it is.
     Iterative, because ``find -exec`` bodies nest without a depth bound.
     """
     commands: list[SimpleCommand] = []
+    heredocs = list(script.heredocs)
     max_depth = script.max_depth
     pending: list[Iterator[SimpleCommand]] = [iter(script.commands)]
     while pending:
@@ -290,8 +293,9 @@ def _expanded(script: ShellScript) -> ShellScript:
         inner = _inner_script(cmd)
         if inner is not None:
             max_depth = max(max_depth, inner.max_depth)
+            heredocs.extend(inner.heredocs)
             pending.append(iter(inner.commands))
-    return ShellScript(tuple(commands), script.heredocs, script.loop_variables, script.comments, max_depth)
+    return ShellScript(tuple(commands), tuple(heredocs), script.loop_variables, script.comments, max_depth)
 
 
 def _is_nested_shell(cmd: SimpleCommand) -> bool:
@@ -322,7 +326,11 @@ def refused_construct(script: ShellScript) -> str:
     A heredoc is refused only when its delimiter is unquoted and its body
     runs a substitution: the guard cannot inspect what that expands to. A
     quoted delimiter (``<<'EOF'``) makes the body inert, and a static body
-    has nothing to expand -- the guard's contract allows both.
+    has nothing to expand -- the guard's contract allows both. Heredocs
+    inside an ``sh -c`` string count too (see :func:`_expanded`).
+
+    ``env -S``/``--split-string`` is refused anywhere: h_env in
+    _bash_write_targets.py cannot see the command line that string becomes.
 
     A shell reading its program from stdin (``bash -s name``, ``/bin/bash <
     script``, ``cmd | sh``) is refused anywhere: h_shell in
@@ -333,14 +341,16 @@ def refused_construct(script: ShellScript) -> str:
     a loop is involved: _bash_write_targets.py raises ``ParseError`` for the
     whole command there, and ``analyse_command`` turns that into a refusal.
     """
-    if any(not doc.quoted and doc.subs for doc in script.heredocs):
-        return "heredoc"
     expanded = _expanded(script)
+    if any(not doc.quoted and doc.subs for doc in expanded.heredocs):
+        return "heredoc"
     if expanded.too_deep:
         return f"nesting deeper than {MAX_DEPTH}"
     commands = expanded.commands
     if any(_is_nested_shell(cmd) for cmd in commands):
         return "eval/sh -c"
+    if any(cmd.split_string for cmd in commands):
+        return "env -S"
     if any(cmd.in_loop and _is_mutating(cmd) for cmd in commands):
         return "loop"
     if any(cmd.name in _STDIN_CHECKED_SHELLS and _shell_reads_stdin(cmd) for cmd in commands):

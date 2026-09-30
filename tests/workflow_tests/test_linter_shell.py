@@ -1199,6 +1199,18 @@ class TestPythonNotIsolated(_RuleCase):
             with self.subTest(command=command):
                 self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))
 
+    def test_fires_on_path_qualified_wrapper_led_interpreter_line(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6nV67o: extraction compared the raw
+        # first word with the wrapper names, so `/usr/bin/env python3 runner`
+        # produced no segment although parse_shell resolves the basename.
+        for command in ("/usr/bin/env python3 runner", "/usr/bin/timeout 5 python3 run.py"):
+            with self.subTest(command=command):
+                self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))
+
+    def test_path_qualified_wrapper_prose_is_silent(self) -> None:
+        # Happy path: the wrapper still counts only when what it runs is a command.
+        self.assert_silent(_workflow(_stage("Setup:\n\n  /usr/bin/env is how python3 is found\n")))
+
     def test_fires_in_folded_unlabelled_fence_opening_with_single_word(self) -> None:
         # PR #437 thread PRRT_kwDOQr1kjM6ms2Wg: "``` python3" -- an unlabelled
         # fence whose first line is the bare interpreter -- was read as a fence
@@ -1768,6 +1780,47 @@ class TestGuardRefused(_RuleCase):
             with self.subTest(command=command):
                 self.assert_silent(_workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n")))
 
+    def test_fires_on_expanding_heredoc_inside_qualified_shell_string(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6nV66q: a path-qualified `sh -c` passes
+        # the bare-shell check, and the heredoc inside its string was dropped
+        # when the string was expanded, so the refused heredoc went unreported.
+        for command in ("/bin/sh -c 'cat <<EOF\n  $(date)\n  EOF\n  '",
+                        "for f in a; do /bin/bash -c 'cat <<EOF\n  `date`\n  EOF\n  '; done"):
+            with self.subTest(command=command):
+                hits = self.assert_fires(_workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n")))
+                self.assertIn("heredoc", hits[0].message)
+
+    def test_quoted_heredoc_inside_qualified_shell_string_is_silent(self) -> None:
+        # Happy path: a quoted delimiter keeps the inner body inert.
+        command = "/bin/sh -c 'cat <<\"EOF\"\n  $(date)\n  EOF\n  '"
+        self.assert_silent(_workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n")))
+
+    def test_fires_on_escaped_backtick_nested_in_backticks(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6nV67M: the outer backtick body kept
+        # its backslashes, so the inner \`rm -f x\` never ran as a command.
+        desc = "Run:\n\n  for f in a; do echo `echo \\`rm -f x\\``; done\n"
+        self.assertIn("loop", self.assert_fires(_workflow(_stage(desc)))[0].message)
+
+    def test_read_only_backtick_substitution_in_loop_is_silent(self) -> None:
+        for desc in ("Run:\n\n  for f in a; do echo `wc -l x`; done\n",
+                     "Run:\n\n  for f in a; do echo `echo \\`wc -l x\\``; done\n"):
+            with self.subTest(desc=desc):
+                self.assert_silent(_workflow(_stage(desc)))
+
+    def test_fires_on_env_split_string_anywhere(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6nV67e: h_env refuses -S/--split-string
+        # outright, loop or not, since the string it splits is the command line.
+        for command in ('env -S "rm -f x"', 'for f in a; do env -S "rm -f x"; done',
+                        'env --split-string="rm -f x"', 'env -iS "wc -l x"', 'sudo env --split "ls"'):
+            with self.subTest(command=command):
+                hits = self.assert_fires(_workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n")))
+                self.assertIn("env -S", hits[0].message)
+
+    def test_env_without_split_string_is_silent(self) -> None:
+        for command in ("env FOO=1 ls", "env -uS ls", "for f in a; do env FOO=1 wc -l x; done"):
+            with self.subTest(command=command):
+                self.assert_silent(_workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n")))
+
     def test_has_teeth(self) -> None:
         self.assert_has_teeth(_workflow(_stage(_LOOP)))
 
@@ -2052,6 +2105,24 @@ class TestExtractShellSegments(unittest.TestCase):
                      "python3 is # a; rm x", "timeout to interrupt a handler; read job_runtime before"):
             with self.subTest(line=line):
                 self.assertEqual(self._texts(f"  {line}\n"), [])
+
+    def test_long_run_of_joined_prose_does_not_exhaust_the_stack(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6nV676: each prose command before a
+        # joining operator recursed into is_command_line, so ~1,000 of them
+        # raised RecursionError out of the lint. Nested substitutions did too.
+        for line in ("python3 is; " * 1000 + "rm -rf scratch", "python3 is $(" * 1000 + "x"):
+            with self.subTest(line=line[:24]):
+                self.assertEqual(self._texts(f"  {line}\n"), [line])
+                self.assertTrue(_lint(_workflow(_stage(f"Run:\n\n  {line}\n"))).valid)
+
+    def test_joined_prose_within_the_bound_is_judged_as_before(self) -> None:
+        # Happy path: a few joins are still judged text by text; only a line
+        # needing more than the bound is called shell without judging the rest.
+        self.assertEqual(self._texts("  python3 is; python3 is fast; it is fine\n"), [])
+        self.assertEqual(self._texts("  python3 is; python3 is fast; rm -rf x\n"),
+                         ["python3 is; python3 is fast; rm -rf x"])
+        many = "python3 is; " * 100 + "it is fine"
+        self.assertEqual(self._texts(f"  {many}\n"), [many])
 
 
 

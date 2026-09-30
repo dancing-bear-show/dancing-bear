@@ -17,8 +17,8 @@ Each command and loop variable records the child shell it runs in
 ``( ... )`` is not mistaken for one the enclosing shell can see.
 
 This module is a pure extraction of the parser that previously lived in
-``shell_text``; ``shell_text`` imports the public symbols back for its own
-internal use (``_Lexer`` for :func:`_heredoc_delimiters`).
+``shell_text``; ``shell_text`` imports what it needs under private aliases,
+so the parser's names are importable from here only.
 """
 
 from __future__ import annotations
@@ -57,6 +57,12 @@ _FD_PREFIX_RE = re.compile(r"\d+(?=[<>])")
 _FD_TARGET_RE = re.compile(r"\d+-?|-")
 _ASSIGNMENT_WORD_RE = re.compile(r"([A-Za-z_]\w*)(?:\[[^\]]*\])?\+?=")
 _DQUOTE_ESCAPABLE = frozenset('$`"\\\n')
+# What a backslash escapes inside a backtick substitution, so the body is
+# decoded before it is parsed (``_read_backtick`` in _bash_write_targets.py):
+# a backtick, a backslash or a dollar sign, plus a double quote when the
+# substitution itself sits inside double quotes.
+_BACKTICK_ESCAPABLE = "$`\\"
+_BACKTICK_DQUOTE_ESCAPABLE = _BACKTICK_ESCAPABLE + '"'
 
 # Reserved words that open or continue a compound command: the next word is
 # still in command position. ``do rm x`` runs ``rm``, not a program ``do``.
@@ -142,6 +148,9 @@ class SimpleCommand:
     # Parsers the Bash guard nests to reach this command: one per enclosing
     # $(...), backtick, <(...)/>(...) substitution or ``sh -c`` string.
     depth: int = 0
+    # A wrapper splits one string into the command line it runs (``env -S``,
+    # ``env --split-string``), so what runs cannot be read from the words.
+    split_string: bool = False
 
     @property
     def word(self) -> ShellToken | None:
@@ -338,8 +347,12 @@ class _Lexer:
             return self._double(i + 1, parts, closer='"')
         return self._expansion(i, parts)
 
-    def _expansion(self, i: int, parts: _WordParts) -> int:
-        """Read the ``$...`` or backtick construct at *i*, or one plain character."""
+    def _expansion(self, i: int, parts: _WordParts, in_dquote: bool = False) -> int:
+        """Read the ``$...`` or backtick construct at *i*, or one plain character.
+
+        *in_dquote* says the construct sits inside double quotes (or an
+        unquoted heredoc body), which widens what a backtick body escapes.
+        """
         text = self.text
         if text.startswith("$((", i):
             end = self._nested(self._arith_body, i + 3, parts)
@@ -348,7 +361,7 @@ class _Lexer:
         elif text.startswith("${", i):
             end = self._nested(self._brace_body, i + 2, parts)
         elif text[i] == "`":
-            return self._backtick(i, parts)
+            return self._backtick(i, parts, in_dquote)
         else:
             end = i + 1
         parts.parts.append(text[i:end])
@@ -362,7 +375,7 @@ class _Lexer:
                 parts.parts.append(text[i + 1].replace("\n", ""))
                 i += 2
             elif text[i] in "$`":
-                i = self._expansion(i, parts)
+                i = self._expansion(i, parts, in_dquote=True)
             else:
                 parts.parts.append(text[i])
                 i += 1
@@ -432,13 +445,27 @@ class _Lexer:
         self.overflow = self.overflow or child.overflow
         return end
 
-    def _backtick(self, i: int, parts: _WordParts) -> int:
+    def _backtick(self, i: int, parts: _WordParts, in_dquote: bool = False) -> int:
+        """Read the backtick substitution at *i*, recording its decoded body.
+
+        Mirrors ``_read_backtick`` in _bash_write_targets.py: a backslash
+        before ``` ` ```, ``\\`` or ``$`` (and ``"`` inside double quotes) is
+        removed before the body is parsed, so an escaped backtick in the body
+        opens a nested substitution rather than staying a literal. Offsets in
+        the parsed body count decoded characters, so past an escape they sit
+        up to one character per escape short of the source position.
+        """
         text = self.text
+        escapable = _BACKTICK_DQUOTE_ESCAPABLE if in_dquote else _BACKTICK_ESCAPABLE
+        body: list[str] = []
         j = i + 1
         while j < len(text) and text[j] != "`":
-            j += 2 if text[j] == "\\" else 1
+            if text[j] == "\\" and text[j + 1:j + 2] and text[j + 1] in escapable:
+                j += 1
+            body.append(text[j])
+            j += 1
         j = min(j, len(text))
-        parts.subs.append((text[i + 1:j], self.base + i + 1))
+        parts.subs.append(("".join(body), self.base + i + 1))
         parts.parts.append(text[i:j + 1])
         return min(j + 1, len(text))
 
@@ -476,6 +503,8 @@ class _Wrapper:
     lookup_opts: str = ""  # options that make it run nothing (``command -v``)
     leading_operands: int = 0  # operands before the command (``timeout``'s duration)
     takes_assignments: bool = False  # ``env NAME=value cmd``
+    split_opts: str = ""  # value options whose value is the command line (``env -S``)
+    long_split_opts: tuple[str, ...] = ()  # the same, spelled long (``--split-string``)
 
 
 _TIMEOUT = _Wrapper(value_opts="sk", long_value_opts=("signal", "kill-after"), leading_operands=1)
@@ -483,7 +512,7 @@ _TIMEOUT = _Wrapper(value_opts="sk", long_value_opts=("signal", "kill-after"), l
 # the Bash guard uses to find the command a wrapper runs.
 _WRAPPERS: dict[str, _Wrapper] = {
     "env": _Wrapper(value_opts="uCSP", long_value_opts=("unset", "chdir", "split-string"),
-                    takes_assignments=True),
+                    takes_assignments=True, split_opts="S", long_split_opts=("split-string",)),
     "command": _Wrapper(lookup_opts="vV"),
     "builtin": _Wrapper(),
     "nohup": _Wrapper(),
@@ -507,36 +536,74 @@ _WRAPPERS: dict[str, _Wrapper] = {
 WRAPPER_NAMES: frozenset[str] = frozenset(_WRAPPERS)
 
 
+# _option_width's answer for an option whose value is the command line itself.
+_SPLITS = -1
+
+
 def _short_option_width(word: str, spec: _Wrapper) -> int | None:
-    """Words consumed by the short-option cluster *word*; None when it runs nothing."""
+    """Words consumed by the short-option cluster *word*; None when it runs nothing.
+
+    The first value letter ends the cluster, as in getopt: ``-iS`` is ``-i``
+    then ``-S``, while ``-uS`` is ``-u`` with the value ``S``.
+    """
     for k, ch in enumerate(word[1:], start=1):
         if ch in spec.lookup_opts:
             return None
+        if ch in spec.split_opts:
+            return _SPLITS
         if ch in spec.value_opts:
             return 1 if k + 1 < len(word) else 2
     return 1
 
 
+def _long_option_name(raw: str, spec: _Wrapper) -> str:
+    """*raw* resolved as GNU getopt does: a unique prefix of a known long option names it.
+
+    Mirrors ``_long_name`` in _bash_write_targets.py, so ``env --split`` is
+    ``--split-string``.
+    """
+    known = spec.long_value_opts
+    if raw in known:
+        return raw
+    matches = [name for name in known if raw and name.startswith(raw)]
+    return matches[0] if len(matches) == 1 else raw
+
+
 def _option_width(word: str, spec: _Wrapper) -> int | None:
-    """Words the wrapper option *word* consumes: 0 when it is not an option."""
+    """Words the wrapper option *word* consumes: 0 when it is not an option.
+
+    :data:`_SPLITS` when the option's value is the command line to run.
+    """
     if word == "-":
         return 1
     if word.startswith("--"):
-        name, eq, _ = word[2:].partition("=")
+        raw, eq, _ = word[2:].partition("=")
+        name = _long_option_name(raw, spec)
+        if name in spec.long_split_opts:
+            return _SPLITS
         return 2 if not eq and name in spec.long_value_opts else 1
     if word.startswith("-"):
         return _short_option_width(word, spec)
     return 0
 
 
-def _skip_wrapper(
-    words: tuple[ShellToken, ...], i: int, spec: _Wrapper
-) -> tuple[int | None, list[ShellToken]]:
-    """Index of the command a wrapper at ``words[i - 1]`` runs, plus any env assignments."""
+@dataclass(frozen=True)
+class _Resolved:
+    """Where a wrapper chain leads: the program word, and what the wrappers set."""
+
+    index: int  # index of the program word; -1 when nothing runs
+    assigned: list[ShellToken]  # env's NAME=value operands
+    split_string: bool = False  # a wrapper splits a string into the command line
+
+
+def _skip_wrapper(words: tuple[ShellToken, ...], i: int, spec: _Wrapper) -> _Resolved:
+    """The command a wrapper at ``words[i - 1]`` runs, plus any env assignments."""
     while i < len(words) and words[i].text != "--":
         width = _option_width(words[i].text, spec)
         if width is None:
-            return None, []
+            return _Resolved(-1, [])
+        if width == _SPLITS:
+            return _Resolved(-1, [], split_string=True)
         if not width:
             break
         i += width
@@ -547,20 +614,23 @@ def _skip_wrapper(
         assigned.append(words[i])
         i += 1
     i += spec.leading_operands
-    return (i if i < len(words) else None), assigned
+    return _Resolved(i if i < len(words) else -1, assigned)
 
 
-def _resolve_command(words: tuple[ShellToken, ...]) -> tuple[int, list[ShellToken]]:
-    """Index of the program word after any wrappers (-1 for none), and env's assignments."""
-    i: int | None = 0
+def _resolve_command(words: tuple[ShellToken, ...]) -> _Resolved:
+    """The program word after any wrappers (index -1 for none), and env's assignments."""
+    i = 0
     assigned: list[ShellToken] = []
-    while i is not None and i < len(words):
+    while 0 <= i < len(words):
         spec = _WRAPPERS.get(words[i].text.rsplit("/", 1)[-1])
         if spec is None:
-            return i, assigned
-        i, more = _skip_wrapper(words, i + 1, spec)
-        assigned.extend(more)
-    return -1, assigned
+            return _Resolved(i, assigned)
+        step = _skip_wrapper(words, i + 1, spec)
+        assigned.extend(step.assigned)
+        if step.split_string:
+            return _Resolved(-1, assigned, split_string=True)
+        i = step.index
+    return _Resolved(-1, assigned)
 
 
 def command_from_words(
@@ -572,8 +642,11 @@ def command_from_words(
     body. Wrappers are resolved exactly as for a parsed command; there are no
     redirects, since the shell never sees these words as a command line.
     """
-    index, env_assignments = _resolve_command(words)
-    return SimpleCommand(words, tuple(env_assignments), (), index, in_loop, depth=depth)
+    resolved = _resolve_command(words)
+    return SimpleCommand(
+        words, tuple(resolved.assigned), (), resolved.index, in_loop,
+        depth=depth, split_string=resolved.split_string,
+    )
 
 
 class _CommandSplitter:
@@ -633,10 +706,10 @@ class _CommandSplitter:
     def finish(self) -> None:
         if self._words or self._assignments or self._redirects:
             words = tuple(self._words)
-            index, env_assignments = _resolve_command(words)
+            resolved = _resolve_command(words)
             self.commands.append(SimpleCommand(
-                words, tuple(self._assignments + env_assignments), tuple(self._redirects),
-                index, self._in_loop, self.subshell, self.depth,
+                words, tuple(self._assignments + resolved.assigned), tuple(self._redirects),
+                resolved.index, self._in_loop, self.subshell, self.depth, resolved.split_string,
             ))
         self._words.clear()
         self._assignments = []

@@ -5,10 +5,15 @@ The shared simple-command model every shell lint rule reads.
 
 from __future__ import annotations
 
+import subprocess  # nosec B404 - runs this interpreter on a fixed import statement
+import sys
 import unittest
+from pathlib import Path
 
+import workflow.shell_parse as shell_parse
+import workflow.shell_text as shell_text
 from workflow.shell_parse import MAX_DEPTH, WRAPPER_NAMES, LoopVariable, command_from_words, parse_shell
-from workflow.shell_text import extract_labelled_assignments
+from workflow.shell_text import extract_labelled_assignments, is_command_line
 
 
 class TestParseShell(unittest.TestCase):
@@ -141,6 +146,51 @@ class TestParseShell(unittest.TestCase):
         desc = "Bash tool: F=\"x\"\n```bash\nNote: G=1\n```\ncat <<'EOF'\nLabel: H=1\nEOF\n"
         self.assertEqual([s.text for s in extract_labelled_assignments(desc)], ['F="x"'])
 
+    def test_escaped_backtick_in_a_backtick_body_opens_a_nested_substitution(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6nV67M: the body kept its backslashes,
+        # so \`rm -f x\` stayed a literal word and rm was never a command. The
+        # guard's _read_backtick removes the escape before parsing the body.
+        for text in ("echo `echo \\`rm -f x\\``", 'echo "`echo \\`rm -f x\\``"'):
+            with self.subTest(text=text):
+                script = parse_shell(text)
+                self.assertEqual([(c.name, c.depth) for c in script.commands],
+                                 [("echo", 0), ("echo", 1), ("rm", 2)])
+
+    def test_backtick_body_decodes_only_the_guard_escapes(self) -> None:
+        # Only a backtick, a backslash and $ lose their backslash (plus " inside
+        # double quotes); \n, and \" outside double quotes, keep it.
+        cases = {
+            "echo `printf \\\\n`": "printf \\n",
+            "echo `echo \\$HOME`": "echo $HOME",
+            "echo `echo a\\nb`": "echo a\\nb",
+            'echo `echo \\"x\\"`': 'echo \\"x\\"',
+            'echo "`echo \\"x\\"`"': 'echo "x"',
+        }
+        for text, body in cases.items():
+            with self.subTest(text=text):
+                words = [w for c in parse_shell(text).commands for w in c.words if w.subs]
+                self.assertEqual(words[0].subs[0][0], body)
+
+    def test_env_split_string_is_recorded_not_resolved(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6nV67e: -S was read as an ordinary
+        # value option, so `env -S "rm -f x"` ran nothing and passed silently.
+        for text in ('env -S "rm -f x"', "env -Srm", 'env -iS "rm -f x"', 'env --split-string="rm -f x"',
+                     'env --split-string "rm -f x"', 'env --split "rm -f x"', 'sudo env -S "rm -f x"',
+                     'env -i FOO=1 env -S "rm -f x"'):
+            with self.subTest(text=text):
+                cmd = parse_shell(text).commands[0]
+                self.assertTrue(cmd.split_string)
+                self.assertIsNone(cmd.word)
+
+    def test_env_without_split_string_resolves_as_before(self) -> None:
+        # -u takes the S as its value; after an operand, -S is the command's.
+        for text, name in (("env FOO=1 ls", "ls"), ("env -uS ls", "ls"), ("env -u S ls", "ls"),
+                           ("env FOO=1 grep -S x", "grep"), ("env -- ls -S", "ls")):
+            with self.subTest(text=text):
+                cmd = parse_shell(text).commands[0]
+                self.assertFalse(cmd.split_string)
+                self.assertEqual(cmd.name, name)
+
 
 
 class TestParseDepth(unittest.TestCase):
@@ -212,6 +262,39 @@ class TestParseDepth(unittest.TestCase):
         self.assertTrue(script.too_deep)
         self.assertEqual([c.name for c in script.commands], ["a"])
         self.assertEqual(command_from_words(script.commands[0].words, depth=5).depth, 5)
+
+    def test_escaped_backtick_nesting_counts_toward_the_depth(self) -> None:
+        # Decoded backtick bodies nest one parser deeper per level, as in the guard.
+        text = "wc -l x"
+        for _ in range(3):
+            text = "echo `" + "".join("\\" + ch if ch in "`\\$" else ch for ch in text) + "`"
+        self.assertEqual(parse_shell(text).max_depth, 3)
+
+
+class TestShellTextImports(unittest.TestCase):
+    """shell_text uses the parser under private names; it re-exports none of them."""
+
+    def test_parser_names_are_not_importable_from_shell_text(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6nV68O: `from workflow.shell_text
+        # import parse_shell` still worked through the public-named import.
+        # Run as written, in a fresh isolated interpreter: a static import of
+        # a missing name is also a type error, which is the point here.
+        src = str(Path(shell_text.__file__).resolve().parents[1])
+        code = f"import sys; sys.path.insert(0, {src!r}); from workflow.shell_text import parse_shell"
+        result = subprocess.run(  # nosec B603 - this interpreter, a fixed import statement
+            [sys.executable, "-I", "-S", "-c", code], capture_output=True, text=True, check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("ImportError: cannot import name 'parse_shell'", result.stderr)
+        for name in shell_parse.__all__:
+            with self.subTest(name=name):
+                self.assertFalse(hasattr(shell_text, name))
+
+    def test_shell_text_still_uses_the_parser_internally(self) -> None:
+        # The wrapper vocabulary and the parser behind it still drive extraction.
+        self.assertTrue(is_command_line("env python3 runner"))
+        self.assertTrue(is_command_line("timeout 5 ./bin/workflow lint x"))
+        self.assertFalse(is_command_line("timeout to interrupt a handler"))
 
 
 if __name__ == "__main__":

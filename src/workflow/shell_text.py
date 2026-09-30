@@ -19,15 +19,18 @@ count only when the next token looks like shell -- an option, a path, a
 quote, a ``$`` expansion, or a ``NAME=`` assignment -- a loop head
 (``for``/``while``/``until``) only with a ``do`` on the same line, and ``if``
 only with a ``then``. A wrapper from :data:`shell_parse.WRAPPER_NAMES`
-(``env``, ``timeout``, ``sudo``, ``time`` ...) counts only when the command it
-runs is itself a command by these rules, so "timeout to interrupt a handler"
-stays prose. A bare or path-prefixed ``python``/``python3`` interpreter
-(optionally version-suffixed, e.g. ``python3.11``) counts unless the word after
-it is English -- a function word, verb, or version number ("python3 is
+(``env``, ``timeout``, ``sudo``, ``time`` ..., bare or path-qualified as in
+``/usr/bin/env``) counts only when the command it runs is itself a command by
+these rules, so "timeout to interrupt a handler" stays prose. A bare or
+path-prefixed ``python``/``python3`` interpreter (optionally
+version-suffixed, e.g. ``python3.11``) counts unless the word after it is
+English -- a function word, verb, or version number ("python3 is
 required", "python 3.11 or newer"); ``python3 runner input`` is a command.
 Neither the interpreter nor the wrapper exception applies to a line whose
-unquoted operator leads into more shell (see :func:`_has_shell_operator`):
+unquoted operator leads into more shell (see :func:`_operator_candidates`):
 ``python3 is; rm -rf scratch`` runs ``rm`` whatever its first operand says.
+That search is iterative and judges at most :data:`_MAX_JUDGED_TEXTS` texts
+per line; a line that needs more is treated as shell.
 A line whose unquoted ``)`` closes nothing is prose wrapped
 mid-parenthesis. Everything else, including a label before a command
 ("2. Server: curl ..."), is treated as prose: precision over recall.
@@ -44,7 +47,9 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from .shell_parse import WRAPPER_NAMES, _Lexer, _heredoc_delimiters, parse_shell
+from .shell_parse import WRAPPER_NAMES as _WRAPPER_NAMES
+from .shell_parse import _heredoc_delimiters, _Lexer
+from .shell_parse import parse_shell as _parse_shell
 
 __all__ = [
     "ShellSegment",
@@ -117,13 +122,18 @@ _PROSE_TRAILING_PUNCTUATION = ".,;:!?"
 # Matched whole after trailing punctuation is stripped, so "3.11," is a
 # version while "3.py", "2026_job.py" and "3x" are scripts.
 _VERSION_WORD_RE = re.compile(r"\d+(?:\.\d+)*")
-# Operators that join a further command onto a line (see _has_shell_operator).
+# Operators that join a further command onto a line (see _operator_candidates).
 _JOINING_OPS: frozenset[str] = frozenset({";", "&&", "||", "|", "|&"})
 _PROMPT_PREFIX = "$ "
 _SHELLISH_ARG_PREFIXES = ("-", '"', "'", "$", ".", "/", "~", "{")
 # A stray apostrophe in a trailing comment would otherwise pull prose in until
 # the next quote; a blank line or this many lines ends a continuation.
 _MAX_CONTINUATION_LINES = 30
+# is_command_line judges a line, then the texts its operators lead into, and
+# so on. Past this many texts it stops and calls the line shell: a line of a
+# thousand "python3 is;" joins is not prose, and judging every tail of it
+# would take quadratic time.
+_MAX_JUDGED_TEXTS = 64
 
 
 @dataclass(frozen=True)
@@ -239,24 +249,35 @@ def _interpreter_line_is_command(operand: str) -> bool:
     return word not in _INTERPRETER_PROSE_WORDS and not _VERSION_WORD_RE.fullmatch(word)
 
 
-def _wrapper_line_is_command(body: str) -> bool:
-    """A wrapper counts only when the command it runs is itself a command.
+@dataclass(frozen=True)
+class _Candidate:
+    """A text that makes the line it came from shell when it is a command line itself."""
+
+    text: str
+    # False for a tail of an already-scanned text (what follows an operator,
+    # or the command a wrapper runs): its operators are that text's too, and
+    # are already queued, so scanning them again would only repeat work.
+    scan_operators: bool = True
+
+
+def _wrapper_target(body: str) -> str | None:
+    """The text from the command a wrapper line runs, or None when it runs nothing.
 
     :func:`shell_parse.parse_shell` resolves the wrapper's own options and
     operands exactly as the linter rules will, so ``timeout 5 python3 x`` is
     judged on ``python3 x`` and "timeout to interrupt a handler" on
     "interrupt a handler". A wrapper that runs nothing (``env | grep``,
-    ``command -v x``) is not judged here.
+    ``command -v x``) has no target.
     """
-    commands = parse_shell(body).commands
+    commands = _parse_shell(body).commands
     word = commands[0].word if commands else None
     if word is None or word.start == 0:
-        return False
-    return is_command_line(body[word.start:])
+        return None
+    return body[word.start:]
 
 
-def _has_shell_operator(body: str) -> bool:
-    """True when an unquoted operator in *body* introduces more shell.
+def _operator_candidates(body: str) -> tuple[bool, list[_Candidate]]:
+    """Whether an unquoted operator in *body* surely introduces more shell, and what else might.
 
     The interpreter and wrapper prose exceptions judge one word, or the
     first simple command; a line such as ``python3 is; rm -rf scratch``
@@ -267,22 +288,27 @@ def _has_shell_operator(body: str) -> bool:
     path-shaped target (``> /dev/null``, ``< "$F"``). The lexer decides, so
     an operator inside quotes or a comment does not count.
 
+    A path-shaped redirect decides at once (True). Otherwise the texts after
+    each joining operator and inside each substitution are returned for
+    :func:`is_command_line` to judge in turn, rather than judged here by
+    recursion: a long run of joined prose would otherwise exhaust the stack.
+
     What follows each operator must itself look like shell because workflow
     prose uses the same characters: "python3 script for the aggregation; it
     is deterministic", "timeout to interrupt a handler; read job_runtime
     before", "(>= 3.11)", and Markdown code spans that lex as backticks.
     """
     tokens = _Lexer(body).tokens()
+    candidates: list[_Candidate] = []
     for tok, nxt in zip(tokens, [*tokens[1:], None]):
         if tok.kind == "op" and tok.text in _JOINING_OPS:
-            if is_command_line(body[tok.start + len(tok.text):]):
-                return True
+            candidates.append(_Candidate(body[tok.start + len(tok.text):], scan_operators=False))
         elif tok.kind == "redirect":
             if nxt is not None and nxt.kind == "word" and _is_path_shaped(nxt.raw):
-                return True
-        elif any(is_command_line(sub) for sub, _ in tok.subs):
-            return True
-    return False
+                return True, []
+        else:
+            candidates.extend(_Candidate(sub) for sub, _ in tok.subs)
+    return False, candidates
 
 
 def _is_path_shaped(word: str) -> bool:
@@ -309,20 +335,48 @@ def _weak_word_is_command(first: str, second: str, line: str) -> bool:
 
 
 def is_command_line(line: str) -> bool:
-    """True when *line* starts with a command or an upper-case assignment."""
+    """True when *line* starts with a command or an upper-case assignment.
+
+    Iterative: *line* is judged first, then each text its operators,
+    substitutions or wrapper lead into (see :func:`_judge`), until one is a
+    command or none are left. Past :data:`_MAX_JUDGED_TEXTS` the line is
+    called shell rather than judged further.
+    """
+    pending = [_Candidate(line)]
+    for _ in range(_MAX_JUDGED_TEXTS):
+        if not pending:
+            return False
+        found, more = _judge(pending.pop())
+        if found:
+            return True
+        pending.extend(reversed(more))
+    return bool(pending)
+
+
+def _judge(candidate: _Candidate) -> tuple[bool, list[_Candidate]]:
+    """Whether *candidate* is a command line, or which further texts could make it one."""
+    line = candidate.text
     body = _command_body(line)
     words = body.split(None, 3)
     if not words or _closes_unopened_paren(line):
-        return False
+        return False, []
     first = words[0]
     if _ASSIGN_START_RE.match(first) or _is_command_word(first):
-        return True
+        return True, []
     second = words[1] if len(words) > 1 else ""
     if _PYTHON_WORD_RE.match(first.lstrip("(")):
-        return _interpreter_line_is_command(second) or _has_shell_operator(body)
+        if _interpreter_line_is_command(second):
+            return True, []
+        return _operator_candidates(body) if candidate.scan_operators else (False, [])
     if first in _WEAK_COMMANDS and _weak_word_is_command(first, second, line):
-        return True
-    return first in WRAPPER_NAMES and (_wrapper_line_is_command(body) or _has_shell_operator(body))
+        return True, []
+    if first.rsplit("/", 1)[-1] not in _WRAPPER_NAMES:
+        return False, []
+    found, more = _operator_candidates(body) if candidate.scan_operators else (False, [])
+    target = _wrapper_target(body)
+    if target is not None:
+        more.insert(0, _Candidate(target, scan_operators=False))
+    return found, more
 
 
 def _fence_segments(
