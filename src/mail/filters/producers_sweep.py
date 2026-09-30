@@ -3,16 +3,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import partial
-import time
 
 from typing import cast
 
 from core.cli_output import OutputWriter
 from core.pipeline import BaseProducer
-from core.retry import exponential_backoff
 
 from ..providers.base import BaseProvider
-from ..utils.batch import apply_in_chunks
+from ..utils.batch import apply_in_chunks, delete_with_retry
 from ..utils.gmail_ops import list_message_ids as _list_message_ids_shared, MessageQueryParams, _ListMessagesClient
 from .processors_sweep import (
     FiltersPruneResult,
@@ -141,14 +139,10 @@ class FiltersPruneProducer(BaseProducer):
     def _delete_with_retry(self, fid: str | None) -> bool:
         if not fid:
             return False
-        last_err = None
-        for attempt in range(3):
-            try:
-                self.client.delete_filter(fid)
-                self._writer.print(f"Deleted filter id={fid}")
-                return True
-            except Exception as exc:  # pragma: no cover - retry logging
-                last_err = exc
-                time.sleep(exponential_backoff(attempt, base_delay=1.5, multiplier=2.0))
-        self._writer.print_warning(f"failed to delete filter id={fid}: {last_err}")
-        return False
+        deleted = delete_with_retry(
+            partial(self.client.delete_filter, fid),
+            on_failure=lambda err: self._writer.print_warning(f"failed to delete filter id={fid}: {err}"),
+        )
+        if deleted:
+            self._writer.print(f"Deleted filter id={fid}")
+        return deleted

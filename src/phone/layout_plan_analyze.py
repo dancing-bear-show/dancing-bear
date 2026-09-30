@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.coerce import coerce_int
+
 from .constants import COMMON_KEEP, STOCK_MAYBE_UNUSED
 from .layout_normalize import (
     NormalizedLayout,
@@ -14,7 +16,6 @@ from .layout_normalize import (
     compute_location_map,
     list_all_apps,
 )
-from .layout_plan_scaffold import _safe_int
 
 
 def _parse_location(loc_str: str) -> tuple[int, str | None]:
@@ -32,7 +33,7 @@ def _parse_location(loc_str: str) -> tuple[int, str | None]:
     if not loc_str.startswith("Page "):
         return (0, None)
     parts = loc_str.split(" ")
-    page = _safe_int(parts[1], 999) if len(parts) > 1 else 999
+    page = coerce_int(parts[1], 999) if len(parts) > 1 else 999
     folder = loc_str.split(" > ", 1)[1] if " > " in loc_str else None
     return (page, folder)
 

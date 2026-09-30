@@ -40,6 +40,19 @@ class ListPlaylistsProcessor(SafeProcessor[ListPlaylistsRequest, list[PlaylistRe
         return results
 
 
+def _track_fields(tr: dict[str, Any]) -> dict[str, Any]:
+    """Project one API track resource to the export JSON shape, keeping None values."""
+    attrs = tr.get("attributes") or {}
+    return {
+        "id": tr.get("id"),
+        "name": attrs.get("name"),
+        "artist": attrs.get("artistName"),
+        "album": attrs.get("albumName"),
+        "duration_ms": attrs.get("durationInMillis"),
+        "track_number": attrs.get("trackNumber"),
+    }
+
+
 class TracksProcessor(SafeProcessor[TracksRequest, list[TrackResult]]):
     """Fetch all tracks across all library playlists."""
 
@@ -50,16 +63,16 @@ class TracksProcessor(SafeProcessor[TracksRequest, list[TrackResult]]):
             pl_name = (pl.get("attributes") or {}).get("name") or ""
             pl_id = pl.get("id") or ""
             for tr in payload.client.list_playlist_tracks(pl_id, limit=payload.track_limit):
-                attrs = tr.get("attributes") or {}
+                track = _track_fields(tr)
                 results.append(TrackResult(
-                    id=tr.get("id") or "",
-                    title=attrs.get("name") or "",
-                    artist=attrs.get("artistName") or "",
-                    album=attrs.get("albumName") or "",
+                    id=track["id"] or "",
+                    title=track["name"] or "",
+                    artist=track["artist"] or "",
+                    album=track["album"] or "",
                     playlist_id=pl_id,
                     playlist_name=pl_name,
-                    duration_ms=attrs.get("durationInMillis"),
-                    track_number=attrs.get("trackNumber"),
+                    duration_ms=track["duration_ms"],
+                    track_number=track["track_number"],
                 ))
         return results
 
@@ -74,17 +87,7 @@ class ExportProcessor(SafeProcessor[ExportRequest, list[ExportPlaylistResult]]):
             tracks_raw = payload.client.list_playlist_tracks(
                 pl["id"], limit=payload.track_limit
             )
-            tracks = []
-            for tr in tracks_raw:
-                tr_attrs = tr.get("attributes") or {}
-                tracks.append({
-                    "id": tr.get("id"),
-                    "name": tr_attrs.get("name"),
-                    "artist": tr_attrs.get("artistName"),
-                    "album": tr_attrs.get("albumName"),
-                    "duration_ms": tr_attrs.get("durationInMillis"),
-                    "track_number": tr_attrs.get("trackNumber"),
-                })
+            tracks = [_track_fields(tr) for tr in tracks_raw]
             results.append(ExportPlaylistResult(
                 id=pl.get("id") or "",
                 name=attrs.get("name") or "",

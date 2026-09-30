@@ -97,7 +97,7 @@ class AccountsPlanLabelsProcessor(SafeProcessor[AccountsPlanLabelsRequest, Accou
 class AccountsPlanLabelsProducer(AccountsResultProducer[AccountsPlanLabelsResult]):
     def _produce_items(self, payload: AccountsPlanLabelsResult) -> None:
         for plan in payload.plans:
-            print(f"[plan-labels] {plan.account_name} provider={plan.provider} create={plan.to_create} update={plan.to_update}")
+            self._writer.print(f"[plan-labels] {plan.account_name} provider={plan.provider} create={plan.to_create} update={plan.to_update}")
 
 
 # -----------------------------------------------------------------------------
@@ -175,9 +175,9 @@ class AccountsPlanFiltersProducer(AccountsResultProducer[AccountsPlanFiltersResu
     def _produce_items(self, payload: AccountsPlanFiltersResult) -> None:
         for plan in payload.plans:
             if plan.to_create < 0:
-                print(f"[plan-filters] {plan.account_name} provider={plan.provider} not supported")
+                self._writer.print(f"[plan-filters] {plan.account_name} provider={plan.provider} not supported")
             else:
-                print(f"[plan-filters] {plan.account_name} provider={plan.provider} create={plan.to_create}")
+                self._writer.print(f"[plan-filters] {plan.account_name} provider={plan.provider} create={plan.to_create}")
 
 
 # -----------------------------------------------------------------------------

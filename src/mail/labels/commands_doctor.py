@@ -6,8 +6,7 @@ import time
 from collections import Counter, defaultdict
 from functools import partial
 
-from core.retry import exponential_backoff
-
+from ..utils.batch import delete_with_retry
 from ..utils.senders import extract_domain, extract_sender_email, is_protected_email
 
 
@@ -119,17 +118,14 @@ def run_labels_doctor(args) -> int:
 
 def _delete_label_with_retry(client, label_id: str, name: str, max_retries: int = 3) -> bool:
     """Delete a label with exponential backoff retry."""
-    last_err = None
-    for attempt in range(max_retries):
-        try:
-            client.delete_label(label_id)
-            print(f"Deleted label: {name}")
-            return True
-        except Exception as e:
-            last_err = e
-            time.sleep(exponential_backoff(attempt, base_delay=1.5, multiplier=2.0))
-    print(f"Warning: failed to delete label {name}: {last_err}")
-    return False
+    deleted = delete_with_retry(
+        partial(client.delete_label, label_id),
+        on_failure=lambda err: print(f"Warning: failed to delete label {name}: {err}"),
+        attempts=max_retries,
+    )
+    if deleted:
+        print(f"Deleted label: {name}")
+    return deleted
 
 
 def _get_empty_user_labels(labels: list) -> list:

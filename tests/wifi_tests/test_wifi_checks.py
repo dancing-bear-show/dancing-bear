@@ -22,6 +22,7 @@ from wifi.diagnostics_probes import (
     _select_trace_target,
     collect_wifi_info,
     detect_gateway,
+    dns_lookup,
     ping_target,
     run_diagnosis,
     trace_route,
@@ -652,6 +653,23 @@ class TestSafeIntFloat(unittest.TestCase):
     def test_safe_float_invalid(self):
         self.assertIsNone(_safe_float("abc"))
         self.assertIsNone(_safe_float(None))
+
+
+class TestDnsLookup(unittest.TestCase):
+    def test_keeps_first_seen_order_dedupes_and_skips_other_families(self):
+        import socket
+
+        infos = [
+            (socket.AF_INET6, 1, 6, "", ("2001:db8::1", 0, 0, 0)),
+            (socket.AF_INET, 1, 6, "", ("192.0.2.1", 0)),
+            (socket.AF_INET6, 2, 17, "", ("2001:db8::1", 0, 0, 0)),
+            (socket.AF_UNIX, 1, 0, "", ("uds-socket",)),
+            (socket.AF_INET, 2, 17, "", ("192.0.2.1", 0)),
+        ]
+        with patch("wifi.diagnostics_probes.socket.getaddrinfo", return_value=infos):
+            result = dns_lookup("example.com")
+        self.assertTrue(result.success)
+        self.assertEqual(result.addresses, ["2001:db8::1", "192.0.2.1"])
 
 
 class TestRunDiagnosis(unittest.TestCase):

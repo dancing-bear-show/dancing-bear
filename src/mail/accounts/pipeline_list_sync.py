@@ -77,7 +77,7 @@ class AccountsSyncLabelsProducer(AccountsResultProducer[AccountsSyncLabelsResult
     def _produce_items(self, payload: AccountsSyncLabelsResult) -> None:
         verb = "would" if self._dry_run else ""
         for info in payload.synced:
-            print(f"[labels sync] {info.account_name} provider={info.provider} {verb} created={info.created} updated={info.updated}")
+            self._writer.print(f"[labels sync] {info.account_name} provider={info.provider} {verb} created={info.created} updated={info.updated}")
 
 
 # -----------------------------------------------------------------------------
@@ -201,9 +201,9 @@ class AccountsSyncFiltersProducer(AccountsResultProducer[AccountsSyncFiltersResu
         verb = "would" if self._dry_run else ""
         for info in payload.synced:
             if info.created < 0:
-                print(f"[filters sync] {info.account_name} provider={info.provider} (delegated)")
+                self._writer.print(f"[filters sync] {info.account_name} provider={info.provider} (delegated)")
             else:
-                print(f"[filters sync] {info.account_name} provider={info.provider} {verb} created={info.created} errors={info.errors}")
+                self._writer.print(f"[filters sync] {info.account_name} provider={info.provider} {verb} created={info.created} errors={info.errors}")
 
 
 # -----------------------------------------------------------------------------

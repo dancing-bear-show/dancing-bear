@@ -4,22 +4,30 @@ from typing import Any
 import os
 import re
 
+from core.secrets import is_sensitive_key
 
-# Heuristic key substrings that imply secret values when present in key names
-SECRET_KEYS = (
+
+# Key substrings shield masks on top of core.secrets.is_sensitive_key. These are
+# deliberately broader than core's rules (a bare "key" substring masks
+# "sort_key" too): this output is a human-facing config dump, where a false
+# positive costs a redacted id and a false negative leaks a credential.
+# Longer spellings ("api_key", "access_token", "client_secret", ...) are
+# omitted because one of these substrings already matches them.
+SECRET_KEY_SUBSTRINGS = (
     "token",
     "secret",
     "password",
-    "api_key",
-    "apikey",
-    "access_key",
-    "access_token",
-    "refresh_token",
-    "client_secret",
     "authorization",
     "bearer",
     "key",
 )
+
+
+def _is_secret_key(key: str) -> bool:
+    """Return True when either core's rules or shield's substrings flag `key`."""
+    k = key.lower()
+    return is_sensitive_key(k) or any(s in k for s in SECRET_KEY_SUBSTRINGS)
+
 
 # Heuristic patterns that imply secret values even if key name is generic
 SECRET_VALUE_PATTERNS: list[re.Pattern[str]] = [
@@ -73,7 +81,7 @@ def mask_value(key: str, val: str) -> str:
         return f"{v} (exists: {'yes' if exists else 'no'})"
 
     # Secret-ish keys (excluding client_id)
-    secretish = any(s in k for s in SECRET_KEYS) and k != "client_id"
+    secretish = _is_secret_key(k) and k != "client_id"
     if secretish or _contains_secretish_value(v):
         return _mask_str(v)
 
