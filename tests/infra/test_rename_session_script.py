@@ -120,6 +120,8 @@ class TestRenameSessionScript(unittest.TestCase):
         self.assertEqual(result.returncode, 2, f"expected exit 2 for {name!r}, got {result.returncode}")
         log = (self.tmp / "tmux.log").read_text()
         self.assertEqual(log.strip(), "", f"tmux must not be called for invalid name {name!r}")
+        # Rejected value must NOT appear in stderr (it may carry escape sequences).
+        self.assertNotIn(name, result.stderr, "rejected name must not be echoed to stderr")
 
     def test_invalid_spaces(self) -> None:
         self._assert_invalid("Bad Name")
@@ -142,6 +144,43 @@ class TestRenameSessionScript(unittest.TestCase):
 
     def test_invalid_double_hyphen(self) -> None:
         self._assert_invalid("mail--sync")
+
+    def test_invalid_newline_embedded(self) -> None:
+        """A newline-embedded name must be rejected (bypass via multi-line grep)."""
+        self._assert_invalid("ok\nx")
+
+    def test_invalid_esc_byte_embedded(self) -> None:
+        """A name containing an ESC byte must be rejected and not echoed to stderr."""
+        self._assert_invalid("ok\x1b]0;x")
+
+    # ------------------------------------------------------------------
+    # Teeth: prove the old grep form accepted the newline bypass
+    # ------------------------------------------------------------------
+
+    def test_grep_form_would_have_passed_newline(self) -> None:
+        """The old echo|grep validation matched per LINE, so 'ok\\nx' passed.
+
+        This test confirms the bypass exists in the grep form and would have
+        let the injected value reach the tty. It runs the grep check directly
+        via bash so it does not depend on having an old version of the script.
+        """
+        name = "ok\nx"
+        # Replicate the old grep check exactly as it appeared in the script:
+        #   NAME="..."; echo "$NAME" | grep -qE '^...$'
+        # Pass the name via env to avoid any shell quoting of the newline.
+        proc = subprocess.run(  # nosec B603 B607 - fixed argv, isolated bash snippet
+            ["bash", "-c",
+             "echo \"$NAME\" | grep -qE '^[a-z0-9]+(-[a-z0-9]+)*$'"],
+            capture_output=True,
+            env={**os.environ, "NAME": name},
+        )
+        self.assertEqual(
+            proc.returncode, 0,
+            "teeth: old grep form should have passed the newline-embedded name (bypass confirmed)",
+        )
+        # Confirm the current script rejects it.
+        result = _run(name, self.tmp)
+        self.assertEqual(result.returncode, 2, "current script must reject the newline-embedded name")
 
 
 if __name__ == "__main__":

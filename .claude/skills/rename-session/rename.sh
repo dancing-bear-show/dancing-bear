@@ -19,13 +19,11 @@ if [ -z "$NAME" ]; then
     exit 2
 fi
 
-if ! echo "$NAME" | grep -qE '^[a-z0-9]+(-[a-z0-9]+)*$'; then
-    echo "invalid name '$NAME': must match ^[a-z0-9]+(-[a-z0-9]+)*\$" >&2
-    exit 2
-fi
-
-if [ "${#NAME}" -gt 30 ]; then
-    echo "invalid name '$NAME': max 30 characters (got ${#NAME})" >&2
+# Use bash =~ to anchor the entire string — echo|grep matches per line, so a
+# newline-embedded name like $'ok\nevil' would pass (first line matches) and
+# the whole value, including control characters, would reach the tty.
+if ! [[ $NAME =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] || [ "${#NAME}" -gt 30 ]; then
+    echo "invalid name: must match ^[a-z0-9]+(-[a-z0-9]+)*\$ and be <=30 chars" >&2
     exit 2
 fi
 
