@@ -488,6 +488,24 @@ class TestUnlinkedFindingTriageAndDispatchRules(unittest.TestCase):
         self.assertIn("not merely a current finding sharing the same path", self.report_prompt)
         self.assertIn("never \"null:<line>\"", self.report_prompt)
 
+    def test_both_path_and_path_rejected_null_falls_back_to_id(self) -> None:
+        # (f) a bare "unlinked:<digest>" finding (no path line was present to
+        # parse or reject) has neither "path" nor "path_rejected" to show.
+        # triage-threads must classify it "context" instead of dispatching a
+        # null path, and report must label its bare id rather than
+        # assembling "null:<line>".
+        self.assertIn(
+            'A finding can also have BOTH "path" and "path_rejected" null',
+            self.triage_prompt,
+        )
+        self.assertIn(
+            "this finding has nowhere to be dispatched", self.triage_prompt
+        )
+        self.assertIn(
+            'When BOTH "path" and "path_rejected" are null', self.report_prompt
+        )
+        self.assertIn('labelled "(path unavailable)"', self.report_prompt)
+
 
 if __name__ == "__main__":
     unittest.main()

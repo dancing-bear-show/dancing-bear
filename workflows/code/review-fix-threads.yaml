@@ -363,6 +363,15 @@ stages:
           at it. Classify it "context", do not guess or substitute a path, and
           let the report's Suspicious input section surface it with the reason.
 
+          A finding can also have BOTH "path" and "path_rejected" null: no
+          path line was present at all to parse or reject, so its id fell
+          back to "unlinked:<digest>" instead of "unlinked:<path>:<line>".
+          There is no file here, rejected or otherwise — fix-dispatch groups
+          by path, so this finding has nowhere to be dispatched. Classify it
+          "context" the same way, do not invent a path, and let the report's
+          "Findings with no thread" (or "Stale unlinked findings") section
+          show its bare id labelled "(path unavailable)".
+
         - Record the reviewer's own severity from review-overview.json in
           "reviewer_severity", verbatim ("High", "Medium", "Low"), and use it
           to order work. Leave it null for threads the overview does not cite.
@@ -1782,14 +1791,20 @@ stages:
           report-only location: "<path_rejected>:<line> (protected-path, not
           dispatched)" or "(escapes-repo, not dispatched)" per
           "path_rejected_reason". This never authorizes dispatching that
-          path — it is display only. These findings can never be replied to
-          or resolved, so this section is the only place a human learns they
-          exist. Omit the section only when there are none; never omit it
-          silently when there are.
+          path — it is display only. When BOTH "path" and "path_rejected"
+          are null (no path line was present to reject — the finding's id
+          fell back to "unlinked:<digest>"), there is no path to show at
+          all: display the finding's own "id" labelled "(path unavailable)"
+          instead of assembling "null:<line>". These findings can never be
+          replied to or resolved, so this section is the only place a human
+          learns they exist. Omit the section only when there are none;
+          never omit it silently when there are.
         Stale unlinked findings — every id in review-overview.json
           "stale_unlinked", with its title, path:line, and severity. When
           "path" is null, use the same labelled "path_rejected" location as
-          the section above, never "null:<line>". The
+          the section above, never "null:<line>"; when both "path" and
+          "path_rejected" are null, show the id labelled "(path
+          unavailable)" as above. The
           newest overview no longer lists these; they were either fixed or
           re-raised under a new title. Say "superseded by <id>" ONLY when
           triage.json records that current finding's "repeat_of" as
