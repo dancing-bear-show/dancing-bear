@@ -228,6 +228,31 @@ class TestOpenPrRecordSweepStage(unittest.TestCase):
         self.assertIn("--head", prompt)
         self.assertIn("--workspace", prompt)
 
+    def test_record_sweep_passes_the_workspace_the_swarm_wrote(self) -> None:
+        """Included swarm stages keep their writes_to and share open-pr's one
+        workspace, so the record must name that workspace, not a sibling dir."""
+        for name in ("swarm-fetch-pr-context", "swarm-concern-sweep-dispatch", "swarm-review-consolidated"):
+            with self.subTest(stage=name):
+                outs = " ".join(self.stages[name].spec.writes_to)
+                self.assertNotIn("..", outs)
+        with tempfile.TemporaryDirectory() as tmp:
+            prompt = build_agent_prompt(self.stages["record-sweep"], "open-pr", tmp)
+            ws = Path(tmp).resolve()  # the renderer resolves /var -> /private/var on macOS
+        self.assertIn(f'sweep-record write --head "$(git rev-parse HEAD)" --workspace "{ws}"', prompt)
+        self.assertNotIn("code-review-", prompt)
+        self.assertNotIn("dirname", prompt)
+
+    def test_refused_record_fails_the_stage(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            prompt = build_agent_prompt(self.stages["record-sweep"], "open-pr", tmp)
+        self.assertIn("FAILED", prompt)
+        self.assertNotIn("PR can still proceed", prompt)
+        self.assertTrue(self.stages["record-sweep"].spec.required)
+
+    def test_open_pr_rejects_local_false(self) -> None:
+        with self.assertRaises(WorkflowCompileError):
+            _compile_open_pr(local="false")
+
     def test_record_sweep_before_generate_description_in_dag(self) -> None:
         """record-sweep must appear in an earlier parallel group than
         generate-description."""

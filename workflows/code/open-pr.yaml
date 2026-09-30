@@ -37,7 +37,7 @@ trigger:
     auth_domains: "github,qlty"  # Comma-separated services for pre-flight auth check
     local: "true"         # Fixed: concern swarm always runs in local mode (no PR yet)
   param_rules:
-    local: 'true|false'
+    local: 'true'         # no PR exists yet, so the included swarm cannot run in PR mode
 
 workspace_dir: "{work_dir}/open-pr"
 
@@ -264,28 +264,21 @@ stages:
       Write the sweep record for this local branch run and copy swarm findings
       into the outer workspace for the human-gate to display.
 
-      Step 1 — compute HEAD sha and swarm workspace path:
-        HEAD_SHA=$(git rev-parse HEAD)
-        The swarm workspace sits beside this open-pr workspace under the same
-        work_dir parent. The parent directory is one level up from {workspace}.
-        The swarm runs code-review.yaml with pr_number="" so its workspace dir
-        is code-review- (trailing dash, no number):
-          SWARM_WS=$(dirname "{workspace}")/code-review-
-        Verify SWARM_WS exists and contains outputs/concern-sweep-index.json.
-        If it does not exist, fail with an error: the swarm did not run or
-        wrote to an unexpected path.
+      Step 1 — the swarm stages are included into this workflow, so they
+        write to THIS workspace: {workspace}/outputs/pr-context.json,
+        concern-sweep-index.json and consolidated.json. Run:
+          ./bin/workflow sweep-record write --head "$(git rev-parse HEAD)" --workspace "{workspace}"
 
-      Step 2 — call the sweep record CLI:
-          ./bin/workflow sweep-record write --head "$HEAD_SHA" --workspace "$SWARM_WS"
-        Exit 0 means a record was written. Exit non-zero (refused): log the
-        reason and write {workspace}/validation/swarm-findings-summary.md with
-        a single line noting the sweep was not recorded plus the reason.
-        Do NOT abort the workflow on a refused write — the PR can still proceed.
+      Step 2 — exit 0 means the record was written. Any other exit means the
+        sweep is not recorded, and the PR-create hook will refuse
+        push-and-create. Write {workspace}/validation/swarm-findings-summary.md
+        with one line quoting the refusal, then report this stage as FAILED so
+        the run stops here instead of at the hook after the human gate.
 
-      Step 3 — copy swarm findings summary to outer workspace:
-        If {workspace}/../code-review-/outputs/consolidated-summary.md exists:
+      Step 3 — summarise the swarm findings for the human gate:
+        If {workspace}/outputs/consolidated-summary.md exists:
           Copy it to {workspace}/validation/swarm-findings-summary.md.
-        Else if {workspace}/../code-review-/outputs/consolidated.json exists:
+        Else if {workspace}/outputs/consolidated.json exists:
           Read consolidated.json and write a brief markdown summary to
           {workspace}/validation/swarm-findings-summary.md:
             ## Pre-PR Concern Swarm Findings
