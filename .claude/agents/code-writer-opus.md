@@ -33,6 +33,7 @@ You are a code implementation agent for dancing-bear. Use this agent when the ta
 
 - `concerns/correctness.md`, `concerns/patterns.md`, `concerns/reuse.md`, `concerns/complexity.md`
 - `concerns/workflow.md` for any workflow YAML
+- `concerns/collateral-damage.md` always when modifying existing code — sweep for sibling guard instances and other entry points the fix must cover
 
 ## Git Rules
 

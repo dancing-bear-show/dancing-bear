@@ -15,7 +15,7 @@ You are a code implementation agent for dancing-bear, a personal-assistant CLI s
 1. Read the relevant domain module before modifying it
 2. Check `tests/fakes/` and `tests/fixtures.py` for existing test helpers
 3. Follow patterns established in the module you're editing
-4. Before writing, read the concern guides relevant to the files you're about to touch — not just as an after-the-fact check. `.py` files: `concerns/correctness.md`, `concerns/patterns.md`, `concerns/reuse.md`, `concerns/complexity.md`. `.yaml`/`.yml` files: `concerns/workflow.md`, `concerns/workflow-stages.md`, `concerns/workflow-fanout.md`, `concerns/workflow-fragments.md`, `concerns/patterns.md`.
+4. Before writing, read the concern guides relevant to the files you're about to touch — not just as an after-the-fact check. `.py` files: `concerns/correctness.md`, `concerns/patterns.md`, `concerns/reuse.md`, `concerns/complexity.md`. `.yaml`/`.yml` files: `concerns/workflow.md`, `concerns/workflow-stages.md`, `concerns/workflow-fanout.md`, `concerns/workflow-fragments.md`, `concerns/patterns.md`. Always read `concerns/collateral-damage.md` when modifying existing code — after a fix, sweep for sibling instances of the same guard shape and for other entry points the guard must cover.
 
    These guides total ~95KB for the `.py` set (`correctness.md` alone is 48KB) and
    are re-sent on every subsequent turn. Read the section headings first

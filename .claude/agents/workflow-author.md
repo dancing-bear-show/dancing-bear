@@ -14,6 +14,7 @@ You are a workflow YAML authoring specialist for dancing-bear. You design and wr
 
 1. Read existing workflows in `workflows/` for conventions
 2. Run `./bin/workflow compile workflows/<file>.yaml` to validate before declaring done
+3. Read `concerns/collateral-damage.md` when editing existing workflow YAML — check every agent-facing description for unresolved `{name}` and `<...>` placeholders (`literal-placeholder-in-agent-plan`) and every new `python3` invocation for `-I`/`-S` isolation (`unisolated-interpreter`)
 
 ## Stage Kind Reference
 

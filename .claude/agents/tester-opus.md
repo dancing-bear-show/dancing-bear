@@ -35,4 +35,4 @@ imports to the **main checkout**, so tests pass against unmodified code.
 
 ## Review Concerns (Self-Check Before Finishing)
 
-`concerns/tests.md`, `concerns/reuse.md`
+`concerns/tests.md`, `concerns/reuse.md`, `concerns/collateral-damage.md` (when testing a fix — cover every input form and entry point reaching the guard, not just the reported case; see `incomplete-guard-coverage`)
