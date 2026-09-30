@@ -1241,29 +1241,31 @@ stages:
       at spawn time, not from the workflow's feature branch. This means the
       orchestrator's feature branch may already have commits (from earlier
       stages, or from prior work on this branch) that your worktree does not
-      contain. Copying files directly back onto the feature branch can silently
-      REVERT those commits — your file's content wins and the prior commit is
-      gone. To prevent this, the orchestrator MUST, for this stage:
+      contain. Copying files directly back onto the feature branch silently
+      REVERTS those commits. To prevent this, the orchestrator MUST:
         1. Before spawning this agent, record the feature branch tip SHA with
              git rev-parse HEAD
            and store it alongside this stage's name so the merge step has it.
         2. After this agent finishes and reports its commit SHA, bring its work
-           onto the feature branch with a 3-way merge or cherry-pick against
-           the agent's own base (the latest main SHA the agent was cut from),
-           NOT by copying files over the feature branch working tree.
-           The correct form is:
-             git cherry-pick <agent-commit-sha>
-           or, for a range of commits:
-             git cherry-pick <agent-base-sha>..<agent-tip-sha>
-           against the feature branch (checked out, not the agent's worktree).
-        3. After the cherry-pick or merge, verify with
-             git log --oneline <feature-branch-tip-before-spawn>..HEAD
-           that the commits already on the feature branch are still reachable
-           and that no commit was reverted. If any prior commit is missing from
-           the graph, STOP and report — do not proceed to merge-impl.
-      Never copy the agent's files by hand over the feature branch tree: that
-      path silently drops all commits the feature branch had that the agent's
-      worktree did not, and the loss looks exactly like a clean merge.
+           onto the feature branch with `git merge --no-ff worktree-agent-<id>`
+           run on the feature branch (SKILL.md rule 7c). This is a real 3-way
+           merge whose merge-base is the agent's own base, so it applies only
+           the agent's changes. Overlapping edits surface as conflicts and must
+           be resolved; never take the agent's whole file to resolve. NEVER use
+           cherry-pick (it creates new SHAs, and merge-impl step 3 requires each
+           recorded commit_sha to be an ancestor of HEAD via merge-base — a
+           cherry-picked commit is not an ancestor of the originating branch).
+           NEVER copy files over the feature branch working tree.
+        3. After the merge, verify the scope is correct: compute
+             agent-base = git merge-base <feature-tip-before-spawn> worktree-agent-<id>
+           then confirm that
+             git diff --stat <feature-tip-before-spawn> HEAD
+           lists ONLY paths that appear in
+             git diff --stat <agent-base> <agent-tip>
+           Any path changed in the first set but absent from the second means
+           a feature-branch file was clobbered or reverted — STOP and report.
+      Never copy the agent's files by hand. Never cherry-pick. Never resolve
+      a merge conflict by taking the agent's entire file.
 
       Implement the "{job_type}" handler exactly as approved in
       <your-cwd>/inputs/outputs/design/contract.json (see the survey artifact
@@ -1563,10 +1565,10 @@ stages:
       ISOLATED WORKTREE BRANCHING — see impl-handler's ISOLATED WORKTREE
       BRANCHING section for the full protocol. Your worktree is cut from
       the LATEST main, not the feature branch. The orchestrator must record
-      the feature branch tip before spawning you, then cherry-pick your
-      commit(s) onto the feature branch after you finish — never copy files
-      over the working tree. A file copy silently reverts any prior commits on
-      the feature branch that your worktree does not contain.
+      the feature branch tip before spawning you, then merge your branch onto
+      the feature branch with `git merge --no-ff worktree-agent-<id>` after
+      you finish — never copy files and never cherry-pick (cherry-pick creates
+      new SHAs that break merge-impl's ancestry check).
 
       FIRST, read `<your-cwd>/inputs/outputs/design/contract.json`'s
       heartbeat/liveness section and check which
@@ -1690,10 +1692,10 @@ stages:
       ISOLATED WORKTREE BRANCHING — see impl-handler's ISOLATED WORKTREE
       BRANCHING section for the full protocol. Your worktree is cut from
       the LATEST main, not the feature branch. The orchestrator must record
-      the feature branch tip before spawning you, then cherry-pick your
-      commit(s) onto the feature branch after you finish — never copy files
-      over the working tree. A file copy silently reverts any prior commits on
-      the feature branch that your worktree does not contain.
+      the feature branch tip before spawning you, then merge your branch onto
+      the feature branch with `git merge --no-ff worktree-agent-<id>` after
+      you finish — never copy files and never cherry-pick (cherry-pick creates
+      new SHAs that break merge-impl's ancestry check).
 
       Write tests against the contract in
       `<your-cwd>/inputs/outputs/design/contract.json`.
@@ -2123,11 +2125,11 @@ stages:
 
       RUN THE TESTS — do not reason about drift from reading alone. A test
       that imports correctly and passes silently may still be asserting the
-      wrong thing; a broken import is visible immediately. Run the qwen tests
-      with the suite restricted to tests/worker_tests/:
+      wrong thing; a broken import is visible immediately. Run the full suite
+      via make test (which pins PYTHONPATH to this checkout):
 
-        make test > /tmp/reconcile-check.log 2>&1; echo "EXIT=$?"
-        grep -E "^Ran [0-9]+ tests|^OK|^FAILED|^ERROR" /tmp/reconcile-check.log
+        make test > {workspace}/validation/reconcile-test.log 2>&1; echo "EXIT=$?"
+        grep -E "^Ran [0-9]+ tests|^OK|^FAILED|^ERROR" {workspace}/validation/reconcile-test.log
 
       Capture both the exit code and the summary line. Fix errors and
       failures, re-run. Stop when the suite passes (or when you reach a
@@ -2725,15 +2727,19 @@ stages:
                 <worker_state_dir>/qwen/model_digest.json
               where <worker_state_dir> is the directory returned by
               get_worker_state_dir() from src/worker/_helpers.py (the survey
-              recorded this path). Write a JSON object mapping the model tag
-              to its digest:
-                {"<model_tag>": "<digest>"}
-              Write atomically: write to a temp file in the same directory,
-              then rename it over the target (Python's tempfile + os.replace,
-              or any write-then-rename approach). Create the directory if it
-              does not exist (mode 0o700).
-              After writing, read it back and confirm the key and value match
-              what you wrote. Record the path and whether the readback
+              recorded this path). Before writing, check whether the path is a
+              symlink (os.path.islink); if it is, REFUSE to write and record
+              the failure in install.json — the handler reads with no-follow
+              and a symlink at that path means something is wrong. If the file
+              already exists and is valid JSON, read it first and preserve all
+              existing keys — set only the key for this model tag, leaving any
+              other tags' entries intact. Then write atomically: write the
+              merged object to a temp file in the same directory, then rename
+              it over the target (Python's tempfile + os.replace, or any
+              write-then-rename approach). Create the directory if it does not
+              exist (mode 0o700).
+              After writing, read it back and confirm this tag's key and value
+              match what you wrote. Record the path and whether the readback
               succeeded in install.json.
 
         If the digest cannot be read from the API, record null in install.json
