@@ -250,10 +250,11 @@ trigger:
     model_tag: "qwen2.5-coder:14b"
     ollama_host: "http://localhost:11434"
     job_type: "qwen_patch"
-    # Approximate resident size of {model_tag} at Q4 quantization, used by the
-    # memory precheck. The survey verifies this against `ollama list` rather
-    # than trusting it — override when changing model_tag.
-    model_resident_gb: "9"
+    # Approximate resident size of {model_tag} at Q4 quantization and
+    # num_ctx 16384 (measured 10 GB with `ollama ps`), used by the memory
+    # precheck. The survey verifies this against `ollama list` rather than
+    # trusting it — override when changing model_tag.
+    model_resident_gb: "10"
     # Safety margin above the model size before a generation is allowed to
     # start, leaving room for the OS and whatever else is running.
     memory_margin_gb: "4"
@@ -1694,7 +1695,10 @@ stages:
           `git apply --check` return `terminal-patch-does-not-apply` — the
           fail-closed backstop, not silently treated as a success. Also cover
           the edit-block-to-diff failure paths themselves, per
-          `src/worker/qwen_edits.py`'s outcome strings: a response with no
+          `src/worker/qwen_edits.py`'s outcome strings, plus the handler's
+          truncation check that runs before parsing (`done_reason` "length"
+          -> `terminal-output-truncated`, even when the cut response would
+          parse as valid blocks): a response with no
           SEARCH/REPLACE block (`terminal-no-edits-found`), a block missing a
           marker (`terminal-edit-malformed`), a block naming a file that is
           not an input (`terminal-edit-outside-inputs`), a SEARCH body
