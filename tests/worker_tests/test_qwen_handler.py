@@ -548,6 +548,21 @@ class QwenUtf8ValidationTests(QwenHandlerCase):
         self.assertEqual(out, f"terminal-not-utf8: {GREET_PATH}")
         self.assertEqual(self.generate_requests(), [], "model was called despite non-UTF-8 input")
 
+    def test_nul_byte_input_is_binary_even_when_valid_utf8(self) -> None:
+        """A NUL byte decodes as valid UTF-8 but marks a binary file (git's own
+        test): the job must return terminal-binary-input without calling the
+        model, so no text patch is produced for it."""
+        greet = self.repo_root / GREET_PATH
+        data = greet.read_bytes() + b"blob\x00tail\n"
+        data.decode("utf-8")  # precondition: still valid UTF-8
+        greet.write_bytes(data)
+
+        ok, out = self.run_handler()
+
+        self.assertFalse(ok)
+        self.assertEqual(out, f"terminal-binary-input: {GREET_PATH}")
+        self.assertEqual(self.generate_requests(), [], "model was called despite binary input")
+
     def test_valid_utf8_input_proceeds_to_model(self) -> None:
         """A file with valid UTF-8 (including multi-byte characters) must not
         be rejected by the UTF-8 guard; the handler must reach the model call."""

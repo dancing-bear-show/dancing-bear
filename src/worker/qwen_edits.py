@@ -63,7 +63,9 @@ BARE_FENCE = "```"
 # from a well-formed response and is accepted.
 _BLOCK_MARKERS = frozenset({SEARCH_MARKER, REPLACE_MARKER})
 _STRAY_MARKERS = frozenset({DIVIDER_MARKER, REPLACE_MARKER})
-_FILE_LINE_RE = re.compile(r"\s*FILE:(.*)")
+# Column 0, like every structural marker: an indented "  FILE: other.py"
+# between blocks is prose, so it can never retarget the next block.
+_FILE_LINE_RE = re.compile(r"FILE:(.*)")
 _NO_NEWLINE_MARKER = "\\ No newline at end of file"
 
 EDIT_FORMAT_EXAMPLE = (

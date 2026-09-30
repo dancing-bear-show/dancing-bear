@@ -281,6 +281,28 @@ class ParseEditBlocksTests(unittest.TestCase):
             {"docs/x.rst": "Title\n  =======\nnew\n  >>>>>>> REPLACE\nrest\n"},
         )
 
+    def test_an_indented_file_line_does_not_retarget_the_next_block(self) -> None:
+        text = (
+            "FILE: src/a.py\n<<<<<<< SEARCH\nx\n=======\nX\n>>>>>>> REPLACE\n\n"
+            "  FILE: src/b.py\n<<<<<<< SEARCH\nx2\n=======\nX2\n>>>>>>> REPLACE\n"
+        )
+
+        blocks = qwen_edits.parse_edit_blocks(text)
+
+        self.assertEqual([b.path for b in blocks], ["src/a.py", "src/a.py"])
+        self.assertEqual(
+            _outcome(qwen_edits.edits_to_diff, text, {"src/a.py": "x\n", "src/b.py": "x2\n"}),
+            qwen_edits.EDIT_NOT_FOUND_OUTCOME,
+        )
+
+    def test_a_column_0_file_line_still_switches_files(self) -> None:
+        text = (
+            "FILE: src/a.py\n<<<<<<< SEARCH\nx\n=======\nX\n>>>>>>> REPLACE\n\n"
+            "FILE: src/b.py  \n<<<<<<< SEARCH\nx2\n=======\nX2\n>>>>>>> REPLACE\n"
+        )
+
+        self.assertEqual([b.path.strip() for b in qwen_edits.parse_edit_blocks(text)], ["src/a.py", "src/b.py"])
+
     def test_an_indented_block_is_not_a_block(self) -> None:
         text = "FILE: a.py\n  <<<<<<< SEARCH\n  x\n  =======\n  y\n  >>>>>>> REPLACE\n"
 

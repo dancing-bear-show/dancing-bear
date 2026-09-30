@@ -43,6 +43,8 @@ Outcome strings (the handler's second return value on failure):
   ``git apply --check`` (fail-closed backstop)
 * ``terminal-patch-too-broad`` - caps, denied targets, binary or unparseable
   path headers
+* ``terminal-binary-input: <path>`` - a confined input file contains a NUL
+  byte (binary, even when it is valid UTF-8)
 * ``terminal-not-utf8: <path>`` - a confined input file is not valid UTF-8
 * ``terminal-deferral-limit[: <reason>]``
 * ``terminal-internal-error: <exception type>``
@@ -1596,13 +1598,17 @@ def _prompt_files(contents: dict[str, bytes], root: Path) -> dict[str, str]:
     POSIX form. The prompt labels files this way and edit blocks must name
     them this way, so the absolute root never reaches the model.
 
-    Raises QwenGuardError("terminal-not-utf8: <rel-path>") for any file
-    whose bytes are not valid UTF-8, so binary and non-UTF-8 files are
-    rejected before the model is called rather than silently patched.
+    Raises QwenGuardError("terminal-binary-input: <rel-path>") for a file
+    containing a NUL byte - git's own binary test, and valid UTF-8 can
+    still carry one - and QwenGuardError("terminal-not-utf8: <rel-path>")
+    for bytes that are not valid UTF-8, so binary and non-UTF-8 files are
+    rejected before the model is called rather than given a text patch.
     """
     result: dict[str, str] = {}
     for path, data in contents.items():
         rel = Path(path).relative_to(root).as_posix()
+        if b"\x00" in data:
+            raise QwenGuardError(f"terminal-binary-input: {rel}")
         try:
             result[rel] = data.decode("utf-8")
         except UnicodeDecodeError:
