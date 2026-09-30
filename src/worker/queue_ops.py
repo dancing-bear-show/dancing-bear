@@ -968,6 +968,14 @@ def _reconcile_staged_on_claim(claimed: Path) -> None:
     it here, while the claimed record certainly carries its identity, keeps
     a later ``purge`` or same-id replacement from making it look unpublished.
     Any failure is logged: ``recover_staged_requeues`` checks again.
+
+    Known limit: if this reconciliation fails and the claimed job then
+    finishes and is purged (or replaced by a same-id job) before any
+    recovery pass, the staged copy looks unpublished and is published again.
+    That needs a crash between publish and ``staged.unlink()``, a read error
+    here, a finish and a purge in that order. Refusing the claim on failure
+    would close it, at the cost of a persistently unreadable staged file
+    blocking the job indefinitely; a possible second run was preferred.
     """
     staged = claimed.parent.parent / "processing" / f"{claimed.name}{_REQUEUE_STAGING_SUFFIX}"
     if not staged.exists():
