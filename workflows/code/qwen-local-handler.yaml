@@ -138,20 +138,14 @@ description: >
   everything went right.
 
   ORCHESTRATOR — MERGING ISOLATED STAGES. For each of impl-handler,
-  impl-heartbeat and impl-tests the orchestrator must:
+  impl-heartbeat and impl-tests, in whatever order they complete, the
+  orchestrator must perform these steps for THAT STAGE INDIVIDUALLY before
+  releasing the next dependent stage:
 
-    1. Record the feature branch tip immediately before spawning that agent:
-         git rev-parse HEAD
-       Store it as {stage-name}.base_sha in
-       {workspace}/validation/merge-baselines.json — a JSON object keyed by
-       stage name, value the 40-hex SHA. This file is written by the
-       orchestrator (not by any agent), one entry per impl stage, before the
-       first spawn. Example:
-         {"impl-handler": "<sha>", "impl-heartbeat": "<sha>",
-          "impl-tests": "<sha>"}
+    1. Immediately before merging, record the current feature-branch tip:
+         pre_merge_tip=$(git rev-parse HEAD)
 
-    2. After that agent finishes and reports its commit_sha (from its result
-       JSON), merge its branch onto the feature branch:
+    2. Merge that agent's branch:
          git merge --no-ff worktree-agent-<id>
        This is a real 3-way merge whose merge-base is the agent's own base,
        so it applies only the agent's changes. Overlapping edits surface as
@@ -162,22 +156,43 @@ description: >
        originating branch). NEVER copy files over the feature branch working
        tree.
 
-    3. Verify scope after the merge. Using the per-stage base_sha from
-       merge-baselines.json and the agent's tip:
-         agent_base=$(git merge-base <feature-base_sha> worktree-agent-<id>)
-       Confirm every path in
-         git diff --name-only <feature-base_sha> HEAD
-       also appears in
-         git diff --name-only <agent_base> <agent-tip>
-       Any path changed in the post-merge window but absent from the agent's
-       own diff means a feature-branch file was clobbered or reverted — STOP
-       and report. Paths that appear in the agent diff but NOT in the
-       post-merge window are fine: the merge may have no-op'd an already-
-       present change.
+    3. Record the post-merge tip and the agent's tip:
+         post_merge_tip=$(git rev-parse HEAD)
+         agent_tip=$(git rev-parse worktree-agent-<id>)
 
-    merge-impl reads merge-baselines.json and performs the step-3 scope
-    check for each stage, adding scope_ok and out_of_scope_paths to its
-    merge.json output.
+    4. Scope check: every path in
+         git diff --name-only <pre_merge_tip> <post_merge_tip>
+       must also appear in
+         git diff --name-only <pre_merge_tip>...<agent_tip>
+       (THREE dots: this computes from the merge-base of pre_merge_tip and
+       agent_tip to agent_tip — exactly what this merge legitimately brings
+       in. Any newer-main commits already in the agent's base are included
+       on the right side, so they never produce false positives even if
+       those commits touched the same files.) Any path in the post-merge
+       window but absent from the three-dot diff means a file was
+       clobbered or reverted — STOP and report.
+
+    5. Write the three values for this stage into
+       {workspace}/validation/merge-baselines.json as one entry keyed by
+       stage name:
+         {
+           "impl-handler":  {"pre_merge_tip": "...", "post_merge_tip": "...", "agent_tip": "..."},
+           "impl-heartbeat": {"pre_merge_tip": "...", "post_merge_tip": "...", "agent_tip": "..."},
+           "impl-tests":    {"pre_merge_tip": "...", "post_merge_tip": "...", "agent_tip": "..."}
+         }
+       All values are 40-hex SHAs. Add entries one at a time as each merge
+       completes. merge-impl reads this file and re-runs step 4 for each
+       stage to confirm the scope check holds.
+
+    LIMIT: this check catches paths changed outside the merge's scope
+    (file copies, stray edits, accidental rebases). A bad conflict
+    resolution inside an in-scope file is not caught by path sets —
+    conflicts must be resolved by keeping both sides' intent and
+    re-running the suite (reconcile-impl does that).
+
+  merge-impl reads merge-baselines.json and performs the step-4 scope
+  check for each stage, adding scope_ok and out_of_scope_paths to its
+  merge.json output.
 
   The adversarial review at G3 exists because a passing test suite is not
   evidence of a working one. It asks the inverse question — what mutation of
@@ -1280,10 +1295,9 @@ stages:
       below in this and other isolated stages is written accordingly.
 
       ISOLATED WORKTREE BRANCHING — your worktree is cut from the LATEST main
-      at spawn time, not from the feature branch. Your job is to record
-      base_sha (see handler-impl.json schema below), commit your work, and
-      return. Do NOT merge anything yourself — the orchestrator handles
-      every merge via `git merge --no-ff` after you finish, per the
+      at spawn time, not from the feature branch. Your job is to commit your
+      work and return. Do NOT merge anything yourself — the orchestrator
+      handles every merge via `git merge --no-ff` after you finish, per the
       "ORCHESTRATOR — MERGING ISOLATED STAGES" protocol in this workflow's
       top-level description. Never copy files; never cherry-pick.
 
@@ -1546,7 +1560,6 @@ stages:
           "commit_shas": [{"pr": 1, "sha": "...", "checkpoints": ["C1", "C2"]}, {"pr": 2, "sha": "...", "checkpoints": ["C3", "C4", "C5"]}, {"pr": 3, "sha": "...", "checkpoints": ["C6"]}],
           "checkpoints": [{"id": "C1", "passed": true|false, "command": "...", "evidence": "...", "notes": "..."}],
           "deferred_to_other_stage": [...],
-          "base_sha": "<git rev-parse HEAD BEFORE your first edit — the orchestrator uses this as the per-stage base for the scope check in merge-baselines.json>",
           "notes": "..."
         }
       A checkpoint you skipped is recorded passed=false with the reason, not
@@ -1584,12 +1597,10 @@ stages:
       the stage completes.
 
       ISOLATED WORKTREE BRANCHING — your worktree is cut from the LATEST main
-      at spawn time, not the feature branch. Record base_sha (see
-      heartbeat-impl.json schema below) as your initial HEAD before any edit,
-      commit your work, and return. The orchestrator handles every merge via
-      `git merge --no-ff` per the "ORCHESTRATOR — MERGING ISOLATED STAGES"
-      protocol in the top-level description. Never copy files; never
-      cherry-pick.
+      at spawn time, not the feature branch. Your job is to commit your work
+      and return. The orchestrator handles every merge via `git merge --no-ff`
+      per the "ORCHESTRATOR — MERGING ISOLATED STAGES" protocol in the
+      top-level description. Never copy files; never cherry-pick.
 
       FIRST, read `<your-cwd>/inputs/outputs/design/contract.json`'s
       heartbeat/liveness section and check which
@@ -1677,7 +1688,7 @@ stages:
 
       Write <your-cwd>/outputs/heartbeat-impl.json (NOT {workspace} — see the
       isolation boundary above):
-        {"files_modified": [...], "helper_name": "...", "fallback_behaviour": "...", "commit_sha": "...", "base_sha": "<git rev-parse HEAD BEFORE your first edit>", "checkpoints": [{"id": "existing-suite-green", "passed": true|false, "command": "...", "evidence": "<the Ran N tests line>"}], "notes": "..."}
+        {"files_modified": [...], "helper_name": "...", "fallback_behaviour": "...", "commit_sha": "...", "checkpoints": [{"id": "existing-suite-green", "passed": true|false, "command": "...", "evidence": "<the Ran N tests line>"}], "notes": "..."}
     agent:
       role: code-writer
       model: sonnet
@@ -1711,12 +1722,10 @@ stages:
       the stage completes.
 
       ISOLATED WORKTREE BRANCHING — your worktree is cut from the LATEST main
-      at spawn time, not the feature branch. Record base_sha (see
-      tests-impl.json schema below) as your initial HEAD before any edit,
-      commit your work, and return. The orchestrator handles every merge via
-      `git merge --no-ff` per the "ORCHESTRATOR — MERGING ISOLATED STAGES"
-      protocol in the top-level description. Never copy files; never
-      cherry-pick.
+      at spawn time, not the feature branch. Your job is to commit your work
+      and return. The orchestrator handles every merge via `git merge --no-ff`
+      per the "ORCHESTRATOR — MERGING ISOLATED STAGES" protocol in the
+      top-level description. Never copy files; never cherry-pick.
 
       Write tests against the contract in
       `<your-cwd>/inputs/outputs/design/contract.json`.
@@ -1920,7 +1929,7 @@ stages:
 
       Write <your-cwd>/outputs/tests-impl.json (NOT {workspace} — see the
       isolation boundary above):
-        {"test_files": [...], "test_count": N, "retry_map_rows_covered": N, "liveness_route_tested": "a|b|c", "commit_sha": "...", "base_sha": "<git rev-parse HEAD BEFORE your first edit>", "checkpoints": [{"id": "tests-collect", "passed": true|false, "command": "...", "evidence": "..."}], "notes": "..."}
+        {"test_files": [...], "test_count": N, "retry_map_rows_covered": N, "liveness_route_tested": "a|b|c", "commit_sha": "...", "checkpoints": [{"id": "tests-collect", "passed": true|false, "command": "...", "evidence": "..."}], "notes": "..."}
       "liveness_route_tested" must match the route contract.json recorded, so
       merge-impl and acceptance can tell an intentional absence of heartbeat
       tests (route a or c) from a missing test.
@@ -2044,19 +2053,21 @@ stages:
            A split recorded but not actually made leaves whoever opens the
            PRs with nothing to split.
 
-        6b. SCOPE CHECK. Using the per-stage base_sha from
-           merge-baselines.json (the orchestrator's recorded feature-branch
-           tip before that agent was spawned) and the agent's commit_sha:
-             agent_base=$(git merge-base <base_sha> <commit_sha>)
-           Confirm every path in
-             git diff --name-only <base_sha> HEAD
-           also appears in
-             git diff --name-only <agent_base> <commit_sha>
-           A path changed in the post-merge window but absent from the
-           agent's own diff means the merge overwrote a pre-existing
-           feature-branch file — record it in out_of_scope_paths and set
-           scope_ok: false. If merge-baselines.json was absent for this
-           stage, record scope_ok: null.
+        6b. SCOPE CHECK. Read the per-stage entry from merge-baselines.json:
+           {"pre_merge_tip": "...", "post_merge_tip": "...", "agent_tip": "..."}.
+           All three must be 40-hex SHAs; validate with check-params before
+           passing to git. Then confirm every path in:
+             git diff --name-only <pre_merge_tip> <post_merge_tip>
+           also appears in:
+             git diff --name-only <pre_merge_tip>...<agent_tip>
+           (THREE dots: computes from the merge-base of pre_merge_tip and
+           agent_tip to agent_tip — exactly the changes this merge
+           legitimately brought in, including any newer-main commits already
+           in the agent's base that do not count as feature-branch files.)
+           A path in the post-merge window but absent from the three-dot diff
+           means a file was clobbered or reverted — record it in
+           out_of_scope_paths and set scope_ok: false. If merge-baselines.json
+           has no entry for this stage, record scope_ok: null.
 
       Then record the tree's state:
         git status --porcelain
