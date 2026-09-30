@@ -50,7 +50,7 @@ branch that prints "✔ No issues" whether or not anything was scanned.
 | Test files (`tests/**/*.py`) | `tests.md`, `reuse.md` (also covered by the `.py` row) |
 | `.yaml`/`.yml` files | `workflow.md`, `workflow-stages.md`, `workflow-fanout.md`, `workflow-fragments.md`, `patterns.md` |
 | `SKILL.md` files | `workflow.md`, `workflow-stages.md`, `workflow-fanout.md`, `workflow-fragments.md`, `patterns.md`, `docs.md` |
-| Any PR | `patterns.md`, `collateral-damage.md` (siblings, regressions, incomplete fixes always apply) |
+| Any PR | `patterns.md` (`pr-desc-title-mismatch`, `hardcoded-absolute-path` always apply), `collateral-damage.md` (siblings, regressions, incomplete fixes) |
 
 All guides live at: `concerns/`
 
