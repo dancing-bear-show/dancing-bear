@@ -33,7 +33,6 @@ from schedule.pipeline_expand import (  # noqa: F401
     _weekday_code_to_py,
 )
 from schedule.pipeline_verify import (  # noqa: F401
-    OutlookAuth,
     SyncRequest,
     SyncRequestConsumer,
     SyncResult,
@@ -54,37 +53,13 @@ from schedule.pipeline_verify import (  # noqa: F401
     _key_subject_time,
     _load_plan_events,
 )
+from core.auth import OutlookServiceConfig
+from calendars.pipeline_base import load_schedule_sources
 from core.auth import build_outlook_service  # noqa: F401
 
 
 def _events_from_source(source: str, kind: str | None) -> list[dict[str, Any]]:
-    from calendars.importer import load_schedule
-    from calendars.model import normalize_event
-
-    items = load_schedule(source, kind)
-    events: list[dict[str, Any]] = []
-    for it in items:
-        ev: dict[str, Any] = {
-            "subject": getattr(it, "subject", None),
-            "start": getattr(it, "start_iso", None),
-            "end": getattr(it, "end_iso", None),
-            "repeat": getattr(it, "recurrence", None),
-            "byday": getattr(it, "byday", None),
-            "start_time": getattr(it, "start_time", None),
-            "end_time": getattr(it, "end_time", None),
-            "range": {
-                "start_date": getattr(it, "range_start", None),
-                "until": getattr(it, "range_until", None),
-            },
-            "count": getattr(it, "count", None),
-            "location": getattr(it, "location", None),
-            "body_html": getattr(it, "notes", None),
-        }
-        rng = ev.get("range") or {}
-        if not rng.get("start_date") and not rng.get("until"):
-            ev.pop("range", None)
-        events.append(normalize_event(ev))
-    return events
+    return load_schedule_sources([source], kind)
 
 
 @dataclass
@@ -427,7 +402,7 @@ class ApplyRequest:
     calendar: str | None
     provider: str
     apply: bool
-    auth: OutlookAuth
+    auth: OutlookServiceConfig
 
 
 # Type alias using generic RequestConsumer from core.pipeline

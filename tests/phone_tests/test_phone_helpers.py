@@ -90,6 +90,61 @@ class TestLayoutFromExport(unittest.TestCase):
         self.assertEqual(layout.dock, [])
         self.assertEqual(layout.pages, [])
 
+    def test_layout_from_export_tolerates_empty_yaml_keys(self):
+        """`apps:` left blank loads as None and must read as no apps."""
+        from phone.helpers import _layout_from_export
+
+        export = {"dock": None, "pages": [{"apps": None, "folders": [{"name": "W", "apps": None}]}]}
+        layout = _layout_from_export(export)
+        self.assertEqual(layout.dock, [])
+        self.assertEqual(layout.pages, [[{"kind": "folder", "name": "W", "apps": []}]])
+
+    def test_layout_from_export_drops_non_string_ids(self):
+        from phone.helpers import _layout_from_export
+
+        export = {
+            "dock": [None, "com.dock", 7],
+            "pages": [{"apps": ["", "com.app1", 3], "folders": [{"name": "W", "apps": [None, "com.w"]}]}],
+        }
+        layout = _layout_from_export(export)
+        self.assertEqual(layout.dock, ["com.dock"])
+        self.assertEqual(
+            layout.pages[0],
+            [{"kind": "app", "id": "com.app1"}, {"kind": "folder", "name": "W", "apps": ["com.w"]}],
+        )
+
+    def test_layout_from_export_scalar_string_is_one_entry(self):
+        """`dock: com.example.app` must not iterate into characters."""
+        from phone.helpers import _layout_from_export
+
+        export = {
+            "dock": "com.example.dock",
+            "pages": [{"apps": "com.example.app", "folders": [{"name": "W", "apps": "com.w"}]}],
+        }
+        layout = _layout_from_export(export)
+        self.assertEqual(layout.dock, ["com.example.dock"])
+        self.assertEqual(
+            layout.pages[0],
+            [{"kind": "app", "id": "com.example.app"}, {"kind": "folder", "name": "W", "apps": ["com.w"]}],
+        )
+
+    def test_layout_from_export_non_sequence_scalars_read_as_empty(self):
+        from phone.helpers import _layout_from_export
+
+        export = {"dock": 5, "pages": [{"apps": 7, "folders": {"name": "W"}}]}
+        layout = _layout_from_export(export)
+        self.assertEqual(layout.dock, [])
+        self.assertEqual(layout.pages, [[]])
+
+    def test_layout_from_export_skips_malformed_pages_and_folders(self):
+        from phone.helpers import _layout_from_export
+
+        for pages in ("page1", 3, ["page1", None, {"apps": ["com.a"], "folders": ["W", 1]}]):
+            with self.subTest(pages=pages):
+                layout = _layout_from_export({"pages": pages})
+                expected = [[{"kind": "app", "id": "com.a"}]] if isinstance(pages, list) else []
+                self.assertEqual(layout.pages, expected)
+
     def test_layout_from_export_mixed_apps_and_folders(self):
         from phone.helpers import _layout_from_export
 

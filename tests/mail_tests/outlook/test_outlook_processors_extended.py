@@ -237,7 +237,9 @@ class TestCanonRule(unittest.TestCase):
     def test_subject_criteria(self):
         rule = {"criteria": {"subject": "[URGENT]"}}
         key = _canon_rule(rule)
-        self.assertIn("[URGENT]", key)
+        # Criteria are case-folded: Graph returns them UPPERCASE, derive lowercase.
+        self.assertIn("[urgent]", key)
+        self.assertEqual(key, _canon_rule({"criteria": {"subject": "[urgent]"}}))
 
     def test_add_label_action(self):
         rule = {"action": {"addLabelIds": ["label1", "label2"]}}
@@ -262,7 +264,7 @@ class TestCanonRule(unittest.TestCase):
         }
         key = _canon_rule(rule)
         self.assertIn("sender@example.com", key)
-        self.assertIn("Newsletter", key)
+        self.assertIn("newsletter", key)
         self.assertIn("news", key)
         self.assertIn("newsletters", key)
 

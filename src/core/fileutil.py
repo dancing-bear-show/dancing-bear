@@ -19,7 +19,6 @@ __all__ = [
     "iter_rotated_jsonl",
     "load_json_or_exit",
     "safe_load_json",
-    "safe_read_text",
     "write_once",
 ]
 
@@ -74,14 +73,6 @@ def safe_load_json(
         return json.loads(Path(path).read_text(encoding="utf-8"))
     except Exception:  # nosec B110 - intentional fallback; caller supplies default
         return default
-
-
-def safe_read_text(path: str | Path) -> str | None:
-    """Read UTF-8 text from path; return None if the file does not exist."""
-    try:
-        return Path(path).read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return None
 
 
 def load_json_or_exit(path: str | Path) -> Any:

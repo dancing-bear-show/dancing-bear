@@ -1,5 +1,6 @@
 """Unit tests for the slides dict/YAML deck parser."""
 
+import datetime
 import unittest
 
 from slides.constants import (
@@ -222,6 +223,28 @@ class TestLoadDeckFromDictValueErrors(unittest.TestCase):
         with self.assertRaises(ValueError) as ctx:
             load_deck_from_dict({"slides": {"title": "Orphan"}})
         self.assertIn("slides", str(ctx.exception))
+
+
+# ---------------------------------------------------------------------------
+# Deck metadata: missing / empty / null / present (shared with sheets)
+# ---------------------------------------------------------------------------
+
+class TestDeckMetadataParsing(unittest.TestCase):
+    """title/author/date parse the same way the sheets generator parses them."""
+
+    CASES = [
+        ("missing", {}, ("Untitled", None, None)),
+        ("null", {"title": "T", "author": None, "date": None}, ("T", None, None)),
+        ("empty", {"title": "", "author": "", "date": ""}, ("", "", "")),
+        ("present", {"title": "T", "author": "A", "date": datetime.date(2026, 1, 15)},
+         ("T", "A", "2026-01-15")),
+    ]
+
+    def test_cases(self):
+        for name, data, (title, author, date) in self.CASES:
+            with self.subTest(name):
+                meta = load_deck_from_dict(data).metadata
+                self.assertEqual((meta.title, meta.author, meta.date), (title, author, date))
 
 
 if __name__ == "__main__":

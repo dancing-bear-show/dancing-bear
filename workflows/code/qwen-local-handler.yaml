@@ -168,9 +168,11 @@ description: >
            anything can reach a model. Merging it changes no behaviour for
            existing job types.
 
-    PR 2 — "the model": the Ollama transport, diff extraction, patch
-           validation and caps, the concurrency lock, deferral bound, and the
-           memory/disk prechecks, with their tests. Checkpoints C3-C5. This
+    PR 2 — "the model": the Ollama transport, SEARCH/REPLACE edit-block
+           parsing and application (worker.qwen_edits), the locally-built
+           diff, patch validation and caps, the concurrency lock, deferral
+           bound, and the memory/disk prechecks, with their tests. Checkpoints
+           C3-C5. This
            is the PR that makes the handler actually do something, and it is
            the one that most needs the adversarial test review.
 
@@ -459,21 +461,20 @@ stages:
       token into the command — the engine's substitution is raw text
       replacement, so re-typing the token here reintroduces the unvalidated
       value into shell source after the check that was supposed to be the
-      boundary. Run exactly one tiny generation asking for a diff on a
-      three-line snippet you supply inline, and record VERBATIM:
-        - whether the response is a bare diff or is wrapped in prose and/or a
-          ```diff fence
-        - whether it starts with `---`/`+++` or `diff --git`
-        - whether the hunk headers are well-formed
+      boundary. Run exactly one tiny generation asking for SEARCH/REPLACE edit
+      blocks on a three-line snippet you supply inline, and record VERBATIM:
+        - whether the response contains a well-formed SEARCH/REPLACE block
+        - whether the SEARCH text matches the snippet exactly
+        - whether extra prose or fences surround the blocks
         - the wall-clock duration
       This is the single most valuable thing this stage can produce, and
       nothing else in the workflow can substitute for it: the design stage is
-      otherwise choosing the prompt's output instruction, the diff extraction
-      strategy and every patch-cap threshold without ever having seen what
-      this model actually emits. Keep it tiny — one small snippet, short
-      timeout. If the model is absent, record
+      otherwise choosing the prompt's output instruction, the edit-block
+      extraction strategy and every patch-cap threshold without ever having
+      seen what this model actually emits. Keep it tiny — one small snippet,
+      short timeout. If the model is absent, record
       "baseline: unavailable (model not installed)" and say plainly in
-      survey.json that the design's diff-format assumptions are unvalidated.
+      survey.json that the design's edit-block format assumptions are unvalidated.
 
       Also probe the live machine (Bash, read-only — install nothing here):
         command -v ollama || echo "ollama: absent"
@@ -536,7 +537,7 @@ stages:
           "test_layout": {"dir": "...", "mocking_style": "..."},
           "telemetry": {"record_envelopes": ["..."], "value_keys": ["..."], "attribute_nesting": "...", "data_dir_env_var": "...", "collector_ports": {"grpc": N, "http": N}, "port_override_env_var": "...", "cost_absent_handling": "..."},
           "machine": {"ollama_installed": true|false, "ollama_responding": true|false, "model_present": true|false, "worker_agent_loaded": true|false, "memory_gb": N},
-          "baseline_generation": {"available": true|false, "unavailable_reason": "..." | null, "raw_response_excerpt": "...", "is_bare_diff": true|false, "wrapped_in_fence": true|false, "wrapped_in_prose": true|false, "header_style": "---/+++|diff --git|other", "hunk_headers_wellformed": true|false, "duration_ms": N}
+          "baseline_generation": {"available": true|false, "unavailable_reason": "..." | null, "raw_response_excerpt": "...", "has_search_replace_block": true|false, "search_matches_snippet": true|false, "wrapped_in_fence": true|false, "wrapped_in_prose": true|false, "duration_ms": N}
         }
 
       Record what you actually found. If the reaper has no timestamp field at
@@ -591,22 +592,26 @@ stages:
 
       2. PROMPT CONSTRUCTION. Start from survey.json's baseline_generation:
          if it is available, it tells you what this model ACTUALLY emits —
-         bare diff, fenced, or wrapped in prose — and your diff-extraction
-         strategy must handle exactly that rather than an assumed format.
-         Cite the observed values. If the baseline was unavailable, say so
-         explicitly here and design extraction defensively (tolerate a fence
-         and surrounding prose), because you are guessing.
+         bare SEARCH/REPLACE blocks, fenced, or wrapped in prose — and your
+         edit-block parsing strategy (worker.qwen_edits) must handle exactly
+         that rather than an assumed format. Cite the observed values. If the
+         baseline was unavailable, say so explicitly here and design parsing
+         defensively (tolerate a fence and surrounding prose), because you are
+         guessing.
 
          Then: how file contents become a prompt — delimiters,
-         whether line numbers are included, the instruction to emit a unified
-         diff and nothing else, and the total context budget. Note the model's
-         context window and what happens when the files exceed it — truncate,
-         or fail terminally with a clear message? Decide.
+         whether line numbers are included, the instruction to emit
+         SEARCH/REPLACE edit blocks against repo-relative FILE labels and
+         nothing else, and the total context budget. Note the model's context
+         window and what happens when the files exceed it — truncate, or fail
+         terminally with a clear message? Decide.
 
       3. RETRY TAXONOMY, mapped onto the exact prefixes recorded in the
          survey's retry_protocol. Classify at least: connection refused,
          request timeout, HTTP 5xx, HTTP 404 model-not-found, a 200 response
-         whose body contains no diff, and a diff that fails `git apply --check`.
+         whose body contains no parseable edit block, and a patch — built
+         locally from the applied edit blocks — that fails
+         `git apply --check`.
          Each maps to exactly one of: plain failure (retries with backoff),
          "terminal-..." (no retry), or "deferred-..." (re-queue without
          consuming an attempt). State the rule you are applying — the
@@ -910,9 +915,11 @@ stages:
            - Log the REJECTED PATH but never the file's contents.
 
       5e. OUTPUT BLAST RADIUS. `git apply --check` proves a patch applies; it
-         does not prove it is sane. A model can emit a diff touching two
-         hundred files, or rewriting .github/workflows/ci.yml, or replacing
-         bin/worker. The patch is reviewed by a human before it applies, and
+         does not prove it is sane. A model can emit SEARCH/REPLACE edit
+         blocks touching two hundred files, or rewriting
+         .github/workflows/ci.yml, or replacing bin/worker, and the diff
+         built locally from those blocks inherits the same blast radius. The
+         patch is reviewed by a human before it applies, and
          that review is the real control — but a 200-file diff is exactly the
          kind of thing a reviewer skims.
 
@@ -943,14 +950,19 @@ stages:
 
          (2) "File contents are never persisted" is FALSE as a blanket claim,
              and the design must not repeat it. The patch IS the product and
-             it IS persisted — a unified diff carries context lines lifted
-             verbatim from the input files. Say instead what is actually
-             true: the prompt is never persisted, and file contents reach
-             disk only inside the patch artifact, which is the reviewable
-             output this workflow exists to produce.
+             it IS persisted — a SEARCH/REPLACE edit block's SEARCH section
+             contains lines lifted verbatim from the input files, and the
+             diff built locally from the applied blocks (via difflib)
+             likewise carries them. Say instead what is actually true: the
+             prompt is never persisted, and contents reach disk in exactly
+             two places — the patch artifact, which is the reviewable output
+             this workflow exists to produce, and the masked model response
+             kept after a post-response failure at
+             output_dir("qwen")/responses/<job_id>.txt (capped at 256 KiB,
+             file 0600, dir 0700), whose SEARCH sections quote input lines.
 
-             That makes the patch artifact's LOCATION a confidentiality
-             boundary, not just a tidiness question — it is written under
+             That makes both artifacts' LOCATION a confidentiality
+             boundary, not just a tidiness question — both are written under
              core.paths.output_dir(), outside the checkout, and
              validate-config verifies that. Say so here.
 
@@ -1164,7 +1176,7 @@ stages:
           "deferral_bound": {"mechanism": "derived-wallclock|side-channel-file|queue-field", "where_persisted": "<the exact file/field the retry path actually writes>", "verified_against": "<how you proved it survives queue_ops.retry reloading from disk>", "ceiling": N, "ceiling_unit": "count|minutes", "on_exceeded": "terminal-deferral-limit", "reasons_counted_separately": true, "cleanup": "<required for side-channel: when the entry is removed>"},
           "input_confinement": {"allowlist_dirs": ["..."], "denylist": ["..."], "resolution": "realpath+symlink", "check_before_open": true, "toctou": "closed-via-fd|accepted-with-rationale", "max_file_bytes": N, "on_violation": "terminal-path-not-allowed", "logs_contents": false},
           "patch_caps": {"max_files": N, "max_lines": N, "denied_prefixes": ["..."], "on_breach": "terminal-patch-too-broad", "records_size_always": true},
-          "redaction": {"helper": "core.secrets.mask_text", "applies_to": ["..."], "prompt_never_persisted": true, "contents_reach_disk_only_in": "the patch artifact", "patch_dir_outside_checkout": true, "exception_boundary": "handler catches and returns a masked content-free string; job_runtime's envelope.diagnostics path is NOT masked", "known_limit": "pattern-based; no novel secret formats"},
+          "redaction": {"helper": "core.secrets.mask_text", "applies_to": ["..."], "prompt_never_persisted": true, "contents_reach_disk_only_in": ["the patch artifact", "the masked model response kept on failure: output_dir('qwen')/responses/<job_id>.txt, capped at 256 KiB, file 0600, dir 0700"], "patch_dir_outside_checkout": true, "exception_boundary": "handler catches and returns a masked content-free string; job_runtime's envelope.diagnostics path is NOT masked", "known_limit": "pattern-based; no novel secret formats"},
           "disk_guard": {"path": "...", "min_free_gb": N, "on_insufficient": "deferred-low-disk", "unavailable_fallback": "no-op with warning"},
           "admission": {"max_lane_depth": N, "counts": "pending+processing for this type only", "enforced_at": "handler-side|operator-limit|follow-up", "on_exceeded": "terminal-lane-over-capacity" | null, "stops_the_enqueue": false, "other_types_unconstrained": true},
           "model_pinning": {"digest_source": "...", "recorded_at": "install", "on_mismatch": "record and surface, do not fail"},
@@ -1231,6 +1243,8 @@ stages:
       File ownership — this stage runs in parallel with impl-heartbeat and
       impl-tests. Touch ONLY:
         - src/worker/qwen.py                 (new — handler + Ollama transport)
+        - src/worker/qwen_edits.py           (new — edit-block parsing and diff
+                                              construction, imported by qwen.py)
         - src/worker/qwen_telemetry.py       (new — OTLP emit, kept separate so
                                               best-effort telemetry never
                                               tangles with job control flow)
@@ -1287,9 +1301,10 @@ stages:
             LOCAL stub server or a monkeypatched urlopen — not the real
             model, which may not be installed yet at this stage. Prove the
             request shape and response parsing, nothing more.
-        C4  PATCH VALIDATES. Add diff extraction, `git apply --check`, and
-            the patch caps. Verify with a known-good diff and a known-bad
-            one; assert the caps reject an oversized one.
+        C4  EDIT BLOCKS APPLY. Add SEARCH/REPLACE block parsing, the patch
+            builder that turns blocks into a unified diff, and the patch caps.
+            Verify with a known-good block set and a known-bad one; assert
+            the caps reject an oversized result.
         C5  CONCURRENCY AND DEFERRALS. Add the lock, the wait ceiling, the
             deferral counter and the memory/disk prechecks. Verify the lock
             is released on both the success and the exception path — the
@@ -1378,25 +1393,30 @@ stages:
           SafeProcessor's envelope is written to the job record by
           job_runtime with NO masking, so a traceback raised during prompt
           assembly could carry file content to disk.
-        - PATCH CAPS, per contract.json's "patch_caps". Parse the diff's
-          target paths yourself and check them against the denied prefixes;
-          `git apply --check` will happily validate a patch that rewrites
-          .github/workflows/ci.yml. Record files_touched and lines_changed
-          in the result on EVERY job, pass or fail, so a reviewer sees the
-          size before opening the diff.
+        - PATCH CAPS, per contract.json's "patch_caps". Parse the edit
+          blocks' target paths yourself and check them against the denied
+          prefixes; `git apply --check` will happily validate a patch that
+          rewrites .github/workflows/ci.yml. Record files_touched and
+          lines_changed in the result on EVERY job, pass or fail, so a
+          reviewer sees the size before opening the diff.
         - REDACTION, per contract.json's "redaction". Every string derived
           from payload content that reaches the RESULT or TELEMETRY goes
           through core.secrets.mask_text first, and those two carry counts,
           paths and durations only — never file contents.
           Be precise about the one place contents DO reach disk, because an
           earlier revision of this file overclaimed and the design (item 5f)
-          already corrects it: the PATCH is the product, and a unified diff
-          carries context lines lifted verbatim from the input files. So
-          "file contents are never persisted" is false as a blanket claim.
+          already corrects it: the PATCH is the product, and a SEARCH/REPLACE
+          edit block's SEARCH section contains lines lifted verbatim from the
+          input files; the diff built from those blocks likewise carries them.
+          So "file contents are never persisted" is false as a blanket claim.
           What is true: the prompt is never persisted, and contents reach
-          disk only inside the patch artifact — which is why that artifact's
-          location outside the checkout is a confidentiality boundary, not a
-          tidiness preference. Do not restate the blanket claim anywhere.
+          disk in exactly two places — the patch artifact, and the masked
+          model response kept when a job fails after the model answered
+          (output_dir("qwen")/responses/<job_id>.txt, capped at 256 KiB,
+          file 0600, dir 0700), whose SEARCH sections quote input lines.
+          Both live outside the checkout, which is why that location is a
+          confidentiality boundary, not a tidiness preference. Do not
+          restate the blanket claim anywhere.
         - DISK PRECHECK, per contract.json's "disk_guard", before writing the
           patch. Fails open like the memory guard.
         - MODEL PINNING, per contract.json's "model_pinning": read the
@@ -1443,7 +1463,7 @@ stages:
 
         after C2:  git add src/worker/qwen.py src/worker/handlers.py
                    git commit -m "feat(worker): register the handler with input confinement"
-        after C5:  git add src/worker/qwen.py
+        after C5:  git add src/worker/qwen.py src/worker/qwen_edits.py
                    git commit -m "feat(worker): add Ollama transport, patch validation and concurrency guards"
         after C6:  chmod +x bin/qwen
                    git add src/worker/qwen_telemetry.py bin/qwen
@@ -1640,8 +1660,8 @@ stages:
       anything under src/.
 
       Required coverage:
-        - HAPPY PATH: a mocked 200 response containing a valid unified diff →
-          handler returns success, result matches result_schema.
+        - HAPPY PATH: a mocked 200 response containing a valid SEARCH/REPLACE
+          block → handler returns success, result matches result_schema.
         - Every row of contract.json's retry_map. One test per condition,
           each asserting the EXACT outcome string prefix. A test that accepts
           "any failure" would pass even if the handler mapped a missing model
@@ -1669,8 +1689,21 @@ stages:
           with no heartbeat key at all. This applies under every route, since
           run_cli/run_shell/workflow_stage jobs never write the field
           regardless of which liveness route was chosen.
-        - Patch validation: a response whose diff fails `git apply --check` is
-          reported as such and not silently treated as a success.
+        - Patch validation: edit blocks that apply cleanly to the confined
+          input content but whose locally built diff (via difflib) fails
+          `git apply --check` return `terminal-patch-does-not-apply` — the
+          fail-closed backstop, not silently treated as a success. Also cover
+          the edit-block-to-diff failure paths themselves, per
+          `src/worker/qwen_edits.py`'s outcome strings: a response with no
+          SEARCH/REPLACE block (`terminal-no-edits-found`), a block missing a
+          marker (`terminal-edit-malformed`), a block naming a file that is
+          not an input (`terminal-edit-outside-inputs`), a SEARCH body
+          matching zero times or more than once (`terminal-edit-not-found` /
+          `terminal-edit-ambiguous`), and edits that apply but change nothing
+          (`terminal-no-change`). The handler does not accept a model-authored
+          diff; it parses edit blocks and validates the diff it builds
+          locally, so no test should assert against a raw model-supplied
+          diff.
         - TELEMETRY SHAPE: the emitted OTLP payload parses back through
           src/telemetry/otel's own models (OTLPSpansRecord.from_dict and
           friends) and yields the expected attributes. Assert round-trip

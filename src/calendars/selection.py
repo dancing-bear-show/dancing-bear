@@ -113,7 +113,7 @@ def _load_zone(tz_name: str | None) -> _dt.tzinfo | None:
         return None
 
 
-def _parse_dt(iso: str) -> _dt.datetime | None:
+def parse_dt(iso: str) -> _dt.datetime | None:
     """Parse an ISO datetime, tolerating a trailing Z, or None if unparseable.
 
     Graph emits seven fractional digits ("...T14:30:00.0000000"). On the Python
@@ -136,6 +136,23 @@ def _parse_dt(iso: str) -> _dt.datetime | None:
         return None
 
 
+def extract_hhmm(iso: str) -> str:
+    """Return the HH:MM wall-clock part of an ISO datetime string, or "" if it has no time."""
+    return iso.split("T", 1)[1][:5] if "T" in iso else ""
+
+
+def iso_weekday_code(iso: str) -> str:
+    """Return the lowercase weekday code (mo..su) of an ISO datetime, or "" if unparseable."""
+    dt = parse_dt(iso)
+    return weekday_code(dt) if dt is not None else ""
+
+
+def is_one_off_event(ev: dict[str, Any]) -> bool:
+    """Return True if a Graph event is a single instance rather than part of a series."""
+    etype = (ev.get("type") or "").lower()
+    return etype == "singleinstance" or not ev.get("seriesMasterId")
+
+
 def _as_local(
     iso: str, graph_tz: str | None, target: _dt.tzinfo | None
 ) -> _dt.datetime | None:
@@ -150,7 +167,7 @@ def _as_local(
     still compare wall clock to wall clock: mixing naive and aware values never
     raises here.
     """
-    dt = _parse_dt(iso)
+    dt = parse_dt(iso)
     if dt is None:
         return None
     if dt.tzinfo is None:
@@ -162,6 +179,55 @@ def _as_local(
     if target is None:
         return dt
     return dt.astimezone(target)
+
+
+def _as_utc(iso: str, tz_name: str | None = None) -> _dt.datetime | None:
+    """Return ``iso`` as an aware UTC datetime, reading a naive value as UTC.
+
+    Naive-as-UTC matches Graph: ``calendarView`` bounds without an offset are
+    UTC, and occurrences come back in UTC unless a ``Prefer`` header asks
+    otherwise.
+    """
+    dt = _as_local(iso, tz_name, _dt.timezone.utc)
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=_dt.timezone.utc)
+    return dt.astimezone(_dt.timezone.utc)
+
+
+def window_bounds_utc(start_iso: str, end_iso: str) -> tuple[_dt.datetime, _dt.datetime] | None:
+    """Parse a ``compute_window`` pair to aware UTC datetimes, or None if either is unparseable."""
+    start = _as_utc(start_iso)
+    end = _as_utc(end_iso)
+    if start is None or end is None:
+        return None
+    return start, end
+
+
+def filter_events_in_window(
+    events: Iterable[dict[str, Any]],
+    start: _dt.datetime,
+    end: _dt.datetime,
+) -> list[dict[str, Any]]:
+    """Keep Graph events overlapping [start, end), as ``calendarView`` selects them.
+
+    An occurrence is kept when it starts before ``end`` and ends after
+    ``start``. One whose start cannot be parsed is kept: the server would have
+    decided, and weekday/time filters downstream reject it anyway.
+    """
+    out: list[dict[str, Any]] = []
+    for ev in events:
+        start_block = ev.get("start") or {}
+        end_block = ev.get("end") or {}
+        ev_start = _as_utc(start_block.get("dateTime") or "", start_block.get("timeZone"))
+        if ev_start is None:
+            out.append(ev)
+            continue
+        ev_end = _as_utc(end_block.get("dateTime") or "", end_block.get("timeZone")) or ev_start
+        if ev_start < end and ev_end > start:
+            out.append(ev)
+    return out
 
 
 def _hhmm(dt: _dt.datetime | None) -> str:

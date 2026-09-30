@@ -1,8 +1,9 @@
 """Tests for mail/utils/batch.py chunking utilities."""
 
 import unittest
+from unittest.mock import MagicMock, patch
 
-from mail.utils.batch import chunked, apply_in_chunks
+from mail.utils.batch import chunked, apply_in_chunks, delete_with_retry
 
 
 class ChunkedTests(unittest.TestCase):
@@ -77,6 +78,53 @@ class ApplyInChunksTests(unittest.TestCase):
             max_seen[0] = max(max_seen[0], len(chunk))
         apply_in_chunks(check_size, range(10), 3)
         self.assertLessEqual(max_seen[0], 3)
+
+
+class DeleteWithRetryTests(unittest.TestCase):
+    def _run(self, side_effect, attempts=3):
+        delete = MagicMock(side_effect=side_effect)
+        on_failure = MagicMock()
+        with patch("mail.utils.batch.time.sleep") as sleep:
+            ok = delete_with_retry(delete, on_failure=on_failure, attempts=attempts)
+        return ok, delete, on_failure, sleep
+
+    def test_first_success_does_not_sleep(self):
+        ok, delete, on_failure, sleep = self._run([None])
+        self.assertTrue(ok)
+        self.assertEqual(delete.call_count, 1)
+        sleep.assert_not_called()
+        on_failure.assert_not_called()
+
+    def test_sleeps_only_between_attempts(self):
+        ok, delete, _, sleep = self._run([OSError("a"), OSError("b"), None])
+        self.assertTrue(ok)
+        self.assertEqual(delete.call_count, 3)
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], [1.5, 3.0])
+
+    def test_no_sleep_after_final_failure(self):
+        err = OSError("last")
+        ok, delete, on_failure, sleep = self._run([OSError("a"), OSError("b"), err])
+        self.assertFalse(ok)
+        self.assertEqual(delete.call_count, 3)
+        self.assertEqual(sleep.call_count, 2)
+        on_failure.assert_called_once_with(err)
+
+    def test_single_attempt_never_sleeps(self):
+        ok, delete, on_failure, sleep = self._run([OSError("x")], attempts=1)
+        self.assertFalse(ok)
+        self.assertEqual(delete.call_count, 1)
+        sleep.assert_not_called()
+        on_failure.assert_called_once()
+
+    def test_rejects_attempts_below_one(self):
+        for attempts in (0, -1):
+            with self.subTest(attempts=attempts):
+                delete = MagicMock()
+                on_failure = MagicMock()
+                with self.assertRaises(ValueError):
+                    delete_with_retry(delete, on_failure=on_failure, attempts=attempts)
+                delete.assert_not_called()
+                on_failure.assert_not_called()
 
 
 if __name__ == "__main__":

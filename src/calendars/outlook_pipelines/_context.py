@@ -78,12 +78,15 @@ class EventClassification:
 
 @dataclass
 class VerificationContext:
-    """Context for verifying a single event."""
+    """Context for verifying a single event against its calendar and window."""
 
     idx: int
     nev: dict[str, Any]
     subj: str
     byday: list[str]
+    cal_name: str | None
+    start_iso: str
+    end_iso: str
 
 
 __all__ = [

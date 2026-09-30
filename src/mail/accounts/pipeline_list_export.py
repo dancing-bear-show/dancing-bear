@@ -76,7 +76,7 @@ class AccountsExportLabelsProcessor(SafeProcessor[AccountsExportLabelsRequest, A
 class AccountsExportLabelsProducer(AccountsResultProducer[AccountsExportLabelsResult]):
     def _produce_items(self, payload: AccountsExportLabelsResult) -> None:
         for exp in payload.exports:
-            print(f"Exported labels for {exp.account_name}: {exp.output_path}")
+            self._writer.print(f"Exported labels for {exp.account_name}: {exp.output_path}")
 
 
 # -----------------------------------------------------------------------------
@@ -143,7 +143,7 @@ class AccountsExportFiltersProcessor(SafeProcessor[AccountsExportFiltersRequest,
 class AccountsExportFiltersProducer(AccountsResultProducer[AccountsExportFiltersResult]):
     def _produce_items(self, payload: AccountsExportFiltersResult) -> None:
         for exp in payload.exports:
-            print(f"Exported filters for {exp.account_name}: {exp.output_path}")
+            self._writer.print(f"Exported filters for {exp.account_name}: {exp.output_path}")
 
 
 # -----------------------------------------------------------------------------

@@ -61,6 +61,12 @@ class TestReadText(unittest.TestCase):
             result = read_text(path)
             self.assertEqual(result, "")
 
+    def test_accepts_str_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "s.txt"
+            path.write_text("str ok", encoding="utf-8")
+            self.assertEqual(read_text(str(path)), "str ok")
+
 
 class TestWriteText(unittest.TestCase):
     """Tests for write_text function."""

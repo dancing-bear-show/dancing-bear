@@ -327,7 +327,7 @@ class QwenInputFileBoundTests(QwenHandlerCase):
         self.assertTrue(ok)
         self.assertEqual(read.call_count, 1)
         [(_, body, _)] = self.generate_requests()
-        self.assertEqual(str(require(body)["prompt"]).count(f"--- {greet} ---"), 1)
+        self.assertEqual(str(require(body)["prompt"]).count(f"FILE: {GREET_PATH}\n"), 1)
         self.assertEqual(qwen.resolve_input_files(spellings, self.repo_root), [greet])
 
 

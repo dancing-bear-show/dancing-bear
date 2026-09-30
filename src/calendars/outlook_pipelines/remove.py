@@ -1,7 +1,6 @@
 """Outlook Remove Pipeline - delete calendar events based on config."""
 
 from ._base import (
-    _dt,
     dataclass,
     Path,
     Any,
@@ -13,7 +12,7 @@ from ._base import (
     load_events_config,
 )
 from ._context import EventMatchingCriteria
-from calendars.selection import weekday_code
+from calendars.selection import extract_hhmm, iso_weekday_code
 from core.constants import DAY_START_TIME, DAY_END_TIME
 
 
@@ -140,18 +139,6 @@ class OutlookRemoveProcessor(EventIterationProcessor):
         en = ((ex.get("end") or {}).get("dateTime") or "")
         return st, en
 
-    def _extract_time_from_datetime(self, dt_str: str) -> str:
-        """Extract HH:MM time from ISO datetime string."""
-        return dt_str.split("T", 1)[1][:5] if "T" in dt_str else ""
-
-    def _get_weekday_code(self, dt_str: str) -> str:
-        """Get weekday code (mo/tu/we/th/fr/sa/su) from datetime string."""
-        try:
-            dt = _dt.datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
-            return weekday_code(dt)
-        except Exception:  # nosec B110 - invalid datetime format
-            return ""
-
     def _matches_single_event(self, st: str, en: str, ctx: EventMatchingCriteria) -> bool:
         """Check if occurrence matches single event criteria (specific start/end datetime)."""
         return st.startswith(ctx.single_start[:16]) and en.startswith(ctx.single_end[:16])
@@ -160,19 +147,19 @@ class OutlookRemoveProcessor(EventIterationProcessor):
         """Check if occurrence matches recurring event criteria (day of week + times)."""
         # Check weekday match
         if ctx.want_days:
-            wcode = self._get_weekday_code(st)
+            wcode = iso_weekday_code(st)
             if not wcode or wcode.lower() not in ctx.want_days:
                 return False
 
         # Check start time match
         if ctx.start_time:
-            t1 = self._extract_time_from_datetime(st)
+            t1 = extract_hhmm(st)
             if t1 and ctx.start_time != t1:
                 return False
 
         # Check end time match
         if ctx.end_time:
-            t2 = self._extract_time_from_datetime(en)
+            t2 = extract_hhmm(en)
             if t2 and ctx.end_time != t2:
                 return False
 

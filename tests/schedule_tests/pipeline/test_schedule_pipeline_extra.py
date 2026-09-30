@@ -9,13 +9,13 @@ from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from core.auth import OutlookServiceConfig
 from core.pipeline import ResultEnvelope
 from schedule.pipeline import (
     ApplyProcessor,
     ApplyRequest,
     ApplyRequestConsumer,
     DryRunConfig,
-    OutlookAuth,
     RecurrenceExpansionConfig,
     SyncMatchContext,
     SyncRequest,
@@ -119,7 +119,7 @@ class TestExpandWeeklyOccurrences(unittest.TestCase):
 
 class TestBuildOutlookService(unittest.TestCase):
     def test_returns_error_on_runtime_error(self):
-        auth = OutlookAuth(profile=None, client_id=None, tenant=None, token_path=None)
+        auth = OutlookServiceConfig()
         with patch("schedule.pipeline_verify.build_outlook_service", side_effect=RuntimeError("no creds")):
             svc, err = _build_outlook_service(auth)
             self.assertIsNone(svc)
@@ -127,7 +127,7 @@ class TestBuildOutlookService(unittest.TestCase):
 
     def test_returns_error_on_import_or_value_error(self):
         # _build_outlook_service narrows to (ImportError, OSError, ValueError) for non-auth errors
-        auth = OutlookAuth(profile=None, client_id=None, tenant=None, token_path=None)
+        auth = OutlookServiceConfig()
         with patch("schedule.pipeline_verify.build_outlook_service", side_effect=ValueError("unavailable")):
             svc, err = _build_outlook_service(auth)
             self.assertIsNone(svc)
@@ -462,7 +462,7 @@ class TestDetermineDeletes(unittest.TestCase):
             delete_missing=delete_missing,
             delete_unplanned_series=delete_unplanned,
             apply=False,
-            auth=OutlookAuth(profile=None, client_id=None, tenant=None, token_path=None),
+            auth=OutlookServiceConfig(),
         )
 
     def test_returns_empty_when_delete_missing_false(self):
@@ -506,7 +506,7 @@ class TestBuildDryRunLines(unittest.TestCase):
             delete_missing=delete_missing,
             delete_unplanned_series=delete_unplanned,
             apply=False,
-            auth=OutlookAuth(profile=None, client_id=None, tenant=None, token_path=None),
+            auth=OutlookServiceConfig(),
         )
 
     def test_dry_run_basic(self):
@@ -564,7 +564,7 @@ class TestExecuteSyncCreates(unittest.TestCase):
             delete_missing=False,
             delete_unplanned_series=False,
             apply=True,
-            auth=OutlookAuth(profile=None, client_id=None, tenant=None, token_path=None),
+            auth=OutlookServiceConfig(),
         )
         series = [{
             "subject": "Weekly",
@@ -594,7 +594,7 @@ class TestExecuteSyncDeletes(unittest.TestCase):
             delete_missing=True,
             delete_unplanned_series=True,
             apply=True,
-            auth=OutlookAuth(profile=None, client_id=None, tenant=None, token_path=None),
+            auth=OutlookServiceConfig(),
         )
         deleted = _execute_sync_deletes(raw_client, "cal-id", payload, ["occ1", "occ2"], ["master1"])
         self.assertEqual(deleted, 3)  # 2 occ + 1 master
@@ -611,7 +611,7 @@ class TestApplyProcessorDryRun(unittest.TestCase):
                 calendar="Work",
                 provider="outlook",
                 apply=False,
-                auth=OutlookAuth(profile=None, client_id=None, tenant=None, token_path=None),
+                auth=OutlookServiceConfig(),
             )
             buf = io.StringIO()
             with redirect_stdout(buf):
@@ -629,7 +629,7 @@ class TestApplyProcessorDryRun(unittest.TestCase):
                 calendar=None,
                 provider="gmail",
                 apply=True,
-                auth=OutlookAuth(profile=None, client_id=None, tenant=None, token_path=None),
+                auth=OutlookServiceConfig(),
             )
             with patch("schedule.pipeline._build_outlook_service", return_value=(MagicMock(), None)):
                 env = ApplyProcessor().process(ApplyRequestConsumer(request).consume())
@@ -645,7 +645,7 @@ class TestApplyProcessorDryRun(unittest.TestCase):
                 calendar=None,
                 provider="outlook",
                 apply=True,
-                auth=OutlookAuth(profile=None, client_id=None, tenant=None, token_path=None),
+                auth=OutlookServiceConfig(),
             )
             with patch("schedule.pipeline._build_outlook_service", return_value=(None, "no creds")):
                 env = ApplyProcessor().process(ApplyRequestConsumer(request).consume())

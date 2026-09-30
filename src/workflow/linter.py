@@ -22,14 +22,16 @@ Additional checks beyond the parser:
 from __future__ import annotations
 
 import re
-import subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
 from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from core.process import run_binary
+
 if TYPE_CHECKING:
     from workflow.models import ParamRules, StageSpec, WorkflowDefinition
 
+from .dag import bfs_levels
 from .harness_outputs import describe, find_refused_outputs
 from .include import extract_include_entries, resolve_fragment_path
 from .linter_access import _check_agent_access, _check_stage_access
@@ -417,55 +419,13 @@ def _check_refused_output_names(
         )
 
 
-def _release_dependents(
-    name: str,
-    deps: dict[str, set[str]],
-    in_degree: dict[str, int],
-) -> list[str]:
-    """Decrement in_degree for every remaining candidate depending on name.
-
-    Returns the candidates that just reached in_degree 0 (newly ready).
-    """
-    ready: list[str] = []
-    for candidate, cdeps in deps.items():
-        if candidate in in_degree and name in cdeps:
-            in_degree[candidate] -= 1
-            if in_degree[candidate] == 0:
-                del in_degree[candidate]
-                ready.append(candidate)
-    return ready
-
-
-def _bfs_advance(
-    queue: list[str],
-    deps: dict[str, set[str]],
-    in_degree: dict[str, int],
-) -> list[str]:
-    """Process one BFS wave and return the next queue."""
-    next_queue: list[str] = []
-    for name in queue:
-        next_queue.extend(_release_dependents(name, deps, in_degree))
-    for name in queue:
-        if name in in_degree:
-            del in_degree[name]
-    return next_queue
-
-
 def _compute_dag_depth(stages: "tuple[StageSpec, ...]") -> int:
-    """Compute the longest dependency chain depth (number of BFS levels)."""
-    if not stages:
-        return 0
+    """Compute the longest dependency chain depth (number of BFS levels).
 
-    deps: dict[str, set[str]] = {s.name: set(s.depends_on) for s in stages}
-    in_degree: dict[str, int] = {name: len(d) for name, d in deps.items()}
-    queue = [name for name, deg in in_degree.items() if deg == 0]
-    depth = 0
-
-    while queue:
-        depth += 1
-        queue = _bfs_advance(queue, deps, in_degree)
-
-    return depth
+    Never raises: stages on a cycle or behind an unknown dependency are left
+    out of the count, since other checks report those.
+    """
+    return len(bfs_levels({s.name: s.depends_on for s in stages}).levels)
 
 
 def _extract_var_refs(text: str) -> set[str]:
@@ -508,21 +468,17 @@ def _validate_cli_command(cli: str, sub: str, stage_name: str) -> LintWarning | 
     if allowlisted_subs is not None and sub in allowlisted_subs:
         return _cmd_warning(stage_name, not_found) if not bin_path.exists() else None
 
-    try:
-        proc = subprocess.run(  # nosec B603 - bin_path resolved from workflow YAML; sub validated against allowlist
-            [str(bin_path), sub, "--help"],
-            capture_output=True,
-            timeout=3,
-        )
-    except FileNotFoundError:
+    run = run_binary([str(bin_path), sub, "--help"], timeout=3, errors="replace")
+    if isinstance(run.exec_error, FileNotFoundError):
         return _cmd_warning(stage_name, not_found)
-    except subprocess.TimeoutExpired:
+    if run.exec_error is not None:
+        reason = run.exec_error.__class__.__name__
+        return _cmd_warning(stage_name, f"command validation skipped ({reason}): ./bin/{cli} {sub}")
+    if run.timed_out:
         return _cmd_warning(stage_name, f"command validation skipped (timeout): ./bin/{cli} {sub}")
-    except OSError as exc:
-        return _cmd_warning(stage_name, f"command validation skipped ({exc.__class__.__name__}): ./bin/{cli} {sub}")
 
-    combined = (proc.stdout + proc.stderr).decode(errors="replace")
-    if proc.returncode != 0 and _looks_like_invalid_subcommand(combined):
+    combined = run.stdout + run.stderr
+    if not run.ok and _looks_like_invalid_subcommand(combined):
         return _cmd_warning(stage_name, not_found)
     return None
 

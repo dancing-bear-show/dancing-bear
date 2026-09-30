@@ -7,6 +7,7 @@ import os
 import subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
 import sys
 import tempfile
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from slides._content import ContentMixin
@@ -345,9 +346,7 @@ class SlideGenerator(ShapeUtilsMixin, StylingMixin, TableMixin, ContentMixin, Im
 
         # python-pptx does not create missing parents, so a documented
         # -o out/deck.pptx fails on a fresh checkout without this.
-        parent = os.path.dirname(output_path)
-        if parent:
-            os.makedirs(parent, exist_ok=True)
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
         prs.save(output_path)
         return output_path

@@ -26,14 +26,6 @@ class ReplyOptions:
     original_text: str | None = None
 
 
-def _parse_addr(addr: str) -> tuple[str, str]:
-    """Return (name, email) from a header value like 'Name <email@example.com>'."""
-    from email.utils import parseaddr
-
-    name, email = parseaddr(addr or "")
-    return name, email
-
-
 def _compose_reply(
     *,
     envelope: ReplyEnvelope,

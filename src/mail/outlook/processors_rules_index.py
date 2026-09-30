@@ -3,17 +3,42 @@ from __future__ import annotations
 
 from typing import Any
 
-from .processors_rules_helpers import _criteria_key, _norm_create_rule_key
+from .processors_rules_helpers import _canon_rule, _criteria_key
 
 
-# Reconcile index builders.
+# Live-rule and reconcile index builders.
 #
 # Module-level, and shared by both OutlookRulesSyncProcessor and
 # OutlookRulesPlanProcessor, because plan and sync MUST classify every desired
-# spec identically -- that parity is the invariant this PR keeps having to
-# re-fix. `_build_norm_existing_keys` previously existed as two byte-identical
-# copies, one per processor: exactly the shape that lets preview and apply drift
-# apart when only one copy is updated.
+# spec identically. Index logic that existed as one copy per processor is
+# exactly the shape that lets preview and apply drift apart when only one copy
+# is updated.
+
+def _index_live_rules(rules: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Key live rules by ``_canon_rule``, the key desired specs are compared to.
+
+    Known limitation: live rules sharing a canon key collapse to ONE entry, so
+    the others are invisible to every later step -- neither matched, reconciled
+    nor deleted (``--delete-missing`` under-deletes them).  Case-insensitive
+    criteria make more rules collapse than raw-string keys did (``FROM=A.COM``
+    and ``from=a.com`` with the same action now share a key).
+
+    On a collision a rule carrying ``unmappedConditions`` wins over a mappable
+    one.  Otherwise whichever sibling Graph listed last would win, and a hidden
+    unmappable rule drops out of ``_build_unmappable_criteria_index``: reconcile
+    would then rewrite its visible mappable sibling and leave the unmappable
+    rule running beside the replacement.  Keeping it visible preserves the
+    protection that index exists for.  Collapse only ever HIDES rules, so it
+    cannot cause a deletion; the cost is under-deletion, never data loss.
+    """
+    index: dict[str, dict[str, Any]] = {}
+    for rule in rules:
+        key = _canon_rule(rule)
+        current = index.get(key)
+        if current is None or not current.get("unmappedConditions"):
+            index[key] = rule
+    return index
+
 
 def _build_reconcile_index(existing: dict[str, Any]) -> dict[str, Any]:
     """Build a criteria-only index of live rules for reconciliation.
@@ -43,23 +68,6 @@ def _build_reconcile_index(existing: dict[str, Any]) -> dict[str, Any]:
         if ck not in index:
             index[ck] = live_rule
     return index
-
-
-def _build_norm_existing_keys(existing: dict[str, Any]) -> set[str]:
-    """Case-normalised (criteria + action) keys of every live rule.
-
-    Used in reconcile mode to detect a desired rule that already matches a live
-    rule modulo criteria case: live rules store criteria UPPERCASE while derive
-    emits lowercase.  A desired rule whose normalised key is in this set already
-    has the correct action and must be left alone -- no delete, no create.
-    """
-    return {
-        _norm_create_rule_key(
-            r.get("criteria") or {},
-            r.get("action") or {},
-        )
-        for r in existing.values()
-    }
 
 
 def _build_unmappable_criteria_index(existing: dict[str, Any]) -> dict[str, list[str]]:

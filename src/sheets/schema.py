@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from core.doc_metadata import HEADER_BG_HEX
+
 
 @dataclass
 class HeaderStyle:
@@ -15,7 +17,7 @@ class HeaderStyle:
     them to openpyxl, so callers can use either form.
     """
 
-    bg_color: str = "#2D3A4F"
+    bg_color: str = f"#{HEADER_BG_HEX}"
     text_color: str = "#FFFFFF"
     bold: bool = True
     font_size: int = 11
