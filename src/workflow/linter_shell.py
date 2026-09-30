@@ -67,7 +67,11 @@ and ``shell-guard-refused`` check each script field on its own -- each runs
 as a separate ``bash FILE`` -- and name that field in the warning; the
 description, which never executes in that mode, is not checked.
 ``shell-unvalidated-param`` still reads only the description: the engine
-substitutes caller params into the description, never into a script.
+substitutes caller params into the description, never into a script. A
+worker stage's ``check-params`` calls -- in its description or its scripts --
+validate nothing, for itself or its descendants (see
+:meth:`_StageShell.check_params_segments`); its description is still read for
+uses, so an unchecked ``{param}`` there warns rather than passing silently.
 
 Fragment stages inlined into a workflow get only the context-dependent rule
 (``shell-unvalidated-param``) there, because their params are the importer's;
@@ -275,6 +279,16 @@ class _StageShell:
             return tuple(_ShellUnit(field, (seg,)) for field, seg in self.scripts)
         return (_ShellUnit(_FIELD, self.segments, self.labels),)
 
+    def check_params_segments(self) -> tuple[_ParsedSegment, ...]:
+        """Segments whose ``check-params`` calls count as validation: none for a worker stage.
+
+        A worker stage's description is not what runs, so a check written
+        there proves nothing. Nor does one in its worker script: the engine
+        records the stage ``pending`` when it enqueues the job and never reads
+        the job's exit status, so a rejected check stops no later stage.
+        """
+        return () if _is_worker_dispatched(self.stage) else self.segments
+
 
 @dataclass(frozen=True)
 class _ShellUnit:
@@ -411,7 +425,7 @@ def _validated_by_stage(
     segment sequence -- so it is not folded into this per-stage name set; see
     ``_unvalidated_params``, which applies it only to uses at or after its position.
     """
-    own = {p.stage.name: set(_checked_param_positions(p.segments)) for p in parsed}
+    own = {p.stage.name: set(_checked_param_positions(p.check_params_segments())) for p in parsed}
     deps = {p.stage.name: tuple(p.stage.depends_on) for p in parsed}
     out: dict[str, frozenset[str]] = {}
     for name in own:
@@ -423,7 +437,7 @@ def _validated_by_stage(
 def _unvalidated_params(
     item: _StageShell, caller: frozenset[str], validated: frozenset[str]
 ) -> list[LintWarning]:
-    own_checks = _checked_param_positions(item.segments)
+    own_checks = _checked_param_positions(item.check_params_segments())
     reported: dict[str, str] = {}
     for seg_index, seg in enumerate(item.segments):
         # Every occurrence: the value is substituted before bash parses the
@@ -907,16 +921,21 @@ def _expanded(script: ShellScript) -> ShellScript:
     ``max_depth`` covers the inner scripts too, so nesting past the guard's
     ``MAX_DEPTH`` -- which :func:`parse_shell` stops at and records rather
     than drops -- surfaces as ``too_deep`` instead of being cut off silently.
+    Iterative, because ``find -exec`` bodies nest without a depth bound.
     """
     commands: list[SimpleCommand] = []
     max_depth = script.max_depth
-    for cmd in script.commands:
+    pending: list[Iterator[SimpleCommand]] = [iter(script.commands)]
+    while pending:
+        cmd = next(pending[-1], None)
+        if cmd is None:
+            pending.pop()
+            continue
         commands.append(cmd)
         inner = _inner_script(cmd)
         if inner is not None:
-            inner = _expanded(inner)
-            commands.extend(inner.commands)
             max_depth = max(max_depth, inner.max_depth)
+            pending.append(iter(inner.commands))
     return ShellScript(tuple(commands), script.heredocs, script.loop_variables, script.comments, max_depth)
 
 

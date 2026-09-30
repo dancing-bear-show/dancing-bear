@@ -7,7 +7,8 @@ newline, ``(``, ``)``), passes over reserved words (``if``, ``then``, ``do``,
 ``!``, ``{``, ``time`` ...) and leading ``NAME=value`` words, sees through
 wrappers (``env``, ``sudo``, ``xargs``, ``timeout N`` ...; see
 :data:`WRAPPER_NAMES`), recurses into
-``$(...)``, backticks and ``<(...)``, and reads heredoc bodies as data rather
+``$(...)``, backticks and ``<(...)`` -- also where they sit inside a
+``${...}`` or arithmetic body -- and reads heredoc bodies as data rather
 than as commands. shlex cannot do this: it reports no offsets, strips the
 quotes that tell ``"rm"`` from ``rm``, and has no notion of heredocs.
 
@@ -23,6 +24,7 @@ internal use (``_Lexer`` for :func:`_heredoc_delimiters`).
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 
 __all__ = [
@@ -211,43 +213,24 @@ def _match_op(text: str, pos: int, ops: tuple[str, ...]) -> str | None:
     return next((op for op in ops if text.startswith(op, pos)), None)
 
 
-def _arith_end(text: str, i: int) -> int:
-    """Index just past the ``))`` closing an arithmetic body that starts at *i*."""
-    depth = 0
-    for j in range(i, len(text)):
-        if text[j] == "(":
-            depth += 1
-        elif text[j] == ")" and depth:
-            depth -= 1
-        elif text[j] == ")":
-            return j + 2 if text.startswith("))", j) else j + 1
-    return len(text)
-
-
-def _brace_end(text: str, i: int) -> int:
-    """Index just past the ``}`` closing a ``${...}`` body that starts at *i*."""
-    depth = 0
-    for j in range(i, len(text)):
-        if text[j] == "{":
-            depth += 1
-        elif text[j] == "}" and depth:
-            depth -= 1
-        elif text[j] == "}":
-            return j + 1
-    return len(text)
-
-
 class _Lexer:
     """Split shell text into :class:`ShellToken` values, reading heredoc bodies as data.
 
     Never raises: an unclosed quote or substitution in a fragment of prose
     simply runs to the end of the text.
+
+    *nest* counts the constructs enclosing the text -- ``$(...)``, ``${...}``
+    and arithmetic -- starting from the parse depth. Reading one more than
+    :data:`MAX_DEPTH` deep sets :attr:`overflow` and consumes the rest of
+    the text instead, so recursion stays bounded whatever the input.
     """
 
-    def __init__(self, text: str, base: int = 0, pos: int = 0) -> None:
+    def __init__(self, text: str, base: int = 0, pos: int = 0, nest: int = 0) -> None:
         self.text = text
         self.base = base
         self.pos = pos
+        self.nest = nest
+        self.overflow = False  # nesting past MAX_DEPTH was met and not read
         self.heredocs: list[Heredoc] = []
         self.comments: list[Span] = []
         self._pending: list[ShellToken] = []  # heredoc delimiters awaiting their body
@@ -265,8 +248,9 @@ class _Lexer:
             return None
         start = self.pos
         if self.text.startswith("((", start):
-            self.pos = _arith_end(self.text, start + 2)
-            return ShellToken("arith", self.text[start:self.pos], self.base + start)
+            parts = _WordParts()
+            self.pos = self._nested(self._arith_body, start + 2, parts)
+            return ShellToken("arith", self.text[start:self.pos], self.base + start, subs=tuple(parts.subs))
         return self._operator() or self._word()
 
     def closing_paren(self) -> int:
@@ -358,11 +342,11 @@ class _Lexer:
         """Read the ``$...`` or backtick construct at *i*, or one plain character."""
         text = self.text
         if text.startswith("$((", i):
-            end = _arith_end(text, i + 3)
+            end = self._nested(self._arith_body, i + 3, parts)
         elif text.startswith("$(", i):
             return self._command_sub(i, i + 2, parts)
         elif text.startswith("${", i):
-            end = _brace_end(text, i + 2)
+            end = self._nested(self._brace_body, i + 2, parts)
         elif text[i] == "`":
             return self._backtick(i, parts)
         else:
@@ -384,11 +368,69 @@ class _Lexer:
                 i += 1
         return i + 1 if closer is not None else i
 
+    def _nested(self, scan: Callable[[int, _WordParts], int], i: int, parts: _WordParts) -> int:
+        """Run *scan* on a body one level deeper, or stop at the end of the text past MAX_DEPTH."""
+        if self.nest >= MAX_DEPTH:
+            self.overflow = True
+            return len(self.text)
+        self.nest += 1
+        try:
+            return scan(i, parts)
+        finally:
+            self.nest -= 1
+
+    def _unit(self, i: int, parts: _WordParts) -> int:
+        """Read one character, or one quoted or expanded unit, at *i*."""
+        ch = self.text[i]
+        if ch == "\\":
+            return i + 2
+        if ch == "'":
+            end = self.text.find("'", i + 1)
+            return len(self.text) if end < 0 else end + 1
+        if ch == '"':
+            return self._double(i + 1, parts, closer='"')
+        if ch in "$`":
+            return self._expansion(i, parts)
+        return i + 1
+
+    def _arith_body(self, i: int, parts: _WordParts) -> int:
+        """Index just past the ``))`` closing an arithmetic body that starts at *i*.
+
+        Mirrors ``_scan_arith`` in _bash_write_targets.py: the body's value is
+        unknown, but a ``$(...)`` or backtick inside it runs, so each one is
+        recorded in *parts* as a substitution of this word.
+        """
+        scratch = _WordParts(subs=parts.subs)
+        depth = 0
+        while i < len(self.text):
+            ch = self.text[i]
+            if ch == ")" and not depth:
+                return i + 2 if self.text.startswith("))", i) else i + 1
+            depth += {"(": 1, ")": -1}.get(ch, 0)
+            i = self._unit(i, scratch)
+        return len(self.text)
+
+    def _brace_body(self, i: int, parts: _WordParts) -> int:
+        """Index just past the ``}`` closing a ``${...}`` body; mirrors ``_scan_param``."""
+        scratch = _WordParts(subs=parts.subs)
+        while i < len(self.text):
+            if self.text[i] == "}":
+                return i + 1
+            i = self._unit(i, scratch)
+        return len(self.text)
+
     def _command_sub(self, open_at: int, body_start: int, parts: _WordParts) -> int:
-        end = _Lexer(self.text, self.base, body_start).closing_paren()
+        end = self._nested(self._closing_paren_from, body_start, parts)
         parts.subs.append((self.text[body_start:end], self.base + body_start))
         parts.parts.append(self.text[open_at:end + 1])
         return min(end + 1, len(self.text))
+
+    def _closing_paren_from(self, body_start: int, parts: _WordParts) -> int:
+        """Index of the ``)`` closing a substitution body at *body_start*, read by a child lexer."""
+        child = _Lexer(self.text, self.base, body_start, self.nest)
+        end = child.closing_paren()
+        self.overflow = self.overflow or child.overflow
+        return end
 
     def _backtick(self, i: int, parts: _WordParts) -> int:
         text = self.text
@@ -416,7 +458,11 @@ class _Lexer:
                 break
             i = eol + 1
         body = text[start:end]
-        subs = () if delimiter.quoted else tuple(_Lexer(body, self.base + start).expanding_subs())
+        subs: tuple[tuple[str, int], ...] = ()
+        if not delimiter.quoted:
+            body_lexer = _Lexer(body, self.base + start, nest=self.nest)
+            subs = tuple(body_lexer.expanding_subs())
+            self.overflow = self.overflow or body_lexer.overflow
         self.heredocs.append(Heredoc(delimiter.text, delimiter.quoted, body, self.base + start, subs))
         self.pos = resume
 
@@ -695,10 +741,13 @@ def parse_shell(
     *depth* is how many parsers enclose *text* (see SimpleCommand.depth).
     Past :data:`MAX_DEPTH` nothing is parsed and the result's ``too_deep``
     is set: the guard refuses there, so the text is reported, not dropped.
+    The lexer sets it too when ``$(...)``, ``${...}`` and arithmetic nest
+    past that bound within *text* (see :class:`_Lexer`), so no input
+    recurses without limit.
     """
     if depth > MAX_DEPTH:
         return ShellScript((), (), (), (), max_depth=depth)
-    lexer = _Lexer(text, base)
+    lexer = _Lexer(text, base, nest=depth)
     splitter = _CommandSplitter(in_loop, subshell, depth)
     for tok in lexer.tokens():
         splitter.feed(tok)
@@ -714,7 +763,7 @@ def parse_shell(
         heredocs=tuple(lexer.heredocs) + tuple(d for s in nested for d in s.heredocs),
         loop_variables=tuple(splitter.loop_variables) + tuple(v for s in nested for v in s.loop_variables),
         comments=tuple(lexer.comments) + tuple(c for s in nested for c in s.comments),
-        max_depth=max((depth, *(s.max_depth for s in nested))),
+        max_depth=max((MAX_DEPTH + 1 if lexer.overflow else depth, *(s.max_depth for s in nested))),
     )
 
 

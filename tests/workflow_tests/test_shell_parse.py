@@ -168,6 +168,45 @@ class TestParseDepth(unittest.TestCase):
         self.assertTrue(past.too_deep)
         self.assertEqual(past.max_depth, MAX_DEPTH + 1)
 
+    def test_substitution_inside_an_expansion_is_a_child_command(self) -> None:
+        # Unlinked finding shell_parse.py:364: ${...} and $((...)) bodies are
+        # scanned for $(...) and backticks, one level deeper, as the guard's
+        # _scan_param/_scan_arith do.
+        for text in ('echo "${X:-$(rm -f x)}"', "echo $(( $(rm -f x) ))", "(( $(rm -f x) ))",
+                     "echo ${X:-`rm -f x`}", 'echo "$(( ${#a} + $(rm -f x) ))"'):
+            with self.subTest(text=text):
+                script = parse_shell(text)
+                self.assertEqual({c.name: c.depth for c in script.commands if c.name == "rm"}, {"rm": 1})
+                self.assertEqual(script.max_depth, 1)
+
+    def test_expansion_nesting_counts_toward_the_substitution_depth(self) -> None:
+        # A $(...) in an expansion in a $(...) is two parsers deep, as in the guard.
+        script = parse_shell("echo $(echo ${X:-$(rm -f x)})")
+        self.assertEqual({c.name: c.depth for c in script.commands}, {"echo": 1, "rm": 2})
+
+    def test_expansion_without_substitution_has_no_child(self) -> None:
+        for text in ("echo ${X:-default}", "echo $(( (1 + 2) * 3 ))", "(( i++ ))", "echo ${#a}"):
+            with self.subTest(text=text):
+                script = parse_shell(text)
+                self.assertEqual(script.max_depth, 0)
+                self.assertNotIn("rm", [c.name for c in script.commands])
+
+    def test_deep_nesting_is_too_deep_not_an_exception(self) -> None:
+        # Unlinked finding shell_parse.py:390: 1,200 nested $( raised
+        # RecursionError before parse_shell could check MAX_DEPTH.
+        n = 1200
+        for text in ("$(" * n + "true" + ")" * n, "$(" * n, "${X:-" * n + "}" * n,
+                     "$((" * n + "1" + "))" * n, "echo $(" + "${X:-" * n + ")"):
+            with self.subTest(text=text[:12]):
+                self.assertTrue(parse_shell(text).too_deep)
+
+    def test_expansion_nesting_at_the_limit_is_not_too_deep(self) -> None:
+        for text in (self._subs(MAX_DEPTH), "echo " + "${X:-" * MAX_DEPTH + "}" * MAX_DEPTH,
+                     "echo " + "$((" * MAX_DEPTH + "1" + "))" * MAX_DEPTH):
+            with self.subTest(text=text[:12]):
+                self.assertFalse(parse_shell(text).too_deep)
+        self.assertTrue(parse_shell("echo " + "${X:-" * (MAX_DEPTH + 1) + "}" * (MAX_DEPTH + 1)).too_deep)
+
     def test_depth_argument_offsets_the_count(self) -> None:
         script = parse_shell("a $(b)", depth=MAX_DEPTH)
         self.assertTrue(script.too_deep)

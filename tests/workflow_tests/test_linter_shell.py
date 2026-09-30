@@ -379,6 +379,58 @@ class TestUnvalidatedParam(_RuleCase):
         self.assert_silent(_workflow(_stage(desc), params='name: "default"'))
 
 
+# Fenced as _fenced() builds them, which is defined further down.
+_HOST_CHECK = "```bash\n\n./bin/workflow check-params m.json --check host=trusted\n\n```\n"
+_HOST_USE = "```bash\n\necho {host}\n\n```\n"
+
+
+def _upstream_check_workflow(upstream_extra: str) -> str:
+    """A check-params in an upstream stage's description, then a {host} use downstream."""
+    return _workflow(
+        _stage(_HOST_CHECK, name="check", extra=upstream_extra),
+        _stage(_HOST_USE, name="use", depends_on="[check]"),
+        params='host: "example.com"',
+    )
+
+
+class TestWorkerStageCheckParams(_RuleCase):
+    """PR #437 thread PRRT_kwDOQr1kjM6nU0Mh: a worker stage's description never runs.
+
+    Its check-params calls used to be credited as validation for every
+    descendant, though a worker runs only the script fields.
+    """
+
+    rule = RULE_UNVALIDATED_PARAM
+
+    def test_worker_stage_description_check_does_not_validate_descendants(self) -> None:
+        for extra in ("    executor: worker_queue\n    script: \"ls data/\"\n",
+                      "    fan_out:\n      source: seed\n      field: items\n      key: item\n"
+                      "      mode: worker_queue\n      script: \"ls data/\"\n"):
+            with self.subTest(extra=extra.split(":")[0].strip()):
+                hits = self.assert_fires(_upstream_check_workflow(extra))
+                self.assertEqual(hits[0].stage, "use")
+                self.assertIn("'{host}'", hits[0].message)
+
+    def test_worker_stage_description_check_does_not_validate_its_own_uses(self) -> None:
+        extra = "    executor: worker_queue\n    script: \"ls data/\"\n"
+        yaml_text = _workflow(_stage(_HOST_CHECK + _HOST_USE, extra=extra), params='host: "example.com"')
+        self.assertEqual(self.assert_fires(yaml_text)[0].stage, "work")
+
+    def test_worker_script_check_does_not_validate_descendants(self) -> None:
+        # The engine records the worker stage pending at enqueue and never
+        # reads the job's exit status, so a rejected check stops nothing.
+        script = json.dumps("./bin/workflow check-params m.json --check host=trusted")
+        yaml_text = _workflow(
+            _stage("Enqueued.", name="check", extra=f"    executor: worker_queue\n    script: {script}\n"),
+            _stage(_HOST_USE, name="use", depends_on="[check]"),
+            params='host: "example.com"',
+        )
+        self.assertEqual(self.assert_fires(yaml_text)[0].stage, "use")
+
+    def test_agent_stage_check_still_validates_descendants(self) -> None:
+        self.assert_silent(_upstream_check_workflow(""))
+
+
 class TestIncludedFragmentsAreLinted(unittest.TestCase):
     """PR #433 review: an included fragment's context-free rules must run too.
 
@@ -1660,6 +1712,46 @@ class TestGuardRefused(_RuleCase):
                         "for f in a; do " + _nested_sh_c("wc -l x", 3) + "; done"):
             with self.subTest(command=command[:40]):
                 self.assert_silent(_workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n")))
+
+    def test_fires_on_mutator_substituted_inside_an_expansion(self) -> None:
+        # Unlinked finding shell_parse.py:364: ${...} and $((...)) bodies were
+        # skipped whole, so a $(...) or backtick inside one never reached the
+        # parser. Bash runs it, and _bash_write_targets.py (_scan_param,
+        # _scan_arith) parses it.
+        for command in ('for f in x; do echo "${X:-$(rm -f "$f")}"; done',
+                        "for f in x; do echo $(( $(rm -f x) )); done",
+                        "for f in x; do (( $(rm -f x) )); done",
+                        "for f in x; do echo ${X:-`rm -f x`}; done",
+                        "for f in x; do echo ${A:-${B:-$(rm -f x)}}; done"):
+            with self.subTest(command=command):
+                hits = self.assert_fires(_workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n")))
+                self.assertIn("loop", hits[0].message)
+
+    def test_expansion_without_a_substitution_is_silent(self) -> None:
+        for command in ('for f in x; do echo "${X:-default}"; done',
+                        "for f in x; do echo $(( 1 + 2 )); done",
+                        "for f in x; do echo $(( (1 + 2) * 3 )) ${#f}; done"):
+            with self.subTest(command=command):
+                self.assert_silent(_workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n")))
+
+    def test_deep_nesting_warns_instead_of_raising(self) -> None:
+        # Unlinked finding shell_parse.py:390: the lexer located each closing
+        # ")" with a fresh lexer per level before parse_shell could check
+        # MAX_DEPTH, so 1,200 levels raised RecursionError out of the lint.
+        levels = 1200
+        for command in ("echo " + "$(" * levels + "true" + ")" * levels,
+                        "echo " + "$(" * levels,
+                        "echo " + "${X:-" * levels + "y" + "}" * levels,
+                        "echo " + "$((" * levels + "1" + "))" * levels):
+            with self.subTest(command=command[:12]):
+                hits = self.assert_fires(_workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n")))
+                self.assertIn("nesting deeper than 32", hits[0].message)
+
+    def test_deep_find_exec_chain_does_not_raise(self) -> None:
+        # _expanded recursed once per nested find -exec body, with no bound.
+        command = "for f in a; do " + "find . -exec " * 1200 + "rm -f x; done"
+        hits = self.assert_fires(_workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n")))
+        self.assertIn("loop", hits[0].message)
 
     def test_inner_mutator_is_found_through_nested_shells(self) -> None:
         # The depth tracking keeps the innermost command of a real chain.
