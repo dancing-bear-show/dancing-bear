@@ -67,7 +67,7 @@ class AccountsListProcessor(SafeProcessor[AccountsListRequest, AccountsListResul
 class AccountsListProducer(AccountsResultProducer[AccountsListResult]):
     def _produce_items(self, payload: AccountsListResult) -> None:
         for a in payload.accounts:
-            print(f"{a.name}\tprovider={a.provider}\tcred={a.credentials}\ttoken={a.token}")
+            self._writer.print(f"{a.name}\tprovider={a.provider}\tcred={a.credentials}\ttoken={a.token}")
 
 
 # -----------------------------------------------------------------------------

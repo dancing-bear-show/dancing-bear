@@ -32,19 +32,45 @@ def read_yaml(in_path: Path) -> dict[str, Any]:
     return data
 
 
+def _as_list(value: Any) -> list[Any]:
+    """Read a YAML value as a sequence.
+
+    A scalar string (``dock: com.example.app``) is one entry rather than a run
+    of characters; None and any other non-sequence read as empty.
+    """
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, (list, tuple)):
+        return list(value)
+    return []
+
+
+def _bundle_ids(values: Any) -> list[str]:
+    """Return the non-empty string entries of a YAML app list."""
+    return [v for v in _as_list(values) if isinstance(v, str) and v]
+
+
+def _mappings(values: Any) -> list[dict[str, Any]]:
+    """Return the mapping entries of a YAML list of pages or folders."""
+    return [v for v in _as_list(values) if isinstance(v, dict)]
+
+
 def _layout_from_export(export: dict[str, Any]) -> NormalizedLayout:
-    dock = export.get("dock") or []
+    """Convert a layout export dict to a NormalizedLayout.
+
+    Hand-edited YAML is tolerated: a key left empty (``apps:``) reads as no
+    apps, a single scalar app id reads as a one-item list, and entries of the
+    wrong type are dropped.
+    """
     pages = []
-    for p in export.get("pages") or []:
-        items = []
-        for a in p.get("apps", []):
-            items.append({"kind": "app", "id": a})
-        for f in p.get("folders", []):
+    for p in _mappings(export.get("pages")):
+        items: list[dict[str, Any]] = [{"kind": "app", "id": a} for a in _bundle_ids(p.get("apps"))]
+        for f in _mappings(p.get("folders")):
             items.append(
-                {"kind": "folder", "name": f.get("name"), "apps": f.get("apps", [])}
+                {"kind": "folder", "name": f.get("name"), "apps": _bundle_ids(f.get("apps"))}
             )
         pages.append(items)
-    return NormalizedLayout(dock=dock, pages=pages)
+    return NormalizedLayout(dock=_bundle_ids(export.get("dock")), pages=pages)
 
 
 def load_layout(

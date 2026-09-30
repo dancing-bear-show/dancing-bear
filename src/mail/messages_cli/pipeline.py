@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from core.cli_output import OutputWriter, emit_one
+from core.date_utils import parse_iso_utc
 from core.pipeline import RequestConsumer, SafeProcessor, BaseProducer
 
 
@@ -169,18 +170,11 @@ def _graph_datetime_to_iso(value: Any) -> str:
     "+00:00" offset. This matches the Gmail-side format produced by
     ``mail.messages._internal_date_to_iso`` so both providers agree.
     """
-    from datetime import datetime, timezone
-
     text = str(value or "").strip()
-    if not text:
-        return ""
-    try:
-        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
-    except ValueError:
+    parsed = parse_iso_utc(text)
+    if parsed is None:
         return text
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return parsed.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _graph_recipients(entries: list[dict] | None) -> str:

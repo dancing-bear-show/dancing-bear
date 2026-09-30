@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from core.gh_cli import GhCLI, GhError
 
-from .authors import classify_author, normalize_login
+from .authors import classify_author, is_copilot_reviewer, normalize_login
 from .mutations import (
     forged_run_marker,
     has_run_marker,
@@ -24,7 +24,10 @@ from .mutations import (
 )
 from .repo import resolve_owner_repo
 from .threads import (
+    PRReviews,
     build_threads_doc,
+    fetch_pr_reviews,
+    fetch_raw_threads,
     fetch_review_threads,
     fetch_thread_comments,
     fetch_thread_states,
@@ -34,14 +37,18 @@ from .threads import (
 __all__ = [
     "GhCLI",
     "GhError",
+    "PRReviews",
     "build_threads_doc",
     "classify_author",
     "client",
+    "fetch_pr_reviews",
+    "fetch_raw_threads",
     "fetch_review_threads",
     "fetch_thread_comments",
     "fetch_thread_states",
     "forged_run_marker",
     "has_run_marker",
+    "is_copilot_reviewer",
     "mark_body",
     "normalize_login",
     "render_summary",

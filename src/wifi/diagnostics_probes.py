@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Callable
 
+from core.collections import dedupe
+
 from .diagnostics_runners import CommandRunner, SubprocessRunner
 
 if TYPE_CHECKING:
@@ -328,14 +330,13 @@ def _parse_ping(text: str) -> tuple[int, int, float | None, float | None, float 
 
 def dns_lookup(host: str) -> DnsResult:
     start = time.perf_counter()
-    addresses: list[str] = []
     try:
         infos = socket.getaddrinfo(host, None)
-        for family, _type, _proto, _canon, sockaddr in infos:
-            if family in (socket.AF_INET, socket.AF_INET6):
-                ip = str(sockaddr[0])
-                if ip not in addresses:
-                    addresses.append(ip)
+        addresses = dedupe([
+            str(sockaddr[0])
+            for family, _type, _proto, _canon, sockaddr in infos
+            if family in (socket.AF_INET, socket.AF_INET6)
+        ])
         elapsed_ms = (time.perf_counter() - start) * 1000
         return DnsResult(host=host, success=True, addresses=addresses, elapsed_ms=elapsed_ms)
     except Exception as exc:  # pragma: no cover - exercised indirectly

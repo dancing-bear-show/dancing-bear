@@ -799,7 +799,7 @@ stages:
            attempts count for this case to prove it did NOT change.
 
            Observe it ONCE; do not try to drain it to a terminal state. The
-           deferred- branch restores the attempt count after every requeue,
+           deferred- branch never counts an attempt (count_attempt=False),
            so repeated run-once calls would defer it forever — an earlier
            revision of this file told the agent to loop "until its attempts
            exhaust", which cannot terminate. The private queue makes a

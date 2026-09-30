@@ -19,7 +19,7 @@ description: >
       and implements _init_accumulator / _handle_event / _finalize.
     - outlook list-one-offs (outlook_pipelines/events.py) is already a partial
       plan producer: it ends in dump_config(path, {"events": rows}). It filters
-      to single instances only via _is_one_off() at events.py:41.
+      to single instances only via calendars.selection.is_one_off_event().
     - src/calendars/importer/base.py:12 defines CalendarProvider(Protocol) whose
       docstring claims "Both Gmail and Outlook backends implement this
       interface". That claim is FALSE. Grep confirms zero production

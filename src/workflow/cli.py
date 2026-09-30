@@ -47,7 +47,9 @@ from workflow.cli_dispatch_review import (
     _cmd_check_paths,
     _cmd_check_thread_ids,
     _cmd_check_unlisted,
+    _cmd_count_sweep,
     _cmd_parse_overview,
+    _cmd_review_rounds,
     _cmd_select_concerns,
     _cmd_snapshot_dirty,
     _cmd_thread_fingerprints,
@@ -331,6 +333,58 @@ def cmd_check_unlisted(args: argparse.Namespace) -> int:
     return _cmd_check_unlisted(args)
 
 
+@app.command(
+    "review-rounds",
+    help="Fetch PR bot-review-round data and write per-PR JSON + summary",
+)
+@app.argument(
+    "--prs",
+    default=None,
+    help="Comma-separated PR numbers; never thread-filtered unless --min-threads is given",
+)
+@app.argument(
+    "--recent",
+    type=int,
+    default=None,
+    metavar="N",
+    help="The N most recent PRs by number, any state (1-200)",
+)
+@app.argument(
+    "--out-dir",
+    dest="out_dir",
+    required=True,
+    help="Directory to write pr<N>.json and summary.json",
+)
+@app.argument(
+    "--min-threads",
+    dest="min_threads",
+    type=int,
+    default=None,
+    metavar="N",
+    help="Drop PRs with fewer than N threads from summary.json (default: 15 with --recent, 0 with --prs)",
+)
+def cmd_review_rounds(args: argparse.Namespace) -> int:
+    return _cmd_review_rounds(args)
+
+
+@app.command(
+    "count-sweep",
+    help="Count lines matching a regex under repo-relative paths, no shell; prints {hits, files}",
+)
+@app.argument("--pattern", required=True, help="Python regex; never passed to a shell")
+@app.argument(
+    "--path",
+    dest="paths",
+    action="append",
+    default=[],
+    required=True,
+    help="Repo-relative file or directory (repeatable); check-paths rules plus [A-Za-z0-9_][A-Za-z0-9._/-]*",
+)
+@app.argument("--root", default=None, help="Repo root or a dir inside it; paths are relative to it (default: repo root)")
+def cmd_count_sweep(args: argparse.Namespace) -> int:
+    return _cmd_count_sweep(args)
+
+
 def _no_command_usage() -> int:
     """Preserve the legacy no-subcommand behavior (one-line usage to
     stderr, ExitCode.USAGE) rather than CLIApp's default (full --help),
@@ -339,7 +393,7 @@ def _no_command_usage() -> int:
         "Usage: workflow {parse,compile,run,lint,list,status,init-workspace,resume,"
         "validate-fragment,parse-overview,check-paths,select-concerns,check-params,"
         "check-fix-index,thread-fingerprints,check-thread-ids,aggregate-fix-results,"
-        "snapshot-dirty,check-unlisted} [options]",
+        "snapshot-dirty,check-unlisted,review-rounds,count-sweep} [options]",
         file=sys.stderr,
     )
     return ExitCode.USAGE

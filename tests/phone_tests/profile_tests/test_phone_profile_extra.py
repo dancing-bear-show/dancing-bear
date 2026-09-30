@@ -15,10 +15,7 @@ from phone.profile import (
     _build_default_pages,
     _build_hsl_payload,
     _build_pages_from_spec,
-    _collect_apps,
     _collect_assigned_apps,
-    _collect_page_apps,
-    _list_apps_from_export,
     _normalize_pages_spec,
     _resolve_dock,
     MobileConfigOptions,
@@ -87,57 +84,46 @@ class TestFolderItemFunction(unittest.TestCase):
         self.assertEqual(result["Pages"], [[]])
 
 
-class TestCollectApps(unittest.TestCase):
-    def test_collects_unique_apps(self):
-        seen = set()
-        apps = []
-        _collect_apps(["com.app1", "com.app2", "com.app1"], seen, apps)
-        self.assertEqual(apps, ["com.app1", "com.app2"])
+class TestAllAppsFolderFromExport(unittest.TestCase):
+    """add_all_apps_folder enumerates the export's apps in layout order."""
 
-    def test_skips_non_strings(self):
-        seen = set()
-        apps = []
-        _collect_apps([None, 123, "com.app1"], seen, apps)
-        self.assertEqual(apps, ["com.app1"])
+    def _folder_ids(self, export, exclude=None):
+        builder = HomeScreenConfigBuilder(export)
+        builder.add_all_apps_folder(page=1, exclude=exclude)
+        return [a.bundle_id for a in builder.pages[1].folders[0].apps]
 
-
-class TestCollectPageApps(unittest.TestCase):
-    def test_collects_apps_and_folder_apps(self):
-        seen = set()
-        apps = []
-        page = {
-            "apps": ["com.app1"],
-            "folders": [{"apps": ["com.folder_app1"]}],
-        }
-        _collect_page_apps(page, seen, apps)
-        self.assertIn("com.app1", apps)
-        self.assertIn("com.folder_app1", apps)
-
-
-class TestListAppsFromExport(unittest.TestCase):
-    def test_lists_all_apps(self):
+    def test_dock_then_page_apps_then_folder_apps_in_order(self):
         export = {
             "dock": ["com.dock1"],
             "pages": [
-                {
-                    "apps": ["com.app1", "com.app2"],
-                    "folders": [{"apps": ["com.folder_app1"]}],
-                }
+                {"apps": ["com.app1", "com.app2"], "folders": [{"apps": ["com.folder_app1"]}]},
+                {"apps": ["com.app3"], "folders": []},
             ],
         }
-        result = _list_apps_from_export(export)
-        self.assertIn("com.dock1", result)
-        self.assertIn("com.app1", result)
-        self.assertIn("com.app2", result)
-        self.assertIn("com.folder_app1", result)
+        self.assertEqual(
+            self._folder_ids(export),
+            ["com.dock1", "com.app1", "com.app2", "com.folder_app1", "com.app3"],
+        )
 
-    def test_deduplicates(self):
+    def test_deduplicates_keeping_first_position(self):
         export = {
             "dock": ["com.app1"],
-            "pages": [{"apps": ["com.app1"], "folders": []}],
+            "pages": [{"apps": ["com.app2", "com.app1"], "folders": [{"apps": ["com.app2"]}]}],
         }
-        result = _list_apps_from_export(export)
-        self.assertEqual(result.count("com.app1"), 1)
+        self.assertEqual(self._folder_ids(export), ["com.app1", "com.app2"])
+
+    def test_skips_non_string_entries(self):
+        export = {"dock": [None, 123, "com.app1"], "pages": [{"apps": ["", "com.app2"]}]}
+        self.assertEqual(self._folder_ids(export), ["com.app1", "com.app2"])
+
+    def test_empty_yaml_keys_read_as_no_apps(self):
+        """A key left blank in hand-edited YAML loads as None, not a list."""
+        export = {"dock": None, "pages": [{"apps": None, "folders": [{"apps": None}]}, {"apps": ["com.app1"]}]}
+        self.assertEqual(self._folder_ids(export), ["com.app1"])
+
+    def test_exclude_filters_apps(self):
+        export = {"dock": ["com.dock1"], "pages": [{"apps": ["com.app1"]}]}
+        self.assertEqual(self._folder_ids(export, exclude={"com.dock1"}), ["com.app1"])
 
 
 class TestPage(unittest.TestCase):

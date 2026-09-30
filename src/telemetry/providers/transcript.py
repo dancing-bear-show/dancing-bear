@@ -20,6 +20,8 @@ from telemetry.providers.transcript_aggregate import (
     build_agent_row,
 )
 from telemetry.providers.transcript_parse import (
+    JSONL_GLOB,
+    SUBDIR_GLOB,
     iter_jsonl_files,
     parse_assistant_record,
     parse_session_file,
@@ -28,9 +30,6 @@ from telemetry.providers.transcript_parse import (
 
 
 logger = logging.getLogger(__name__)
-
-_JSONL_GLOB = "*.jsonl"
-_SUBDIR_GLOB = "*/subagents/*.jsonl"
 
 
 class TranscriptProvider:
@@ -210,7 +209,7 @@ class TranscriptProvider:
         summaries: list[SessionSummary],
     ) -> None:
         """Append SessionSummary objects from new flat-format .jsonl files."""
-        for jsonl_file in project_dir.glob(_JSONL_GLOB):
+        for jsonl_file in project_dir.glob(JSONL_GLOB):
             file_ts = datetime.fromtimestamp(jsonl_file.stat().st_mtime, tz=timezone.utc)
             if since is not None and file_ts < since:
                 continue
@@ -228,7 +227,7 @@ class TranscriptProvider:
     ) -> None:
         """Append SessionSummary objects from old subdirectory-format .jsonl files."""
         subdir_files: dict[str, list[Path]] = {}
-        for jsonl_file in project_dir.glob(_SUBDIR_GLOB):
+        for jsonl_file in project_dir.glob(SUBDIR_GLOB):
             session_id = jsonl_file.parent.parent.name
             subdir_files.setdefault(session_id, []).append(jsonl_file)
 

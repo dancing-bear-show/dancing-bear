@@ -656,9 +656,8 @@ class TestReconcileCaseChurn(unittest.TestCase):
     reconcile path where it was deleted and recreated on EVERY run -- indefinite
     churn against the Graph API.
 
-    The fix uses a case-normalised existing-keys set (via _norm_create_rule_key)
-    so a rule whose criteria differ only in case is detected as already-correct
-    and left alone.
+    The fix folds criteria case inside _create_rule_key itself, so a rule whose
+    criteria differ only in case matches 'key in existing' and is left alone.
 
     Invariant: same criteria (case-insensitive), same action -> created=0,
     reconciled=0, failed=0, no API calls.

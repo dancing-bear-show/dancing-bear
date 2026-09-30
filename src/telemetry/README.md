@@ -89,7 +89,7 @@ flowchart TB
 - `providers/transcript.py` — `TranscriptProvider`; parses Claude Code JSONL under `~/.claude/projects`
 - `parser.py`, `_transcript_record_parser.py` — transcript record parsing
 - `parse_transcripts.py` / `parse_transcripts_io.py` / `parse_transcripts_emit.py` — `parse-transcripts` command
-- `pricing.py` — model cost lookups
+- `pricing.py` — the shared model price table and cost helpers (`compute_cost`, `compute_raw_cost`); OTel `get_model_performance` and prompt metrics still use a legacy formula (deferred)
 - `classify.py`, `rules.py` — session classification rules
 - `blame.py` — per-agent cost attribution
 - `otel/reader.py` — `OTLPDataDir`; locates `~/.config/otel/` files

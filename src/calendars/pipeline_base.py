@@ -158,21 +158,43 @@ def dedupe_events(events: list[dict[str, Any]], key_fn=None) -> list[dict[str, A
     return dedupe(events, key_fn or _default_event_key)
 
 
+def _schedule_item_to_event(item: Any) -> dict[str, Any]:
+    """Map an importer ScheduleItem onto the raw event-dict shape normalize_event reads."""
+    ev: dict[str, Any] = {
+        "subject": getattr(item, "subject", None),
+        "start": getattr(item, "start_iso", None),
+        "end": getattr(item, "end_iso", None),
+        "repeat": getattr(item, "recurrence", None),
+        "byday": getattr(item, "byday", None),
+        "start_time": getattr(item, "start_time", None),
+        "end_time": getattr(item, "end_time", None),
+        "range": {
+            "start_date": getattr(item, "range_start", None),
+            "until": getattr(item, "range_until", None),
+        },
+        "count": getattr(item, "count", None),
+        "location": getattr(item, "location", None),
+        "body_html": getattr(item, "notes", None),
+    }
+    rng = ev["range"]
+    if not rng.get("start_date") and not rng.get("until"):
+        ev.pop("range")
+    return ev
+
+
 def load_schedule_sources(
     sources: Iterable[str], kind: str | None
 ) -> list[dict[str, Any]]:
-    """Load schedule items from multiple sources, normalized to event dicts."""
+    """Load schedule items from multiple sources, normalized to event dicts.
+
+    Carries every ScheduleItem field (one-off times, recurrence, range, count,
+    location, notes), so recurring sources survive the round trip.
+    """
     from calendars.importer import load_schedule
     from calendars.model import normalize_event
 
     out: list[dict[str, Any]] = []
     for src in sources:
-        items = load_schedule(src, kind)
-        for it in items:
-            ev = {
-                "subject": getattr(it, "subject", None),
-                "start": getattr(it, "start_iso", None),
-                "end": getattr(it, "end_iso", None),
-            }
-            out.append(normalize_event(ev))
+        for it in load_schedule(src, kind):
+            out.append(normalize_event(_schedule_item_to_event(it)))
     return out

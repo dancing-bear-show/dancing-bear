@@ -48,8 +48,8 @@ def _make_runner(root: Path, **config_kwargs: Any):
 
     q.QUEUE_ROOT = root
     # Also redirect the env var so any helper that resolves the state dir
-    # at call time (rather than via the already-imported QUEUE_ROOT constant)
-    # lands in the temp tree.  Tests that call _make_runner are responsible
+    # through get_worker_state_dir (logs, a fresh process) lands in the temp
+    # tree.  Tests that call _make_runner are responsible
     # for restoring the env; QueueRootIsolationMixin.setup_queue_root handles
     # this for test classes that use it.
     os.environ[WORKER_STATE_DIR_ENV] = str(root.parent)

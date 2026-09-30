@@ -4,7 +4,11 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
 
+from core.coerce import coerce_int
+
 from .classify import classify_app
+from .helpers import _layout_from_export
+from .layout_normalize import list_all_apps
 
 
 @dataclass(frozen=True)
@@ -19,14 +23,6 @@ class MobileConfigOptions:
 
 def _app_item(bundle_id: str) -> dict[str, Any]:
     return AppItem(bundle_id).as_spec()
-
-
-def _int_or_default(value: Any, default: int) -> int:
-    """Convert value to int, falling back to default on any conversion failure."""
-    try:
-        return int(value)
-    except Exception:  # nosec B110 - fallback to caller-supplied default
-        return default
 
 
 @dataclass
@@ -71,37 +67,6 @@ class FolderItem:
             "DisplayName": self.name or "Folder",
             "Pages": pages,
         }
-
-
-
-def _collect_apps(items: list[Any], seen: set[str], apps: list[str]) -> None:
-    """Collect apps from items list, updating seen set and apps list."""
-    for a in items:
-        if isinstance(a, str) and a and a not in seen:
-            apps.append(a)
-            seen.add(a)
-
-
-def _collect_page_apps(page: dict[str, Any], seen: set[str], apps: list[str]) -> None:
-    """Collect apps from a single page, including folders."""
-    _collect_apps(page.get("apps") or [], seen, apps)
-    for folder in page.get("folders") or []:
-        _collect_apps(folder.get("apps") or [], seen, apps)
-
-
-def _list_apps_from_export(layout_export: dict[str, Any]) -> list[str]:
-    """Return a de-duped list of bundle IDs from a layout export dict."""
-    seen: set[str] = set()
-    apps: list[str] = []
-
-    # Collect dock apps
-    _collect_apps(layout_export.get("dock") or [], seen, apps)
-
-    # Collect apps from all pages
-    for page in layout_export.get("pages") or []:
-        _collect_page_apps(page, seen, apps)
-
-    return apps
 
 
 @dataclass
@@ -163,7 +128,7 @@ class HomeScreenConfigBuilder:
         exclude = exclude or set()
         remaining = [
             a
-            for a in _list_apps_from_export(self.layout_export)
+            for a in list_all_apps(_layout_from_export(self.layout_export))
             if a and a not in exclude
         ]
         self.add_folder(page, name, remaining)
@@ -276,7 +241,7 @@ def _normalize_pages_spec(pages_spec: dict[Any, Any]) -> list[dict[str, Any]]:
     """
 
     ordered: list[dict[str, Any]] = []
-    for k in sorted(pages_spec.keys(), key=lambda k: _int_or_default(k, 0)):
+    for k in sorted(pages_spec.keys(), key=coerce_int):
         v = pages_spec.get(k) or {}
         ordered.append(
             {
@@ -367,7 +332,7 @@ def _add_all_apps_folder(
 ) -> None:
     """Add a catch-all folder for remaining apps."""
     page_num = merged_all_apps_cfg.get("page") or (len(builder.pages) + 1)
-    page_num = _int_or_default(page_num, len(builder.pages) + 1)
+    page_num = coerce_int(page_num, len(builder.pages) + 1)
 
     assigned = _collect_assigned_apps(builder, dock, pins, folders)
     builder.add_all_apps_folder(
@@ -394,12 +359,12 @@ def _add_auto_categorized_folders(
     config: AutoCategorizeConfig,
 ) -> None:
     """Auto-categorize remaining apps into folders on a target page."""
-    target_page = _int_or_default(config.auto_categories_page, 2)
+    target_page = coerce_int(config.auto_categories_page, 2)
 
     assigned = _collect_assigned_apps(builder, config.dock, config.pins, config.folders)
     remaining = [
         a
-        for a in _list_apps_from_export(config.layout_export)
+        for a in list_all_apps(_layout_from_export(config.layout_export))
         if a and a not in assigned
     ]
 

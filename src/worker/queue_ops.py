@@ -1,11 +1,13 @@
 """Core queue operations: enqueue, claim, finish, retry, requeue, purge.
 
 Provides the Job dataclass, path helpers, and all state-transition functions
-for the file-based job queue under QUEUE_ROOT.
+for the file-based job queue under QUEUE_ROOT, which is resolved from
+DANCING_BEAR_WORKER_STATE_DIR on every read unless explicitly assigned.
 """
 
 from __future__ import annotations
 
+import errno
 import json
 import logging
 import os
@@ -15,9 +17,12 @@ import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
+from glob import escape as glob_escape
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import TYPE_CHECKING
 
+from core.coerce import coerce_int
 from core.date_utils import iso_now, parse_iso_utc_strict
 from core.fileutil import atomic_write_json, safe_load_json
 from worker._helpers import (
@@ -28,6 +33,36 @@ from worker._helpers import (
 
 _log = logging.getLogger(__name__)
 
+_QUEUE_ROOT_ATTR = "QUEUE_ROOT"
+
+if TYPE_CHECKING:
+    # Declared for the type checker only: at runtime QUEUE_ROOT is served by
+    # the module ``__getattr__`` below unless something assigns it.
+    QUEUE_ROOT: Path
+else:
+
+    def __getattr__(name: str) -> Path:
+        """Resolve ``QUEUE_ROOT`` at read time (PEP 562).
+
+        There is deliberately no module-level ``QUEUE_ROOT`` assignment: an
+        import-time value would freeze whatever ``DANCING_BEAR_WORKER_STATE_DIR``
+        held when this module was first imported, and callers that pass
+        ``root=q.QUEUE_ROOT`` explicitly would keep using it after the variable
+        changed.  Each read of ``q.QUEUE_ROOT`` therefore calls
+        ``get_worker_state_dir("queue")``.
+
+        Assigning ``q.QUEUE_ROOT = path`` stores it in the module ``__dict__``,
+        which Python consults before this hook, so an explicit override wins
+        until it is deleted (``del q.QUEUE_ROOT``; ``mock.patch.object`` does
+        this on exit).  Defined outside ``TYPE_CHECKING`` so mypy keeps
+        reporting unknown attributes of this module instead of typing them all
+        as ``Path``.
+        """
+        if name == _QUEUE_ROOT_ATTR:
+            return get_worker_state_dir("queue")
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 # Sentinel distinguishing "caller has no token concept, skip the check"
 # (the parameter's default) from "caller expects the record to carry no
 # token" (an explicit None passed as the expected value). Both states use
@@ -36,30 +71,39 @@ _log = logging.getLogger(__name__)
 # identity against this sentinel instead.
 _NO_TOKEN_CHECK = object()
 
-try:
-    QUEUE_ROOT = get_worker_state_dir("queue")
-except Exception:  # pragma: no cover - defensive fallback  # nosec B110 - best-effort path resolution
-    QUEUE_ROOT = Path("_data/queue")
-
 QUEUE_FOLDERS: tuple[str, ...] = ("pending", "processing", "done", "error")
 _JOB_SUFFIX = ".json"
 # Written by start_processing; identifies one claim of a job so a worker whose
 # job was requeued (and possibly re-claimed elsewhere) cannot complete it.
 CLAIM_TOKEN_FIELD = "claim_token"  # nosec B105 - JSON field name, not a secret
+# Written into a staged record, fresh, before it is published to pending/.
+# Claim and finish keep it, so a queue record carrying a staged file's value
+# proves that staged file was already published (see _published_copy_of).
+REQUEUE_ID_FIELD = "requeue_id"
 _TRANSITION_LOCK_NAME = ".transitions.lock"
 # Record statuses that name their own destination folder (see _write_finished).
 _TERMINAL_FOLDERS: tuple[str, ...] = ("done", "error")
 
 
 def _q(root: Path | None) -> Path:
-    """Return *root* if given, otherwise the current module-level QUEUE_ROOT.
+    """Return *root* if given, otherwise the current ``QUEUE_ROOT``.
 
-    Resolving here at call time, rather than writing QUEUE_ROOT as the parameter
-    default, matters: a default is bound at import, so a caller that omits ``root`` would
-    reach the user's real queue even after a test reassigned QUEUE_ROOT, and the
-    live daemon would then run the test's jobs.
+    ``QUEUE_ROOT`` is an explicit assignment when one is in effect, and is
+    otherwise resolved from ``DANCING_BEAR_WORKER_STATE_DIR`` at call time, so
+    ``_q(None)`` and ``q.QUEUE_ROOT`` always agree and neither depends on when
+    this module was imported.
+
+    Raises:
+        Any exception raised by ``get_worker_state_dir`` propagates to the
+        caller.  There is no fallback path: a silent fallback could point the
+        queue somewhere the caller did not choose.
     """
-    return root if root is not None else QUEUE_ROOT
+    if root is not None:
+        return root
+    override = globals().get(_QUEUE_ROOT_ATTR)
+    if override is not None:
+        return Path(override)
+    return get_worker_state_dir("queue")
 
 
 def _ensure_dirs(root: Path | None = None) -> dict[str, Path]:
@@ -238,12 +282,11 @@ def start_processing(job_path: Path, root: Path | None = None) -> tuple[Path, st
                 data[FIELD_UPDATED_AT] = iso_now()
                 atomic_write_json(new_path, data)
             except Exception as exc:
-                import logging as _logging
-
-                _logging.getLogger(__name__).debug(
+                _log.debug(
                     "Failed to update processing job %s: %s", new_path, exc
                 )
                 token = ""  # nosec B105 - empty string signals metadata-write failure, not a credential
+            _reconcile_staged_on_claim(job_path)
         return new_path, token
     except FileNotFoundError:
         # Claimed elsewhere; ignore
@@ -443,6 +486,7 @@ def retry(
         data["not_before"] = nb.strftime(ISO_DATETIME_FORMAT)
         data[FIELD_UPDATED_AT] = iso_now()
         data.pop(CLAIM_TOKEN_FIELD, None)
+        data[REQUEUE_ID_FIELD] = uuid.uuid4().hex
         if reason:
             data["last_error"] = str(reason)
         atomic_write_json(staged, data)
@@ -626,8 +670,10 @@ def _normalize_requeued(data: dict[str, object], reason: str) -> None:
     """Set the metadata every requeued pending/ record carries.
 
     Eligible immediately, ``reason`` as ``last_error``, attempts untouched,
-    and no claim token: the next claim writes its own.
-    Shared by every path that publishes a staged record, so they cannot drift.
+    no claim token (the next claim writes its own), and a fresh
+    ``REQUEUE_ID_FIELD`` (``retry`` writes one too).
+    Shared by every requeue path that publishes a staged record, so they
+    cannot drift.
     """
     now = iso_now()
     data["status"] = "pending"
@@ -635,6 +681,7 @@ def _normalize_requeued(data: dict[str, object], reason: str) -> None:
     data[FIELD_UPDATED_AT] = now
     data["last_error"] = str(reason)
     data.pop(CLAIM_TOKEN_FIELD, None)
+    data[REQUEUE_ID_FIELD] = uuid.uuid4().hex
 
 
 def _rewrite_staged(staged: Path, reason: str, *, only_if_unnormalized: bool) -> None:
@@ -642,11 +689,17 @@ def _rewrite_staged(staged: Path, reason: str, *, only_if_unnormalized: bool) ->
 
     ``only_if_unnormalized`` leaves a record that already says
     ``status: pending`` untouched: its requeue (or retry) finished the
-    rewrite before it was interrupted. An unreadable record is published
-    as-is rather than replaced with near-empty metadata; stale metadata
-    beats a lost job.
+    rewrite before it was interrupted. A record that is not a JSON object is
+    published as-is rather than replaced with near-empty metadata; stale
+    metadata beats a lost job. A read or write failure raises, and the
+    caller must then leave ``staged`` unpublished: a record published
+    without its fresh ``REQUEUE_ID_FIELD`` cannot be recognised by
+    ``_published_copy_of`` once it is claimed.
     """
-    data = safe_load_json(staged, default=None)
+    try:
+        data = _read_json_strict(staged)
+    except ValueError:
+        data = None
     if not isinstance(data, dict):
         _log.debug("Staged job %s is not a JSON object; publishing unchanged", staged)
         return
@@ -708,7 +761,7 @@ def _copy_exclusive(staged: Path, dest: Path) -> None:
     this check is what catches a collision with it.
     """
     content = staged.read_bytes()
-    tmp = dest.with_name(f".{dest.name}.tmp.{uuid.uuid4().hex}")
+    tmp = dest.with_name(f"{_publish_temp_prefix(dest)}{uuid.uuid4().hex}")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
         with os.fdopen(fd, "wb") as fh:
@@ -718,119 +771,344 @@ def _copy_exclusive(staged: Path, dest: Path) -> None:
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
-    # Publish atomically: os.link raises FileExistsError if dest exists,
-    # preserving the no-clobber guarantee.
     try:
-        os.link(tmp, dest)
-    except FileExistsError:
-        tmp.unlink(missing_ok=True)
-        raise
-    except OSError:
-        # Hard links unavailable even within the directory. dest.exists()
-        # never creates a placeholder there, so a pre-existing rival is
-        # refused exactly as the hard-link path refuses one.
-        if dest.exists():
-            tmp.unlink(missing_ok=True)
-            raise FileExistsError(dest)
-        # Second existence check, immediately before the replace, to catch a
-        # rival that created dest in the gap between the check above and now.
-        # This does not eliminate the window but narrows it to the shortest
-        # possible interval before the replace, making any remaining gap
-        # detectable by the post-replace content re-read below (which catches
-        # a rival that replaces us after our own write).
-        if dest.exists():
-            tmp.unlink(missing_ok=True)
-            raise FileExistsError(dest)
-        tmp.replace(dest)
-        # Detect a rival that claimed dest in the narrow gap between the
-        # second check above and this replace: re-read what is on disk now and
-        # compare it to the bytes we just wrote. A mismatch means a rival
-        # overwrote our record (or we overwrote theirs and a still-later rival
-        # then overwrote us) -- raise so the caller leaves staged in place for
-        # recover_staged_requeues rather than trusting a publish that may have
-        # destroyed another worker's record.
+        # Publish atomically: os.link raises FileExistsError if dest exists,
+        # preserving the no-clobber guarantee. EEXIST is not in
+        # _LINK_UNSUPPORTED_ERRNOS, so it re-raises here unchanged, as does
+        # every failure that is not "this filesystem has no hard links".
         try:
-            observed = dest.read_bytes()
-        except FileNotFoundError:
-            # Gone already -- something else raced past our own publish.
-            raise _NoClobberRaceLost(dest) from None
-        if observed != content:
-            raise _NoClobberRaceLost(dest)
-        return
-    tmp.unlink(missing_ok=True)
+            os.link(tmp, dest)
+        except OSError as exc:
+            if not _links_unsupported(exc):
+                raise
+            _replace_if_absent(tmp, dest, content)
+    finally:
+        # No outcome needs the temp name: after a link it is a second name
+        # for dest, after a replace it is gone, and on any error it holds
+        # bytes nothing will publish.
+        tmp.unlink(missing_ok=True)
+
+
+# errno values link(2) returns when the filesystem cannot hard-link at all.
+# Only these select _copy_exclusive's check-then-replace fallback; any other
+# link failure (EIO, EACCES, ENOSPC, EMLINK, ...) re-raises, because treating
+# a transient or permission error as "no links" would give up the atomic
+# no-clobber publish on a filesystem that supports it.
+# - EPERM: Linux's "filesystem does not support hard links" (vfat, some
+#   FUSE/SMB mounts). link(2) reports a denied directory write as EACCES, not
+#   EPERM, and the other EPERM causes (directory source, immutable file,
+#   protected_hardlinks on a file owned by someone else) do not arise for the
+#   queue's own regular files. If one did, the fallback is still safe: its
+#   O_EXCL temp create fails on a real permission problem, and otherwise it
+#   copies rather than links.
+# - ENOTSUP / EOPNOTSUPP: macOS and FUSE "operation not supported" (the two
+#   are distinct values on macOS, equal on Linux).
+# - ENOSYS: a FUSE filesystem that does not implement link at all.
+# - EXDEV: cross-device; cannot happen for a same-directory temp, but it is a
+#   "no link possible here" condition, not a transient one.
+_LINK_UNSUPPORTED_ERRNOS: frozenset[int] = frozenset(
+    {errno.EPERM, errno.ENOTSUP, errno.EOPNOTSUPP, errno.ENOSYS, errno.EXDEV}
+)
+
+
+def _links_unsupported(exc: OSError) -> bool:
+    """True if ``exc`` from ``os.link`` means hard links are unavailable here."""
+    return exc.errno in _LINK_UNSUPPORTED_ERRNOS
+
+
+def _replace_if_absent(tmp: Path, dest: Path, content: bytes) -> None:
+    """Publish ``tmp`` as ``dest`` without hard links; see ``_copy_exclusive``.
+
+    Raises FileExistsError if ``dest`` exists and ``_NoClobberRaceLost`` if a
+    post-replace re-read does not return ``content``.
+    """
+    # dest.exists() never creates a placeholder, so a pre-existing rival is
+    # refused exactly as the hard-link path refuses one.
+    if dest.exists():
+        raise FileExistsError(dest)
+    # Second check, immediately before the replace, narrows the window for a
+    # rival that created dest since the first; the re-read below catches what
+    # remains.
+    if dest.exists():
+        raise FileExistsError(dest)
+    tmp.replace(dest)
+    # A mismatch means a rival overwrote our record (or we overwrote theirs
+    # and a still-later rival then overwrote us): raise so the caller leaves
+    # staged in place for recover_staged_requeues rather than trusting a
+    # publish that may have destroyed another worker's record.
+    try:
+        observed = dest.read_bytes()
+    except FileNotFoundError:
+        # Gone already -- something else raced past our own publish.
+        raise _NoClobberRaceLost(dest) from None
+    if observed != content:
+        raise _NoClobberRaceLost(dest)
+
+
+def _publish_temp_prefix(dest: Path) -> str:
+    """Name prefix of the hidden temp files ``_copy_exclusive`` writes for ``dest``."""
+    return f".{dest.name}.tmp."
+
+
+def _discard_publish_temps(dest: Path) -> None:
+    """Remove ``_copy_exclusive`` temp files left beside ``dest`` that are ``dest``.
+
+    A crash after ``os.link(tmp, dest)`` but before ``tmp.unlink()`` leaves the
+    temp name as a second link to the published record. Only temps that are
+    the same inode as ``dest`` are removed, so nothing but a redundant name
+    for the record already published is ever deleted.
+    """
+    for tmp in dest.parent.glob(f"{glob_escape(_publish_temp_prefix(dest))}*"):
+        try:
+            if tmp.samefile(dest):
+                tmp.unlink()
+        except OSError:
+            pass  # nosec B110 - a leftover name is harmless; the record itself is published
 
 
 def _is_own_interrupted_publish(staged: Path, dest: Path) -> bool:
-    """True if ``dest``'s bytes already match ``staged``'s (a self-publish).
+    """True if ``dest`` is ``staged``'s record from an earlier, interrupted publish.
 
-    Without hard links, ``dest`` and ``staged`` are never the same inode, so
-    the ``samefile()`` self-recognition the hard-link branch of
-    ``_publish_no_clobber`` uses is unavailable. A prior call can still have
-    published ``dest`` successfully via ``_copy_exclusive`` and then crashed
-    before reaching ``staged.unlink()`` -- that is our own interrupted
-    publish, not a rival, and treating it as a rival strands ``staged``
-    forever: once ``dest`` is later consumed (claimed into processing/) a
-    subsequent recovery pass would see ``dest`` gone and republish the stale
-    ``staged`` copy, duplicating the job. Content comparison is the only
-    signal available without inode identity: identical bytes mean self-
-    recognition; different bytes (or an unreadable file) mean a genuine
-    rival, which is left for the caller to refuse.
+    An earlier publish can create ``dest`` and then crash before
+    ``staged.unlink()``. Treating that ``dest`` as a rival strands ``staged``:
+    once ``dest`` is claimed into processing/, a later recovery pass finds
+    pending/ free and publishes ``staged`` again, running the job twice.
+
+    Inode identity recognises only the direct hard-link publish. The
+    ``_copy_exclusive`` fallback links ``dest`` to its hidden temp file (or
+    renames the temp over ``dest``), so ``dest`` is never ``staged``'s inode
+    there, and a retry's ``os.link(staged, dest)`` reports FileExistsError
+    before the fallback is ever reached. Identical bytes are therefore also
+    recognised: every publisher writes ``staged`` before publishing it, so
+    ``dest`` holds exactly those bytes. A rival with a different record (or an
+    unreadable ``dest``) is not a match and is left for the caller to refuse.
     """
     try:
-        return dest.read_bytes() == staged.read_bytes()
+        return dest.samefile(staged) or dest.read_bytes() == staged.read_bytes()
     except OSError:
         return False  # nosec B110 - unreadable dest is treated as a rival, not a self-match
+
+
+def _requeue_id(data: object) -> str | None:
+    """A loaded record's ``REQUEUE_ID_FIELD``, or None if it has no usable one."""
+    value = data.get(REQUEUE_ID_FIELD) if isinstance(data, dict) else None
+    return value if isinstance(value, str) and value else None
+
+
+def _load_requeue_id(path: Path) -> str | None:
+    """``_requeue_id`` of the record at ``path``; None if missing or unreadable."""
+    return _requeue_id(safe_load_json(path, default=None))
+
+
+def _read_json_strict(path: Path) -> object:
+    """Parsed JSON at ``path``, or None if ``path`` does not exist.
+
+    Unlike ``safe_load_json``, a present file that cannot be read raises
+    OSError and one that is not valid JSON raises ValueError, so the caller
+    can tell "no record" apart from "a record it could not see".
+    """
+    try:
+        raw = path.read_bytes()
+    except FileNotFoundError:
+        return None
+    return json.loads(raw)
+
+
+class _PublishUndecidable(Exception):
+    """A record ``_published_copy_of`` must inspect is present but unreadable.
+
+    ``staged`` may already have been published and claimed, so it is not
+    published; ``_publish_no_clobber`` leaves it for a later recovery pass.
+    """
+
+
+def _candidate_requeue_id(path: Path) -> str | None:
+    """``_requeue_id`` of ``path``; None if absent. Raises ``_PublishUndecidable``."""
+    try:
+        return _requeue_id(_read_json_strict(path))
+    except (OSError, ValueError) as exc:
+        raise _PublishUndecidable(f"{path}: {exc}") from exc
+
+
+def _published_copy_of(staged: Path, dest: Path) -> tuple[Path, str] | None:
+    """The processing/, done/ or error/ record ``staged`` was already published as.
+
+    An earlier publish can put ``staged``'s record at ``dest`` and stop before
+    ``staged.unlink()``; if that ``dest`` is claimed before recovery runs,
+    ``dest`` is gone and publishing ``staged`` again would run the job twice.
+    Every publisher writes a fresh ``REQUEUE_ID_FIELD`` into ``staged`` and
+    sets ``status: pending`` before publishing, and claim and finish keep the
+    field, so a record under ``dest``'s id carrying the same value descends
+    from this staged file. Only a ``pending`` staged record is checked: one
+    still saying ``processing`` was never rewritten, so never published, and
+    its field (if any) is from an earlier generation. A genuinely new enqueue
+    of the same id has no such field and is never matched.
+
+    Returns the matching record's path and the shared id. Only a candidate
+    that does not exist is skipped: one that is present but cannot be read
+    or parsed (EIO, EACCES, corrupt JSON) might be the claimed copy, so
+    ``_PublishUndecidable`` is raised and ``staged`` must stay unpublished.
+    ``staged`` itself is read the same way, except that one which is not
+    valid JSON has no identity and is never matched.
+
+    The match lasts only while a descendant stays in processing/, done/ or
+    error/; ``start_processing`` therefore discards a superseded staged
+    file at claim time (see ``_reconcile_staged_on_claim``), before
+    ``purge`` or a same-id replacement could remove that descendant.
+    """
+    try:
+        data = _read_json_strict(staged)
+    except OSError as exc:
+        raise _PublishUndecidable(f"{staged}: {exc}") from exc
+    except ValueError:
+        return None
+    requeue_id = _requeue_id(data)
+    if requeue_id is None or not isinstance(data, dict) or data.get("status") != "pending":
+        return None
+    root = dest.parent.parent
+    for folder in ("processing", *_TERMINAL_FOLDERS):
+        candidate = _job_path(root / folder, dest.stem)
+        if _candidate_requeue_id(candidate) == requeue_id:
+            return candidate, requeue_id
+    return None
+
+
+def _discard_superseded_staged(staged: Path, dest: Path) -> bool:
+    """Remove ``staged`` and its leftover temps if it was already published; True if so.
+
+    See ``_published_copy_of``, whose ``_PublishUndecidable`` propagates.
+    Call with ``_transition_lock`` held, so no ``_copy_exclusive`` temp
+    matched here belongs to a publish in progress.
+    """
+    match = _published_copy_of(staged, dest)
+    if match is None:
+        return False
+    copy, requeue_id = match
+    for tmp in dest.parent.glob(f"{glob_escape(_publish_temp_prefix(dest))}*"):
+        if _load_requeue_id(tmp) == requeue_id:
+            tmp.unlink(missing_ok=True)
+    staged.unlink(missing_ok=True)
+    _log.warning(
+        "Not publishing %s: an earlier publish of it is already at %s", staged.name, copy
+    )
+    return True
+
+
+def _reconcile_staged_on_claim(claimed: Path) -> None:
+    """Discard a staged requeue that ``start_processing`` just claimed a copy of.
+
+    ``claimed`` is the pending/ path the claim renamed from. Call with
+    ``_transition_lock`` held, right after the claim. A staged file left by
+    a publish interrupted before ``staged.unlink()`` is recognised only
+    while its descendant stays in processing/, done/ or error/; discarding
+    it here, while the claimed record certainly carries its identity, keeps
+    a later ``purge`` or same-id replacement from making it look unpublished.
+    Any failure is logged: ``recover_staged_requeues`` checks again.
+
+    Known limit: if this reconciliation fails and the claimed job then
+    finishes and is purged (or replaced by a same-id job) before any
+    recovery pass, the staged copy looks unpublished and is published again.
+    That needs a crash between publish and ``staged.unlink()``, a read error
+    here, a finish and a purge in that order. Refusing the claim on failure
+    would close it, at the cost of a persistently unreadable staged file
+    blocking the job indefinitely; a possible second run was preferred.
+    """
+    staged = claimed.parent.parent / "processing" / f"{claimed.name}{_REQUEUE_STAGING_SUFFIX}"
+    if not staged.exists():
+        return
+    try:
+        _discard_superseded_staged(staged, claimed)
+    except Exception as exc:  # nosec B110 - recovery re-checks; the claim itself succeeded
+        _log.warning("Could not reconcile staged requeue %s on claim: %s", staged.name, exc)
 
 
 def _publish_no_clobber(staged: Path, dest: Path) -> bool:
     """Move ``staged`` to ``dest`` unless ``dest`` already holds another file.
 
     A hard link publishes atomically and fails if ``dest`` exists, so a
-    pending/ job with the same id is never overwritten. If ``dest`` is
-    already a link to ``staged`` (an earlier publish stopped before its
-    unlink), only the staging name is removed. Without hard links the record
-    is copied into an exclusively created ``dest``; a crash mid-copy can
-    leave a partial ``dest`` beside the intact staged file, never a lost job.
-    Returns False when ``staged`` is gone (published by someone else) or,
-    leaving ``staged`` in place for a later recovery, when ``dest`` is a
-    different file.
+    pending/ job with the same id is never overwritten. Without hard links,
+    ``_copy_exclusive`` writes a hidden temp file and publishes it whole, so
+    ``dest`` is either absent or complete; a crash can leave only the temp
+    name and ``staged`` behind, never a partial ``dest`` or a lost job.
+
+    A crash after ``dest`` was published but before ``staged`` was unlinked
+    is recovered in both of its later states. If ``dest`` is still present
+    and is ``staged``'s record -- the same inode or identical bytes (see
+    ``_is_own_interrupted_publish``) -- only the staging name and any
+    leftover temp link are removed, and True is returned. If ``dest`` was
+    already claimed, or claimed and finished, the record carrying
+    ``staged``'s ``REQUEUE_ID_FIELD`` is found in processing/, done/ or
+    error/ (see ``_published_copy_of``); ``staged`` and its leftover temps
+    are removed and False is returned, since nothing was published.
+
+    Otherwise returns False when ``staged`` is gone (published by someone
+    else) or, leaving ``staged`` in place for a later recovery, when
+    ``dest`` is a different file or a record that check must read is
+    present but unreadable (``_PublishUndecidable``).
     """
     dest.parent.mkdir(parents=True, exist_ok=True)
     try:
+        if _discard_superseded_staged(staged, dest):
+            return False
+    except _PublishUndecidable as exc:
+        _log.warning(
+            "Not publishing %s yet: cannot tell whether it was already published (%s); "
+            "left for a later recovery pass",
+            staged.name,
+            exc,
+        )
+        return False
+    try:
         os.link(staged, dest)
     except FileExistsError:
-        # A dest published by an interrupted _copy_exclusive is linked to its
-        # temp file, not to staged, so samefile() alone would call our own
-        # record a rival and strand staged; check the content as that branch does.
-        if not (dest.samefile(staged) or _is_own_interrupted_publish(staged, dest)):
-            _log.warning("Not publishing %s: %s already exists", staged.name, dest)
-            return False
+        return _settle_existing_dest(staged, dest)
     except FileNotFoundError:
         _log.debug("Not publishing %s: it is already gone", staged.name)
         return False
-    except OSError:
-        # No hard links on this filesystem: exclusive create, never check-then-replace.
-        try:
-            _copy_exclusive(staged, dest)
-        except FileExistsError:
-            if _is_own_interrupted_publish(staged, dest):
-                staged.unlink(missing_ok=True)
-                return True
-            _log.warning("Not publishing %s: %s already exists", staged.name, dest)
-            return False
-        except FileNotFoundError:
-            _log.debug("Not publishing %s: it is already gone", staged.name)
-            return False
-        except _NoClobberRaceLost:
-            # A rival (most likely a lock-free enqueue() of the same id)
-            # claimed dest in the narrow check-then-replace gap this
-            # filesystem class cannot close atomically. staged is left in
-            # place for recover_staged_requeues rather than trusting a
-            # replace that may have destroyed the rival's record.
-            _log.warning(
-                "Not publishing %s: lost a no-clobber race for %s", staged.name, dest
-            )
-            return False
+    except OSError as exc:
+        # Any other link failure re-raises with staged in place, so a later
+        # recovery pass retries it; only "no hard links here" takes the copy.
+        if not _links_unsupported(exc):
+            raise
+        return _publish_by_copy(staged, dest)
+    staged.unlink(missing_ok=True)
+    return True
+
+
+def _settle_existing_dest(staged: Path, dest: Path) -> bool:
+    """Handle a publish that found ``dest`` present; True if it is ``staged``'s own.
+
+    ``dest`` left by an earlier interrupted publish of ``staged`` completes
+    that publish (the staging name and any leftover temp link are removed).
+    Any other ``dest`` is a rival: ``staged`` is kept and False is returned.
+    """
+    if not _is_own_interrupted_publish(staged, dest):
+        _log.warning("Not publishing %s: %s already exists", staged.name, dest)
+        return False
+    _discard_publish_temps(dest)
+    staged.unlink(missing_ok=True)
+    return True
+
+
+def _publish_by_copy(staged: Path, dest: Path) -> bool:
+    """``_publish_no_clobber`` for a filesystem without hard links."""
+    try:
+        _copy_exclusive(staged, dest)
+    except FileExistsError:
+        return _settle_existing_dest(staged, dest)
+    except FileNotFoundError:
+        _log.debug("Not publishing %s: it is already gone", staged.name)
+        return False
+    except _NoClobberRaceLost:
+        # A rival (most likely a lock-free enqueue() of the same id)
+        # claimed dest in the narrow check-then-replace gap this
+        # filesystem class cannot close atomically. staged is left in
+        # place for recover_staged_requeues rather than trusting a
+        # replace that may have destroyed the rival's record.
+        _log.warning(
+            "Not publishing %s: lost a no-clobber race for %s", staged.name, dest
+        )
+        return False
     staged.unlink(missing_ok=True)
     return True
 
@@ -882,6 +1160,8 @@ def _stage_and_requeue(
     written and recovery never sees it half-done. Returns the pending/ path,
     or None when ``src`` was already gone (nothing is written) or the publish
     was refused (the staged file stays for ``recover_staged_requeues``).
+    A failed metadata rewrite re-raises with the staged file kept for that
+    recovery, which rewrites it before publishing (see ``_rewrite_staged``).
     A record ``finish`` already rewrote to a terminal status is moved to its
     terminal folder instead and None is returned (see
     ``_complete_interrupted_finish``): requeueing it would run it again.
@@ -927,8 +1207,18 @@ def _stage_and_requeue(
             return None
         try:
             _rewrite_staged(staged, reason, only_if_unnormalized=False)
-        except Exception as exc:  # still move the job: stale metadata beats a stranded file
-            _log.debug("Failed to update metadata for requeued job %s: %s", src.stem, exc)
+        except Exception as exc:
+            # Publishing now would put a record with no fresh REQUEUE_ID_FIELD
+            # in pending/; once claimed, recovery could not recognise it and
+            # would publish the job again. recover_staged_requeues rewrites
+            # and publishes the staged file instead.
+            _log.warning(
+                "Failed to update metadata for requeued job %s: %s; "
+                "left staged for recovery",
+                src.stem,
+                exc,
+            )
+            raise
         new_path = _job_path(pending_dir, src.stem)
         return new_path if _publish_no_clobber(staged, new_path) else None
 
@@ -997,7 +1287,11 @@ def recover_staged_requeues(root: Path | None = None) -> list[str]:
     ``requeue_processing`` would have, with ``SHUTDOWN_REQUEUE_REASON`` as
     ``last_error``; one already rewritten is published unchanged. An
     existing pending/ job with the same id is never overwritten, and a
-    second call is a no-op.
+    second call is a no-op. A staged file whose earlier publish already
+    reached pending/ and was claimed (or finished) is removed rather than
+    published again; see ``_publish_no_clobber``. A staged file that cannot
+    be read, or whose possible descendant is present but unreadable, is left
+    for a later pass.
     """
     paths = _ensure_dirs(root)
     recovered: list[str] = []
@@ -1038,25 +1332,21 @@ def list_error(root: Path | None = None) -> list[tuple[Path, dict[str, object]]]
 
 def _apply_max_attempts(data: dict, new_max_attempts: int) -> None:
     """Set max_attempts on data, logging if the value cannot be coerced."""
-    import logging as _logging
-
     try:
         data["max_attempts"] = int(new_max_attempts)
     except Exception as exc:
-        _logging.getLogger(__name__).debug(
+        _log.debug(
             "Invalid new_max_attempts=%s: %s", new_max_attempts, exc
         )
 
 
 def _strip_error_field(data: dict, job_path: Path) -> None:
     """Move data['error'] to data['last_error'] and remove the original key."""
-    import logging as _logging
-
     data["last_error"] = str(data.get("error"))
     try:
         del data["error"]
     except Exception as exc:
-        _logging.getLogger(__name__).debug(
+        _log.debug(
             "Failed to strip error field for %s: %s", job_path, exc
         )
 
@@ -1068,12 +1358,10 @@ def _remove_job_file(job_path: Path) -> None:
     removes the old one. The message stays generic because the path itself
     identifies which queue directory the job came from.
     """
-    import logging as _logging
-
     try:
         job_path.unlink(missing_ok=True)
     except Exception as exc:
-        _logging.getLogger(__name__).debug(
+        _log.debug(
             "Failed to remove job file %s: %s", job_path, exc
         )
 
@@ -1126,9 +1414,7 @@ def _parse_timestamp_safe(ts_str: str, path: Path, field_name: str) -> datetime 
     try:
         return parse_iso_utc_strict(ts_str)
     except Exception as exc:
-        import logging as _logging
-
-        _logging.getLogger(__name__).debug(
+        _log.debug(
             "Invalid %s '%s' for %s: %s", field_name, ts_str, path, exc
         )
         return None
@@ -1139,9 +1425,7 @@ def _get_file_mtime(path: Path) -> datetime | None:
     try:
         return datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
     except Exception as exc:
-        import logging as _logging
-
-        _logging.getLogger(__name__).debug("Failed to stat %s: %s", path, exc)
+        _log.debug("Failed to stat %s: %s", path, exc)
         return None
 
 
@@ -1191,13 +1475,14 @@ def _reap_move_to_pending(ctx: ReapJobContext, log: logging.Logger) -> bool:
     return True
 
 
-def _reap_effective_timeout(data: dict, job_timeout: int) -> int:
-    """Resolve the per-job timeout override, falling back to the default."""
-    try:
-        per_job = int(data.get("timeout_sec") or 0)
-        return per_job if per_job > 0 else job_timeout
-    except (TypeError, ValueError):
-        return job_timeout
+def effective_job_timeout(data: dict, default_timeout: int) -> int:
+    """Resolve the per-job ``timeout_sec`` override, falling back to the default.
+
+    Any value ``int()`` rejects -- None, a list, "abc", NaN, or +/-Infinity
+    (which ``json`` decodes from a hand-edited record) -- means "no override".
+    """
+    per_job = coerce_int(data.get("timeout_sec"))
+    return per_job if per_job > 0 else default_timeout
 
 
 def _reap_one_job(p: Path, job_timeout: int, paths: dict, now: datetime, log: logging.Logger) -> str | None:
@@ -1215,7 +1500,7 @@ def _reap_one_job(p: Path, job_timeout: int, paths: dict, now: datetime, log: lo
         return None
 
     age = int((now - started).total_seconds())
-    effective_timeout = _reap_effective_timeout(data, job_timeout)
+    effective_timeout = effective_job_timeout(data, job_timeout)
     if effective_timeout <= 0 or age < effective_timeout:
         return None
 
@@ -1248,10 +1533,6 @@ def reap_stale_processing_jobs(
     root: Path | None = None,
 ) -> list[str]:
     """Move processing jobs older than their effective timeout back to pending/."""
-    import logging as _logging
-
-    _log = _logging.getLogger(__name__)
-
     paths = _ensure_dirs(root)
     now = datetime.now(UTC)
     reaped: list[str] = []
@@ -1274,9 +1555,7 @@ def _purge_file(p: Path, now: datetime, older_than_sec: int) -> bool:
         p.unlink(missing_ok=True)
         return True
     except Exception as exc:
-        import logging as _logging
-
-        _logging.getLogger(__name__).debug("Failed purge for %s: %s", p, exc)
+        _log.debug("Failed purge for %s: %s", p, exc)
         return False
 
 

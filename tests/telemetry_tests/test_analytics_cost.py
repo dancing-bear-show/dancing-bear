@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 from unittest import mock
 
 from telemetry.otel.analytics.cost import (
-    MODEL_PRICING,
     _accumulate_cost_datapoints,
     _aggregate_requests_by_key,
     _aggregate_requests_by_session_and_model,
@@ -15,10 +14,8 @@ from telemetry.otel.analytics.cost import (
     _build_session_timestamps,
     _calculate_totals,
     get_all_costs,
-    get_cache_read_multiplier,
     get_daily_costs,
     get_model_performance,
-    get_model_pricing,
 )
 from telemetry.otel.cost_models import SessionPerf
 from telemetry.otel.models import (
@@ -28,6 +25,12 @@ from telemetry.otel.models import (
     OTLPEvent,
     OTLPResource,
     OTLPValue,
+)
+from telemetry.pricing import (
+    DEFAULT_PRICING_KEY,
+    MODEL_PRICING,
+    get_cache_read_multiplier,
+    get_model_pricing,
 )
 
 
@@ -260,8 +263,7 @@ class TestGetModelPricing(unittest.TestCase):
 
     def test_total_fallback_to_default(self):
         result = get_model_pricing("completely-unrecognized-model-xyz")
-        from telemetry.otel.analytics.cost import DEFAULT_MODEL
-        self.assertEqual(result, MODEL_PRICING[DEFAULT_MODEL])
+        self.assertEqual(result, MODEL_PRICING[DEFAULT_PRICING_KEY])
 
     def test_case_insensitive_matching(self):
         # Mixed-case model name — should not crash and should match sonnet fallback
