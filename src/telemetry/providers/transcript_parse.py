@@ -18,8 +18,8 @@ from telemetry.models import AgentSummary, SessionEvent
 
 logger = logging.getLogger(__name__)
 
-_JSONL_GLOB = "*.jsonl"
-_SUBDIR_GLOB = "*/subagents/*.jsonl"
+JSONL_GLOB = "*.jsonl"
+SUBDIR_GLOB = "*/subagents/*.jsonl"
 
 CostFn = Callable[[str, int, int, int, int], float]
 
@@ -203,9 +203,9 @@ def iter_jsonl_files(project_dir: Path) -> Iterator[tuple[Path, str]]:
     - Old (pre-Apr 2026): ``<project>/<session-uuid>/subagents/<agent-id>.jsonl``
       session_id = the ``<session-uuid>`` directory name
     """
-    for jsonl_file in project_dir.glob(_JSONL_GLOB):
+    for jsonl_file in project_dir.glob(JSONL_GLOB):
         yield jsonl_file, jsonl_file.stem
-    for jsonl_file in project_dir.glob(_SUBDIR_GLOB):
+    for jsonl_file in project_dir.glob(SUBDIR_GLOB):
         # path is <project>/<session-uuid>/subagents/<agent-id>.jsonl
         # parent is <project>/<session-uuid>/subagents
         # parent.parent is <project>/<session-uuid>

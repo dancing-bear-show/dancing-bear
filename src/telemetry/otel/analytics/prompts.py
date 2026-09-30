@@ -11,10 +11,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from telemetry.otel.analytics.cost import get_model_pricing
 from telemetry.otel.analytics.perf import get_session_id
 from telemetry.otel.cost_models import PromptMetrics
 from telemetry.otel.reader import OTLPDataDir, OTLPReader
+from telemetry.pricing import get_model_pricing
 from telemetry.timeutil import now_utc, parse_window
 
 if TYPE_CHECKING:
@@ -184,6 +184,7 @@ def _process_api_request(event: OTLPEvent, acc: _PromptAccumulator) -> None:
     acc.cache_creation_tokens += cache_creation
 
     model = event.get_attr("model") or "unknown"
+    # Legacy formula (cache writes at 1x, no cache reads); not yet on compute_raw_cost.
     input_price, output_price = get_model_pricing(model)
     acc.cost += (
         (input_tokens * input_price / 1_000_000)

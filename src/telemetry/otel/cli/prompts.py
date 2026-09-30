@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from core.cli_output import emit_rows
+from core.text_utils import truncate_text
 from telemetry.otel.analytics.prompts import get_prompt_metrics
 from telemetry.otel.cost_models import PromptMetrics
 from telemetry.otel.reader import OTLPDataDir
@@ -99,8 +100,8 @@ def _output_table(metrics: list[PromptMetrics]) -> None:
     total_tools = 0
 
     for pm in metrics:
-        pid = _truncate(pm.prompt_id, 14)
-        sid = _truncate(pm.session_id, 12)
+        pid = truncate_text(pm.prompt_id, 14, suffix="...")
+        sid = truncate_text(pm.session_id, 12, suffix="...")
         dur = _format_duration_ms(pm.duration_ms)
 
         print(
@@ -149,13 +150,6 @@ def _output_json(metrics: list[PromptMetrics]) -> None:
         for pm in metrics
     ]
     emit_rows(output, "json")
-
-
-def _truncate(s: str, max_len: int) -> str:
-    """Truncate a string with ellipsis if too long."""
-    if len(s) <= max_len:
-        return s
-    return s[: max_len - 3] + "..."
 
 
 def _format_duration_ms(ms: float) -> str:
