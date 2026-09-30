@@ -137,6 +137,48 @@ description: >
   the silent-loss failure case, which would have failed the run exactly when
   everything went right.
 
+  ORCHESTRATOR — MERGING ISOLATED STAGES. For each of impl-handler,
+  impl-heartbeat and impl-tests the orchestrator must:
+
+    1. Record the feature branch tip immediately before spawning that agent:
+         git rev-parse HEAD
+       Store it as {stage-name}.base_sha in
+       {workspace}/validation/merge-baselines.json — a JSON object keyed by
+       stage name, value the 40-hex SHA. This file is written by the
+       orchestrator (not by any agent), one entry per impl stage, before the
+       first spawn. Example:
+         {"impl-handler": "<sha>", "impl-heartbeat": "<sha>",
+          "impl-tests": "<sha>"}
+
+    2. After that agent finishes and reports its commit_sha (from its result
+       JSON), merge its branch onto the feature branch:
+         git merge --no-ff worktree-agent-<id>
+       This is a real 3-way merge whose merge-base is the agent's own base,
+       so it applies only the agent's changes. Overlapping edits surface as
+       conflicts and must be resolved; never take the agent's whole file to
+       resolve. NEVER use cherry-pick (it creates new SHAs, and merge-impl
+       step 3 requires each recorded commit_sha to be an ancestor of HEAD via
+       merge-base — a cherry-picked commit is not an ancestor of the
+       originating branch). NEVER copy files over the feature branch working
+       tree.
+
+    3. Verify scope after the merge. Using the per-stage base_sha from
+       merge-baselines.json and the agent's tip:
+         agent_base=$(git merge-base <feature-base_sha> worktree-agent-<id>)
+       Confirm every path in
+         git diff --name-only <feature-base_sha> HEAD
+       also appears in
+         git diff --name-only <agent_base> <agent-tip>
+       Any path changed in the post-merge window but absent from the agent's
+       own diff means a feature-branch file was clobbered or reverted — STOP
+       and report. Paths that appear in the agent diff but NOT in the
+       post-merge window are fine: the merge may have no-op'd an already-
+       present change.
+
+    merge-impl reads merge-baselines.json and performs the step-3 scope
+    check for each stage, adding scope_ok and out_of_scope_paths to its
+    merge.json output.
+
   The adversarial review at G3 exists because a passing test suite is not
   evidence of a working one. It asks the inverse question — what mutation of
   the source would this test fail to catch — and proves its answer by breaking
@@ -1238,34 +1280,12 @@ stages:
       below in this and other isolated stages is written accordingly.
 
       ISOLATED WORKTREE BRANCHING — your worktree is cut from the LATEST main
-      at spawn time, not from the workflow's feature branch. This means the
-      orchestrator's feature branch may already have commits (from earlier
-      stages, or from prior work on this branch) that your worktree does not
-      contain. Copying files directly back onto the feature branch silently
-      REVERTS those commits. To prevent this, the orchestrator MUST:
-        1. Before spawning this agent, record the feature branch tip SHA with
-             git rev-parse HEAD
-           and store it alongside this stage's name so the merge step has it.
-        2. After this agent finishes and reports its commit SHA, bring its work
-           onto the feature branch with `git merge --no-ff worktree-agent-<id>`
-           run on the feature branch (SKILL.md rule 7c). This is a real 3-way
-           merge whose merge-base is the agent's own base, so it applies only
-           the agent's changes. Overlapping edits surface as conflicts and must
-           be resolved; never take the agent's whole file to resolve. NEVER use
-           cherry-pick (it creates new SHAs, and merge-impl step 3 requires each
-           recorded commit_sha to be an ancestor of HEAD via merge-base — a
-           cherry-picked commit is not an ancestor of the originating branch).
-           NEVER copy files over the feature branch working tree.
-        3. After the merge, verify the scope is correct: compute
-             agent-base = git merge-base <feature-tip-before-spawn> worktree-agent-<id>
-           then confirm that
-             git diff --stat <feature-tip-before-spawn> HEAD
-           lists ONLY paths that appear in
-             git diff --stat <agent-base> <agent-tip>
-           Any path changed in the first set but absent from the second means
-           a feature-branch file was clobbered or reverted — STOP and report.
-      Never copy the agent's files by hand. Never cherry-pick. Never resolve
-      a merge conflict by taking the agent's entire file.
+      at spawn time, not from the feature branch. Your job is to record
+      base_sha (see handler-impl.json schema below), commit your work, and
+      return. Do NOT merge anything yourself — the orchestrator handles
+      every merge via `git merge --no-ff` after you finish, per the
+      "ORCHESTRATOR — MERGING ISOLATED STAGES" protocol in this workflow's
+      top-level description. Never copy files; never cherry-pick.
 
       Implement the "{job_type}" handler exactly as approved in
       <your-cwd>/inputs/outputs/design/contract.json (see the survey artifact
@@ -1526,6 +1546,7 @@ stages:
           "commit_shas": [{"pr": 1, "sha": "...", "checkpoints": ["C1", "C2"]}, {"pr": 2, "sha": "...", "checkpoints": ["C3", "C4", "C5"]}, {"pr": 3, "sha": "...", "checkpoints": ["C6"]}],
           "checkpoints": [{"id": "C1", "passed": true|false, "command": "...", "evidence": "...", "notes": "..."}],
           "deferred_to_other_stage": [...],
+          "base_sha": "<git rev-parse HEAD BEFORE your first edit — the orchestrator uses this as the per-stage base for the scope check in merge-baselines.json>",
           "notes": "..."
         }
       A checkpoint you skipped is recorded passed=false with the reason, not
@@ -1562,13 +1583,13 @@ stages:
       cannot read or write; the orchestrator copies your outputs back after
       the stage completes.
 
-      ISOLATED WORKTREE BRANCHING — see impl-handler's ISOLATED WORKTREE
-      BRANCHING section for the full protocol. Your worktree is cut from
-      the LATEST main, not the feature branch. The orchestrator must record
-      the feature branch tip before spawning you, then merge your branch onto
-      the feature branch with `git merge --no-ff worktree-agent-<id>` after
-      you finish — never copy files and never cherry-pick (cherry-pick creates
-      new SHAs that break merge-impl's ancestry check).
+      ISOLATED WORKTREE BRANCHING — your worktree is cut from the LATEST main
+      at spawn time, not the feature branch. Record base_sha (see
+      heartbeat-impl.json schema below) as your initial HEAD before any edit,
+      commit your work, and return. The orchestrator handles every merge via
+      `git merge --no-ff` per the "ORCHESTRATOR — MERGING ISOLATED STAGES"
+      protocol in the top-level description. Never copy files; never
+      cherry-pick.
 
       FIRST, read `<your-cwd>/inputs/outputs/design/contract.json`'s
       heartbeat/liveness section and check which
@@ -1656,7 +1677,7 @@ stages:
 
       Write <your-cwd>/outputs/heartbeat-impl.json (NOT {workspace} — see the
       isolation boundary above):
-        {"files_modified": [...], "helper_name": "...", "fallback_behaviour": "...", "commit_sha": "...", "checkpoints": [{"id": "existing-suite-green", "passed": true|false, "command": "...", "evidence": "<the Ran N tests line>"}], "notes": "..."}
+        {"files_modified": [...], "helper_name": "...", "fallback_behaviour": "...", "commit_sha": "...", "base_sha": "<git rev-parse HEAD BEFORE your first edit>", "checkpoints": [{"id": "existing-suite-green", "passed": true|false, "command": "...", "evidence": "<the Ran N tests line>"}], "notes": "..."}
     agent:
       role: code-writer
       model: sonnet
@@ -1689,13 +1710,13 @@ stages:
       cannot read or write; the orchestrator copies your outputs back after
       the stage completes.
 
-      ISOLATED WORKTREE BRANCHING — see impl-handler's ISOLATED WORKTREE
-      BRANCHING section for the full protocol. Your worktree is cut from
-      the LATEST main, not the feature branch. The orchestrator must record
-      the feature branch tip before spawning you, then merge your branch onto
-      the feature branch with `git merge --no-ff worktree-agent-<id>` after
-      you finish — never copy files and never cherry-pick (cherry-pick creates
-      new SHAs that break merge-impl's ancestry check).
+      ISOLATED WORKTREE BRANCHING — your worktree is cut from the LATEST main
+      at spawn time, not the feature branch. Record base_sha (see
+      tests-impl.json schema below) as your initial HEAD before any edit,
+      commit your work, and return. The orchestrator handles every merge via
+      `git merge --no-ff` per the "ORCHESTRATOR — MERGING ISOLATED STAGES"
+      protocol in the top-level description. Never copy files; never
+      cherry-pick.
 
       Write tests against the contract in
       `<your-cwd>/inputs/outputs/design/contract.json`.
@@ -1899,7 +1920,7 @@ stages:
 
       Write <your-cwd>/outputs/tests-impl.json (NOT {workspace} — see the
       isolation boundary above):
-        {"test_files": [...], "test_count": N, "retry_map_rows_covered": N, "liveness_route_tested": "a|b|c", "commit_sha": "...", "checkpoints": [{"id": "tests-collect", "passed": true|false, "command": "...", "evidence": "..."}], "notes": "..."}
+        {"test_files": [...], "test_count": N, "retry_map_rows_covered": N, "liveness_route_tested": "a|b|c", "commit_sha": "...", "base_sha": "<git rev-parse HEAD BEFORE your first edit>", "checkpoints": [{"id": "tests-collect", "passed": true|false, "command": "...", "evidence": "..."}], "notes": "..."}
       "liveness_route_tested" must match the route contract.json recorded, so
       merge-impl and acceptance can tell an intentional absence of heartbeat
       tests (route a or c) from a missing test.
@@ -1933,6 +1954,8 @@ stages:
     kind: execute
     depends_on: [impl-handler, impl-heartbeat, impl-tests]
     reads_from: [impl-handler, impl-heartbeat, impl-tests, design]
+    # merge-baselines.json is orchestrator-written, not produced by a stage;
+    # it lives at {workspace}/validation/merge-baselines.json and is read here.
     description: >
       VERIFY that the three implementation stages' work landed in this tree.
       Do NOT merge anything — verification only, and that distinction is the
@@ -1953,6 +1976,13 @@ stages:
       success while its code never lands (an agent that edits but never
       commits leaves an empty branch; the merge then succeeds against
       nothing).
+
+      First, read {workspace}/validation/merge-baselines.json. This file was
+      written by the orchestrator (one 40-hex SHA per impl stage) before each
+      agent was spawned; it is the per-stage base for the scope check below.
+      If the file is absent, record scope_ok: null for every stage and note
+      that the orchestrator did not write baselines — that is an orchestrator
+      protocol violation, not a stage failure.
 
       For each of impl-handler, impl-heartbeat and impl-tests:
 
@@ -2014,6 +2044,20 @@ stages:
            A split recorded but not actually made leaves whoever opens the
            PRs with nothing to split.
 
+        6b. SCOPE CHECK. Using the per-stage base_sha from
+           merge-baselines.json (the orchestrator's recorded feature-branch
+           tip before that agent was spawned) and the agent's commit_sha:
+             agent_base=$(git merge-base <base_sha> <commit_sha>)
+           Confirm every path in
+             git diff --name-only <base_sha> HEAD
+           also appears in
+             git diff --name-only <agent_base> <commit_sha>
+           A path changed in the post-merge window but absent from the
+           agent's own diff means the merge overwrote a pre-existing
+           feature-branch file — record it in out_of_scope_paths and set
+           scope_ok: false. If merge-baselines.json was absent for this
+           stage, record scope_ok: null.
+
       Then record the tree's state:
         git status --porcelain
         git log --oneline -8
@@ -2022,18 +2066,21 @@ stages:
 
       Write {workspace}/validation/merge.json:
         {
-          "verified": [{"stage": "...", "commit_sha": "...", "is_ancestor_of_head": true|false, "checkpoints_passed": N, "checkpoints_failed": ["..."], "commit_shas_reachable": true|false}],
+          "verified": [{"stage": "...", "commit_sha": "...", "is_ancestor_of_head": true|false, "checkpoints_passed": N, "checkpoints_failed": ["..."], "commit_shas_reachable": true|false, "scope_ok": true|false|null, "out_of_scope_paths": [...]}],
           "no_change_stages": [{"stage": "...", "reason": "..."}],
           "missing_commits": [{"stage": "...", "detail": "..."}],
           "unmerged_branches": [{"stage": "...", "commit_sha": "...", "detail": "..."}],
           "files_present": [...],
           "files_missing": [...],
           "working_tree_clean": true|false,
-          "all_landed": true|false
+          "all_landed": true|false,
+          "baselines_present": true|false
         }
       all_landed is true only when every stage is either verified as an
       ancestor of HEAD or is a recorded legitimate no-change, AND
-      files_missing is empty.
+      files_missing is empty. scope_ok: false on any stage is a blocking
+      finding but does not change all_landed — the commits landed; the
+      scope violation is a separate concern for the orchestrator to resolve.
     agent:
       role: unit-validator
       model: sonnet
@@ -2190,9 +2237,15 @@ stages:
           "notes": "..."
         }
 
-      reconciled is true when the suite passed (or all remaining failures are
-      recorded as blocking findings for integrate). Set it false only if you
-      could not run the suite or if merge.json reported all_landed false.
+      reconciled is true ONLY when the suite passed (exit_code 0 and a "Ran N
+      tests" summary line with no failures or errors). Recording remaining
+      failures as blocking_findings does NOT flip reconciled to true — those
+      failures mean the suite is NOT passing, which is exactly what the next
+      stage (adversarial-test-review) checks before proceeding. Set
+      reconciled false if: (a) the suite could not be run, (b) merge.json
+      reported all_landed false, or (c) the final suite run produced any
+      failures or errors. A partial result reported as "reconciled" misleads
+      the adversarial review into attacking a broken suite.
     agent:
       role: code-writer
       model: sonnet
@@ -2225,14 +2278,41 @@ stages:
       tests that would stay green while the code is broken. Be hostile; a
       balanced review is a failed review here.
 
-      This stage runs AFTER merge-impl, so all three implementation branches
-      are merged into one tree and their files are readable by their normal
-      repo paths. You also run in your OWN worktree (isolation: worktree),
-      which is what makes the teeth test below safe: the source you break is
-      your private copy, not the shared tree other agents are using.
+      ISOLATION AND STARTING POINT. You run in your OWN worktree (isolation:
+      worktree), which is what makes the teeth test below safe: the source you
+      break is your private copy, not the shared tree other agents are using.
+      However, your worktree is cut from the LATEST main at spawn time, NOT
+      from the feature branch. The merged implementation is on the feature
+      branch, not on your worktree's base.
+
+      The orchestrator passes the feature-branch HEAD SHA as an input. Your
+      FIRST action — before reading any file — must be:
+        1. Validate that the received SHA is a 40-character hex string and
+           nothing else. Refuse to proceed with a short SHA, a ref name, or
+           any value containing non-hex characters.
+        2. Switch your worktree to exactly that commit in detached-HEAD mode:
+             git switch --detach <sha>
+        3. Confirm HEAD equals the SHA:
+             git rev-parse HEAD
+           If it does not match, stop and report — do not review a different
+           tree.
+
+      After that, all three implementation branches are merged into the tree
+      at that commit and their files are readable by their normal repo paths.
       If a file named in handler-impl.json / heartbeat-impl.json /
       tests-impl.json is still unreadable, record it as "could not review"
       and set verdict "needs-work" — do not silently review nothing.
+
+      CHECK RECONCILE STATUS BEFORE REVIEWING. Read
+      `<your-cwd>/inputs/validation/reconcile.json` (copied from
+      {workspace}/validation/reconcile.json by the orchestrator). If
+      reconciled is false, STOP immediately — record verdict "needs-work",
+      set findings: [{"failure_mode": "reconcile-failed", "severity":
+      "blocking", "detail": "reconcile.json.reconciled is false: <not_reconciled_reason>"}]
+      and return. Reviewing a suite that did not pass is meaningless: the
+      teeth test would confirm that broken tests stay broken, not that passing
+      tests are vacuous, and every finding would be against a tree whose
+      baseline is already broken.
 
       For EVERY test, answer one question: what mutation of the source would
       this test fail to catch? Then hunt specifically for these failure modes,
@@ -2399,6 +2479,16 @@ stages:
       broken code. Also check reconcile.json's blocking_findings: each one
       that has not yet been fixed by the time you run is work for this stage.
 
+      RECONCILE COMMIT IN THE TREE. If reconcile.json.commit_sha is non-null,
+      confirm it is an ancestor of HEAD:
+        git merge-base --is-ancestor <commit_sha> HEAD
+      A reconcile commit not reachable from HEAD means the drift-fix edits
+      were lost — the suite will likely regress when you run it. Record the
+      result as reconcile_commit_sha and reconcile_commit_landed in
+      integrate.json. A non-null commit_sha that is NOT an ancestor is a
+      blocking finding; a null commit_sha (no drift found, nothing committed)
+      is fine and should be recorded as reconcile_commit_sha: null.
+
       The name/signature/outcome-string drift that reconcile-impl addresses is
       no longer your job here; it was handled before the adversarial review
       ran. What IS your job is acting on the adversarial review's findings
@@ -2485,6 +2575,8 @@ stages:
       Write {workspace}/validation/integrate.json:
         {
           "merge_verified": true|false,
+          "reconcile_commit_sha": "..." | null,
+          "reconcile_commit_landed": true|false|null,
           "import_paths_correct": true|false,
           "tests": {"ran": N, "failures": N, "errors": N, "summary_line": "..."},
           "qlty": {"clean": true|false, "findings": [...]},
@@ -2723,21 +2815,33 @@ stages:
 
           (b) The handler's digest file — this is the file the handler reads
               at every job to detect a model swap, and WITHOUT it the handler
-              reports the model as "unpinned" on every job. The path is:
-                <worker_state_dir>/qwen/model_digest.json
-              where <worker_state_dir> is the directory returned by
-              get_worker_state_dir() from src/worker/_helpers.py (the survey
-              recorded this path). Before writing, check whether the path is a
-              symlink (os.path.islink); if it is, REFUSE to write and record
-              the failure in install.json — the handler reads with no-follow
-              and a symlink at that path means something is wrong. If the file
+              reports the model as "unpinned" on every job.
+
+              Resolve the exact path with a single-line python3 invocation
+              to avoid YAML indentation issues:
+                DIGEST_PATH=$(python3 -I -S -c \
+                  'import os,sys; sys.path[:0]=["src"]; from worker._helpers import get_worker_state_dir; import pathlib; print(pathlib.Path(get_worker_state_dir("qwen"))/"model_digest.json")')
+              `-I -S` is required to avoid inheriting a foreign PYTHONPATH
+              that could resolve worker._helpers from the main checkout
+              instead of this tree. `sys.path[:0] = ["src"]` prepends this
+              tree's src/ (relative to CWD, which must be the repo root) so
+              it wins even against any inherited entry.
+              Capture the printed path into DIGEST_PATH and use only that
+              variable from here on; do NOT hard-code a path string.
+
+              Before writing, check whether the resolved path is a symlink
+              (os.path.islink); if it is, REFUSE to write and record the
+              failure in install.json — the handler reads with no-follow and
+              a symlink at that path means something is wrong. If the file
               already exists and is valid JSON, read it first and preserve all
-              existing keys — set only the key for this model tag, leaving any
-              other tags' entries intact. Then write atomically: write the
+              existing keys — set only the key for this model tag ($TAG),
+              leaving any other tags' entries intact. IDEMPOTENCY: if the
+              file already maps $TAG to the fetched digest unchanged, do not
+              rewrite it — record model_digest_file_written: false with
+              reason "already current". Then write atomically: write the
               merged object to a temp file in the same directory, then rename
-              it over the target (Python's tempfile + os.replace, or any
-              write-then-rename approach). Create the directory if it does not
-              exist (mode 0o700).
+              it over the target (Python's tempfile + os.replace). Create the
+              directory if it does not exist (mode 0o700).
               After writing, read it back and confirm this tag's key and value
               match what you wrote. Record the path and whether the readback
               succeeded in install.json.
@@ -2817,7 +2921,7 @@ stages:
           "steps": [
             {"step": "ollama_binary",  "already_satisfied": true|false, "action_taken": "...", "ok": true|false},
             {"step": "ollama_server",  "already_satisfied": true|false, "action_taken": "...", "ok": true|false},
-            {"step": "model_present",  "already_satisfied": true|false, "action_taken": "...", "ok": true|false, "model_digest": "..." | null, "model_digest_file": "..." | null, "model_digest_file_written": true|false},
+            {"step": "model_present",  "already_satisfied": true|false, "action_taken": "...", "ok": true|false, "model_digest": "..." | null, "model_digest_file": "..." | null, "model_digest_file_written": true|false, "model_digest_file_written_reason": "written|already-current|symlink-refused|write-failed|digest-unavailable"},
             {"step": "worker_launchd", "already_satisfied": true|false, "action_taken": "...", "ok": true|false, "daemon_repo_root": "...", "daemon_serves_this_code": true|false, "detail": "..."},
             {"step": "queue_dirs",     "already_satisfied": true|false, "action_taken": "...", "ok": true|false}
           ],
@@ -2961,6 +3065,13 @@ stages:
       Check 7 — MODEL DIGEST FILE PRESENT AND CURRENT. The handler reads
         <worker_state_dir>/qwen/model_digest.json to detect model swaps —
         without this file it reports the model as "unpinned" on every job.
+
+        Resolve the exact path the same way install did (single-line to
+        avoid YAML indentation issues):
+          DIGEST_PATH=$(python3 -I -S -c \
+            'import os,sys; sys.path[:0]=["src"]; from worker._helpers import get_worker_state_dir; import pathlib; print(pathlib.Path(get_worker_state_dir("qwen"))/"model_digest.json")')
+        Use the printed path for all checks below. Do NOT construct a path
+        by concatenating directory strings or guessing a default location.
 
         (a) Confirm the file exists at that path (the install stage wrote it).
             If it does not exist, this is a BLOCKING finding: every job will
@@ -3471,9 +3582,12 @@ stages:
       Files created and modified, from merge.json's files_present list, with
       the per-stage commit SHAs from its "verified" entries (each carries
       stage, commit_sha and is_ancestor_of_head — there is no branch field,
-      so do not report one). Note any stage merge.json recorded under
-      no_change_stages, with its reason — a stage that legitimately shipped
-      nothing is not a gap.
+      so do not report one). Also include reconcile-impl's commit_sha from
+      integrate.json (reconcile_commit_sha) if non-null — that commit is the
+      drift-fix commit and belongs in the same PR as the code it patched
+      (PR 2 unless the drift was confined to test files, in which case PR 3).
+      Note any stage merge.json recorded under no_change_stages, with its
+      reason — a stage that legitimately shipped nothing is not a gap.
 
       ### Design decisions
       One line each for the five contract.json sections, plus the standing
