@@ -72,6 +72,16 @@ HEAD_CREATES = [
     "./bin/pr-assistant",
     "./bin/pr-assistant --base main --no-create --create",
     "hub pull-request",
+    # Quoting that bash removes before running: the words are still `gh pr create`.
+    "gh p''r create",
+    'gh "p"r create',
+    "gh p\\r create",
+    "gh $'\\x70'r create",
+    "gh $'\\x70\\x72' create",
+    'gh $"pr" create',
+    "g''h pr create",
+    "gh pr cre''ate",
+    "hub pu''ll-request",
 ]
 
 #: Commands that are not PR creation and must pass with no record anywhere.
@@ -90,6 +100,12 @@ NOT_CREATES = [
     "gh api repos/o/r/pulls",
     "gh api repos/o/r/pulls/12/comments",
     "printf '%s' pr",
+    # Expansion in words that do not decide PR creation stays allowed.
+    "N=5; gh pr view $N",
+    "echo $HOME 'x'",
+    "ls *.py",
+    "gh api repos/o/r/issues/$N/comments",
+    "echo $'\\x70r'",
 ]
 
 #: Cannot be checked before the shell runs; blocked even with a HEAD record.
@@ -101,6 +117,18 @@ UNVERIFIABLE = [
     'cd "$DIR" && gh pr create',
     "gh api graphql -f query='mutation { createPullRequest(input: {}) { pullRequest { url } } }'",
     "gh api -X POST repos/o/r/pulls -f title=t",
+    # A word that decides PR creation, built at run time: bash may expand it to pr.
+    "gh p${EMPTY}r create",
+    "gh p$EMPTY'r' create",
+    "gh p$(true)r create",
+    "gh p`true`r create",
+    "gh {pr,} create",
+    "gh p{r,} create",
+    "gh p? create",
+    "S=pr; gh $S create",
+    "gh pr $SUB",
+    "hub pull-$R",
+    "gh api -X POST repos/o/r/$E -f head=x",
 ]
 
 
@@ -180,6 +208,7 @@ class RequireConcernSweepHookTests(unittest.TestCase):
             "./bin/github pr create --base main --body-file b --head other",
             "./bin/github pr create --base main --body-file b --hea other",
             "gh api -X POST repos/o/r/pulls -f head=other -f base=main",
+            "gh api -X POST repos/o/r/pu''lls -f head=other -f base=main",
             "gh api repos/{owner}/{repo}/pulls -F head=other",
         ):
             with self.subTest(command=command):
@@ -229,6 +258,13 @@ class RequireConcernSweepHookTests(unittest.TestCase):
         self.assertEqual(run_hook("ls -la && git status", self.repo, hook).returncode, 0)
         self.assertBlocked(run_hook("gh pr create", self.repo, hook), "missing")
         self.assertBlocked(run_hook("gh \\u0070r create", self.repo, hook), "missing")
+        # The pre-filter is load-bearing: a command it passes is never analysed, so
+        # every way of spelling pr without the substring must still reach Python.
+        for command in ("gh p''r create", 'gh "p"r create', "gh p\\r create", "gh $'\\x70'r create",
+                        "gh p${X}r create", "gh p`true`r create", "gh p{r,} create", "gh p? create",
+                        "gh p[r] create", "hub pu''ll-request"):
+            with self.subTest(command=command):
+                self.assertBlocked(run_hook(command, self.repo, hook), "missing")
 
     # --- fail closed ---------------------------------------------------------
 

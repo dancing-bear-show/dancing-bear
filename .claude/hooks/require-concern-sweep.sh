@@ -33,7 +33,9 @@
 # API itself, curl to api.github.com, user-defined `gh alias` names, git aliases.
 #
 # COST: every Bash call pays one bash regex over the payload. Only a command whose
-# JSON text contains "pr" or "pull" (any case) or a \u escape reaches Python.
+# JSON text contains "pr" or "pull" (any case), a quote, a backslash, `$`, a
+# backtick, a brace or a glob character reaches Python. The filter is load-bearing -- a command it passes is
+# never analysed -- so it errs toward Python for anything that can hide a word.
 
 set -u
 
@@ -46,8 +48,13 @@ PAYLOAD="$(cat)"
 _re='"command"[[:space:]]*:[[:space:]]*"(([^"\\]|\\.)*)"'
 if [[ $PAYLOAD =~ $_re ]]; then
   _cmd=${BASH_REMATCH[1]}
+  # A quote, backslash, `$`, backtick, brace or glob character can spell "pr"
+  # without the substring (`gh p''r create`, `gh p\r create`, `gh $'\x70'r create`,
+  # `gh p{r,} create`, `gh p? create`), so any of them reaches Python too. The
+  # capture is JSON-escaped: a `"` in the command arrives as `\"`, so the
+  # backslash test covers double quotes as well.
   case "$_cmd" in
-    *[Pp][Rr]*|*[Pp][Uu][Ll][Ll]*|*\\u*) ;;
+    *[Pp][Rr]*|*[Pp][Uu][Ll][Ll]*|*\\*|*\'*|*\$*|*\`*|*\{*|*\**|*\?*|*\[*) ;;
     *) exit 0 ;;
   esac
 elif [[ $PAYLOAD != *'"command"'* ]]; then

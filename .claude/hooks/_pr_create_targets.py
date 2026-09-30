@@ -90,9 +90,88 @@ class Target:
 # ---------------------------------------------------------------------------
 
 
+_ANSI_SIMPLE = {"a": "\a", "b": "\b", "e": "\x1b", "E": "\x1b", "f": "\f", "n": "\n",
+                "r": "\r", "t": "\t", "v": "\v", "\\": "\\", "'": "'", '"': '"', "?": "?"}
+_ANSI_RADIX = {"x": (16, 2), "u": (16, 4), "U": (16, 8)}
+_HEX = frozenset("0123456789abcdefABCDEF")
+
+
+def _ansi_escape(body: str, i: int) -> tuple[str, int]:
+    """Decode the escape at ``body[i]`` (just past a backslash); return (text, next index)."""
+    ch = body[i]
+    if ch in _ANSI_SIMPLE:
+        return _ANSI_SIMPLE[ch], i + 1
+    if ch in _ANSI_RADIX:
+        _, width = _ANSI_RADIX[ch]
+        j = i + 1
+        while j < len(body) and j - i - 1 < width and body[j] in _HEX:
+            j += 1
+        if j == i + 1:
+            return "\\" + ch, i + 1
+        return chr(int(body[i + 1:j], 16)), j
+    if ch in "01234567":
+        j = i
+        while j < len(body) and j - i < 3 and body[j] in "01234567":
+            j += 1
+        return chr(int(body[i:j], 8) & 0xFF), j
+    if ch == "c" and i + 1 < len(body):
+        return chr(ord(body[i + 1]) & 0x1F), i + 2
+    return "\\" + ch, i + 1
+
+
+def _read_ansi_c(command: str, start: int) -> tuple[str, int]:
+    """Decode a ``$'...'`` body starting after its opening quote; ValueError if unterminated."""
+    out: list[str] = []
+    i = start
+    while i < len(command):
+        ch = command[i]
+        if ch == "'":
+            return "".join(out), i + 1
+        if ch == "\\" and i + 1 < len(command):
+            text, i = _ansi_escape(command, i + 1)
+            out.append(text)
+            continue
+        out.append(ch)
+        i += 1
+    raise ValueError("unterminated $'...' string")
+
+
+def expand_ansi_c(command: str) -> str:
+    """Rewrite bash ``$'...'`` as the plain single-quoted text it means, and ``$"..."`` as ``"..."``.
+
+    shlex has no ANSI-C quoting, so ``gh $'\\x70'r create`` would otherwise tokenise
+    as ``$\\x70r`` while bash runs ``gh pr create``. Only a ``$`` outside quotes starts
+    one, matching bash.
+    """
+    out: list[str] = []
+    state = ""  # "", "'" or '"'
+    i = 0
+    while i < len(command):
+        text, i, state = _ansi_step(command, i, state)
+        out.append(text)
+    return "".join(out)
+
+
+def _ansi_step(command: str, i: int, state: str) -> tuple[str, int, str]:
+    """One step of expand_ansi_c: (text to emit, next index, next quote state)."""
+    ch = command[i]
+    if state == "'":
+        return ch, i + 1, ("" if ch == "'" else state)
+    if ch == "\\" and i + 1 < len(command):
+        return command[i:i + 2], i + 2, state
+    if state == '"':
+        return ch, i + 1, ("" if ch == '"' else state)
+    if command.startswith("$'", i):
+        text, nxt = _read_ansi_c(command, i + 2)
+        return "'" + text.replace("'", "'\\''") + "'", nxt, state
+    if command.startswith('$"', i):
+        return "", i + 1, state  # locale quoting: $"..." reads as "..." without a catalog
+    return ch, i + 1, (ch if ch in "'\"" else state)
+
+
 def tokenize(command: str) -> list[str]:
     """Words and control operators of ``command``; ValueError if it will not tokenise."""
-    lexer = shlex.shlex(command.replace("\\\n", ""), posix=True, punctuation_chars="();<>|&\n")
+    lexer = shlex.shlex(expand_ansi_c(command.replace("\\\n", "")), posix=True, punctuation_chars="();<>|&\n")
     lexer.whitespace = " \t\r"
     lexer.whitespace_split = True
     # No comment handling: shlex would end a word at `#` where bash does not
@@ -134,6 +213,26 @@ def _literal(value: str, what: str) -> str:
     if _dynamic(value):
         raise Unverifiable(f"{what} is not known until the shell runs")
     return value
+
+
+# Characters that make bash build a word at run time: parameter and command
+# substitution, brace expansion, globbing. shlex has already removed quotes and
+# backslashes, so `p''r` and `p\r` arrive here as `pr`; these cannot be resolved.
+_EXPANDS = frozenset("$`{}*?[")
+
+
+def _decisive(words: list[str], j: int, what: str) -> str | None:
+    """``words[j]``, which decides whether this is a PR-create, if it is literal.
+
+    A word bash expands at run time (``gh $S create``, ``gh p${X}r create``,
+    ``gh {pr,} create``, ``gh p? create``) cannot be told apart from ``pr``, so it
+    fails closed instead of reading as some other subcommand.
+    """
+    if j >= len(words):
+        return None
+    if _EXPANDS & set(words[j]):
+        raise Unverifiable(f"{what} {words[j]!r} is not known until the shell runs")
+    return words[j]
 
 
 # ---------------------------------------------------------------------------
@@ -186,14 +285,15 @@ def _flag_value(words: list[str], long: str, short: str | None, *, abbrev: bool 
 
 def _gh(words: list[str], pr_indices: set[int], gidx: list[int]) -> tuple[str, str | None] | None:
     j = _skip_options(words, 1)
-    if j < len(words) and words[j] == "pr":
+    sub = _decisive(words, j, "gh subcommand")
+    if sub == "pr":
         pr_at = j
         j = _skip_options(words, j + 1, frozenset({"-R", "--repo"}))
-        if j < len(words) and words[j] in ("create", "new"):
+        if _decisive(words, j, "gh pr subcommand") in ("create", "new"):
             pr_indices.add(gidx[pr_at])
             return "gh pr create", _flag_value(words[j + 1:], "--head", "-H")
         return None
-    if j < len(words) and words[j] == "api":
+    if sub == "api":
         return _gh_api(words[j + 1:])
     return None
 
@@ -202,17 +302,27 @@ def _gh(words: list[str], pr_indices: set[int], gidx: list[int]) -> tuple[str, s
 _FIELD_FLAGS = (("--raw-field", "-f"), ("--field", "-F"))
 
 
+def _posts(rest: list[str]) -> bool:
+    """True when this gh api call is a POST, explicitly or implied by a body."""
+    fields = [v for long, short in _FIELD_FLAGS for v in _flag_values(rest, long, short)]
+    method = _flag_value(rest, "--method", "-X")
+    # gh api defaults to POST once a body is given (a field or --input).
+    implied_post = method is None and bool(fields or _flag_values(rest, "--input", None))
+    return (method or "").upper() == "POST" or implied_post
+
+
 def _gh_api(rest: list[str]) -> tuple[str, str | None] | None:
     if any("createpullrequest" in w.lower() for w in rest):
         raise Unverifiable("gh api graphql createPullRequest cannot be matched to a commit")
     if not any(_PULLS_ENDPOINT.search(w) for w in rest):
+        # An endpoint built at run time (repos/o/r/$E) could be .../pulls.
+        endpoint = next((w for w in rest if not w.startswith("-") and "/" in w), None)
+        if endpoint is not None and _EXPANDS & set(endpoint) and _posts(rest):
+            raise Unverifiable(f"gh api endpoint {endpoint!r} is not known until the shell runs")
+        return None
+    if not _posts(rest):
         return None
     fields = [v for long, short in _FIELD_FLAGS for v in _flag_values(rest, long, short)]
-    method = _flag_value(rest, "--method", "-X")
-    # gh api defaults to POST once a body is given (a field or --input).
-    implied_post = method is None and (fields or _flag_values(rest, "--input", None))
-    if (method or "").upper() != "POST" and not implied_post:
-        return None
     heads = {f[len("head="):] for f in fields if f.startswith("head=")}
     if len(heads) != 1:
         raise Unverifiable("gh api POST .../pulls without exactly one literal head= field")
@@ -221,10 +331,10 @@ def _gh_api(rest: list[str]) -> tuple[str, str | None] | None:
 
 def _github(words: list[str], pr_indices: set[int], gidx: list[int]) -> tuple[str, str | None] | None:
     j = _skip_options(words, 1)
-    if j < len(words) and words[j] == "pr":
+    if _decisive(words, j, "github subcommand") == "pr":
         pr_at = j
         j = _skip_options(words, j + 1)
-        if j < len(words) and words[j] == "create":
+        if _decisive(words, j, "github pr subcommand") == "create":
             pr_indices.add(gidx[pr_at])
             return "github pr create", _flag_value(words[j + 1:], "--head", None, abbrev=True)
     return None
@@ -244,7 +354,7 @@ def _pr_assistant(words: list[str]) -> tuple[str, str | None] | None:
 
 
 def _hub(words: list[str]) -> tuple[str, str | None] | None:
-    if len(words) > 1 and words[1] == "pull-request":
+    if _decisive(words, 1, "hub subcommand") == "pull-request":
         return "hub pull-request", _flag_value(words[2:], "--head", "-h")
     return None
 
@@ -393,7 +503,8 @@ def record_path(cwd: Path, sha: str) -> Path:
     common = Path(_git(cwd, "rev-parse", "--git-common-dir"))
     if not common.is_absolute():
         common = cwd / common
-    return common.joinpath(*RECORD_SUBDIR, f"{sha}.json")
+    # .resolve(), as sweep_record.records_dir does, so both name the same path.
+    return common.resolve().joinpath(*RECORD_SUBDIR, f"{sha}.json")
 
 
 def has_record(path: Path, sha: str) -> bool:
