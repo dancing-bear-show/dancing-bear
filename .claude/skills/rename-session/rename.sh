@@ -4,7 +4,7 @@
 #
 # Exit codes:
 #   0  — success (or TMUX unset, nothing to rename)
-#   2  — invalid name (printed to stderr)
+#   2  — invalid name (a fixed message goes to stderr; the name is never echoed)
 #   non-zero (propagated) — tmux rename-session or display-message failed
 #                           (e.g. name already taken, no server); the tab
 #                           title is NOT written when rename-session fails.
