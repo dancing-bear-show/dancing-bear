@@ -2193,32 +2193,64 @@ stages:
         grep -E "^Ran [0-9]+ tests|^OK|^FAILED|^ERROR" {workspace}/validation/reconcile-test.log
 
       Capture both the exit code and the summary line. Fix errors and
-      failures, re-run. Stop when the suite passes (or when you reach a
-      failure that requires a non-trivial implementation change — record those
-      as blocking findings for integrate rather than resolving them here;
-      this stage fixes DRIFT, not design mistakes).
+      failures, re-run. BOUNDED REPAIR: you may attempt up to 3 repair
+      iterations (fix, re-run, assess). In each iteration you may also fix
+      logic failures where the contract is unambiguous — meaning contract.json
+      clearly specifies the expected behaviour and the code or tests deviates
+      from it. In that case, fix the code to the contract or the tests to the
+      contract (never change contract.json). This is the safety valve that
+      prevents blocking_findings from being a dead end for straightforward
+      contract-to-code gaps.
 
-      LIMIT. This stage fixes naming and structural drift only. Do NOT:
+      HALT CONDITION. If after 3 repair iterations the suite is still not
+      passing, set reconciled: false, record the still-failing tests and their
+      errors verbatim in blocking_findings, and HALT THE WORKFLOW with a
+      human-readable message naming: (a) each remaining failure, (b) whether
+      it is a drift fix or a logic bug, and (c) the resume point (re-run from
+      reconcile-impl after fixing the listed items manually). This halt is the
+      RECOVERY PATH — not a silent stop. A run that sets reconciled: false
+      must emit that message so the operator knows exactly what to fix and how
+      to continue.
+
+      LIMIT. This stage fixes naming, structural, and unambiguous-contract
+      drift only. Do NOT:
         - Add new test cases (that is adversarial-test-review and integrate's
           job).
         - Change the implementation's behaviour to match a test that asserts
           something the contract does not require.
-        - Fix logic bugs discovered while running (record them as findings for
-          integrate instead).
+        - Fix logic bugs that require new design decisions or contract changes
+          (those belong in integrate; record them as blocking_findings with
+          action_needed: "integrate").
         - Weaken assertions to get tests passing when the assertion is correct
           and the implementation is wrong.
+        - Change contract.json under any circumstances.
 
       After each fix, record it in reconcile.json under "fixes" with: the
       category (function-name|outcome-string|signature|schema|mock-target),
       the file changed, the old value, the new value, and which side you
       changed (implementation|tests) and why.
 
-      Commit any changes:
-        git add <specific files changed>
-        git commit -m "fix(worker): reconcile test/impl drift after parallel build"
-      Stage only the files this stage changed, by name. If no drift was found,
-      do not commit (record commit_sha: null). Confirm with
-      `git log --oneline -1` and record the SHA if a commit was made.
+      COMMIT PER PR BOUNDARY — not one monolithic commit. The three PR
+      boundaries from the workflow description (PR1: seam/confinement/tests,
+      PR2: transport/edits/guards/tests, PR3: telemetry/CLI/install) determine
+      which files belong in which commit. A reconcile fix touches one or more
+      of those boundaries; group the files by boundary and commit once per
+      boundary touched. A single commit that spans all three boundaries makes
+      the PR split impossible later.
+
+        Boundary detection: look at which files each fix touches.
+          PR1 files: qwen.py (handler registration, input confinement,
+                     payload validation), tests for C1-C2 items.
+          PR2 files: qwen.py (transport, lock, guards), qwen_edits.py,
+                     tests for C3-C5 items.
+          PR3 files: qwen_telemetry.py, bin/qwen, tests for C6 items.
+
+        For each boundary that has fixes:
+          git add <only the files in that boundary>
+          git commit -m "fix(worker): reconcile <boundary> drift after parallel build"
+        Confirm each with `git log --oneline -1` and record its SHA.
+
+      If no drift was found, make no commits (record all commit_shas as null).
 
       Write {workspace}/validation/reconcile.json:
         {
@@ -2231,14 +2263,15 @@ stages:
               "old_value": "...",
               "new_value": "...",
               "side_changed": "implementation|tests",
-              "reason": "..."
+              "reason": "...",
+              "pr_boundary": "PR1|PR2|PR3"
             }
           ],
           "blocking_findings": [
             {
               "description": "...",
               "file": "...",
-              "action_needed": "..."
+              "action_needed": "drift-fix|integrate|design-change"
             }
           ],
           "suite_result": {
@@ -2247,9 +2280,12 @@ stages:
             "failures": N,
             "errors": N
           },
-          "commit_sha": "..." | null,
+          "commit_shas": {"PR1": "..." | null, "PR2": "..." | null, "PR3": "..." | null},
           "notes": "..."
         }
+      commit_shas records the SHA for each boundary commit (null when no
+      fixes touched that boundary). A single commit spanning multiple
+      boundaries is not allowed — see COMMIT PER PR BOUNDARY above.
 
       reconciled is true ONLY when the suite passed (exit_code 0 and a "Ran N
       tests" summary line with no failures or errors). Recording remaining
@@ -2275,6 +2311,7 @@ stages:
           branches, and the suite result after reconciliation.
     writes_to:
       - validation/reconcile.json
+      - validation/reconcile-test.log
     validates_output:
       - path: validation/reconcile.json
         checks: [is_json, has_key:reconciled, has_key:suite_result]
@@ -2482,26 +2519,36 @@ stages:
     description: >
       merge-impl has already landed the three implementation branches, and
       reconcile-impl has already fixed naming/signature drift so the suite
-      passes. Read validation/merge.json first: if all_landed is false, or
-      files_missing is non-empty, STOP and report — running gates against a
-      tree that is missing half the implementation produces a meaningless
-      green.
+      passes. Read {workspace}/validation/merge.json first: if all_landed is
+      false, or files_missing is non-empty, STOP and report — running gates
+      against a tree that is missing half the implementation produces a
+      meaningless green.
 
-      Read validation/reconcile.json. If reconciled is false, STOP and report
-      the not_reconciled_reason — the suite was not in a passing state when
-      the adversarial review ran, so the review's findings may be against
-      broken code. Also check reconcile.json's blocking_findings: each one
-      that has not yet been fixed by the time you run is work for this stage.
+      Read {workspace}/validation/reconcile.json. If reconciled is false,
+      STOP and report the not_reconciled_reason — the suite was not in a
+      passing state when the adversarial review ran, so the review's findings
+      may be against broken code. Also check reconcile.json's
+      blocking_findings: each one that has not yet been fixed by the time
+      you run is work for this stage.
 
-      RECONCILE COMMIT IN THE TREE. If reconcile.json.commit_sha is non-null,
-      confirm it is an ancestor of HEAD:
-        git merge-base --is-ancestor <commit_sha> HEAD
-      A reconcile commit not reachable from HEAD means the drift-fix edits
-      were lost — the suite will likely regress when you run it. Record the
-      result as reconcile_commit_sha and reconcile_commit_landed in
-      integrate.json. A non-null commit_sha that is NOT an ancestor is a
-      blocking finding; a null commit_sha (no drift found, nothing committed)
-      is fine and should be recorded as reconcile_commit_sha: null.
+      RECONCILE COMMITS IN THE TREE. reconcile.json now records commit_shas
+      keyed by PR boundary. For each non-null entry, VALIDATE the SHA before
+      passing it to git — reconcile.json is agent-written and the value is
+      untrusted:
+        ./bin/workflow check-params "{workspace}"/validation/reconcile.json \
+          --top-level --check 'commit_shas.PR1=[0-9a-f]{40}' \
+          (repeat for PR2, PR3 as needed, or use a per-key invocation)
+      Branch on the EXIT STATUS. A short SHA, a ref name, or any value with
+      non-hex characters FAILS the stage — do not resolve or retry. A null
+      value means no fixes were made for that boundary; skip the ancestry
+      check for that boundary only.
+
+      For each validated non-null SHA, confirm it is an ancestor of HEAD:
+        git merge-base --is-ancestor <sha> HEAD
+      A commit not reachable from HEAD means those drift-fix edits were lost
+      — the suite will likely regress. Record each result as
+      reconcile_commit_shas and reconcile_commits_landed in integrate.json.
+      Any non-null SHA that is NOT an ancestor is a blocking finding.
 
       The name/signature/outcome-string drift that reconcile-impl addresses is
       no longer your job here; it was handled before the adversarial review
@@ -2589,8 +2636,8 @@ stages:
       Write {workspace}/validation/integrate.json:
         {
           "merge_verified": true|false,
-          "reconcile_commit_sha": "..." | null,
-          "reconcile_commit_landed": true|false|null,
+          "reconcile_commit_shas": {"PR1": "..." | null, "PR2": "..." | null, "PR3": "..." | null},
+          "reconcile_commits_landed": {"PR1": true|false|null, "PR2": true|false|null, "PR3": true|false|null},
           "import_paths_correct": true|false,
           "tests": {"ran": N, "failures": N, "errors": N, "summary_line": "..."},
           "qlty": {"clean": true|false, "findings": [...]},
@@ -2852,7 +2899,7 @@ stages:
               leaving any other tags' entries intact. IDEMPOTENCY: if the
               file already maps $TAG to the fetched digest unchanged, do not
               rewrite it — record model_digest_file_written: false with
-              reason "already current". Then write atomically: write the
+              reason "already-current". Then write atomically: write the
               merged object to a temp file in the same directory, then rename
               it over the target (Python's tempfile + os.replace). Create the
               directory if it does not exist (mode 0o700).
@@ -3087,10 +3134,14 @@ stages:
         Use the printed path for all checks below. Do NOT construct a path
         by concatenating directory strings or guessing a default location.
 
-        (a) Confirm the file exists at that path (the install stage wrote it).
-            If it does not exist, this is a BLOCKING finding: every job will
-            report "unpinned" regardless of whether the model is correct, and
-            the model_pinning guard is effectively disabled.
+        (a) Confirm the file exists, is not a symlink, and is a regular file:
+              [ ! -L "$DIGEST_PATH" ] && [ -f "$DIGEST_PATH" ]
+            A symlink is a BLOCKING finding regardless of whether it resolves
+            — the handler opens with O_NOFOLLOW (_read_text_no_follow in
+            src/worker/qwen.py) and will raise on a symlink, reporting the
+            model as "unpinned" on every job. A missing file is likewise
+            blocking. Record symlink: false and regular_file: true as
+            required conditions before proceeding to (b).
 
         (b) Read the file and confirm it contains a JSON object with a key
             matching {model_tag}. If the key is absent, that is also a
@@ -3103,10 +3154,11 @@ stages:
             since it means the model in use is not provably the one this run
             validated.
 
-        Record the file path, whether it exists, the recorded digest (or
-        "absent"), the currently-running digest, and whether they match. A
-        missing file or missing key is a blocking failure; a digest mismatch
-        is a non-blocking warning.
+        Record the file path, whether it exists, whether it is a symlink
+        (must be false), whether it is a regular file (must be true), the
+        recorded digest (or "absent"), the currently-running digest, and
+        whether they match. A missing file, a symlink, or a missing key is
+        a blocking failure; a digest mismatch is a non-blocking warning.
 
       Check 8 — PATCH OUTPUT DIRECTORY. Resolve core.paths.output_dir for
         this domain and confirm it exists, is writable, and sits OUTSIDE the
@@ -3135,7 +3187,7 @@ stages:
             {"check": "timeout_coherent",    "passed": true|false, "blocking": true|false, "detail": "...", "job_timeout_passed": true|false, "design_route": "..."},
             {"check": "guards_present",      "passed": true|false, "blocking": true|false, "detail": "...", "found": {"input_confinement": true|false, "patch_caps": true|false, "redaction": true|false, "disk_guard": true|false, "explain_mode": true|false, "deferral_counter": true|false, "admission": "handler-side|operator-limit|follow-up|MISSING"}},
             {"check": "guards_wired",        "passed": true|false, "blocking": true|false, "detail": "...", "probes": [{"probe": "nonexistent-path-outside-allowlist", "expected": "terminal confinement string", "observed": "...", "ordering_correct": true|false}, {"probe": "allowed-existing-file", "expected": "success", "observed": "..."}]},
-            {"check": "model_digest",        "passed": true|false, "blocking": true|false, "detail": "...", "digest_file": "...", "digest_file_exists": true|false, "tag_key_present": true|false, "recorded": "...", "observed": "...", "matches": true|false},
+            {"check": "model_digest",        "passed": true|false, "blocking": true|false, "detail": "...", "digest_file": "...", "digest_file_exists": true|false, "is_symlink": false, "is_regular_file": true|false, "tag_key_present": true|false, "recorded": "...", "observed": "...", "matches": true|false},
             {"check": "patch_output_dir",    "passed": true|false, "blocking": true|false, "detail": "...", "path": "...", "inside_repo": true|false, "writable": true|false, "free_gb": N},
             {"check": "ollama_concurrency",  "passed": true|false, "blocking": false,      "detail": "...", "num_parallel": "...", "max_loaded_models": "..."}
           ],
@@ -3596,10 +3648,14 @@ stages:
       Files created and modified, from merge.json's files_present list, with
       the per-stage commit SHAs from its "verified" entries (each carries
       stage, commit_sha and is_ancestor_of_head — there is no branch field,
-      so do not report one). Also include reconcile-impl's commit_sha from
-      integrate.json (reconcile_commit_sha) if non-null — that commit is the
-      drift-fix commit and belongs in the same PR as the code it patched
-      (PR 2 unless the drift was confined to test files, in which case PR 3).
+      so do not report one). Also include reconcile-impl's per-boundary
+      commit_shas from integrate.json (reconcile_commit_shas): each non-null
+      entry belongs with the production change for that boundary:
+        PR1 reconcile commit → alongside the seam/confinement commits (PR1)
+        PR2 reconcile commit → alongside the transport/guards commits (PR2)
+        PR3 reconcile commit → alongside the telemetry/CLI commits (PR3)
+      Do not list the reconcile commits under a single arbitrary boundary;
+      place each with its own boundary or leave it out when null.
       Note any stage merge.json recorded under no_change_stages, with its
       reason — a stage that legitimately shipped nothing is not a gap.
 
