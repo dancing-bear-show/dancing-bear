@@ -92,6 +92,8 @@ handler runs; the exit codes below are the handlers' own.
   argument (`--pattern 'foo|bar'`). Exit
   2 on an invalid pattern, a refused or missing path, or a `--root` outside
   the checkout; 1 when the scan hit its work bound, so the count is partial.
+  In that case stdout still carries the partial count, with
+  `"truncated": true` added (`{hits, files, truncated}`).
 
 `run` defaults to dry-run; pass `--execute` to execute. `--params key=value` overrides trigger parameters (repeatable).
 
