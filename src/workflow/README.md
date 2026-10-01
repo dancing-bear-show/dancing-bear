@@ -84,8 +84,10 @@ handler runs; the exit codes below are the handlers' own.
   PRs and writes `pr<N>.json` plus `summary.json` to `--out-dir`. Exit 1 when
   the handler rejects the arguments (e.g. both or neither of `--prs` and
   `--recent`), on an API failure, or on truncated pagination.
-- `count-sweep` counts lines matching a Python regex under repo-relative
-  `--path`s and prints `{hits, files}`. The command itself runs no shell, but
+- `count-sweep` counts lines matching a Python regex under each `--path` and
+  prints `{hits, files}`. Paths resolve against `--root`, which defaults to the
+  repo root and may be a directory inside it, so `--root src --path
+  workflow/x.py` reads `src/workflow/x.py`. The command itself runs no shell, but
   your shell still parses the command line, so single-quote the regex as one
   argument (`--pattern 'foo|bar'`). Exit
   2 on an invalid pattern, a refused or missing path, or a `--root` outside
