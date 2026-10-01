@@ -177,6 +177,7 @@ def cmd_retry(args: argparse.Namespace) -> int:
 @app.command("purge", help="Delete old done/error jobs or saved qwen responses")
 @app.argument("--older-than", default="30d", help="Age threshold (e.g., 7d, 24h). Default 30d")
 @app.argument("--folders", default="done,error", help="Comma-separated folders (done,error,qwen-responses)")
+@app.argument("--dry-run", action="store_true", help="Report counts that would be deleted; delete nothing")
 def cmd_purge(args: argparse.Namespace) -> int:
     """Delete old done/error jobs."""
     return PurgeCommand.run(args)

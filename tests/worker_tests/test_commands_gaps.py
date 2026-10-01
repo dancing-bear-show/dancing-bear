@@ -1113,7 +1113,7 @@ class TestPurgeCommand(unittest.TestCase, QueueRootIsolationMixin):
 
         called_with = {}
 
-        def _fake_purge(secs, root, folders):
+        def _fake_purge(secs, root, folders, dry_run):
             called_with["folders"] = folders
             return {"done": 0, "error": 0}
 
@@ -1131,7 +1131,7 @@ class TestPurgeCommand(unittest.TestCase, QueueRootIsolationMixin):
         from worker.commands import PurgeCommand
 
         emitted: dict = {}
-        with patch("worker.commands.q.purge", side_effect=lambda secs, root, folders: dict.fromkeys(folders or ["done", "error"], 0)) as purge, \
+        with patch("worker.commands.q.purge", side_effect=lambda secs, root, folders, dry_run: dict.fromkeys(folders or ["done", "error"], 0)) as purge, \
              patch("worker.qwen.prune_responses", return_value=3) as prune, \
              patch("worker.commands.emit_one", side_effect=emitted.update):
             rc = PurgeCommand.run(argparse.Namespace(**kwargs))
@@ -1141,16 +1141,25 @@ class TestPurgeCommand(unittest.TestCase, QueueRootIsolationMixin):
     def test_purge_qwen_responses_only_skips_queue_purge(self):
         emitted, purge, prune = self._run_purge(older_than="14d", folders="qwen-responses")
 
-        prune.assert_called_once_with(14 * 86400)
+        prune.assert_called_once_with(14 * 86400, dry_run=False)
         purge.assert_not_called()
         self.assertEqual(emitted, {"qwen-responses": 3})
 
     def test_purge_done_and_qwen_responses_runs_both(self):
         emitted, purge, prune = self._run_purge(older_than="7d", folders="done,qwen-responses")
 
-        prune.assert_called_once_with(7 * 86400)
+        prune.assert_called_once_with(7 * 86400, dry_run=False)
         purge.assert_called_once()
         self.assertEqual(purge.call_args.kwargs["folders"], ["done"])
+        self.assertFalse(purge.call_args.kwargs["dry_run"])
+        self.assertEqual(emitted, {"done": 0, "qwen-responses": 3})
+
+    def test_purge_dry_run_reaches_both_purges(self):
+        emitted, purge, prune = self._run_purge(older_than="7d", folders="done,qwen-responses", dry_run=True)
+
+        prune.assert_called_once_with(7 * 86400, dry_run=True)
+        purge.assert_called_once()
+        self.assertTrue(purge.call_args.kwargs["dry_run"])
         self.assertEqual(emitted, {"done": 0, "qwen-responses": 3})
 
     def test_purge_default_folders_never_touch_qwen_responses(self):
@@ -1185,9 +1194,23 @@ class TestPurgeCommand(unittest.TestCase, QueueRootIsolationMixin):
             rc = main(["purge", "--folders", "qwen-responses", "--older-than", "14d"])
 
         self.assertEqual(rc, 0)
-        prune.assert_called_once_with(14 * 86400)
+        prune.assert_called_once_with(14 * 86400, dry_run=False)
         purge.assert_not_called()
         self.assertEqual(json.loads(buf.getvalue()), {"qwen-responses": 2})
+
+    def test_cli_purge_dry_run_flag_end_to_end(self):
+        from worker.cli import main
+
+        buf = io.StringIO()
+        with patch("worker.commands.q.purge") as purge, \
+             patch("worker.qwen.prune_responses", return_value=4) as prune, \
+             redirect_stdout(buf):
+            rc = main(["purge", "--folders", "qwen-responses", "--older-than", "14d", "--dry-run"])
+
+        self.assertEqual(rc, 0)
+        prune.assert_called_once_with(14 * 86400, dry_run=True)
+        purge.assert_not_called()
+        self.assertEqual(json.loads(buf.getvalue()), {"qwen-responses": 4})
 
 
 # ---------------------------------------------------------------------------

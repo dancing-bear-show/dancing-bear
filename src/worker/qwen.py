@@ -64,6 +64,7 @@ diagnosis. See ``_persist_response``; ``prune_responses`` backs
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import math
@@ -74,6 +75,7 @@ import stat
 import sys
 import time
 import uuid
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -1848,19 +1850,20 @@ def _response_entries(dfd: int) -> list[tuple[float, str]]:
     return entries
 
 
-def _prune_response_entries(dfd: int, cutoff: float, *, max_files: int | None = None, keep: str | None = None) -> int:
-    """Remove responses in the directory dfd with an mtime before cutoff and,
-    when max_files is set, all but the newest max_files responses.
+def _expired_response_names(
+    dfd: int, cutoff: float, *, max_files: int | None = None, keep: str | None = None
+) -> list[str]:
+    """Names of the responses in the directory dfd that pruning removes:
+    those with an mtime before cutoff and, when max_files is set, all but
+    the newest max_files responses.
 
-    Returns the number of files removed. keep (a response just written) is
-    never removed but occupies one of the max_files slots. Temp files count
-    only toward the age limit, so a concurrent write in flight survives the
-    cap. Only regular files with a response name are considered (see
-    _response_entries). Unlinks go through dfd; a failed unlink is logged
-    and skipped.
+    keep (a response just written) is never selected but occupies one of
+    the max_files slots. Temp files count only toward the age limit, so a
+    concurrent write in flight survives the cap. Only regular files with a
+    response name are considered (see _response_entries).
     """
     room = None if max_files is None else max_files - (keep is not None)
-    removed = 0
+    expired = []
     for mtime, name in sorted(_response_entries(dfd), reverse=True):
         if name == keep:
             continue
@@ -1868,16 +1871,48 @@ def _prune_response_entries(dfd: int, cutoff: float, *, max_files: int | None = 
         if room is not None:
             room -= counted
         if mtime < cutoff or (counted and room is not None and room < 0):
-            try:
-                os.unlink(name, dir_fd=dfd)
-            except OSError as exc:
-                _log.debug("qwen: could not prune response %s (non-fatal): %s", name, describe_exception(exc))
-            else:
-                removed += 1
+            expired.append(name)
+    return expired
+
+
+def _prune_response_entries(dfd: int, cutoff: float, *, max_files: int | None = None, keep: str | None = None) -> int:
+    """Remove the responses _expired_response_names selects; return the count.
+
+    Unlinks go through dfd; a failed unlink is logged and skipped. The
+    caller holds _responses_lock(dfd), so no write can replace a selected
+    name between its lstat and its unlink.
+    """
+    removed = 0
+    for name in _expired_response_names(dfd, cutoff, max_files=max_files, keep=keep):
+        try:
+            os.unlink(name, dir_fd=dfd)
+        except OSError as exc:
+            _log.debug("qwen: could not prune response %s (non-fatal): %s", name, describe_exception(exc))
+        else:
+            removed += 1
     return removed
 
 
-def prune_responses(older_than_sec: float, *, now: float | None = None) -> int:
+@contextlib.contextmanager
+def _responses_lock(dfd: int) -> Iterator[None]:
+    """Hold an exclusive flock on the responses/ descriptor dfd.
+
+    Serializes _persist_response (write plus its prune) against
+    prune_responses across processes. Without it, a prune could lstat an
+    old <job_id>.txt, a worker could then atomically replace that name with
+    a fresh response, and the prune's unlink by name would delete the fresh
+    one.
+    """
+    import fcntl
+
+    fcntl.flock(dfd, fcntl.LOCK_EX)
+    try:
+        yield
+    finally:
+        fcntl.flock(dfd, fcntl.LOCK_UN)
+
+
+def prune_responses(older_than_sec: float, *, now: float | None = None, dry_run: bool = False) -> int:
     """Remove saved responses older than older_than_sec; return the count.
 
     The scoped purge behind `worker purge --folders qwen-responses`: the
@@ -1887,7 +1922,8 @@ def prune_responses(older_than_sec: float, *, now: float | None = None) -> int:
     _open_existing_private_dir) and is never created: when it is absent this
     returns 0. A symlink or foreign-owned directory there raises OSError and
     nothing is removed. Removal follows _prune_response_entries with no
-    count cap and no kept name.
+    count cap and no kept name, under _responses_lock. dry_run returns the
+    count that would be removed and removes nothing.
     """
     cutoff = (time.time() if now is None else now) - older_than_sec
     try:
@@ -1895,7 +1931,10 @@ def prune_responses(older_than_sec: float, *, now: float | None = None) -> int:
     except FileNotFoundError:
         return 0
     try:
-        return _prune_response_entries(dfd, cutoff)
+        with _responses_lock(dfd):
+            if dry_run:
+                return len(_expired_response_names(dfd, cutoff))
+            return _prune_response_entries(dfd, cutoff)
     finally:
         os.close(dfd)
 
@@ -1912,6 +1951,8 @@ def _persist_response(job_id: str, response_text: str) -> None:
     symlink swapped in at responses/ after creation is refused rather than
     followed. Directories above responses/ are not re-validated.
 
+    The write and the prune that follows it run under _responses_lock, so
+    a concurrent prune_responses cannot delete the response just written.
     After the write, older responses are pruned through the same
     descriptor (see _prune_response_entries), so retention is bounded by
     THRESHOLDS.response_retention_days and response_retention_max_files.
@@ -1925,13 +1966,14 @@ def _persist_response(job_id: str, response_text: str) -> None:
         try:
             head = response_text[: _MASK_INPUT_CHARS + _MASK_MARGIN_CHARS]
             capped = mask_text(head).encode("utf-8")[:MAX_PERSISTED_RESPONSE_BYTES]
-            _replace_file_at(dfd, final_name, capped.decode("utf-8", errors="ignore").encode("utf-8"))
-            _prune_response_entries(
-                dfd,
-                time.time() - THRESHOLDS.response_retention_days * 86400,
-                max_files=THRESHOLDS.response_retention_max_files,
-                keep=final_name,
-            )
+            with _responses_lock(dfd):
+                _replace_file_at(dfd, final_name, capped.decode("utf-8", errors="ignore").encode("utf-8"))
+                _prune_response_entries(
+                    dfd,
+                    time.time() - THRESHOLDS.response_retention_days * 86400,
+                    max_files=THRESHOLDS.response_retention_max_files,
+                    keep=final_name,
+                )
         finally:
             os.close(dfd)
     except Exception as exc:  # nosec B110 - diagnostics are best-effort; the job's outcome is already decided

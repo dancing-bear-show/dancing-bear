@@ -666,6 +666,15 @@ class TestPurge(unittest.TestCase, QueueRootIsolationMixin):
         result = purge(1800, root=self.root, folders=["done"])
         self.assertEqual(result["done"], 0)
 
+    def test_purge_dry_run_counts_without_deleting(self):
+        from worker.queue_ops import purge
+        old = self._make_old_file("done", "dry1", age_sec=7200)
+        recent = self._make_old_file("done", "dry2", age_sec=10)
+        result = purge(3600, root=self.root, folders=["done"], dry_run=True)
+        self.assertEqual(result["done"], 1)
+        self.assertTrue(old.exists())
+        self.assertTrue(recent.exists())
+
     def test_purge_multiple_old_files(self):
         from worker.queue_ops import purge
         p1 = self._make_old_file("done", "multi1", age_sec=7200)

@@ -624,6 +624,16 @@ stages:
           pruned only when a NEW response is written, so an idle lane keeps
           them indefinitely. Report numbers only; never read or quote a
           response's contents. If the directory is absent, report count 0.
+
+          `purgeable` is what allowlist item (e) is gated on, and it must
+          come from the purge's own eligibility, not from the inventory
+          above: the purge removes only regular files named as the handler
+          writes them, so a stale foreign file (notes.md, a symlink) is
+          counted above but never removed. Take it from:
+            ./bin/worker purge --folders qwen-responses --older-than {purge_older_than} --dry-run
+          which deletes nothing and prints {"qwen-responses": N}; record N.
+          If the command exits non-zero (a symlinked or foreign-owned
+          responses/), record null and quote its error line.
         - LANE DEPTH vs the admission cap: count pending + processing for
           "{job_type}" only and compare against the cap the handler's
           contract declares. Because the lane runs one job at a time, report
@@ -641,7 +651,7 @@ stages:
           "retry_exhausted": [{"id": "...", "attempts": N, "error_signature": "<derived/redacted, or the literal string withheld>", "suggests_misclassification": true|false}],
           "throughput": {"qwen_avg_ms": N, "other_avg_ms": N, "sample_size": N},
           "patch_artifacts": {"dir": "...", "count": N, "total_mb": N, "orphaned": N, "orphaned_items": [{"job_id": "...", "relative_name": "...", "size_mb": N}]},
-          "saved_responses": {"dir": "...", "count": N, "total_mb": N, "oldest_age_days": N | null},
+          "saved_responses": {"dir": "...", "count": N, "total_mb": N, "oldest_age_days": N | null, "purgeable": N | null},
           "lane_depth": {"pending": N, "processing": N, "cap": N | null, "over_cap": true|false, "estimated_drain_minutes": N | null},
           "needs_attention": true|false
         }
@@ -850,7 +860,8 @@ stages:
            wrong in both directions, and neither shows up as an error.
 
            BLAST RADIUS — state this verbatim in the proposal, every time:
-           `worker purge` accepts only --older-than and --folders. With
+           `worker purge` accepts only --older-than, --folders and
+           --dry-run (which deletes nothing). With
            --folders omitted or naming done/error, it has no
            --type, no --match, no lane filter of any kind (unlike
            requeue-errors, which has --limit/--match/--since). It therefore
@@ -1023,8 +1034,9 @@ stages:
 
         e) Prune saved qwen responses older than {purge_older_than}:
            ./bin/worker purge --folders qwen-responses --older-than {purge_older_than}
-           Propose it only when queue.json's `saved_responses` shows files
-           older than the window, and cite that field.
+           Propose it only when queue.json's `saved_responses.purgeable` is
+           above 0, and cite that field. Never infer it from `count` or
+           `oldest_age_days`: those include files the purge will not remove.
 
            ALWAYS PASS --older-than EXPLICITLY, for the same reason as (b).
            Pass --folders qwen-responses and nothing else in that list: adding
@@ -1287,10 +1299,13 @@ stages:
           drifts between triage and approval: a daemon may have come back, a
           job may have finished. If the precondition no longer holds, skip the
           action and record why. This is the check-then-act discipline the
-          install stage uses, for the same reason. For (e), re-check that
-          core.paths.output_dir("qwen")/responses/ is a real directory, not a
-          symlink, and still holds a file older than the window; if not,
-          skip it (the command itself also refuses a symlinked directory).
+          install stage uses, for the same reason. For (e), re-run
+            ./bin/worker purge --folders qwen-responses --older-than <retention> --dry-run
+          with the same <retention> the derived command will use. Proceed
+          only if it exits 0 and reports a count above 0. A count of 0 —
+          including a directory holding only foreign or fresh files — or a
+          non-zero exit (a symlinked or foreign-owned responses/) means skip
+          the action and record why; never record it as a successful no-op.
         - Bound every requeue with --limit and --match exactly as proposed.
           An unbounded requeue can flood the queue with jobs that will fail
           identically.

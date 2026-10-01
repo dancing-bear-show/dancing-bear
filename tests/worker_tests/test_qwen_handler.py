@@ -1651,6 +1651,103 @@ class QwenPruneResponsesTests(_ResponseDirHelpers):
         self.assertEqual(removed, 1)
         self.assertEqual(self._response_names(), ["a-job.txt"])
 
+    def test_dry_run_counts_what_would_be_removed_and_removes_nothing(self) -> None:
+        self._plant_response("old-job.txt", 8)
+        self._plant_response(f".old-job.txt.{'a' * 32}", 8)
+        self._plant_response("new-job.txt", 1)
+        foreign = self._plant_response("notes.md", 30).name
+        before = self._response_names()
+
+        self.assertEqual(qwen.prune_responses(self.window_sec, dry_run=True), 2)
+        self.assertEqual(self._response_names(), before)
+        self.assertIn(foreign, before)
+
+    def test_dry_run_of_an_absent_directory_is_zero_and_creates_nothing(self) -> None:
+        self.assertEqual(qwen.prune_responses(self.window_sec, dry_run=True), 0)
+        self.assertFalse(self.response_dir.exists())
+
+
+class QwenResponsesLockTests(_ResponseDirHelpers):
+    """Persisting (write plus its prune) and prune_responses hold one flock on
+    responses/, so a prune cannot unlink a response replaced after its lstat."""
+
+    window_sec = 7 * 86400
+
+    def _lock_is_held(self) -> bool:
+        """True when another open file description holds the responses/ flock."""
+        import fcntl
+
+        fd = os.open(self.response_dir, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        finally:
+            os.close(fd)  # closing also releases a probe lock that was taken
+        return False
+
+    def _recording(self, name: str, seen: list[tuple[str, bool]]) -> contextlib.AbstractContextManager[object]:
+        """Patch qwen.<name> to record whether the lock is held, then run it."""
+        real = getattr(qwen, name)
+
+        def wrapper(*args: object, **kwargs: object) -> object:
+            seen.append((name, self._lock_is_held()))
+            return real(*args, **kwargs)
+
+        return mock.patch.object(qwen, name, side_effect=wrapper)
+
+    def test_prune_responses_holds_the_lock_and_releases_it(self) -> None:
+        self._plant_response("old-job.txt", 8)
+        seen: list[tuple[str, bool]] = []
+
+        with self._recording("_prune_response_entries", seen):
+            self.assertEqual(qwen.prune_responses(self.window_sec), 1)
+
+        self.assertEqual(seen, [("_prune_response_entries", True)])
+        self.assertFalse(self._lock_is_held(), "the lock outlived prune_responses")
+
+    def test_persist_holds_the_lock_across_the_write_and_its_prune(self) -> None:
+        self.response_dir.mkdir(mode=0o700)
+        seen: list[tuple[str, bool]] = []
+
+        with self._recording("_replace_file_at", seen), self._recording("_prune_response_entries", seen):
+            qwen._persist_response("qwen-test-job", "some response")
+
+        self.assertEqual(seen, [("_replace_file_at", True), ("_prune_response_entries", True)])
+        self.assertFalse(self._lock_is_held(), "the lock outlived _persist_response")
+
+    def test_write_between_lstat_and_unlink_waits_and_survives(self) -> None:
+        """A worker persisting the same name after the prune's lstat: under
+        the lock it must wait, so the prune unlinks only the stale file and
+        the fresh response survives. Without the lock the fresh file would
+        be written mid-prune and then unlinked by name."""
+        job_id = "race-job"
+        name = qwen.response_path_for_job(job_id).name
+        self._plant_response(name, 30)
+        real_entries = qwen._response_entries
+        deferred: list[bool] = []
+
+        def entries_then_concurrent_write(dfd: int) -> list[tuple[float, str]]:
+            entries = real_entries(dfd)  # the lstat has happened
+            if not deferred:
+                if self._lock_is_held():
+                    deferred.append(True)  # the writer blocks until the prune releases
+                else:
+                    deferred.append(False)
+                    qwen._persist_response(job_id, "fresh response")  # the writer wins the race
+            return entries
+
+        with mock.patch.object(qwen, "_response_entries", side_effect=entries_then_concurrent_write):
+            removed = qwen.prune_responses(self.window_sec)
+        if deferred == [True]:
+            qwen._persist_response(job_id, "fresh response")  # the blocked writer resumes
+
+        saved = self.response_dir / name
+        self.assertTrue(saved.exists(), "the prune deleted the fresh response written after its lstat")
+        self.assertEqual(saved.read_text(encoding="utf-8"), "fresh response")
+        self.assertEqual(removed, 1)
+        self.assertEqual(deferred, [True], "the writer was not held off by the prune's lock")
+
 
 if __name__ == "__main__":
     unittest.main()
