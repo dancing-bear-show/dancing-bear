@@ -2250,7 +2250,8 @@ stages:
           git commit -m "fix(worker): reconcile <boundary> drift after parallel build"
         Confirm each with `git log --oneline -1` and record its SHA.
 
-      If no drift was found, make no commits (record all commit_shas as null).
+      If no drift was found, make no commits (record commit_sha_pr1,
+      commit_sha_pr2, commit_sha_pr3 all as null).
 
       Write {workspace}/validation/reconcile.json:
         {
@@ -2280,12 +2281,16 @@ stages:
             "failures": N,
             "errors": N
           },
-          "commit_shas": {"PR1": "..." | null, "PR2": "..." | null, "PR3": "..." | null},
+          "commit_sha_pr1": "..." | null,
+          "commit_sha_pr2": "..." | null,
+          "commit_sha_pr3": "..." | null,
           "notes": "..."
         }
-      commit_shas records the SHA for each boundary commit (null when no
-      fixes touched that boundary). A single commit spanning multiple
-      boundaries is not allowed — see COMMIT PER PR BOUNDARY above.
+      commit_sha_prN records the SHA for each boundary commit (null when no
+      fixes touched that boundary). Top-level flat keys are required so that
+      `./bin/workflow check-params --top-level` can validate each SHA
+      individually. A single commit spanning multiple boundaries is not
+      allowed — see COMMIT PER PR BOUNDARY above.
 
       reconciled is true ONLY when the suite passed (exit_code 0 and a "Ran N
       tests" summary line with no failures or errors). Recording remaining
@@ -2531,24 +2536,26 @@ stages:
       blocking_findings: each one that has not yet been fixed by the time
       you run is work for this stage.
 
-      RECONCILE COMMITS IN THE TREE. reconcile.json now records commit_shas
-      keyed by PR boundary. For each non-null entry, VALIDATE the SHA before
-      passing it to git — reconcile.json is agent-written and the value is
-      untrusted:
+      RECONCILE COMMITS IN THE TREE. reconcile.json records the per-boundary
+      SHAs as top-level flat keys (commit_sha_pr1, commit_sha_pr2,
+      commit_sha_pr3). For each key whose value is non-null, VALIDATE the
+      SHA before passing it to git — reconcile.json is agent-written and the
+      value is untrusted. Run one check-params invocation per non-null key:
         ./bin/workflow check-params "{workspace}"/validation/reconcile.json \
-          --top-level --check 'commit_shas.PR1=[0-9a-f]{40}' \
-          (repeat for PR2, PR3 as needed, or use a per-key invocation)
-      Branch on the EXIT STATUS. A short SHA, a ref name, or any value with
-      non-hex characters FAILS the stage — do not resolve or retry. A null
-      value means no fixes were made for that boundary; skip the ancestry
-      check for that boundary only.
+          --top-level --check 'commit_sha_pr1=[0-9a-f]{40}'
+        (same for pr2, pr3 as applicable)
+      Branch on the EXIT STATUS of each call. A short SHA, a ref name, or
+      any value with non-hex characters FAILS the stage — do not resolve or
+      retry. A null or absent key means no fixes were made for that boundary;
+      skip the ancestry check for that boundary.
 
       For each validated non-null SHA, confirm it is an ancestor of HEAD:
         git merge-base --is-ancestor <sha> HEAD
       A commit not reachable from HEAD means those drift-fix edits were lost
       — the suite will likely regress. Record each result as
-      reconcile_commit_shas and reconcile_commits_landed in integrate.json.
-      Any non-null SHA that is NOT an ancestor is a blocking finding.
+      reconcile_commit_sha_pr1/pr2/pr3 and reconcile_commits_landed in
+      integrate.json. Any non-null SHA that is NOT an ancestor is a blocking
+      finding.
 
       The name/signature/outcome-string drift that reconcile-impl addresses is
       no longer your job here; it was handled before the adversarial review
@@ -2636,8 +2643,10 @@ stages:
       Write {workspace}/validation/integrate.json:
         {
           "merge_verified": true|false,
-          "reconcile_commit_shas": {"PR1": "..." | null, "PR2": "..." | null, "PR3": "..." | null},
-          "reconcile_commits_landed": {"PR1": true|false|null, "PR2": true|false|null, "PR3": true|false|null},
+          "reconcile_commit_sha_pr1": "..." | null,
+          "reconcile_commit_sha_pr2": "..." | null,
+          "reconcile_commit_sha_pr3": "..." | null,
+          "reconcile_commits_landed": {"pr1": true|false|null, "pr2": true|false|null, "pr3": true|false|null},
           "import_paths_correct": true|false,
           "tests": {"ran": N, "failures": N, "errors": N, "summary_line": "..."},
           "qlty": {"clean": true|false, "findings": [...]},
@@ -3648,8 +3657,8 @@ stages:
       Files created and modified, from merge.json's files_present list, with
       the per-stage commit SHAs from its "verified" entries (each carries
       stage, commit_sha and is_ancestor_of_head — there is no branch field,
-      so do not report one). Also include reconcile-impl's per-boundary
-      commit_shas from integrate.json (reconcile_commit_shas): each non-null
+      so do not report one). Also include reconcile-impl's per-boundary SHAs
+      from integrate.json (reconcile_commit_sha_pr1/pr2/pr3): each non-null
       entry belongs with the production change for that boundary:
         PR1 reconcile commit → alongside the seam/confinement commits (PR1)
         PR2 reconcile commit → alongside the transport/guards commits (PR2)
