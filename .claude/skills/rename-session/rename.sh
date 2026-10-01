@@ -3,11 +3,13 @@
 # Usage: rename.sh <name>
 #
 # Exit codes:
-#   0  — success (or TMUX unset, nothing to rename)
-#   2  — invalid name (a fixed message goes to stderr; the name is never echoed)
-#   non-zero (propagated) — tmux rename-session or display-message failed
-#                           (e.g. name already taken, no server); the tab
-#                           title is NOT written when rename-session fails.
+#   0        — renamed (tab title written when the client tty is a writable
+#              character device; the client-tty lookup is best-effort and its
+#              failure only skips the title), or TMUX unset
+#   2        — invalid name (fixed message on stderr; the name is never echoed)
+#   non-zero — passed through under set -e from: tmux rename-session (title not
+#              written), the printf/redirect to the tty, or the final
+#              tmux display-message -p 'Session: #S'
 #
 # Why a script: the inline block (tmux display-message -p '#{client_tty}' +
 # command substitution) is rejected by the destructive-bash guard hook as
