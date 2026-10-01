@@ -62,10 +62,15 @@ and name an entry, never its rejected value.
 - `snapshot-dirty` records the checkout's dirty and untracked paths with
   content hashes, plus HEAD, before any fixer runs.
 - `check-unlisted` exits 1 if a path changed since that snapshot is missing
-  from fix-results.json `files_changed`. It fails closed: an unreadable input,
-  a tampered baseline, or a failed git call is exit 1, never a pass.
+  from fix-results.json `files_changed`. It also needs a `pr-context.json`
+  beside the baseline holding `dirty_baseline_sha256`, the baseline's sha256
+  recorded right after `snapshot-dirty` wrote it; the baseline is re-hashed
+  against it. It fails closed: a missing or mismatched `pr-context.json`, an
+  unreadable input, or a failed git call is exit 1, never a pass.
 
-Other commands:
+Other commands. For every command, argparse rejects a missing required flag or
+a malformed value (e.g. a non-integer `--recent`) with exit 2 before the
+handler runs; the exit codes below are the handlers' own.
 
 - `select-concerns` prints the `concerns/*.md` guides that apply to a set of
   paths, using the canonical rules in `concerns/selection.yaml`. Pass paths
@@ -76,10 +81,13 @@ Other commands:
   checkout; 2 on an unknown `--task-type` (the valid types come from
   `selection.yaml`). See `concern_select.py`.
 - `review-rounds` fetches bot review-round data for `--prs` or the `--recent N`
-  PRs and writes `pr<N>.json` plus `summary.json` to `--out-dir`. Exit 1 on bad
-  arguments, an API failure, or truncated pagination.
+  PRs and writes `pr<N>.json` plus `summary.json` to `--out-dir`. Exit 1 when
+  the handler rejects the arguments (e.g. both or neither of `--prs` and
+  `--recent`), on an API failure, or on truncated pagination.
 - `count-sweep` counts lines matching a Python regex under repo-relative
-  `--path`s and prints `{hits, files}`. The pattern never reaches a shell. Exit
+  `--path`s and prints `{hits, files}`. The command itself runs no shell, but
+  your shell still parses the command line, so single-quote the regex as one
+  argument (`--pattern 'foo|bar'`). Exit
   2 on an invalid pattern, a refused or missing path, or a `--root` outside
   the checkout; 1 when the scan hit its work bound, so the count is partial.
 
