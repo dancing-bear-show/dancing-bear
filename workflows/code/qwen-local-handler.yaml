@@ -250,10 +250,12 @@ trigger:
     model_tag: "qwen2.5-coder:14b"
     ollama_host: "http://localhost:11434"
     job_type: "qwen_patch"
-    # Approximate resident size of {model_tag} at Q4 quantization and
-    # num_ctx 16384 (measured 10 GB with `ollama ps`), used by the memory
-    # precheck. The survey verifies this against `ollama list` rather than
-    # trusting it — override when changing model_tag.
+    # Resident size of {model_tag} at Q4 quantization, used by the memory
+    # precheck. Measure it with `ollama ps` after loading the model at the
+    # num_ctx the handler uses: resident size grows with the context window
+    # (measured 9.5 GB at num_ctx 8192, 10 GB at 16384). `ollama list`
+    # reports the on-disk artifact size, not resident size, so it cannot
+    # verify this value. Re-measure when changing model_tag or num_ctx.
     model_resident_gb: "10"
     # Safety margin above the model size before a generation is allowed to
     # start, leaving room for the OS and whatever else is running.
@@ -613,6 +615,16 @@ stages:
          whose body contains no parseable edit block, and a patch — built
          locally from the applied edit blocks — that fails
          `git apply --check`.
+         Also classify a 200 response whose final Ollama body has
+         done_reason "length" (generation stopped at num_predict). It MUST
+         map to "terminal-output-truncated" and be a retry_map row in
+         contract.json: checked BEFORE edit-block parsing, terminal (no
+         retry — the same prompt truncates again), with the response
+         persisted like any other post-model failure. Checking first is the
+         point: a response cut exactly at a block boundary parses as valid
+         blocks and would otherwise yield a silently incomplete patch. Only
+         "length" triggers it; "stop" or an absent done_reason (older
+         Ollama) keeps the normal path.
          Each maps to exactly one of: plain failure (retries with backoff),
          "terminal-..." (no retry), or "deferred-..." (re-queue without
          consuming an attempt). State the rule you are applying — the
@@ -1305,7 +1317,12 @@ stages:
         C4  EDIT BLOCKS APPLY. Add SEARCH/REPLACE block parsing, the patch
             builder that turns blocks into a unified diff, and the patch caps.
             Verify with a known-good block set and a known-bad one; assert
-            the caps reject an oversized result.
+            the caps reject an oversized result. Before parsing, read the
+            response's done_reason: "length" returns
+            "terminal-output-truncated" (persisting the response) per
+            contract.json's retry_map, and a block-boundary-truncated
+            response that would otherwise parse must hit it rather than
+            produce a patch.
         C5  CONCURRENCY AND DEFERRALS. Add the lock, the wait ceiling, the
             deferral counter and the memory/disk prechecks. Verify the lock
             is released on both the success and the exception path — the
