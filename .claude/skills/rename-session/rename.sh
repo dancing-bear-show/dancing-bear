@@ -5,11 +5,14 @@
 # Exit codes:
 #   0  — success (or TMUX unset, nothing to rename)
 #   2  — invalid name (printed to stderr)
+#   non-zero (propagated) — tmux rename-session or display-message failed
+#                           (e.g. name already taken, no server); the tab
+#                           title is NOT written when rename-session fails.
 #
 # Why a script: the inline block (tmux display-message -p '#{client_tty}' +
 # command substitution) is rejected by the destructive-bash guard hook as
 # "too complex to verify", so the tab title would silently not update.
-set -u
+set -eu
 
 NAME="${1:-}"
 
@@ -34,6 +37,7 @@ if [ -z "${TMUX:-}" ]; then
 fi
 
 # --- Rename session ----------------------------------------------------------
+# Exit immediately on failure (set -e); do not write the title if rename fails.
 tmux rename-session -- "$NAME"
 
 # --- Push tab title via the outer client tty ---------------------------------
