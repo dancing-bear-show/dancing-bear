@@ -113,6 +113,48 @@ class TestUnvalidatedParam(_RuleCase):
                 desc = _fenced(f"{program} check-params m.json --check host=trusted\n\necho {{host}}")
                 self.assert_silent(_workflow(_stage(desc), params='host: "example.com"'))
 
+    def test_check_params_in_a_child_shell_does_not_validate(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6njyuA: echo masks the check's
+        # failure, yet the call was credited to this stage and its descendants.
+        check = 'echo "$(./bin/workflow check-params m.json --check host=trusted)"'
+        same = _fenced(f"{check}\n\necho {{host}}")
+        hits = self.assert_fires(_workflow(_stage(same), params='host: "example.com"'))
+        self.assertEqual(hits[0].stage, "work")
+        descendant = _workflow(
+            _stage(_fenced(check), name="init"),
+            _stage(_fenced("echo {host}"), name="use", depends_on="[init]"),
+            params='host: "example.com"',
+        )
+        hits = self.assert_fires(descendant)
+        self.assertEqual(hits[0].stage, "use")
+
+    def test_check_params_whose_failure_is_masked_does_not_validate(self) -> None:
+        # Same thread: credit only a check whose exit status can stop the stage.
+        call = "./bin/workflow check-params m.json --check host=trusted"
+        for line in (f"{call} || true", f"! {call}", f"{call} | tee log", f"{call} &",
+                     f"if {call}; then :; fi", f"false || {call}", f"( {call} )",
+                     f"local H=$({call} --print host)", f"H=$({call} --print host; true)"):
+            with self.subTest(line=line):
+                desc = _fenced(f"{line}\n\necho {{host}}")
+                self.assert_fires(_workflow(_stage(desc), params='host: "example.com"'))
+
+    def test_check_params_whose_failure_stops_the_stage_validates(self) -> None:
+        # Happy path: a plain call, one joined by && or followed by `|| exit`,
+        # and the capture idiom the qwen workflows use (an assignment-only
+        # command exits with its substitution's status).
+        call = "./bin/workflow check-params m.json --check host=trusted"
+        for line in (call, f"{call} && echo ok", f"{call} || exit 1",
+                     f"H=$({call} --print host) || exit 1", f"H=$({call} --print host)"):
+            with self.subTest(line=line):
+                desc = _fenced(f"{line}\n\necho {{host}}")
+                self.assert_silent(_workflow(_stage(desc), params='host: "example.com"'))
+                yaml_text = _workflow(
+                    _stage(_fenced(line), name="init"),
+                    _stage(_fenced("echo {host}"), name="use", depends_on="[init]"),
+                    params='host: "example.com"',
+                )
+                self.assert_silent(yaml_text)
+
     def test_placeholder_in_shell_comment_still_fires(self) -> None:
         # Copilot "Previously missed" on PR #437 asked for comments to be
         # skipped. Not for this rule: the value is substituted into the text

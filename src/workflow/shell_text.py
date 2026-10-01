@@ -26,7 +26,11 @@ path-prefixed ``python``/``python3`` interpreter (optionally
 version-suffixed, e.g. ``python3.11``) counts unless the word after it is
 English -- a function word, verb, or version number ("python3 is
 required", "python 3.11 or newer"); ``python3 runner input`` is a command.
-Neither the interpreter nor the wrapper exception applies to a line whose
+A shell (``bash``, ``sh``, ``zsh``, ``dash``, ``ksh``, bare or path-qualified)
+or ``eval`` counts only when the next word is an option, quote, ``$``
+expansion, path, redirect or ``*.sh`` script (``bash -s name``, ``/bin/bash
+< script``, ``eval "$CMD"``), so "sh is the default shell" stays prose.
+Neither the interpreter, shell nor wrapper exception applies to a line whose
 unquoted operator leads into more shell (see :func:`_operator_candidates`):
 ``python3 is; rm -rf scratch`` runs ``rm`` whatever its first operand says.
 That search is iterative and judges at most :data:`_MAX_JUDGED_TEXTS` texts
@@ -38,6 +42,11 @@ mid-parenthesis. Everything else, including a label before a command
 Quoting is resolved with :func:`quote_context`, a small lexer, rather than by
 regex over the shell text.
 
+Indentation is the description's, not the shell's: a fence body loses its
+common indentation, and a command line's heredoc body loses the command
+line's own, before anything is parsed. A heredoc closer is then matched as
+Bash matches it -- exactly, or past leading tabs for ``<<-``.
+
 The command parser (:func:`shell_parse.parse_shell` and its supporting types)
 lives in :mod:`shell_parse`.
 """
@@ -45,6 +54,8 @@ lives in :mod:`shell_parse`.
 from __future__ import annotations
 
 import re
+import textwrap
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from .shell_parse import WRAPPER_NAMES as _WRAPPER_NAMES
@@ -118,6 +129,16 @@ _INTERPRETER_PROSE_WORDS: frozenset[str] = frozenset({
     "script", "command", "invocation", "snippet", "inline", "there",
 })
 _PROSE_TRAILING_PUNCTUATION = ".,;:!?"
+# Shells and eval, bare or path-qualified (``/bin/bash``). The guard refuses
+# ``eval``, ``sh -c`` and a shell reading stdin anywhere, so lines they lead
+# must be extracted -- but each is also an English word ("sh is the default
+# shell", "eval is dangerous", "bash scripts should ..."). So, like a weak
+# command, one counts only when the next word looks like shell (an option,
+# quote, ``$``, path, or redirect) or names a shell script; otherwise only an
+# operator leading into more shell makes the line a command.
+_SHELL_WORDS: frozenset[str] = frozenset({"bash", "sh", "zsh", "dash", "ksh", "eval"})
+_SHELL_SCRIPT_RE = re.compile(r"[\w.-]+\.(?:sh|bash|zsh|ksh)")
+_REDIRECT_PREFIXES = ("<", ">")
 # "python 3.11 or newer": an all-numeric dotted version, never a script name.
 # Matched whole after trailing punctuation is stripped, so "3.11," is a
 # version while "3.py", "2026_job.py" and "3x" are scripts.
@@ -325,6 +346,17 @@ def _closes_unopened_paren(line: str) -> bool:
     return _scan(line).stray_close
 
 
+def _shell_word_is_command(second: str) -> bool:
+    """A line led by a shell or ``eval`` is a command when its next word looks like shell.
+
+    ``bash -s name``, ``/bin/bash < script``, ``eval "$CMD"`` and ``sh
+    run.sh`` count; "sh is the default shell" and "bash scripts should" do not.
+    """
+    if second.startswith(_SHELLISH_ARG_PREFIXES + _REDIRECT_PREFIXES) or "/" in second:
+        return True
+    return bool(_SHELL_SCRIPT_RE.fullmatch(second))
+
+
 def _weak_word_is_command(first: str, second: str, line: str) -> bool:
     """A common-English command word counts only with shell-looking context."""
     if first in _COMPOUND_HEADS:
@@ -353,6 +385,21 @@ def is_command_line(line: str) -> bool:
     return bool(pending)
 
 
+def _english_word_operand_test(first: str) -> Callable[[str], bool] | None:
+    """How to judge a line led by an interpreter or shell word, which is also English.
+
+    The test decides from the next word alone; when it says prose, only an
+    operator leading into more shell makes the line a command. None for any
+    other first word.
+    """
+    word = first.lstrip("(")
+    if _PYTHON_WORD_RE.match(word):
+        return _interpreter_line_is_command
+    if word.rsplit("/", 1)[-1] in _SHELL_WORDS:
+        return _shell_word_is_command
+    return None
+
+
 def _judge(candidate: _Candidate) -> tuple[bool, list[_Candidate]]:
     """Whether *candidate* is a command line, or which further texts could make it one."""
     line = candidate.text
@@ -364,8 +411,9 @@ def _judge(candidate: _Candidate) -> tuple[bool, list[_Candidate]]:
     if _ASSIGN_START_RE.match(first) or _is_command_word(first):
         return True, []
     second = words[1] if len(words) > 1 else ""
-    if _PYTHON_WORD_RE.match(first.lstrip("(")):
-        if _interpreter_line_is_command(second):
+    operand_test = _english_word_operand_test(first)
+    if operand_test is not None:
+        if operand_test(second):
             return True, []
         return _operator_candidates(body) if candidate.scan_operators else (False, [])
     if first in _WEAK_COMMANDS and _weak_word_is_command(first, second, line):
@@ -399,6 +447,7 @@ def _fence_segments(
         # anchor to, so the fence's start (the marker line itself) is the
         # closest real offset for it.
         start = line_starts[i]
+        body = _dedent(body)
         if first_line:
             body = [first_line] + body
         consumed.update(range(i, min(end + 1, len(lines))))
@@ -406,6 +455,23 @@ def _fence_segments(
             segments.append(ShellSegment(text="\n".join(body), origin="fence", start=start))
         i = end + 1
     return segments, consumed
+
+
+def _dedent(lines: list[str]) -> list[str]:
+    """*lines* with their common leading whitespace removed, as a reader runs an indented block.
+
+    Description prose indents its shell (under a list item, say), and the
+    text bash would run is the block with that indentation taken off. A
+    heredoc closer must match exactly in *that* text: ``EOF`` indented with
+    the rest of the block closes, one indented further does not.
+    """
+    return textwrap.dedent("\n".join(lines)).split("\n") if lines else []
+
+
+def _strip_indent(line: str, width: int) -> str:
+    """*line* with up to *width* leading blanks removed: the indentation its block shares."""
+    blanks = len(line) - len(line.lstrip(" \t"))
+    return line[min(blanks, width):]
 
 
 def _fence_lang_and_first_line(gap: str, tag: str, trailing: str | None) -> tuple[str, str]:
@@ -454,18 +520,21 @@ def _line_segments(
         if i in consumed or not is_command_line(lines[i]):
             i += 1
             continue
-        start = line_starts[i]
+        start, start_index = line_starts[i], i
         chunk = [lines[i].strip()]
         while _can_continue(chunk, lines, i + 1, consumed):
             i += 1
             chunk.append(lines[i].strip())
-        i = _absorb_heredoc_body(chunk, lines, i, consumed)
+        indent = len(lines[start_index]) - len(lines[start_index].lstrip(" \t"))
+        i = _absorb_heredoc_body(chunk, lines, i, consumed, indent)
         segments.append(ShellSegment(text="\n".join(chunk), origin="line", start=start))
         i += 1
     return segments
 
 
-def _absorb_heredoc_body(chunk: list[str], lines: list[str], i: int, consumed: set[int]) -> int:
+def _absorb_heredoc_body(
+    chunk: list[str], lines: list[str], i: int, consumed: set[int], indent: int
+) -> int:
     """Append a heredoc's body lines, through its closer, to *chunk*.
 
     A heredoc opener (``cat <<EOF``) has no unclosed quote or trailing
@@ -483,15 +552,21 @@ def _absorb_heredoc_body(chunk: list[str], lines: list[str], i: int, consumed: s
     command-looking body line (``echo "$UNBOUND"``) as its own live segment.
     Several heredocs opened on one line (``cat <<A <<B``) have their bodies
     one after another.
+
+    Body lines keep their own indentation past the block's: *indent*, the
+    command line's, is all that is removed (see :func:`_strip_indent`). The
+    closer is then matched as Bash matches it (``_Delimiter.closes``):
+    exactly, or after leading tabs for ``<<-`` -- so a closer indented with
+    the block ends the body, while one indented further is body data.
     """
     for delimiter in _heredoc_delimiters("\n".join(chunk)):
-        end = next((k for k in range(i + 1, len(lines)) if lines[k].strip() == delimiter.text), None)
+        body = [_strip_indent(line, indent) for line in lines[i + 1:]]
+        end = next((k for k, line in enumerate(body) if delimiter.closes(line)), None)
         if end is None:
             return i
-        for k in range(i + 1, end + 1):
-            chunk.append(lines[k].strip())
-            consumed.add(k)
-        i = end
+        chunk.extend(body[:end + 1])
+        consumed.update(range(i + 1, i + end + 2))
+        i += end + 1
     return i
 
 

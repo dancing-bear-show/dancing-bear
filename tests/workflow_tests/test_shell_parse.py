@@ -12,7 +12,14 @@ from pathlib import Path
 
 import workflow.shell_parse as shell_parse
 import workflow.shell_text as shell_text
-from workflow.shell_parse import MAX_DEPTH, WRAPPER_NAMES, LoopVariable, command_from_words, parse_shell
+from workflow.shell_parse import (
+    MAX_DEPTH,
+    MAX_EXPANSION_NEST,
+    WRAPPER_NAMES,
+    LoopVariable,
+    command_from_words,
+    parse_shell,
+)
 from workflow.shell_text import extract_labelled_assignments, is_command_line
 
 
@@ -49,6 +56,46 @@ class TestParseShell(unittest.TestCase):
         self.assertEqual([cmd.name for cmd in script.commands], ["cat", "cat", "echo", "date"])
         self.assertEqual([(d.quoted, d.body) for d in script.heredocs],
                          [(True, "rm -rf /\nFOO=1\n"), (False, "$(date)\n")])
+
+    def test_indented_delimiter_does_not_close_a_heredoc(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6njyv1: the closer was matched after
+        # strip(), so `  EOF` ended the body early and the lines after it were
+        # parsed as live commands. Bash needs the exact line for <<EOF, and
+        # strips only tabs, never spaces, for <<-EOF.
+        for text in ("cat <<EOF\n  EOF\nrm -rf x\nEOF\necho done", "cat <<-EOF\n  EOF\nrm -rf x\nEOF\necho done"):
+            with self.subTest(text=text):
+                script = parse_shell(text)
+                self.assertEqual([c.name for c in script.commands], ["cat", "echo"])
+                self.assertEqual([d.body for d in script.heredocs], ["  EOF\nrm -rf x\n"])
+
+    def test_tab_indented_delimiter_closes_a_dash_heredoc(self) -> None:
+        script = parse_shell("cat <<-EOF\n\tbody\n\t\tEOF\necho done")
+        self.assertEqual([c.name for c in script.commands], ["cat", "echo"])
+        self.assertEqual([(d.body, d.strip_tabs) for d in script.heredocs], [("\tbody\n", True)])
+        # Without the dash a tab-indented closer is body data, like a space-indented one.
+        script = parse_shell("cat <<EOF\n\tEOF\necho x\nEOF\n")
+        self.assertEqual([(d.body, d.strip_tabs) for d in script.heredocs], [("\tEOF\necho x\n", False)])
+
+    def test_unconditional_marks_commands_whose_status_can_stop_the_shell(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6njyuA: a check-params whose failure
+        # is masked validates nothing. Judged within each command's own shell.
+        cases = {
+            "a; b && c": [("a", True), ("b", True), ("c", True)],
+            "a | b": [("a", False), ("b", False)],
+            "! a; b": [("a", False), ("b", True)],
+            "a || b; c": [("a", False), ("b", False), ("c", True)],
+            "a || exit 1": [("a", True), ("exit", False)],
+            "a &": [("a", False)],
+            "if a; then b; fi; c": [("a", False), ("b", False), ("c", True)],
+            "while a; do b; done; c": [("a", False), ("b", False), ("c", True)],
+            "for x in y; do a; done; b": [("a", False), ("b", True)],
+            "case x in y) a ;; esac; b": [("a", False), ("b", True)],
+            "f() { a; }; { b; }; c": [("a", False), ("b", False), ("c", True)],
+            'echo "$(a; b)"': [("echo", True), ("a", True), ("b", True)],
+        }
+        for text, flags in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual([(c.name, c.unconditional) for c in parse_shell(text).commands], flags)
 
     def test_comment_spans(self) -> None:
         # A `#` that begins a word, outside quotes and heredoc bodies, runs to
@@ -245,17 +292,44 @@ class TestParseDepth(unittest.TestCase):
         # Unlinked finding shell_parse.py:390: 1,200 nested $( raised
         # RecursionError before parse_shell could check MAX_DEPTH.
         n = 1200
-        for text in ("$(" * n + "true" + ")" * n, "$(" * n, "${X:-" * n + "}" * n,
-                     "$((" * n + "1" + "))" * n, "echo $(" + "${X:-" * n + ")"):
+        for text in ("$(" * n + "true" + ")" * n, "$(" * n):
             with self.subTest(text=text[:12]):
                 self.assertTrue(parse_shell(text).too_deep)
 
-    def test_expansion_nesting_at_the_limit_is_not_too_deep(self) -> None:
-        for text in (self._subs(MAX_DEPTH), "echo " + "${X:-" * MAX_DEPTH + "}" * MAX_DEPTH,
-                     "echo " + "$((" * MAX_DEPTH + "1" + "))" * MAX_DEPTH):
+    def test_deep_expansion_nesting_is_too_nested_not_an_exception(self) -> None:
+        # ${...} and arithmetic are bounded by MAX_EXPANSION_NEST, not by the
+        # guard's MAX_DEPTH: past it the rest is unread and reported.
+        n = 1200
+        for text in ("${X:-" * n + "}" * n, '"${X:-' * n, "$((" * n + "1" + "))" * n,
+                     "echo $(" + "${X:-" * n + ")"):
             with self.subTest(text=text[:12]):
-                self.assertFalse(parse_shell(text).too_deep)
-        self.assertTrue(parse_shell("echo " + "${X:-" * (MAX_DEPTH + 1) + "}" * (MAX_DEPTH + 1)).too_deep)
+                script = parse_shell(text)
+                self.assertTrue(script.too_nested)
+                self.assertFalse(script.too_deep)
+
+    def test_33_nested_parameter_expansions_are_not_too_deep(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6njyvT: the guard reads ${...} and
+        # $((...)) in the same Parser (_scan_param, _scan_arith), so they never
+        # count toward its MAX_DEPTH; 33 of them were reported "deeper than 32".
+        for text in ("echo " + "${X:-" * (MAX_DEPTH + 1) + "}" * (MAX_DEPTH + 1),
+                     "echo " + "$((" * (MAX_DEPTH + 1) + "1" + "))" * (MAX_DEPTH + 1),
+                     "echo $(echo " + "${X:-" * (MAX_DEPTH + 1) + "}" * (MAX_DEPTH + 1) + ")"):
+            with self.subTest(text=text[:12]):
+                script = parse_shell(text)
+                self.assertFalse(script.too_deep)
+                self.assertFalse(script.too_nested)
+
+    def test_expansion_nesting_bound_is_max_expansion_nest(self) -> None:
+        at_limit = "echo " + "${X:-" * MAX_EXPANSION_NEST + "}" * MAX_EXPANSION_NEST
+        past = "echo " + "${X:-" * (MAX_EXPANSION_NEST + 1) + "}" * (MAX_EXPANSION_NEST + 1)
+        self.assertFalse(parse_shell(at_limit).too_nested)
+        self.assertTrue(parse_shell(past).too_nested)
+
+    def test_substitutions_still_count_toward_max_depth(self) -> None:
+        # Happy path for the split: 33 nested $( are still past the guard's limit.
+        script = parse_shell(self._subs(MAX_DEPTH + 1))
+        self.assertTrue(script.too_deep)
+        self.assertFalse(script.too_nested)
 
     def test_depth_argument_offsets_the_count(self) -> None:
         script = parse_shell("a $(b)", depth=MAX_DEPTH)

@@ -318,6 +318,47 @@ class TestExtractShellSegments(unittest.TestCase):
         many = "python3 is; " * 100 + "it is fine"
         self.assertEqual(self._texts(f"  {many}\n"), [many])
 
+    def test_shell_and_eval_led_lines_are_command_lines(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6njyuh: is_command_line knew no shell
+        # or eval, so these were extracted only when fenced. A path-qualified
+        # shell is judged by its basename.
+        for line in ("bash -s name", "/bin/bash < script", 'eval "$CMD"', "eval $(ssh-agent -s)",
+                     "sh -c 'echo hi'", "zsh -f run.zsh", "/usr/bin/env bash -s", "bash run.sh",
+                     "dash < f", "ksh ./setup", "sh is; rm -rf scratch"):
+            with self.subTest(line=line):
+                self.assertEqual(self._texts(f"  {line}\n"), [line])
+
+    def test_prose_led_by_a_shell_word_is_not_a_command_line(self) -> None:
+        # Happy path: the reviewer's prose, plus the two workflow lines that
+        # start with "bash" (review-fix-threads.yaml, telemetry-review.yaml).
+        for line in ("sh is the default shell", "eval is dangerous", "bash scripts should be short",
+                     "bash when 16 were, and the composed reply described a code line",
+                     "bash commands and error text, which is where secrets most often appear in",
+                     "bash", "eval"):
+            with self.subTest(line=line):
+                self.assertEqual(self._texts(f"  {line}\n"), [])
+
+    def test_further_indented_closer_stays_in_the_heredoc_body(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6njyv1: an indented `  EOF` closed the
+        # body under strip(), though Bash keeps reading. Indentation the block
+        # shares is removed first; only what is left must match exactly.
+        line_form = "  cat <<EOF\n  a\n    EOF\n  rm -rf x\n  EOF\n  after\n"
+        self.assertEqual(self._texts(line_form), ["cat <<EOF\na\n  EOF\nrm -rf x\nEOF"])
+        fence_form = "  ```bash\n  cat <<EOF\n    EOF\n  rm -rf x\n  EOF\n  ```\n"
+        self.assertEqual(self._texts(fence_form), ["cat <<EOF\n  EOF\nrm -rf x\nEOF"])
+
+    def test_heredoc_indented_with_its_block_still_closes(self) -> None:
+        # Happy path: YAML descriptions indent shell under prose, so a closer
+        # indented with its command line ends the body, in a line segment and
+        # in a fence; the next line is outside it.
+        for desc in ("Write it:\n\n    cat > f <<'EOF'\n    {x}\n    EOF\n    echo after\n",
+                     "Write it:\n\n    ```bash\n    cat > f <<'EOF'\n    {x}\n    EOF\n    echo after\n    ```\n"):
+            with self.subTest(desc=desc):
+                segments = extract_shell_segments(desc)
+                script_text = "\n".join(s.text for s in segments)
+                self.assertIn("cat > f <<'EOF'\n{x}\nEOF", script_text)
+                self.assertIn("echo after", script_text)
+
 
 
 class TestRuleSerialisation(unittest.TestCase):

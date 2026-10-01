@@ -8,8 +8,10 @@ never the surrounding prose -- and emit warnings with stable rule ids:
 ``shell-unvalidated-param``
     A caller-overridable ``{param}`` is substituted into shell text, and
     neither ``trigger.param_rules`` nor a ``workflow check-params --check`` in
-    this stage or an ancestor constrains it. Quoting is not the control: double
-    quotes do not stop ``$(...)``. Nor is a shell comment or a quoted
+    this stage or an ancestor constrains it. A check counts only when its
+    failure can stop the stage (see :func:`_credited_checks`): not inside
+    ``echo "$(...)"``, a pipeline, ``!``, ``if`` or ``|| true``. Quoting is
+    not the control: double quotes do not stop ``$(...)``. Nor is a shell comment or a quoted
     heredoc (``<<'EOF'``): the value is substituted into the text before the
     shell reads it, so a newline in it ends the comment, and a newline plus
     the delimiter ends the heredoc (the break-out ``param_guard`` documents).
@@ -345,18 +347,73 @@ def _check_param_names(operands: list[str]) -> list[str]:
     return names
 
 
+def _command_start(cmd: SimpleCommand) -> int:
+    """Offset of *cmd*'s first word or assignment; -1 for a redirect-only command."""
+    return min((tok.start for tok in (*cmd.assignments, *cmd.words)), default=-1)
+
+
+def _captured_status(script: ShellScript, cmd: SimpleCommand) -> SimpleCommand | None:
+    """The command whose exit status the assignment-only *cmd* returns, if one decides it.
+
+    ``HOST=$(./bin/workflow check-params ... --print h) || exit 1`` is the
+    repo's capture idiom: a command with no program word exits with the
+    status of its last command substitution, which is that of the last
+    command run in it. So the check counts when it is that last command and
+    is :attr:`SimpleCommand.unconditional` within the substitution. A
+    ``( ... )`` group after it in the body decides the status instead.
+    """
+    if cmd.words:
+        return None
+    subs = [sub for tok in cmd.assignments for sub in tok.subs]
+    if not subs:
+        return None
+    body, offset = subs[-1]
+    span = (offset, offset + len(body))
+    inside = [
+        c for c in script.commands
+        if c.depth == cmd.depth + 1 and c.subshell is not None
+        and span[0] <= c.subshell[0] and c.subshell[1] <= span[1]
+    ]
+    last = max(inside, key=_command_start, default=None)
+    if last is None or last.subshell != span or not last.unconditional:
+        return None
+    return last
+
+
+def _credited_checks(script: ShellScript) -> Iterator[SimpleCommand]:
+    """Commands in *script* whose failure can stop the stage.
+
+    A check-params call validates only when a rejection stops what follows,
+    so its exit status must reach the stage's shell unmasked: it runs in that
+    shell (not in ``$(...)``, backticks, ``<(...)`` or a ``( )`` group) and is
+    :attr:`SimpleCommand.unconditional` there -- outside every compound
+    command, pipeline, ``!``, ``&`` and ``||`` (a ``|| exit`` after it is
+    fine). ``echo "$(./bin/workflow check-params ...)"`` checks nothing: echo
+    succeeds whatever the check says. The one child-shell exception is the
+    capture idiom, see :func:`_captured_status`.
+    """
+    for cmd in script.commands:
+        if cmd.subshell is not None or not cmd.unconditional:
+            continue
+        yield cmd
+        captured = _captured_status(script, cmd)
+        if captured is not None:
+            yield captured
+
+
 def _checked_param_positions(segments: Iterable[_ParsedSegment]) -> dict[str, tuple[int, int]]:
-    """Param name -> (segment index, char offset) of its earliest check-params call.
+    """Param name -> (segment index, char offset) of its earliest credited check-params call.
 
     The position is what lets a caller distinguish "checked before this use" from
     "checked after it" within the same stage: a ``{param}`` substituted into shell
     text before the stage's own ``check-params --check`` call has already reached
     shell by the time the check runs, so only uses at or after that position may be
-    credited to a same-stage check.
+    credited to a same-stage check. Only calls :func:`_credited_checks` admits count,
+    for this stage and for its descendants alike.
     """
     positions: dict[str, tuple[int, int]] = {}
     for seg_index, seg in enumerate(segments):
-        for cmd in seg.script.commands:
+        for cmd in _credited_checks(seg.script):
             call = _check_params_call(cmd)
             if call is None:
                 continue

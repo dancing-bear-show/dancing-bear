@@ -45,8 +45,18 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 # _bash_write_targets.py MAX_DEPTH: the guard refuses a command whose
-# substitutions and nested shell strings go deeper than this.
+# substitutions and nested shell strings go deeper than this. Only constructs
+# the guard reads with a child Parser count: $(...), backticks, <(...)/>(...)
+# and sh -c/eval strings -- never ${...} or arithmetic, which it reads in place.
 MAX_DEPTH = 32
+# Recursion-safety bound on lexical nesting: every ${...}, $((...)), ((...))
+# and $(...)/<(...) body read inside another. It is not a guard limit; it keeps
+# the recursive reader well inside Python's stack (the worst case at this bound
+# needs about 640 frames of the default 1,000). Past it the lexer stops reading
+# and the result is ``too_nested``, which the guard rule refuses: the guard
+# itself hits RecursionError about 200 levels deep and refuses the command, so
+# this fails closed early rather than reading past what it can bound.
+MAX_EXPANSION_NEST = 100
 _METACHARS = frozenset(" \t\n;&|<>()")
 _CONTROL_OPS = (";;&", ";;", ";&", "&&", "||", "|&", ";", "&", "|", "(", ")", "\n")
 _REDIRECT_OPS = ("&>>", "&>", "<<<", "<<-", "<<", "<>", "<&", ">>", ">|", ">&", "<", ">")
@@ -76,6 +86,16 @@ _START_STATES = {
     "[[": "test",                             # < and > compare inside [[ ]]
 }
 _CASE_ENDS = frozenset({";;", ";&", ";;&"})
+# Reserved words that open a compound command; each _COMPOUND_CLOSERS word
+# closes one. A command inside may not run, or not decide the exit status.
+_COMPOUND_OPENERS = frozenset({"if", "while", "until", "{", "for", "select", "case"})
+# Reserved words whose pipeline's exit status the shell list never sees as a failure.
+_STATUS_MASKING_WORDS = frozenset({"!", "coproc"})
+# Control operators that mask the exit status of the command before them.
+_STATUS_MASKING_OPS = frozenset({"|", "|&", "&", "||"})
+_PIPE_OPS = frozenset({"|", "|&"})
+# After ``||``, these stop the shell, so the failure on the left still ends it.
+_EXITING_COMMANDS = frozenset({"exit", "return"})
 
 # (start, end) offsets of a region of the text given to parse_shell, plus its base.
 Span = tuple[int, int]
@@ -127,6 +147,25 @@ class Heredoc:
     body: str
     start: int
     subs: tuple[tuple[str, int], ...] = ()  # substitutions an unquoted body runs
+    strip_tabs: bool = False  # opened by <<-: leading tabs are stripped before the closer is matched
+
+
+@dataclass(frozen=True)
+class _Delimiter:
+    """A heredoc delimiter word and the redirect that opened it (``<<`` or ``<<-``)."""
+
+    token: ShellToken
+    strip_tabs: bool  # <<-
+
+    def closes(self, line: str) -> bool:
+        """True when *line* ends the body, by Bash's rule.
+
+        ``<<EOF`` needs a line that is exactly the delimiter; ``<<-EOF``
+        first strips leading tabs, never spaces. So an indented ``  EOF`` is
+        body data under either. Mirrors ``_heredoc_body`` in
+        _bash_write_targets.py.
+        """
+        return (line.lstrip("\t") if self.strip_tabs else line) == self.token.text
 
 
 @dataclass(frozen=True)
@@ -151,6 +190,15 @@ class SimpleCommand:
     # A wrapper splits one string into the command line it runs (``env -S``,
     # ``env --split-string``), so what runs cannot be read from the words.
     split_string: bool = False
+    # True when this command runs whenever its shell does and nothing masks
+    # its exit status there: it is outside every compound command (if, while,
+    # until, for, select, case, { } and function bodies), not a pipeline
+    # member, not negated by ``!`` or run by ``coproc``, not backgrounded with
+    # ``&``, not after ``||``, and not followed by ``||`` unless ``exit`` or
+    # ``return`` comes next. Judged within :attr:`subshell`: a command in a
+    # ``$(...)`` is unconditional within that child shell. False for words a
+    # command hands on (:func:`command_from_words`).
+    unconditional: bool = False
 
     @property
     def word(self) -> ShellToken | None:
@@ -195,6 +243,8 @@ class ShellScript:
     # The deepest nesting level parsed (see SimpleCommand.depth). Past
     # MAX_DEPTH parsing stops, and this records that it did.
     max_depth: int = 0
+    # Lexical nesting passed MAX_EXPANSION_NEST, so the rest was not read.
+    too_nested: bool = False
 
     @property
     def too_deep(self) -> bool:
@@ -228,22 +278,28 @@ class _Lexer:
     Never raises: an unclosed quote or substitution in a fragment of prose
     simply runs to the end of the text.
 
-    *nest* counts the constructs enclosing the text -- ``$(...)``, ``${...}``
-    and arithmetic -- starting from the parse depth. Reading one more than
-    :data:`MAX_DEPTH` deep sets :attr:`overflow` and consumes the rest of
-    the text instead, so recursion stays bounded whatever the input.
+    Two counters bound the reader. *depth* counts the substitutions
+    enclosing the text -- ``$(...)`` and ``<(...)``, which the guard reads
+    with a child Parser -- starting from the parse depth; a substitution one
+    more than :data:`MAX_DEPTH` deep sets :attr:`overflow`. *nest* counts
+    every construct read recursively, ``${...}`` and arithmetic included; one
+    more than :data:`MAX_EXPANSION_NEST` deep sets :attr:`too_nested`. Either
+    way the rest of the text is consumed unread, so recursion stays bounded
+    whatever the input.
     """
 
-    def __init__(self, text: str, base: int = 0, pos: int = 0, nest: int = 0) -> None:
+    def __init__(self, text: str, base: int = 0, pos: int = 0, depth: int = 0, nest: int = 0) -> None:
         self.text = text
         self.base = base
         self.pos = pos
+        self.depth = depth
         self.nest = nest
-        self.overflow = False  # nesting past MAX_DEPTH was met and not read
+        self.overflow = False  # a substitution past MAX_DEPTH was met and not read
+        self.too_nested = False  # nesting past MAX_EXPANSION_NEST was met and not read
         self.heredocs: list[Heredoc] = []
         self.comments: list[Span] = []
-        self._pending: list[ShellToken] = []  # heredoc delimiters awaiting their body
-        self._want_delimiter = False
+        self._pending: list[_Delimiter] = []  # heredoc delimiters awaiting their body
+        self._heredoc_op: str | None = None  # the << or <<- whose delimiter is the next word
 
     def tokens(self) -> list[ShellToken]:
         out = []
@@ -306,13 +362,13 @@ class _Lexer:
         redirect = _match_op(text, at, _REDIRECT_OPS)
         if redirect is not None:
             self.pos = at + len(redirect)
-            self._want_delimiter = redirect in _HEREDOC_OPS
+            self._heredoc_op = redirect if redirect in _HEREDOC_OPS else None
             return ShellToken("redirect", redirect, self.base + pos)
         op = _match_op(text, pos, _CONTROL_OPS)
         if op is None:
             return None
         self.pos = pos + len(op)
-        self._want_delimiter = False
+        self._heredoc_op = None
         if op == "\n":
             self._read_heredoc_bodies()
         return ShellToken("op", op, self.base + pos)
@@ -328,9 +384,9 @@ class _Lexer:
         i = max(i, start + 1)
         self.pos = i
         tok = ShellToken("word", "".join(parts.parts), self.base + start, text[start:i], tuple(parts.subs))
-        if self._want_delimiter:
-            self._want_delimiter = False
-            self._pending.append(tok)
+        if self._heredoc_op is not None:
+            self._pending.append(_Delimiter(tok, strip_tabs=self._heredoc_op == "<<-"))
+            self._heredoc_op = None
         return tok
 
     def _word_char(self, i: int, parts: _WordParts) -> int:
@@ -381,16 +437,28 @@ class _Lexer:
                 i += 1
         return i + 1 if closer is not None else i
 
-    def _nested(self, scan: Callable[[int, _WordParts], int], i: int, parts: _WordParts) -> int:
-        """Run *scan* on a body one level deeper, or stop at the end of the text past MAX_DEPTH."""
-        if self.nest >= MAX_DEPTH:
+    def _nested(
+        self, scan: Callable[[int, _WordParts], int], i: int, parts: _WordParts, child: bool = False
+    ) -> int:
+        """Run *scan* on a body one level deeper, or stop at the end of the text past a bound.
+
+        *child* marks a substitution, which the guard reads with a child
+        Parser and so counts toward :data:`MAX_DEPTH`; every body counts
+        toward :data:`MAX_EXPANSION_NEST`.
+        """
+        if child and self.depth >= MAX_DEPTH:
             self.overflow = True
             return len(self.text)
+        if self.nest >= MAX_EXPANSION_NEST:
+            self.too_nested = True
+            return len(self.text)
         self.nest += 1
+        self.depth += child
         try:
             return scan(i, parts)
         finally:
             self.nest -= 1
+            self.depth -= child
 
     def _unit(self, i: int, parts: _WordParts) -> int:
         """Read one character, or one quoted or expanded unit, at *i*."""
@@ -433,17 +501,22 @@ class _Lexer:
         return len(self.text)
 
     def _command_sub(self, open_at: int, body_start: int, parts: _WordParts) -> int:
-        end = self._nested(self._closing_paren_from, body_start, parts)
+        end = self._nested(self._closing_paren_from, body_start, parts, child=True)
         parts.subs.append((self.text[body_start:end], self.base + body_start))
         parts.parts.append(self.text[open_at:end + 1])
         return min(end + 1, len(self.text))
 
     def _closing_paren_from(self, body_start: int, parts: _WordParts) -> int:
         """Index of the ``)`` closing a substitution body at *body_start*, read by a child lexer."""
-        child = _Lexer(self.text, self.base, body_start, self.nest)
+        child = _Lexer(self.text, self.base, body_start, self.depth, self.nest)
         end = child.closing_paren()
-        self.overflow = self.overflow or child.overflow
+        self._absorb_limits(child)
         return end
+
+    def _absorb_limits(self, other: _Lexer) -> None:
+        """Carry a sub-lexer's bound hits up to this one."""
+        self.overflow = self.overflow or other.overflow
+        self.too_nested = self.too_nested or other.too_nested
 
     def _backtick(self, i: int, parts: _WordParts, in_dquote: bool = False) -> int:
         """Read the backtick substitution at *i*, recording its decoded body.
@@ -474,23 +547,26 @@ class _Lexer:
         for delimiter in pending:
             self._read_heredoc_body(delimiter)
 
-    def _read_heredoc_body(self, delimiter: ShellToken) -> None:
+    def _read_heredoc_body(self, delimiter: _Delimiter) -> None:
         text, start = self.text, self.pos
         i, end, resume = start, len(text), len(text)
         while i < len(text):
             eol = text.find("\n", i)
             eol = len(text) if eol < 0 else eol
-            if text[i:eol].strip() == delimiter.text:
+            if delimiter.closes(text[i:eol]):
                 end, resume = i, min(eol + 1, len(text))
                 break
             i = eol + 1
         body = text[start:end]
+        word = delimiter.token
         subs: tuple[tuple[str, int], ...] = ()
-        if not delimiter.quoted:
-            body_lexer = _Lexer(body, self.base + start, nest=self.nest)
+        if not word.quoted:
+            body_lexer = _Lexer(body, self.base + start, depth=self.depth, nest=self.nest)
             subs = tuple(body_lexer.expanding_subs())
-            self.overflow = self.overflow or body_lexer.overflow
-        self.heredocs.append(Heredoc(delimiter.text, delimiter.quoted, body, self.base + start, subs))
+            self._absorb_limits(body_lexer)
+        self.heredocs.append(
+            Heredoc(word.text, word.quoted, body, self.base + start, subs, delimiter.strip_tabs)
+        )
         self.pos = resume
 
 
@@ -675,6 +751,13 @@ class _CommandSplitter:
         self._redirect_op: str | None = None
         self._in_loop = in_loop
         self._after_time = False
+        # What SimpleCommand.unconditional needs: open compound commands, and
+        # how the command being read sits in its list and pipeline.
+        self._compound = 0
+        self._masked = False  # the current pipeline is negated (!) or run by coproc
+        self._piped = False  # the current command follows | or |&
+        self._after_or = False  # the current command runs only when the one before failed
+        self._or_left: int | None = None  # a command followed by ||, until what comes next is known
         self._on_word = {
             "start": self._start_word, "after": self._start_word, "args": self._words.append,
             "test": self._test_word, "loop_var": self._loop_var_word, "loop_head": self._loop_head_word,
@@ -707,10 +790,13 @@ class _CommandSplitter:
         if self._words or self._assignments or self._redirects:
             words = tuple(self._words)
             resolved = _resolve_command(words)
+            unconditional = not (self._compound or self._masked or self._piped or self._after_or)
             self.commands.append(SimpleCommand(
                 words, tuple(self._assignments + resolved.assigned), tuple(self._redirects),
                 resolved.index, self._in_loop, self.subshell, self.depth, resolved.split_string,
+                unconditional,
             ))
+            self._settle_or(self.commands[-1])
         self._words.clear()
         self._assignments = []
         self._redirects = []
@@ -733,12 +819,38 @@ class _CommandSplitter:
         if op == "(":
             self._groups.append((tok.start, len(self.commands), len(self.loop_variables)))
             return
+        before = len(self.commands)
         self.finish()
+        self._join(op, before if len(self.commands) > before else None)
         if op == ")":
             self._close_group(tok.start + 1)
             self.state = "after"
         else:
             self.state = "case_pattern" if op in _CASE_ENDS else "start"
+
+    def _join(self, op: str, finished: int | None) -> None:
+        """Record what control operator *op* says about the command before it and the next.
+
+        *finished* is the index of the command *op* ended, if it ended one.
+        A pipe, ``&`` or ``||`` after a command masks its exit status; a
+        ``||`` is settled by what follows it (see :meth:`_settle_or`).
+        """
+        if finished is not None and op in _STATUS_MASKING_OPS:
+            cmd = self.commands[finished]
+            self.commands[finished] = replace(cmd, unconditional=False)
+            if op == "||" and cmd.unconditional:
+                self._or_left = finished
+        self._piped = op in _PIPE_OPS
+        self._after_or = op == "||" or (self._after_or and self._piped)
+        self._masked = self._masked and self._piped  # ! and coproc cover one pipeline
+
+    def _settle_or(self, cmd: SimpleCommand) -> None:
+        """``a || exit`` stops the shell when ``a`` fails, so ``a``'s status is not masked."""
+        if self._or_left is None:
+            return
+        if cmd.name in _EXITING_COMMANDS:
+            self.commands[self._or_left] = replace(self.commands[self._or_left], unconditional=True)
+        self._or_left = None
 
     def _close_group(self, end: int) -> None:
         """Mark what a closing ( ... ) group recorded as running in that child shell.
@@ -767,10 +879,14 @@ class _CommandSplitter:
         if word in _KEEP_START:
             self.loop_depth += word == "do"
             self._in_loop = self.inside_loop
+            self._compound += word in _COMPOUND_OPENERS
+            self._masked = self._masked or word in _STATUS_MASKING_WORDS
         elif word in _COMPOUND_CLOSERS:
             self.loop_depth -= word == "done" and self.loop_depth > 0
+            self._close_compound()
             self.state = "after"  # a redirect after `done` still belongs to the loop
         elif word in _START_STATES:
+            self._compound += word in _COMPOUND_OPENERS
             self.state = _START_STATES[word]
         elif tok.assigned_name and not self._words:
             self._assignments.append(tok)
@@ -797,7 +913,11 @@ class _CommandSplitter:
 
     def _case_pattern_word(self, tok: ShellToken) -> None:
         if tok.raw == "esac":
+            self._close_compound()
             self.state = "after"
+
+    def _close_compound(self) -> None:
+        self._compound = max(self._compound - 1, 0)
 
     def _function_name_word(self, tok: ShellToken) -> None:
         self.state = "start"
@@ -814,13 +934,16 @@ def parse_shell(
     *depth* is how many parsers enclose *text* (see SimpleCommand.depth).
     Past :data:`MAX_DEPTH` nothing is parsed and the result's ``too_deep``
     is set: the guard refuses there, so the text is reported, not dropped.
-    The lexer sets it too when ``$(...)``, ``${...}`` and arithmetic nest
-    past that bound within *text* (see :class:`_Lexer`), so no input
-    recurses without limit.
+    The lexer sets it too when substitutions nest past that bound within
+    *text*, and sets ``too_nested`` when any construct, ``${...}`` and
+    arithmetic included, nests past :data:`MAX_EXPANSION_NEST` (see
+    :class:`_Lexer`), so no input recurses without limit.
     """
     if depth > MAX_DEPTH:
         return ShellScript((), (), (), (), max_depth=depth)
-    lexer = _Lexer(text, base, nest=depth)
+    # Every substitution is also a nesting level, so a body parsed at *depth*
+    # sat at least that many levels deep in the text that contained it.
+    lexer = _Lexer(text, base, depth=depth, nest=depth)
     splitter = _CommandSplitter(in_loop, subshell, depth)
     for tok in lexer.tokens():
         splitter.feed(tok)
@@ -837,13 +960,14 @@ def parse_shell(
         loop_variables=tuple(splitter.loop_variables) + tuple(v for s in nested for v in s.loop_variables),
         comments=tuple(lexer.comments) + tuple(c for s in nested for c in s.comments),
         max_depth=max((MAX_DEPTH + 1 if lexer.overflow else depth, *(s.max_depth for s in nested))),
+        too_nested=lexer.too_nested or any(s.too_nested for s in nested),
     )
 
 
-def _heredoc_delimiters(text: str) -> list[ShellToken]:
-    """The delimiter word of each heredoc opened in *text*, in order."""
+def _heredoc_delimiters(text: str) -> list[_Delimiter]:
+    """The delimiter of each heredoc opened in *text*, in order, with its redirect kind."""
     tokens = _Lexer(text).tokens()
     return [
-        nxt for tok, nxt in zip(tokens, tokens[1:])
+        _Delimiter(nxt, strip_tabs=tok.text == "<<-") for tok, nxt in zip(tokens, tokens[1:])
         if tok.kind == "redirect" and tok.text in _HEREDOC_OPS and nxt.kind == "word"
     ]

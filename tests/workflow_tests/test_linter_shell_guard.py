@@ -483,12 +483,44 @@ class TestGuardRefused(_RuleCase):
         # MAX_DEPTH, so 1,200 levels raised RecursionError out of the lint.
         levels = 1200
         for command in ("echo " + "$(" * levels + "true" + ")" * levels,
-                        "echo " + "$(" * levels,
-                        "echo " + "${X:-" * levels + "y" + "}" * levels,
-                        "echo " + "$((" * levels + "1" + "))" * levels):
+                        "echo " + "$(" * levels):
             with self.subTest(command=command[:12]):
                 hits = self.assert_fires(_workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n")))
                 self.assertIn("nesting deeper than 32", hits[0].message)
+        # Expansions have their own recursion bound and their own message.
+        for command in ("echo " + "${X:-" * levels + "y" + "}" * levels,
+                        "echo " + "$((" * levels + "1" + "))" * levels):
+            with self.subTest(command=command[:12]):
+                hits = self.assert_fires(_workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n")))
+                self.assertIn("expansions nested too deeply to parse", hits[0].message)
+
+    def test_33_nested_parameter_expansions_are_not_refused(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6njyvT: the guard's _scan_param and
+        # _scan_arith stay in the same Parser, so 33 nested ${...} are within
+        # its limit; they were reported as "nesting deeper than 32".
+        levels = 33
+        for command in ("echo " + "${X:-" * levels + "y" + "}" * levels,
+                        "echo " + "$((" * levels + "1" + "))" * levels):
+            with self.subTest(command=command[:12]):
+                self.assert_silent(_workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n")))
+
+    def test_fires_on_unfenced_stdin_shell_and_eval_lines(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6njyuh: a line led by bash/sh/eval was
+        # never extracted unless fenced, so these indented commands passed.
+        cases = {"bash -s name": "shell reading its program from stdin",
+                 "/bin/bash < script": "shell reading its program from stdin",
+                 'eval "$CMD"': "eval/sh -c",
+                 "sh -c 'echo hi'": "eval/sh -c"}
+        for command, what in cases.items():
+            with self.subTest(command=command):
+                hits = self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))
+                self.assertIn(what, hits[0].message)
+
+    def test_prose_led_by_a_shell_word_is_silent(self) -> None:
+        for line in ("sh is the default shell here.", "eval is dangerous, so avoid it.",
+                     "bash scripts should start with set -euo pipefail."):
+            with self.subTest(line=line):
+                self.assert_silent(_workflow(_stage(f"Note:\n\n  {line}\n")))
 
     def test_deep_find_exec_chain_does_not_raise(self) -> None:
         # shell_guard._expanded recursed once per nested find -exec body, with no bound.

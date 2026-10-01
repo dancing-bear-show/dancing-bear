@@ -283,6 +283,7 @@ def _expanded(script: ShellScript) -> ShellScript:
     commands: list[SimpleCommand] = []
     heredocs = list(script.heredocs)
     max_depth = script.max_depth
+    too_nested = script.too_nested
     pending: list[Iterator[SimpleCommand]] = [iter(script.commands)]
     while pending:
         cmd = next(pending[-1], None)
@@ -293,9 +294,12 @@ def _expanded(script: ShellScript) -> ShellScript:
         inner = _inner_script(cmd)
         if inner is not None:
             max_depth = max(max_depth, inner.max_depth)
+            too_nested = too_nested or inner.too_nested
             heredocs.extend(inner.heredocs)
             pending.append(iter(inner.commands))
-    return ShellScript(tuple(commands), tuple(heredocs), script.loop_variables, script.comments, max_depth)
+    return ShellScript(
+        tuple(commands), tuple(heredocs), script.loop_variables, script.comments, max_depth, too_nested
+    )
 
 
 def _is_nested_shell(cmd: SimpleCommand) -> bool:
@@ -340,12 +344,19 @@ def refused_construct(script: ShellScript) -> str:
     Nesting deeper than the guard's ``MAX_DEPTH`` is refused whether or not
     a loop is involved: _bash_write_targets.py raises ``ParseError`` for the
     whole command there, and ``analyse_command`` turns that into a refusal.
+    Only substitutions and nested shell strings count toward that bound;
+    ``${...}`` and arithmetic do not. Expansions nested past the parser's own
+    recursion bound (``MAX_EXPANSION_NEST``) were not read, so they are
+    refused too, under a message of their own: the guard fails on
+    RecursionError at a similar depth and refuses the command.
     """
     expanded = _expanded(script)
     if any(not doc.quoted and doc.subs for doc in expanded.heredocs):
         return "heredoc"
     if expanded.too_deep:
         return f"nesting deeper than {MAX_DEPTH}"
+    if expanded.too_nested:
+        return "expansions nested too deeply to parse"
     commands = expanded.commands
     if any(_is_nested_shell(cmd) for cmd in commands):
         return "eval/sh -c"
