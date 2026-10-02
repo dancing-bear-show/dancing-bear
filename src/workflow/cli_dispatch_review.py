@@ -2,8 +2,8 @@
 
 Handles check-fix-index, thread-fingerprints, check-thread-ids,
 aggregate-fix-results, check-paths, parse-overview, snapshot-dirty,
-check-unlisted, select-concerns, review-rounds and count-sweep command handlers,
-plus their private helpers.
+check-unlisted, select-concerns, review-rounds, count-sweep and sweep-record
+command handlers, plus their private helpers.
 """
 
 from __future__ import annotations
@@ -518,4 +518,52 @@ def _cmd_count_sweep(args: argparse.Namespace) -> int:
     if result.truncated:
         print(f"count-sweep: {result.reason}; the count is partial", file=sys.stderr)
         return int(ExitCode.ERROR)
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# sweep-record
+# ---------------------------------------------------------------------------
+
+
+def _cmd_sweep_record_write(args: argparse.Namespace) -> int:
+    """Record that the concern swarm ran on HEAD. Exit 0 written, 2 refused."""
+    from workflow.sweep_record import SweepRecordError, write_swept
+
+    try:
+        path, _ = write_swept(Path.cwd(), args.head, Path(args.workspace))
+    except SweepRecordError as exc:
+        print(f"sweep-record write: refused: {exc}", file=sys.stderr)
+        return int(ExitCode.USAGE)
+    print(path)
+    return 0
+
+
+def _cmd_sweep_record_waive(args: argparse.Namespace) -> int:
+    """Record a waived sweep with a reason. Exit 0 written, 2 refused."""
+    from workflow.sweep_record import SweepRecordError, write_waived
+
+    try:
+        path, _ = write_waived(Path.cwd(), args.head, args.reason)
+    except SweepRecordError as exc:
+        print(f"sweep-record waive: refused: {exc}", file=sys.stderr)
+        return int(ExitCode.USAGE)
+    print(path)
+    return 0
+
+
+def _cmd_sweep_record_check(args: argparse.Namespace) -> int:
+    """Print the record's mode. Exit 0 found, 1 none, 2 malformed sha."""
+    from workflow.sweep_record import SweepRecordError, read_record, validate_sha
+
+    try:
+        validate_sha(args.head)
+        record = read_record(Path.cwd(), args.head)
+    except SweepRecordError as exc:
+        print(f"sweep-record check: {exc}", file=sys.stderr)
+        return int(ExitCode.USAGE)
+    if record is None:
+        print(f"sweep-record check: no record for {args.head}", file=sys.stderr)
+        return int(ExitCode.ERROR)
+    print(record.mode)
     return 0

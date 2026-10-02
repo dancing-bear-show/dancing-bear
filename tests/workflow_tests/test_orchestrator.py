@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -554,6 +555,28 @@ class TestSkipStage(unittest.TestCase):
             self.assertTrue((ws / "context" / "c.json").is_file())
             self.assertFalse((ws / "outputs" / "context" / "c.json").exists())
             self.assertTrue((ws / "outputs" / "bare.json").is_file())
+
+    def test_skip_sentinel_never_overwrites_an_output_another_stage_wrote(self) -> None:
+        """PR #454: a skipped large-path consolidate wrote {} over review-consolidated's report."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            writer = make_stage_spec(name="writer", writes_to=("consolidated.json",))
+            skipped = make_stage_spec(name="skipped", when='"never" contains "yes"',
+                                      writes_to=("consolidated.json", "only-mine.json"))
+            resolved = {"writer": make_resolved_stage(spec=writer, index=0),
+                        "skipped": make_resolved_stage(spec=skipped, index=1)}
+            wf = make_workflow_definition(stages=(writer, skipped))
+            manifest = make_workflow_manifest(
+                definition=wf, parallel_groups=(("writer",), ("skipped",)), resolved_stages=resolved,
+            )
+            report = {"findings": [{"file": "a.py"}]}
+            dispatcher = _make_success_dispatcher(("writer",))
+            orch = _make_orch(manifest, tmp_dir, run_id="r-skip-keep", dry_run=False, dispatcher=dispatcher)
+            ws = Path(orch._workspace_dir)
+            (ws / "outputs").mkdir(parents=True, exist_ok=True)
+            (ws / "outputs" / "consolidated.json").write_text(json.dumps(report))
+            orch.run()
+            self.assertEqual(json.loads((ws / "outputs" / "consolidated.json").read_text()), report)
+            self.assertEqual(json.loads((ws / "outputs" / "only-mine.json").read_text()), {})
 
 
 # ---------------------------------------------------------------------------
