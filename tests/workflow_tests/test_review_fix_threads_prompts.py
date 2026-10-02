@@ -565,7 +565,7 @@ class TestUnlinkedFindingTriageAndDispatchRules(unittest.TestCase):
         # report's re-confirmed/indeterminate split depends on that entry
         # existing.
         self.assertIn(
-            'If the title is present there, triage it like a current '
+            'If the title is present in a non-resolved section, triage it like a current '
             "finding", self.triage_prompt,
         )
         self.assertIn(
@@ -595,6 +595,49 @@ class TestUnlinkedFindingTriageAndDispatchRules(unittest.TestCase):
         )
         self.assertIn(
             "No live match was established, so label it", self.report_prompt
+        )
+
+    def test_section_aware_title_check_uses_enclosing_section(self) -> None:
+        # PR #453 PRRT_kwDOQr1kjM6oLmgJ: the title search must determine
+        # the enclosing section of each occurrence, not just whether the title
+        # string appears anywhere in the raw body.
+        self.assertIn(
+            "enclosing section", self.triage_prompt,
+        )
+        self.assertIn(
+            "nearest preceding", self.triage_prompt,
+        )
+        self.assertIn(
+            "<summary><strong>NAME (N)</strong></summary>", self.triage_prompt,
+        )
+
+    def test_resolved_section_occurrence_is_not_dispatched(self) -> None:
+        # A title found only under "Resolved since last review" must NOT be
+        # treated as live and must not be dispatched.
+        self.assertIn(
+            'title occurrence that falls inside a "Resolved since last review" '
+            "section is NOT live",
+            self.triage_prompt,
+        )
+        self.assertIn(
+            'If the title is found ONLY under "Resolved since last review"',
+            self.triage_prompt,
+        )
+        self.assertIn(
+            "do NOT dispatch it", self.triage_prompt,
+        )
+        self.assertIn(
+            'resolved by the reviewer', self.report_prompt,
+        )
+
+    def test_report_labels_resolved_section_occurrence_separately(self) -> None:
+        # When a title was found only inside "Resolved since last review",
+        # the report must label it as resolved by the reviewer — not as
+        # "fixed or re-raised" and not as "indeterminate".
+        self.assertIn(
+            'resolved by the reviewer (title found only in Resolved since '
+            'last review section)',
+            self.report_prompt,
         )
 
 

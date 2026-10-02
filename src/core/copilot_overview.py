@@ -526,7 +526,7 @@ def _shortfall(claimed: int | None, findings: dict[str, Finding],
                newest_review_id: Any, declared_sections: dict[str, int]) -> int:
     """How much the newest overview declared but we did not parse.
 
-    Two independent checks, and the worse of the two wins:
+    Two independent checks combined:
 
     1. The headline vs. ``Open``. The ``Findings:`` count matches the ``Open``
        section — on PR #395 ``Findings: 4`` sits beside ``Open (4)`` while
@@ -543,8 +543,22 @@ def _shortfall(claimed: int | None, findings: dict[str, Finding],
        block that fails to parse would report ``status: ok`` with zero evidence
        anything broke.
 
-    The ``max(open_shortfall, section_sum)`` avoids double-counting the ``Open``
-    section when the headline shortfall already covers those missing entries.
+    The combination rule avoids double-counting ``Open`` entries while still
+    capturing every independent non-Open gap:
+
+      open_component = max(open_shortfall, open_section_gap)
+
+    where ``open_section_gap`` is the positive gap for the declared ``Open``
+    section (0 when ``Open`` was not declared — e.g. when the Open header itself
+    failed to parse, so ``declared_sections`` has no Open entry).
+
+    Every positive gap for a NON-Open declared section is then summed on top.
+    Return ``open_component + non_open_sum``.
+
+    Example: headline ``Findings: 1``, Open header absent (not in
+    ``declared_sections``), ``Previously missed (1)`` declared but its entry
+    fails to parse.  ``open_shortfall = 1``, ``open_section_gap = 0``,
+    ``open_component = 1``, ``non_open_sum = 1`` → total 2.
 
     A section whose declared count matches its parsed count contributes no
     shortfall — a fully-parsed ``Resolved since last review (4)`` is not
@@ -555,14 +569,20 @@ def _shortfall(claimed: int | None, findings: dict[str, Finding],
         0, claimed - _open_findings(findings, newest_review_id)
     )
 
-    section_sum = 0
+    open_section_gap = 0
+    non_open_sum = 0
     for name, declared_count in declared_sections.items():
         key = " ".join(name.lower().split())
         gap = declared_count - parsed.get(key, 0)
-        if gap > 0:
-            section_sum += gap
+        if gap <= 0:
+            continue
+        if key == OPEN_SECTION:
+            open_section_gap = gap
+        else:
+            non_open_sum += gap
 
-    return max(open_shortfall, section_sum)
+    open_component = max(open_shortfall, open_section_gap)
+    return open_component + non_open_sum
 
 
 def _comment_index(threads: list[dict[str, Any]]) -> dict[str, str]:
