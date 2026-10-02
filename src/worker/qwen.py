@@ -2068,9 +2068,16 @@ def _resolve_payload_options(payload: dict[str, object]) -> GenerationOptions:
 
 
 def _resolve_timeout(payload: dict[str, object]) -> float:
-    """payload["timeout"] is only injected by job_runtime, and only for a
-    positive resolved timeout_sec; anything else there was put in the payload
-    by hand and is rejected like any other invalid option. Raises QwenGuardError.
+    """The model request timeout: payload["timeout"], capped at
+    THRESHOLDS.ollama_request_timeout_sec. Raises QwenGuardError.
+
+    payload["timeout"] is only injected by job_runtime, and only for a
+    positive resolved timeout_sec (a per-job timeout_sec or the daemon's
+    --job-timeout); anything else there was put in the payload by hand and
+    is rejected like any other invalid option. A smaller value is honoured.
+    A larger one is capped, so the model call - which runs under the model
+    lock - always ends before the lock's stale_ceiling_sec and a live job
+    never reads as stale to a waiter.
     """
     raw = payload.get("timeout")
     if raw is None:
@@ -2078,7 +2085,7 @@ def _resolve_timeout(payload: dict[str, object]) -> float:
     value = _finite_number(raw)
     if value is None or value <= 0:
         raise _invalid_option("timeout must be a finite number > 0")
-    return value
+    return min(value, THRESHOLDS.ollama_request_timeout_sec)
 
 
 def _run_with_lock(request: _GenerationRequest) -> tuple[str, dict[str, object]] | str:

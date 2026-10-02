@@ -116,9 +116,9 @@ class QwenHandlerHappyPathTests(QwenHandlerCase):
         self.assertTrue(ok)
         self.assertEqual(self.generate_requests()[0][0], "http://ollama.test:1234/api/generate")
 
-    def test_timeout_payload_defaults_to_1200_and_honours_a_positive_number(self) -> None:
+    def test_timeout_payload_defaults_to_1200_honours_less_and_caps_more(self) -> None:
         """Invalid timeouts are covered by QwenOptionValidationTests."""
-        cases = ((None, 1200), (42, 42), (7.5, 7.5))
+        cases = ((None, 1200), (42, 42), (7.5, 7.5), (300, 300), (1200, 1200), (3600, 1200))
         for raw, expected in cases:
             with self.subTest(timeout=raw):
                 self.requests.clear()
@@ -1176,10 +1176,23 @@ class QwenOutputTruncationTests(QwenHandlerCase):
                 self.assertEqual(self.response_files(), [])
 
 
-class QwenThresholdInvariantTests(unittest.TestCase):
+class QwenThresholdInvariantTests(QwenHandlerCase):
     def test_stale_ceiling_exceeds_the_request_timeout(self) -> None:
         """A live job inside its model call must never make the lock look stale."""
         self.assertGreater(qwen.THRESHOLDS.stale_ceiling_sec, qwen.THRESHOLDS.ollama_request_timeout_sec)
+
+    def test_effective_request_timeout_never_reaches_the_stale_ceiling(self) -> None:
+        """job_runtime copies a daemon --job-timeout into payload["timeout"];
+        the timeout actually sent to Ollama must stay below the stale ceiling
+        whatever that value is, while a smaller one is still honoured."""
+        cases = ((None, 1200), (300, 300), (3600, 1200), (10**6, 1200))
+        for raw, expected in cases:
+            with self.subTest(timeout=raw):
+                self.requests.clear()
+                self.run_handler({} if raw is None else {"timeout": raw})
+                [(_, _, sent)] = self.generate_requests()
+                self.assertEqual(sent, expected)
+                self.assertLess(require(sent), qwen.THRESHOLDS.stale_ceiling_sec)
 
     def test_default_max_tokens_leaves_half_the_context_for_the_prompt(self) -> None:
         self.assertEqual(qwen.THRESHOLDS.num_ctx, 16384)
