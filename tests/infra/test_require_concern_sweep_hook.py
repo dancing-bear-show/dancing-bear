@@ -82,6 +82,15 @@ HEAD_CREATES = [
     "g''h pr create",
     "gh pr cre''ate",
     "hub pu''ll-request",
+    # Value-taking global options before the subcommand (PR #454 review).
+    "gh --repo o/r pr create",
+    "gh -R o/r pr create",
+    "gh -R=o/r pr create",
+    "./bin/github --agentic-domain x pr create",
+    "hub -c a=b pull-request",
+    # Same-shell groups keep the cwd of a cd inside them.
+    "{ cd sub; } && gh pr create",
+    "if cd sub; then gh pr create; fi",
 ]
 
 #: Commands that are not PR creation and must pass with no record anywhere.
@@ -129,6 +138,11 @@ UNVERIFIABLE = [
     "gh pr $SUB",
     "hub pull-$R",
     "gh api -X POST repos/o/r/$E -f head=x",
+    # The directory gh runs in is not knowable, or not this one (PR #454 review).
+    "hub -C /elsewhere pull-request",
+    "hub --git-dir=/elsewhere/.git pull-request",
+    "cd sub || gh pr create",
+    "pushd sub && popd && gh pr create",
 ]
 
 
@@ -228,6 +242,21 @@ class RequireConcernSweepHookTests(unittest.TestCase):
         self._record(self.other)
         self.assertEqual(run_hook("gh pr create", wt).returncode, 0)
         self.assertBlocked(run_hook("gh pr create", self.repo), self.head)
+
+    def test_cd_that_does_not_reach_gh_is_not_followed(self) -> None:
+        """PR #454 review: a cd in a pipeline, background job or subshell leaves gh in the
+        original directory. Checking the cd target's record would let gh open from a
+        checkout that has none."""
+        wt = self.root / "wt"
+        _git(self.repo, "worktree", "add", "-q", str(wt), "other")
+        self._record(self.other)  # only the worktree's HEAD has a record
+        self.assertEqual(run_hook(f"cd {wt} && gh pr create", self.repo).returncode, 0)
+        self.assertEqual(run_hook(f"cd {wt}; gh pr create", self.repo).returncode, 0)
+        self.assertEqual(run_hook(f"(cd {wt} && gh pr create)", self.repo).returncode, 0)
+        for command in (f"cd {wt} & gh pr create", f"cd {wt} | gh pr create",
+                        f"(cd {wt}); gh pr create", f"( cd {wt} ) ; gh pr create"):
+            with self.subTest(command=command):
+                self.assertBlocked(run_hook(command, self.repo), self.head)
 
     def test_a_record_naming_another_sha_does_not_count(self) -> None:
         self._record(self.other)

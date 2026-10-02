@@ -187,13 +187,64 @@ def is_separator(token: str) -> bool:
 
 def split_commands(tokens: list[str]) -> list[list[tuple[int, str]]]:
     """Simple commands as lists of (global index, word)."""
-    out: list[list[tuple[int, str]]] = [[]]
+    return [cmd for cmd, _ in split_with_operators(tokens) if cmd]
+
+
+def split_with_operators(tokens: list[str]) -> list[tuple[list[tuple[int, str]], str]]:
+    """(simple command, the separator token that ends it); the last ends with "".
+
+    A command may be empty when separators are adjacent (`(cd x)`, `a; (b)`), so
+    the parentheses still reach the caller even with no words between them.
+    """
+    out: list[tuple[list[tuple[int, str]], str]] = []
+    cur: list[tuple[int, str]] = []
     for idx, tok in enumerate(tokens):
         if is_separator(tok):
-            out.append([])
+            out.append((cur, tok))
+            cur = []
         else:
-            out[-1].append((idx, tok))
-    return [c for c in out if c]
+            cur.append((idx, tok))
+    out.append((cur, ""))
+    return out
+
+
+def _cd_applies(op: str) -> bool | None:
+    """Whether a cd ended by separator ``op`` moves the commands after it.
+
+    True for `&&`, `;`, newline and end of a group: the next command runs in the
+    same shell after the cd. False for `|` and `&`: the cd ran in a pipeline or
+    background subshell, so the shell's cwd is unchanged. None for `||`: the
+    next command runs only if the cd FAILED, so the cwd is not knowable.
+    """
+    core = op.replace("(", "").replace(")", "")
+    if core in ("", "&&", ";", "\n") or set(core) <= {";", "\n"}:
+        return True
+    if "||" in core:
+        return None
+    return False
+
+
+#: Shell reserved words that can precede a command in the same shell. Without
+#: stripping them, `{ cd /x; } && gh pr create` and `if cd /x; then ...` hid the cd.
+_RESERVED = frozenset({"{", "}", "!", "if", "then", "else", "elif", "fi", "do", "done",
+                       "while", "until", "time"})
+
+
+def _strip_reserved(words: list[str]) -> list[str]:
+    k = 0
+    while k < len(words) and words[k] in _RESERVED:
+        k += 1
+    return words[k:]
+
+
+def _apply_parens(op: str, cwd: Path | None, stack: list[Path | None]) -> Path | None:
+    """`(` starts a subshell that inherits cwd; `)` ends it and restores the outer one."""
+    for ch in op:
+        if ch == "(":
+            stack.append(cwd)
+        elif ch == ")":
+            cwd = stack.pop() if stack else _UNKNOWN_CWD
+    return cwd
 
 
 def _word(tok: str) -> str:
@@ -283,8 +334,18 @@ def _flag_value(words: list[str], long: str, short: str | None, *, abbrev: bool 
     return values[-1] if values else None
 
 
+# Global options that take a value, so the word after them is not a subcommand.
+# Without these, `gh --repo o/r pr create` read `o/r` as gh's subcommand.
+_GH_GLOBAL_VALUED = frozenset({"-R", "--repo"})
+_GITHUB_GLOBAL_VALUED = frozenset({"--agentic-format", "--agentic-domain", "--repo"})
+# git options hub accepts before its verb. -C / --git-dir / --work-tree move the
+# repository being opened, which this analyser does not follow, so they fail closed.
+_HUB_GLOBAL_VALUED = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path"})
+_HUB_MOVES_REPO = frozenset({"-C", "--git-dir", "--work-tree"})
+
+
 def _gh(words: list[str], pr_indices: set[int], gidx: list[int]) -> tuple[str, str | None] | None:
-    j = _skip_options(words, 1)
+    j = _skip_options(words, 1, _GH_GLOBAL_VALUED)
     sub = _decisive(words, j, "gh subcommand")
     if sub == "pr":
         pr_at = j
@@ -330,10 +391,10 @@ def _gh_api(rest: list[str]) -> tuple[str, str | None] | None:
 
 
 def _github(words: list[str], pr_indices: set[int], gidx: list[int]) -> tuple[str, str | None] | None:
-    j = _skip_options(words, 1)
+    j = _skip_options(words, 1, _GITHUB_GLOBAL_VALUED)
     if _decisive(words, j, "github subcommand") == "pr":
         pr_at = j
-        j = _skip_options(words, j + 1)
+        j = _skip_options(words, j + 1, _GITHUB_GLOBAL_VALUED)
         if _decisive(words, j, "github pr subcommand") == "create":
             pr_indices.add(gidx[pr_at])
             return "github pr create", _flag_value(words[j + 1:], "--head", None, abbrev=True)
@@ -354,9 +415,13 @@ def _pr_assistant(words: list[str]) -> tuple[str, str | None] | None:
 
 
 def _hub(words: list[str]) -> tuple[str, str | None] | None:
-    if _decisive(words, 1, "hub subcommand") == "pull-request":
-        return "hub pull-request", _flag_value(words[2:], "--head", "-h")
-    return None
+    j = _skip_options(words, 1, _HUB_GLOBAL_VALUED)
+    if _decisive(words, j, "hub subcommand") != "pull-request":
+        return None
+    moved = [w.split("=", 1)[0] for w in words[1:j] if w.split("=", 1)[0] in _HUB_MOVES_REPO]
+    if moved:
+        raise Unverifiable(f"hub {moved[0]} opens a PR from another repository; it cannot be checked")
+    return "hub pull-request", _flag_value(words[j + 1:], "--head", "-h")
 
 
 # ---------------------------------------------------------------------------
@@ -414,18 +479,35 @@ def find_targets(command: str, cwd: Path | None, depth: int = 0) -> list[Target]
         return []
     targets: list[Target] = []
     pr_indices: set[int] = set()
-    for cmd in split_commands(tokens):
-        gidx = [i for i, _ in cmd]
-        raw = [t for _, t in cmd]
-        words = [_word(t) for t in raw]
-        head_words = _strip_prefix(words)
-        if head_words and _prog(head_words[0]) in ("cd", "pushd"):
-            cwd = _cd_target(head_words, cwd)
-            continue
-        for i in range(len(words)):
-            targets.extend(_targets_at(words, i, gidx, cwd, pr_indices, depth))
+    stack: list[Path | None] = []
+    for cmd, op in split_with_operators(tokens):
+        # The separator follows its command: `cd x)` moves, then `)` restores.
+        if cmd:
+            cwd = _walk_command(cmd, op, cwd, targets, pr_indices, depth)
+        cwd = _apply_parens(op, cwd, stack)
     _check_dynamic(tokens, pr_indices)
     return targets
+
+
+def _walk_command(
+    cmd: list[tuple[int, str]], op: str, cwd: Path | None,
+    targets: list[Target], pr_indices: set[int], depth: int,
+) -> Path | None:
+    """Collect targets in one simple command; return the cwd for the commands after it."""
+    gidx = [i for i, _ in cmd]
+    words = [_word(t) for _, t in cmd]
+    head_words = _strip_prefix(_strip_reserved(words))
+    prog = _prog(head_words[0]) if head_words else ""
+    if prog == "popd":
+        return _UNKNOWN_CWD
+    if prog in ("cd", "pushd"):
+        applies = _cd_applies(op)
+        if applies is None:
+            return _UNKNOWN_CWD
+        return _cd_target(head_words, cwd) if applies else cwd
+    for i in range(len(words)):
+        targets.extend(_targets_at(words, i, gidx, cwd, pr_indices, depth))
+    return cwd
 
 
 def _targets_at(
