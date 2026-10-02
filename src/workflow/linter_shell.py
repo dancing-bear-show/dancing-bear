@@ -7,15 +7,30 @@ never the surrounding prose -- and emit warnings with stable rule ids:
 
 ``shell-unvalidated-param``
     A caller-overridable ``{param}`` is substituted into shell text, and
-    neither ``trigger.param_rules`` nor a ``check-params --check`` in this
-    stage or an ancestor constrains it. Quoting is not the control: double
-    quotes do not stop ``$(...)``.
+    neither ``trigger.param_rules`` nor a ``workflow check-params --check`` in
+    this stage or an ancestor constrains it. A check counts only when its
+    failure can stop the stage (see :func:`_credited_checks`): not inside
+    ``echo "$(...)"``, a pipeline, ``!``, ``if`` or ``|| true``. Quoting is
+    not the control: double quotes do not stop ``$(...)``. Nor is a shell comment or a quoted
+    heredoc (``<<'EOF'``): the value is substituted into the text before the
+    shell reads it, so a newline in it ends the comment, and a newline plus
+    the delimiter ends the heredoc (the break-out ``param_guard`` documents).
+    This rule reads both; the shell-expansion rules below treat them as inert.
 ``shell-unquoted-fan-out-key``
     A fan-out key placeholder -- a value read from a prior stage's JSON, which
-    no param rule can constrain -- sits unquoted in shell text.
+    no param rule can constrain -- sits unquoted in shell text. For a stage
+    a worker runs (``fan_out.mode: worker_queue`` or ``executor:
+    worker_queue``) the text checked is the script the worker runs
+    (``fan_out.script``, and the stage ``script`` it enqueues), not the
+    description, which no shell and no agent ever reads in that mode; and
+    there every occurrence counts, quoted or in a comment, because no
+    allowlist constrains the value before worker dispatch and it is
+    substituted before bash parses the script.
 ``shell-unbound-variable``
     ``$NAME`` (upper case) is expanded in shell text but no shell text in the
-    same stage assigns it; each stage is a fresh shell.
+    same stage assigns it; each stage is a fresh shell. An assignment inside a
+    child shell -- ``$(...)``, backticks, ``<(...)``, ``( ... )`` -- binds only
+    for expansions inside that same child shell.
 ``python-not-isolated``
     A ``python``/``python3`` invocation lacks ``-I`` (or ``-E``), so a foreign
     ``PYTHONPATH`` entry's ``sitecustomize`` runs at startup. A command with an
@@ -30,17 +45,39 @@ never the surrounding prose -- and emit warnings with stable rule ids:
 ``shell-guard-refused``
     An unquoted-delimiter heredoc (``<<EOF``, not ``<<'EOF'``), whose body the
     Bash guard hook cannot inspect because ``$(...)`` and backticks in it expand
-    before the guard ever sees the result; or a ``for``/``while``/``until`` loop
-    whose body contains a command the guard's write-target scan would refuse.
+    before the guard ever sees the result, including one inside an ``sh -c``
+    string; ``env -S``, which splits a string into the command line it runs;
+    ``eval``, a bare ``sh -c``/``bash
+    -c``, or ``xargs`` into a shell, which the guard blocks anywhere; or a
+    ``for``/``while``/``until`` loop whose body contains a command the guard's
+    write-target scan would refuse -- including one run by ``find -exec`` or
+    inside an ``sh -c`` string, and ``find -delete``; or, loop or not, a
+    shell reading its program from stdin (``bash -s``, ``bash < file``).
     A quoted-delimiter heredoc and a read-only loop are both things the guard's
     own contract (``.claude/hooks/README.md``, ``.claude/hooks/tests/guard-contract.yaml``)
     explicitly allows, so this rule does not fire on either.
+    Which constructs the guard refuses is decided in ``shell_guard``; this
+    module only reports them.
 
 Every rule that asks "which command runs here" reads the same model:
-``shell_text.parse_shell``, which identifies the program word of each simple
+``shell_parse.parse_shell``, which identifies the program word of each simple
 command through separators, reserved words, wrappers, and substitutions, and
 keeps heredoc bodies out of it. A rule never matches a bare token or a
-substring of the raw text to decide that.
+substring of the raw text to decide that. Rules that do scan the raw text for
+an expansion (``$NAME``, ``{key}``) skip what the parser reports as comments,
+and read quoting from the text with comments and heredoc bodies masked, since
+an apostrophe in either opens no quote.
+
+For a stage a worker runs, ``shell-unbound-variable``, ``python-not-isolated``
+and ``shell-guard-refused`` check each script field on its own -- each runs
+as a separate ``bash FILE`` -- and name that field in the warning; the
+description, which never executes in that mode, is not checked.
+``shell-unvalidated-param`` still reads only the description: the engine
+substitutes caller params into the description, never into a script. A
+worker stage's ``check-params`` calls -- in its description or its scripts --
+validate nothing, for itself or its descendants (see
+:meth:`_StageShell.check_params_segments`); its description is still read for
+uses, so an unchecked ``{param}`` there warns rather than passing silently.
 
 Fragment stages inlined into a workflow get only the context-dependent rule
 (``shell-unvalidated-param``) there, because their params are the importer's;
@@ -50,19 +87,23 @@ the context-free rules run when the fragment file itself is linted.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from .linter_types import LintResult, LintWarning
 from .placeholders import PLACEHOLDER_RE
-from .shell_text import (
+from .shell_guard import refused_construct
+from .shell_lex import Span
+from .shell_parse import (
     ShellScript,
-    ShellSegment,
     SimpleCommand,
+    parse_shell,
+)
+from .shell_text import (
+    ShellSegment,
     extract_labelled_assignments,
     extract_shell_segments,
-    parse_shell,
     quote_context,
 )
 
@@ -105,6 +146,8 @@ _DECLARING_COMMANDS = frozenset({"export", "local", "declare", "readonly", "type
 # ``read`` options whose value is the next word, not a variable name.
 _READ_VALUE_OPTS = frozenset({"-d", "-i", "-n", "-N", "-p", "-t", "-u"})
 _CHECK_PARAMS = "check-params"
+_WORKFLOW_CLI = "workflow"  # the only program that runs check-params
+_WORKER_QUEUE = "worker_queue"  # FanOutMode.WORKER_QUEUE, and the executor of that name
 
 # Set by the shell, the OS, or the harness -- never assigned in stage text.
 _ENVIRONMENT_VARS: frozenset[str] = frozenset({
@@ -113,23 +156,6 @@ _ENVIRONMENT_VARS: frozenset[str] = frozenset({
 })
 _ENVIRONMENT_PREFIXES = ("BASH_", "CLAUDE_", "GITHUB_", "GH_", "RUNNER_", "DANCING_BEAR_")
 
-# Commands the real destructive-bash guard treats as write targets (see the
-# "Written" table in .claude/hooks/README.md), matched by basename as the
-# guard resolves them. A loop whose body calls none of these, and contains no
-# output redirection, is read-only and the guard allows it outright
-# (guard-contract.yaml: "for f in src/*.py; do wc -l "$f"; done"). `sed` and
-# `patch` are handled separately in _is_mutating because the guard's own
-# contract for them is conditional on their flags, not on the bare command
-# name -- see the "Written" table's `sed` and `patch` rows.
-_MUTATING_COMMANDS = frozenset({
-    "rm", "rmdir", "unlink", "shred", "chmod", "chown", "chgrp", "mv", "cp",
-    "ln", "install", "touch", "tee", "truncate", "dd", "mkdir",
-})
-_SED_COMMANDS = frozenset({"sed", "gsed"})
-# The guard refuses `patch` unless one of these is present (it writes the
-# files named *inside the diff*, so the guard cannot resolve a write target
-# without one of these).
-_PATCH_SAFE_FLAGS = ("--dry-run", "-o")
 # -I (isolated) and -E both make the interpreter ignore PYTHONPATH, which is
 # where a foreign checkout's sitecustomize comes from. -S is not required:
 # alone it does not ignore PYTHONPATH, and it would break ``-m pip``.
@@ -160,11 +186,28 @@ class _ParsedSegment:
         return self.segment.text
 
     def live_matches(self, pattern: re.Pattern[str]) -> Iterable[re.Match[str]]:
-        """Matches of *pattern* outside quoted heredoc bodies, which never expand."""
-        inert = self.script.inert_spans()
+        """Matches of *pattern* outside quoted heredoc bodies and shell comments.
+
+        The shell expands neither. A ``{param}`` substituted into the text
+        before the shell reads it escapes both, so the pre-shell rule reads
+        the whole text instead (see :func:`_unvalidated_params`).
+        """
+        dead = self.script.inert_spans() + list(self.script.comments)
         for m in pattern.finditer(self.segment.text):
-            if not any(lo <= m.start() < hi for lo, hi in inert):
+            if not any(lo <= m.start() < hi for lo, hi in dead):
                 yield m
+
+    def quote_context(self) -> list[str]:
+        """:func:`shell_text.quote_context` of the text, ignoring comments and heredoc bodies.
+
+        Neither is shell words: an apostrophe in ``# don't`` or in a heredoc
+        body opens no quote, and read raw it would mark the rest of the
+        segment single-quoted.
+        """
+        chars = list(self.segment.text)
+        for lo, hi in (*self.script.comments, *self.script.heredoc_spans()):
+            chars[lo:hi] = " " * (hi - lo)
+        return quote_context("".join(chars))
 
 
 @dataclass(frozen=True)
@@ -174,6 +217,8 @@ class _StageShell:
     stage: StageSpec
     segments: tuple[_ParsedSegment, ...]
     labels: tuple[ShellScript, ...] = ()  # assignments behind a prose label
+    # Worker-queue scripts with their field names: whole shell text, no prose.
+    scripts: tuple[tuple[str, _ParsedSegment], ...] = ()
 
     @classmethod
     def parse(cls, stage: StageSpec) -> _StageShell:
@@ -181,11 +226,45 @@ class _StageShell:
             _ParsedSegment(seg, parse_shell(seg.text)) for seg in extract_shell_segments(stage.description)
         )
         labels = tuple(parse_shell(seg.text) for seg in extract_labelled_assignments(stage.description))
-        return cls(stage, segments, labels)
+        scripts = tuple(
+            (field, _ParsedSegment(ShellSegment(text, "script"), parse_shell(text)))
+            for field, text in _worker_scripts(stage)
+        )
+        return cls(stage, segments, labels, scripts)
 
     def commands(self) -> Iterable[SimpleCommand]:
         for seg in self.segments:
             yield from seg.script.commands
+
+    def units(self) -> tuple[_ShellUnit, ...]:
+        """The shell text that runs: each worker script alone, else the description's.
+
+        A stage a worker runs executes its script fields, each as its own
+        ``bash FILE``; its description reaches no shell and no agent, so it
+        is not checked. Any other stage's description segments share one shell.
+        """
+        if _is_worker_dispatched(self.stage):
+            return tuple(_ShellUnit(field, (seg,)) for field, seg in self.scripts)
+        return (_ShellUnit(_FIELD, self.segments, self.labels),)
+
+    def check_params_segments(self) -> tuple[_ParsedSegment, ...]:
+        """Segments whose ``check-params`` calls count as validation: none for a worker stage.
+
+        A worker stage's description is not what runs, so a check written
+        there proves nothing. Nor does one in its worker script: the engine
+        records the stage ``pending`` when it enqueues the job and never reads
+        the job's exit status, so a rejected check stops no later stage.
+        """
+        return () if _is_worker_dispatched(self.stage) else self.segments
+
+
+@dataclass(frozen=True)
+class _ShellUnit:
+    """Shell text one shell process runs, and the stage field it comes from."""
+
+    field: str
+    segments: tuple[_ParsedSegment, ...]
+    labels: tuple[ShellScript, ...] = ()  # assignments behind a prose label
 
 
 def check_shell_rules(
@@ -206,8 +285,25 @@ def check_shell_rules(
         result.warnings.extend(_validate_writes_output(item.stage))
 
 
-def _warn(stage: str, rule: str, message: str) -> LintWarning:
-    return LintWarning(stage=stage, field=_FIELD, message=f"[{rule}] {message}", rule=rule)
+def _worker_scripts(stage: StageSpec) -> list[tuple[str, str]]:
+    """(field, text) of each script a worker runs through bash for *stage*.
+
+    ``handle_run_shell`` writes the script to a file and runs ``bash FILE``,
+    so the whole field is shell text. A worker_queue fan-out substitutes the
+    item's key into ``fan_out.script``; the dispatcher enqueues the stage
+    ``script`` of an ``executor: worker_queue`` stage.
+    """
+    fan_out = stage.fan_out
+    scripts = []
+    if fan_out is not None and fan_out.mode == _WORKER_QUEUE and fan_out.script.strip():
+        scripts.append(("fan_out.script", fan_out.script))
+    if stage.executor == _WORKER_QUEUE and stage.script.strip():
+        scripts.append(("script", stage.script))
+    return scripts
+
+
+def _warn(stage: str, rule: str, message: str, field: str = _FIELD) -> LintWarning:
+    return LintWarning(stage=stage, field=field, message=f"[{rule}] {message}", rule=rule)
 
 
 def _snippet(text: str) -> str:
@@ -222,23 +318,21 @@ def _snippet(text: str) -> str:
 
 
 def _check_params_call(cmd: SimpleCommand) -> tuple[int, list[str]] | None:
-    """(offset, operands) when *cmd* runs check-params, else None.
+    """(offset, operands) when *cmd* runs ``workflow check-params``, else None.
 
-    Either the program itself is ``check-params`` or a repo wrapper runs it
-    as a subcommand (``./bin/workflow check-params ...``). The word
-    ``check-params`` as an argument to another command (``echo
-    check-params``) is not an invocation. Only this command's own operands
-    are returned, so a later command's ``--check`` never donates a spec.
+    check-params is a subcommand of the workflow CLI, so the program word's
+    basename must be ``workflow`` (``./bin/workflow``, an absolute path to
+    it, or a bare ``workflow``) and its first operand ``check-params``. Any
+    other program runs something else, path-qualified or not:
+    ``/tmp/anything check-params --check ...`` validates nothing, and neither
+    does ``echo check-params`` or a bare ``check-params``, which names no
+    executable. Only this command's own operands are returned, so a later
+    command's ``--check`` never donates a spec.
     """
-    word = cmd.word
-    if word is None:
-        return None
-    if cmd.name == _CHECK_PARAMS:
-        return word.start, cmd.args
     rest = cmd.arguments
-    if rest and rest[0].text == _CHECK_PARAMS and (cmd.name == "workflow" or "/" in word.text):
-        return rest[0].start, [tok.text for tok in rest[1:]]
-    return None
+    if cmd.name != _WORKFLOW_CLI or not rest or rest[0].text != _CHECK_PARAMS:
+        return None
+    return rest[0].start, [tok.text for tok in rest[1:]]
 
 
 def _check_param_names(operands: list[str]) -> list[str]:
@@ -253,18 +347,73 @@ def _check_param_names(operands: list[str]) -> list[str]:
     return names
 
 
+def _command_start(cmd: SimpleCommand) -> int:
+    """Offset of *cmd*'s first word or assignment; -1 for a redirect-only command."""
+    return min((tok.start for tok in (*cmd.assignments, *cmd.words)), default=-1)
+
+
+def _captured_status(script: ShellScript, cmd: SimpleCommand) -> SimpleCommand | None:
+    """The command whose exit status the assignment-only *cmd* returns, if one decides it.
+
+    ``HOST=$(./bin/workflow check-params ... --print h) || exit 1`` is the
+    repo's capture idiom: a command with no program word exits with the
+    status of its last command substitution, which is that of the last
+    command run in it. So the check counts when it is that last command and
+    is :attr:`SimpleCommand.unconditional` within the substitution. A
+    ``( ... )`` group after it in the body decides the status instead.
+    """
+    if cmd.words:
+        return None
+    subs = [sub for tok in cmd.assignments for sub in tok.subs]
+    if not subs:
+        return None
+    body, offset = subs[-1]
+    span = (offset, offset + len(body))
+    inside = [
+        c for c in script.commands
+        if c.depth == cmd.depth + 1 and c.subshell is not None
+        and span[0] <= c.subshell[0] and c.subshell[1] <= span[1]
+    ]
+    last = max(inside, key=_command_start, default=None)
+    if last is None or last.subshell != span or not last.unconditional:
+        return None
+    return last
+
+
+def _credited_checks(script: ShellScript) -> Iterator[SimpleCommand]:
+    """Commands in *script* whose failure can stop the stage.
+
+    A check-params call validates only when a rejection stops what follows,
+    so its exit status must reach the stage's shell unmasked: it runs in that
+    shell (not in ``$(...)``, backticks, ``<(...)`` or a ``( )`` group) and is
+    :attr:`SimpleCommand.unconditional` there -- outside every compound
+    command, pipeline, ``!``, ``&`` and ``||`` (a ``|| exit`` after it is
+    fine). ``echo "$(./bin/workflow check-params ...)"`` checks nothing: echo
+    succeeds whatever the check says. The one child-shell exception is the
+    capture idiom, see :func:`_captured_status`.
+    """
+    for cmd in script.commands:
+        if cmd.subshell is not None or not cmd.unconditional:
+            continue
+        yield cmd
+        captured = _captured_status(script, cmd)
+        if captured is not None:
+            yield captured
+
+
 def _checked_param_positions(segments: Iterable[_ParsedSegment]) -> dict[str, tuple[int, int]]:
-    """Param name -> (segment index, char offset) of its earliest check-params call.
+    """Param name -> (segment index, char offset) of its earliest credited check-params call.
 
     The position is what lets a caller distinguish "checked before this use" from
     "checked after it" within the same stage: a ``{param}`` substituted into shell
     text before the stage's own ``check-params --check`` call has already reached
     shell by the time the check runs, so only uses at or after that position may be
-    credited to a same-stage check.
+    credited to a same-stage check. Only calls :func:`_credited_checks` admits count,
+    for this stage and for its descendants alike.
     """
     positions: dict[str, tuple[int, int]] = {}
     for seg_index, seg in enumerate(segments):
-        for cmd in seg.script.commands:
+        for cmd in _credited_checks(seg.script):
             call = _check_params_call(cmd)
             if call is None:
                 continue
@@ -299,7 +448,7 @@ def _validated_by_stage(
     segment sequence -- so it is not folded into this per-stage name set; see
     ``_unvalidated_params``, which applies it only to uses at or after its position.
     """
-    own = {p.stage.name: set(_checked_param_positions(p.segments)) for p in parsed}
+    own = {p.stage.name: set(_checked_param_positions(p.check_params_segments())) for p in parsed}
     deps = {p.stage.name: tuple(p.stage.depends_on) for p in parsed}
     out: dict[str, frozenset[str]] = {}
     for name in own:
@@ -311,10 +460,13 @@ def _validated_by_stage(
 def _unvalidated_params(
     item: _StageShell, caller: frozenset[str], validated: frozenset[str]
 ) -> list[LintWarning]:
-    own_checks = _checked_param_positions(item.segments)
+    own_checks = _checked_param_positions(item.check_params_segments())
     reported: dict[str, str] = {}
     for seg_index, seg in enumerate(item.segments):
-        for m in seg.live_matches(PLACEHOLDER_RE):
+        # Every occurrence: the value is substituted before bash parses the
+        # text, so a newline in it ends a comment, and a newline plus the
+        # delimiter ends a quoted heredoc (param_guard's module docstring).
+        for m in PLACEHOLDER_RE.finditer(seg.text):
             name = m.group(1)
             if name not in caller or name in validated:
                 continue
@@ -338,12 +490,20 @@ def _unvalidated_params(
 # ---------------------------------------------------------------------------
 
 
+def _is_worker_dispatched(stage: StageSpec) -> bool:
+    """True when a worker runs *stage*'s scripts and no agent reads its description."""
+    fan_out = stage.fan_out
+    return stage.executor == _WORKER_QUEUE or (fan_out is not None and fan_out.mode == _WORKER_QUEUE)
+
+
 def _unquoted_fan_out_keys(item: _StageShell) -> list[LintWarning]:
     fan_out = item.stage.fan_out
     if fan_out is None or not fan_out.key:
         return []
+    if _is_worker_dispatched(item.stage):
+        return _worker_key_references(item, fan_out.key)
     for seg in item.segments:
-        ctx = quote_context(seg.text)
+        ctx = seg.quote_context()
         for m in seg.live_matches(PLACEHOLDER_RE):
             if m.group(1) == fan_out.key and ctx[m.start()] == "":
                 return [_warn(
@@ -353,6 +513,32 @@ def _unquoted_fan_out_keys(item: _StageShell) -> list[LintWarning]:
                     f"shell (`{_snippet(seg.text)}`); quote it or read it from the file",
                 )]
     return []
+
+
+def _worker_key_references(item: _StageShell, key: str) -> list[LintWarning]:
+    """One warning per worker script that names *key* anywhere in its text.
+
+    An agent fan-out's key is held to SKILL.md's ``SAFE_KEY_VALUE`` before
+    it is substituted, so quoting and comments are real controls there. No
+    such allowlist runs before worker dispatch, and the value is substituted
+    into the script before bash parses it: a quote, ``$(...)`` or newline in
+    it escapes a quoted string, a comment, or a quoted heredoc alike. So
+    every occurrence counts, in whatever shell context it sits.
+    """
+    warnings = []
+    for field, seg in item.scripts:
+        count = sum(1 for m in PLACEHOLDER_RE.finditer(seg.text) if m.group(1) == key)
+        if count:
+            warnings.append(_warn(
+                item.stage.name,
+                RULE_UNQUOTED_FAN_OUT_KEY,
+                f"fan-out key '{{{key}}}' is interpolated into a worker script {count} time(s) "
+                f"(`{_snippet(seg.text)}`); it is not allowlisted before worker dispatch and is "
+                f"substituted before bash parses the script, so quoting and comments do not "
+                f"contain it -- pass it as data (read it from a file or environment variable)",
+                field,
+            ))
+    return warnings
 
 
 # ---------------------------------------------------------------------------
@@ -383,24 +569,36 @@ def _command_bindings(cmd: SimpleCommand) -> Iterable[str]:
         yield from _read_names(cmd.args)
 
 
-def _script_bindings(script: ShellScript) -> set[str]:
-    names = set(script.loop_variables)
+def _script_bindings(script: ShellScript) -> Iterator[tuple[str, Span | None]]:
+    """Each name *script* binds, with the child shell it is bound in (None: the stage's shell)."""
+    for var in script.loop_variables:
+        yield var.name, var.subshell
     for cmd in script.commands:
-        names.update(_command_bindings(cmd))
-    return names
+        for name in _command_bindings(cmd):
+            yield name, cmd.subshell
 
 
-def _assigned_names(item: _StageShell) -> set[str]:
-    """Names bound anywhere in the stage's shell, or in an assignment behind a prose label.
+def _assigned_names(unit: _ShellUnit) -> set[str]:
+    """Names the stage's own shell binds, or an assignment behind a prose label binds.
 
     Bindings come from parsed commands only, so an assignment-shaped word
     that is quoted text, an argument (``echo FOO=literal``), or heredoc data
-    binds nothing.
+    binds nothing. A binding made in a child shell is left out: the stage's
+    shell never sees it (see :func:`_child_bindings`).
     """
     names: set[str] = set()
-    for script in (*(seg.script for seg in item.segments), *item.labels):
-        names |= _script_bindings(script)
+    for script in (*(seg.script for seg in unit.segments), *unit.labels):
+        names.update(name for name, subshell in _script_bindings(script) if subshell is None)
     return names
+
+
+def _child_bindings(script: ShellScript) -> dict[str, list[Span]]:
+    """Name -> the child shells in *script* that bind it, visible only inside those spans."""
+    spans: dict[str, list[Span]] = {}
+    for name, subshell in _script_bindings(script):
+        if subshell is not None:
+            spans.setdefault(name, []).append(subshell)
+    return spans
 
 
 def _is_environment(name: str) -> bool:
@@ -423,28 +621,36 @@ def _is_escaped(text: str, pos: int) -> bool:
     return run % 2 == 1
 
 
-def _expanded_names(seg: _ParsedSegment) -> list[str]:
-    """Upper-case ``$NAME`` expansions outside single quotes and inert heredoc bodies."""
-    ctx = quote_context(seg.text)
+def _expanded_names(seg: _ParsedSegment) -> list[tuple[str, int]]:
+    """Upper-case ``$NAME`` expansions, with offsets, outside single quotes, comments, and inert heredocs."""
+    ctx = seg.quote_context()
     return [
-        m.group(1) or m.group(2)
+        (m.group(1) or m.group(2), m.start())
         for m in seg.live_matches(_EXPANSION_RE)
         if ctx[m.start()] != "'" and not _is_escaped(seg.text, m.start())
     ]
 
 
 def _unbound_variables(item: _StageShell) -> list[LintWarning]:
-    assigned = _assigned_names(item)
+    return [warning for unit in item.units() for warning in _unbound_in_unit(item.stage.name, unit)]
+
+
+def _unbound_in_unit(stage: str, unit: _ShellUnit) -> list[LintWarning]:
+    assigned = _assigned_names(unit)
     reported: dict[str, str] = {}
-    for seg in item.segments:
-        for name in _expanded_names(seg):
-            if name not in assigned and not _is_environment(name):
+    for seg in unit.segments:
+        child = _child_bindings(seg.script)
+        for name, pos in _expanded_names(seg):
+            if name in assigned or _is_environment(name):
+                continue
+            if not any(lo <= pos < hi for lo, hi in child.get(name, ())):
                 reported.setdefault(name, seg.text)
     return [
         _warn(
-            item.stage.name,
+            stage,
             RULE_UNBOUND_VARIABLE,
             f"${name} is expanded but never assigned in this stage (`{_snippet(text)}`)",
+            unit.field,
         )
         for name, text in sorted(reported.items())
     ]
@@ -481,32 +687,17 @@ def _isolation_flags(args: list[str]) -> set[str]:
     return flags
 
 
-def _is_invocation(args: list[str]) -> bool:
-    """True when the interpreter is followed by an option or a script operand -- not prose.
-
-    A script operand need not end in ``.py``: ``python3 tools/run_checks`` and
-    ``python3 "$SCRIPT"`` both start the interpreter just as surely. Treat a
-    path-like operand (contains ``/``) or a variable reference (``$NAME``) as
-    an invocation too; a single bare word (``is``, ``required``) stays prose.
-    No operands at all is a real invocation too: *args* holds only this simple
-    command's operands, so an empty list is a bare ``python3`` -- on its own
-    line or before ``;``/``&&`` -- which still starts the interpreter with the
-    ambient PYTHONPATH.
-    """
-    if not args:
-        return True
-    first = args[0]
-    return bool(
-        first.startswith("-") or first.endswith(".py") or "/" in first or first.startswith("$")
-    )
-
-
 def _python_offenders(script: ShellScript) -> list[str]:
     """Each unisolated interpreter in *script*, as a short display string.
 
     Only the program word of a simple command counts: ``echo python3 -c`` runs
-    echo. A ``PYTHONPATH=`` assignment exempts the command it prefixes (or
-    that an ``env`` wrapper sets it for), never a later command.
+    echo. Whatever follows that word -- an option, ``tools/run_checks``, a bare
+    ``runner``, or nothing -- the interpreter starts with the ambient
+    PYTHONPATH. Prose such as "python3 is required" is kept out upstream:
+    ``shell_text.is_command_line`` never extracts it as a segment, so this
+    does not re-judge operands. A ``PYTHONPATH=`` assignment exempts the
+    command it prefixes (or that an ``env`` wrapper sets it for), never a
+    later command.
     """
     offenders: list[str] = []
     for cmd in script.commands:
@@ -516,22 +707,25 @@ def _python_offenders(script: ShellScript) -> list[str]:
         if any(tok.text.startswith("PYTHONPATH=") for tok in cmd.assignments):
             continue  # the author set PYTHONPATH on purpose; -I would ignore it
         args = cmd.args
-        if _is_invocation(args) and not _isolation_flags(args) & _PYTHONPATH_IGNORING_FLAGS:
+        if not _isolation_flags(args) & _PYTHONPATH_IGNORING_FLAGS:
             offenders.append(" ".join([word.text, *args[:3]]))
     return offenders
 
 
 def _unisolated_pythons(item: _StageShell) -> list[LintWarning]:
-    for seg in item.segments:
-        offenders = _python_offenders(seg.script)
-        if offenders:
-            return [_warn(
+    """At most one warning per unit: its first unisolated interpreter."""
+    warnings = []
+    for unit in item.units():
+        offender = next((o for seg in unit.segments for o in _python_offenders(seg.script)), None)
+        if offender is not None:
+            warnings.append(_warn(
                 item.stage.name,
                 RULE_PYTHON_NOT_ISOLATED,
-                f"`{_snippet(offenders[0])}` lacks -I; a foreign PYTHONPATH "
+                f"`{_snippet(offender)}` lacks -I; a foreign PYTHONPATH "
                 f"sitecustomize runs at startup (use python3 -I -S)",
-            )]
-    return []
+                unit.field,
+            ))
+    return warnings
 
 
 # ---------------------------------------------------------------------------
@@ -539,69 +733,21 @@ def _unisolated_pythons(item: _StageShell) -> list[LintWarning]:
 # ---------------------------------------------------------------------------
 
 
-def _has_sed_in_place(args: list[str]) -> bool:
-    """True when a ``sed`` command's own *args* carry ``-i``/``--in-place``.
-
-    The guard's "Written" table blocks `sed` operands only with `-i`/`--in-place`
-    present -- a plain `sed -n ...` is a read. `-i` can appear bare, clustered
-    with other short flags (`-ie`), or with an attached suffix (`-i.bak`).
-    """
-    for tok in args:
-        if tok == "--in-place" or tok.startswith("--in-place="):
-            return True
-        if tok.startswith("-") and not tok.startswith("--") and "i" in tok[1:]:
-            return True
-    return False
-
-
-def _is_mutating(cmd: SimpleCommand) -> bool:
-    """True when *cmd* writes anything, by the guard's own test.
-
-    The guard refuses a loop whose body calls a command from its "Written"
-    table or redirects output (``>``, ``>>``; not ``2>&1``, not a ``>``
-    comparison inside ``[[ ]]``). `sed` is refused only with `-i`/`--in-place`,
-    and `patch` unless `--dry-run` or `-o FILE` is present. This is
-    deliberately narrower than the guard's full write-target parser -- it is
-    enough to stop flagging the read-only loops the guard actually allows.
-    """
-    if any(r.writes for r in cmd.redirects):
-        return True
-    name = cmd.name
-    if name in _MUTATING_COMMANDS:
-        return True
-    if name in _SED_COMMANDS:
-        return _has_sed_in_place(cmd.args)
-    if name == "patch":
-        return not any(arg.startswith(_PATCH_SAFE_FLAGS) for arg in cmd.args)
-    return False
-
-
-def _refused_construct(script: ShellScript) -> str:
-    """Name the guard-refused construct in *script*, or "" when there is none.
-
-    A heredoc is refused only when its delimiter is unquoted and its body
-    runs a substitution: the guard cannot inspect what that expands to. A
-    quoted delimiter (``<<'EOF'``) makes the body inert, and a static body
-    has nothing to expand -- the guard's contract allows both.
-    """
-    if any(not doc.quoted and doc.subs for doc in script.heredocs):
-        return "heredoc"
-    if any(cmd.in_loop and _is_mutating(cmd) for cmd in script.commands):
-        return "loop"
-    return ""
-
-
 def _guard_refused(item: _StageShell) -> list[LintWarning]:
-    for seg in item.segments:
-        what = _refused_construct(seg.script)
-        if what:
-            return [_warn(
+    """At most one warning per unit: its first refused construct."""
+    warnings = []
+    for unit in item.units():
+        hit = next(((what, seg) for seg in unit.segments if (what := refused_construct(seg.script))), None)
+        if hit is not None:
+            what, seg = hit
+            warnings.append(_warn(
                 item.stage.name,
                 RULE_GUARD_REFUSED,
                 f"{what} in shell (`{_snippet(seg.text)}`) is refused by the Bash guard "
                 f"hook; use a script file or one command per call",
-            )]
-    return []
+                unit.field,
+            ))
+    return warnings
 
 
 # ---------------------------------------------------------------------------

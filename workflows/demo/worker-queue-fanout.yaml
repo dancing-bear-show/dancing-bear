@@ -92,7 +92,7 @@ stages:
       agent. Each job runs `ls <domain>/` as a stand-in for a real
       per-domain check; swap the script for anything CLI-only.
     executor: worker_queue
-    script: "ls {domain}/ 2>&1 || echo 'no such domain dir: {domain}'"  # parser requires a stage-level script even though fan_out.script (below) is what's actually used per item
+    script: "ls \"{domain}/\" 2>&1 || echo 'no such domain dir: {domain}'"  # parser requires a stage-level script even though fan_out.script (below) is what's actually used per item
     agent:
       role: inline   # required by the parser but unused — worker_queue never spawns an agent
     depends_on: [list-domains]
@@ -103,7 +103,7 @@ stages:
       field: items
       key: domain
       mode: worker_queue
-      script: "ls {domain}/ 2>&1 || echo 'no such domain dir: {domain}'"
+      script: "ls \"{domain}/\" 2>&1 || echo 'no such domain dir: {domain}'"
 
 include:
   # Watches the check-domain fan-out jobs drain, retries transient errors
