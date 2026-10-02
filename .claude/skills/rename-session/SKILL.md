@@ -27,14 +27,12 @@ pr_number=$(GITHUB_TOKEN= GH_TOKEN= gh pr view --json number -q .number 2>/dev/n
 - If `$pr_number` is non-empty, prefer `pr-<NUMBER>-<topic>` (e.g. `pr-42-gmail-filters`).
 - If empty, use the topic alone (current behavior).
 
-Then apply the name:
+Then apply the name (the script validates the name, renames the session, and
+pushes the tab title — the guard hook rejects the inline form of this block,
+so the tab title would silently not update without the script):
 
 ```bash
-name="topic-not-action"  # replace with the chosen name (pr-<N>-<topic> when a PR exists)
-tmux rename-session "$name"
-client_tty=$(tmux display-message -p '#{client_tty}' 2>/dev/null)
-[ -n "$client_tty" ] && printf "\033]0;%s\007" "$name" > "$client_tty"
-tmux display-message -p 'Session: #S'
+bash .claude/skills/rename-session/rename.sh "<name>"
 ```
 
 **Naming rules:**

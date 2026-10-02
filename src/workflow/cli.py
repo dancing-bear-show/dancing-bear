@@ -50,6 +50,7 @@ from workflow.cli_dispatch_review import (
     _cmd_count_sweep,
     _cmd_parse_overview,
     _cmd_review_rounds,
+    _cmd_select_concerns,
     _cmd_snapshot_dirty,
     _cmd_sweep_record_check,
     _cmd_sweep_record_waive,
@@ -194,6 +195,18 @@ def cmd_parse_overview(args: argparse.Namespace) -> int:
 @app.argument("paths", nargs="+", help="Repo-relative paths to check")
 def cmd_check_paths(args: argparse.Namespace) -> int:
     return _cmd_check_paths(args)
+
+
+@app.command(
+    "select-concerns",
+    help="Select concern guides for given file paths and optional task type",
+)
+@app.argument("--paths", nargs="*", default=[], metavar="PATH", help="File paths to evaluate")
+@app.argument("--paths-file", dest="paths_file", default="", help="Newline-delimited file of paths (- for stdin)")
+@app.argument("--task-type", dest="task_type", default="", help="Task type: a task_type_rules key in concerns/selection.yaml")
+@app.argument("--format", "-f", choices=["text", "json"], default="text", help="Output format (default: text)")
+def cmd_select_concerns(args: argparse.Namespace) -> int:
+    return _cmd_select_concerns(args)
 
 
 @app.command("status", help="Show status of a workflow run")
@@ -407,9 +420,9 @@ def _no_command_usage() -> int:
     since this is a public CLI surface."""
     print(
         "Usage: workflow {parse,compile,run,lint,list,status,init-workspace,resume,"
-        "validate-fragment,parse-overview,check-paths,check-params,check-fix-index,"
-        "thread-fingerprints,check-thread-ids,aggregate-fix-results,snapshot-dirty,"
-        "check-unlisted,review-rounds,count-sweep,sweep-record} [options]",
+        "validate-fragment,parse-overview,check-paths,select-concerns,check-params,"
+        "check-fix-index,thread-fingerprints,check-thread-ids,aggregate-fix-results,"
+        "snapshot-dirty,check-unlisted,review-rounds,count-sweep,sweep-record} [options]",
         file=sys.stderr,
     )
     return ExitCode.USAGE

@@ -618,6 +618,22 @@ stages:
           a complete inventory. If the design stored patches inline rather
           than as files, write an empty list and set orphaned to 0 — do not
           invent entries to fill the field.
+        - SAVED RESPONSES: count, total size and oldest mtime of the regular
+          files under core.paths.output_dir("qwen")/responses/ — the masked,
+          capped model responses the handler keeps for failed jobs. They are
+          pruned only when a NEW response is written, so an idle lane keeps
+          them indefinitely. Report numbers only; never read or quote a
+          response's contents. If the directory is absent, report count 0.
+
+          `purgeable` is what allowlist item (e) is gated on, and it must
+          come from the purge's own eligibility, not from the inventory
+          above: the purge removes only regular files named as the handler
+          writes them, so a stale foreign file (notes.md, a symlink) is
+          counted above but never removed. Take it from:
+            ./bin/worker purge --folders qwen-responses --older-than {purge_older_than} --dry-run
+          which deletes nothing and prints {"qwen-responses": N}; record N.
+          If the command exits non-zero (a symlinked or foreign-owned
+          responses/), record null and quote its error line.
         - LANE DEPTH vs the admission cap: count pending + processing for
           "{job_type}" only and compare against the cap the handler's
           contract declares. Because the lane runs one job at a time, report
@@ -635,6 +651,7 @@ stages:
           "retry_exhausted": [{"id": "...", "attempts": N, "error_signature": "<derived/redacted, or the literal string withheld>", "suggests_misclassification": true|false}],
           "throughput": {"qwen_avg_ms": N, "other_avg_ms": N, "sample_size": N},
           "patch_artifacts": {"dir": "...", "count": N, "total_mb": N, "orphaned": N, "orphaned_items": [{"job_id": "...", "relative_name": "...", "size_mb": N}]},
+          "saved_responses": {"dir": "...", "count": N, "total_mb": N, "oldest_age_days": N | null, "purgeable": N | null},
           "lane_depth": {"pending": N, "processing": N, "cap": N | null, "over_cap": true|false, "estimated_drain_minutes": N | null},
           "needs_attention": true|false
         }
@@ -649,12 +666,14 @@ stages:
         mode: generate
         description: >
           queue.json with per-lane counts, stuck jobs split by heartbeat
-          freshness, clustered error signatures, and throughput.
+          freshness, clustered error signatures, throughput, and
+          saved_responses (always present; its purgeable is null when the
+          --dry-run probe refuses responses/).
     writes_to:
       - outputs/analysis/queue.json
     validates_output:
       - path: outputs/analysis/queue.json
-        checks: [is_json, has_key:counts, has_key:qwen_lane, has_key:needs_attention]
+        checks: [is_json, has_key:counts, has_key:qwen_lane, has_key:saved_responses, has_key:needs_attention]
 
   # ===========================================================================
   # G0d: Spend — time and tokens, from telemetry
@@ -782,7 +801,8 @@ stages:
            Never propose action on an alive-slow job.
         5. Disk pressure — only when free_disk_gb is genuinely low. Do not
            propose reclaiming disk that is not scarce.
-        6. Hygiene — old done/error jobs, orphaned patch artifacts.
+        6. Hygiene — old done/error jobs, orphaned patch artifacts, old
+           saved qwen responses.
 
       PROPOSE ONLY FROM THIS ALLOWLIST. Anything else is a manual step:
         a) Requeue error jobs whose cluster is NOT systemic, bounded and
@@ -835,14 +855,16 @@ stages:
            Never purge pending or processing.
 
            ALWAYS PASS --older-than EXPLICITLY. `worker purge` defaults to
-           30d (src/worker/cli.py:167), so omitting the flag silently ignores
+           30d (src/worker/cli.py cmd_purge), so omitting the flag silently ignores
            the configured retention: a run parameterised with 7d would keep
            30 days instead, and one parameterised with 60d would delete a
            month of history the workflow was told to keep. The default is
            wrong in both directions, and neither shows up as an error.
 
            BLAST RADIUS — state this verbatim in the proposal, every time:
-           `worker purge` accepts only --older-than and --folders. It has no
+           `worker purge` accepts only --older-than, --folders and
+           --dry-run (which deletes nothing). With
+           --folders omitted or naming done/error, it has no
            --type, no --match, no lane filter of any kind (unlike
            requeue-errors, which has --limit/--match/--since). It therefore
            deletes the done/ and error/ history of EVERY job type —
@@ -853,8 +875,10 @@ stages:
            or at the human gate. Describe it as a repo-wide purge of all job
            history older than the threshold, because that is what it does.
            If the finding that motivated it is qwen-lane-specific, say so and
-           say plainly that no scoped purge exists — then let the human decide
-           whether a repo-wide purge is an acceptable way to address it.
+           say plainly that no scoped purge of job records exists — then let
+           the human decide whether a repo-wide purge is an acceptable way to
+           address it. Item (e) is scoped, but it removes saved responses,
+           not job records; do not offer it as a substitute for (b).
         c) Delete orphaned patch artifacts whose job no longer exists.
 
            PROPOSE ONE ACTION PER ARTIFACT, each naming a `job_id` taken
@@ -1010,6 +1034,27 @@ stages:
            evidence for the verdict, and the exact command for the operator),
            plus which of holder_is_worker / lane_processing carried it.
 
+        e) Prune saved qwen responses older than {purge_older_than}:
+           ./bin/worker purge --folders qwen-responses --older-than {purge_older_than}
+           Propose it only when queue.json's `saved_responses.purgeable` is
+           above 0, and cite that field. Never infer it from `count` or
+           `oldest_age_days`: those include files the purge will not remove.
+
+           ALWAYS PASS --older-than EXPLICITLY, for the same reason as (b).
+           Pass --folders qwen-responses and nothing else in that list: adding
+           done or error turns this into item (b) with (b)'s blast radius.
+
+           BLAST RADIUS — state this in the proposal: it deletes only saved
+           qwen_patch model responses (masked, capped diagnostics kept for
+           failed jobs) under core.paths.output_dir("qwen")/responses/. It
+           never touches job records in pending/, processing/, done/ or
+           error/, never touches patch artifacts, and never touches any other
+           job type's data — the opposite of (b), which is repo-wide across
+           every job type. Only regular files named as the handler writes
+           them are removed; symlinks and other entries are left alone.
+           Deletion is irreversible, but the cost is diagnostic only: a
+           removed response can no longer explain why its job failed.
+
       Explicitly NOT allowlisted, and always reported as manual steps:
         starting the Ollama server; pulling {model_tag}; loading the worker
         launchd agent — these are qwen-local-handler.yaml's job: doing them
@@ -1028,7 +1073,7 @@ stages:
       Write outputs/analysis/triage.json:
         {
           "findings": [{"rank": N, "severity": "blocking|degraded|hygiene", "finding": "...", "source": "health.json|models.json|queue.json|spend.json", "evidence": "..."}],
-          "proposed_actions": [{"id": "a1", "action": "...", "command": "...", "params": {"job_id": "... (item c only)", "limit": "5 — a STRING of digits, not a number", "match_cluster": "...", "folders": "done|error|done,error"}, "addresses_finding": N, "allowlist_item": "a|b|c (d is withdrawn — lock removal goes in manual_steps, never here)", "destructive": true|false, "reversible": true|false, "if_diagnosis_wrong": "..."}],
+          "proposed_actions": [{"id": "a1", "action": "...", "command": "...", "params": {"job_id": "... (item c only)", "limit": "5 — a STRING of digits, not a number", "match_cluster": "...", "folders": "done|error|done,error"}, "addresses_finding": N, "allowlist_item": "a|b|c|e (d is withdrawn — lock removal goes in manual_steps, never here)", "destructive": true|false, "reversible": true|false, "if_diagnosis_wrong": "..."}],
           "manual_steps": [{"step": "...", "why_not_automated": "..."}],
           "nothing_to_do": true|false
         }
@@ -1127,6 +1172,11 @@ stages:
                            [--folders <done|error>]
             c) delete ONE orphaned patch artifact, at a path YOU re-derive
                from the proposal's job_id — never a path it supplied
+            e) prune    -> ./bin/worker purge --folders qwen-responses
+                           --older-than <retention>
+               The folder list is the literal `qwen-responses`, never taken
+               from the proposal's params; the folders check below is for
+               (b) only and does not admit it.
             d) NO DERIVATION EXISTS. Lock removal is withdrawn from the
                allowlist, so there is deliberately no command here to build.
                See the (d) handling below: refuse it, record it under
@@ -1241,16 +1291,23 @@ stages:
           finding and stop: that divergence is the signature this check
           exists to catch, not a formatting difference to reconcile.
 
-          If `allowlist_item` is absent, or names anything other than a, b or
-          c, the action is not approvable by this stage regardless of what the
-          gate said. Record it under manual_steps. Note that `d` fails this
-          check: it names a withdrawn item, so it is refused here for the same
-          reason an unrecognised value is — the approvable set is a-c, not a-d.
+          If `allowlist_item` is absent, or names anything other than a, b, c
+          or e, the action is not approvable by this stage regardless of what
+          the gate said. Record it under manual_steps. Note that `d` fails
+          this check: it names a withdrawn item, so it is refused here for the
+          same reason an unrecognised value is — the approvable set is a, b,
+          c and e, never d.
         - Re-check the precondition immediately before each action. State
           drifts between triage and approval: a daemon may have come back, a
           job may have finished. If the precondition no longer holds, skip the
           action and record why. This is the check-then-act discipline the
-          install stage uses, for the same reason.
+          install stage uses, for the same reason. For (e), re-run
+            ./bin/worker purge --folders qwen-responses --older-than <retention> --dry-run
+          with the same <retention> the derived command will use. Proceed
+          only if it exits 0 and reports a count above 0. A count of 0 —
+          including a directory holding only foreign or fresh files — or a
+          non-zero exit (a symlinked or foreign-owned responses/) means skip
+          the action and record why; never record it as a successful no-op.
         - Bound every requeue with --limit and --match exactly as proposed.
           An unbounded requeue can flood the queue with jobs that will fail
           identically.

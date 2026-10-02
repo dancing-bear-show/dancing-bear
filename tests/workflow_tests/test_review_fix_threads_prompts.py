@@ -437,6 +437,11 @@ class TestUnlinkedFindingTriageAndDispatchRules(unittest.TestCase):
             "only shows that an earlier finding cited the SAME FILE",
             self.triage_prompt,
         )
+        # Positive rule: a same-concern prior IS recorded.
+        self.assertIn(
+            "record its id in this triage entry's \"repeat_of\" list",
+            self.triage_prompt,
+        )
         self.assertIn("do NOT add it to \"repeat_of\"", self.triage_prompt)
 
     def test_own_previously_missed_keeps_weight_with_empty_repeat_of(self) -> None:
@@ -505,6 +510,92 @@ class TestUnlinkedFindingTriageAndDispatchRules(unittest.TestCase):
             'When BOTH "path" and "path_rejected" are null', self.report_prompt
         )
         self.assertIn('labelled "(path unavailable)"', self.report_prompt)
+
+    def test_partial_parse_stale_guidance_in_triage_and_report(self) -> None:
+        # (g) when review-overview.json status is "partial", current: false
+        # only means the finding was not parsed — it may still be live.
+        # Triage must check the raw body before calling it stale; report must
+        # label each such entry "staleness indeterminate (partial parse)".
+        self.assertIn(
+            "partial",
+            self.triage_prompt,
+        )
+        self.assertIn(
+            "staleness indeterminate: partial parse",
+            self.triage_prompt,
+        )
+        self.assertIn(
+            "staleness indeterminate (partial parse)",
+            self.report_prompt,
+        )
+
+    def test_partial_parse_raw_body_selected_by_review_id_not_timestamp(
+        self,
+    ) -> None:
+        # PR #453 PRRT_kwDOQr1kjM6njurS: "review_bodies" holds every non-empty
+        # review, bot or human, so selecting by latest "submitted_at" can pick
+        # a later human review's text over the newest Copilot overview. Pin
+        # the actual selection mechanism — by "review_id" matching
+        # review-overview.json "newest"."review_id" — not just the output
+        # label.
+        self.assertIn(
+            'Select the "review_bodies" entry whose "review_id" equals '
+            'review-overview.json "newest"."review_id"',
+            self.triage_prompt,
+        )
+        self.assertIn(
+            "never by timestamp", self.triage_prompt
+        )
+        self.assertIn(
+            "treat the finding as indeterminate", self.triage_prompt
+        )
+        # Negative: the prose must no longer instruct selecting by latest
+        # submitted_at for this fallback.
+        self.assertNotIn(
+            'look in threads.json "review_bodies" for the entry with the '
+            'latest "submitted_at" timestamp',
+            self.triage_prompt,
+        )
+
+    def test_partial_parse_title_match_triages_like_current_and_records_id(
+        self,
+    ) -> None:
+        # The title-match branch must triage the finding like a current one
+        # AND give it a triage entry keyed by its original id, since the
+        # report's re-confirmed/indeterminate split depends on that entry
+        # existing.
+        self.assertIn(
+            'If the title is present there, triage it like a current '
+            "finding", self.triage_prompt,
+        )
+        self.assertIn(
+            'give it the usual triage fields including this finding\'s '
+            'original "id" from review-overview.json so the report can join '
+            "on it", self.triage_prompt,
+        )
+
+    def test_report_splits_reconfirmed_from_indeterminate_stale_findings(
+        self,
+    ) -> None:
+        # The report must not apply a blanket "indeterminate" label to every
+        # stale id under a partial parse — a stale id triage re-confirmed
+        # (its own triage.json entry) must report its real fix-results.json
+        # outcome; only a stale id with no triage entry is indeterminate.
+        self.assertIn(
+            'This id has its OWN entry in triage.json', self.report_prompt
+        )
+        self.assertIn(
+            "Report its actual outcome from fix-results.json", self.report_prompt
+        )
+        self.assertIn(
+            "never \"indeterminate\"", self.report_prompt
+        )
+        self.assertIn(
+            "This id has NO entry in triage.json", self.report_prompt
+        )
+        self.assertIn(
+            "No live match was established, so label it", self.report_prompt
+        )
 
 
 if __name__ == "__main__":

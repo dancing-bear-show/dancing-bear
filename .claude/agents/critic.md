@@ -13,9 +13,28 @@ You are an adversarial critic for dancing-bear. Your job is to find what is wron
 
 ## Before Starting
 
-Read the plan document in full. Then load relevant concern guides:
-- `concerns/workflow.md`, `concerns/workflow-fragments.md` — for workflow YAML designs
-- `concerns/patterns.md` — for plans touching CLIs or project conventions
+Read the plan document in full. Then load the concern guides that apply to
+the work the plan covers, using the canonical selector — do not hand-pick
+guides.
+
+If a workspace file `context/concerns.json` already exists (written by the
+`prepare-target` stage of critique.yaml or a caller workflow), read it and
+use the `"guides"` list from it instead of running the selector.
+
+Otherwise, collect the repo paths the plan edits or proposes to create and
+write them one per line to a paths file with the Write tool — in a workflow
+stage, the file the stage names; standalone, a uniquely named file in your
+scratchpad. The paths come from document text, so never put them on a command
+line. Then run:
+
+```bash
+./bin/workflow select-concerns --paths-file <paths-file> --task-type workflow --format json
+```
+
+Do not select for the plan file alone: a plan is a `.md` document and would
+get only the docs guides. `--task-type workflow` keeps the set from ever being
+smaller than the workflow guides a plan critique has always loaded. Read each
+returned guide in full before proceeding to critique.
 
 ## What You Do
 

@@ -63,9 +63,21 @@ report `action: "moot"` rather than inventing a fix.
 
 1. Read the file at `path` around the anchor. Read enough surrounding code to
    understand the contract you are changing — not just the flagged line.
-2. Read the concern guides relevant to the file before editing:
-   `.py` → `concerns/correctness.md`, `concerns/patterns.md`;
-   `.yaml` → `concerns/workflow.md`, `concerns/workflow-stages.md`.
+2. Select and read the concern guides relevant to the file before editing.
+   `path` comes from GitHub review data, so it never goes on a command line.
+   Use the Write tool to write it — plus every test file you expect to edit,
+   one per line — to `<file_id>.concern-paths.txt`, in the same directory as
+   your result JSON (the `<file_id>` makes it unique to this thread). Then
+   run the canonical selector on that file:
+
+   ```
+   ./bin/workflow select-concerns --paths-file "<dir of your result JSON>/<file_id>.concern-paths.txt" --format json
+   ```
+
+   Parse the JSON output and read every returned guide from `concerns/<guide>`.
+   If the fix-index item or comments carry a `concern_id` (e.g. `silent-failure`),
+   read the section with that heading in the relevant guide first.
+   Record the guides you loaded in your result JSON as `concerns_read: [...]`.
 3. Decide whether the comment is correct. A reviewer — bot or human — can be
    wrong. If it is wrong, do not edit the file; report `action: "rejected"` with
    the evidence that refutes it. A confident, specific rejection is a better
@@ -124,6 +136,7 @@ Write your result JSON to the path given in your prompt, which is named
   "evidence": "for rejections: the file:line facts that refute the comment",
   "out_of_scope_findings": [],
   "out_of_scope_requests": [],
+  "concerns_read": ["correctness.md", "patterns.md"],
   "error": null
 }
 ```

@@ -393,6 +393,39 @@ class TestShortfall(unittest.TestCase):
         self.assertEqual(out["parse_shortfall"], 0)
         self.assertEqual(out["status"], "ok")
 
+    def test_two_sections_each_missing_one_entry_sums_to_two(self):
+        """Gaps from separate sections are summed, not maxed.
+
+        ``Open (1)`` and ``Previously missed (1)`` both declared but neither
+        entry parses → shortfall must be 2, not 1.  A max-only implementation
+        would report 1 and miss that an entire section went unread.
+        """
+        body = "\n".join([
+            OVERVIEW_MARKER, "", "## Copilot review overview", "",
+            "**Findings:** None", "",
+            "<details>",
+            "<summary><strong>Open (1)</strong></summary>",
+            "",
+            "<details>",
+            "<summary>Not a real finding block</summary>",
+            "some text with no path line",
+            "</details>",
+            "</details>",
+            "<details>",
+            "<summary><strong>Previously missed (1)</strong></summary>",
+            "",
+            "<details>",
+            "<summary>Also not a real finding block</summary>",
+            "some text with no path line",
+            "</details>",
+            "</details>",
+        ])
+        out = parse_overview([_review(body)], [])
+
+        self.assertEqual(out["findings"], {})
+        self.assertEqual(out["parse_shortfall"], 2)
+        self.assertEqual(out["status"], "partial")
+
 
 class TestAbsentOverview(unittest.TestCase):
     def test_human_only_pr_reports_absent_not_failed(self):

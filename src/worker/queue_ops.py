@@ -106,14 +106,19 @@ def _q(root: Path | None) -> Path:
     return get_worker_state_dir("queue")
 
 
-def _ensure_dirs(root: Path | None = None) -> dict[str, Path]:
+def _queue_paths(root: Path | None = None) -> dict[str, Path]:
+    """The four queue folders under root, without creating them."""
     r = _q(root)
-    paths = {
+    return {
         "pending": r / "pending",
         "processing": r / "processing",
         "done": r / "done",
         "error": r / "error",
     }
+
+
+def _ensure_dirs(root: Path | None = None) -> dict[str, Path]:
+    paths = _queue_paths(root)
     for p in paths.values():
         p.mkdir(parents=True, exist_ok=True)
     return paths
@@ -1545,14 +1550,16 @@ def reap_stale_processing_jobs(
     return reaped
 
 
-def _purge_file(p: Path, now: datetime, older_than_sec: int) -> bool:
-    """Attempt to purge a single job file if older than threshold."""
+def _purge_file(p: Path, now: datetime, older_than_sec: int, *, dry_run: bool = False) -> bool:
+    """Attempt to purge a single job file if older than threshold; with
+    dry_run, report whether it would be purged without removing it."""
     try:
         mtime = datetime.fromtimestamp(p.stat().st_mtime, tz=UTC)
         age = int((now - mtime).total_seconds())
         if age < older_than_sec:
             return False
-        p.unlink(missing_ok=True)
+        if not dry_run:
+            p.unlink(missing_ok=True)
         return True
     except Exception as exc:
         _log.debug("Failed purge for %s: %s", p, exc)
@@ -1560,10 +1567,12 @@ def _purge_file(p: Path, now: datetime, older_than_sec: int) -> bool:
 
 
 def purge(
-    older_than_sec: int, *, root: Path | None = None, folders: list[str] | None = None
+    older_than_sec: int, *, root: Path | None = None, folders: list[str] | None = None, dry_run: bool = False
 ) -> dict[str, int]:
-    """Delete jobs in given folders older than threshold; returns counts per folder."""
-    paths = _ensure_dirs(root)
+    """Delete jobs in given folders older than threshold; returns counts per
+    folder. dry_run returns the counts that would be deleted, deleting and
+    creating nothing."""
+    paths = _queue_paths(root) if dry_run else _ensure_dirs(root)
     now = datetime.now(UTC)
     targets = folders or ["done", "error"]
     out: dict[str, int] = dict.fromkeys(targets, 0)
@@ -1572,6 +1581,6 @@ def purge(
         if not folder:
             continue
         for p in _list_job_paths(folder):
-            if _purge_file(p, now, older_than_sec):
+            if _purge_file(p, now, older_than_sec, dry_run=dry_run):
                 out[name] += 1
     return out

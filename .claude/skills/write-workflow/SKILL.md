@@ -111,7 +111,7 @@ Every stage requires: `name`, `kind`, `description`, `agent` (with `role`). The 
 |-------|-------------|
 | `depends_on` | Stage must wait for another stage to complete |
 | `reads_from` | Stage names whose outputs this stage reads (e.g. `[gather-context]`) |
-| `writes_to` | Outputs-relative paths this stage produces under `{workspace}/outputs/` (e.g. `[result.md]`, `[context/data.json]`). Do not include an `outputs/` prefix — the engine adds it |
+| `writes_to` | Paths this stage produces. Bare entries (e.g. `[result.md]`) resolve under `{workspace}/outputs/`. Entries starting with a workspace-root prefix (`outputs/`, `validation/`, `stages/`, `dispatch/`, `context/`) resolve directly under `{workspace}/` |
 | `human_gate: true` | A human must approve before the workflow proceeds |
 | `validation` | Stage output should be checked before continuing |
 | `fan_out` | Stage runs once per item in a dynamic list |
@@ -171,7 +171,7 @@ Add `human_gate: true` to any `propose` or `validate` stage where a human must a
 
 ### writes_to paths
 
-Paths are relative to `{workspace}/outputs/` — the engine prefixes them automatically. Subdirectories are allowed (`context/data.json`). Do not include an `outputs/` prefix. Workspace-root paths written by the engine itself (`validation/`, `stages/`, `dispatch/`) are off-limits.
+Bare entries resolve under `{workspace}/outputs/` — the engine prefixes them automatically. Entries starting with a workspace-root prefix (`outputs/`, `validation/`, `stages/`, `dispatch/`, `context/`) resolve directly under `{workspace}/` and should be used when a stage needs to write to one of those root directories directly (e.g. `context/data.json` → `{workspace}/context/data.json`). Subdirectories under `outputs/` are also allowed (e.g. `results/data.json` → `{workspace}/outputs/results/data.json`).
 
 ### Fan-out
 
