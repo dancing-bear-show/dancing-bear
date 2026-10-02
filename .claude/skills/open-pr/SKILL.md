@@ -49,7 +49,7 @@ Skill(skill="workflow", args="--workflow workflows/code/open-pr.yaml --params pr
 
 1. **check-auth** — verify github and qlty credentials before any work begins
 2. **scan-validate** — run mypy, qlty lint, and coverage gate; fix issues in-loop
-3. **swarm** (injected, local mode) — runs the full code-review swarm on the local branch before a PR exists. Diff is `merge-base(origin/main, HEAD)..HEAD`; no GitHub calls. Stages prefixed `swarm-`.
+3. **swarm** (injected, local mode) — runs code-review's small path on the local branch before a PR exists: every guide `select-concerns` picks for the diff, in one consolidated reviewer (the large path's per-guide fan-out is not used). Diff is `merge-base(origin/main, HEAD)..HEAD`; no GitHub calls. Stages prefixed `swarm-`.
 4. **record-sweep** — calls `./bin/workflow sweep-record write --head <sha> --workspace <this run's workspace>` (the included swarm writes there); a refused write fails the stage, since the PR-create hook would refuse push-and-create anyway. Summarises findings for human-gate.
 5. **generate-description** — gather diff + commit metadata and write PR description
 6. **human-gate** — present generated description and swarm findings for human review and confirmation
