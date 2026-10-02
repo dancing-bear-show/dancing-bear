@@ -63,32 +63,33 @@ def _running_stages(workflow_path: Path, **params: str) -> set[str]:
 
 
 # ---------------------------------------------------------------------------
-# (1) concern-sweep-dispatch always includes collateral-damage.md
+# (1) concern-sweep-dispatch selects guides with the canonical selector
 # ---------------------------------------------------------------------------
 
-class TestConcernSweepDispatchAlwaysIncludesCollateralDamage(unittest.TestCase):
-    """The guide selection rules must always include collateral-damage.md regardless
-    of file extensions present in the diff."""
+class TestConcernSweepDispatchUsesCanonicalSelector(unittest.TestCase):
+    """Guide selection lives in concerns/selection.yaml (#438), not in stage prose.
+
+    The dispatch must call select-concerns over the diff's changed files, and the
+    selector must pick collateral-damage.md for the code a fix changes.
+    """
 
     def setUp(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            self.prompt = _prompt_cr("concern-sweep-dispatch", tmp, local="false")
+            self.ws = str(Path(tmp).resolve())
+            self.prompt = _prompt_cr("concern-sweep-dispatch", tmp, local="true")
 
-    def test_collateral_damage_in_always_rule(self) -> None:
-        """The always-selected rule must name collateral-damage.md."""
-        self.assertIn("collateral-damage.md", self.prompt)
+    def test_dispatch_calls_select_concerns_over_changed_files(self) -> None:
+        self.assertIn("./bin/workflow select-concerns", self.prompt)
+        self.assertIn(f"--paths-file {self.ws}/outputs/changed-files.txt", self.prompt)
 
-    def test_collateral_damage_on_same_line_as_always(self) -> None:
-        """collateral-damage.md must appear on the same line as the 'always' rule."""
-        for line in self.prompt.splitlines():
-            if "always" in line and ("patterns.md" in line or "collateral-damage.md" in line):
-                # Found the 'always' rule line
-                self.assertIn(
-                    "collateral-damage.md", line,
-                    f"'always' rule line does not include collateral-damage.md: {line!r}"
-                )
-                return
-        self.fail("No 'always' rule line found in concern-sweep-dispatch prompt")
+    def test_dispatch_does_not_restate_selection_rules(self) -> None:
+        self.assertNotRegex(self.prompt, r"files present\s*→")
+
+    def test_selector_picks_collateral_damage_for_source_and_workflow_changes(self) -> None:
+        from workflow.concern_select import select_guides
+        for path in ("src/workflow/sweep_record.py", "workflows/code/open-pr.yaml"):
+            with self.subTest(path=path):
+                self.assertIn("collateral-damage.md", select_guides([path]))
 
 
 # ---------------------------------------------------------------------------
@@ -326,53 +327,6 @@ class TestCodeReviewPathsCompile(unittest.TestCase):
     def test_open_pr_compiles_with_default_local_true(self) -> None:
         _, manifest = _compile_open_pr()
         self.assertGreater(len(manifest.resolved_stages), 0)
-
-
-# ---------------------------------------------------------------------------
-# Teeth probe (1): collateral-damage.md — prove test fails without it
-# ---------------------------------------------------------------------------
-
-class TestTeethCollateralDamageInAlways(unittest.TestCase):
-    """Demonstrate the test would fail if collateral-damage.md were removed from
-    the 'always' selection rule — by compiling a minimal workflow that lacks it."""
-
-    def test_prompt_without_collateral_damage_lacks_it(self) -> None:
-        """A prompt that only has 'always → patterns.md' does not contain collateral-damage.md."""
-        yaml_text = (
-            "name: probe\n"
-            "version: '1'\n"
-            "description: probe\n"
-            "trigger:\n"
-            "  source: manual\n"
-            "  params:\n"
-            "    local: 'false'\n"
-            "  param_rules:\n"
-            "    local: 'true|false'\n"
-            "stages:\n"
-            "  - name: concern-sweep-dispatch\n"
-            "    kind: gather\n"
-            "    executor: inline\n"
-            "    depends_on: []\n"
-            "    description: >\n"
-            "      always -> patterns.md\n"
-            "    agent:\n"
-            "      role: researcher\n"
-            "    writes_to: [concern-sweep-index.json]\n"
-        )
-        defn = parse_workflow_str(yaml_text)
-        manifest = compile_workflow(defn, project_root=_ROOT, trigger_params={})
-        stage = manifest.resolved_stages["concern-sweep-dispatch"]
-        with tempfile.TemporaryDirectory() as tmp:
-            prompt = build_agent_prompt(stage, "probe", tmp)
-        # This probe YAML does not have collateral-damage.md, so it should be absent
-        self.assertNotIn("collateral-damage.md", prompt,
-                         "probe YAML without collateral-damage.md should not have it in prompt")
-
-    def test_real_workflow_has_collateral_damage(self) -> None:
-        """The real code-review.yaml DOES include collateral-damage.md (the real test)."""
-        with tempfile.TemporaryDirectory() as tmp:
-            prompt = _prompt_cr("concern-sweep-dispatch", tmp, local="false")
-        self.assertIn("collateral-damage.md", prompt)
 
 
 # ---------------------------------------------------------------------------

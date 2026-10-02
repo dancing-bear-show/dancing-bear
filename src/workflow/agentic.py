@@ -74,8 +74,9 @@ def build_agentic_capsule() -> str:
     lines.append(
         "  - sweep-record: record at <git common dir>/dancing-bear/concern-sweeps/<sha>.json, "
         "shared by all worktrees; write needs --head == HEAD == outputs/pr-context.json commit_id, "
-        "outputs/concern-sweep-index.json listing collateral-damage.md and "
-        "outputs/consolidated.json; exit 2 refused; check "
+        "outputs/concern-sweep-index.json covering every guide select-concerns picks for "
+        "outputs/changed-files.txt, and outputs/consolidated.json with a findings list; "
+        "exit 2 refused; check "
         "exits 0 found (prints mode), 1 none, 2 bad sha; the PR-create hook requires one"
     )
     lines.append("  - file arguments are positional (./bin/workflow run <file>), not --input")

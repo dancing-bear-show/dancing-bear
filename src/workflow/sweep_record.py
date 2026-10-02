@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 RECORD_SUBDIR = ("dancing-bear", "concern-sweeps")
-REQUIRED_GUIDE = "collateral-damage.md"
+CHANGED_FILES_NAME = "changed-files.txt"
 INDEX_NAME = "concern-sweep-index.json"
 CONTEXT_NAME = "pr-context.json"
 # Both swarm paths write the same file: the small path's review-consolidated
@@ -161,13 +161,44 @@ def _require_review_output(workspace: Path) -> None:
     for name in names:
         path = outputs / name
         if path.is_file():
-            _load_json(path, name)
+            data = _load_json(path, name)
+            # A when-skipped stage writes {} to its outputs; that is not a review.
+            if not (isinstance(data, dict) and isinstance(data.get("findings"), list)):
+                raise SweepRecordError(
+                    f"outputs/{name} has no findings list, so no review wrote it "
+                    "(a skipped stage leaves {})"
+                )
             return
     raise SweepRecordError(
         "no swarm review output in the workspace: expected outputs/"
         + " or outputs/".join(names)
         + " (review-consolidated or consolidate stage)"
     )
+
+
+def _require_selected_guides(workspace: Path, guides: list[str]) -> None:
+    """Every guide the canonical selector picks for the diff must have been swept.
+
+    The selector (concerns/selection.yaml via concern_select) is the one source of
+    truth for which guides apply, so the gate asks it rather than naming a guide:
+    a docs-only diff that the selector maps to docs.md alone still records, and a
+    rule added to selection.yaml later is enforced without touching this file.
+    """
+    from workflow.concern_select import select_guides
+
+    path = workspace / "outputs" / CHANGED_FILES_NAME
+    try:
+        changed = [ln.strip() for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    except FileNotFoundError:
+        raise SweepRecordError(f"{CHANGED_FILES_NAME} not found: {path}") from None
+    if not changed:
+        raise SweepRecordError(f"{CHANGED_FILES_NAME} is empty: the swarm reviewed no diff")
+    missing = [g for g in select_guides(changed) if g not in guides]
+    if missing:
+        raise SweepRecordError(
+            f"{INDEX_NAME} does not cover the guides select-concerns picks for this diff: "
+            + ", ".join(missing)
+        )
 
 
 def _require_workspace_swept_head(workspace: Path, head: str) -> None:
@@ -225,10 +256,7 @@ def write_swept(repo: Path, head: str, workspace: Path) -> tuple[Path, SweepReco
     if not ws.is_dir():
         raise SweepRecordError(f"--workspace is not a directory: {ws}")
     guides = index_guides(ws)
-    if REQUIRED_GUIDE not in guides:
-        raise SweepRecordError(
-            f"{INDEX_NAME} does not include {REQUIRED_GUIDE}; the swarm did not sweep it"
-        )
+    _require_selected_guides(ws, guides)
     _require_review_output(ws)
     _require_workspace_swept_head(ws, head)
     record = SweepRecord(

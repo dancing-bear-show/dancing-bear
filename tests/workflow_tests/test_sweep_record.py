@@ -13,6 +13,7 @@ from pathlib import Path
 
 from workflow import sweep_record
 from workflow.cli import main
+from workflow.concern_select import select_guides
 
 _GIT_ENV = {
     **{k: v for k, v in os.environ.items() if not k.startswith("GIT_")},
@@ -38,11 +39,16 @@ def _make_repo(root: Path) -> Path:
     return repo
 
 
+#: The diff every default workspace swept; GUIDES is what the canonical selector picks for it.
+CHANGED = ["src/workflow/sweep_record.py", "workflows/code/open-pr.yaml"]
+
+
 def _make_workspace(root: Path, guides: list[str], review: str | None = "consolidated.json",
-                    commit_id: str | None = None) -> Path:
+                    commit_id: str | None = None, changed: list[str] | None = None) -> Path:
     """A swarm workspace; ``commit_id`` defaults to the repo's HEAD, the commit it swept."""
     ws = root / "ws"
     (ws / "outputs").mkdir(parents=True)
+    (ws / "outputs" / "changed-files.txt").write_text("\n".join(CHANGED if changed is None else changed) + "\n")
     swept = commit_id if commit_id is not None else _git(root / "repo", "rev-parse", "HEAD")
     (ws / "outputs" / "pr-context.json").write_text(json.dumps({"commit_id": swept}))
     index = {
@@ -62,7 +68,7 @@ def _run(cwd: Path, *argv: str) -> tuple[int, str, str]:
     return code, out.getvalue(), err.getvalue()
 
 
-GUIDES = ["correctness.md", "collateral-damage.md", "patterns.md"]
+GUIDES = select_guides(CHANGED)
 
 
 class SweepRecordTests(unittest.TestCase):
@@ -170,11 +176,42 @@ class SweepRecordTests(unittest.TestCase):
         records = self._record_file(self.head).parent
         self.assertFalse(records.exists() and any(records.iterdir()))
 
-    def test_write_refuses_an_index_without_collateral_damage(self) -> None:
-        ws = _make_workspace(self.root, ["correctness.md", "patterns.md"])
+    def test_write_refuses_an_index_missing_a_guide_the_selector_picks(self) -> None:
+        self.assertIn("collateral-damage.md", GUIDES)  # src/ and workflows/ changes select it
+        ws = _make_workspace(self.root, [g for g in GUIDES if g != "collateral-damage.md"])
         code, _, err = _run(self.repo, "write", "--head", self.head, "--workspace", str(ws))
         self.assertEqual(code, 2)
         self.assertIn("collateral-damage.md", err)
+        self.assertFalse(self._record_file(self.head).exists())
+
+    def test_docs_only_diff_records_with_the_guides_the_selector_picks(self) -> None:
+        docs = ["README.md"]
+        picked = select_guides(docs)
+        self.assertNotIn("collateral-damage.md", picked)
+        ws = _make_workspace(self.root, picked, changed=docs)
+        code, _, err = _run(self.repo, "write", "--head", self.head, "--workspace", str(ws))
+        self.assertEqual(code, 0, err)
+
+    def test_write_refuses_a_missing_or_empty_changed_files_list(self) -> None:
+        ws = _make_workspace(self.root, GUIDES, changed=[])
+        (ws / "outputs" / "changed-files.txt").write_text("\n")
+        code, _, err = _run(self.repo, "write", "--head", self.head, "--workspace", str(ws))
+        self.assertEqual(code, 2)
+        self.assertIn("empty", err)
+        (ws / "outputs" / "changed-files.txt").unlink()
+        code, _, err = _run(self.repo, "write", "--head", self.head, "--workspace", str(ws))
+        self.assertEqual(code, 2)
+        self.assertIn("changed-files.txt not found", err)
+
+    def test_write_refuses_the_empty_sentinel_a_skipped_stage_leaves(self) -> None:
+        """PR #454 review: a skipped large-path consolidate wrote {} over the real report."""
+        ws = _make_workspace(self.root, GUIDES)
+        for doc in ({}, {"findings": None}, []):
+            with self.subTest(doc=doc):
+                (ws / "outputs" / "consolidated.json").write_text(json.dumps(doc))
+                code, _, err = _run(self.repo, "write", "--head", self.head, "--workspace", str(ws))
+                self.assertEqual(code, 2)
+                self.assertIn("no findings list", err)
         self.assertFalse(self._record_file(self.head).exists())
 
     def test_write_refuses_a_missing_or_unparseable_index(self) -> None:
