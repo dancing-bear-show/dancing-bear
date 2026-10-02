@@ -113,7 +113,7 @@ class QwenNoFollowReadTests(QwenHandlerCase):
     def test_recorded_digest_read_does_not_follow_a_symlink(self) -> None:
         link = self._link_to("planted_digest.json", '{"qwen2.5-coder:14b": "sha256:planted"}')
 
-        with mock.patch.object(qwen, "_recorded_digest_path", return_value=link), \
+        with mock.patch.object(qwen, "recorded_digest_path", return_value=link), \
                 self.assertLogs("worker.qwen", level="WARNING"):
             self.assertIsNone(qwen._load_recorded_digest("qwen2.5-coder:14b"))
 

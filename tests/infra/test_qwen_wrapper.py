@@ -17,6 +17,7 @@ import contextlib
 import importlib.machinery
 import importlib.util
 import io
+import json
 import os
 import shlex
 import sys
@@ -27,6 +28,9 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from types import ModuleType
 import unittest.mock as mock
+
+from tests.worker_tests.qwen_fixtures import MODEL as PIN_MODEL
+from tests.worker_tests.qwen_fixtures import RUNNING_DIGEST, PinRecordCase
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 SCRIPT = REPO_ROOT / "bin" / "qwen"
@@ -233,6 +237,134 @@ class QwenWrapperMainTests(unittest.TestCase):
 
         self.assertIs(handlers.REGISTRY[bq.JOB_TYPE], qwen.handle_qwen_patch)
         self.assertEqual(bq.JOB_TYPE, qwen.JOB_TYPE)
+
+
+class QwenWrapperPinModelTests(PinRecordCase):
+    """`qwen pin-model` end to end through main(), against a temp state dir."""
+
+    def run_main(self, *argv: str) -> tuple[int, str, str]:
+        bq = _load_module()
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = bq.main(list(argv))
+        return code, out.getvalue(), err.getvalue()
+
+    def test_pin_model_writes_the_default_tag_and_reports_json(self) -> None:
+        code, out, _ = self.run_main("pin-model")
+
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            json.loads(out),
+            {
+                "model": PIN_MODEL,
+                "digest": RUNNING_DIGEST,
+                "path": str(self.record_path),
+                "written": True,
+                "reason": "written",
+                "readback_ok": True,
+            },
+        )
+        self.assertEqual(self.read_record(), {PIN_MODEL: RUNNING_DIGEST})
+
+    def test_default_model_is_the_handler_default(self) -> None:
+        from worker import qwen
+
+        self.assertEqual(PIN_MODEL, qwen.DEFAULT_MODEL_TAG)
+
+    def test_pin_model_second_run_is_already_current(self) -> None:
+        self.run_main("pin-model")
+
+        code, out, _ = self.run_main("pin-model")
+
+        self.assertEqual(code, 0)
+        report = json.loads(out)
+        self.assertEqual((report["written"], report["reason"]), (False, "already-current"))
+
+    def test_pin_model_honours_model_flag(self) -> None:
+        self.tags_response = {"models": [{"name": "llama3:8b", "digest": "c" * 64}]}
+
+        code, out, _ = self.run_main("pin-model", "--model", "llama3:8b")
+
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out)["model"], "llama3:8b")
+        self.assertEqual(self.read_record(), {"llama3:8b": "c" * 64})
+
+    def test_pin_model_digest_unavailable_exits_1_and_writes_nothing(self) -> None:
+        self.tags_error = ConnectionError("refused")
+
+        code, out, err = self.run_main("pin-model")
+
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "")
+        self.assertIn("running digest unavailable", err)
+        self.assertFalse(self.record_path.parent.exists())
+
+    def test_pin_model_refuses_invalid_record_and_leaves_it(self) -> None:
+        self.write_record("{broken")
+
+        code, out, err = self.run_main("pin-model")
+
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "")
+        self.assertIn("nothing written", err)
+        self.assertEqual(self.record_path.read_text(encoding="utf-8"), "{broken")
+
+    def test_pin_model_refuses_a_symlinked_record(self) -> None:
+        target = Path(self.tmpdir) / "target.json"
+        target.write_text("{}", encoding="utf-8")
+        self.record_path.parent.mkdir(parents=True)
+        os.symlink(target, self.record_path)
+
+        code, _, _ = self.run_main("pin-model")
+
+        self.assertEqual(code, 1)
+        self.assertEqual(target.read_text(encoding="utf-8"), "{}")
+
+    def test_pin_model_failed_readback_exits_1(self) -> None:
+        from worker import qwen
+
+        def write_wrong(path: object, record: dict[str, object]) -> None:
+            self.write_record(json.dumps({PIN_MODEL: "d" * 64}))
+
+        with mock.patch.object(qwen, "_write_pin_record", side_effect=write_wrong):
+            code, out, _ = self.run_main("pin-model")
+
+        self.assertEqual(code, 1)
+        self.assertIs(json.loads(out)["readback_ok"], False)
+
+    def test_check_reports_each_status_with_its_exit_code(self) -> None:
+        cases: list[tuple[str, str | None, dict[str, object], int]] = [
+            ("match", RUNNING_DIGEST, self.tags_response, 0),
+            ("mismatch", "e" * 64, self.tags_response, 1),
+            ("unpinned", None, self.tags_response, 1),
+            ("unverified", RUNNING_DIGEST, {"models": []}, 1),
+        ]
+        for status, recorded, tags, want_code in cases:
+            with self.subTest(status):
+                if recorded is None:
+                    self.record_path.unlink(missing_ok=True)
+                else:
+                    self.write_record(json.dumps({PIN_MODEL: recorded}))
+                self.tags_response = tags
+                before = self.record_path.read_bytes() if recorded else None
+
+                code, out, _ = self.run_main("pin-model", "--check")
+
+                self.assertEqual(code, want_code)
+                report = json.loads(out)
+                self.assertEqual(set(report), {"model", "path", "recorded", "running", "status"})
+                self.assertEqual(report["status"], status)
+                self.assertEqual(report["recorded"], recorded)
+                self.assertEqual(report["path"], str(self.record_path))
+                if before is None:
+                    self.assertFalse(self.record_path.exists(), "--check must write nothing")
+                else:
+                    self.assertEqual(self.record_path.read_bytes(), before)
+
+    def test_help_lists_pin_model(self) -> None:
+        bq = _load_module()
+
+        self.assertIn("pin-model", bq._build_parser().format_help())
 
 
 if __name__ == "__main__":
