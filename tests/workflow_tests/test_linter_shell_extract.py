@@ -6,7 +6,7 @@ import unittest
 from typing import cast
 
 from tests.workflow_tests.helpers.shell_lint import (
-    _BARE_PYTHON,
+    BARE_PYTHON,
     _lint,
     _stage,
     _workflow,
@@ -363,7 +363,7 @@ class TestExtractShellSegments(unittest.TestCase):
 
 class TestRuleSerialisation(unittest.TestCase):
     def test_rule_id_is_serialised(self) -> None:
-        result = _lint(_workflow(_stage(_BARE_PYTHON)))
+        result = _lint(_workflow(_stage(BARE_PYTHON)))
         warnings = cast(list[dict[str, str]], result.as_dict()["warnings"])
         self.assertEqual([w["rule"] for w in warnings], [RULE_PYTHON_NOT_ISOLATED])
 

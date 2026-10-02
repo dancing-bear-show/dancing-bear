@@ -21,9 +21,9 @@ import unittest
 from pathlib import Path
 
 from tests.workflow_tests.helpers.shell_lint import (
-    _BARE_PYTHON,
-    _OLLAMA_PARAMS,
-    _OLLAMA_RULE,
+    BARE_PYTHON,
+    OLLAMA_PARAMS,
+    OLLAMA_RULE,
     _RuleCase,
     _fenced,
     _hits,
@@ -66,7 +66,7 @@ class TestUnvalidatedParam(_RuleCase):
     rule = RULE_UNVALIDATED_PARAM
 
     def test_fires_on_historical_unvalidated_host(self) -> None:
-        hits = self.assert_fires(_workflow(_stage(_OLLAMA_PROBE), params=_OLLAMA_PARAMS))
+        hits = self.assert_fires(_workflow(_stage(_OLLAMA_PROBE), params=OLLAMA_PARAMS))
         self.assertIn("'{ollama_host}'", hits[0].message)
         self.assertIn("curl -sS", hits[0].message)
 
@@ -76,10 +76,10 @@ class TestUnvalidatedParam(_RuleCase):
         self.assert_fires(_workflow(_stage(desc), params='job_type: "qwen_patch"'))
 
     def test_param_rules_entry_validates(self) -> None:
-        self.assert_silent(_workflow(_stage(_OLLAMA_PROBE), params=_OLLAMA_PARAMS, rules=_OLLAMA_RULE))
+        self.assert_silent(_workflow(_stage(_OLLAMA_PROBE), params=OLLAMA_PARAMS, rules=OLLAMA_RULE))
 
     def test_check_params_in_same_stage_validates(self) -> None:
-        self.assert_silent(_workflow(_stage(_CHECK_PARAMS + _OLLAMA_PROBE), params=_OLLAMA_PARAMS))
+        self.assert_silent(_workflow(_stage(_CHECK_PARAMS + _OLLAMA_PROBE), params=OLLAMA_PARAMS))
 
     def test_check_params_as_argument_to_another_command_does_not_validate(self) -> None:
         # A token merely ENDING in "check-params" that is an argument to some
@@ -90,7 +90,7 @@ class TestUnvalidatedParam(_RuleCase):
             "  echo check-params --check 'ollama_host=https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?/?'\n"
             + _OLLAMA_PROBE
         )
-        hits = self.assert_fires(_workflow(_stage(desc), params=_OLLAMA_PARAMS))
+        hits = self.assert_fires(_workflow(_stage(desc), params=OLLAMA_PARAMS))
         self.assertIn("'{ollama_host}'", hits[0].message)
 
     def test_check_params_run_by_another_program_does_not_validate(self) -> None:
@@ -172,7 +172,7 @@ class TestUnvalidatedParam(_RuleCase):
         # already reached shell by the time the check runs, so it must still
         # be flagged -- the check protects only uses that come after it.
         desc = _OLLAMA_PROBE + _CHECK_PARAMS
-        hits = self.assert_fires(_workflow(_stage(desc), params=_OLLAMA_PARAMS))
+        hits = self.assert_fires(_workflow(_stage(desc), params=OLLAMA_PARAMS))
         self.assertIn("'{ollama_host}'", hits[0].message)
 
     def test_check_params_after_the_use_in_a_later_fence_does_not_validate_it(self) -> None:
@@ -243,7 +243,7 @@ class TestUnvalidatedParam(_RuleCase):
             _stage(_CHECK_PARAMS, name="init"),
             _stage("Relay stage.", name="middle", depends_on="[init]"),
             _stage(_OLLAMA_PROBE, name="probe", depends_on="[middle]"),
-            params=_OLLAMA_PARAMS,
+            params=OLLAMA_PARAMS,
         )
         self.assert_silent(yaml_text)
 
@@ -251,14 +251,14 @@ class TestUnvalidatedParam(_RuleCase):
         yaml_text = _workflow(
             _stage(_CHECK_PARAMS, name="sibling"),
             _stage(_OLLAMA_PROBE, name="probe"),
-            params=_OLLAMA_PARAMS,
+            params=OLLAMA_PARAMS,
         )
         hits = self.assert_fires(yaml_text)
         self.assertEqual(hits[0].stage, "probe")
 
     def test_check_of_another_param_does_not_validate(self) -> None:
         other = _CHECK_PARAMS.replace("ollama_host=", "model_tag=")
-        self.assert_fires(_workflow(_stage(other + _OLLAMA_PROBE), params=_OLLAMA_PARAMS))
+        self.assert_fires(_workflow(_stage(other + _OLLAMA_PROBE), params=OLLAMA_PARAMS))
 
     def test_later_commands_check_flag_does_not_validate_earlier_call(self) -> None:
         # PR #433 review: _check_param_names_at scanned to the end of the
@@ -269,12 +269,12 @@ class TestUnvalidatedParam(_RuleCase):
             "  ./bin/workflow check-params \"{workspace}/manifest.json\"; "
             "echo --check 'ollama_host=https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?/?'\n"
         ) + _OLLAMA_PROBE
-        hits = self.assert_fires(_workflow(_stage(desc), params=_OLLAMA_PARAMS))
+        hits = self.assert_fires(_workflow(_stage(desc), params=OLLAMA_PARAMS))
         self.assertIn("'{ollama_host}'", hits[0].message)
 
     def test_prose_mention_is_not_shell(self) -> None:
         desc = "Probe {ollama_host} and record whether it answers.\n\nReport `{ollama_host}` as down.\n"
-        self.assert_silent(_workflow(_stage(desc), params=_OLLAMA_PARAMS))
+        self.assert_silent(_workflow(_stage(desc), params=OLLAMA_PARAMS))
 
     def test_engine_guarded_placeholders_are_exempt(self) -> None:
         desc = "Run:\n\n  ls {workspace}/outputs {work_dir}\n"
@@ -303,7 +303,7 @@ class TestUnvalidatedParam(_RuleCase):
         self.assertEqual(_hits(standalone, self.rule), [], msg="fragment declares no params itself")
 
     def test_has_teeth(self) -> None:
-        self.assert_has_teeth(_workflow(_stage(_OLLAMA_PROBE), params=_OLLAMA_PARAMS))
+        self.assert_has_teeth(_workflow(_stage(_OLLAMA_PROBE), params=OLLAMA_PARAMS))
 
     # ------------------------------------------------------------------
     # Grammar parity tests (shared PLACEHOLDER_RE from placeholders.py)
@@ -351,7 +351,7 @@ class TestIncludedFragmentsAreLinted(unittest.TestCase):
     def test_parent_lint_surfaces_fragment_context_free_findings(self) -> None:
         fragment = (
             "fragment: true\nstages:\n"
-            + _stage(_BARE_PYTHON, name="probe")
+            + _stage(BARE_PYTHON, name="probe")
         )
         with tempfile.TemporaryDirectory() as tmp_dir:
             frag = Path(tmp_dir) / "frag.yaml"

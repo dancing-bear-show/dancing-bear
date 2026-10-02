@@ -119,8 +119,8 @@ class _RuleCase(unittest.TestCase):
 
 # Params and rule for the ollama_host fixtures, shared by the
 # unvalidated-param and guard-refused suites.
-_OLLAMA_PARAMS = 'ollama_host: "http://localhost:11434"'
-_OLLAMA_RULE = "ollama_host: 'https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?/?'"
+OLLAMA_PARAMS = 'ollama_host: "http://localhost:11434"'
+OLLAMA_RULE = "ollama_host: 'https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?/?'"
 
 
 def _fenced(line: str) -> str:
@@ -129,7 +129,7 @@ def _fenced(line: str) -> str:
 
 
 # qwen-local-handler.yaml verify stage at 6474c76e (PR #391 round 0).
-_BARE_PYTHON = """
+BARE_PYTHON = """
     Confirm the import resolves to this worktree:
 
       python3 -c "import worker; print(worker.__file__)"

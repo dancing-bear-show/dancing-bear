@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 
 from tests.workflow_tests.helpers.shell_lint import (
-    _BARE_PYTHON,
+    BARE_PYTHON,
     _RuleCase,
     _stage,
     _workflow,
@@ -23,7 +23,7 @@ class TestPythonNotIsolated(_RuleCase):
     rule = RULE_PYTHON_NOT_ISOLATED
 
     def test_fires_on_historical_bare_interpreter(self) -> None:
-        hits = self.assert_fires(_workflow(_stage(_BARE_PYTHON)))
+        hits = self.assert_fires(_workflow(_stage(BARE_PYTHON)))
         self.assertIn("lacks -I", hits[0].message)
 
     def test_fires_on_script_and_venv_interpreter(self) -> None:
@@ -101,7 +101,7 @@ class TestPythonNotIsolated(_RuleCase):
                 self.assertIn("lacks -I", hits[0].message)
 
     def test_has_teeth(self) -> None:
-        self.assert_has_teeth(_workflow(_stage(_BARE_PYTHON)))
+        self.assert_has_teeth(_workflow(_stage(BARE_PYTHON)))
 
     def test_isolated_form_after_value_taking_flag_is_silent(self) -> None:
         # Copilot PRRT_kwDOQr1kjM6mhoot (PR #433): the flag scan stopped at

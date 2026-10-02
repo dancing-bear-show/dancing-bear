@@ -5,8 +5,8 @@ from __future__ import annotations
 import unittest
 
 from tests.workflow_tests.helpers.shell_lint import (
-    _OLLAMA_PARAMS,
-    _OLLAMA_RULE,
+    OLLAMA_PARAMS,
+    OLLAMA_RULE,
     _RuleCase,
     _stage,
     _workflow,
@@ -64,7 +64,7 @@ class TestGuardRefused(_RuleCase):
     rule = RULE_GUARD_REFUSED
 
     def test_fires_on_historical_heredoc(self) -> None:
-        hits = self.assert_fires(_workflow(_stage(_HEREDOC), params=_OLLAMA_PARAMS, rules=_OLLAMA_RULE))
+        hits = self.assert_fires(_workflow(_stage(_HEREDOC), params=OLLAMA_PARAMS, rules=OLLAMA_RULE))
         self.assertIn("heredoc", hits[0].message)
 
     def test_fires_on_shell_loops(self) -> None:
@@ -162,7 +162,7 @@ class TestGuardRefused(_RuleCase):
             "  {ollama_host}\n"
             "  RAW\n"
         )
-        self.assert_silent(_workflow(_stage(desc), params=_OLLAMA_PARAMS, rules=_OLLAMA_RULE))
+        self.assert_silent(_workflow(_stage(desc), params=OLLAMA_PARAMS, rules=OLLAMA_RULE))
 
     def test_read_only_loop_is_silent(self) -> None:
         # guard-contract.yaml "loop variable in a read" -> allow: a loop whose
