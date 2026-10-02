@@ -426,6 +426,99 @@ class TestShortfall(unittest.TestCase):
         self.assertEqual(out["parse_shortfall"], 2)
         self.assertEqual(out["status"], "partial")
 
+    def test_open_header_absent_headline_and_other_section_both_sum(self):
+        """Open header unparseable, headline 1, Previously missed (1) also fails.
+
+        When the Open header is absent from ``declared_sections`` (e.g. it
+        failed to parse), ``open_section_gap`` is 0.  ``open_component`` is
+        then ``max(open_shortfall=1, 0) = 1``.  The ``Previously missed (1)``
+        gap adds 1 more → total 2.
+        """
+        # No <summary><strong>Open (N)</strong></summary> line, so Open is not
+        # a declared section.  Headline is 1.  Previously missed (1) declared
+        # but its inner block has no severity-badge summary line → nothing
+        # parses out of it.
+        body = "\n".join([
+            OVERVIEW_MARKER, "", "## Copilot review overview", "",
+            "**Findings:** 1 <picture></picture>", "",
+            "<details>",
+            "<summary><strong>Previously missed (1)</strong></summary>",
+            "",
+            "<details>",
+            "<summary>Not a real finding block</summary>",
+            "some text with no path line",
+            "</details>",
+            "</details>",
+        ])
+        out = parse_overview([_review(body)], [])
+
+        self.assertEqual(out["findings"], {})
+        self.assertEqual(out["parse_shortfall"], 2)
+        self.assertEqual(out["status"], "partial")
+
+    def test_open_and_previously_missed_both_declared_unparsed_still_two(self):
+        """Open (1) declared and unparsed; Previously missed (1) also unparsed.
+
+        Both ``Open`` and ``Previously missed`` appear in ``declared_sections``
+        but neither block parses.  The headline is ``None``, so
+        ``open_shortfall = 0``.  ``open_section_gap = 1``,
+        ``open_component = max(0, 1) = 1``, ``non_open_sum = 1`` → total 2.
+
+        This is the existing case from
+        ``test_two_sections_each_missing_one_entry_sums_to_two`` — re-checked
+        here to confirm Open is counted exactly once, not twice.
+        """
+        body = "\n".join([
+            OVERVIEW_MARKER, "", "## Copilot review overview", "",
+            "**Findings:** None", "",
+            "<details>",
+            "<summary><strong>Open (1)</strong></summary>",
+            "",
+            "<details>",
+            "<summary>Not a real finding block</summary>",
+            "some text with no path line",
+            "</details>",
+            "</details>",
+            "<details>",
+            "<summary><strong>Previously missed (1)</strong></summary>",
+            "",
+            "<details>",
+            "<summary>Also not a real finding block</summary>",
+            "some text with no path line",
+            "</details>",
+            "</details>",
+        ])
+        out = parse_overview([_review(body)], [])
+
+        self.assertEqual(out["findings"], {})
+        self.assertEqual(out["parse_shortfall"], 2)
+        self.assertEqual(out["status"], "partial")
+
+    def test_headline_and_declared_open_only_gives_one(self):
+        """headline 1, declared but unparsed Open (1), no other sections → 1.
+
+        ``open_shortfall = 1``, ``open_section_gap = 1``,
+        ``open_component = max(1, 1) = 1``, ``non_open_sum = 0`` → total 1,
+        not 2.  Open must not be double-counted.
+        """
+        body = "\n".join([
+            OVERVIEW_MARKER, "", "## Copilot review overview", "",
+            "**Findings:** 1 <picture></picture>", "",
+            "<details>",
+            "<summary><strong>Open (1)</strong></summary>",
+            "",
+            "<details>",
+            "<summary>Not a real finding block</summary>",
+            "some text with no path line",
+            "</details>",
+            "</details>",
+        ])
+        out = parse_overview([_review(body)], [])
+
+        self.assertEqual(out["findings"], {})
+        self.assertEqual(out["parse_shortfall"], 1)
+        self.assertEqual(out["status"], "partial")
+
 
 class TestAbsentOverview(unittest.TestCase):
     def test_human_only_pr_reports_absent_not_failed(self):
