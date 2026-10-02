@@ -388,23 +388,28 @@ stages:
       that silently reconciles it destroys the evidence.
 
       Act on that signal rather than only recording it. "parse_shortfall" is
-      the WORSE of two independent checks:
+      max(open_shortfall, section_sum), where:
 
-      1. findings_claimed minus the number of findings the NEWEST overview
-      lists under Open — the section the headline count describes (on PR
-      #395, "Findings: 4" sits beside "Open (4)"; the "Resolved (2)" beside
-      it are extra). Counting every section would let resolved entries mask a
-      missing open one.
-      2. Every section's own declared count (`Previously missed (1)`,
-      `Resolved since last review (4)`, and `Open` too) against how many entries the
-      NEWEST review actually parsed into that section. This catches a gap the
-      headline check cannot: `Previously missed` entries are unlinked and
-      never touch the `**Findings:**` count, so an explicit
+      1. open_shortfall = findings_claimed minus the number of findings the
+      NEWEST overview lists under Open — the section the headline count
+      describes (on PR #395, "Findings: 4" sits beside "Open (4)"; the
+      "Resolved (2)" beside it are extra). Counting every section would let
+      resolved entries mask a missing open one.
+      2. section_sum = the SUM of positive per-section gaps: for every
+      declared section (`Previously missed (1)`, `Resolved since last
+      review (4)`, `Open`, etc.), take max(0, declared − parsed) and add them
+      up. Two sections each missing one entry count as two, not one. This
+      catches a gap the headline check cannot: `Previously missed` entries are
+      unlinked and never touch the `**Findings:**` count, so an explicit
       `**Findings:** None` — as PR #436's newest review has — can never
       produce a shortfall under check 1 even if that section's block fails to
       parse entirely. A section whose parsed count meets its declared count
-      contributes nothing; PR #436's `Resolved since last review (4)`, fully
-      parsed, does not count against `Previously missed`.
+      contributes nothing to the sum; PR #436's `Resolved since last review
+      (4)`, fully parsed, does not count against `Previously missed`.
+
+      The max avoids double-counting: when the Open section is entirely missing
+      the headline shortfall already covers those entries, so taking max rather
+      than adding them again keeps the number accurate.
 
       "status" is "partial" whenever either check's shortfall is above zero.
 
