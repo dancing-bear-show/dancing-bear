@@ -212,7 +212,7 @@ class QwenHandlerCase(TempDirMixin, unittest.TestCase):
             ("_patch_dir", self.patch_dir),
             ("_response_dir", self.response_dir),
             ("_deferral_dir", self.deferral_dir),
-            ("_recorded_digest_path", self.digest_record),
+            ("recorded_digest_path", self.digest_record),
         ):
             self._start(mock.patch(f"worker.qwen.{name}", return_value=value))
 
@@ -324,3 +324,50 @@ class QwenHandlerCase(TempDirMixin, unittest.TestCase):
 
     def response_files(self) -> list[Path]:
         return sorted(self.response_dir.glob("*.txt")) if self.response_dir.exists() else []
+
+
+class PinRecordCase(TempDirMixin, unittest.TestCase):
+    """Hermetic base for `qwen pin-model` tests.
+
+    DANCING_BEAR_WORKER_STATE_DIR points at the temp dir, so the real
+    recorded_digest_path() resolves inside it. GET /api/tags is served by a
+    stub of qwen._ollama_tags (set self.tags_response or self.tags_error);
+    urlopen itself raises, so nothing can reach a real Ollama.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        # Resolved, as get_worker_state_dir resolves the variable (macOS /var -> /private/var).
+        self.state_dir = Path(self.tmpdir).resolve() / "state"
+        self.record_path = self.state_dir / "qwen" / "model_digest.json"
+        env = mock.patch.dict(os.environ, {"DANCING_BEAR_WORKER_STATE_DIR": str(self.state_dir)})
+        env.start()
+        self.addCleanup(env.stop)
+        os.environ.pop(qwen.OLLAMA_HOST_ENV, None)
+        self.tags_response: dict[str, object] = {"models": [{"name": MODEL, "digest": RUNNING_DIGEST}]}
+        self.tags_error: BaseException | None = None
+        self.tags_hosts: list[str] = []
+        for patcher in (
+            mock.patch("worker.qwen._ollama_tags", side_effect=self._tags),
+            mock.patch("urllib.request.urlopen", side_effect=AssertionError("unexpected network egress")),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        # _check_model_pin logs a warning for every non-match; keep it off stderr.
+        qwen_log = logging.getLogger("worker.qwen")
+        null_handler = logging.NullHandler()
+        qwen_log.addHandler(null_handler)
+        self.addCleanup(qwen_log.removeHandler, null_handler)
+
+    def _tags(self, host: str, timeout: float) -> dict[str, object]:
+        self.tags_hosts.append(host)
+        if self.tags_error is not None:
+            raise self.tags_error
+        return self.tags_response
+
+    def write_record(self, content: str) -> None:
+        self.record_path.parent.mkdir(parents=True, exist_ok=True)
+        self.record_path.write_text(content, encoding="utf-8")
+
+    def read_record(self) -> object:
+        return json.loads(self.record_path.read_text(encoding="utf-8"))

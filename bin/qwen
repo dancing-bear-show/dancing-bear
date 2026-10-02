@@ -4,11 +4,15 @@
 Usage:
   qwen patch --files a.py b.py --instruction "..." [--model TAG] [--explain]
   qwen --apply JOB_ID
+  qwen pin-model [--model TAG] [--check]
 
 `patch` enqueues a qwen_patch job via the same queue API `worker enqueue`
 uses. This script never applies a patch itself — `--apply` only PRINTS the
 `git apply` command for the stored patch file; running it is left to the
 caller.
+
+`pin-model` records the running model's Ollama digest in the handler's
+install-time record (or, with --check, compares the two without writing).
 """
 
 from __future__ import annotations
@@ -154,6 +158,42 @@ def _cmd_show(job_id: str) -> int:
     return 0
 
 
+def _cmd_pin_check(model: str) -> int:
+    """Report the pin status without writing; exit 0 only on a match."""
+    pin = qwen.check_model_pin(model)
+    report = {
+        "model": model,
+        "path": str(qwen.recorded_digest_path()),
+        "recorded": pin.recorded_digest,
+        "running": pin.running_digest,
+        "status": pin.status,
+    }
+    print(json.dumps(report))
+    return 0 if pin.status == "match" else 1
+
+
+def _cmd_pin_model(args: argparse.Namespace) -> int:
+    """Record the running digest for --model, or with --check compare only."""
+    model = str(args.model)
+    if args.check:
+        return _cmd_pin_check(model)
+    try:
+        result = qwen.record_model_pin(model)
+    except qwen.ModelPinError as exc:
+        print(f"pin-model: {exc}; nothing written", file=sys.stderr)
+        return 1
+    report = {
+        "model": result.model,
+        "digest": result.digest,
+        "path": str(result.path),
+        "written": result.written,
+        "reason": result.reason,
+        "readback_ok": result.readback_ok,
+    }
+    print(json.dumps(report))
+    return 0 if result.readback_ok else 1
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="qwen", description=__doc__.splitlines()[0])
     parser.add_argument("--apply", metavar="JOB_ID", help="print the git apply command for a stored patch")
@@ -171,6 +211,10 @@ def _build_parser() -> argparse.ArgumentParser:
     patch.add_argument("--explain", action="store_true", help="run guards and report without calling the model")
     patch.add_argument("--priority", type=int, default=5)
     patch.add_argument("--max-attempts", dest="max_attempts", type=int, default=3)
+
+    pin = sub.add_parser("pin-model", help="record the running model digest pin")
+    pin.add_argument("--model", default=qwen.DEFAULT_MODEL_TAG, help="model tag to pin")
+    pin.add_argument("--check", action="store_true", help="compare recorded vs running; write nothing")
     return parser
 
 
@@ -199,6 +243,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_show(str(args.show))
     if args.command == "patch":
         return _cmd_patch(args)
+    if args.command == "pin-model":
+        return _cmd_pin_model(args)
 
     parser.print_help(sys.stderr)
     return 2
