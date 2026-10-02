@@ -66,6 +66,8 @@ description: >
         |
     merge-impl                               (G3 — verify the merges landed; merges nothing)
         |
+    reconcile-impl                           (G3b — run tests against merged impl; fix name/sig drift)
+        |
     adversarial-test-review                  (G4 — Opus attacks the suite; teeth-tests it)
         |
     integrate                                (G5 — act on findings, then lint/typecheck/suite)
@@ -134,6 +136,66 @@ description: >
   draft did, and treated the empty commit range of a correctly-merged tree as
   the silent-loss failure case, which would have failed the run exactly when
   everything went right.
+
+  ORCHESTRATOR — MERGING ISOLATED STAGES. For each of impl-handler,
+  impl-heartbeat and impl-tests, in whatever order they complete, the
+  orchestrator must perform these steps for THAT STAGE INDIVIDUALLY before
+  releasing the next dependent stage:
+
+    1. Immediately before merging, record the current feature-branch tip:
+         pre_merge_tip=$(git rev-parse HEAD)
+
+    2. Merge that agent's branch:
+         git merge --no-ff -m "merge stage <stage-name>" worktree-agent-<id>
+       (The `-m` flag prevents git from opening an editor for the merge
+       commit message. Use the stage name in the message, e.g.
+       "merge stage impl-handler".)
+       This is a real 3-way merge whose merge-base is the agent's own base,
+       so it applies only the agent's changes. Overlapping edits surface as
+       conflicts and must be resolved; never take the agent's whole file to
+       resolve. NEVER use cherry-pick (it creates new SHAs, and merge-impl
+       step 3 requires each recorded commit_sha to be an ancestor of HEAD via
+       merge-base — a cherry-picked commit is not an ancestor of the
+       originating branch). NEVER copy files over the feature branch working
+       tree.
+
+    3. Record the post-merge tip and the agent's tip:
+         post_merge_tip=$(git rev-parse HEAD)
+         agent_tip=$(git rev-parse worktree-agent-<id>)
+
+    4. Scope check: every path in
+         git diff --name-only <pre_merge_tip> <post_merge_tip>
+       must also appear in
+         git diff --name-only <pre_merge_tip>...<agent_tip>
+       (THREE dots: this computes from the merge-base of pre_merge_tip and
+       agent_tip to agent_tip — exactly what this merge legitimately brings
+       in. Any newer-main commits already in the agent's base are included
+       on the right side, so they never produce false positives even if
+       those commits touched the same files.) Any path in the post-merge
+       window but absent from the three-dot diff means a file was
+       clobbered or reverted — STOP and report.
+
+    5. Write the three values for this stage into
+       {workspace}/validation/merge-baselines.json as one entry keyed by
+       stage name:
+         {
+           "impl-handler":  {"pre_merge_tip": "...", "post_merge_tip": "...", "agent_tip": "..."},
+           "impl-heartbeat": {"pre_merge_tip": "...", "post_merge_tip": "...", "agent_tip": "..."},
+           "impl-tests":    {"pre_merge_tip": "...", "post_merge_tip": "...", "agent_tip": "..."}
+         }
+       All values are 40-hex SHAs. Add entries one at a time as each merge
+       completes. merge-impl reads this file and re-runs step 4 for each
+       stage to confirm the scope check holds.
+
+    LIMIT: this check catches paths changed outside the merge's scope
+    (file copies, stray edits, accidental rebases). A bad conflict
+    resolution inside an in-scope file is not caught by path sets —
+    conflicts must be resolved by keeping both sides' intent and
+    re-running the suite (reconcile-impl does that).
+
+  merge-impl reads merge-baselines.json and performs the step-4 scope
+  check for each stage, adding scope_ok and out_of_scope_paths to its
+  merge.json output.
 
   The adversarial review at G3 exists because a passing test suite is not
   evidence of a working one. It asks the inverse question — what mutation of
@@ -312,10 +374,12 @@ stages:
       something other than the engine.
 
       Branch on the EXIT STATUS, not on echoed text. If it fails, ABORT the
-      whole run here — write survey.json with {"aborted": true,
-      "reason": "job_type failed validation"} and report the stage FAILED so
-      no downstream stage is scheduled. Do not sanitize or auto-correct: an
-      override with shell metacharacters is a caller error to report.
+      whole run here — write a sentinel {workspace}/outputs/analysis/survey.json
+      with {"aborted": true, "reason": "job_type failed validation"} (minimal
+      schema is acceptable here as this is a pre-run abort; downstream stages
+      will not run) and report the stage FAILED so no downstream stage is
+      scheduled. Do not sanitize or auto-correct: an override with shell
+      metacharacters is a caller error to report.
 
       The pattern is deliberately narrower than "no metacharacters": a job
       type is a queue registry key, so lowercase, digits and underscore is
@@ -1235,6 +1299,13 @@ stages:
       orchestrator copies them back after the stage completes. Every path
       below in this and other isolated stages is written accordingly.
 
+      ISOLATED WORKTREE BRANCHING — your worktree is cut from the LATEST main
+      at spawn time, not from the feature branch. Your job is to commit your
+      work and return. Do NOT merge anything yourself — the orchestrator
+      handles every merge via `git merge --no-ff` after you finish, per the
+      "ORCHESTRATOR — MERGING ISOLATED STAGES" protocol in this workflow's
+      top-level description. Never copy files; never cherry-pick.
+
       Implement the "{job_type}" handler exactly as approved in
       <your-cwd>/inputs/outputs/design/contract.json (see the survey artifact
       at <your-cwd>/inputs/outputs/analysis/survey.json for the recorded
@@ -1530,6 +1601,12 @@ stages:
       cannot read or write; the orchestrator copies your outputs back after
       the stage completes.
 
+      ISOLATED WORKTREE BRANCHING — your worktree is cut from the LATEST main
+      at spawn time, not the feature branch. Your job is to commit your work
+      and return. The orchestrator handles every merge via `git merge --no-ff`
+      per the "ORCHESTRATOR — MERGING ISOLATED STAGES" protocol in the
+      top-level description. Never copy files; never cherry-pick.
+
       FIRST, read `<your-cwd>/inputs/outputs/design/contract.json`'s
       heartbeat/liveness section and check which
       route the approved design chose. If it chose route (a) — nothing
@@ -1648,6 +1725,12 @@ stages:
       path resolves against the orchestrator's shared tree, which this agent
       cannot read or write; the orchestrator copies your outputs back after
       the stage completes.
+
+      ISOLATED WORKTREE BRANCHING — your worktree is cut from the LATEST main
+      at spawn time, not the feature branch. Your job is to commit your work
+      and return. The orchestrator handles every merge via `git merge --no-ff`
+      per the "ORCHESTRATOR — MERGING ISOLATED STAGES" protocol in the
+      top-level description. Never copy files; never cherry-pick.
 
       Write tests against the contract in
       `<your-cwd>/inputs/outputs/design/contract.json`.
@@ -1885,6 +1968,8 @@ stages:
     kind: execute
     depends_on: [impl-handler, impl-heartbeat, impl-tests]
     reads_from: [impl-handler, impl-heartbeat, impl-tests, design]
+    # merge-baselines.json is orchestrator-written, not produced by a stage;
+    # it lives at {workspace}/validation/merge-baselines.json and is read here.
     description: >
       VERIFY that the three implementation stages' work landed in this tree.
       Do NOT merge anything — verification only, and that distinction is the
@@ -1905,6 +1990,13 @@ stages:
       success while its code never lands (an agent that edits but never
       commits leaves an empty branch; the merge then succeeds against
       nothing).
+
+      First, read {workspace}/validation/merge-baselines.json. This file was
+      written by the orchestrator (one entry per impl stage) as each merge
+      completed; it is the per-stage base for the scope check below. If the
+      file is absent, that is an orchestrator protocol violation: for every
+      stage that has a commit_sha, record scope_ok: false, out_of_scope_paths:
+      [], reason: "baselines missing", and set all_landed: false.
 
       For each of impl-handler, impl-heartbeat and impl-tests:
 
@@ -1966,6 +2058,24 @@ stages:
            A split recorded but not actually made leaves whoever opens the
            PRs with nothing to split.
 
+        6b. SCOPE CHECK. Read the per-stage entry from merge-baselines.json:
+           {"pre_merge_tip": "...", "post_merge_tip": "...", "agent_tip": "..."}.
+           All three must be 40-hex SHAs; validate with check-params before
+           passing to git. Then confirm every path in:
+             git diff --name-only <pre_merge_tip> <post_merge_tip>
+           also appears in:
+             git diff --name-only <pre_merge_tip>...<agent_tip>
+           (THREE dots: computes from the merge-base of pre_merge_tip and
+           agent_tip to agent_tip — exactly the changes this merge
+           legitimately brought in, including any newer-main commits already
+           in the agent's base that do not count as feature-branch files.)
+           A path in the post-merge window but absent from the three-dot diff
+           means a file was clobbered or reverted — record it in
+           out_of_scope_paths and set scope_ok: false. If merge-baselines.json
+           has no entry for this stage (and the stage has a commit_sha), that
+           is an orchestrator protocol violation: record scope_ok: false,
+           out_of_scope_paths: [], reason: "baselines entry missing".
+
       Then record the tree's state:
         git status --porcelain
         git log --oneline -8
@@ -1974,18 +2084,22 @@ stages:
 
       Write {workspace}/validation/merge.json:
         {
-          "verified": [{"stage": "...", "commit_sha": "...", "is_ancestor_of_head": true|false, "checkpoints_passed": N, "checkpoints_failed": ["..."], "commit_shas_reachable": true|false}],
+          "verified": [{"stage": "...", "commit_sha": "...", "is_ancestor_of_head": true|false, "checkpoints_passed": N, "checkpoints_failed": ["..."], "commit_shas_reachable": true|false, "scope_ok": true|false, "out_of_scope_paths": [...], "scope_reason": "..." | null}],
           "no_change_stages": [{"stage": "...", "reason": "..."}],
           "missing_commits": [{"stage": "...", "detail": "..."}],
           "unmerged_branches": [{"stage": "...", "commit_sha": "...", "detail": "..."}],
           "files_present": [...],
           "files_missing": [...],
           "working_tree_clean": true|false,
-          "all_landed": true|false
+          "all_landed": true|false,
+          "baselines_present": true|false
         }
       all_landed is true only when every stage is either verified as an
       ancestor of HEAD or is a recorded legitimate no-change, AND
-      files_missing is empty.
+      files_missing is empty, AND every stage with a commit_sha has
+      scope_ok: true. scope_ok is always true or false for a stage with a
+      commit (null is reserved for no-change stages that committed nothing
+      and need no scope check).
     agent:
       role: unit-validator
       model: sonnet
@@ -2006,26 +2120,311 @@ stages:
         checks: [is_json, has_key:verified, has_key:all_landed]
 
   # ===========================================================================
+  # G3b: Reconcile — run tests against merged impl; fix name/signature drift
+  # ===========================================================================
+  - name: reconcile-impl
+    kind: execute
+    depends_on: [merge-impl]
+    reads_from: [merge-impl, impl-handler, impl-heartbeat, impl-tests, design]
+    description: >
+      The three implementation stages ran in PARALLEL in separate isolated
+      worktrees: impl-handler wrote against contract.json's signatures, and
+      impl-tests also wrote against contract.json — but contract.json is a
+      plan, not the code. Parallel development against a shared spec almost
+      always drifts in function names, argument order, outcome strings, or
+      helper signatures. This stage finds and fixes that drift while the
+      merged tree is still fresh and before the adversarial review (which
+      needs a working suite to attack).
+
+      Read {workspace}/validation/merge.json first. If all_landed is false or
+      files_missing is non-empty, STOP — reconciling a partial tree produces
+      wrong findings and masks the real problem. Before stopping, write BOTH
+      output files with sentinel values so downstream stages receive the
+      complete declared schema:
+
+        {workspace}/validation/reconcile-test.log:
+          Write a single line: "not run: merge.json all_landed false"
+
+        {workspace}/validation/reconcile.json:
+          {
+            "reconciled": false,
+            "not_reconciled_reason": "merge.json all_landed false or files_missing non-empty",
+            "fixes": [],
+            "blocking_findings": [],
+            "suite_result": {"exit_code": -1, "summary_line": "not run", "failures": 0, "errors": 0},
+            "commit_sha_pr1": null,
+            "commit_sha_pr2": null,
+            "commit_sha_pr3": null,
+            "notes": "stage halted before running: merge precondition failed"
+          }
+
+      RULE FOR RESOLVING DRIFT. The contract is the source of truth.
+        - If the IMPLEMENTATION departs from a contract.json value (wrong
+          function name, wrong outcome string prefix, wrong argument type),
+          fix the IMPLEMENTATION. Do not weaken the contract to match code
+          that is wrong.
+        - If the TESTS depart from contract.json (testing a function name or
+          outcome string that differs from what the contract says, asserting
+          a wrong return shape), fix the TESTS. Do not weaken an assertion to
+          match code that happens to be present; strengthen the assertion to
+          match what the contract requires.
+        - If both code and tests agree on something that CONTRACT.json does
+          not specify (an undocumented helper, an extra field), leave both
+          alone and note the gap in reconcile.json for integrate to review.
+        - Never change contract.json here — that is the approved design.
+
+      WHAT TO CHECK. Run the test suite restricted to the new qwen tests first,
+      then fix errors and re-run. Common drift categories:
+
+        1. FUNCTION NAME MISMATCHES. The test imports or patches a name that
+           qwen.py does not export, or patches a method the implementation
+           calls by a different name. Import errors and AttributeError are
+           the symptom. Fix by aligning to the contract.json name; if the
+           contract is ambiguous, align tests to the implementation and note
+           the gap.
+
+        2. OUTCOME STRING MISMATCHES. Tests assert an exact terminal- or
+           deferred- prefix that the implementation returns spelled differently.
+           These fail with AssertionError or assertEqual failures on strings.
+           Fix by aligning to contract.json's retry_map and outcome strings.
+
+        3. SIGNATURE DRIFT. A test calls the handler function or a helper with
+           arguments in the wrong order, or with keyword arguments the
+           implementation does not accept. Fix by aligning to the
+           implementation's actual signature, which must itself match the
+           contract.
+
+        4. SCHEMA DRIFT. Tests build payload or result dicts with fields the
+           handler does not recognise, or omit required fields. Align to
+           contract.json's payload_schema and result_schema.
+
+        5. MOCK TARGET DRIFT. Tests patch a module path that does not exist in
+           the merged implementation (e.g. the test patches
+           `worker.qwen.urlopen` but the handler imports it under a different
+           alias, so the patch does not take effect). This is the hardest to
+           catch without running; a mock that misses leaves the real function
+           in place and may produce a false pass. Fix by matching the patch
+           target to the actual import path in the merged code.
+
+      RUN THE TESTS — do not reason about drift from reading alone. A test
+      that imports correctly and passes silently may still be asserting the
+      wrong thing; a broken import is visible immediately. Run the full suite
+      via make test (which pins PYTHONPATH to this checkout):
+
+        make test > {workspace}/validation/reconcile-test.log 2>&1; echo "EXIT=$?"
+        grep -E "^Ran [0-9]+ tests|^OK|^FAILED|^ERROR" {workspace}/validation/reconcile-test.log
+
+      Capture both the exit code and the summary line. Fix errors and
+      failures, re-run. BOUNDED REPAIR: you may attempt up to 3 repair
+      iterations (fix, re-run, assess). In each iteration you may also fix
+      logic failures where the contract is unambiguous — meaning contract.json
+      clearly specifies the expected behaviour and the code or tests deviates
+      from it. In that case, fix the code to the contract or the tests to the
+      contract (never change contract.json). This is the safety valve that
+      prevents blocking_findings from being a dead end for straightforward
+      contract-to-code gaps.
+
+      HALT CONDITION. If after 3 repair iterations the suite is still not
+      passing, set reconciled: false, record the still-failing tests and their
+      errors verbatim in blocking_findings, and HALT THE WORKFLOW with a
+      human-readable message naming: (a) each remaining failure, (b) whether
+      it is a drift fix or a logic bug, and (c) the resume point (re-run from
+      reconcile-impl after fixing the listed items manually). This halt is the
+      RECOVERY PATH — not a silent stop. A run that sets reconciled: false
+      must emit that message so the operator knows exactly what to fix and how
+      to continue.
+
+      LIMIT. This stage fixes naming, structural, and unambiguous-contract
+      drift only. Do NOT:
+        - Add new test cases (that is adversarial-test-review and integrate's
+          job).
+        - Change the implementation's behaviour to match a test that asserts
+          something the contract does not require.
+        - Fix logic bugs that require new design decisions or contract changes
+          (record them as blocking_findings with action_needed: "design-change";
+          these require human review — the workflow HALTS on reconciled: false
+          and the operator must resolve the design question, update
+          contract.json if needed, and re-run from reconcile-impl).
+        - Weaken assertions to get tests passing when the assertion is correct
+          and the implementation is wrong.
+        - Change contract.json under any circumstances.
+
+      After each fix, record it in reconcile.json under "fixes" with: the
+      category (function-name|outcome-string|signature|schema|mock-target|logic),
+      the file changed, the old value, the new value, and which side you
+      changed (implementation|tests) and why. Use "logic" for unambiguous
+      contract-to-code logic failures fixed under the BOUNDED REPAIR rule above.
+
+      COMMIT PER PR BOUNDARY — not one monolithic commit. The three PR
+      boundaries from the workflow description (PR1: seam/confinement/tests,
+      PR2: transport/edits/guards/tests, PR3: telemetry/CLI/install) determine
+      which files belong in which commit. A reconcile fix touches one or more
+      of those boundaries; group the files by boundary and commit once per
+      boundary touched. A single commit that spans all three boundaries makes
+      the PR split impossible later.
+
+        Boundary detection: look at which files each fix touches.
+          PR1 files: qwen.py (handler registration, input confinement,
+                     payload validation), tests for C1-C2 items.
+          PR2 files: qwen.py (transport, lock, guards), qwen_edits.py,
+                     tests for C3-C5 items.
+          PR3 files: qwen_telemetry.py, bin/qwen, tests for C6 items.
+
+        For each boundary that has fixes:
+          Stage ONLY the files in that boundary, then commit. Most files
+          belong to exactly one boundary and can be staged with:
+            git add src/worker/qwen_edits.py  # PR2-only file
+            git add src/worker/qwen_telemetry.py  # PR3-only file
+          BUT qwen.py spans PR1 (handler registration, input confinement,
+          payload validation) AND PR2 (transport, lock, guards): a plain
+          `git add src/worker/qwen.py` stages all of its changes at once and
+          makes the per-boundary split impossible. Use hunk-level staging
+          instead:
+            git diff src/worker/qwen.py > /tmp/qwen-full.diff
+            # Edit /tmp/qwen-full.diff to keep only the PR1 hunks; remove all
+            # other hunks (delete their @@ ... @@ header and body lines).
+            git apply --cached /tmp/qwen-full.diff
+            git diff --cached  # inspect — must contain only PR1 qwen.py hunks
+            git commit -m "fix(worker): reconcile PR1 drift after parallel build"
+            git apply --cached -- src/worker/qwen.py  # remaining (PR2) hunks
+            # Alternative for PR2: repeat with a diff containing only PR2 hunks.
+            git diff --cached  # inspect — must contain only PR2 qwen.py hunks
+            git commit -m "fix(worker): reconcile PR2 drift after parallel build"
+          Always run `git diff --cached` and inspect the staged content before
+          each commit. A commit that contains hunks from two boundaries is not
+          acceptable — verify before committing, not after.
+          Confirm each commit with `git log --oneline -1` and record its SHA.
+
+      If no drift was found, make no commits (record commit_sha_pr1,
+      commit_sha_pr2, commit_sha_pr3 all as null).
+
+      Write {workspace}/validation/reconcile.json:
+        {
+          "reconciled": true|false,
+          "not_reconciled_reason": "..." | null,
+          "fixes": [
+            {
+              "category": "function-name|outcome-string|signature|schema|mock-target|logic",
+              "file": "...",
+              "old_value": "...",
+              "new_value": "...",
+              "side_changed": "implementation|tests",
+              "reason": "...",
+              "pr_boundary": "PR1|PR2|PR3"
+            }
+          ],
+          "blocking_findings": [
+            {
+              "description": "...",
+              "file": "...",
+              "action_needed": "drift-fix|integrate|design-change"
+            }
+          ],
+          "suite_result": {
+            "exit_code": N,
+            "summary_line": "...",
+            "failures": N,
+            "errors": N
+          },
+          "commit_sha_pr1": "..." | null,
+          "commit_sha_pr2": "..." | null,
+          "commit_sha_pr3": "..." | null,
+          "notes": "..."
+        }
+      commit_sha_prN records the SHA for each boundary commit (null when no
+      fixes touched that boundary). Top-level flat keys are required so that
+      `./bin/workflow check-params --top-level` can validate each SHA
+      individually. A single commit spanning multiple boundaries is not
+      allowed — see COMMIT PER PR BOUNDARY above.
+
+      reconciled is true ONLY when the suite passed (exit_code 0 and a "Ran N
+      tests" summary line with no failures or errors). Recording remaining
+      failures as blocking_findings does NOT flip reconciled to true — those
+      failures mean the suite is NOT passing, which is exactly what the next
+      stage (adversarial-test-review) checks before proceeding. Set
+      reconciled false if: (a) the suite could not be run, (b) merge.json
+      reported all_landed false, or (c) the final suite run produced any
+      failures or errors. A partial result reported as "reconciled" misleads
+      the adversarial review into attacking a broken suite.
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Write, Edit, Bash, Glob, Grep]
+      access: read-write
+    required: true
+    outputs:
+      - name: reconcile_record
+        mode: generate
+        description: >
+          reconcile.json recording each name/signature/outcome-string fix
+          applied to close the gap between parallel test and implementation
+          branches, and the suite result after reconciliation.
+    writes_to:
+      - validation/reconcile.json
+      - validation/reconcile-test.log
+    validates_output:
+      - path: validation/reconcile.json
+        checks: [is_json, has_key:reconciled, has_key:suite_result]
+
+  # ===========================================================================
   # G4: Adversarial test review — attack the suite before trusting it
   # ===========================================================================
   - name: adversarial-test-review
     kind: execute
-    depends_on: [merge-impl]
-    reads_from: [merge-impl, impl-tests, impl-handler, impl-heartbeat, design, survey]
+    depends_on: [reconcile-impl]
+    reads_from: [reconcile-impl, merge-impl, impl-tests, impl-handler, impl-heartbeat, design, survey]
     description: >
       Adversarial review of the test suite. You are NOT checking that tests
       pass — a suite of vacuous tests passes perfectly. You are looking for
       tests that would stay green while the code is broken. Be hostile; a
       balanced review is a failed review here.
 
-      This stage runs AFTER merge-impl, so all three implementation branches
-      are merged into one tree and their files are readable by their normal
-      repo paths. You also run in your OWN worktree (isolation: worktree),
-      which is what makes the teeth test below safe: the source you break is
-      your private copy, not the shared tree other agents are using.
+      ISOLATION AND STARTING POINT. You run in your OWN worktree (isolation:
+      worktree), which is what makes the teeth test below safe: the source you
+      break is your private copy, not the shared tree other agents are using.
+      However, your worktree is cut from the LATEST main at spawn time, NOT
+      from the feature branch. The merged implementation is on the feature
+      branch, not on your worktree's base.
+
+      The orchestrator passes the feature-branch HEAD SHA as an input. Your
+      FIRST action — before reading any file — must be:
+        1. Validate that the received SHA is a 40-character hex string and
+           nothing else. Refuse to proceed with a short SHA, a ref name, or
+           any value containing non-hex characters.
+        2. Switch your worktree to exactly that commit in detached-HEAD mode:
+             git switch --detach <sha>
+        3. Confirm HEAD equals the SHA:
+             git rev-parse HEAD
+           If it does not match, stop and report — do not review a different
+           tree.
+
+      After that, all three implementation branches are merged into the tree
+      at that commit and their files are readable by their normal repo paths.
       If a file named in handler-impl.json / heartbeat-impl.json /
       tests-impl.json is still unreadable, record it as "could not review"
       and set verdict "needs-work" — do not silently review nothing.
+
+      CHECK RECONCILE STATUS BEFORE REVIEWING. Read
+      `<your-cwd>/inputs/validation/reconcile.json` (copied from
+      {workspace}/validation/reconcile.json by the orchestrator). If
+      reconciled is false, STOP immediately — write the COMPLETE sentinel
+      test-review.json (all required fields) before returning:
+        {
+          "tests_reviewed": 0,
+          "findings": [{"test": "n/a", "file": "n/a",
+            "failure_mode": "other", "severity": "blocking",
+            "detail": "reconcile.json.reconciled is false: <not_reconciled_reason>",
+            "mutation_not_caught": "n/a", "fix": "re-run from reconcile-impl after fixing suite"}],
+          "retry_map_rows_without_exact_prefix_test": [],
+          "sad_paths_missing": [],
+          "teeth_test": [{"test": "not-run", "mutation": "not-run",
+            "went_red": false, "git_status_after_restore": "not run: reconcile failed"}],
+          "verdict": "needs-work"
+        }
+      Reviewing a suite that did not pass is meaningless: the teeth test would
+      confirm that broken tests stay broken, not that passing tests are
+      vacuous, and every finding would be against a tree whose baseline is
+      already broken.
 
       For EVERY test, answer one question: what mutation of the source would
       this test fail to catch? Then hunt specifically for these failure modes,
@@ -2176,20 +2575,55 @@ stages:
   # ===========================================================================
   - name: integrate
     kind: execute
-    depends_on: [merge-impl, adversarial-test-review]
-    reads_from: [merge-impl, adversarial-test-review, impl-handler, impl-heartbeat, impl-tests, design]
+    depends_on: [reconcile-impl, adversarial-test-review]
+    reads_from: [reconcile-impl, merge-impl, adversarial-test-review, impl-handler, impl-heartbeat, impl-tests, design]
     description: >
-      merge-impl has already landed the three implementation branches, so you
-      are working in one coherent tree. Read validation/merge.json first: if
-      all_landed is false, or files_missing is non-empty, STOP and report —
-      running gates against a tree that is missing half the implementation
-      produces a meaningless green.
+      merge-impl has already landed the three implementation branches, and
+      reconcile-impl has already fixed naming/signature drift so the suite
+      passes. Read {workspace}/validation/merge.json first: if all_landed is
+      false, or files_missing is non-empty, write a sentinel integrate.json
+      with all_gates_passed: false and merge_verified: false (complete schema,
+      null/false for fields not yet evaluated), then STOP — running gates
+      against a tree that is missing half the implementation produces a
+      meaningless green.
 
-      Then reconcile drift: impl-tests wrote against contract.json while the
-      implementation was being written in parallel. Where they disagree, fix
-      the side that departs from the approved contract. Do not weaken a test
-      to match a wrong implementation; do not bend the implementation to match
-      a test that misread the contract.
+      Read {workspace}/validation/reconcile.json. If reconciled is false,
+      write a sentinel integrate.json with all_gates_passed: false and
+      merge_verified: true (or false if the prior check also failed), then
+      STOP and report the not_reconciled_reason — the suite was not in a
+      passing state when the adversarial review ran, so the review's findings
+      may be against broken code. Also check reconcile.json's
+      blocking_findings: each one that has not yet been fixed by the time
+      you run is work for this stage.
+
+      RECONCILE COMMITS IN THE TREE. reconcile.json records the per-boundary
+      SHAs as top-level flat keys (commit_sha_pr1, commit_sha_pr2,
+      commit_sha_pr3). For each key whose value is non-null, VALIDATE the
+      SHA before passing it to git — reconcile.json is agent-written and the
+      value is untrusted. Run one check-params invocation per non-null key:
+        ./bin/workflow check-params "{workspace}"/validation/reconcile.json \
+          --top-level --check 'commit_sha_pr1=[0-9a-f]{40}'
+        (same for pr2, pr3 as applicable)
+      Branch on the EXIT STATUS of each call. A short SHA, a ref name, or
+      any value with non-hex characters FAILS the stage — do not resolve or
+      retry. A null or absent key means no fixes were made for that boundary;
+      skip the ancestry check for that boundary.
+
+      For each validated non-null SHA, confirm it is an ancestor of HEAD:
+        git merge-base --is-ancestor <sha> HEAD
+      A commit not reachable from HEAD means those drift-fix edits were lost
+      — the suite will likely regress. Record each result as
+      reconcile_commit_sha_pr1/pr2/pr3 and reconcile_commits_landed in
+      integrate.json. Any non-null SHA that is NOT an ancestor is a blocking
+      finding.
+
+      The name/signature/outcome-string drift that reconcile-impl addresses is
+      no longer your job here; it was handled before the adversarial review
+      ran. What IS your job is acting on the adversarial review's findings
+      and fixing any logic bugs or missing coverage they identified. Do not
+      re-do the reconciliation work. Do not weaken a test to match a wrong
+      implementation; do not bend the implementation to match a test that
+      misread the contract.
 
       Then act on {workspace}/validation/test-review.json. Fix every BLOCKING
       finding before running the gates, and add a test for every row in
@@ -2269,6 +2703,10 @@ stages:
       Write {workspace}/validation/integrate.json:
         {
           "merge_verified": true|false,
+          "reconcile_commit_sha_pr1": "..." | null,
+          "reconcile_commit_sha_pr2": "..." | null,
+          "reconcile_commit_sha_pr3": "..." | null,
+          "reconcile_commits_landed": {"pr1": true|false|null, "pr2": true|false|null, "pr3": true|false|null},
           "import_paths_correct": true|false,
           "tests": {"ran": N, "failures": N, "errors": N, "summary_line": "..."},
           "qlty": {"clean": true|false, "findings": [...]},
@@ -2319,10 +2757,11 @@ stages:
       the verify stage tests it by running the checks again.
 
       Read {workspace}/validation/integrate.json first. If all_gates_passed is
-      false, do NOT install — write a skip record to
-      {workspace}/validation/install.json explaining which gate failed, and
-      stop. Installing on top of code that does not pass its own tests is how
-      a broken daemon ends up running at boot.
+      false, do NOT install — write a sentinel install.json (complete schema
+      with skipped: true, all_ok: false, steps: [], skip_reason naming which
+      gate failed, manual_steps_required: []) and stop. Installing on top of
+      code that does not pass its own tests is how a broken daemon ends up
+      running at boot.
 
       Step 0 — VALIDATE {ollama_host} AND {model_tag} BEFORE FIRST USE. Both
       are trigger params, substituted directly into the text below with no
@@ -2410,8 +2849,9 @@ stages:
         description, and the engine substitutes the raw value at each one. The
         `--print` form in Step 1b is what actually gets a validated value into
         a command; this step is the abort gate, not the delivery mechanism.
-        If either is rejected, abort the stage immediately: write
-        {workspace}/validation/install.json with skipped=true and a
+        If either is rejected, abort the stage immediately: write a sentinel
+        {workspace}/validation/install.json with the complete schema (skipped:
+        true, all_ok: false, steps: [], manual_steps_required: []) and a
         skip_reason naming which param failed and the reason check-params
         gave — NEVER its value, redacted or otherwise — and do not proceed
         to Step 1. "Redact if necessary" would leave it to the agent to judge
@@ -2444,13 +2884,13 @@ stages:
         to a package manager the survey did not record. Installing software
         by a path nobody reviewed is a worse outcome than not installing it.
 
-        Instead abort the stage: write {workspace}/validation/install.json
-        with skipped=true and a skip_reason naming which check failed and the
-        one-line command the operator should run themselves (`brew install
-        ollama`, or their platform's equivalent). A stage that stops with a
-        clear instruction is a good result here; the run can be repeated
-        after the operator acts, and every step in this stage is idempotent
-        precisely so that re-running costs nothing.
+        Instead abort the stage: write a sentinel {workspace}/validation/install.json
+        with the complete schema (skipped: true, all_ok: false, steps: [],
+        manual_steps_required: [{"finding": "ollama absent, installer unavailable",
+        "fix": "brew install ollama", "who": "user"}]) and a skip_reason naming
+        which check failed. A stage that stops with a clear instruction is a good
+        result here; the run can be repeated after the operator acts, and every
+        step in this stage is idempotent precisely so that re-running costs nothing.
 
       Step 1b — Capture both validated values into shell variables.
         Step 0's check proves the values are SAFE; it does not make them
@@ -2496,11 +2936,53 @@ stages:
 
         Then RECORD THE DIGEST, whether or not you pulled. `{model_tag}` is a
         mutable tag — Ollama can serve a different build under the same name
-        later, silently changing output quality with no signal. Read the
-        model's digest (the survey recorded which API field carries it) and
-        write it into the install record, so validate-config and the handler
-        can detect a swap. If the digest cannot be read, record null and say
-        why rather than omitting the field.
+        later, silently changing output quality with no signal.
+
+        Read the model's digest from Ollama's GET /api/tags endpoint (the
+        survey recorded the exact field: the "models" array entry matching the
+        tag carries "digest"). Then write it to TWO places:
+
+          (a) The install record (install.json's model_digest field in the
+              "model_present" step entry) — so validate-config can read it.
+
+          (b) The handler's digest file — this is the file the handler reads
+              at every job to detect a model swap, and WITHOUT it the handler
+              reports the model as "unpinned" on every job.
+
+              Resolve the exact path with a single-line python3 invocation
+              to avoid YAML indentation issues:
+                DIGEST_PATH=$(python3 -I -S -c \
+                  'import os,sys; sys.path[:0]=["src"]; from worker._helpers import get_worker_state_dir; import pathlib; print(pathlib.Path(get_worker_state_dir("qwen"))/"model_digest.json")')
+              `-I -S` is required to avoid inheriting a foreign PYTHONPATH
+              that could resolve worker._helpers from the main checkout
+              instead of this tree. `sys.path[:0] = ["src"]` prepends this
+              tree's src/ (relative to CWD, which must be the repo root) so
+              it wins even against any inherited entry.
+              Capture the printed path into DIGEST_PATH and use only that
+              variable from here on; do NOT hard-code a path string.
+
+              Before writing, check whether the resolved path is a symlink
+              (os.path.islink); if it is, REFUSE to write and record the
+              failure in install.json — the handler reads with no-follow and
+              a symlink at that path means something is wrong. If the file
+              already exists and is valid JSON, read it first and preserve all
+              existing keys — set only the key for this model tag ($TAG),
+              leaving any other tags' entries intact. IDEMPOTENCY: if the
+              file already maps $TAG to the fetched digest unchanged, do not
+              rewrite it — record model_digest_file_written: false with
+              reason "already-current". Then write atomically: write the
+              merged object to a temp file in the same directory, then rename
+              it over the target (Python's tempfile + os.replace). Create the
+              directory if it does not exist (mode 0o700).
+              After writing, read it back and confirm this tag's key and value
+              match what you wrote. Record the path and whether the readback
+              succeeded in install.json.
+
+        If the digest cannot be read from the API, record null in install.json
+        and leave model_digest.json unwritten — do not write a null value into
+        the file, since the handler treats a missing key the same as no file
+        (unpinned), which is the honest result. Say why in install.json.
+
         If the machine's memory_gb from survey.json is under 24, note in the
         record that a 14B model will be tight and a 7B tag is the fallback —
         but pull the requested tag regardless; sizing is the user's call.
@@ -2571,7 +3053,7 @@ stages:
           "steps": [
             {"step": "ollama_binary",  "already_satisfied": true|false, "action_taken": "...", "ok": true|false},
             {"step": "ollama_server",  "already_satisfied": true|false, "action_taken": "...", "ok": true|false},
-            {"step": "model_present",  "already_satisfied": true|false, "action_taken": "...", "ok": true|false, "model_digest": "..." | null},
+            {"step": "model_present",  "already_satisfied": true|false, "action_taken": "...", "ok": true|false, "model_digest": "..." | null, "model_digest_file": "..." | null, "model_digest_file_written": true|false, "model_digest_file_written_reason": "written|already-current|symlink-refused|write-failed|digest-unavailable", "model_digest_readback_ok": true|false|null},
             {"step": "worker_launchd", "already_satisfied": true|false, "action_taken": "...", "ok": true|false, "daemon_repo_root": "...", "daemon_serves_this_code": true|false, "detail": "..."},
             {"step": "queue_dirs",     "already_satisfied": true|false, "action_taken": "...", "ok": true|false}
           ],
@@ -2712,11 +3194,42 @@ stages:
         merely reported. An unenforced cap that nobody wrote down as
         unenforced is the failure to catch here.
 
-      Check 7 — MODEL DIGEST RECORDED. Confirm the install stage recorded a
-        digest for {model_tag} and that the currently-loaded model's digest
-        matches it. A mismatch is not blocking — the tag is mutable by
-        design — but it must be reported, since it means the model in use is
-        not provably the one this run validated.
+      Check 7 — MODEL DIGEST FILE PRESENT AND CURRENT. The handler reads
+        <worker_state_dir>/qwen/model_digest.json to detect model swaps —
+        without this file it reports the model as "unpinned" on every job.
+
+        Resolve the exact path the same way install did (single-line to
+        avoid YAML indentation issues):
+          DIGEST_PATH=$(python3 -I -S -c \
+            'import os,sys; sys.path[:0]=["src"]; from worker._helpers import get_worker_state_dir; import pathlib; print(pathlib.Path(get_worker_state_dir("qwen"))/"model_digest.json")')
+        Use the printed path for all checks below. Do NOT construct a path
+        by concatenating directory strings or guessing a default location.
+
+        (a) Confirm the file exists, is not a symlink, and is a regular file:
+              [ ! -L "$DIGEST_PATH" ] && [ -f "$DIGEST_PATH" ]
+            A symlink is a BLOCKING finding regardless of whether it resolves
+            — the handler opens with O_NOFOLLOW (_read_text_no_follow in
+            src/worker/qwen.py) and will raise on a symlink, reporting the
+            model as "unpinned" on every job. A missing file is likewise
+            blocking. Record symlink: false and regular_file: true as
+            required conditions before proceeding to (b).
+
+        (b) Read the file and confirm it contains a JSON object with a key
+            matching {model_tag}. If the key is absent, that is also a
+            blocking finding — the file exists but the handler will still
+            report "unpinned" for this tag.
+
+        (c) Compare the digest in the file against the currently-running
+            model's digest (re-query GET /api/tags). A mismatch is not
+            blocking — the tag is mutable by design — but it must be reported,
+            since it means the model in use is not provably the one this run
+            validated.
+
+        Record the file path, whether it exists, whether it is a symlink
+        (must be false), whether it is a regular file (must be true), the
+        recorded digest (or "absent"), the currently-running digest, and
+        whether they match. A missing file, a symlink, or a missing key is
+        a blocking failure; a digest mismatch is a non-blocking warning.
 
       Check 8 — PATCH OUTPUT DIRECTORY. Resolve core.paths.output_dir for
         this domain and confirm it exists, is writable, and sits OUTSIDE the
@@ -2745,7 +3258,7 @@ stages:
             {"check": "timeout_coherent",    "passed": true|false, "blocking": true|false, "detail": "...", "job_timeout_passed": true|false, "design_route": "..."},
             {"check": "guards_present",      "passed": true|false, "blocking": true|false, "detail": "...", "found": {"input_confinement": true|false, "patch_caps": true|false, "redaction": true|false, "disk_guard": true|false, "explain_mode": true|false, "deferral_counter": true|false, "admission": "handler-side|operator-limit|follow-up|MISSING"}},
             {"check": "guards_wired",        "passed": true|false, "blocking": true|false, "detail": "...", "probes": [{"probe": "nonexistent-path-outside-allowlist", "expected": "terminal confinement string", "observed": "...", "ordering_correct": true|false}, {"probe": "allowed-existing-file", "expected": "success", "observed": "..."}]},
-            {"check": "model_digest",        "passed": true|false, "blocking": false,      "detail": "...", "recorded": "...", "observed": "...", "matches": true|false},
+            {"check": "model_digest",        "passed": true|false, "blocking": true|false, "detail": "...", "digest_file": "...", "digest_file_exists": true|false, "is_symlink": false, "is_regular_file": true|false, "tag_key_present": true|false, "recorded": "...", "observed": "...", "matches": true|false},
             {"check": "patch_output_dir",    "passed": true|false, "blocking": true|false, "detail": "...", "path": "...", "inside_repo": true|false, "writable": true|false, "free_gb": N},
             {"check": "ollama_concurrency",  "passed": true|false, "blocking": false,      "detail": "...", "num_parallel": "...", "max_loaded_models": "..."}
           ],
@@ -2800,8 +3313,9 @@ stages:
       config_valid is false, do NOT enqueue anything: a blocking config
       failure means the guards this workflow relies on are not in place, and
       running a real generation could be exactly the memory event the guard
-      exists to prevent. Record the blocking findings, write verified=false
-      with a clear reason, and stop.
+      exists to prevent. Write a sentinel verify.json (complete schema, with
+      verified: false, failures listing the blocking config findings, and
+      null/false for all unrun checks), then stop.
 
       Read {workspace}/validation/install.json. If skipped or all_ok is false,
       record what could not be verified and why — do not fabricate a pass.
@@ -3206,9 +3720,16 @@ stages:
       Files created and modified, from merge.json's files_present list, with
       the per-stage commit SHAs from its "verified" entries (each carries
       stage, commit_sha and is_ancestor_of_head — there is no branch field,
-      so do not report one). Note any stage merge.json recorded under
-      no_change_stages, with its reason — a stage that legitimately shipped
-      nothing is not a gap.
+      so do not report one). Also include reconcile-impl's per-boundary SHAs
+      from integrate.json (reconcile_commit_sha_pr1/pr2/pr3): each non-null
+      entry belongs with the production change for that boundary:
+        PR1 reconcile commit → alongside the seam/confinement commits (PR1)
+        PR2 reconcile commit → alongside the transport/guards commits (PR2)
+        PR3 reconcile commit → alongside the telemetry/CLI commits (PR3)
+      Do not list the reconcile commits under a single arbitrary boundary;
+      place each with its own boundary or leave it out when null.
+      Note any stage merge.json recorded under no_change_stages, with its
+      reason — a stage that legitimately shipped nothing is not a gap.
 
       ### Design decisions
       One line each for the five contract.json sections, plus the standing
