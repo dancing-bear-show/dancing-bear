@@ -48,7 +48,7 @@ line's own, before anything is parsed. A heredoc closer is then matched as
 Bash matches it -- exactly, or past leading tabs for ``<<-``.
 
 The command parser (:func:`shell_parse.parse_shell` and its supporting types)
-lives in :mod:`shell_parse`.
+lives in :mod:`shell_parse`, and the lexer beneath it in :mod:`shell_lex`.
 """
 
 from __future__ import annotations
@@ -58,8 +58,8 @@ import textwrap
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from .shell_lex import _heredoc_delimiters, _Lexer
 from .shell_parse import WRAPPER_NAMES as _WRAPPER_NAMES
-from .shell_parse import _heredoc_delimiters, _Lexer
 from .shell_parse import parse_shell as _parse_shell
 
 __all__ = [

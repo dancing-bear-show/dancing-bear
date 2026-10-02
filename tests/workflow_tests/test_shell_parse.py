@@ -1,4 +1,4 @@
-"""Tests for the shell command parser (workflow.shell_parse).
+"""Tests for the shell command parser (workflow.shell_parse) and its lexer (workflow.shell_lex).
 
 The shared simple-command model every shell lint rule reads.
 """
@@ -10,6 +10,7 @@ import sys
 import unittest
 from pathlib import Path
 
+import workflow.shell_lex as shell_lex
 import workflow.shell_parse as shell_parse
 import workflow.shell_text as shell_text
 
@@ -256,12 +257,12 @@ class TestParseDepth(unittest.TestCase):
     def test_nesting_past_max_depth_is_recorded_not_dropped(self) -> None:
         # PR #437 thread PRRT_kwDOQr1kjM6nH40K: past MAX_DEPTH parsing stops,
         # and the result says so, so a caller can refuse it as the guard does.
-        limit = shell_parse.MAX_DEPTH
+        limit = shell_lex.MAX_DEPTH
         at_limit, past = shell_parse.parse_shell(self._subs(limit)), shell_parse.parse_shell(self._subs(limit + 1))
         self.assertFalse(at_limit.too_deep)
         self.assertIn("wc", [c.name for c in at_limit.commands])
         self.assertTrue(past.too_deep)
-        self.assertEqual(past.max_depth, shell_parse.MAX_DEPTH + 1)
+        self.assertEqual(past.max_depth, shell_lex.MAX_DEPTH + 1)
 
     def test_substitution_inside_an_expansion_is_a_child_command(self) -> None:
         # Unlinked finding shell_parse.py:364: ${...} and $((...)) bodies are
@@ -309,7 +310,7 @@ class TestParseDepth(unittest.TestCase):
         # PR #437 thread PRRT_kwDOQr1kjM6njyvT: the guard reads ${...} and
         # $((...)) in the same Parser (_scan_param, _scan_arith), so they never
         # count toward its MAX_DEPTH; 33 of them were reported "deeper than 32".
-        n = shell_parse.MAX_DEPTH + 1
+        n = shell_lex.MAX_DEPTH + 1
         for text in ("echo " + "${X:-" * n + "}" * n, "echo " + "$((" * n + "1" + "))" * n,
                      "echo $(echo " + "${X:-" * n + "}" * n + ")"):
             with self.subTest(text=text[:12]):
@@ -318,7 +319,7 @@ class TestParseDepth(unittest.TestCase):
                 self.assertFalse(script.too_nested)
 
     def test_expansion_nesting_bound_is_max_expansion_nest(self) -> None:
-        n = shell_parse.MAX_EXPANSION_NEST
+        n = shell_lex.MAX_EXPANSION_NEST
         at_limit = "echo " + "${X:-" * n + "}" * n
         past = "echo " + "${X:-" * (n + 1) + "}" * (n + 1)
         self.assertFalse(shell_parse.parse_shell(at_limit).too_nested)
@@ -326,12 +327,12 @@ class TestParseDepth(unittest.TestCase):
 
     def test_substitutions_still_count_toward_max_depth(self) -> None:
         # Happy path for the split: 33 nested $( are still past the guard's limit.
-        script = shell_parse.parse_shell(self._subs(shell_parse.MAX_DEPTH + 1))
+        script = shell_parse.parse_shell(self._subs(shell_lex.MAX_DEPTH + 1))
         self.assertTrue(script.too_deep)
         self.assertFalse(script.too_nested)
 
     def test_depth_argument_offsets_the_count(self) -> None:
-        script = shell_parse.parse_shell("a $(b)", depth=shell_parse.MAX_DEPTH)
+        script = shell_parse.parse_shell("a $(b)", depth=shell_lex.MAX_DEPTH)
         self.assertTrue(script.too_deep)
         self.assertEqual([c.name for c in script.commands], ["a"])
         self.assertEqual(shell_parse.command_from_words(script.commands[0].words, depth=5).depth, 5)
@@ -359,9 +360,17 @@ class TestShellTextImports(unittest.TestCase):
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("ImportError: cannot import name 'parse_shell'", result.stderr)
-        for name in shell_parse.__all__:
+        for name in (*shell_parse.__all__, *shell_lex.__all__):
             with self.subTest(name=name):
                 self.assertFalse(hasattr(shell_text, name))
+
+    def test_lexer_names_are_importable_from_shell_lex_only(self) -> None:
+        # The lexer moved out of shell_parse with no re-export: shell_parse
+        # imports its names under private aliases.
+        for name in (*shell_lex.__all__, "MAX_DEPTH", "MAX_EXPANSION_NEST"):
+            with self.subTest(name=name):
+                self.assertTrue(hasattr(shell_lex, name))
+                self.assertFalse(hasattr(shell_parse, name))
 
     def test_shell_text_still_uses_the_parser_internally(self) -> None:
         # The wrapper vocabulary and the parser behind it still drive extraction.

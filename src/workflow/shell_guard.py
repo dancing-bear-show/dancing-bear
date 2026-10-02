@@ -16,10 +16,9 @@ import re
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 
+from .shell_lex import MAX_DEPTH, ShellToken
 from .shell_parse import (
-    MAX_DEPTH,
     ShellScript,
-    ShellToken,
     SimpleCommand,
     command_from_words,
     parse_shell,

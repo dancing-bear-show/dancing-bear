@@ -94,10 +94,10 @@ from typing import TYPE_CHECKING
 from .linter_types import LintResult, LintWarning
 from .placeholders import PLACEHOLDER_RE
 from .shell_guard import refused_construct
+from .shell_lex import Span
 from .shell_parse import (
     ShellScript,
     SimpleCommand,
-    Span,
     parse_shell,
 )
 from .shell_text import (

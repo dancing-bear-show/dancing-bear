@@ -115,6 +115,7 @@ Set `human_gate: true` on any stage to pause execution for human review after th
 - `linter.py` — structural lint checks
 - `dag.py` — `bfs_levels`: level-by-level topological walk shared by the compiler and linter
 - `linter_shell.py` / `shell_text.py` / `shell_parse.py` — warnings (with `rule` ids) on shell embedded in stage prose: `shell-unvalidated-param`, `shell-unquoted-fan-out-key`, `shell-unbound-variable`, `python-not-isolated`, `validate-stage-writes-output`, `shell-guard-refused`
+- `shell_lex.py` — the shell lexer `shell_parse` reads: tokens, heredoc bodies and delimiters, and the nesting bounds (`MAX_DEPTH`, `MAX_EXPANSION_NEST`)
 - `shell_guard.py` — Bash guard parity for `shell-guard-refused`: shell option parsing, stdin shells, `sh -c`/`eval` checks, `find -exec` bodies, and which commands write
 - `output_checks.py` — post-stage output validation
 - `param_guard.py` — `check-params`: validate params read as JSON data
