@@ -206,7 +206,8 @@ class SweepRecordTests(unittest.TestCase):
     def test_write_refuses_the_empty_sentinel_a_skipped_stage_leaves(self) -> None:
         """PR #454 review: a skipped large-path consolidate wrote {} over the real report."""
         ws = _make_workspace(self.root, GUIDES)
-        for doc in ({}, {"findings": None}, []):
+        sentinels: tuple[object, ...] = ({}, {"findings": None}, [])
+        for doc in sentinels:
             with self.subTest(doc=doc):
                 (ws / "outputs" / "consolidated.json").write_text(json.dumps(doc))
                 code, _, err = _run(self.repo, "write", "--head", self.head, "--workspace", str(ws))
