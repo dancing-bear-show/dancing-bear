@@ -275,8 +275,12 @@ class RetryCommand:
         return 0
 
 
+QWEN_RESPONSES_FOLDER = "qwen-responses"
+
+
 class PurgeCommand:
-    """Purge old jobs from done/error folders."""
+    """Purge old jobs from done/error folders, and saved qwen responses
+    when qwen-responses is named explicitly."""
 
     @staticmethod
     def run(args) -> int:
@@ -288,7 +292,25 @@ class PurgeCommand:
             for s in str(getattr(args, "folders", "done,error")).split(",")
             if s.strip()
         ]
-
-        res = q.purge(secs, root=q.QUEUE_ROOT, folders=folders)
+        dry_run = bool(getattr(args, "dry_run", False))
+        res: dict[str, int] = {}
+        if QWEN_RESPONSES_FOLDER in folders:
+            folders = [f for f in folders if f != QWEN_RESPONSES_FOLDER]
+            res[QWEN_RESPONSES_FOLDER] = _purge_qwen_responses(secs, dry_run=dry_run)
+        if folders or not res:
+            # q.purge treats an empty list as done,error, so it runs only
+            # when a queue folder was named (or nothing at all was).
+            res = {**q.purge(secs, root=q.QUEUE_ROOT, folders=folders, dry_run=dry_run), **res}
         emit_one(res)
         return 0
+
+
+def _purge_qwen_responses(older_than_sec: int, *, dry_run: bool) -> int:
+    """Prune saved qwen_patch responses (or count them, with dry_run); a
+    refused directory is a CLI error."""
+    from worker.qwen import prune_responses
+
+    try:
+        return prune_responses(older_than_sec, dry_run=dry_run)
+    except OSError as exc:
+        raise CLIError(f"Cannot purge qwen responses: {exc}") from exc

@@ -31,8 +31,24 @@ You are a code implementation agent for dancing-bear. Use this agent when the ta
 
 ## Review Concerns (Self-Check Before Finishing)
 
-- `concerns/correctness.md`, `concerns/patterns.md`, `concerns/reuse.md`, `concerns/complexity.md`
-- `concerns/workflow.md` for any workflow YAML
+Get the guides for your changed files using the canonical selector. Pipe the
+list from git so no path is ever placed in shell text (a filename with spaces
+splits, and one with shell metacharacters executes):
+
+```bash
+set -o pipefail
+{ git diff --name-only HEAD && git ls-files --others --exclude-standard; } \
+  | ./bin/workflow select-concerns --paths-file - --format json
+```
+
+`git diff` lists only tracked files; `git ls-files --others` adds the files you
+created. `pipefail` makes a failing git command fail the whole check rather than
+silently selecting guides for an empty list.
+
+For files not yet changed, Write the paths one per line to a uniquely named file
+and pass `--paths-file "<that file>"` instead.
+
+The rules live in `concerns/selection.yaml`.
 
 ## Git Rules
 

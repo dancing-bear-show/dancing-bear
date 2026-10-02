@@ -1,0 +1,195 @@
+# Canonical concern-guide selection rules.
+#
+# This is the single source of truth for which concerns/*.md guides apply
+# to a set of changed files and an optional task_type.
+#
+# Consumed by: src/workflow/concern_select.py (Python selector)
+# CLI:         ./bin/workflow select-concerns --paths-file FILE|- [--task-type T]
+#              (--paths p1 p2 ... also works, but agents must use --paths-file:
+#              paths placed in shell text split on spaces and run metacharacters)
+#
+# Rule evaluation order:
+#   1. always           — guides always included regardless of input, added first
+#   2. glob_rules       — path-glob / extension patterns, evaluated per path;
+#                         every matching rule fires (union, not first-match-wins)
+#   3. task_type_rules  — task_type keyword additions, unioned on top
+#   4. default_guides   — fallback used only when no paths and no task_type are given
+# Guides are deduplicated per the order above, preserving first-seen order.
+#
+# Overrides: some path patterns suppress the generic rule for that extension.
+# E.g. resume yaml paths override the generic .yaml → workflow-* set.
+# Override groups are listed under "override_groups".
+
+version: "1.0"
+
+# Guides always included for every invocation, regardless of inputs.
+always:
+  - patterns.md
+
+# Path-glob / extension rules.
+# Evaluated against each path in the input set.
+# Each entry:
+#   glob:   fnmatch-style pattern matched against the full path. Every
+#           "**/" (leading or inner) also matches zero directories: plain
+#           fnmatch needs a separator there, so "**/README" would miss a
+#           repo-root README and "workflows/**/*.yaml" would miss
+#           workflows/x.yaml. The selector also tries each form with some
+#           "**/" segments removed.
+#   ext:    file extension match (dot-prefixed), shorthand for glob="**/*<ext>"
+#   name:   exact basename match
+#   guides: list of guides to add when this rule fires
+#   override_group: (optional) if set, this rule suppresses rules in the named
+#                   override_group for paths that matched this rule. Guides from
+#                   override_group rules are NOT added for those paths.
+glob_rules:
+  # Python source files
+  - ext: .py
+    guides:
+      - correctness.md
+      - security.md
+      - tests.md
+      - patterns.md
+      - reuse.md
+      - complexity.md
+
+  # Test files (tests/ tree or test_*.py filenames) — union with .py rule
+  - glob: "tests/**/*.py"
+    guides:
+      - tests.md
+      - correctness.md
+  - glob: "**/test_*.py"
+    guides:
+      - tests.md
+      - correctness.md
+
+  # Collateral damage from fixes — mirrors the triggers declared in
+  # concerns/collateral-damage.md (src/**/*.py and workflows/**/*.yaml).
+  - glob: "src/**/*.py"
+    guides:
+      - collateral-damage.md
+  - glob: "workflows/**/*.yaml"
+    guides:
+      - collateral-damage.md
+
+  # YAML / YML workflow files (generic rule — overridden for resume paths)
+  - ext: .yaml
+    guides:
+      - workflow.md
+      - workflow-stages.md
+      - workflow-fanout.md
+      - workflow-fragments.md
+      - patterns.md
+    override_group: resume_yaml
+  - ext: .yml
+    guides:
+      - workflow.md
+      - workflow-stages.md
+      - workflow-fanout.md
+      - workflow-fragments.md
+      - patterns.md
+    override_group: resume_yaml
+
+  # SKILL.md files — workflow set + docs
+  - name: SKILL.md
+    guides:
+      - workflow.md
+      - workflow-stages.md
+      - workflow-fanout.md
+      - workflow-fragments.md
+      - patterns.md
+      - docs.md
+
+  # .llm/ context and generated files (CONTEXT.md, FLOWS.yaml, AGENTS_CAPSULE.yaml, etc.)
+  - glob: ".llm/**"
+    guides:
+      - workflow-fragments.md
+      - docs.md
+
+  # Agent definitions under .claude/agents/
+  - glob: ".claude/agents/**"
+    guides:
+      - workflow-fragments.md
+      - docs.md
+
+  # Markdown / README files
+  - ext: .md
+    guides:
+      - docs.md
+  - glob: "**/README"
+    guides:
+      - docs.md
+
+  # iOS layout files
+  - glob: "**/ios.iconlayout.json"
+    guides:
+      - phone-layout.md
+  - glob: "out/ios*"
+    guides:
+      - phone-layout.md
+  - glob: "src/phone/**"
+    guides:
+      - phone-layout.md
+
+  # Slides domain
+  - glob: "src/slides/**"
+    guides:
+      - slides-yaml.md
+  - glob: "**/*.pptx"
+    guides:
+      - slides-yaml.md
+
+# Override groups.
+# When a path matches a glob_rule in this group, the generic rules that
+# have override_group equal to this group's name are suppressed for that path.
+override_groups:
+  resume_yaml:
+    # Resume content YAML: config profiles, examples, linkedin exports.
+    # These are content files, not workflow DAGs — load resume-copy.md
+    # instead of the generic workflow set.
+    rules:
+      - glob: "src/resume/config/**"
+        guides:
+          - resume-copy.md
+      - glob: "src/resume/examples/**"
+        guides:
+          - resume-copy.md
+      - glob: "**/linkedin*.yaml"
+        guides:
+          - resume-copy.md
+      - glob: "**/linkedin*.yml"
+        guides:
+          - resume-copy.md
+
+# task_type rules.
+# Added on top of glob_rules results when --task-type is supplied.
+# Guides are unioned (deduped) with the path-based selection.
+task_type_rules:
+  feature:
+    - correctness.md
+    - patterns.md
+    - security.md
+    - reuse.md
+  test:
+    - tests.md
+    - correctness.md
+  security:
+    - security.md
+    - correctness.md
+  docs:
+    - docs.md
+  refactor:
+    - patterns.md
+    - correctness.md
+    - reuse.md
+    - complexity.md
+  workflow:
+    - workflow.md
+    - workflow-stages.md
+    - workflow-fanout.md
+    - workflow-fragments.md
+    - patterns.md
+
+# Default guides when no paths and no task_type are given.
+default_guides:
+  - correctness.md
+  - patterns.md

@@ -7,7 +7,6 @@ Targets uncovered lines in the 69.7% baseline:
   - _stage_undeclared_refs (fan_out.key suppression, non-StageSpec input)
   - _check_var_refs (fragment-only vars not warned — see the note above that
     test; the suppression happens in _build_known_vars, not the skip guard)
-  - _release_dependents / _bfs_advance (DAG wiring)
   - _check_cli_commands (pattern extraction, dedup, check_commands gate)
   - _cmd_warning (field and stage shape)
   - _validate_cli_command (all subprocess branches, patched, never real)
@@ -18,6 +17,7 @@ Targets uncovered lines in the 69.7% baseline:
 
 from __future__ import annotations
 
+import contextlib
 import subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
 import tempfile
 import unittest
@@ -27,14 +27,12 @@ from unittest.mock import MagicMock, patch
 from workflow.linter import (
     LintResult,
     LintWarning,
-    _bfs_advance,
     _build_known_vars,
     _check_cli_commands,
     _check_include_files,
     _cmd_warning,
     _fragment_stage_names,
     _looks_like_invalid_subcommand,
-    _release_dependents,
     _stage_undeclared_refs,
     _validate_cli_command,
     lint_workflow,
@@ -246,59 +244,6 @@ class TestStageUndeclaredRefs(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# _release_dependents (lines 308-324)
-# ---------------------------------------------------------------------------
-
-
-class TestReleaseDependents(unittest.TestCase):
-    def test_releases_single_dependent(self) -> None:
-        deps = {"b": {"a"}, "c": {"b"}}
-        in_degree = {"b": 1, "c": 1}
-        ready = _release_dependents("a", deps, in_degree)
-        self.assertEqual(ready, ["b"])
-        self.assertNotIn("b", in_degree)
-
-    def test_no_dependents_returns_empty(self) -> None:
-        ready = _release_dependents("x", {"b": {"a"}}, {})
-        self.assertEqual(ready, [])
-
-    def test_partial_release_does_not_emit(self) -> None:
-        deps = {"c": {"a", "b"}}
-        in_degree = {"c": 2}
-        ready = _release_dependents("a", deps, in_degree)
-        self.assertEqual(ready, [])
-        self.assertEqual(in_degree["c"], 1)
-
-    def test_multiple_dependents_released(self) -> None:
-        deps = {"b": {"a"}, "c": {"a"}}
-        in_degree = {"b": 1, "c": 1}
-        ready = _release_dependents("a", deps, in_degree)
-        self.assertEqual(sorted(ready), ["b", "c"])
-
-
-# ---------------------------------------------------------------------------
-# _bfs_advance (lines 327-339)
-# ---------------------------------------------------------------------------
-
-
-class TestBfsAdvance(unittest.TestCase):
-    def test_advance_processes_wave(self) -> None:
-        deps = {"b": {"a"}, "c": {"b"}}
-        in_degree = {"b": 1, "c": 1}
-        next_q = _bfs_advance(["a"], deps, in_degree)
-        self.assertEqual(next_q, ["b"])
-        self.assertNotIn("c", next_q)
-
-    def test_advance_empty_queue_returns_empty(self) -> None:
-        self.assertEqual(_bfs_advance([], {}, {}), [])
-
-    def test_advance_cleans_up_in_degree_for_queue_members(self) -> None:
-        in_degree: dict[str, int] = {"a": 0}
-        _bfs_advance(["a"], {}, in_degree)
-        self.assertNotIn("a", in_degree)
-
-
-# ---------------------------------------------------------------------------
 # _looks_like_invalid_subcommand (lines 414-417)
 # ---------------------------------------------------------------------------
 
@@ -345,7 +290,7 @@ class TestCmdWarning(unittest.TestCase):
 
 class TestValidateCliCommand(unittest.TestCase):
     def test_file_not_found_returns_warning(self) -> None:
-        with patch("workflow.linter.subprocess.run", side_effect=FileNotFoundError):
+        with patch("core.process.subprocess.run", side_effect=FileNotFoundError):
             result = _validate_cli_command("nonexistent", "sub", "stage1")
         self.assertIsNotNone(result)
         # nosec B101 - type narrowing for mypy only; assertIsNotNone above is
@@ -357,7 +302,7 @@ class TestValidateCliCommand(unittest.TestCase):
 
     def test_timeout_returns_skipped_warning(self) -> None:
         with patch(
-            "workflow.linter.subprocess.run",
+            "core.process.subprocess.run",
             side_effect=subprocess.TimeoutExpired(cmd="x", timeout=3),
         ):
             result = _validate_cli_command("mail", "labels", "stage1")
@@ -369,7 +314,7 @@ class TestValidateCliCommand(unittest.TestCase):
         self.assertIn("mail labels", result.message)
 
     def test_oserror_returns_skipped_warning(self) -> None:
-        with patch("workflow.linter.subprocess.run", side_effect=OSError("perm")):
+        with patch("core.process.subprocess.run", side_effect=OSError("perm")):
             result = _validate_cli_command("mail", "labels", "stage1")
         self.assertIsNotNone(result)
         # nosec B101 - type narrowing for mypy only; assertIsNotNone above is
@@ -380,18 +325,18 @@ class TestValidateCliCommand(unittest.TestCase):
     def test_returncode_zero_returns_none(self) -> None:
         mock_proc = MagicMock()
         mock_proc.returncode = 0
-        mock_proc.stdout = b"Usage: mail [options]"
-        mock_proc.stderr = b""
-        with patch("workflow.linter.subprocess.run", return_value=mock_proc):
+        mock_proc.stdout = "Usage: mail [options]"
+        mock_proc.stderr = ""
+        with patch("core.process.subprocess.run", return_value=mock_proc):
             result = _validate_cli_command("mail", "labels", "stage1")
         self.assertIsNone(result)
 
     def test_nonzero_with_invalid_choice_returns_warning(self) -> None:
         mock_proc = MagicMock()
         mock_proc.returncode = 2
-        mock_proc.stdout = b""
-        mock_proc.stderr = b"invalid choice: badcmd"
-        with patch("workflow.linter.subprocess.run", return_value=mock_proc):
+        mock_proc.stdout = ""
+        mock_proc.stderr = "invalid choice: badcmd"
+        with patch("core.process.subprocess.run", return_value=mock_proc):
             result = _validate_cli_command("mail", "badcmd", "stage1")
         self.assertIsNotNone(result)
         # nosec B101 - type narrowing for mypy only; assertIsNotNone above is
@@ -402,10 +347,44 @@ class TestValidateCliCommand(unittest.TestCase):
     def test_nonzero_without_invalid_choice_returns_none(self) -> None:
         mock_proc = MagicMock()
         mock_proc.returncode = 1
-        mock_proc.stdout = b"Error occurred"
-        mock_proc.stderr = b"some other error"
-        with patch("workflow.linter.subprocess.run", return_value=mock_proc):
+        mock_proc.stdout = "Error occurred"
+        mock_proc.stderr = "some other error"
+        with patch("core.process.subprocess.run", return_value=mock_proc):
             result = _validate_cli_command("mail", "labels", "stage1")
+        self.assertIsNone(result)
+
+    def _real_bin(self, tmp: str, script: str) -> None:
+        bin_dir = Path(tmp) / "bin"
+        bin_dir.mkdir()
+        fake = bin_dir / "fake"
+        fake.write_text("#!/bin/sh\n" + script + "\n", encoding="utf-8")
+        fake.chmod(0o755)
+
+    def test_undecodable_output_is_tolerated(self) -> None:
+        # A real process, not a mock: non-UTF-8 bytes in --help output must not
+        # raise UnicodeDecodeError out of the linter.
+        with tempfile.TemporaryDirectory() as tmp:
+            self._real_bin(tmp, "printf 'invalid choice: x \\377' >&2; exit 2")
+            with contextlib.chdir(tmp):
+                result = _validate_cli_command("fake", "x", "stage1")
+        self.assertIsNotNone(result)
+        assert result is not None  # nosec B101 - type narrowing for mypy only
+        self.assertIn("command not found", result.message)
+
+    def test_real_exit_124_is_not_reported_as_timeout(self) -> None:
+        # rc 124 from a process that ran is an ordinary failure, not a timeout.
+        with tempfile.TemporaryDirectory() as tmp:
+            self._real_bin(tmp, "echo boom >&2; exit 124")
+            with contextlib.chdir(tmp):
+                result = _validate_cli_command("fake", "x", "stage1")
+        self.assertIsNone(result)
+
+    def test_real_exit_127_is_not_reported_missing(self) -> None:
+        # rc 127 from a process that ran is an ordinary failure, not a missing bin.
+        with tempfile.TemporaryDirectory() as tmp:
+            self._real_bin(tmp, "echo boom >&2; exit 127")
+            with contextlib.chdir(tmp):
+                result = _validate_cli_command("fake", "x", "stage1")
         self.assertIsNone(result)
 
     def test_allowlisted_sub_missing_bin_returns_warning(self) -> None:
@@ -415,7 +394,7 @@ class TestValidateCliCommand(unittest.TestCase):
         # would silently flip this test from asserting the missing-bin branch to
         # asserting nothing. The sibling test below patches it True for the same reason.
         with patch("workflow.linter.Path.exists", return_value=False):
-            with patch("workflow.linter.subprocess.run") as mock_run:
+            with patch("core.process.subprocess.run") as mock_run:
                 result = _validate_cli_command("docs", "search", "stage1")
         mock_run.assert_not_called()
         self.assertIsNotNone(result)
@@ -427,7 +406,7 @@ class TestValidateCliCommand(unittest.TestCase):
     def test_allowlisted_sub_existing_bin_returns_none(self) -> None:
         # Patch Path.exists so the bin appears to exist -> None returned, no subprocess
         with patch("workflow.linter.Path.exists", return_value=True):
-            with patch("workflow.linter.subprocess.run") as mock_run:
+            with patch("core.process.subprocess.run") as mock_run:
                 result = _validate_cli_command("docs", "search", "stage1")
         mock_run.assert_not_called()
         self.assertIsNone(result)
@@ -442,26 +421,26 @@ class TestCheckCliCommands(unittest.TestCase):
     def test_valid_command_no_warning(self) -> None:
         mock_proc = MagicMock()
         mock_proc.returncode = 0
-        mock_proc.stdout = b"Usage: ..."
-        mock_proc.stderr = b""
+        mock_proc.stdout = "Usage: ..."
+        mock_proc.stderr = ""
         defn = make_workflow_definition(stages=(
             make_stage_spec(name="s", description="Run ./bin/mail labels to gather data"),
         ))
         result = LintResult(file="test.yaml")
-        with patch("workflow.linter.subprocess.run", return_value=mock_proc):
+        with patch("core.process.subprocess.run", return_value=mock_proc):
             _check_cli_commands(defn, result)
         self.assertEqual(len(result.warnings), 0)
 
     def test_invalid_command_adds_warning(self) -> None:
         mock_proc = MagicMock()
         mock_proc.returncode = 2
-        mock_proc.stdout = b""
-        mock_proc.stderr = b"invalid choice: badcmd"
+        mock_proc.stdout = ""
+        mock_proc.stderr = "invalid choice: badcmd"
         defn = make_workflow_definition(stages=(
             make_stage_spec(name="s", description="Run ./bin/mail badcmd to do stuff"),
         ))
         result = LintResult(file="test.yaml")
-        with patch("workflow.linter.subprocess.run", return_value=mock_proc):
+        with patch("core.process.subprocess.run", return_value=mock_proc):
             _check_cli_commands(defn, result)
         self.assertEqual(len(result.warnings), 1)
         self.assertIn("badcmd", result.warnings[0].message)
@@ -469,14 +448,14 @@ class TestCheckCliCommands(unittest.TestCase):
     def test_same_command_in_multiple_stages_deduped(self) -> None:
         mock_proc = MagicMock()
         mock_proc.returncode = 0
-        mock_proc.stdout = b"Usage: ..."
-        mock_proc.stderr = b""
+        mock_proc.stdout = "Usage: ..."
+        mock_proc.stderr = ""
         defn = make_workflow_definition(stages=(
             make_stage_spec(name="s1", description="Run ./bin/mail labels first"),
             make_stage_spec(name="s2", description="Also ./bin/mail labels later"),
         ))
         result = LintResult(file="test.yaml")
-        with patch("workflow.linter.subprocess.run", return_value=mock_proc) as mock_run:
+        with patch("core.process.subprocess.run", return_value=mock_proc) as mock_run:
             _check_cli_commands(defn, result)
 
         # The probe count is the behaviour under test — two stages naming the
@@ -541,15 +520,15 @@ class TestLintWorkflowCheckCommandsGate(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             wf = Path(tmp) / "wf.yaml"
             wf.write_text(_minimal_yaml(extra=extra), encoding="utf-8")
-            with patch("workflow.linter.subprocess.run") as mock_run:
+            with patch("core.process.subprocess.run") as mock_run:
                 lint_workflow(wf, check_commands=False)
         mock_run.assert_not_called()
 
     def test_check_commands_true_calls_subprocess(self) -> None:
         mock_proc = MagicMock()
         mock_proc.returncode = 0
-        mock_proc.stdout = b"Usage: ..."
-        mock_proc.stderr = b""
+        mock_proc.stdout = "Usage: ..."
+        mock_proc.stderr = ""
         extra = (
             "  - name: step\n    kind: execute\n"
             "    description: Run ./bin/mail labels to do something\n"
@@ -558,7 +537,7 @@ class TestLintWorkflowCheckCommandsGate(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             wf = Path(tmp) / "wf.yaml"
             wf.write_text(_minimal_yaml(extra=extra), encoding="utf-8")
-            with patch("workflow.linter.subprocess.run", return_value=mock_proc) as mock_run:
+            with patch("core.process.subprocess.run", return_value=mock_proc) as mock_run:
                 lint_workflow(wf, check_commands=True)
         mock_run.assert_called_once()
 

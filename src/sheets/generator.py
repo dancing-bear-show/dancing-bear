@@ -9,6 +9,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+from core.doc_metadata import parse_doc_metadata
 from core.yamlio import load_config
 from sheets.constants import (
     ALTERNATING_ROW_COLOR_1,
@@ -30,11 +31,9 @@ from sheets.constants import (
     MAX_SHEET_NAME_LENGTH,
     MIN_COLUMN_WIDTH,
     YAML_ALTERNATING_ROWS,
-    YAML_AUTHOR,
     YAML_BG_COLOR,
     YAML_BOLD,
     YAML_COLUMN_WIDTHS,
-    YAML_DATE,
     YAML_FONT_SIZE,
     YAML_FREEZE_COLS,
     YAML_FREEZE_ROWS,
@@ -44,7 +43,6 @@ from sheets.constants import (
     YAML_SHEET_NAME,
     YAML_SHEETS,
     YAML_TEXT_COLOR,
-    YAML_TITLE,
 )
 from sheets.schema import HeaderStyle, SheetMetadata, SheetTab, SheetWorkbook
 
@@ -103,11 +101,8 @@ def load_workbook_from_yaml(yaml_path: str) -> SheetWorkbook:
     """
     data = load_config(yaml_path)
 
-    metadata = SheetMetadata(
-        title=data.get(YAML_TITLE, DEFAULT_WORKBOOK_TITLE),
-        author=data.get(YAML_AUTHOR),
-        date=str(data[YAML_DATE]) if YAML_DATE in data and data[YAML_DATE] is not None else None,
-    )
+    doc = parse_doc_metadata(data, DEFAULT_WORKBOOK_TITLE)
+    metadata = SheetMetadata(title=doc.title, author=doc.author, date=doc.date)
 
     sheets: list[SheetTab] = []
     for sheet_data in data.get(YAML_SHEETS, []):

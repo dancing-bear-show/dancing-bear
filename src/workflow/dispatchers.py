@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from core.date_utils import iso_now
-from workflow.dispatch import build_dispatch_instruction
+from workflow.dispatch import build_dispatch_instruction, writes_to_relpath
 from workflow.models import (
     OutputMode,
     ResolvedStage,
@@ -174,11 +174,8 @@ class LocalDispatcher:
         output_dir.mkdir(parents=True, exist_ok=True)
         outputs_list = stage.spec.outputs
         for i, filename in enumerate(stage.spec.writes_to):
-            # Honor explicit prefixes (outputs/, validation/); bare names go under outputs/.
-            if any(filename.startswith(p) for p in ("outputs/", "validation/", "stages/")):
-                dest = workspace_dir / filename
-            else:
-                dest = output_dir / filename
+            # Workspace-root prefixes are honoured; bare names go under outputs/.
+            dest = workspace_dir / writes_to_relpath(filename)
             dest.parent.mkdir(parents=True, exist_ok=True)
             file_data = data.get(outputs_list[i].name, data) if i < len(outputs_list) else data
             content = file_data if isinstance(file_data, str) else json.dumps(file_data, indent=2, default=str)

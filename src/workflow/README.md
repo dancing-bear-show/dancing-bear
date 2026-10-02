@@ -24,6 +24,11 @@ Supports `--agentic`: `./bin/workflow --agentic --agentic-format yaml --agentic-
 ./bin/workflow thread-fingerprints "<ws>/outputs/threads.json"          # per-thread discriminators
 ./bin/workflow check-thread-ids "<ws>/outputs/threads.json" "<ws>/outputs/triage.json" [--repair]
 ./bin/workflow aggregate-fix-results "<ws>/outputs/fix-index.json" "<ws>/outputs/fixes" "<ws>/outputs/fix-results.json"
+./bin/workflow snapshot-dirty "<ws>/outputs/dirty-baseline.json"        # record dirty paths before fixers run
+./bin/workflow check-unlisted "<ws>/outputs/dirty-baseline.json" "<ws>/outputs/fix-results.json"
+./bin/workflow select-concerns --paths-file <file|-> [--task-type T] --format json  # concern guides for paths
+./bin/workflow review-rounds --prs N[,N...] --out-dir <dir>             # bot review-round data per PR
+./bin/workflow count-sweep --pattern <regex> --path <path> [--path ...] # count matching lines, no shell
 ```
 
 Stage guards. Each one reads untrusted values as JSON data from a workspace
@@ -54,6 +59,41 @@ and name an entry, never its rejected value.
   on `id`, never `thread_id`. A file counts only if its name is an expected
   `file_id` and its in-file `id` and `thread_id` equal that entry's; otherwise
   it is a `key_mismatch` and its finding is reported missing.
+- `snapshot-dirty` records the checkout's dirty and untracked paths with
+  content hashes, plus HEAD, before any fixer runs.
+- `check-unlisted` exits 1 if a path changed since that snapshot is missing
+  from fix-results.json `files_changed`. It also needs a `pr-context.json`
+  beside the baseline holding `dirty_baseline_sha256`, the baseline's sha256
+  recorded right after `snapshot-dirty` wrote it; the baseline is re-hashed
+  against it. It fails closed: a missing or mismatched `pr-context.json`, an
+  unreadable input, or a failed git call is exit 1, never a pass.
+
+Other commands. For every command, argparse rejects a missing required flag or
+a malformed value (e.g. a non-integer `--recent`) with exit 2 before the
+handler runs; the exit codes below are the handlers' own.
+
+- `select-concerns` prints the `concerns/*.md` guides that apply to a set of
+  paths, using the canonical rules in `concerns/selection.yaml`. Pass paths
+  with `--paths-file <file>` or `--paths-file -` (stdin), never inline, and set
+  `pipefail` when piping `git diff` into it. `--format json` gives
+  `{"guides": [...], "matched": {guide: [reasons]}}`. Exit 0 on success; 1 on
+  an I/O or parse error, including a missing `selection.yaml` outside a
+  checkout; 2 on an unknown `--task-type` (the valid types come from
+  `selection.yaml`). See `concern_select.py`.
+- `review-rounds` fetches bot review-round data for `--prs` or the `--recent N`
+  PRs and writes `pr<N>.json` plus `summary.json` to `--out-dir`. Exit 1 when
+  the handler rejects the arguments (e.g. both or neither of `--prs` and
+  `--recent`), on an API failure, or on truncated pagination.
+- `count-sweep` counts lines matching a Python regex under each `--path` and
+  prints `{hits, files}`. Paths resolve against `--root`, which defaults to the
+  repo root and may be a directory inside it, so `--root src --path
+  workflow/x.py` reads `src/workflow/x.py`. The command itself runs no shell, but
+  your shell still parses the command line, so single-quote the regex as one
+  argument (`--pattern 'foo|bar'`). Exit
+  2 on an invalid pattern, a refused or missing path, or a `--root` outside
+  the checkout; 1 when the scan hit its work bound, so the count is partial.
+  In that case stdout still carries the partial count, with
+  `"truncated": true` added (`{hits, files, truncated}`).
 
 `run` defaults to dry-run; pass `--execute` to execute. `--params key=value` overrides trigger parameters (repeatable).
 
@@ -113,6 +153,7 @@ Set `human_gate: true` on any stage to pause execution for human review after th
 - `include.py` — workflow fragment inclusion and merging
 - `models.py` — `StageKind`, `ResolvedStage`, `WorkflowManifest`, `WorkflowRun` dataclasses
 - `linter.py` — structural lint checks
+- `dag.py` — `bfs_levels`: level-by-level topological walk shared by the compiler and linter
 - `linter_shell.py` / `shell_text.py` — warnings (with `rule` ids) on shell embedded in stage prose: `shell-unvalidated-param`, `shell-unquoted-fan-out-key`, `shell-unbound-variable`, `python-not-isolated`, `validate-stage-writes-output`, `shell-guard-refused`
 - `output_checks.py` — post-stage output validation
 - `param_guard.py` — `check-params`: validate params read as JSON data

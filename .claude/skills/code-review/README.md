@@ -47,18 +47,15 @@ stage loads only the guides relevant to the diff, then filters each guide's
 concerns to those triggered by the actual changes. Validators only spend time
 on relevant checks.
 
-| Guide | Loaded when |
-|-------|-------------|
-| `correctness.md` | diff contains `.py` files |
-| `security.md` | diff contains `.py` files |
-| `tests.md` | diff contains `.py` files (test files, or source files with `sys.exit()` / HTTP clients) |
-| `patterns.md` | any diff (all file types) |
-| `reuse.md` | diff contains `.py` files |
-| `complexity.md` | diff contains `.py` files |
-| `workflow.md`, `workflow-stages.md`, `workflow-fanout.md`, `workflow-fragments.md` | diff contains `.yaml`/`.yml` or `SKILL.md` files |
-| `docs.md` | diff contains `.md`, `README`, or `SKILL.md` files |
-| `resume-copy.md` | diff contains `src/resume/config/profiles/**`, `src/resume/config/*.yaml`, `src/resume/examples/*`, or any `linkedin*.yaml` |
-| `phone-layout.md` | diff contains iOS layout files (`out/ios.iconlayout.json`, icon map) |
+Guide selection is canonical — the concern-sweep stage runs the selector, and
+you can run it yourself to see the exact list for a diff:
+
+```bash
+set -o pipefail
+git diff main...HEAD --name-only | ./bin/workflow select-concerns --paths-file - --format json
+```
+
+The rules live in `concerns/selection.yaml`; do not restate them here.
 
 ## Output
 

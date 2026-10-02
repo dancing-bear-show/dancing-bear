@@ -17,6 +17,7 @@ from resume.keyword_normalize import (
     KeywordMatchResult,
     SynonymRegistry,
     item_match_text,
+    normalize_text,
 )
 
 
@@ -51,11 +52,6 @@ class KeywordMatchEngine(SynonymRegistry):
     def __init__(self) -> None:
         super().__init__()
         self._keywords: dict[str, KeywordInfo] = {}  # canonical -> info
-
-    @staticmethod
-    def normalize(text: str) -> str:
-        """Normalize text for matching (lowercase, collapse whitespace)."""
-        return re.sub(r"\s+", " ", text or "").strip().lower()
 
     def add_keyword(
         self,
@@ -132,8 +128,8 @@ class KeywordMatchEngine(SynonymRegistry):
         """Check if a single keyword matches in text."""
         if not text or not keyword:
             return False
-        t = self.normalize(text) if normalize else text.lower()
-        k = self.normalize(keyword) if normalize else keyword.lower()
+        t = normalize_text(text) if normalize else text.lower()
+        k = normalize_text(keyword) if normalize else keyword.lower()
         if not k:
             return False
         if word_boundary and re.search(rf"\b{re.escape(k)}\b", t):

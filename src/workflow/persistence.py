@@ -8,7 +8,8 @@ Architecture:
   - Workspace root: /tmp/{workflow_name}-{run_id}/
   - Stage results: stages/{index:03d}-{name}.json
   - Manifest: manifest.json
-  - Subdirs: stages/, outputs/, validation/
+  - Subdirs: one for each entry in workflow.dispatch.WORKSPACE_ROOT_PREFIXES
+    (outputs/, validation/, stages/, dispatch/, context/)
 """
 
 from __future__ import annotations
@@ -22,12 +23,15 @@ from pathlib import Path
 from typing import Any
 
 from core.fileutil import atomic_write_json
+from workflow.dispatch import WORKSPACE_ROOT_PREFIXES
 from workflow.models import ManifestRef, StageResult, StageStatus, WorkflowManifest
 from workflow.param_rules import require_shell_safe_path
 
 logger = logging.getLogger(__name__)
 
-_SUBDIRS = ("stages", "outputs", "validation")
+# Derive subdirectory names from the single source of truth in dispatch.py so
+# adding a new prefix there automatically causes init_workspace to create it.
+_SUBDIRS: tuple[str, ...] = tuple(p.rstrip("/") for p in WORKSPACE_ROOT_PREFIXES)
 
 
 def init_workspace(
@@ -38,7 +42,8 @@ def init_workspace(
     """Create workspace directory for a workflow run.
 
     Default base: /tmp/{workflow_name}-{run_id}/
-    Creates subdirs: stages/, outputs/, validation/
+    Creates one subdirectory for each entry in WORKSPACE_ROOT_PREFIXES
+    (outputs/, validation/, stages/, dispatch/, context/).
     Returns the workspace root path.
 
     Raises:
