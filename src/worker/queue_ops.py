@@ -106,14 +106,19 @@ def _q(root: Path | None) -> Path:
     return get_worker_state_dir("queue")
 
 
-def _ensure_dirs(root: Path | None = None) -> dict[str, Path]:
+def _queue_paths(root: Path | None = None) -> dict[str, Path]:
+    """The four queue folders under root, without creating them."""
     r = _q(root)
-    paths = {
+    return {
         "pending": r / "pending",
         "processing": r / "processing",
         "done": r / "done",
         "error": r / "error",
     }
+
+
+def _ensure_dirs(root: Path | None = None) -> dict[str, Path]:
+    paths = _queue_paths(root)
     for p in paths.values():
         p.mkdir(parents=True, exist_ok=True)
     return paths
@@ -1565,8 +1570,9 @@ def purge(
     older_than_sec: int, *, root: Path | None = None, folders: list[str] | None = None, dry_run: bool = False
 ) -> dict[str, int]:
     """Delete jobs in given folders older than threshold; returns counts per
-    folder. dry_run returns the counts that would be deleted, deleting nothing."""
-    paths = _ensure_dirs(root)
+    folder. dry_run returns the counts that would be deleted, deleting and
+    creating nothing."""
+    paths = _queue_paths(root) if dry_run else _ensure_dirs(root)
     now = datetime.now(UTC)
     targets = folders or ["done", "error"]
     out: dict[str, int] = dict.fromkeys(targets, 0)

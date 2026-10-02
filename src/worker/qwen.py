@@ -1779,11 +1779,12 @@ def _open_private_dir(directory: Path) -> int:
     return _open_existing_private_dir(directory)
 
 
-def _open_existing_private_dir(directory: Path) -> int:
+def _open_existing_private_dir(directory: Path, *, repair_mode: bool = True) -> int:
     """Open directory once without following a symlink; never create it.
 
     Returns a descriptor for a directory owned by this user, set to 0700
-    through the descriptor. O_NOFOLLOW refuses a symlink at the final
+    through the descriptor unless repair_mode is False (a read-only caller
+    such as a dry run). O_NOFOLLOW refuses a symlink at the final
     component, whenever it was planted. Parents above it are not
     re-validated. Raises FileNotFoundError when directory is absent, and
     OSError for a symlink or a directory this user does not own. The caller
@@ -1795,7 +1796,8 @@ def _open_existing_private_dir(directory: Path) -> int:
         info = os.fstat(dfd)
         if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid():
             raise OSError(f"not a directory owned by this user: {directory}")
-        os.fchmod(dfd, 0o700)
+        if repair_mode:
+            os.fchmod(dfd, 0o700)
     except BaseException:
         os.close(dfd)
         raise
@@ -1923,11 +1925,12 @@ def prune_responses(older_than_sec: float, *, now: float | None = None, dry_run:
     returns 0. A symlink or foreign-owned directory there raises OSError and
     nothing is removed. Removal follows _prune_response_entries with no
     count cap and no kept name, under _responses_lock. dry_run returns the
-    count that would be removed and removes nothing.
+    count that would be removed and changes nothing: no unlink, and no
+    chmod of responses/ (the same type, owner and symlink checks apply).
     """
     cutoff = (time.time() if now is None else now) - older_than_sec
     try:
-        dfd = _open_existing_private_dir(_response_dir())
+        dfd = _open_existing_private_dir(_response_dir(), repair_mode=not dry_run)
     except FileNotFoundError:
         return 0
     try:

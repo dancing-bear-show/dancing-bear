@@ -1666,6 +1666,30 @@ class QwenPruneResponsesTests(_ResponseDirHelpers):
         self.assertEqual(qwen.prune_responses(self.window_sec, dry_run=True), 0)
         self.assertFalse(self.response_dir.exists())
 
+    def test_dry_run_leaves_the_directory_mode_alone_and_a_real_purge_repairs_it(self) -> None:
+        self._plant_response("old-job.txt", 8)
+        os.chmod(self.response_dir, 0o755)  # nosec B103 - temp test dir; asserts the dry run does not chmod it
+
+        self.assertEqual(qwen.prune_responses(self.window_sec, dry_run=True), 1)
+        self.assertEqual(oct(self.response_dir.stat().st_mode & 0o777), oct(0o755), "a dry run changed the mode")
+
+        self.assertEqual(qwen.prune_responses(self.window_sec), 1)
+        self.assertEqual(oct(self.response_dir.stat().st_mode & 0o777), oct(0o700))
+
+    def test_dry_run_still_refuses_a_symlinked_directory(self) -> None:
+        outside = self._outside_dir()
+        target = outside / "old-job.txt"
+        target.write_text("outside response", encoding="utf-8")
+        stamp = time.time() - 30 * 86400
+        os.utime(target, (stamp, stamp))
+        self.response_dir.symlink_to(outside)
+
+        with self.assertRaises(OSError):
+            qwen.prune_responses(self.window_sec, dry_run=True)
+
+        self.assertTrue(target.exists())
+        self.assertEqual(oct(outside.stat().st_mode & 0o777), oct(0o755), "outside dir mode was changed")
+
 
 class QwenResponsesLockTests(_ResponseDirHelpers):
     """Persisting (write plus its prune) and prune_responses hold one flock on

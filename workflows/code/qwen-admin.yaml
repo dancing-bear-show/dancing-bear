@@ -666,12 +666,14 @@ stages:
         mode: generate
         description: >
           queue.json with per-lane counts, stuck jobs split by heartbeat
-          freshness, clustered error signatures, and throughput.
+          freshness, clustered error signatures, throughput, and
+          saved_responses (always present; its purgeable is null when the
+          --dry-run probe refuses responses/).
     writes_to:
       - outputs/analysis/queue.json
     validates_output:
       - path: outputs/analysis/queue.json
-        checks: [is_json, has_key:counts, has_key:qwen_lane, has_key:needs_attention]
+        checks: [is_json, has_key:counts, has_key:qwen_lane, has_key:saved_responses, has_key:needs_attention]
 
   # ===========================================================================
   # G0d: Spend — time and tokens, from telemetry

@@ -675,6 +675,19 @@ class TestPurge(unittest.TestCase, QueueRootIsolationMixin):
         self.assertTrue(old.exists())
         self.assertTrue(recent.exists())
 
+    def test_purge_dry_run_creates_no_queue_folders(self):
+        from worker.queue_ops import purge
+        root = self.root / "fresh-root"
+        result = purge(3600, root=root, folders=["pending", "processing", "done", "error"], dry_run=True)
+        self.assertEqual(result, {"pending": 0, "processing": 0, "done": 0, "error": 0})
+        self.assertFalse(root.exists(), "a dry run created the queue root or its folders")
+
+    def test_purge_still_creates_queue_folders(self):
+        from worker.queue_ops import purge
+        root = self.root / "fresh-root"
+        purge(3600, root=root, folders=["done"])
+        self.assertEqual(sorted(p.name for p in root.iterdir()), ["done", "error", "pending", "processing"])
+
     def test_purge_multiple_old_files(self):
         from worker.queue_ops import purge
         p1 = self._make_old_file("done", "multi1", age_sec=7200)
