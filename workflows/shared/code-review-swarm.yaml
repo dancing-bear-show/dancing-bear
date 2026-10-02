@@ -210,17 +210,16 @@ stages:
     reads_from: [fetch-pr-context]
     description: >
       Read {workspace}/outputs/changed-files.txt and select which concern guide
-      files to sweep based on file extensions present in the diff.
+      files to sweep using the canonical selector:
 
-      Guide selection rules:
-        - .py files present          → correctness.md, security.md, tests.md, patterns.md, reuse.md, complexity.md
-          (tests.md applies to test files AND source files that introduce sys.exit() / HTTP clients)
-        - .yaml/.yml files present   → workflow.md, workflow-fanout.md, workflow-fragments.md, patterns.md
-        - SKILL.md files present     → workflow.md, workflow-fanout.md, workflow-fragments.md, patterns.md, docs.md
-        - .md / README files present → docs.md
-        - always                     → patterns.md
+        ./bin/workflow select-concerns \
+          --paths-file {workspace}/outputs/changed-files.txt \
+          --format json
 
-      Deduplicate the list (patterns.md appears once even if selected multiple times).
+      The selector (concerns/selection.yaml) is the single source of truth for
+      guide-selection rules — do not restate them here.
+
+      Parse the JSON output to get the guides list, then build the index.
 
       Write {workspace}/outputs/concern-sweep-index.json:
         {
@@ -608,10 +607,12 @@ stages:
            If no matching entry exists, write {workspace}/outputs/findings/{index}.json
            with verdict: "failed" and exit.
 
-        2. Reads the full concern definition from the appropriate guide file in
-           concerns/ for concern_id (correctness.md, security.md, tests.md,
-           patterns.md, reuse.md, complexity.md, workflow.md, workflow-fanout.md,
-           workflow-fragments.md, or docs.md).
+        2. Reads the full concern definition for concern_id. Locate its guide
+           by searching concerns/*.md for the heading (Grep tool, pattern
+           "^### <concern_id>$", path concerns/) — do not assume a fixed list
+           of guide files: the sweep selects guides with select-concerns, so
+           any concerns/*.md guide can supply the concern_id. If no guide has
+           that heading, write verdict: "needs-context" naming the missing ID.
 
         3. Reads the actual file at the path given (Read tool, not Bash).
 
@@ -648,11 +649,8 @@ stages:
       Only write confirmed or needs-context findings. Discard not-present
       verdicts after writing them (they are noise for the consolidation step).
 
-      Read the appropriate guide file from concerns/
-      (correctness.md, security.md, tests.md, patterns.md, reuse.md,
-      complexity.md, workflow.md, workflow-fanout.md, workflow-fragments.md,
-      or docs.md) for the authoritative concern definition before evaluating.
-      Do not infer checks from memory.
+      Read the guide found in step 2 for the authoritative concern
+      definition before evaluating. Do not infer checks from memory.
     agent:
       role: unit-validator
       model: haiku

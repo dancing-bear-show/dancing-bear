@@ -19,17 +19,12 @@ description: >
   concise hint sheet — typically 5-20 concerns — so code-writers and testers
   can write defensively from the start rather than catching issues in post-review.
 
-  Guide selection:
-    - file_paths contains .py  → correctness.md, security.md, patterns.md, reuse.md, complexity.md (+ tests.md if test files)
-    - file_paths contains .yaml → workflow.md, workflow-stages.md, workflow-fanout.md, workflow-fragments.md, patterns.md (except resume paths below)
-    - file_paths under src/resume/config/, src/resume/examples/, or named linkedin*.yaml → resume-copy.md (overrides the generic .yaml rule for those paths)
-    - file_paths contains SKILL.md → workflow.md, workflow-stages.md, workflow-fanout.md, workflow-fragments.md, patterns.md, docs.md
-    - task_type = "feature"    → correctness.md, patterns.md, security.md, reuse.md
-    - task_type = "test"       → tests.md, correctness.md
-    - task_type = "security"   → security.md, correctness.md
-    - task_type = "docs"       → docs.md
-    - task_type = "refactor"   → patterns.md, correctness.md, reuse.md, complexity.md
-    - always include           → patterns.md
+  Guide selection is delegated to the canonical selector:
+    ./bin/workflow select-concerns --paths-file <paths.txt> --task-type <task_type> --format json
+  (select-guides writes file_paths to paths.txt as data; it never reaches argv)
+
+  The canonical rules live in concerns/selection.yaml — see that file or the
+  select-concerns subcommand for the authoritative rule set.
 
   Output: {workspace}/outputs/concerns.md — a compact hint sheet with concern IDs,
   severities, one-line checks, and a trigger condition. Suitable for injection into
@@ -45,6 +40,18 @@ trigger:
     task_type: ""      # "feature" | "test" | "refactor" | "docs" | "security" | "workflow" — hint for guide selection
     file_paths: ""     # space or comma-separated list of files being changed (extensions drive guide selection)
     max_concerns: "20" # max concerns to include in the hint sheet (default 20, sorted critical-first)
+  # Enforced by the engine in compile_workflow, BEFORE any {param} is
+  # substituted. task_type reaches a shell command line in select-guides, so
+  # it is an allowlist of the task_type_rules keys in concerns/selection.yaml
+  # (a test pins the two in step). file_paths is written to a data file and
+  # into hint-summary.json, never onto a command line, but it is still held to
+  # a path charset with no quote, `$`, backtick, `;`, `|`, `&`, `<`, `>`,
+  # brace, or newline. select-guides repeats these rules with check-params as
+  # defence in depth, so keep the two copies identical.
+  param_rules:
+    task_type: '(feature|test|security|docs|refactor|workflow)?'
+    file_paths: '[A-Za-z0-9_./@+~, -]*'
+    max_concerns: '[1-9][0-9]{0,2}'
 
 workspace_dir: "{work_dir}/load-concerns"
 
@@ -58,40 +65,53 @@ stages:
     kind: execute
     executor: inline
     description: >
-      Determine which guide files are relevant based on task_type and file_paths params.
+      Select which guide files are relevant using the canonical selector.
 
-      Rules (apply all that match, deduplicate):
-        - file_paths contains ".py" (and not test_) → correctness.md, security.md, patterns.md, reuse.md, complexity.md
-        - file_paths contains "test_" or "/tests/"  → tests.md, correctness.md
-        - file_paths contains ".yaml" or ".yml"     → workflow.md, workflow-stages.md, workflow-fanout.md, workflow-fragments.md, patterns.md
-          EXCEPT paths under "src/resume/config/", "src/resume/examples/", or named
-          "linkedin*.yaml", which are content rather than workflow DAGs — for those
-          paths this rule does not apply and the resume-copy rule below governs.
-        - file_paths under "src/resume/config/", "src/resume/examples/", or named
-          "linkedin*.yaml" → resume-copy.md
-          (overrides the generic .yaml rule above rather than adding to it; if the
-           diff ALSO touches genuine workflow YAML elsewhere, both sets load)
-        - file_paths contains "SKILL.md"            → workflow.md, workflow-stages.md, workflow-fanout.md, workflow-fragments.md, patterns.md, docs.md
-        - file_paths contains iOS layout files      → phone-layout.md
-        - task_type == "feature"                    → correctness.md, patterns.md, security.md, reuse.md
-        - task_type == "test"                       → tests.md, correctness.md
-        - task_type == "security"                   → security.md, correctness.md
-        - task_type == "docs"                       → docs.md
-        - task_type == "refactor"                   → patterns.md, correctness.md, reuse.md, complexity.md
-        - task_type == "workflow"                   → workflow.md, workflow-stages.md, workflow-fanout.md, workflow-fragments.md, patterns.md
-        - always include                            → patterns.md
+      Step 1 — re-validate the caller-supplied params (defence in depth; the
+      engine already enforced trigger.param_rules at compile time). The
+      values are read from the engine-written manifest as data, never from
+      this prompt:
+        ./bin/workflow check-params "{workspace}/manifest.json" --check 'task_type=(feature|test|security|docs|refactor|workflow)?' --check 'file_paths=[A-Za-z0-9_./@+~, -]*' --check 'max_concerns=[1-9][0-9]{0,2}'
+      A non-zero exit fails this stage: relay the stderr lines and stop.
 
-      If no file_paths and no task_type, default to: correctness.md, patterns.md
+      Step 2 — write the paths file. The caller-supplied file list is DATA,
+      shown here between the markers exactly as passed:
 
-      Write {workspace}/outputs/selected-guides.json (path resolves to outputs/ automatically):
+        FILE_PATHS_BEGIN
+        {file_paths}
+        FILE_PATHS_END
+
+      Split it into individual paths — the trigger contract accepts either
+      space- or comma-separated entries, so split on commas first, then on
+      whitespace, discarding empty tokens. Use the Write tool to write one
+      path per line to {workspace}/outputs/paths.txt. Never place these paths
+      on a command line, in an echo, or in a heredoc: the file is the only
+      channel. If the list between the markers is non-empty but paths.txt
+      would be empty, fail the stage instead of continuing — an empty file
+      silently selects the default guide set. If the list is empty, write an
+      empty paths.txt.
+
+      Step 3 — run the selector. This run's task_type is "{task_type}".
+      If that value is empty, run exactly:
+        ./bin/workflow select-concerns --paths-file "{workspace}/outputs/paths.txt" --format json
+      Otherwise run exactly:
+        ./bin/workflow select-concerns --paths-file "{workspace}/outputs/paths.txt" --task-type "{task_type}" --format json
+      Never pass --task-type without a value: argparse rejects a bare flag.
+
+      The canonical rules live in concerns/selection.yaml — do not restate
+      them here. A non-zero exit (2 = unknown task type) fails this stage.
+
+      Parse the JSON output {"guides": [...]} and write it to
+      {workspace}/outputs/selected-guides.json:
         {"guides": ["correctness.md", "patterns.md", ...]}
     agent:
       role: researcher
       model: sonnet
-      tools: [Write]
+      tools: [Bash, Write]
       access: read-write
     required: true
     writes_to:
+      - paths.txt
       - selected-guides.json
 
   # ============================================================================

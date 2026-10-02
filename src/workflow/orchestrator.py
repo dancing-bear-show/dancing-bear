@@ -14,6 +14,7 @@ from pathlib import Path
 
 from core.date_utils import iso_now
 from core.fileutil import atomic_write_json
+from workflow.dispatch import writes_to_relpath
 from workflow.dispatchers import (
     CompositeDispatcher,
     StageDispatcher,
@@ -306,12 +307,8 @@ class WorkflowOrchestrator:
         started_at = iso_now()
         if not self._dry_run:
             for rel_path in stage.spec.writes_to:
-                # Mirror the same prefix logic as dispatchers._write_output_files.
-                if any(rel_path.startswith(p) for p in ("outputs/", "validation/", "stages/")):
-                    dest = self._workspace_dir / rel_path
-                else:
-                    dest = self._workspace_dir / "outputs" / rel_path
-                atomic_write_json(dest, {})
+                # Same resolution as the prompt builder and the dispatcher.
+                atomic_write_json(self._workspace_dir / writes_to_relpath(rel_path), {})
         logger.info("Stage '%s' skipped — when condition false: %r", stage.spec.name, stage.spec.when)
         return make_stage_result(
             stage, started_at, StageStatus.skipped,

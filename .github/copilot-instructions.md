@@ -202,22 +202,10 @@ than reading them all. (Per-guide concern counts live in `concerns/README.md`;
 they are not repeated here, as that table has already drifted from the actual
 `###` heading counts.)
 
-| Guide | Load when the diff touches |
-|-------|----------------------------|
-| `correctness.md` | any Python — type safety, logic errors |
-| `patterns.md` | CLI framework, lazy imports, plan/apply safety |
-| `workflow.md` | `FLOWS.yaml`, CLI references, plan/apply order |
-| `tests.md` | test files — quality, coverage, fixture patterns |
-| `workflow-fragments.md` | `.llm/` context files, agent definitions |
-| `docs.md` | docstrings, CLI help text, `.llm/` staleness |
-| `workflow-fanout.md` | fan-out, writes-to contracts, worker queue |
-| `slides-yaml.md` | slide deck YAML — bullet forms, silent drops |
-| `workflow-stages.md` | stage runtime, model tier, tool access |
-| `resume-copy.md` | resume/profile copy — voice, banned phrases |
-| `security.md` | credentials, input validation, `nosec` rationale |
-| `phone-layout.md` | iOS layout — icon map, folders, profile install |
-| `complexity.md` | complexity, nesting, file size, parameter count |
-| `reuse.md` | DRY, intra-domain duplication, shared extraction |
+The canonical selection rules live in `concerns/selection.yaml` — that file is
+the single source of truth for which guide applies to which file type or path.
+(Copilot cannot run the CLI selector, so consult the YAML directly for the full
+rule set.)
 
 Two concerns worth knowing before filing a finding, because both are commonly
 reported backwards:

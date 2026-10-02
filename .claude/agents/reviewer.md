@@ -44,15 +44,14 @@ branch that prints "✔ No issues" whether or not anything was scanned.
 
 ## Review Concerns (What to Check)
 
-| Diff contains | Load these guides |
-|---------------|------------------|
-| `.py` files | `correctness.md`, `security.md`, `patterns.md`, `reuse.md`, `complexity.md`, `tests.md` |
-| Test files (`tests/**/*.py`) | `tests.md`, `reuse.md` (also covered by the `.py` row) |
-| `.yaml`/`.yml` files | `workflow.md`, `workflow-stages.md`, `workflow-fanout.md`, `workflow-fragments.md`, `patterns.md` |
-| `SKILL.md` files | `workflow.md`, `workflow-stages.md`, `workflow-fanout.md`, `workflow-fragments.md`, `patterns.md`, `docs.md` |
-| Any PR | `patterns.md` (`pr-desc-title-mismatch`, `hardcoded-absolute-path` always apply) |
+Guide selection is canonical — run the selector to get the exact list for a diff:
 
-All guides live at: `concerns/`
+```bash
+set -o pipefail
+git diff main...HEAD --name-only | ./bin/workflow select-concerns --paths-file - --format json
+```
+
+The canonical rules live in `concerns/selection.yaml`. All guides live at `concerns/`.
 
 ## Priority Order
 

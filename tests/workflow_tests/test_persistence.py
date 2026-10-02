@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from workflow.dispatch import WORKSPACE_ROOT_PREFIXES
 from workflow.models import StageStatus
 from workflow.persistence import (
     init_workspace,
@@ -25,7 +26,9 @@ from tests.workflow_tests.helpers.factories import (
 # Helpers
 # ---------------------------------------------------------------------------
 
-_SUBDIRS = ("stages", "outputs", "validation")
+# Derive from the single source of truth so adding a prefix in dispatch.py
+# causes this test to fail if init_workspace is not updated accordingly.
+_SUBDIRS: tuple[str, ...] = tuple(p.rstrip("/") for p in WORKSPACE_ROOT_PREFIXES)
 
 
 # ---------------------------------------------------------------------------
@@ -35,6 +38,11 @@ _SUBDIRS = ("stages", "outputs", "validation")
 
 class TestInitWorkspace(unittest.TestCase):
     def test_init_workspace_creates_subdirs(self) -> None:
+        """Every WORKSPACE_ROOT_PREFIXES directory must be created by init_workspace.
+
+        _SUBDIRS is derived from WORKSPACE_ROOT_PREFIXES so adding a prefix
+        in dispatch.py causes this test to fail until init_workspace is updated.
+        """
         with tempfile.TemporaryDirectory() as tmp_dir:
             workspace = init_workspace("my-workflow", "run-001", base_dir=tmp_dir)
             for subdir in _SUBDIRS:
