@@ -146,7 +146,10 @@ description: >
          pre_merge_tip=$(git rev-parse HEAD)
 
     2. Merge that agent's branch:
-         git merge --no-ff worktree-agent-<id>
+         git merge --no-ff -m "merge stage <stage-name>" worktree-agent-<id>
+       (The `-m` flag prevents git from opening an editor for the merge
+       commit message. Use the stage name in the message, e.g.
+       "merge stage impl-handler".)
        This is a real 3-way merge whose merge-base is the agent's own base,
        so it applies only the agent's changes. Overlapping edits surface as
        conflicts and must be resolved; never take the agent's whole file to
@@ -371,10 +374,12 @@ stages:
       something other than the engine.
 
       Branch on the EXIT STATUS, not on echoed text. If it fails, ABORT the
-      whole run here — write survey.json with {"aborted": true,
-      "reason": "job_type failed validation"} and report the stage FAILED so
-      no downstream stage is scheduled. Do not sanitize or auto-correct: an
-      override with shell metacharacters is a caller error to report.
+      whole run here — write a sentinel {workspace}/outputs/analysis/survey.json
+      with {"aborted": true, "reason": "job_type failed validation"} (minimal
+      schema is acceptable here as this is a pre-run abort; downstream stages
+      will not run) and report the stage FAILED so no downstream stage is
+      scheduled. Do not sanitize or auto-correct: an override with shell
+      metacharacters is a caller error to report.
 
       The pattern is deliberately narrower than "no metacharacters": a job
       type is a queue registry key, so lowercase, digits and underscore is
@@ -2133,8 +2138,25 @@ stages:
 
       Read {workspace}/validation/merge.json first. If all_landed is false or
       files_missing is non-empty, STOP — reconciling a partial tree produces
-      wrong findings and masks the real problem. Record the failure and set
-      reconciled: false.
+      wrong findings and masks the real problem. Before stopping, write BOTH
+      output files with sentinel values so downstream stages receive the
+      complete declared schema:
+
+        {workspace}/validation/reconcile-test.log:
+          Write a single line: "not run: merge.json all_landed false"
+
+        {workspace}/validation/reconcile.json:
+          {
+            "reconciled": false,
+            "not_reconciled_reason": "merge.json all_landed false or files_missing non-empty",
+            "fixes": [],
+            "blocking_findings": [],
+            "suite_result": {"exit_code": -1, "summary_line": "not run", "failures": 0, "errors": 0},
+            "commit_sha_pr1": null,
+            "commit_sha_pr2": null,
+            "commit_sha_pr3": null,
+            "notes": "stage halted before running: merge precondition failed"
+          }
 
       RULE FOR RESOLVING DRIFT. The contract is the source of truth.
         - If the IMPLEMENTATION departs from a contract.json value (wrong
@@ -2219,16 +2241,19 @@ stages:
         - Change the implementation's behaviour to match a test that asserts
           something the contract does not require.
         - Fix logic bugs that require new design decisions or contract changes
-          (those belong in integrate; record them as blocking_findings with
-          action_needed: "integrate").
+          (record them as blocking_findings with action_needed: "design-change";
+          these require human review — the workflow HALTS on reconciled: false
+          and the operator must resolve the design question, update
+          contract.json if needed, and re-run from reconcile-impl).
         - Weaken assertions to get tests passing when the assertion is correct
           and the implementation is wrong.
         - Change contract.json under any circumstances.
 
       After each fix, record it in reconcile.json under "fixes" with: the
-      category (function-name|outcome-string|signature|schema|mock-target),
+      category (function-name|outcome-string|signature|schema|mock-target|logic),
       the file changed, the old value, the new value, and which side you
-      changed (implementation|tests) and why.
+      changed (implementation|tests) and why. Use "logic" for unambiguous
+      contract-to-code logic failures fixed under the BOUNDED REPAIR rule above.
 
       COMMIT PER PR BOUNDARY — not one monolithic commit. The three PR
       boundaries from the workflow description (PR1: seam/confinement/tests,
@@ -2246,9 +2271,29 @@ stages:
           PR3 files: qwen_telemetry.py, bin/qwen, tests for C6 items.
 
         For each boundary that has fixes:
-          git add <only the files in that boundary>
-          git commit -m "fix(worker): reconcile <boundary> drift after parallel build"
-        Confirm each with `git log --oneline -1` and record its SHA.
+          Stage ONLY the files in that boundary, then commit. Most files
+          belong to exactly one boundary and can be staged with:
+            git add src/worker/qwen_edits.py  # PR2-only file
+            git add src/worker/qwen_telemetry.py  # PR3-only file
+          BUT qwen.py spans PR1 (handler registration, input confinement,
+          payload validation) AND PR2 (transport, lock, guards): a plain
+          `git add src/worker/qwen.py` stages all of its changes at once and
+          makes the per-boundary split impossible. Use hunk-level staging
+          instead:
+            git diff src/worker/qwen.py > /tmp/qwen-full.diff
+            # Edit /tmp/qwen-full.diff to keep only the PR1 hunks; remove all
+            # other hunks (delete their @@ ... @@ header and body lines).
+            git apply --cached /tmp/qwen-full.diff
+            git diff --cached  # inspect — must contain only PR1 qwen.py hunks
+            git commit -m "fix(worker): reconcile PR1 drift after parallel build"
+            git apply --cached -- src/worker/qwen.py  # remaining (PR2) hunks
+            # Alternative for PR2: repeat with a diff containing only PR2 hunks.
+            git diff --cached  # inspect — must contain only PR2 qwen.py hunks
+            git commit -m "fix(worker): reconcile PR2 drift after parallel build"
+          Always run `git diff --cached` and inspect the staged content before
+          each commit. A commit that contains hunks from two boundaries is not
+          acceptable — verify before committing, not after.
+          Confirm each commit with `git log --oneline -1` and record its SHA.
 
       If no drift was found, make no commits (record commit_sha_pr1,
       commit_sha_pr2, commit_sha_pr3 all as null).
@@ -2259,7 +2304,7 @@ stages:
           "not_reconciled_reason": "..." | null,
           "fixes": [
             {
-              "category": "function-name|outcome-string|signature|schema|mock-target",
+              "category": "function-name|outcome-string|signature|schema|mock-target|logic",
               "file": "...",
               "old_value": "...",
               "new_value": "...",
@@ -2362,13 +2407,24 @@ stages:
       CHECK RECONCILE STATUS BEFORE REVIEWING. Read
       `<your-cwd>/inputs/validation/reconcile.json` (copied from
       {workspace}/validation/reconcile.json by the orchestrator). If
-      reconciled is false, STOP immediately — record verdict "needs-work",
-      set findings: [{"failure_mode": "reconcile-failed", "severity":
-      "blocking", "detail": "reconcile.json.reconciled is false: <not_reconciled_reason>"}]
-      and return. Reviewing a suite that did not pass is meaningless: the
-      teeth test would confirm that broken tests stay broken, not that passing
-      tests are vacuous, and every finding would be against a tree whose
-      baseline is already broken.
+      reconciled is false, STOP immediately — write the COMPLETE sentinel
+      test-review.json (all required fields) before returning:
+        {
+          "tests_reviewed": 0,
+          "findings": [{"test": "n/a", "file": "n/a",
+            "failure_mode": "other", "severity": "blocking",
+            "detail": "reconcile.json.reconciled is false: <not_reconciled_reason>",
+            "mutation_not_caught": "n/a", "fix": "re-run from reconcile-impl after fixing suite"}],
+          "retry_map_rows_without_exact_prefix_test": [],
+          "sad_paths_missing": [],
+          "teeth_test": [{"test": "not-run", "mutation": "not-run",
+            "went_red": false, "git_status_after_restore": "not run: reconcile failed"}],
+          "verdict": "needs-work"
+        }
+      Reviewing a suite that did not pass is meaningless: the teeth test would
+      confirm that broken tests stay broken, not that passing tests are
+      vacuous, and every finding would be against a tree whose baseline is
+      already broken.
 
       For EVERY test, answer one question: what mutation of the source would
       this test fail to catch? Then hunt specifically for these failure modes,
@@ -2525,11 +2581,15 @@ stages:
       merge-impl has already landed the three implementation branches, and
       reconcile-impl has already fixed naming/signature drift so the suite
       passes. Read {workspace}/validation/merge.json first: if all_landed is
-      false, or files_missing is non-empty, STOP and report — running gates
+      false, or files_missing is non-empty, write a sentinel integrate.json
+      with all_gates_passed: false and merge_verified: false (complete schema,
+      null/false for fields not yet evaluated), then STOP — running gates
       against a tree that is missing half the implementation produces a
       meaningless green.
 
       Read {workspace}/validation/reconcile.json. If reconciled is false,
+      write a sentinel integrate.json with all_gates_passed: false and
+      merge_verified: true (or false if the prior check also failed), then
       STOP and report the not_reconciled_reason — the suite was not in a
       passing state when the adversarial review ran, so the review's findings
       may be against broken code. Also check reconcile.json's
@@ -2697,10 +2757,11 @@ stages:
       the verify stage tests it by running the checks again.
 
       Read {workspace}/validation/integrate.json first. If all_gates_passed is
-      false, do NOT install — write a skip record to
-      {workspace}/validation/install.json explaining which gate failed, and
-      stop. Installing on top of code that does not pass its own tests is how
-      a broken daemon ends up running at boot.
+      false, do NOT install — write a sentinel install.json (complete schema
+      with skipped: true, all_ok: false, steps: [], skip_reason naming which
+      gate failed, manual_steps_required: []) and stop. Installing on top of
+      code that does not pass its own tests is how a broken daemon ends up
+      running at boot.
 
       Step 0 — VALIDATE {ollama_host} AND {model_tag} BEFORE FIRST USE. Both
       are trigger params, substituted directly into the text below with no
@@ -2788,8 +2849,9 @@ stages:
         description, and the engine substitutes the raw value at each one. The
         `--print` form in Step 1b is what actually gets a validated value into
         a command; this step is the abort gate, not the delivery mechanism.
-        If either is rejected, abort the stage immediately: write
-        {workspace}/validation/install.json with skipped=true and a
+        If either is rejected, abort the stage immediately: write a sentinel
+        {workspace}/validation/install.json with the complete schema (skipped:
+        true, all_ok: false, steps: [], manual_steps_required: []) and a
         skip_reason naming which param failed and the reason check-params
         gave — NEVER its value, redacted or otherwise — and do not proceed
         to Step 1. "Redact if necessary" would leave it to the agent to judge
@@ -2822,13 +2884,13 @@ stages:
         to a package manager the survey did not record. Installing software
         by a path nobody reviewed is a worse outcome than not installing it.
 
-        Instead abort the stage: write {workspace}/validation/install.json
-        with skipped=true and a skip_reason naming which check failed and the
-        one-line command the operator should run themselves (`brew install
-        ollama`, or their platform's equivalent). A stage that stops with a
-        clear instruction is a good result here; the run can be repeated
-        after the operator acts, and every step in this stage is idempotent
-        precisely so that re-running costs nothing.
+        Instead abort the stage: write a sentinel {workspace}/validation/install.json
+        with the complete schema (skipped: true, all_ok: false, steps: [],
+        manual_steps_required: [{"finding": "ollama absent, installer unavailable",
+        "fix": "brew install ollama", "who": "user"}]) and a skip_reason naming
+        which check failed. A stage that stops with a clear instruction is a good
+        result here; the run can be repeated after the operator acts, and every
+        step in this stage is idempotent precisely so that re-running costs nothing.
 
       Step 1b — Capture both validated values into shell variables.
         Step 0's check proves the values are SAFE; it does not make them
@@ -2991,7 +3053,7 @@ stages:
           "steps": [
             {"step": "ollama_binary",  "already_satisfied": true|false, "action_taken": "...", "ok": true|false},
             {"step": "ollama_server",  "already_satisfied": true|false, "action_taken": "...", "ok": true|false},
-            {"step": "model_present",  "already_satisfied": true|false, "action_taken": "...", "ok": true|false, "model_digest": "..." | null, "model_digest_file": "..." | null, "model_digest_file_written": true|false, "model_digest_file_written_reason": "written|already-current|symlink-refused|write-failed|digest-unavailable"},
+            {"step": "model_present",  "already_satisfied": true|false, "action_taken": "...", "ok": true|false, "model_digest": "..." | null, "model_digest_file": "..." | null, "model_digest_file_written": true|false, "model_digest_file_written_reason": "written|already-current|symlink-refused|write-failed|digest-unavailable", "model_digest_readback_ok": true|false|null},
             {"step": "worker_launchd", "already_satisfied": true|false, "action_taken": "...", "ok": true|false, "daemon_repo_root": "...", "daemon_serves_this_code": true|false, "detail": "..."},
             {"step": "queue_dirs",     "already_satisfied": true|false, "action_taken": "...", "ok": true|false}
           ],
@@ -3251,8 +3313,9 @@ stages:
       config_valid is false, do NOT enqueue anything: a blocking config
       failure means the guards this workflow relies on are not in place, and
       running a real generation could be exactly the memory event the guard
-      exists to prevent. Record the blocking findings, write verified=false
-      with a clear reason, and stop.
+      exists to prevent. Write a sentinel verify.json (complete schema, with
+      verified: false, failures listing the blocking config findings, and
+      null/false for all unrun checks), then stop.
 
       Read {workspace}/validation/install.json. If skipped or all_ok is false,
       record what could not be verified and why — do not fabricate a pass.
