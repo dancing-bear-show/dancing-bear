@@ -81,7 +81,7 @@ dev = [
   # Also declared because the open-pr workflow probes `.venv/bin/python -m mypy`
   # and, finding nothing, recorded the type gate as UNAVAILABLE on every run — a
   # check that never ran reads the same as a check with nothing to say.
-  "mypy==2.3.1",
+  "mypy==2.4.0",
   # Self-reference so the textual pin lives only in [tui].
   "personal-assistants[tui]",
   # Self-reference so the bs4 parsing branch is exercised and measured wherever
