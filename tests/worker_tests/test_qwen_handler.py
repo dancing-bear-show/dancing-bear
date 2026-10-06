@@ -105,7 +105,7 @@ class QwenHandlerHappyPathTests(QwenHandlerCase):
         self.assertIs(body["stream"], False)
         self.assertEqual(body["system"], "be terse")
         self.assertEqual(body["options"], {"temperature": 0.2, "num_predict": 8192, "num_ctx": 16384})
-        self.assertEqual(timeout, 1200)
+        self.assertAlmostEqual(require(timeout), qwen._derived_timeout(8192), places=1)
         self.assertIn("return the greeting", body["prompt"])
 
     def test_ollama_host_env_override_is_used(self) -> None:
@@ -116,14 +116,31 @@ class QwenHandlerHappyPathTests(QwenHandlerCase):
         self.assertTrue(ok)
         self.assertEqual(self.generate_requests()[0][0], "http://ollama.test:1234/api/generate")
 
-    def test_timeout_payload_defaults_to_1200_honours_less_and_caps_more(self) -> None:
-        """Invalid timeouts are covered by QwenOptionValidationTests."""
-        cases = ((None, 1200), (42, 42), (7.5, 7.5), (300, 300), (1200, 1200), (3600, 1200))
+    def test_timeout_payload_defaults_to_derived_honours_less_and_caps_more(self) -> None:
+        """Invalid timeouts are covered by QwenOptionValidationTests.
+
+        With no explicit timeout the sent value is derived from max_tokens
+        (default 8192).  A smaller caller-supplied timeout is honoured; a
+        larger one is capped at ollama_request_timeout_sec (2000).
+        """
+        default = qwen._derived_timeout(8192)
+        cases: list[tuple[float | None, float]] = [
+            (None, default),
+            (42, 42),
+            (7.5, 7.5),
+            (300, 300),
+            (1200, 1200),
+            (3600, qwen.THRESHOLDS.ollama_request_timeout_sec),
+        ]
         for raw, expected in cases:
             with self.subTest(timeout=raw):
                 self.requests.clear()
                 self.run_handler({"timeout": raw})
-                self.assertEqual(self.generate_requests()[0][2], expected)
+                sent = require(self.generate_requests()[0][2])
+                if raw is None:
+                    self.assertAlmostEqual(sent, expected, places=1)
+                else:
+                    self.assertEqual(sent, expected)
 
     def test_built_diff_passes_the_real_git_apply_check(self) -> None:
         with mock.patch("worker.qwen._git_apply_check", wraps=REAL_GIT_APPLY_CHECK) as check:
@@ -1185,14 +1202,63 @@ class QwenThresholdInvariantTests(QwenHandlerCase):
         """job_runtime copies a daemon --job-timeout into payload["timeout"];
         the timeout actually sent to Ollama must stay below the stale ceiling
         whatever that value is, while a smaller one is still honoured."""
-        cases = ((None, 1200), (300, 300), (3600, 1200), (10**6, 1200))
+        default = qwen._derived_timeout(8192)
+        cap = qwen.THRESHOLDS.ollama_request_timeout_sec
+        cases: list[tuple[float | None, float | None]] = [
+            (None, None),
+            (300, 300),
+            (3600, cap),
+            (10**6, cap),
+        ]
         for raw, expected in cases:
             with self.subTest(timeout=raw):
                 self.requests.clear()
                 self.run_handler({} if raw is None else {"timeout": raw})
-                [(_, _, sent)] = self.generate_requests()
-                self.assertEqual(sent, expected)
-                self.assertLess(require(sent), qwen.THRESHOLDS.stale_ceiling_sec)
+                [(_, _, sent_raw)] = self.generate_requests()
+                sent = require(sent_raw)
+                if expected is None:
+                    self.assertAlmostEqual(sent, default, places=1)
+                else:
+                    self.assertEqual(sent, expected)
+                self.assertLess(sent, qwen.THRESHOLDS.stale_ceiling_sec)
+
+    def test_derived_timeout_scales_with_max_tokens(self) -> None:
+        """Higher max_tokens must yield a larger timeout up to the hard ceiling."""
+        t_default = qwen._derived_timeout(qwen.DEFAULT_MAX_TOKENS)
+        t_max = qwen._derived_timeout(qwen.THRESHOLDS.num_ctx - 1)
+        self.assertGreater(t_max, t_default)
+
+    def test_derived_timeout_for_max_allowed_tokens_fits_below_stale_ceiling(self) -> None:
+        """A valid request at the highest accepted max_tokens (num_ctx - 1) must
+        time out before the lock's stale_ceiling_sec so the job is never wrongly
+        marked stale while generation is still running."""
+        max_tokens = qwen.THRESHOLDS.num_ctx - 1
+        derived = qwen._derived_timeout(max_tokens)
+        self.assertLess(derived, qwen.THRESHOLDS.stale_ceiling_sec)
+
+    def test_timeout_for_large_max_tokens_exceeds_old_fixed_ceiling(self) -> None:
+        """Regression: under the old fixed 1200 s timeout a 13,000-token request
+        would time out before Ollama could return done_reason: 'length', making
+        a truncation look like a retryable transport failure.  The derived timeout
+        must be large enough to cover that budget."""
+        # At 10.7 tok/s a 13,000-token response needs at least 1,215 s of
+        # generation time alone; add overhead and the total exceeds 1,200.
+        large_max_tokens = 13_000
+        derived = qwen._derived_timeout(large_max_tokens)
+        self.assertGreater(derived, 1200)
+
+    def test_handler_sends_derived_timeout_for_large_max_tokens(self) -> None:
+        """When max_tokens is large the handler must send a timeout derived from
+        that budget — not the old fixed 1,200 s value that would misclassify a
+        slow-but-valid generation as a transport failure."""
+        large_max_tokens = 13_000
+        self.run_handler({"max_tokens": large_max_tokens})
+        [(_, _, sent_raw)] = self.generate_requests()
+        sent = require(sent_raw)
+        expected = qwen._derived_timeout(large_max_tokens)
+        self.assertAlmostEqual(sent, expected, places=1)
+        self.assertGreater(sent, 1200)
+        self.assertLess(sent, qwen.THRESHOLDS.stale_ceiling_sec)
 
     def test_default_max_tokens_leaves_half_the_context_for_the_prompt(self) -> None:
         self.assertEqual(qwen.THRESHOLDS.num_ctx, 16384)

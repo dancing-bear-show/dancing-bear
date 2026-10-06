@@ -99,7 +99,7 @@ class QwenThresholds:
     # Must stay strictly greater than ollama_request_timeout_sec: a lock held
     # by a live job that is still inside its model call must never read as
     # stale.
-    stale_ceiling_sec: float = 1800
+    stale_ceiling_sec: float = 2400
     deferral_ceiling_count: int = 20
     deferral_wallclock_ceiling_min: float = 45
     # Measured with `ollama ps`: 9.5 GB at num_ctx 8192, 10 GB at 16384.
@@ -117,9 +117,17 @@ class QwenThresholds:
     max_lines: int = 400
     min_free_disk_gb: float = 5
     max_lane_depth: int = 10
-    # The default max_tokens (8192) at the measured ~10.7 tok/s is ~766 s of
-    # generation, plus a cold load and prompt evaluation.
-    ollama_request_timeout_sec: float = 1200
+    # Measured generation rate used to derive per-request timeouts from
+    # max_tokens.  At num_ctx 16384 and max_tokens 16383 (~1,531 s of
+    # generation at 10.7 tok/s) plus overhead this yields ~1,965 s, which
+    # fits under the 2,000 s hard ceiling and below stale_ceiling_sec (2,400).
+    tok_per_sec: float = 10.7
+    request_timeout_overhead_sec: float = 434.0
+    # Hard ceiling on the request timeout; must stay strictly below
+    # stale_ceiling_sec.  Sized so the derived timeout for max_tokens up to
+    # num_ctx - 1 (16,383) never exceeds it:
+    #   ceil(16383 / 10.7 + 434) = 1,965 s  <  2,000 s.
+    ollama_request_timeout_sec: float = 2000
     num_ctx: int = 16384
     # Retention for responses/ (see _prune_response_entries): a persisted
     # response older than the age is removed on the next persist, and at
@@ -2156,9 +2164,27 @@ def _resolve_payload_options(payload: dict[str, object]) -> GenerationOptions:
     )
 
 
-def _resolve_timeout(payload: dict[str, object]) -> float:
+def _derived_timeout(max_tokens: int) -> float:
+    """Request timeout derived from the token budget.
+
+    Uses the measured generation rate (tok_per_sec) plus a fixed overhead
+    for cold load and prompt evaluation, capped at
+    ollama_request_timeout_sec.  This ensures a valid request at any
+    max_tokens up to num_ctx - 1 has enough time to complete before the
+    timeout fires, rather than mis-classifying a slow but legitimate
+    generation as a retryable transport failure.
+    """
+    raw = max_tokens / THRESHOLDS.tok_per_sec + THRESHOLDS.request_timeout_overhead_sec
+    return min(raw, THRESHOLDS.ollama_request_timeout_sec)
+
+
+def _resolve_timeout(payload: dict[str, object], max_tokens: int) -> float:
     """The model request timeout: payload["timeout"], capped at
     THRESHOLDS.ollama_request_timeout_sec. Raises QwenGuardError.
+
+    When no explicit payload timeout is provided the timeout is derived
+    from max_tokens via _derived_timeout so that a request using a large
+    token budget is not misclassified as a transport failure.
 
     payload["timeout"] is only injected by job_runtime, and only for a
     positive resolved timeout_sec (a per-job timeout_sec or the daemon's
@@ -2170,7 +2196,7 @@ def _resolve_timeout(payload: dict[str, object]) -> float:
     """
     raw = payload.get("timeout")
     if raw is None:
-        return THRESHOLDS.ollama_request_timeout_sec
+        return _derived_timeout(max_tokens)
     value = _finite_number(raw)
     if value is None or value <= 0:
         raise _invalid_option("timeout must be a finite number > 0")
@@ -2416,7 +2442,7 @@ def _run_guarded(payload: dict[str, object], run: _JobRun) -> tuple[bool, object
     files, instruction = _validate_payload(payload)
     # Every option is validated before confinement touches the disk.
     options = _resolve_payload_options(payload)
-    timeout = _resolve_timeout(payload)
+    timeout = _resolve_timeout(payload, options.max_tokens)
     root = _repo_root().resolve()
     prepared = _PreparedJob(
         files=resolve_input_files(files, root),

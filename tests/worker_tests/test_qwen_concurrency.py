@@ -151,7 +151,7 @@ class QwenStaleLockTests(QwenHandlerCase):
 
     def test_alive_holder_older_than_ceiling_with_nonempty_lane_is_not_reclaimed(self) -> None:
         """SUSPECT: alive + past the ceiling, a worker process, non-empty lane."""
-        self._write_lock(pid=1, age_sec=2000)
+        self._write_lock(pid=1, age_sec=2500)
 
         with (
             mock.patch("worker.qwen._pid_alive", return_value=True),
@@ -161,7 +161,7 @@ class QwenStaleLockTests(QwenHandlerCase):
             self.assertFalse(self._acquire("job-suspect-holder"))
 
     def test_alive_holder_older_than_ceiling_not_a_worker_process_is_reclaimed(self) -> None:
-        self._write_lock(pid=1, age_sec=2000)
+        self._write_lock(pid=1, age_sec=2500)
 
         with (
             mock.patch("worker.qwen._pid_alive", return_value=True),
@@ -171,7 +171,7 @@ class QwenStaleLockTests(QwenHandlerCase):
             self.assertTrue(self._acquire("job-reclaim-non-worker"))
 
     def test_alive_holder_older_than_ceiling_empty_lane_is_reclaimed(self) -> None:
-        self._write_lock(pid=1, age_sec=2000)
+        self._write_lock(pid=1, age_sec=2500)
 
         with (
             mock.patch("worker.qwen._pid_alive", return_value=True),
@@ -184,7 +184,7 @@ class QwenStaleLockTests(QwenHandlerCase):
         """Unknown is not "not a worker": the lock stays, lane full or empty."""
         for lane in (3, 0):
             with self.subTest(lane=lane):
-                self._write_lock(pid=1, age_sec=2000)
+                self._write_lock(pid=1, age_sec=2500)
                 with (
                     mock.patch("worker.qwen.THRESHOLDS", qwen.QwenThresholds(lock_poll_interval_sec=0.01)),
                     mock.patch("worker.qwen._pid_alive", return_value=True),
