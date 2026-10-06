@@ -192,6 +192,22 @@ class SweepRecordTests(unittest.TestCase):
         code, _, err = _run(self.repo, "write", "--head", self.head, "--workspace", str(ws))
         self.assertEqual(code, 0, err)
 
+    def test_write_refuses_unreadable_or_non_utf8_changed_files(self) -> None:
+        """An unreadable or non-UTF-8 changed-files.txt must exit 2, not raise an uncaught exception."""
+        ws = _make_workspace(self.root, GUIDES)
+        changed = ws / "outputs" / "changed-files.txt"
+        # Non-UTF-8 content: write raw bytes that are not valid UTF-8.
+        changed.write_bytes(b"\xff\xfe invalid utf-8 bytes\n")
+        code, _, err = _run(self.repo, "write", "--head", self.head, "--workspace", str(ws))
+        self.assertEqual(code, 2, err)
+        self.assertIn("changed-files.txt", err)
+        # Replace with a directory so read_text raises OSError.
+        changed.unlink()
+        changed.mkdir()
+        code, _, err = _run(self.repo, "write", "--head", self.head, "--workspace", str(ws))
+        self.assertEqual(code, 2, err)
+        self.assertIn("changed-files.txt", err)
+
     def test_write_refuses_a_missing_or_empty_changed_files_list(self) -> None:
         ws = _make_workspace(self.root, GUIDES, changed=[])
         (ws / "outputs" / "changed-files.txt").write_text("\n")

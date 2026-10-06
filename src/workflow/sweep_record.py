@@ -191,6 +191,8 @@ def _require_selected_guides(workspace: Path, guides: list[str]) -> None:
         changed = [ln.strip() for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
     except FileNotFoundError:
         raise SweepRecordError(f"{CHANGED_FILES_NAME} not found: {path}") from None
+    except (OSError, UnicodeDecodeError) as exc:
+        raise SweepRecordError(f"{CHANGED_FILES_NAME} is unreadable or not UTF-8: {path} ({exc})") from None
     if not changed:
         raise SweepRecordError(f"{CHANGED_FILES_NAME} is empty: the swarm reviewed no diff")
     missing = [g for g in select_guides(changed) if g not in guides]

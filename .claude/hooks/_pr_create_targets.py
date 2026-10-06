@@ -229,6 +229,17 @@ def _cd_applies(op: str) -> bool | None:
 _RESERVED = frozenset({"{", "}", "!", "if", "then", "else", "elif", "fi", "do", "done",
                        "while", "until", "time"})
 
+#: Subset of _RESERVED that introduce conditionally-executed branches. A ``cd``
+#: inside one of these may not execute at all, so the cwd after it is unknown.
+#: ``do`` is included because ``for x in ...; do cd /x; done`` iterates: the cwd
+#: after the loop is whatever the last iteration left -- not knowable statically.
+_CONDITIONAL_RESERVED = frozenset({"then", "else", "elif", "do"})
+
+#: Short options (the single letter after ``-`` or ``+``) that take the next word
+#: as a value and must be skipped when scanning bash/sh for a ``-c`` script.
+#: ``-O``/``+O`` set/unset a shell option (bash), ``-o`` sets an option (most shells).
+_SHELL_VALUED_SHORT_OPTS = frozenset({"O", "o"})
+
 
 def _strip_reserved(words: list[str]) -> list[str]:
     k = 0
@@ -454,14 +465,40 @@ def _strip_prefix(words: list[str]) -> list[str]:
     return words[k:]
 
 
+def _shell_option(w: str) -> tuple[bool, bool]:
+    """(saw_c_flag, consumes_next_word) for a single shell option token.
+
+    ``saw_c_flag`` is True when the token sets the ``-c`` flag (activates script mode).
+    ``consumes_next_word`` is True when the token takes the following word as its value
+    (e.g. ``-O extglob``), so that word must be skipped rather than treated as the script.
+    """
+    if w.startswith("--"):
+        return False, False
+    if not (w.startswith("-") or w.startswith("+")):
+        return False, False
+    has_c = "c" in w[1:] and w[0] == "-"
+    valued = len(w) == 2 and w[1] in _SHELL_VALUED_SHORT_OPTS
+    return has_c, valued
+
+
 def _shell_script(words: list[str]) -> str | None:
-    """The script of ``bash -c '<script>'`` (options may be clustered: ``-lc``)."""
+    """The script of ``bash -c '<script>'`` (options may be clustered: ``-lc``).
+
+    Options that consume a value (e.g. ``-O extglob``, ``+O extglob``) are skipped
+    along with their argument so the scanner is not tricked into treating the option
+    value as the script. ``bash -O extglob -c 'gh pr create'`` must find the script,
+    not return None at ``extglob``.
+    """
     saw_c = False
-    for w in words[1:]:
-        if w.startswith("-") and not w.startswith("--"):
-            saw_c = saw_c or "c" in w[1:]
-            continue
+    it = iter(words[1:])
+    for w in it:
         if w.startswith("--"):
+            continue
+        if w[0:1] in ("-", "+"):
+            has_c, valued = _shell_option(w)
+            saw_c = saw_c or has_c
+            if valued:
+                next(it, None)  # skip the option's value word
             continue
         return w if saw_c else None
     return None
@@ -496,13 +533,21 @@ def _walk_command(
     """Collect targets in one simple command; return the cwd for the commands after it."""
     gidx = [i for i, _ in cmd]
     words = [_word(t) for _, t in cmd]
-    head_words = _strip_prefix(_strip_reserved(words))
+    stripped = _strip_reserved(words)
+    head_words = _strip_prefix(stripped)
     prog = _prog(head_words[0]) if head_words else ""
     if prog == "popd":
         return _UNKNOWN_CWD
     if prog in ("cd", "pushd"):
         applies = _cd_applies(op)
         if applies is None:
+            return _UNKNOWN_CWD
+        # A ``cd`` inside a conditional branch (then/else/elif/do) may not execute.
+        # Modelling branch-taken/not-taken requires control-flow analysis we do not
+        # have, so we fail closed: any conditional ``cd`` makes the cwd unknown.
+        prefix_len = len(words) - len(stripped)
+        conditional = any(w in _CONDITIONAL_RESERVED for w in words[:prefix_len])
+        if conditional:
             return _UNKNOWN_CWD
         return _cd_target(head_words, cwd) if applies else cwd
     for i in range(len(words)):

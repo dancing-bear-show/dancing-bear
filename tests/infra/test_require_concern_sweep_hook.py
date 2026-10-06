@@ -63,6 +63,8 @@ HEAD_CREATES = [
     "echo $(gh pr create)",
     "{ gh pr create; }",
     "bash -c 'gh pr create'",
+    "bash -O extglob -c 'gh pr create'",
+    "bash -O extglob -O errexit -c 'gh pr create'",
     "sh -lc \"git push && gh pr create\"",
     "eval gh pr create",
     "./bin/github pr create --base main --body-file b.md",
@@ -257,6 +259,29 @@ class RequireConcernSweepHookTests(unittest.TestCase):
                         f"(cd {wt}); gh pr create", f"( cd {wt} ) ; gh pr create"):
             with self.subTest(command=command):
                 self.assertBlocked(run_hook(command, self.repo), self.head)
+
+    def test_cd_inside_conditional_branch_makes_cwd_unknown(self) -> None:
+        """A cd inside then/else/elif/do may not execute; the hook must fail closed
+        rather than treating the conditional branch's target directory as the cwd for
+        subsequent commands.
+
+        PR #454 review: ``if false; then cd /worktree-with-record; fi; gh pr create``
+        should be blocked because the real cwd (self.repo) has no record.  Before the
+        fix the walker applied the cd unconditionally and authorised from the worktree.
+        """
+        wt = self.root / "wt"
+        _git(self.repo, "worktree", "add", "-q", str(wt), "other")
+        self._record(self.other)  # only the worktree's HEAD has a record, not self.repo
+        # All of these conditionally cd into wt; the real shell stays in self.repo.
+        for template in (
+            "if false; then cd {wt}; fi; gh pr create",
+            "if true; then cd {wt}; fi; gh pr create",
+            "while false; do cd {wt}; done; gh pr create",
+            "for x in 1; do cd {wt}; done; gh pr create",
+        ):
+            command = template.format(wt=wt)
+            with self.subTest(command=command):
+                self.assertBlocked(run_hook(command, self.repo), "cannot")
 
     def test_a_record_naming_another_sha_does_not_count(self) -> None:
         self._record(self.other)
