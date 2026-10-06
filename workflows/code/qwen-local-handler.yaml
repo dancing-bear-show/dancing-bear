@@ -2061,7 +2061,22 @@ stages:
         6b. SCOPE CHECK. Read the per-stage entry from merge-baselines.json:
            {"pre_merge_tip": "...", "post_merge_tip": "...", "agent_tip": "..."}.
            All three must be 40-hex SHAs; validate with check-params before
-           passing to git. Then confirm every path in:
+           passing to git. Then verify the merge TOPOLOGY before comparing
+           path sets — 40-hex validation alone cannot detect a stale or
+           swapped baseline:
+             (i)  post_merge_tip must be reachable from HEAD:
+                    git merge-base --is-ancestor <post_merge_tip> HEAD
+                  If not, record scope_ok: false, reason: "post_merge_tip not reachable from HEAD".
+             (ii) post_merge_tip must be a two-parent merge commit whose
+                  first parent is pre_merge_tip and second parent is agent_tip:
+                    git cat-file -p <post_merge_tip> | grep '^parent'
+                  Exactly two "parent" lines must appear; parent1 must equal
+                  pre_merge_tip and parent2 must equal agent_tip. If either
+                  condition fails, record scope_ok: false with the observed
+                  parents in the reason. A stale baseline where
+                  pre_merge_tip == post_merge_tip produces an empty diff and
+                  a false scope_ok: true — this topology check catches it.
+           Only after the topology check passes, confirm every path in:
              git diff --name-only <pre_merge_tip> <post_merge_tip>
            also appears in:
              git diff --name-only <pre_merge_tip>...<agent_tip>
@@ -2286,8 +2301,10 @@ stages:
             git apply --cached /tmp/qwen-full.diff
             git diff --cached  # inspect — must contain only PR1 qwen.py hunks
             git commit -m "fix(worker): reconcile PR1 drift after parallel build"
-            git apply --cached -- src/worker/qwen.py  # remaining (PR2) hunks
-            # Alternative for PR2: repeat with a diff containing only PR2 hunks.
+            git diff src/worker/qwen.py > /tmp/qwen-pr2.diff
+            # Edit /tmp/qwen-pr2.diff to keep only the PR2 hunks; remove all
+            # other hunks (delete their @@ ... @@ header and body lines).
+            git apply --cached /tmp/qwen-pr2.diff  # remaining (PR2) hunks
             git diff --cached  # inspect — must contain only PR2 qwen.py hunks
             git commit -m "fix(worker): reconcile PR2 drift after parallel build"
           Always run `git diff --cached` and inspect the staged content before
@@ -2598,16 +2615,20 @@ stages:
 
       RECONCILE COMMITS IN THE TREE. reconcile.json records the per-boundary
       SHAs as top-level flat keys (commit_sha_pr1, commit_sha_pr2,
-      commit_sha_pr3). For each key whose value is non-null, VALIDATE the
-      SHA before passing it to git — reconcile.json is agent-written and the
-      value is untrusted. Run one check-params invocation per non-null key:
+      commit_sha_pr3). ALL THREE KEYS MUST BE PRESENT — an absent key is a
+      protocol error, not "no fixes". Require each key exists with:
+        python3 -I -S -c "import json,sys; d=json.load(open('{workspace}/validation/reconcile.json')); missing=[k for k in ('commit_sha_pr1','commit_sha_pr2','commit_sha_pr3') if k not in d]; print('MISSING:',missing); sys.exit(1 if missing else 0)"
+      A missing key FAILS the stage — do not proceed. A key whose VALUE is
+      null means no fixes were made for that boundary (skip the ancestry
+      check for that boundary); a key whose value is non-null must be
+      VALIDATED before passing to git — reconcile.json is agent-written and
+      the value is untrusted. Run one check-params invocation per non-null key:
         ./bin/workflow check-params "{workspace}"/validation/reconcile.json \
           --top-level --check 'commit_sha_pr1=[0-9a-f]{40}'
         (same for pr2, pr3 as applicable)
       Branch on the EXIT STATUS of each call. A short SHA, a ref name, or
       any value with non-hex characters FAILS the stage — do not resolve or
-      retry. A null or absent key means no fixes were made for that boundary;
-      skip the ancestry check for that boundary.
+      retry.
 
       For each validated non-null SHA, confirm it is an ancestor of HEAD:
         git merge-base --is-ancestor <sha> HEAD
@@ -2697,8 +2718,11 @@ stages:
           the suite did not fully run.
         - Every blocking finding in test-review.json is either fixed or listed
           in review_findings_deferred with a reason.
-        - all_gates_passed is true ONLY if tests, qlty and typecheck-changed
-          each actually passed. Do not set it true on a partial run.
+        - all_gates_passed is true ONLY if tests, qlty, and typecheck-changed
+          each actually passed AND every non-null reconcile commit SHA is an
+          ancestor of HEAD (reconcile_commits_landed has no false entry).
+          Do not set it true on a partial run or when any reconciliation
+          commit is unreachable.
 
       Write {workspace}/validation/integrate.json:
         {
@@ -2964,19 +2988,32 @@ stages:
               Before writing, check whether the resolved path is a symlink
               (os.path.islink); if it is, REFUSE to write and record the
               failure in install.json — the handler reads with no-follow and
-              a symlink at that path means something is wrong. If the file
-              already exists and is valid JSON, read it first and preserve all
-              existing keys — set only the key for this model tag ($TAG),
-              leaving any other tags' entries intact. IDEMPOTENCY: if the
-              file already maps $TAG to the fetched digest unchanged, do not
-              rewrite it — record model_digest_file_written: false with
+              a symlink at that path means something is wrong.
+
+              The read-modify-write MUST be atomic with respect to concurrent
+              installs for different model tags. Using `tempfile + os.replace`
+              alone is not sufficient: two concurrent installs for different
+              tags can both read the same existing object and the later
+              `os.replace` drops the earlier tag's entry. Hold an exclusive
+              `fcntl.flock(LOCK_EX)` on a sidecar lock file
+              (`${DIGEST_PATH}.lock`) for the entire read-merge-replace-
+              readback sequence, releasing it only after the readback
+              confirms the write. The sidecar lock (not the digest file
+              itself) is locked so the target remains a regular file that
+              can be atomically renamed over.
+
+              If the file already exists and is valid JSON, read it first and
+              preserve all existing keys — set only the key for this model tag
+              ($TAG), leaving any other tags' entries intact. IDEMPOTENCY: if
+              the file already maps $TAG to the fetched digest unchanged, do
+              not rewrite it — record model_digest_file_written: false with
               reason "already-current". Then write atomically: write the
               merged object to a temp file in the same directory, then rename
               it over the target (Python's tempfile + os.replace). Create the
-              directory if it does not exist (mode 0o700).
-              After writing, read it back and confirm this tag's key and value
-              match what you wrote. Record the path and whether the readback
-              succeeded in install.json.
+              directory if it does not exist (mode 0o700). After writing, read
+              it back and confirm this tag's key and value match what you
+              wrote. Record the path and whether the readback succeeded in
+              install.json.
 
         If the digest cannot be read from the API, record null in install.json
         and leave model_digest.json unwritten — do not write a null value into
@@ -3258,7 +3295,7 @@ stages:
             {"check": "timeout_coherent",    "passed": true|false, "blocking": true|false, "detail": "...", "job_timeout_passed": true|false, "design_route": "..."},
             {"check": "guards_present",      "passed": true|false, "blocking": true|false, "detail": "...", "found": {"input_confinement": true|false, "patch_caps": true|false, "redaction": true|false, "disk_guard": true|false, "explain_mode": true|false, "deferral_counter": true|false, "admission": "handler-side|operator-limit|follow-up|MISSING"}},
             {"check": "guards_wired",        "passed": true|false, "blocking": true|false, "detail": "...", "probes": [{"probe": "nonexistent-path-outside-allowlist", "expected": "terminal confinement string", "observed": "...", "ordering_correct": true|false}, {"probe": "allowed-existing-file", "expected": "success", "observed": "..."}]},
-            {"check": "model_digest",        "passed": true|false, "blocking": true|false, "detail": "...", "digest_file": "...", "digest_file_exists": true|false, "is_symlink": false, "is_regular_file": true|false, "tag_key_present": true|false, "recorded": "...", "observed": "...", "matches": true|false},
+            {"check": "model_digest",        "passed": true|false, "blocking": true|false, "detail": "...", "digest_file": "...", "digest_file_exists": true|false, "is_symlink": true|false, "is_regular_file": true|false, "tag_key_present": true|false, "recorded": "...", "observed": "...", "matches": true|false},
             {"check": "patch_output_dir",    "passed": true|false, "blocking": true|false, "detail": "...", "path": "...", "inside_repo": true|false, "writable": true|false, "free_gb": N},
             {"check": "ollama_concurrency",  "passed": true|false, "blocking": false,      "detail": "...", "num_parallel": "...", "max_loaded_models": "..."}
           ],
