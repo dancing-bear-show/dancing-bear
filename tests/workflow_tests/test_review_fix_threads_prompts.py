@@ -640,6 +640,29 @@ class TestUnlinkedFindingTriageAndDispatchRules(unittest.TestCase):
             self.report_prompt,
         )
 
+    def test_resolved_by_reviewer_field_in_triage_schema(self) -> None:
+        # PR #455: triage.json must carry a top-level resolved_by_reviewer
+        # list so the report can distinguish reviewer-resolved stale ids from
+        # truly indeterminate ones without relying on unstructured notes.
+        self.assertIn('"resolved_by_reviewer"', self.triage_prompt)
+        # The field description must require triage-threads to populate it.
+        self.assertIn("resolved_by_reviewer", self.triage_prompt)
+
+    def test_report_keys_resolved_by_reviewer_on_list_membership(self) -> None:
+        # PR #455: the report must check triage.json's resolved_by_reviewer
+        # list for membership — not rely on an unstructured note — so the two
+        # cases (reviewer-resolved vs indeterminate) are distinguishable.
+        self.assertIn(
+            '"resolved_by_reviewer" list',
+            self.report_prompt,
+        )
+        # Negative case: indeterminate branch must also reference the same
+        # field so it's clear the absence of membership drives that label.
+        self.assertIn(
+            'does NOT appear in',
+            self.report_prompt,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

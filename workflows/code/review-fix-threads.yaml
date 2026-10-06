@@ -566,6 +566,7 @@ stages:
           "pr_number": "{pr_number}",
           "counts": {"fix": N, "reject": N, "moot": N, "defer": N, "context": N},
           "overflow_deferred": N,
+          "resolved_by_reviewer": ["unlinked:src/foo.py:42", ...],
           "threads": [
             {
               "id": "PRRT_kwDO...",
@@ -614,6 +615,14 @@ stages:
       that thread_id will do: an unlinked finding has none, and a stage that
       falls back to thread_id drops exactly the findings this workflow was
       changed to catch.
+
+      "resolved_by_reviewer" is a top-level list of stale-unlinked finding ids
+      (from review-overview.json "stale_unlinked") whose titles were found ONLY
+      inside a "Resolved since last review" section of the raw overview body
+      (per the partial-parse logic in Step 4 above). Populate it during Step 4:
+      for each stale id whose title search lands exclusively in that section,
+      append the id here. Omit the id from "threads" — these findings are not
+      dispatched. An empty list is valid; omitting the key is not.
 
       "repeat_of" appears on every unlinked entry with a non-empty
       "prior_same_path": an explicit list, empty when none of those prior
@@ -1872,18 +1881,18 @@ stages:
             current finding, never "indeterminate". Note in the entry that it
             was re-confirmed live from the raw overview body despite the
             parser marking it stale.
-          - This id has NO entry in triage.json AND triage-threads noted the
-            title was found only under "Resolved since last review": the
-            reviewer already resolved this finding. Label it "resolved by the
-            reviewer (title found only in Resolved since last review section)"
-            rather than "fixed or re-raised" or "indeterminate".
-          - This id has NO entry in triage.json AND no resolved-by-reviewer
-            note: the raw-body title search found nothing, or the raw body
-            itself could not be located (no "review_bodies" entry matched the
-            newest "review_id"). No live match was established, so label it
-            "staleness indeterminate (partial parse)" instead of "fixed or
-            re-raised": a partial parse cannot confirm this entry is absent
-            from the newest overview.
+          - This id has NO entry in triage.json AND this id appears in
+            triage.json's top-level "resolved_by_reviewer" list: the reviewer
+            already resolved this finding. Label it "resolved by the reviewer
+            (title found only in Resolved since last review section)" rather
+            than "fixed or re-raised" or "indeterminate".
+          - This id has NO entry in triage.json AND this id does NOT appear in
+            triage.json's "resolved_by_reviewer" list: the raw-body title
+            search found nothing, or the raw body itself could not be located
+            (no "review_bodies" entry matched the newest "review_id"). No live
+            match was established, so label it "staleness indeterminate
+            (partial parse)" instead of "fixed or re-raised": a partial parse
+            cannot confirm this entry is absent from the newest overview.
 
           When "status" is not "partial", label every stale id "fixed or
           re-raised" as above; the partial-parse distinction does not apply.
