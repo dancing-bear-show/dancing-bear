@@ -157,11 +157,76 @@ class RecordModelPinRefusalTests(PinRecordCase):
         real.mkdir(parents=True)
         os.symlink(real, self.record_path.parent)
 
-        # The read follows the parent link and finds nothing; the write must
-        # still refuse to open a symlinked directory.
-        self.assert_refused_without_write("cannot write digest record")
+        # The parent-dir validation in record_model_pin now catches the symlink
+        # before _write_pin_record is reached, raising "unreadable digest record".
+        self.assert_refused_without_write("unreadable digest record")
 
         self.assertEqual(list(real.iterdir()), [])
+
+    def test_symlinked_state_dir_refused_on_already_current_path(self) -> None:
+        """already-current early return must not bypass the symlinked-parent check."""
+        real = self.state_dir / "real-qwen"
+        real.mkdir(parents=True)
+        # Write the current digest directly into the real dir so _read_pin_record
+        # (which follows the link) would find it and trigger the early return.
+        (real / "model_digest.json").write_text(
+            json.dumps({MODEL: RUNNING_DIGEST}), encoding="utf-8"
+        )
+        os.symlink(real, self.record_path.parent)
+
+        self.assert_refused_without_write("unreadable digest record")
+
+        # The target record must be untouched.
+        self.assertEqual(
+            json.loads((real / "model_digest.json").read_text(encoding="utf-8")),
+            {MODEL: RUNNING_DIGEST},
+        )
+
+    def test_malformed_digest_writes_nothing(self) -> None:
+        """An empty, whitespace-only, or non-hex digest from /api/tags is refused."""
+        cases: list[tuple[str, str]] = [
+            ("empty string", ""),
+            ("whitespace only", "   "),
+            ("too short hex", "9ec8abc123"),
+            ("non-hex chars", "!" * 64),
+            ("sha256 prefix wrong length", "sha256:" + "a" * 63),
+        ]
+        for label, bad_digest in cases:
+            with self.subTest(label):
+                self.tags_response = {"models": [{"name": MODEL, "digest": bad_digest}]}
+                self.assert_refused_without_write("running digest unavailable")
+                self.assertFalse(self.record_path.exists())
+
+    def test_valid_digest_forms_are_accepted(self) -> None:
+        """Bare 64-hex and sha256:<64-hex> forms both succeed."""
+        for label, digest_value in (
+            ("bare hex", RUNNING_DIGEST),
+            ("sha256 prefix", f"sha256:{RUNNING_DIGEST}"),
+        ):
+            with self.subTest(label):
+                self.record_path.unlink(missing_ok=True)
+                self.tags_response = {"models": [{"name": MODEL, "digest": digest_value}]}
+                result = qwen.record_model_pin(MODEL)
+                self.assertTrue(result.written)
+
+    def test_readback_error_returns_readback_ok_false_not_exception(self) -> None:
+        """A ModelPinError during post-write readback must not escape record_model_pin."""
+
+        original_read = qwen._read_pin_record
+        call_count = [0]
+
+        def flaky_read(path: object) -> dict[str, object]:
+            call_count[0] += 1
+            if call_count[0] > 1:  # first call is the pre-write read; fail the readback
+                raise qwen.ModelPinError("simulated transient read error")
+            return original_read(path)  # type: ignore[arg-type]
+
+        with mock.patch.object(qwen, "_read_pin_record", side_effect=flaky_read):
+            result = qwen.record_model_pin(MODEL)
+
+        self.assertTrue(result.written)
+        self.assertFalse(result.readback_ok)
+        self.assertEqual(result.reason, "written")
 
 
 class CheckModelPinTests(PinRecordCase):

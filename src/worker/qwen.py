@@ -1420,6 +1420,20 @@ def _normalise_digest(digest: str) -> str:
     return digest.strip().lower().removeprefix("sha256:")
 
 
+_DIGEST_HEX_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _is_valid_digest(value: str) -> bool:
+    """True when value is a non-empty, well-formed digest.
+
+    Accepts bare 64-hex-digit strings and the ``sha256:<64-hex>`` form that
+    Ollama returns. Rejects empty, whitespace-only, and malformed values that
+    _model_digest can return when the API supplies an unexpected format.
+    """
+    normalised = value.strip().lower().removeprefix("sha256:")
+    return bool(_DIGEST_HEX_RE.match(normalised))
+
+
 @dataclass(frozen=True)
 class ModelPin:
     """Model identity check result.
@@ -1501,16 +1515,30 @@ def record_model_pin(model: str) -> PinRecordResult:
     already maps model to this digest is left untouched.
     """
     digest = _model_digest(ollama_host(), model)
-    if digest is None:
+    if digest is None or not _is_valid_digest(digest):
         raise ModelPinError(f"running digest unavailable for {model}")
     path = recorded_digest_path()
+    # Validate the parent directory is not a symlink before the early-return
+    # path, which does not reach _write_pin_record's _open_private_dir check.
+    # Raises ModelPinError when path.parent is a symlink or unreadable,
+    # consistently with the documented refusal.
+    try:
+        dfd = _open_existing_private_dir(path.parent, repair_mode=False)
+        os.close(dfd)
+    except FileNotFoundError:
+        pass  # no record yet; _write_pin_record will create the directory
+    except OSError as exc:
+        raise ModelPinError(f"unreadable digest record {path}: {describe_exception(exc)}") from exc
     record = _read_pin_record(path)
     current = record.get(model)
     if isinstance(current, str) and _normalise_digest(current) == _normalise_digest(digest):
         return PinRecordResult(model, digest, path, written=False, reason="already-current", readback_ok=True)
     record[model] = digest
     _write_pin_record(path, record)
-    readback = _read_pin_record(path).get(model)
+    try:
+        readback = _read_pin_record(path).get(model)
+    except ModelPinError:
+        return PinRecordResult(model, digest, path, written=True, reason="written", readback_ok=False)
     return PinRecordResult(model, digest, path, written=True, reason="written", readback_ok=readback == digest)
 
 
