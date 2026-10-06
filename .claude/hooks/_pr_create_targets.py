@@ -229,11 +229,13 @@ def _cd_applies(op: str) -> bool | None:
 _RESERVED = frozenset({"{", "}", "!", "if", "then", "else", "elif", "fi", "do", "done",
                        "while", "until", "time"})
 
-#: Subset of _RESERVED that introduce conditionally-executed branches. A ``cd``
-#: inside one of these may not execute at all, so the cwd after it is unknown.
-#: ``do`` is included because ``for x in ...; do cd /x; done`` iterates: the cwd
-#: after the loop is whatever the last iteration left -- not knowable statically.
-_CONDITIONAL_RESERVED = frozenset({"then", "else", "elif", "do"})
+#: Shell keywords that open a compound command and increment the nesting depth used
+#: to detect conditional ``cd``/``pushd``/``popd`` calls.  Any such call inside a
+#: compound command (nesting depth > 0) may or may not execute, so we fail closed.
+_NEST_OPENERS = frozenset({"if", "while", "until", "for", "case", "select"})
+
+#: Shell keywords that close a compound command and decrement the nesting depth.
+_NEST_CLOSERS = frozenset({"fi", "done", "esac"})
 
 #: Short options (the single letter after ``-`` or ``+``) that take the next word
 #: as a value and must be skipped when scanning bash/sh for a ``-c`` script.
@@ -517,11 +519,24 @@ def find_targets(command: str, cwd: Path | None, depth: int = 0) -> list[Target]
     targets: list[Target] = []
     pr_indices: set[int] = set()
     stack: list[Path | None] = []
+    nest = 0  # compound-command nesting depth (if/while/until/for/case/select → fi/done/esac)
+    prev_op = ""  # separator that ended the previous simple command
     for cmd, op in split_with_operators(tokens):
+        # Update nesting based on the first (un-stripped) word of this simple command.
+        # We do this BEFORE processing so that a ``cd`` in ``if cd /x; then ...``
+        # is already at depth 1 and therefore fails closed (the coordinator called
+        # this acceptable).
+        if cmd:
+            first = _word(cmd[0][1]).lower()
+            if first in _NEST_OPENERS:
+                nest += 1
+            elif first in _NEST_CLOSERS:
+                nest = max(0, nest - 1)
         # The separator follows its command: `cd x)` moves, then `)` restores.
         if cmd:
-            cwd = _walk_command(cmd, op, cwd, targets, pr_indices, depth)
+            cwd = _walk_command(cmd, op, cwd, targets, pr_indices, depth, nest, prev_op)
         cwd = _apply_parens(op, cwd, stack)
+        prev_op = op
     _check_dynamic(tokens, pr_indices)
     return targets
 
@@ -529,8 +544,17 @@ def find_targets(command: str, cwd: Path | None, depth: int = 0) -> list[Target]
 def _walk_command(
     cmd: list[tuple[int, str]], op: str, cwd: Path | None,
     targets: list[Target], pr_indices: set[int], depth: int,
+    nest: int = 0, prev_op: str = "",
 ) -> Path | None:
-    """Collect targets in one simple command; return the cwd for the commands after it."""
+    """Collect targets in one simple command; return the cwd for the commands after it.
+
+    ``nest`` is the compound-command nesting depth (>0 inside if/while/for/case/…);
+    ``prev_op`` is the separator that ended the preceding simple command.  A
+    cd/pushd/popd inside a compound command (nest > 0) may or may not execute, so
+    we fail closed and return ``_UNKNOWN_CWD``.  Likewise, a cd whose preceding
+    operator is ``&&`` or ``||`` only runs when the prior command succeeded or failed
+    (respectively), which we cannot evaluate statically.
+    """
     gidx = [i for i, _ in cmd]
     words = [_word(t) for _, t in cmd]
     stripped = _strip_reserved(words)
@@ -542,12 +566,10 @@ def _walk_command(
         applies = _cd_applies(op)
         if applies is None:
             return _UNKNOWN_CWD
-        # A ``cd`` inside a conditional branch (then/else/elif/do) may not execute.
-        # Modelling branch-taken/not-taken requires control-flow analysis we do not
-        # have, so we fail closed: any conditional ``cd`` makes the cwd unknown.
-        prefix_len = len(words) - len(stripped)
-        conditional = any(w in _CONDITIONAL_RESERVED for w in words[:prefix_len])
-        if conditional:
+        # Fail closed when the cd/pushd is inside a compound command (if/while/for/…)
+        # or its preceding operator is && or || (it only runs when a prior command
+        # succeeded or failed, which we cannot evaluate statically).
+        if nest > 0 or "&&" in prev_op or "||" in prev_op:
             return _UNKNOWN_CWD
         return _cd_target(head_words, cwd) if applies else cwd
     for i in range(len(words)):

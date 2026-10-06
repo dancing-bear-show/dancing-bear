@@ -76,12 +76,13 @@ description: >
 
 # ---------------------------------------------------------------------------
 # Filename sanitization convention (used across multiple stages):
-#   FILE="<file>"
-#   SAFE=$(printf '%s' "$FILE" | tr '/' '_')
-# Produces a flat filename safe for the diffs/ directory.
-# The FILE variable must be quoted in all subsequent shell expansions so that
-# filenames containing spaces or shell metacharacters remain data, not code.
-# All stages that read or write per-file diffs MUST use this exact idiom.
+# Read filenames from changed-files.txt with `while IFS= read -r FILE; do ...
+# done < changed-files.txt` so no filename ever appears in shell source.
+# Compute the safe flat name:  SAFE=$(printf '%s' "$FILE" | tr '/' '_')
+# This produces a flat filename safe for the diffs/ directory.
+# NEVER interpolate a filename directly into shell source (e.g. -- <file>)
+# because a filename containing $(...) or backticks would execute code.
+# All stages that read or write per-file diffs MUST use this read-loop idiom.
 # If the scheme changes, update ALL occurrences: fetch-pr-context,
 # enumerate-targets, validate-concerns.
 # ---------------------------------------------------------------------------
@@ -163,10 +164,10 @@ stages:
           git diff ${MERGE_BASE}..${HEAD_SHA} --name-only > {workspace}/outputs/changed-files.txt
           git diff ${MERGE_BASE}..${HEAD_SHA}             > {workspace}/outputs/full-diff.patch
         Per-file diffs:
-          for each file in changed-files.txt:
-            FILE="<file>"
+          while IFS= read -r FILE; do
             SAFE=$(printf '%s' "$FILE" | tr '/' '_')
-            git diff ${MERGE_BASE}..${HEAD_SHA} -- "$FILE" > {workspace}/outputs/diffs/${SAFE}.patch
+            git diff "${MERGE_BASE}..${HEAD_SHA}" -- "$FILE" > {workspace}/outputs/diffs/${SAFE}.patch
+          done < {workspace}/outputs/changed-files.txt
 
       Step 3 — commit history (local):
           git log ${MERGE_BASE}..${HEAD_SHA} --oneline > {workspace}/outputs/commit-history.txt
@@ -232,13 +233,13 @@ stages:
           git diff ${MERGE_BASE}..${HEAD_SHA} --name-only > {workspace}/outputs/changed-files.txt
           git diff ${MERGE_BASE}..${HEAD_SHA}             > {workspace}/outputs/full-diff.patch
         Per-file diffs (needed by validators):
-          for each file in changed-files.txt:
-            Sanitize the filename by replacing '/' with '_' to produce a flat
-            filename safe for the diffs/ directory:
-              FILE="<file>"
+          Read filenames from changed-files.txt using a read loop so that no filename
+          reaches shell source:
+            while IFS= read -r FILE; do
               SAFE=$(printf '%s' "$FILE" | tr '/' '_')  # see filename sanitization convention above
-              git diff ${MERGE_BASE}..${HEAD_SHA} -- "$FILE" \
+              git diff "${MERGE_BASE}..${HEAD_SHA}" -- "$FILE" \
                 > {workspace}/outputs/diffs/${SAFE}.patch
+            done < {workspace}/outputs/changed-files.txt
         The diffs/ subdirectory is created in Step 0 above.
         Store MERGE_BASE and HEAD_SHA in pr-context.json for downstream stages.
 
@@ -341,8 +342,8 @@ stages:
         Read {workspace}/outputs/changed-files.txt.
         Read {workspace}/outputs/full-diff.patch.
         For each file in changed-files.txt, read its per-file patch:
-          FILE="<file>"; SAFE=$(printf '%s' "$FILE" | tr '/' '_')
-          Read {workspace}/outputs/diffs/${SAFE}.patch.
+          Compute the safe name by replacing every '/' in the filename with '_'.
+          Read {workspace}/outputs/diffs/<safe-name>.patch.
         Read {workspace}/outputs/pr-context.json for PR metadata.
 
       Step 4 — concern sweep (all guides in one pass):
@@ -567,8 +568,8 @@ stages:
       Algorithm:
         For each concern in the filtered list:
           For each file in outputs/changed-files.txt:
-            Derive the sanitized patch filename: FILE="<file>"; SAFE=$(printf '%s' "$FILE" | tr '/' '_')  # see filename sanitization convention above
-            Read outputs/diffs/${SAFE}.patch.
+            Compute the sanitized patch filename by replacing every '/' in the filename with '_' (see filename sanitization convention above).
+            Read outputs/diffs/<safe-name>.patch.
             If the file's diff contains code relevant to the concern's triggers,
             add an entry to the manifest.
             Set scope to the relevant line range(s) in the file so validators
@@ -681,8 +682,9 @@ stages:
 
         3. Reads the actual file at the path given (Read tool, not Bash).
 
-        4. Reads the per-file patch: FILE="<file>"; SAFE=$(printf '%s' "$FILE" | tr '/' '_'),  # see filename sanitization convention above
-           then reads {workspace}/outputs/diffs/${SAFE}.patch for the diff context.
+        4. Reads the per-file patch: compute the sanitized name by replacing every '/'
+           in the filename with '_' (see filename sanitization convention above),
+           then reads {workspace}/outputs/diffs/<safe-name>.patch for the diff context.
 
         5. Applies the concern's check against the code and diff.
 

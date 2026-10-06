@@ -90,9 +90,8 @@ HEAD_CREATES = [
     "gh -R=o/r pr create",
     "./bin/github --agentic-domain x pr create",
     "hub -c a=b pull-request",
-    # Same-shell groups keep the cwd of a cd inside them.
+    # Command groups (non-conditional) keep the cwd of a cd inside them.
     "{ cd sub; } && gh pr create",
-    "if cd sub; then gh pr create; fi",
 ]
 
 #: Commands that are not PR creation and must pass with no record anywhere.
@@ -145,6 +144,15 @@ UNVERIFIABLE = [
     "hub --git-dir=/elsewhere/.git pull-request",
     "cd sub || gh pr create",
     "pushd sub && popd && gh pr create",
+    # A cd inside a compound command (if/while/for/case) may not execute;
+    # a cd preceded by && or || is conditional on the prior command's exit code.
+    # Both are fail-closed: the cwd after them is unknown (PR #454 review r2).
+    "if cd sub; then gh pr create; fi",
+    "if false; then cd sub; fi; gh pr create",
+    "if false; then echo hi; cd sub; fi; gh pr create",
+    "while false; do echo a; cd sub; done; gh pr create",
+    "for x in a; do cd sub; done; gh pr create",
+    "false && cd sub && gh pr create",
 ]
 
 
@@ -261,27 +269,59 @@ class RequireConcernSweepHookTests(unittest.TestCase):
                 self.assertBlocked(run_hook(command, self.repo), self.head)
 
     def test_cd_inside_conditional_branch_makes_cwd_unknown(self) -> None:
-        """A cd inside then/else/elif/do may not execute; the hook must fail closed
-        rather than treating the conditional branch's target directory as the cwd for
-        subsequent commands.
+        """A cd inside a compound command (if/while/for/case) or after && / || may not
+        execute; the hook must fail closed.
 
-        PR #454 review: ``if false; then cd /worktree-with-record; fi; gh pr create``
-        should be blocked because the real cwd (self.repo) has no record.  Before the
-        fix the walker applied the cd unconditionally and authorised from the worktree.
+        PR #454 review r2: the original fix only caught a cd that was the FIRST command
+        after a conditional keyword in the same simple command.  A cd in a later simple
+        command inside the compound body, or a cd guarded by && or ||, was still
+        incorrectly resolved.
+
+        All commands below must block even when the worktree's HEAD has a record, because
+        the real shell may never reach that cd, leaving gh running in the original repo
+        (which has no record).
         """
         wt = self.root / "wt"
         _git(self.repo, "worktree", "add", "-q", str(wt), "other")
-        self._record(self.other)  # only the worktree's HEAD has a record, not self.repo
-        # All of these conditionally cd into wt; the real shell stays in self.repo.
+        self._record(self.other)  # only the worktree has a record, not self.repo
+        # -- coordinator probe cases: cd deeper inside a conditional body ------------
         for template in (
+            # cd as the first command in the conditional body
             "if false; then cd {wt}; fi; gh pr create",
-            "if true; then cd {wt}; fi; gh pr create",
-            "while false; do cd {wt}; done; gh pr create",
-            "for x in 1; do cd {wt}; done; gh pr create",
+            # cd is a SECOND command in the body (original fix missed this)
+            "if false; then echo hi; cd {wt}; fi; gh pr create",
+            # while loop body
+            "while false; do echo a; cd {wt}; done; gh pr create",
+            # case body (cd follows the case-item separator ';;')
+            "case a in b) cd {wt};; esac; gh pr create",
+            # cd after && is conditional on the prior command
+            "false && cd {wt}; gh pr create",
         ):
             command = template.format(wt=wt)
             with self.subTest(command=command):
                 self.assertBlocked(run_hook(command, self.repo), "cannot")
+        # -- additional shapes that must also fail closed ----------------------------
+        for template in (
+            "if true; then cd {wt}; fi; gh pr create",
+            "for x in 1; do cd {wt}; done; gh pr create",
+            "until false; do cd {wt}; done; gh pr create",
+            "false && cd {wt} && gh pr create",
+            "if cd {wt}; then gh pr create; fi",
+        ):
+            command = template.format(wt=wt)
+            with self.subTest(command=command):
+                self.assertBlocked(run_hook(command, self.repo), "cannot")
+        # -- non-conditional controls: unconditional cd still resolves the cwd ------
+        # These must be ALLOWED (exit 0) because the worktree has a record and the cd
+        # is unconditional (not inside any compound command, not preceded by &&/||).
+        for template in (
+            "cd {wt} && gh pr create",
+            "cd {wt}; gh pr create",
+            "{{ cd {wt}; }} && gh pr create",  # {{ and }} are literal { } in .format()
+        ):
+            command = template.format(wt=wt)
+            with self.subTest(command=command):
+                self.assertEqual(run_hook(command, self.repo).returncode, 0, command)
 
     def test_a_record_naming_another_sha_does_not_count(self) -> None:
         self._record(self.other)
