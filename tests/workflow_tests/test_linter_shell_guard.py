@@ -584,6 +584,54 @@ class TestGuardRefused(_RuleCase):
             with self.subTest(command=command):
                 self.assert_silent(_workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n")))
 
+    def test_fires_on_qualified_shell_with_dynamic_c_operand(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6oL-DZ: a path-qualified shell like
+        # `/bin/sh -c "$CMD"` was false-green because _inner_script parsed
+        # "$CMD" as literal text with no refused construct, and the bare-shell
+        # cluster check skips path-qualified programs.  The guard's text_of()
+        # refuses a -c operand whose value contains substitutions because it
+        # cannot inspect the code that will actually run.
+        for command in (
+            '/bin/sh -c "$CMD"',
+            'for f in a; do /bin/bash -c "$CMD"; done',
+            '/usr/bin/sh -c "$(cat script.sh)"',
+            '/bin/bash -ec "$CMD"',
+        ):
+            with self.subTest(command=command):
+                hits = self.assert_fires(_workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n")))
+                self.assertIn("eval/sh -c", hits[0].message)
+
+    def test_qualified_shell_with_static_c_string_remains_silent(self) -> None:
+        # Happy path: a path-qualified shell whose -c string is fully literal
+        # is still inspected and allowed when the string has no refused construct.
+        for command in (
+            "/bin/sh -c 'wc -l file.txt'",
+            "for f in a; do /bin/bash -c 'echo hi'; done",
+        ):
+            with self.subTest(command=command):
+                self.assert_silent(_workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n")))
+
+    def test_patch_with_output_long_flag_is_silent(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6oL-D-: `patch --output /tmp/out` was
+        # classified as mutating because --output does not start with -o, but
+        # the guard accepts an explicit output file under either spelling.
+        for command in (
+            'for p in diffs; do patch --output "$p.out" < "$p"; done',
+            'for p in diffs; do patch --output="$p.out" < "$p"; done',
+        ):
+            with self.subTest(command=command):
+                self.assert_silent(_workflow(_stage(f"Run:\n\n  {command}\n")))
+
+    def test_patch_prefix_matches_do_not_count_as_safe(self) -> None:
+        # Sad-path for thread PRRT_kwDOQr1kjM6oL-D-: --dry-running is NOT
+        # --dry-run, and -o with no following value does not satisfy the guard.
+        for command in (
+            'for p in diffs; do patch --dry-running < "$p"; done',
+            'for p in diffs; do patch -o; done',
+        ):
+            with self.subTest(command=command):
+                self.assertIn("loop", self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))[0].message)
+
     def test_has_teeth(self) -> None:
         self.assert_has_teeth(_workflow(_stage(_LOOP)))
 

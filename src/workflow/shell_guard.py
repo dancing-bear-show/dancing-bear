@@ -38,10 +38,6 @@ _MUTATING_COMMANDS = frozenset({
     "rm", "rmdir", "unlink", "shred", "chmod", "chown", "chgrp", "mv", "cp",
     "ln", "install", "touch", "tee", "truncate", "dd", "mkdir",
 })
-# The guard refuses `patch` unless one of these is present (it writes the
-# files named *inside the diff*, so the guard cannot resolve a write target
-# without one of these).
-_PATCH_SAFE_FLAGS = ("--dry-run", "-o")
 # Shells whose ``-c`` string both guards treat as code: h_shell in
 # .claude/hooks/_bash_write_targets.py, and the nested-shell check in
 # block-destructive-bash.sh (which adds fish).
@@ -78,9 +74,44 @@ def _has_sed_in_place(args: list[str]) -> bool:
     return False
 
 
+def _patch_output_flag(arg: str, next_arg: str | None) -> bool:
+    """True when *arg* (and optionally *next_arg*) is a safe-output flag for ``patch``.
+
+    Accepted forms: ``--dry-run`` (exact), ``-o FILE`` / ``--output FILE``,
+    ``--output=FILE``, or ``-o`` in a short cluster that either has an attached
+    value (``-o/tmp/out``) or has a following word (``-Ro FILE``).
+    """
+    if arg == "--dry-run":
+        return True
+    if arg in ("-o", "--output") and next_arg is not None:
+        return True
+    if arg.startswith("--output="):
+        return True
+    if arg.startswith("-") and not arg.startswith("--") and "o" in arg[1:]:
+        o_pos = arg.index("o", 1)
+        if o_pos < len(arg) - 1:  # attached value: -o/tmp/out
+            return True
+        if next_arg is not None:  # last letter, next word is the value: -Ro FILE
+            return True
+    return False
+
+
 def _patch_mutates(cmd: SimpleCommand) -> bool:
-    """`patch` writes the files named inside the diff unless `--dry-run` or `-o FILE`."""
-    return not any(arg.startswith(_PATCH_SAFE_FLAGS) for arg in cmd.args)
+    """`patch` writes the files named inside the diff unless ``--dry-run`` or ``-o FILE``.
+
+    The guard's option check is exact, not prefix-based:
+
+    * ``--dry-run`` must match literally; ``--dry-running`` does not qualify.
+    * ``-o`` / ``--output`` require a value (the next argument, or attached with
+      ``=``); a lone ``-o`` with no operand is a malformed invocation that the
+      guard refuses.
+    * ``-o`` can also appear in a combined cluster such as ``-Ro FILE``.
+    """
+    args = cmd.args
+    return not any(
+        _patch_output_flag(args[i], args[i + 1] if i + 1 < len(args) else None)
+        for i in range(len(args))
+    )
 
 
 @dataclass(frozen=True)
@@ -90,6 +121,7 @@ class _ShellArgs:
     has_c: bool  # -c: the first operand is shell code
     has_s: bool  # -s: the program comes from stdin; operands are its arguments
     operand: str | None  # the first operand: the -c string, or a script file
+    operand_static: bool = True  # False when the operand token contains substitutions
 
 
 def _drop_plus_options(args: list[str]) -> list[str]:
@@ -121,6 +153,51 @@ def _takes_long_value(raw: str) -> bool:
     return len(matches) == 1
 
 
+def _raw_has_dynamic_expansion(raw: str) -> bool:
+    """True when *raw* (a word's source spelling) contains an unprotected ``$`` or backtick.
+
+    Single-quoted sections (``'...'``) and backslash escapes protect their content
+    from expansion, so ``'$x'`` and ``\\$x`` are literal.  An unescaped, unquoted
+    ``$`` or an unescaped ``$`` inside double quotes causes a run-time expansion,
+    making the operand non-static.
+    """
+    in_single = False
+    i = 0
+    while i < len(raw):
+        ch = raw[i]
+        if ch == "'" and not in_single:
+            in_single = True
+        elif ch == "'" and in_single:
+            in_single = False
+        elif not in_single:
+            if ch == "\\":
+                i += 2  # skip the escaped character
+                continue
+            if ch in ("$", "`"):
+                return True
+        i += 1
+    return False
+
+
+def _operand_is_static(operand: str | None, tokens: tuple[ShellToken, ...] | None) -> bool:
+    """False when *operand* contains any run-time expansion (``$VAR``, ``$(…)``, etc.).
+
+    Matches *operand* (the text of the first non-option argument) against
+    *tokens* to recover the original raw spelling, then delegates to
+    :func:`_raw_has_dynamic_expansion`. ``ShellToken.subs`` covers ``$(…)``
+    and backticks; the raw scan also catches plain ``$VAR`` and ``${VAR}``.
+
+    This mirrors the guard's ``text_of()``, which returns ``None`` for any word
+    that contains an ``Unknown`` slot (any unquoted or double-quoted ``$`` expansion).
+    """
+    if operand is None or tokens is None:
+        return True
+    tok = next((t for t in tokens if t.text == operand), None)
+    if tok is None:
+        return True
+    return not (tok.subs or _raw_has_dynamic_expansion(tok.raw))
+
+
 def _cluster_letters(arg: str) -> tuple[str, bool]:
     """Flag letters of the short cluster *arg*, and whether it takes the next word.
 
@@ -134,12 +211,21 @@ def _cluster_letters(arg: str) -> tuple[str, bool]:
     return arg[1:], False
 
 
-def _shell_args(args: list[str]) -> _ShellArgs:
+def _shell_args(
+    args: list[str],
+    tokens: tuple[ShellToken, ...] | None = None,
+) -> _ShellArgs:
     """The ``-c``/``-s`` flags and first operand of a shell's own argument list.
 
     Reads options the way h_shell does (getopt, stopping at the first
     operand): letters combine in clusters (``-es``, ``-ec``), ``-o``/``-O``
     and ``--rcfile``/``--init-file`` take a value, and ``--`` ends options.
+
+    When *tokens* is supplied (the full ``arguments`` tuple before
+    ``_drop_plus_options`` strips some away), ``operand_static`` is False
+    for a ``-c`` operand that contains variable or command substitutions --
+    the guard's ``text_of()`` refuses those because it cannot inspect the
+    string the shell will actually run.
     """
     args = _drop_plus_options(args)
     letters = ""
@@ -156,7 +242,9 @@ def _shell_args(args: list[str]) -> _ShellArgs:
         cluster, takes_next = _cluster_letters(arg)
         letters += cluster
         i += 1 if takes_next else 0
-    return _ShellArgs("c" in letters, "s" in letters, args[i] if i < len(args) else None)
+    operand = args[i] if i < len(args) else None
+    static = _operand_is_static(operand, tokens)
+    return _ShellArgs("c" in letters, "s" in letters, operand, static)
 
 
 def _shell_reads_stdin(cmd: SimpleCommand) -> bool:
@@ -262,8 +350,8 @@ def _inner_script(cmd: SimpleCommand) -> ShellScript | None:
             max_depth=cmd.depth,
         )
     if cmd.name in _SHELLS:
-        shell = _shell_args(cmd.args)
-        if shell.has_c and shell.operand is not None:
+        shell = _shell_args(cmd.args, cmd.arguments)
+        if shell.has_c and shell.operand is not None and shell.operand_static:
             return parse_shell(shell.operand, in_loop=cmd.in_loop, depth=cmd.depth + 1)
     return None
 
@@ -323,6 +411,22 @@ def _is_nested_shell(cmd: SimpleCommand) -> bool:
     return "/" not in word.text and _has_nested_c_cluster(cmd.args)
 
 
+def _has_opaque_c_string(cmd: SimpleCommand) -> bool:
+    """True when a path-qualified shell uses ``-c`` with a dynamic (non-static) operand.
+
+    block-destructive-bash.sh's nested-shell check does not inspect path-qualified
+    programs (``/bin/sh``), so _bash_write_targets.py's h_shell takes over. h_shell
+    calls ``text_of()`` on the ``-c`` operand, which refuses the command when the
+    operand contains substitutions because it cannot read the code that will run.
+    A bare-named shell is already refused by :func:`_is_nested_shell` before this.
+    """
+    word = cmd.word
+    if word is None or "/" not in word.text or cmd.name not in _SHELLS:
+        return False
+    shell = _shell_args(cmd.args, cmd.arguments)
+    return shell.has_c and shell.operand is not None and not shell.operand_static
+
+
 def refused_construct(script: ShellScript) -> str:
     """Name the guard-refused construct in *script*, or "" when there is none.
 
@@ -357,7 +461,7 @@ def refused_construct(script: ShellScript) -> str:
     if expanded.too_nested:
         return "expansions nested too deeply to parse"
     commands = expanded.commands
-    if any(_is_nested_shell(cmd) for cmd in commands):
+    if any(_is_nested_shell(cmd) or _has_opaque_c_string(cmd) for cmd in commands):
         return "eval/sh -c"
     if any(cmd.split_string for cmd in commands):
         return "env -S"
