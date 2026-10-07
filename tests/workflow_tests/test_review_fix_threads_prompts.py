@@ -664,5 +664,43 @@ class TestUnlinkedFindingTriageAndDispatchRules(unittest.TestCase):
         )
 
 
+class TestTriageThreadsValidatesOutput(unittest.TestCase):
+    """Compiled triage-threads stage must carry has_key:resolved_by_reviewer.
+
+    PR #455: the prose description requires resolved_by_reviewer in triage.json
+    but the artifact contract must be enforced by the engine, not only stated in
+    comments. Verify that the compiled StageSpec carries the check so an agent
+    that omits the key fails the stage.
+    """
+
+    def setUp(self) -> None:
+        defn = parse_workflow(str(_WORKFLOW))
+        manifest = compile_workflow(defn, project_root=_ROOT,
+                                    trigger_params={"pr_number": "405"})
+        self.stage = manifest.resolved_stages["triage-threads"]
+
+    def test_triage_output_check_present(self) -> None:
+        all_checks: list[str] = []
+        for oc in self.stage.spec.validates_output:
+            all_checks.extend(oc.checks)
+        self.assertIn(
+            "has_key:resolved_by_reviewer",
+            all_checks,
+            "triage-threads validates_output must include has_key:resolved_by_reviewer",
+        )
+
+    def test_triage_output_check_absent_without_it(self) -> None:
+        # Confirm the check is not accidentally satisfied by a different key
+        # (non-matching case): has_key:resolved_by_reviewer should not equal
+        # has_key:threads or has_key:counts.
+        all_checks: list[str] = []
+        for oc in self.stage.spec.validates_output:
+            all_checks.extend(oc.checks)
+        self.assertNotIn(
+            "has_key:resolved_by_reviewer_TYPO",
+            all_checks,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

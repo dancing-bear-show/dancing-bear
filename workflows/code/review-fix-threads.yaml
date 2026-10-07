@@ -649,7 +649,7 @@ stages:
       # re-asserted in plan-resolution (Step 1b), where threads.json can
       # actually be consulted.
       - path: outputs/triage.json
-        checks: [is_json, has_key:threads, has_key:counts]
+        checks: [is_json, has_key:threads, has_key:counts, has_key:resolved_by_reviewer]
 
   # ===========================================================================
   # Fix — one agent per actionable thread
