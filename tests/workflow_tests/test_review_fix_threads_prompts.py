@@ -18,6 +18,8 @@ from pathlib import Path
 
 from workflow.compiler import compile_workflow
 from workflow.dispatch import build_agent_prompt
+from workflow.models import OutputCheck
+from workflow.output_checks import run_output_checks
 from workflow.parser import parse_workflow
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -565,7 +567,7 @@ class TestUnlinkedFindingTriageAndDispatchRules(unittest.TestCase):
         # report's re-confirmed/indeterminate split depends on that entry
         # existing.
         self.assertIn(
-            'If the title is present there, triage it like a current '
+            'If the title is present in a non-resolved section, triage it like a current '
             "finding", self.triage_prompt,
         )
         self.assertIn(
@@ -596,6 +598,136 @@ class TestUnlinkedFindingTriageAndDispatchRules(unittest.TestCase):
         self.assertIn(
             "No live match was established, so label it", self.report_prompt
         )
+
+    def test_section_aware_title_check_uses_enclosing_section(self) -> None:
+        # PR #453 PRRT_kwDOQr1kjM6oLmgJ: the title search must determine
+        # the enclosing section of each occurrence, not just whether the title
+        # string appears anywhere in the raw body.
+        self.assertIn(
+            "enclosing section", self.triage_prompt,
+        )
+        self.assertIn(
+            "nearest preceding", self.triage_prompt,
+        )
+        self.assertIn(
+            "<summary><strong>NAME (N)</strong></summary>", self.triage_prompt,
+        )
+
+    def test_resolved_section_occurrence_is_not_dispatched(self) -> None:
+        # A title found only under "Resolved since last review" must NOT be
+        # treated as live and must not be dispatched.
+        self.assertIn(
+            'title occurrence that falls inside a "Resolved since last review" '
+            "section is NOT live",
+            self.triage_prompt,
+        )
+        self.assertIn(
+            'If the title is found ONLY under "Resolved since last review"',
+            self.triage_prompt,
+        )
+        self.assertIn(
+            "do NOT dispatch it", self.triage_prompt,
+        )
+        self.assertIn(
+            'resolved by the reviewer', self.report_prompt,
+        )
+
+    def test_report_labels_resolved_section_occurrence_separately(self) -> None:
+        # When a title was found only inside "Resolved since last review",
+        # the report must label it as resolved by the reviewer — not as
+        # "fixed or re-raised" and not as "indeterminate".
+        self.assertIn(
+            'resolved by the reviewer (title found only in Resolved since '
+            'last review section)',
+            self.report_prompt,
+        )
+
+    def test_resolved_by_reviewer_field_in_triage_schema(self) -> None:
+        # PR #455: triage.json must carry a top-level resolved_by_reviewer
+        # list so the report can distinguish reviewer-resolved stale ids from
+        # truly indeterminate ones without relying on unstructured notes.
+        self.assertIn('"resolved_by_reviewer"', self.triage_prompt)
+        # The field description must require triage-threads to populate it.
+        self.assertIn("resolved_by_reviewer", self.triage_prompt)
+
+    def test_report_keys_resolved_by_reviewer_on_list_membership(self) -> None:
+        # PR #455: the report must check triage.json's resolved_by_reviewer
+        # list for membership — not rely on an unstructured note — so the two
+        # cases (reviewer-resolved vs indeterminate) are distinguishable.
+        self.assertIn(
+            '"resolved_by_reviewer" list',
+            self.report_prompt,
+        )
+        # Negative case: indeterminate branch must also reference the same
+        # field so it's clear the absence of membership drives that label.
+        self.assertIn(
+            'does NOT appear in',
+            self.report_prompt,
+        )
+
+
+class TestTriageThreadsValidatesOutput(unittest.TestCase):
+    """Compiled triage-threads stage must carry has_key:resolved_by_reviewer.
+
+    PR #455: the prose description requires resolved_by_reviewer in triage.json
+    but the artifact contract must be enforced by the engine, not only stated in
+    comments. Verify that the compiled StageSpec carries the check so an agent
+    that omits the key fails the stage.
+    """
+
+    def setUp(self) -> None:
+        defn = parse_workflow(str(_WORKFLOW))
+        manifest = compile_workflow(defn, project_root=_ROOT,
+                                    trigger_params={"pr_number": "405"})
+        self.stage = manifest.resolved_stages["triage-threads"]
+
+    def test_triage_output_check_present(self) -> None:
+        all_checks: list[str] = []
+        for oc in self.stage.spec.validates_output:
+            all_checks.extend(oc.checks)
+        self.assertIn(
+            "has_key:resolved_by_reviewer",
+            all_checks,
+            "triage-threads validates_output must include has_key:resolved_by_reviewer",
+        )
+
+    def test_engine_rejects_triage_missing_resolved_by_reviewer(self) -> None:
+        # Behavioural: run the real output checker against a triage.json that
+        # lacks resolved_by_reviewer — the has_key check must fail.
+        with tempfile.TemporaryDirectory() as ws:
+            import os
+            os.makedirs(os.path.join(ws, "outputs"))
+            triage_path = os.path.join(ws, "outputs", "triage.json")
+            with open(triage_path, "w") as fh:
+                json.dump({"threads": [], "counts": {}}, fh)
+            results = run_output_checks(ws, [OutputCheck(
+                path="outputs/triage.json",
+                checks=["has_key:resolved_by_reviewer"],
+            )])
+            self.assertEqual(len(results), 1)
+            self.assertFalse(
+                results[0].passed,
+                "has_key:resolved_by_reviewer must fail when key is absent",
+            )
+
+    def test_engine_accepts_triage_with_resolved_by_reviewer(self) -> None:
+        # Behavioural: run the real output checker against a triage.json that
+        # includes resolved_by_reviewer (empty list is valid) — must pass.
+        with tempfile.TemporaryDirectory() as ws:
+            import os
+            os.makedirs(os.path.join(ws, "outputs"))
+            triage_path = os.path.join(ws, "outputs", "triage.json")
+            with open(triage_path, "w") as fh:
+                json.dump({"threads": [], "counts": {}, "resolved_by_reviewer": []}, fh)
+            results = run_output_checks(ws, [OutputCheck(
+                path="outputs/triage.json",
+                checks=["has_key:resolved_by_reviewer"],
+            )])
+            self.assertEqual(len(results), 1)
+            self.assertTrue(
+                results[0].passed,
+                "has_key:resolved_by_reviewer must pass when key is present",
+            )
 
 
 if __name__ == "__main__":
