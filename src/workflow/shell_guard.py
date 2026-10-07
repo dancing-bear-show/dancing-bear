@@ -153,6 +153,33 @@ def _takes_long_value(raw: str) -> bool:
     return len(matches) == 1
 
 
+_DQUOTE_ESCAPE_CHARS = frozenset(('$', '`', '"', '\\', '\n'))
+
+
+def _scan_double_quoted(raw: str, start: int) -> tuple[bool, int]:
+    """Scan a double-quoted span beginning just after the opening ``"``.
+
+    Returns ``(dynamic, end)`` where *dynamic* is True when an unescaped ``$``
+    or backtick was found, and *end* is the index of the character after the
+    closing ``"`` (or ``len(raw)`` if unterminated).
+
+    Inside ``"..."``: single quotes are literal; ``$`` and backtick expand;
+    backslash only escapes ``$``, ``\```, ``"``, ``\\``, and newline.
+    """
+    i = start
+    while i < len(raw):
+        ch = raw[i]
+        if ch == '"':
+            return False, i + 1
+        if ch == '\\' and i + 1 < len(raw) and raw[i + 1] in _DQUOTE_ESCAPE_CHARS:
+            i += 2
+            continue
+        if ch in ('$', '`'):
+            return True, i + 1
+        i += 1
+    return False, len(raw)
+
+
 def _raw_has_dynamic_expansion(raw: str) -> bool:
     """True when *raw* (a word's source spelling) contains an unprotected ``$`` or backtick.
 
@@ -160,21 +187,31 @@ def _raw_has_dynamic_expansion(raw: str) -> bool:
     from expansion, so ``'$x'`` and ``\\$x`` are literal.  An unescaped, unquoted
     ``$`` or an unescaped ``$`` inside double quotes causes a run-time expansion,
     making the operand non-static.
+
+    Double-quote state is tracked separately: inside ``"..."``, a single quote
+    is a literal character (not a quote), so ``"'$CMD'"`` is dynamic because
+    ``$CMD`` expands.  Inside double quotes, backslash only escapes ``$``,
+    ``\```, ``"``, ``\\``, and newline; other backslashes are literal.
     """
     in_single = False
     i = 0
     while i < len(raw):
         ch = raw[i]
-        if ch == "'" and not in_single:
+        if in_single:
+            if ch == "'":
+                in_single = False
+        elif ch == "'":
             in_single = True
-        elif ch == "'" and in_single:
-            in_single = False
-        elif not in_single:
-            if ch == "\\":
-                i += 2  # skip the escaped character
-                continue
-            if ch in ("$", "`"):
+        elif ch == '"':
+            dynamic, i = _scan_double_quoted(raw, i + 1)
+            if dynamic:
                 return True
+            continue
+        elif ch == "\\":
+            i += 2  # skip the escaped character
+            continue
+        elif ch in ("$", "`"):
+            return True
         i += 1
     return False
 

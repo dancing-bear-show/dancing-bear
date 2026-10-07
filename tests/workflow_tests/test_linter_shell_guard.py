@@ -12,6 +12,7 @@ from tests.workflow_tests.helpers.shell_lint import (
     _workflow,
 )
 from workflow.linter_shell import RULE_GUARD_REFUSED
+from workflow.shell_guard import _raw_has_dynamic_expansion
 
 
 # ---------------------------------------------------------------------------
@@ -634,6 +635,42 @@ class TestGuardRefused(_RuleCase):
 
     def test_has_teeth(self) -> None:
         self.assert_has_teeth(_workflow(_stage(_LOOP)))
+
+
+class TestRawHasDynamicExpansion(unittest.TestCase):
+    """Unit tests for ``_raw_has_dynamic_expansion`` double-quote state tracking.
+
+    PR #437 thread PRRT_kwDOQr1kjM6ps3a3: a single quote inside double quotes
+    is literal, not a quoting operator, so ``"'$CMD'"`` is dynamic.
+    """
+
+    def test_double_quoted_with_inner_single_quotes_and_dollar_is_dynamic(self) -> None:
+        # "'$CMD'" — dollar inside "..." is not protected by the surrounding '...'
+        self.assertTrue(_raw_has_dynamic_expansion('"\'$CMD\'"'))
+
+    def test_single_quoted_dollar_is_static(self) -> None:
+        # '$CMD' — dollar inside '...' is fully protected
+        self.assertFalse(_raw_has_dynamic_expansion("'$CMD'"))
+
+    def test_double_quoted_escaped_dollar_is_static(self) -> None:
+        # "\$CMD" — backslash escapes $ inside double quotes, so no expansion
+        self.assertFalse(_raw_has_dynamic_expansion('"\\$CMD"'))
+
+    def test_double_quoted_word_followed_by_unquoted_dollar_is_dynamic(self) -> None:
+        # "a'b"$X — $ is outside the double-quoted span, so it expands
+        self.assertTrue(_raw_has_dynamic_expansion('"a\'b"$X'))
+
+    def test_plain_double_quoted_static_string_is_static(self) -> None:
+        # "hello" — no expansion characters
+        self.assertFalse(_raw_has_dynamic_expansion('"hello"'))
+
+    def test_plain_dollar_is_dynamic(self) -> None:
+        # bare $X outside any quoting
+        self.assertTrue(_raw_has_dynamic_expansion("$X"))
+
+    def test_backtick_inside_double_quotes_is_dynamic(self) -> None:
+        # "`cmd`" — backtick inside double quotes still expands
+        self.assertTrue(_raw_has_dynamic_expansion('"`cmd`"'))
 
 
 if __name__ == "__main__":
