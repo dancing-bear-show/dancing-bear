@@ -153,6 +153,10 @@ UNVERIFIABLE = [
     "while false; do echo a; cd sub; done; gh pr create",
     "for x in a; do cd sub; done; gh pr create",
     "false && cd sub && gh pr create",
+    # Nested compound commands — opener in reserved-word prefix (PR #454 review r3).
+    "if a; then if b; then :; fi; cd sub; fi; gh pr create",
+    "for x in 1; do while false; do cd sub; done; done; gh pr create",
+    "if false; then :; else for x in 1; do cd sub; done; fi; gh pr create",
 ]
 
 
@@ -277,6 +281,11 @@ class RequireConcernSweepHookTests(unittest.TestCase):
         command inside the compound body, or a cd guarded by && or ||, was still
         incorrectly resolved.
 
+        PR #454 review r3: checking only cmd[0] missed openers that appear as the second
+        word in a reserved-word prefix (e.g. ``then if b``).  The inner ``fi`` then
+        decremented the counter to 0 and the subsequent cd was treated as unconditional.
+        The fix walks the full leading reserved-word prefix to count every opener/closer.
+
         All commands below must block even when the worktree's HEAD has a record, because
         the real shell may never reach that cd, leaving gh running in the original repo
         (which has no record).
@@ -307,6 +316,22 @@ class RequireConcernSweepHookTests(unittest.TestCase):
             "until false; do cd {wt}; done; gh pr create",
             "false && cd {wt} && gh pr create",
             "if cd {wt}; then gh pr create; fi",
+        ):
+            command = template.format(wt=wt)
+            with self.subTest(command=command):
+                self.assertBlocked(run_hook(command, self.repo), "cannot")
+        # -- nested compound commands (opener in prefix, r3 regression) --------------
+        # ``then if b`` — ``if`` is the second word of the prefix; an inner ``fi``
+        # must not decrement the outer nest back to zero.
+        for template in (
+            # nested if: outer fi should still leave nest=1 at the cd
+            "if a; then if b; then :; fi; cd {wt}; fi; gh pr create",
+            # do while / do until in a loop prefix
+            "for x in 1; do while false; do cd {wt}; done; done; gh pr create",
+            # else for: ``for`` as the second prefix word
+            "if false; then :; else for x in 1; do cd {wt}; done; fi; gh pr create",
+            # opener after { grouping — { opens no compound cmd but if does
+            "{{ if true; then cd {wt}; fi; }} && gh pr create",
         ):
             command = template.format(wt=wt)
             with self.subTest(command=command):

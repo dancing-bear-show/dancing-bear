@@ -506,6 +506,36 @@ def _shell_script(words: list[str]) -> str | None:
     return None
 
 
+def _update_nest(cmd: list[tuple[int, str]], nest: int) -> int:
+    """Return updated nesting depth after scanning the leading reserved-word prefix of ``cmd``.
+
+    Two phases:
+
+    1. ``cmd[0]`` is checked unconditionally — openers such as ``for``, ``case``,
+       and ``select`` are not in ``_RESERVED``, so they can only appear at position 0.
+    2. The remaining ``_RESERVED`` prefix (positions >= 1) is walked to catch openers
+       embedded after a leading reserved word, e.g. ``then if b`` or ``else for x in``.
+       The loop stops as soon as a non-``_RESERVED`` word is seen (i.e. the real program
+       name), so it never counts an argument to the command.
+    """
+    if not cmd:
+        return nest
+    first_w = _word(cmd[0][1]).lower()
+    if first_w in _NEST_OPENERS:
+        nest += 1
+    elif first_w in _NEST_CLOSERS:
+        nest = max(0, nest - 1)
+    for _idx, _tok in cmd[1:]:
+        _w = _word(_tok).lower()
+        if _w not in _RESERVED:
+            break
+        if _w in _NEST_OPENERS:
+            nest += 1
+        elif _w in _NEST_CLOSERS:
+            nest = max(0, nest - 1)
+    return nest
+
+
 def find_targets(command: str, cwd: Path | None, depth: int = 0) -> list[Target]:
     if depth > MAX_DEPTH:
         raise Unverifiable("commands nested too deeply to check")
@@ -522,16 +552,9 @@ def find_targets(command: str, cwd: Path | None, depth: int = 0) -> list[Target]
     nest = 0  # compound-command nesting depth (if/while/until/for/case/select → fi/done/esac)
     prev_op = ""  # separator that ended the previous simple command
     for cmd, op in split_with_operators(tokens):
-        # Update nesting based on the first (un-stripped) word of this simple command.
-        # We do this BEFORE processing so that a ``cd`` in ``if cd /x; then ...``
-        # is already at depth 1 and therefore fails closed (the coordinator called
-        # this acceptable).
-        if cmd:
-            first = _word(cmd[0][1]).lower()
-            if first in _NEST_OPENERS:
-                nest += 1
-            elif first in _NEST_CLOSERS:
-                nest = max(0, nest - 1)
+        # Update nesting BEFORE processing so that ``if cd /x; then ...`` is already
+        # at depth 1 when the cd is evaluated (fail-closed; see _update_nest).
+        nest = _update_nest(cmd, nest)
         # The separator follows its command: `cd x)` moves, then `)` restores.
         if cmd:
             cwd = _walk_command(cmd, op, cwd, targets, pr_indices, depth, nest, prev_op)
