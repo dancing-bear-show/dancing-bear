@@ -13,52 +13,64 @@ prose mentioning ``{param}`` is noise, so "shell text" is defined narrowly:
   the following lines in with it.
 
 A "command" is a path to a repo wrapper (``./bin/<cli>``, ``bin/<cli>``), a
-bare or path-prefixed ``python``/``python3`` interpreter (optionally version-
-suffixed, e.g. ``python3.11``), a path ending in ``/qlty``, or a word from
-:data:`_STRONG_COMMANDS`.
+path ending in ``/qlty``, or a word from :data:`_STRONG_COMMANDS`.
 Words that are also common English (``make``, ``test``, ``find``, ``for``, ...)
 count only when the next token looks like shell -- an option, a path, a
 quote, a ``$`` expansion, or a ``NAME=`` assignment -- a loop head
 (``for``/``while``/``until``) only with a ``do`` on the same line, and ``if``
-only with a ``then``. A line whose unquoted ``)`` closes
-nothing is prose wrapped mid-parenthesis. Everything else, including a label
-before a command ("2. Server: curl ..."), is treated as prose: precision over
-recall.
+only with a ``then``. A wrapper from :data:`shell_parse.WRAPPER_NAMES`
+(``env``, ``timeout``, ``sudo``, ``time`` ..., bare or path-qualified as in
+``/usr/bin/env``) counts only when the command it runs is itself a command by
+these rules, so "timeout to interrupt a handler" stays prose. A bare or
+path-prefixed ``python``/``python3`` interpreter (optionally
+version-suffixed, e.g. ``python3.11``) counts unless the word after it is
+English -- a function word, verb, or version number ("python3 is
+required", "python 3.11 or newer"); ``python3 runner input`` is a command.
+A shell (``bash``, ``sh``, ``zsh``, ``dash``, ``ksh``, bare or path-qualified)
+or ``eval`` counts only when the next word is an option, quote, ``$``
+expansion, path, redirect or ``*.sh`` script (``bash -s name``, ``/bin/bash
+< script``, ``eval "$CMD"``), so "sh is the default shell" stays prose.
+Neither the interpreter, shell nor wrapper exception applies to a line whose
+unquoted operator leads into more shell (see :func:`_operator_candidates`):
+``python3 is; rm -rf scratch`` runs ``rm`` whatever its first operand says.
+That search is iterative and judges at most :data:`_MAX_JUDGED_TEXTS` texts
+per line; a line that needs more is treated as shell.
+A line whose unquoted ``)`` closes nothing is prose wrapped
+mid-parenthesis. Everything else, including a label before a command
+("2. Server: curl ..."), is treated as prose: precision over recall.
 
 Quoting is resolved with :func:`quote_context`, a small lexer, rather than by
 regex over the shell text.
 
-:func:`parse_shell` turns shell text into :class:`SimpleCommand` values -- the
-one model of "which word is the program" every rule in ``linter_shell`` asks
-about. It splits on control operators (``;``, ``&&``, ``||``, ``|``, ``&``,
-newline, ``(``, ``)``), passes over reserved words (``if``, ``then``, ``do``,
-``!``, ``{``, ``time`` ...) and leading ``NAME=value`` words, sees through
-wrappers (``env``, ``sudo``, ``xargs``, ``timeout N`` ...), recurses into
-``$(...)``, backticks and ``<(...)``, and reads heredoc bodies as data rather
-than as commands. shlex cannot do this: it reports no offsets, strips the
-quotes that tell ``"rm"`` from ``rm``, and has no notion of heredocs.
+Indentation is the description's, not the shell's: a fence body loses its
+common indentation, and a command line's heredoc body loses the command
+line's own, before anything is parsed. A heredoc closer is then matched as
+Bash matches it -- exactly, or past leading tabs for ``<<-``.
+
+The command parser (:func:`shell_parse.parse_shell` and its supporting types)
+lives in :mod:`shell_parse`, and the lexer beneath it in :mod:`shell_lex`.
 """
 
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+import textwrap
+from collections.abc import Callable
+from dataclasses import dataclass
+
+from .shell_lex import _heredoc_delimiters, _Lexer
+from .shell_parse import WRAPPER_NAMES as _WRAPPER_NAMES
+from .shell_parse import parse_shell as _parse_shell
 
 __all__ = [
-    "Heredoc",
-    "Redirect",
-    "ShellScript",
     "ShellSegment",
-    "ShellToken",
-    "SimpleCommand",
     "extract_labelled_assignments",
     "extract_shell_segments",
-    "parse_shell",
     "quote_context",
 ]
 
 _STRONG_COMMANDS: frozenset[str] = frozenset({
-    "gh", "git", "jq", "curl", "python", "python3", "grep", "rg", "sed", "awk",
+    "gh", "git", "jq", "curl", "grep", "rg", "sed", "awk",
     "mkdir", "rm", "cp", "mv", "ls", "cat", "printf", "echo", "cd", "ollama",
     "launchctl", "qlty", "xargs", "wc", "mktemp", "shasum", "du", "df",
     "vm_stat", "uv", "pip", "npm", "chmod", "PYTHONPATH",
@@ -75,6 +87,11 @@ _WEAK_COMMANDS: frozenset[str] = frozenset({
 _COMPOUND_HEADS: dict[str, str] = {"for": "do", "while": "do", "until": "do", "if": "then"}
 
 _SHELL_FENCE_LANGS: frozenset[str] = frozenset({"", "sh", "bash", "shell", "zsh", "console"})
+# Language tags that are also command words. A folded "``` python" with
+# nothing after it is ambiguous -- the tag of a Python fence, or an unlabelled
+# fence whose first line is `python`. These keep their tag; any other command
+# word in that position is read as the first body line (``` echo, ``` python3).
+_COMMAND_LIKE_LANG_TAGS: frozenset[str] = frozenset({"python"})
 
 _FENCE_RE = re.compile(r"^\s*```\s*([A-Za-z0-9_+-]*)\s*$")
 # A YAML folded scalar (``description: >``) collapses adjacent lines onto
@@ -95,16 +112,49 @@ _BACKTICK_SPAN_RE = re.compile(r"`([^`\n]+)`")
 _LABEL_RE = re.compile(r"^[^`:]*:[ \t]+(?=[A-Za-z_]\w*=)")
 # Mirrors linter_shell.py's _PYTHON_WORD_RE: a bare or path-prefixed
 # interpreter name, optionally version-suffixed (python3.11, python3.12, ...).
-# _is_command_word previously only recognised the exact names "python"/
-# "python3" or a path ending in "/python3", so a versioned interpreter line
-# was never extracted as shell at all -- the isolation-not-set rule in
-# linter_shell never got a segment to see it in.
+# Matching only the exact names "python"/"python3" once left a versioned
+# interpreter line unextracted, so the isolation rule in linter_shell never
+# saw it. An interpreter word is judged by _interpreter_line_is_command,
+# which keeps "python3 is required" out while letting "python3 runner" in.
 _PYTHON_WORD_RE = re.compile(r"^(?:.*/)?python3?(?:\.\d+)?$")
+# Words that, right after an interpreter name, make the line English rather
+# than a command: function words and verbs ("python3 is required", "python3
+# and pip"), plus the nouns workflow prose puts there ("a short python3
+# script for", "every python invocation", "use python3 inline"). No script
+# is plausibly named one of these; any other first operand is a script.
+_INTERPRETER_PROSE_WORDS: frozenset[str] = frozenset({
+    "a", "an", "the", "and", "or", "not", "to", "for", "with", "on", "in", "of", "from", "as",
+    "is", "are", "was", "must", "should", "will", "can", "may",
+    "version", "interpreter", "installed", "required",
+    "script", "command", "invocation", "snippet", "inline", "there",
+})
+_PROSE_TRAILING_PUNCTUATION = ".,;:!?"
+# Shells and eval, bare or path-qualified (``/bin/bash``). The guard refuses
+# ``eval``, ``sh -c`` and a shell reading stdin anywhere, so lines they lead
+# must be extracted -- but each is also an English word ("sh is the default
+# shell", "eval is dangerous", "bash scripts should ..."). So, like a weak
+# command, one counts only when the next word looks like shell (an option,
+# quote, ``$``, path, or redirect) or names a shell script; otherwise only an
+# operator leading into more shell makes the line a command.
+_SHELL_WORDS: frozenset[str] = frozenset({"bash", "sh", "zsh", "dash", "ksh", "eval"})
+_SHELL_SCRIPT_RE = re.compile(r"[\w.-]+\.(?:sh|bash|zsh|ksh)")
+_REDIRECT_PREFIXES = ("<", ">")
+# "python 3.11 or newer": an all-numeric dotted version, never a script name.
+# Matched whole after trailing punctuation is stripped, so "3.11," is a
+# version while "3.py", "2026_job.py" and "3x" are scripts.
+_VERSION_WORD_RE = re.compile(r"\d+(?:\.\d+)*")
+# Operators that join a further command onto a line (see _operator_candidates).
+_JOINING_OPS: frozenset[str] = frozenset({";", "&&", "||", "|", "|&"})
 _PROMPT_PREFIX = "$ "
 _SHELLISH_ARG_PREFIXES = ("-", '"', "'", "$", ".", "/", "~", "{")
 # A stray apostrophe in a trailing comment would otherwise pull prose in until
 # the next quote; a blank line or this many lines ends a continuation.
 _MAX_CONTINUATION_LINES = 30
+# is_command_line judges a line, then the texts its operators lead into, and
+# so on. Past this many texts it stops and calls the line shell: a line of a
+# thousand "python3 is;" joins is not prose, and judging every tail of it
+# would take quadratic time.
+_MAX_JUDGED_TEXTS = 64
 
 
 @dataclass(frozen=True)
@@ -194,612 +244,97 @@ def _ends_open(text: str) -> bool:
     return bool(_scan(text).stack)
 
 
-# ---------------------------------------------------------------------------
-# Tokens and simple commands
-# ---------------------------------------------------------------------------
-
-_METACHARS = frozenset(" \t\n;&|<>()")
-_CONTROL_OPS = (";;&", ";;", ";&", "&&", "||", "|&", ";", "&", "|", "(", ")", "\n")
-_REDIRECT_OPS = ("&>>", "&>", "<<<", "<<-", "<<", "<>", "<&", ">>", ">|", ">&", "<", ">")
-_HEREDOC_OPS = frozenset({"<<", "<<-"})
-_WRITE_REDIRECTS = frozenset({">", ">>", ">|", "&>", "&>>", "<>", ">&"})
-_FD_PREFIX_RE = re.compile(r"\d+(?=[<>])")
-# ``2>&1`` / ``>&-`` duplicate or close a descriptor; they write no file.
-_FD_TARGET_RE = re.compile(r"\d+-?|-")
-_ASSIGNMENT_WORD_RE = re.compile(r"([A-Za-z_]\w*)(?:\[[^\]]*\])?\+?=")
-_DQUOTE_ESCAPABLE = frozenset('$`"\\\n')
-
-# Reserved words that open or continue a compound command: the next word is
-# still in command position. ``do rm x`` runs ``rm``, not a program ``do``.
-_KEEP_START = frozenset({"!", "{", "then", "do", "else", "elif", "if", "while", "until", "time", "coproc"})
-_COMPOUND_CLOSERS = frozenset({"}", "fi", "done", "esac"})
-# Reserved word -> the parser state it opens when met in command position.
-_START_STATES = {
-    "for": "loop_var", "select": "loop_var",  # the header is not a command
-    "case": "case_subject",
-    "function": "function_name",
-    "[[": "test",                             # < and > compare inside [[ ]]
-}
-_CASE_ENDS = frozenset({";;", ";&", ";;&"})
-
-
-@dataclass(frozen=True)
-class ShellToken:
-    """One lexed unit of shell text: a word, an operator, a redirect, or ``(( ))``."""
-
-    kind: str  # "word" | "op" | "redirect" | "arith"
-    text: str  # a word's value with quoting removed; an operator's own spelling
-    start: int  # offset within the text given to parse_shell, plus its base
-    raw: str = ""  # a word's source spelling, quotes included
-    subs: tuple[tuple[str, int], ...] = ()  # (body, offset) of each $(...), `...`, <(...)
-
-    @property
-    def quoted(self) -> bool:
-        """True when any part of the word was quoted or escaped."""
-        return any(ch in self.raw for ch in "'\"\\")
-
-    @property
-    def assigned_name(self) -> str:
-        """``NAME`` for an unquoted ``NAME=value`` word, else ``""``."""
-        m = _ASSIGNMENT_WORD_RE.match(self.raw)
-        return m.group(1) if m else ""
-
-
-@dataclass(frozen=True)
-class Redirect:
-    """A redirection operator and the word it applies to."""
-
-    op: str
-    target: str
-
-    @property
-    def writes(self) -> bool:
-        """True when this redirect opens a file for writing."""
-        if self.op not in _WRITE_REDIRECTS:
-            return False
-        return not (self.op == ">&" and _FD_TARGET_RE.fullmatch(self.target))
-
-
-@dataclass(frozen=True)
-class Heredoc:
-    """A heredoc body: data fed to a command, never commands itself."""
-
-    delimiter: str
-    quoted: bool  # a quoted delimiter makes the body inert: nothing expands
-    body: str
-    start: int
-    subs: tuple[tuple[str, int], ...] = ()  # substitutions an unquoted body runs
-
-
-@dataclass(frozen=True)
-class SimpleCommand:
-    """One simple command, with the word that selects its program identified."""
-
-    words: tuple[ShellToken, ...]  # every word after the leading assignments
-    assignments: tuple[ShellToken, ...]  # leading NAME=value words, and any env sets
-    redirects: tuple[Redirect, ...]
-    command_index: int  # index in *words* of the program that runs; -1 for none
-    in_loop: bool = False  # inside a for/while/until body (do ... done)
-
-    @property
-    def word(self) -> ShellToken | None:
-        """The word naming the program, after any wrappers; None when nothing runs."""
-        return self.words[self.command_index] if self.command_index >= 0 else None
-
-    @property
-    def name(self) -> str:
-        """The program's basename, as the guard resolves it (``/bin/rm`` -> ``rm``)."""
-        word = self.word
-        return word.text.rsplit("/", 1)[-1] if word is not None else ""
-
-    @property
-    def arguments(self) -> tuple[ShellToken, ...]:
-        """The words after the program word: this command's operands and options only."""
-        return self.words[self.command_index + 1:] if self.command_index >= 0 else ()
-
-    @property
-    def args(self) -> list[str]:
-        return [tok.text for tok in self.arguments]
-
-
-@dataclass(frozen=True)
-class ShellScript:
-    """Every simple command, heredoc, and loop variable in a piece of shell text."""
-
-    commands: tuple[SimpleCommand, ...]
-    heredocs: tuple[Heredoc, ...]
-    loop_variables: tuple[str, ...]
-
-    def inert_spans(self) -> list[tuple[int, int]]:
-        """(start, end) of each quoted heredoc body: text the shell never expands."""
-        return [(d.start, d.start + len(d.body)) for d in self.heredocs if d.quoted]
-
-
-@dataclass
-class _WordParts:
-    """Accumulates one word's unquoted value and the substitutions inside it."""
-
-    parts: list[str] = field(default_factory=list)
-    subs: list[tuple[str, int]] = field(default_factory=list)
-
-
-def _match_op(text: str, pos: int, ops: tuple[str, ...]) -> str | None:
-    return next((op for op in ops if text.startswith(op, pos)), None)
-
-
-def _arith_end(text: str, i: int) -> int:
-    """Index just past the ``))`` closing an arithmetic body that starts at *i*."""
-    depth = 0
-    for j in range(i, len(text)):
-        if text[j] == "(":
-            depth += 1
-        elif text[j] == ")" and depth:
-            depth -= 1
-        elif text[j] == ")":
-            return j + 2 if text.startswith("))", j) else j + 1
-    return len(text)
-
-
-def _brace_end(text: str, i: int) -> int:
-    """Index just past the ``}`` closing a ``${...}`` body that starts at *i*."""
-    depth = 0
-    for j in range(i, len(text)):
-        if text[j] == "{":
-            depth += 1
-        elif text[j] == "}" and depth:
-            depth -= 1
-        elif text[j] == "}":
-            return j + 1
-    return len(text)
-
-
-class _Lexer:
-    """Split shell text into :class:`ShellToken` values, reading heredoc bodies as data.
-
-    Never raises: an unclosed quote or substitution in a fragment of prose
-    simply runs to the end of the text.
-    """
-
-    def __init__(self, text: str, base: int = 0, pos: int = 0) -> None:
-        self.text = text
-        self.base = base
-        self.pos = pos
-        self.heredocs: list[Heredoc] = []
-        self._pending: list[ShellToken] = []  # heredoc delimiters awaiting their body
-        self._want_delimiter = False
-
-    def tokens(self) -> list[ShellToken]:
-        out = []
-        while (tok := self.next_token()) is not None:
-            out.append(tok)
-        return out
-
-    def next_token(self) -> ShellToken | None:
-        self._skip_blanks()
-        if self.pos >= len(self.text):
-            return None
-        start = self.pos
-        if self.text.startswith("((", start):
-            self.pos = _arith_end(self.text, start + 2)
-            return ShellToken("arith", self.text[start:self.pos], self.base + start)
-        return self._operator() or self._word()
-
-    def closing_paren(self) -> int:
-        """Index of the ``)`` that closes a substitution whose body starts at ``self.pos``."""
-        depth = 0
-        while (tok := self.next_token()) is not None:
-            if tok.kind != "op" or tok.text not in "()":
-                continue
-            if tok.text == "(":
-                depth += 1
-            elif depth:
-                depth -= 1
-            else:
-                return tok.start - self.base
-        return len(self.text)
-
-    def expanding_subs(self) -> list[tuple[str, int]]:
-        """Substitutions in the whole text read as an unquoted heredoc body."""
-        parts = _WordParts()
-        self._double(0, parts, closer=None)
-        return parts.subs
-
-    def _skip_blanks(self) -> None:
-        text = self.text
-        while self.pos < len(text):
-            if text[self.pos] in " \t":
-                self.pos += 1
-            elif text.startswith("\\\n", self.pos):
-                self.pos += 2
-            elif text[self.pos] == "#":
-                eol = text.find("\n", self.pos)
-                self.pos = len(text) if eol < 0 else eol
-            else:
-                return
-
-    def _operator(self) -> ShellToken | None:
-        text, pos = self.text, self.pos
-        if text[pos] in "<>" and text.startswith("(", pos + 1):
-            return None  # <(...) / >(...): a process substitution is a word
-        fd = _FD_PREFIX_RE.match(text, pos)
-        at = fd.end() if fd else pos
-        redirect = _match_op(text, at, _REDIRECT_OPS)
-        if redirect is not None:
-            self.pos = at + len(redirect)
-            self._want_delimiter = redirect in _HEREDOC_OPS
-            return ShellToken("redirect", redirect, self.base + pos)
-        op = _match_op(text, pos, _CONTROL_OPS)
-        if op is None:
-            return None
-        self.pos = pos + len(op)
-        self._want_delimiter = False
-        if op == "\n":
-            self._read_heredoc_bodies()
-        return ShellToken("op", op, self.base + pos)
-
-    def _word(self) -> ShellToken:
-        text, start = self.text, self.pos
-        parts = _WordParts()
-        i = start
-        if text[i] in "<>":
-            i = self._command_sub(i, i + 2, parts)
-        while i < len(text) and text[i] not in _METACHARS:
-            i = self._word_char(i, parts)
-        i = max(i, start + 1)
-        self.pos = i
-        tok = ShellToken("word", "".join(parts.parts), self.base + start, text[start:i], tuple(parts.subs))
-        if self._want_delimiter:
-            self._want_delimiter = False
-            self._pending.append(tok)
-        return tok
-
-    def _word_char(self, i: int, parts: _WordParts) -> int:
-        ch = self.text[i]
-        if ch == "\\":
-            parts.parts.append(self.text[i + 1:i + 2].replace("\n", ""))
-            return i + 2
-        if ch == "'":
-            end = self.text.find("'", i + 1)
-            end = len(self.text) if end < 0 else end
-            parts.parts.append(self.text[i + 1:end])
-            return end + 1
-        if ch == '"':
-            return self._double(i + 1, parts, closer='"')
-        return self._expansion(i, parts)
-
-    def _expansion(self, i: int, parts: _WordParts) -> int:
-        """Read the ``$...`` or backtick construct at *i*, or one plain character."""
-        text = self.text
-        if text.startswith("$((", i):
-            end = _arith_end(text, i + 3)
-        elif text.startswith("$(", i):
-            return self._command_sub(i, i + 2, parts)
-        elif text.startswith("${", i):
-            end = _brace_end(text, i + 2)
-        elif text[i] == "`":
-            return self._backtick(i, parts)
-        else:
-            end = i + 1
-        parts.parts.append(text[i:end])
-        return end
-
-    def _double(self, i: int, parts: _WordParts, closer: str | None) -> int:
-        """Read double-quoted text from *i* up to *closer* (None: the end of the text)."""
-        text = self.text
-        while i < len(text) and text[i] != closer:
-            if text[i] == "\\" and text[i + 1:i + 2] in _DQUOTE_ESCAPABLE:
-                parts.parts.append(text[i + 1].replace("\n", ""))
-                i += 2
-            elif text[i] in "$`":
-                i = self._expansion(i, parts)
-            else:
-                parts.parts.append(text[i])
-                i += 1
-        return i + 1 if closer is not None else i
-
-    def _command_sub(self, open_at: int, body_start: int, parts: _WordParts) -> int:
-        end = _Lexer(self.text, self.base, body_start).closing_paren()
-        parts.subs.append((self.text[body_start:end], self.base + body_start))
-        parts.parts.append(self.text[open_at:end + 1])
-        return min(end + 1, len(self.text))
-
-    def _backtick(self, i: int, parts: _WordParts) -> int:
-        text = self.text
-        j = i + 1
-        while j < len(text) and text[j] != "`":
-            j += 2 if text[j] == "\\" else 1
-        j = min(j, len(text))
-        parts.subs.append((text[i + 1:j], self.base + i + 1))
-        parts.parts.append(text[i:j + 1])
-        return min(j + 1, len(text))
-
-    def _read_heredoc_bodies(self) -> None:
-        pending, self._pending = self._pending, []
-        for delimiter in pending:
-            self._read_heredoc_body(delimiter)
-
-    def _read_heredoc_body(self, delimiter: ShellToken) -> None:
-        text, start = self.text, self.pos
-        i, end, resume = start, len(text), len(text)
-        while i < len(text):
-            eol = text.find("\n", i)
-            eol = len(text) if eol < 0 else eol
-            if text[i:eol].strip() == delimiter.text:
-                end, resume = i, min(eol + 1, len(text))
-                break
-            i = eol + 1
-        body = text[start:end]
-        subs = () if delimiter.quoted else tuple(_Lexer(body, self.base + start).expanding_subs())
-        self.heredocs.append(Heredoc(delimiter.text, delimiter.quoted, body, self.base + start, subs))
-        self.pos = resume
-
-
-@dataclass(frozen=True)
-class _Wrapper:
-    """How a wrapper command's own options are laid out before the command it runs."""
-
-    value_opts: str = ""  # short options whose value is attached or the next word
-    long_value_opts: tuple[str, ...] = ()  # long options whose value may be the next word
-    lookup_opts: str = ""  # options that make it run nothing (``command -v``)
-    leading_operands: int = 0  # operands before the command (``timeout``'s duration)
-    takes_assignments: bool = False  # ``env NAME=value cmd``
-
-
-_TIMEOUT = _Wrapper(value_opts="sk", long_value_opts=("signal", "kill-after"), leading_operands=1)
-# Mirrors the wrapper handlers in .claude/hooks/_bash_write_targets.py, which
-# the Bash guard uses to find the command a wrapper runs.
-_WRAPPERS: dict[str, _Wrapper] = {
-    "env": _Wrapper(value_opts="uCSP", long_value_opts=("unset", "chdir", "split-string"),
-                    takes_assignments=True),
-    "command": _Wrapper(lookup_opts="vV"),
-    "builtin": _Wrapper(),
-    "nohup": _Wrapper(),
-    "exec": _Wrapper(value_opts="a"),
-    "nice": _Wrapper(value_opts="n", long_value_opts=("adjustment",)),
-    "stdbuf": _Wrapper(value_opts="ioe", long_value_opts=("input", "output", "error")),
-    "time": _Wrapper(value_opts="of", long_value_opts=("output", "format")),
-    "timeout": _TIMEOUT,
-    "gtimeout": _TIMEOUT,
-    "sudo": _Wrapper(value_opts="ugCDhprtTUc", lookup_opts="lvK",
-                     long_value_opts=("user", "group", "chdir", "host", "prompt", "role", "type",
-                                      "other-user")),
-    "doas": _Wrapper(value_opts="uC"),
-    "xargs": _Wrapper(value_opts="IELnPsda",
-                      long_value_opts=("arg-file", "delimiter", "max-args", "max-procs",
-                                       "max-chars", "process-slot-var")),
-}
-
-
-def _short_option_width(word: str, spec: _Wrapper) -> int | None:
-    """Words consumed by the short-option cluster *word*; None when it runs nothing."""
-    for k, ch in enumerate(word[1:], start=1):
-        if ch in spec.lookup_opts:
-            return None
-        if ch in spec.value_opts:
-            return 1 if k + 1 < len(word) else 2
-    return 1
-
-
-def _option_width(word: str, spec: _Wrapper) -> int | None:
-    """Words the wrapper option *word* consumes: 0 when it is not an option."""
-    if word == "-":
-        return 1
-    if word.startswith("--"):
-        name, eq, _ = word[2:].partition("=")
-        return 2 if not eq and name in spec.long_value_opts else 1
-    if word.startswith("-"):
-        return _short_option_width(word, spec)
-    return 0
-
-
-def _skip_wrapper(
-    words: tuple[ShellToken, ...], i: int, spec: _Wrapper
-) -> tuple[int | None, list[ShellToken]]:
-    """Index of the command a wrapper at ``words[i - 1]`` runs, plus any env assignments."""
-    while i < len(words) and words[i].text != "--":
-        width = _option_width(words[i].text, spec)
-        if width is None:
-            return None, []
-        if not width:
-            break
-        i += width
-    if i < len(words) and words[i].text == "--":
-        i += 1
-    assigned = []
-    while spec.takes_assignments and i < len(words) and words[i].assigned_name:
-        assigned.append(words[i])
-        i += 1
-    i += spec.leading_operands
-    return (i if i < len(words) else None), assigned
-
-
-def _resolve_command(words: tuple[ShellToken, ...]) -> tuple[int, list[ShellToken]]:
-    """Index of the program word after any wrappers (-1 for none), and env's assignments."""
-    i: int | None = 0
-    assigned: list[ShellToken] = []
-    while i is not None and i < len(words):
-        spec = _WRAPPERS.get(words[i].text.rsplit("/", 1)[-1])
-        if spec is None:
-            return i, assigned
-        i, more = _skip_wrapper(words, i + 1, spec)
-        assigned.extend(more)
-    return -1, assigned
-
-
-class _CommandSplitter:
-    """Group a token stream into :class:`SimpleCommand` values.
-
-    Tracks just enough shell grammar to know where each command word sits:
-    reserved words, ``for``/``case`` headers, ``[[ ]]`` tests (whose ``<``
-    and ``>`` compare rather than redirect), subshells, and loop bodies.
-    """
-
-    def __init__(self, in_loop: bool) -> None:
-        self.outer_loop = in_loop
-        self.loop_depth = 0
-        self.state = "start"
-        self.commands: list[SimpleCommand] = []
-        self.loop_variables: list[str] = []
-        self.nested: list[ShellScript] = []
-        self._words: list[ShellToken] = []
-        self._assignments: list[ShellToken] = []
-        self._redirects: list[Redirect] = []
-        self._redirect_op: str | None = None
-        self._in_loop = in_loop
-        self._after_time = False
-        self._on_word = {
-            "start": self._start_word, "after": self._start_word, "args": self._words.append,
-            "test": self._test_word, "loop_var": self._loop_var_word, "loop_head": self._loop_head_word,
-            "case_subject": self._case_subject_word, "case_pattern": self._case_pattern_word,
-            "function_name": self._function_name_word,
-        }
-
-    @property
-    def inside_loop(self) -> bool:
-        return self.outer_loop or self.loop_depth > 0
-
-    def feed(self, tok: ShellToken) -> None:
-        for body, offset in tok.subs:
-            self.nested.append(parse_shell(body, offset, self.inside_loop))
-        if tok.kind == "word" and self._redirect_op is not None:
-            self._redirects.append(Redirect(self._redirect_op, tok.text))
-            self._redirect_op = None
-        elif tok.kind == "word":
-            self._on_word[self.state](tok)
-        elif tok.kind == "redirect" and self.state != "test":
-            self._redirect_op = tok.text
-        elif tok.kind == "op":
-            self._operator(tok.text)
-        elif tok.kind == "arith":
-            self.state = "loop_head" if self.state == "loop_var" else self.state
-
-    def finish(self) -> None:
-        if self._words or self._assignments or self._redirects:
-            words = tuple(self._words)
-            index, env_assignments = _resolve_command(words)
-            self.commands.append(SimpleCommand(
-                words, tuple(self._assignments + env_assignments), tuple(self._redirects),
-                index, self._in_loop,
-            ))
-        self._words.clear()
-        self._assignments = []
-        self._redirects = []
-        self._redirect_op = None
-        self._in_loop = self.inside_loop
-        self._after_time = False
-
-    def _operator(self, op: str) -> None:
-        if self.state == "test" and op != "\n":
-            return  # && || ( ) are test logic inside [[ ]]
-        if self.state == "case_pattern":
-            self.state = "start" if op == ")" else self.state
-            return
-        if op == "(" and self.state == "args" and len(self._words) == 1:
-            self._words.clear()  # name ( ): a function definition
-            self.state = "start"
-            return
-        if op == "(":
-            return
-        self.finish()
-        if op == ")":
-            self.state = "after"
-        else:
-            self.state = "case_pattern" if op in _CASE_ENDS else "start"
-
-    def _start_word(self, tok: ShellToken) -> None:
-        word = tok.raw  # only an unquoted word can be a reserved word
-        if self._after_time and word == "-p":
-            self._after_time = False
-            return
-        self._after_time = word == "time"
-        if word in _KEEP_START:
-            self.loop_depth += word == "do"
-            self._in_loop = self.inside_loop
-        elif word in _COMPOUND_CLOSERS:
-            self.loop_depth -= word == "done" and self.loop_depth > 0
-            self.state = "after"  # a redirect after `done` still belongs to the loop
-        elif word in _START_STATES:
-            self.state = _START_STATES[word]
-        elif tok.assigned_name and not self._words:
-            self._assignments.append(tok)
-        else:
-            self._words.append(tok)
-            self.state = "args"
-
-    def _test_word(self, tok: ShellToken) -> None:
-        if tok.raw == "]]":
-            self.state = "after"
-
-    def _loop_var_word(self, tok: ShellToken) -> None:
-        self.loop_variables.append(tok.text)
-        self.state = "loop_head"
-
-    def _loop_head_word(self, tok: ShellToken) -> None:
-        if tok.raw == "do":  # `for f do ...` needs no separator before `do`
-            self.state = "start"
-            self._start_word(tok)
-
-    def _case_subject_word(self, tok: ShellToken) -> None:
-        if tok.raw == "in":
-            self.state = "case_pattern"
-
-    def _case_pattern_word(self, tok: ShellToken) -> None:
-        if tok.raw == "esac":
-            self.state = "after"
-
-    def _function_name_word(self, tok: ShellToken) -> None:
-        self.state = "start"
-
-
-def parse_shell(text: str, base: int = 0, in_loop: bool = False) -> ShellScript:
-    """Every simple command in shell *text*, including those in substitutions.
-
-    Offsets in the result are positions in *text* plus *base*. *in_loop*
-    marks every command as inside a loop body (a substitution within one).
-    """
-    lexer = _Lexer(text, base)
-    splitter = _CommandSplitter(in_loop)
-    for tok in lexer.tokens():
-        splitter.feed(tok)
-    splitter.finish()
-    nested = list(splitter.nested)
-    for doc in lexer.heredocs:
-        nested.extend(parse_shell(body, offset, in_loop) for body, offset in doc.subs)
-    return ShellScript(
-        commands=tuple(splitter.commands) + tuple(c for s in nested for c in s.commands),
-        heredocs=tuple(lexer.heredocs) + tuple(d for s in nested for d in s.heredocs),
-        loop_variables=tuple(splitter.loop_variables) + tuple(v for s in nested for v in s.loop_variables),
-    )
-
-
-def _heredoc_delimiters(text: str) -> list[ShellToken]:
-    """The delimiter word of each heredoc opened in *text*, in order."""
-    tokens = _Lexer(text).tokens()
-    return [
-        nxt for tok, nxt in zip(tokens, tokens[1:])
-        if tok.kind == "redirect" and tok.text in _HEREDOC_OPS and nxt.kind == "word"
-    ]
-
-
-def _first_words(line: str) -> tuple[str, str]:
-    """The first two whitespace-separated words of *line*, prompt stripped."""
+def _command_body(line: str) -> str:
+    """*line* stripped of surrounding whitespace and a ``$ `` prompt."""
     body = line.strip()
-    if body.startswith(_PROMPT_PREFIX):
-        body = body[len(_PROMPT_PREFIX):]
-    words = body.split(None, 2)
-    first = words[0] if words else ""
-    second = words[1] if len(words) > 1 else ""
-    return first, second
+    return body[len(_PROMPT_PREFIX):] if body.startswith(_PROMPT_PREFIX) else body
 
 
 def _is_command_word(word: str) -> bool:
-    """True for a repo wrapper path, a python/qlty path, a versioned interpreter, or a strong command."""
+    """True for a repo wrapper path, a qlty path, or a strong command."""
     word = word.lstrip("(")
     if word.startswith(("./bin/", "bin/", "~/.qlty/bin/")):
         return True
-    if word.endswith("/qlty") or _PYTHON_WORD_RE.match(word):
-        return True
-    return word in _STRONG_COMMANDS
+    return word.endswith("/qlty") or word in _STRONG_COMMANDS
+
+
+def _interpreter_line_is_command(operand: str) -> bool:
+    """An interpreter line is a command unless its first operand is English.
+
+    Only the word right after the interpreter decides: ``python3 runner
+    input``, ``python3 runner --flag`` and ``python3 -m pkg x`` are commands,
+    while "python3 is required" and "python 3.11 or newer" are prose (see
+    :data:`_INTERPRETER_PROSE_WORDS`). A bare interpreter (*operand* "") counts.
+    """
+    word = operand.rstrip(_PROSE_TRAILING_PUNCTUATION).lower()
+    return word not in _INTERPRETER_PROSE_WORDS and not _VERSION_WORD_RE.fullmatch(word)
+
+
+@dataclass(frozen=True)
+class _Candidate:
+    """A text that makes the line it came from shell when it is a command line itself."""
+
+    text: str
+    # False for a tail of an already-scanned text (what follows an operator,
+    # or the command a wrapper runs): its operators are that text's too, and
+    # are already queued, so scanning them again would only repeat work.
+    scan_operators: bool = True
+
+
+def _wrapper_target(body: str) -> str | None:
+    """The text from the command a wrapper line runs, or None when it runs nothing.
+
+    :func:`shell_parse.parse_shell` resolves the wrapper's own options and
+    operands exactly as the linter rules will, so ``timeout 5 python3 x`` is
+    judged on ``python3 x`` and "timeout to interrupt a handler" on
+    "interrupt a handler". A wrapper that runs nothing (``env | grep``,
+    ``command -v x``) has no target.
+    """
+    commands = _parse_shell(body).commands
+    word = commands[0].word if commands else None
+    if word is None or word.start == 0:
+        return None
+    return body[word.start:]
+
+
+def _operator_candidates(body: str) -> tuple[bool, list[_Candidate]]:
+    """Whether an unquoted operator in *body* surely introduces more shell, and what else might.
+
+    The interpreter and wrapper prose exceptions judge one word, or the
+    first simple command; a line such as ``python3 is; rm -rf scratch``
+    still runs everything after the operator. So a line is shell, whatever
+    its first operand says, when it joins on a command (``;``, ``&&``,
+    ``||``, ``|`` followed by a command line), substitutes one (``$(...)``,
+    backticks, ``<(...)`` whose body is a command line), or redirects to a
+    path-shaped target (``> /dev/null``, ``< "$F"``). The lexer decides, so
+    an operator inside quotes or a comment does not count.
+
+    A path-shaped redirect decides at once (True). Otherwise the texts after
+    each joining operator and inside each substitution are returned for
+    :func:`is_command_line` to judge in turn, rather than judged here by
+    recursion: a long run of joined prose would otherwise exhaust the stack.
+
+    What follows each operator must itself look like shell because workflow
+    prose uses the same characters: "python3 script for the aggregation; it
+    is deterministic", "timeout to interrupt a handler; read job_runtime
+    before", "(>= 3.11)", and Markdown code spans that lex as backticks.
+    """
+    tokens = _Lexer(body).tokens()
+    candidates: list[_Candidate] = []
+    for tok, nxt in zip(tokens, [*tokens[1:], None]):
+        if tok.kind == "op" and tok.text in _JOINING_OPS:
+            candidates.append(_Candidate(body[tok.start + len(tok.text):], scan_operators=False))
+        elif tok.kind == "redirect":
+            if nxt is not None and nxt.kind == "word" and _is_path_shaped(nxt.raw):
+                return True, []
+        else:
+            candidates.extend(_Candidate(sub) for sub, _ in tok.subs)
+    return False, candidates
+
+
+def _is_path_shaped(word: str) -> bool:
+    """A redirect target that reads as a path or an expansion, not an English word."""
+    return word.startswith(_SHELLISH_ARG_PREFIXES) or "/" in word
 
 
 def _closes_unopened_paren(line: str) -> bool:
@@ -809,6 +344,17 @@ def _closes_unopened_paren(line: str) -> bool:
     as shell it would be a syntax error.
     """
     return _scan(line).stray_close
+
+
+def _shell_word_is_command(second: str) -> bool:
+    """A line led by a shell or ``eval`` is a command when its next word looks like shell.
+
+    ``bash -s name``, ``/bin/bash < script``, ``eval "$CMD"`` and ``sh
+    run.sh`` count; "sh is the default shell" and "bash scripts should" do not.
+    """
+    if second.startswith(_SHELLISH_ARG_PREFIXES + _REDIRECT_PREFIXES) or "/" in second:
+        return True
+    return bool(_SHELL_SCRIPT_RE.fullmatch(second))
 
 
 def _weak_word_is_command(first: str, second: str, line: str) -> bool:
@@ -821,13 +367,64 @@ def _weak_word_is_command(first: str, second: str, line: str) -> bool:
 
 
 def is_command_line(line: str) -> bool:
-    """True when *line* starts with a command or an upper-case assignment."""
-    first, second = _first_words(line)
-    if not first or _closes_unopened_paren(line):
-        return False
+    """True when *line* starts with a command or an upper-case assignment.
+
+    Iterative: *line* is judged first, then each text its operators,
+    substitutions or wrapper lead into (see :func:`_judge`), until one is a
+    command or none are left. Past :data:`_MAX_JUDGED_TEXTS` the line is
+    called shell rather than judged further.
+    """
+    pending = [_Candidate(line)]
+    for _ in range(_MAX_JUDGED_TEXTS):
+        if not pending:
+            return False
+        found, more = _judge(pending.pop())
+        if found:
+            return True
+        pending.extend(reversed(more))
+    return bool(pending)
+
+
+def _english_word_operand_test(first: str) -> Callable[[str], bool] | None:
+    """How to judge a line led by an interpreter or shell word, which is also English.
+
+    The test decides from the next word alone; when it says prose, only an
+    operator leading into more shell makes the line a command. None for any
+    other first word.
+    """
+    word = first.lstrip("(")
+    if _PYTHON_WORD_RE.match(word):
+        return _interpreter_line_is_command
+    if word.rsplit("/", 1)[-1] in _SHELL_WORDS:
+        return _shell_word_is_command
+    return None
+
+
+def _judge(candidate: _Candidate) -> tuple[bool, list[_Candidate]]:
+    """Whether *candidate* is a command line, or which further texts could make it one."""
+    line = candidate.text
+    body = _command_body(line)
+    words = body.split(None, 3)
+    if not words or _closes_unopened_paren(line):
+        return False, []
+    first = words[0]
     if _ASSIGN_START_RE.match(first) or _is_command_word(first):
-        return True
-    return first in _WEAK_COMMANDS and _weak_word_is_command(first, second, line)
+        return True, []
+    second = words[1] if len(words) > 1 else ""
+    operand_test = _english_word_operand_test(first)
+    if operand_test is not None:
+        if operand_test(second):
+            return True, []
+        return _operator_candidates(body) if candidate.scan_operators else (False, [])
+    if first in _WEAK_COMMANDS and _weak_word_is_command(first, second, line):
+        return True, []
+    if first.rsplit("/", 1)[-1] not in _WRAPPER_NAMES:
+        return False, []
+    found, more = _operator_candidates(body) if candidate.scan_operators else (False, [])
+    target = _wrapper_target(body)
+    if target is not None:
+        more.insert(0, _Candidate(target, scan_operators=False))
+    return found, more
 
 
 def _fence_segments(
@@ -850,6 +447,7 @@ def _fence_segments(
         # anchor to, so the fence's start (the marker line itself) is the
         # closest real offset for it.
         start = line_starts[i]
+        body = _dedent(body)
         if first_line:
             body = [first_line] + body
         consumed.update(range(i, min(end + 1, len(lines))))
@@ -857,6 +455,23 @@ def _fence_segments(
             segments.append(ShellSegment(text="\n".join(body), origin="fence", start=start))
         i = end + 1
     return segments, consumed
+
+
+def _dedent(lines: list[str]) -> list[str]:
+    """*lines* with their common leading whitespace removed, as a reader runs an indented block.
+
+    Description prose indents its shell (under a list item, say), and the
+    text bash would run is the block with that indentation taken off. A
+    heredoc closer must match exactly in *that* text: ``EOF`` indented with
+    the rest of the block closes, one indented further does not.
+    """
+    return textwrap.dedent("\n".join(lines)).split("\n") if lines else []
+
+
+def _strip_indent(line: str, width: int) -> str:
+    """*line* with up to *width* leading blanks removed: the indentation its block shares."""
+    blanks = len(line) - len(line.lstrip(" \t"))
+    return line[min(blanks, width):]
 
 
 def _fence_lang_and_first_line(gap: str, tag: str, trailing: str | None) -> tuple[str, str]:
@@ -868,13 +483,21 @@ def _fence_lang_and_first_line(gap: str, tag: str, trailing: str | None) -> tupl
     language and *trailing* the first body line. Folding an unlabelled
     fence leaves a space ("``` python -c ..."): *tag* is the body's first
     word, whatever language it happens to name. A spaced shell tag
-    ("``` bash echo x") stays a shell fence either way, and a marker with
-    no trailing text ("``` python") keeps its tag.
+    ("``` bash echo x") stays a shell fence either way.
+
+    A spaced word with no trailing text is ambiguous: "``` python" is a
+    Python fence, but "``` echo" is an unlabelled fence whose first line is a
+    one-word command. A word that is a command line on its own is read as that
+    body line, unless it is a language tag in :data:`_COMMAND_LIKE_LANG_TAGS`.
     """
     lang = tag.lower()
-    if gap and trailing and lang not in _SHELL_FENCE_LANGS:
+    if not gap or lang in _SHELL_FENCE_LANGS:
+        return lang, trailing or ""
+    if trailing:
         return "", f"{tag} {trailing}"
-    return lang, trailing or ""
+    if lang not in _COMMAND_LIKE_LANG_TAGS and is_command_line(tag):
+        return "", tag
+    return lang, ""
 
 
 def _fence_is_shell(lang: str, body: list[str]) -> bool:
@@ -897,42 +520,53 @@ def _line_segments(
         if i in consumed or not is_command_line(lines[i]):
             i += 1
             continue
-        start = line_starts[i]
+        start, start_index = line_starts[i], i
         chunk = [lines[i].strip()]
         while _can_continue(chunk, lines, i + 1, consumed):
             i += 1
             chunk.append(lines[i].strip())
-        i = _absorb_heredoc_body(chunk, lines, i, consumed)
+        indent = len(lines[start_index]) - len(lines[start_index].lstrip(" \t"))
+        i = _absorb_heredoc_body(chunk, lines, i, consumed, indent)
         segments.append(ShellSegment(text="\n".join(chunk), origin="line", start=start))
         i += 1
     return segments
 
 
-def _absorb_heredoc_body(chunk: list[str], lines: list[str], i: int, consumed: set[int]) -> int:
-    """Consume a heredoc's body lines up to its closer; append them only if unquoted.
+def _absorb_heredoc_body(
+    chunk: list[str], lines: list[str], i: int, consumed: set[int], indent: int
+) -> int:
+    """Append a heredoc's body lines, through its closer, to *chunk*.
 
     A heredoc opener (``cat <<EOF``) has no unclosed quote or trailing
     backslash, so :func:`_can_continue` stops right after it -- the body is
-    otherwise never part of any segment's text, and a placeholder substituted
-    into an unquoted (shell-expanding) body line never reaches a caller
-    scanning segment text for ``{param}`` uses. An unquoted delimiter's body
-    is live shell, so it is appended to *chunk*. A quoted one
-    (``<<'EOF'``/``<<"EOF"``) makes the body inert data, never shell-expanded,
-    so it must not be appended -- but its lines still need to be marked
-    *consumed* here, or :func:`_line_segments` revisits a command-looking body
-    line (``echo "$UNBOUND"``) as its own independent segment and a caller
-    wrongly treats inert heredoc text as live shell. Several heredocs opened
-    on one line (``cat <<A <<B``) have their bodies one after another.
+    otherwise never part of any segment's text, and a placeholder in it never
+    reaches a caller scanning segment text for ``{param}`` uses.
+
+    The body is appended whether or not the delimiter is quoted. A quoted
+    one (``<<'EOF'``) stops the *shell* expanding the body, and the parser
+    reports it as inert so the expansion rules skip it; but a ``{param}`` is
+    substituted into the text before bash parses it, so a value carrying a
+    newline and the delimiter closes the heredoc early (``param_guard``'s
+    documented break-out). The pre-shell rule must see that body. Its lines
+    are also marked *consumed*, or :func:`_line_segments` revisits a
+    command-looking body line (``echo "$UNBOUND"``) as its own live segment.
+    Several heredocs opened on one line (``cat <<A <<B``) have their bodies
+    one after another.
+
+    Body lines keep their own indentation past the block's: *indent*, the
+    command line's, is all that is removed (see :func:`_strip_indent`). The
+    closer is then matched as Bash matches it (``_Delimiter.closes``):
+    exactly, or after leading tabs for ``<<-`` -- so a closer indented with
+    the block ends the body, while one indented further is body data.
     """
     for delimiter in _heredoc_delimiters("\n".join(chunk)):
-        end = next((k for k in range(i + 1, len(lines)) if lines[k].strip() == delimiter.text), None)
+        body = [_strip_indent(line, indent) for line in lines[i + 1:]]
+        end = next((k for k, line in enumerate(body) if delimiter.closes(line)), None)
         if end is None:
             return i
-        for k in range(i + 1, end + 1):
-            if not delimiter.quoted:
-                chunk.append(lines[k].strip())
-            consumed.add(k)
-        i = end
+        chunk.extend(body[:end + 1])
+        consumed.update(range(i + 1, i + end + 2))
+        i += end + 1
     return i
 
 
