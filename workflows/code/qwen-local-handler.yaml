@@ -2099,7 +2099,7 @@ stages:
 
       Write {workspace}/validation/merge.json:
         {
-          "verified": [{"stage": "...", "commit_sha": "...", "is_ancestor_of_head": true|false, "checkpoints_passed": N, "checkpoints_failed": ["..."], "commit_shas_reachable": true|false, "scope_ok": true|false, "out_of_scope_paths": [...], "scope_reason": "..." | null}],
+          "verified": [{"stage": "...", "commit_sha": "...", "is_ancestor_of_head": true|false, "checkpoints_passed": N, "checkpoints_failed": ["..."], "commit_shas_reachable": true|false, "scope_ok": true|false, "out_of_scope_paths": [...], "reason": "..." | null}],
           "no_change_stages": [{"stage": "...", "reason": "..."}],
           "missing_commits": [{"stage": "...", "detail": "..."}],
           "unmerged_branches": [{"stage": "...", "commit_sha": "...", "detail": "..."}],
@@ -2985,11 +2985,6 @@ stages:
               Capture the printed path into DIGEST_PATH and use only that
               variable from here on; do NOT hard-code a path string.
 
-              Before writing, check whether the resolved path is a symlink
-              (os.path.islink); if it is, REFUSE to write and record the
-              failure in install.json — the handler reads with no-follow and
-              a symlink at that path means something is wrong.
-
               The read-modify-write MUST be atomic with respect to concurrent
               installs for different model tags. Using `tempfile + os.replace`
               alone is not sufficient: two concurrent installs for different
@@ -3001,6 +2996,16 @@ stages:
               confirms the write. The sidecar lock (not the digest file
               itself) is locked so the target remains a regular file that
               can be atomically renamed over.
+
+              While holding the lock, open the existing file (if present)
+              with `os.open(path, os.O_RDONLY | os.O_NOFOLLOW)` and read
+              from that descriptor. If the open raises OSError with errno
+              ELOOP (a symlink was encountered), REFUSE to write and record
+              the failure in install.json — the handler reads with no-follow
+              and a symlink at that path means something is wrong. This
+              replaces a separate islink() pre-check, which is vulnerable to
+              TOCTOU: the file can be swapped for a symlink between the check
+              and the open.
 
               If the file already exists and is valid JSON, read it first and
               preserve all existing keys — set only the key for this model tag
