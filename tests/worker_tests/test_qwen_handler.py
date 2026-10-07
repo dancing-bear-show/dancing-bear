@@ -104,8 +104,8 @@ class QwenHandlerHappyPathTests(QwenHandlerCase):
         self.assertEqual(body["model"], MODEL)
         self.assertIs(body["stream"], False)
         self.assertEqual(body["system"], "be terse")
-        self.assertEqual(body["options"], {"temperature": 0.2, "num_predict": 4096, "num_ctx": 8192})
-        self.assertEqual(timeout, 600)
+        self.assertEqual(body["options"], {"temperature": 0.2, "num_predict": 8192, "num_ctx": 16384})
+        self.assertAlmostEqual(require(timeout), qwen._derived_timeout(8192), places=1)
         self.assertIn("return the greeting", body["prompt"])
 
     def test_ollama_host_env_override_is_used(self) -> None:
@@ -116,14 +116,31 @@ class QwenHandlerHappyPathTests(QwenHandlerCase):
         self.assertTrue(ok)
         self.assertEqual(self.generate_requests()[0][0], "http://ollama.test:1234/api/generate")
 
-    def test_timeout_payload_defaults_to_600_and_honours_a_positive_number(self) -> None:
-        """Invalid timeouts are covered by QwenOptionValidationTests."""
-        cases = ((None, 600), (42, 42), (7.5, 7.5))
+    def test_timeout_payload_defaults_to_derived_honours_less_and_caps_more(self) -> None:
+        """Invalid timeouts are covered by QwenOptionValidationTests.
+
+        With no explicit timeout the sent value is derived from max_tokens
+        (default 8192).  A smaller caller-supplied timeout is honoured; a
+        larger one is capped at ollama_request_timeout_sec (2000).
+        """
+        default = qwen._derived_timeout(8192)
+        cases: list[tuple[float | None, float]] = [
+            (None, default),
+            (42, 42),
+            (7.5, 7.5),
+            (300, 300),
+            (1200, 1200),
+            (3600, qwen.THRESHOLDS.ollama_request_timeout_sec),
+        ]
         for raw, expected in cases:
             with self.subTest(timeout=raw):
                 self.requests.clear()
                 self.run_handler({"timeout": raw})
-                self.assertEqual(self.generate_requests()[0][2], expected)
+                sent = require(self.generate_requests()[0][2])
+                if raw is None:
+                    self.assertAlmostEqual(sent, expected, places=1)
+                else:
+                    self.assertEqual(sent, expected)
 
     def test_built_diff_passes_the_real_git_apply_check(self) -> None:
         with mock.patch("worker.qwen._git_apply_check", wraps=REAL_GIT_APPLY_CHECK) as check:
@@ -1109,14 +1126,144 @@ class QwenPatchCapsThroughHandlerTests(QwenHandlerCase):
                 check.assert_not_called()
         self.assertEqual(self.patch_files(), [])
 
-    def test_edit_truncated_at_num_predict_is_malformed(self) -> None:
-        """done_reason 'length': generation stopped inside the REPLACE body."""
-        truncated = GREET_EDIT.split(">>>>>>> REPLACE")[0]
-        self.generate_response = {**model_says(truncated), "done_reason": "length"}
+    def test_edit_cut_mid_block_without_done_reason_is_malformed(self) -> None:
+        """With no done_reason to go on, a block missing its REPLACE marker is
+        still caught by the parser."""
+        self.generate_response = model_says(GREET_EDIT.split(">>>>>>> REPLACE")[0])
 
         ok, out = self.run_handler()
 
         self.assertEqual((ok, out), (False, "terminal-edit-malformed"))
+
+
+class QwenOutputTruncationTests(QwenHandlerCase):
+    """done_reason "length" (generation hit num_predict) fails closed before
+    the edit blocks are parsed; "stop", an absent field and an unknown value
+    keep the ordinary path."""
+
+    def _assert_truncated(self, response_text: str) -> None:
+        self.generate_response = {**model_says(response_text), "done_reason": "length"}
+
+        ok, out = self.run_handler()
+
+        self.assertEqual((ok, out), (False, qwen.OUTPUT_TRUNCATED_OUTCOME))
+        self.assertEqual(out, "terminal-output-truncated")
+        self.assertEqual(self.patch_files(), [])
+        self.assertEqual(len(self.generate_requests()), 1, "the model call must not be retried in-handler")
+        [saved] = self.response_files()
+        self.assertEqual(saved.name, "qwen-test-job.txt")
+        self.assertEqual(saved.read_text(encoding="utf-8"), response_text)
+
+    def test_truncation_mid_block_is_output_truncated(self) -> None:
+        self._assert_truncated(GREET_EDIT.split(">>>>>>> REPLACE")[0])
+
+    def test_truncation_at_a_block_boundary_is_output_truncated_not_a_partial_patch(self) -> None:
+        """The response ends exactly after a complete block, so it parses as
+        valid edits; without the done_reason check this would write a patch
+        that silently lacks the blocks the model never got to emit."""
+        self._assert_truncated(GREET_EDIT)
+
+    def test_truncated_outcome_is_terminal_so_the_queue_does_not_retry(self) -> None:
+        self.generate_response = {**model_says(GREET_EDIT), "done_reason": "length"}
+
+        _, out = self.run_handler()
+
+        self.assertTrue(str(out).startswith("terminal-"))
+        self.assertFalse(str(out).startswith(qwen.TRANSIENT_OUTCOME_PREFIX))
+
+    def test_other_done_reasons_keep_the_success_path(self) -> None:
+        """Only "length" fails the job; an absent field (older Ollama) or an
+        unrecognised value must not fail a response that may be complete."""
+        cases: tuple[dict[str, object], ...] = (
+            {"done_reason": "stop"},
+            {},
+            {"done_reason": "unload"},
+            {"done_reason": None},
+        )
+        for extra in cases:
+            with self.subTest(extra=extra):
+                for path in self.patch_files():
+                    path.unlink()
+                self.generate_response = {**model_says(GREET_EDIT), **extra}
+
+                ok, result = self.run_handler()
+
+                self.assertTrue(ok, result)
+                self.assertEqual(self.as_dict(result)["patch_path"], str(self.patch_dir / "qwen-test-job.patch"))
+                self.assertEqual(self.response_files(), [])
+
+
+class QwenThresholdInvariantTests(QwenHandlerCase):
+    def test_stale_ceiling_exceeds_the_request_timeout(self) -> None:
+        """A live job inside its model call must never make the lock look stale."""
+        self.assertGreater(qwen.THRESHOLDS.stale_ceiling_sec, qwen.THRESHOLDS.ollama_request_timeout_sec)
+
+    def test_effective_request_timeout_never_reaches_the_stale_ceiling(self) -> None:
+        """job_runtime copies a daemon --job-timeout into payload["timeout"];
+        the timeout actually sent to Ollama must stay below the stale ceiling
+        whatever that value is, while a smaller one is still honoured."""
+        default = qwen._derived_timeout(8192)
+        cap = qwen.THRESHOLDS.ollama_request_timeout_sec
+        cases: list[tuple[float | None, float | None]] = [
+            (None, None),
+            (300, 300),
+            (3600, cap),
+            (10**6, cap),
+        ]
+        for raw, expected in cases:
+            with self.subTest(timeout=raw):
+                self.requests.clear()
+                self.run_handler({} if raw is None else {"timeout": raw})
+                [(_, _, sent_raw)] = self.generate_requests()
+                sent = require(sent_raw)
+                if expected is None:
+                    self.assertAlmostEqual(sent, default, places=1)
+                else:
+                    self.assertEqual(sent, expected)
+                self.assertLess(sent, qwen.THRESHOLDS.stale_ceiling_sec)
+
+    def test_derived_timeout_scales_with_max_tokens(self) -> None:
+        """Higher max_tokens must yield a larger timeout up to the hard ceiling."""
+        t_default = qwen._derived_timeout(qwen.DEFAULT_MAX_TOKENS)
+        t_max = qwen._derived_timeout(qwen.THRESHOLDS.num_ctx - 1)
+        self.assertGreater(t_max, t_default)
+
+    def test_derived_timeout_for_max_allowed_tokens_fits_below_stale_ceiling(self) -> None:
+        """A valid request at the highest accepted max_tokens (num_ctx - 1) must
+        time out before the lock's stale_ceiling_sec so the job is never wrongly
+        marked stale while generation is still running."""
+        max_tokens = qwen.THRESHOLDS.num_ctx - 1
+        derived = qwen._derived_timeout(max_tokens)
+        self.assertLess(derived, qwen.THRESHOLDS.stale_ceiling_sec)
+
+    def test_timeout_for_large_max_tokens_exceeds_old_fixed_ceiling(self) -> None:
+        """Regression: under the old fixed 1200 s timeout a 13,000-token request
+        would time out before Ollama could return done_reason: 'length', making
+        a truncation look like a retryable transport failure.  The derived timeout
+        must be large enough to cover that budget."""
+        # At 10.7 tok/s a 13,000-token response needs at least 1,215 s of
+        # generation time alone; add overhead and the total exceeds 1,200.
+        large_max_tokens = 13_000
+        derived = qwen._derived_timeout(large_max_tokens)
+        self.assertGreater(derived, 1200)
+
+    def test_handler_sends_derived_timeout_for_large_max_tokens(self) -> None:
+        """When max_tokens is large the handler must send a timeout derived from
+        that budget — not the old fixed 1,200 s value that would misclassify a
+        slow-but-valid generation as a transport failure."""
+        large_max_tokens = 13_000
+        self.run_handler({"max_tokens": large_max_tokens})
+        [(_, _, sent_raw)] = self.generate_requests()
+        sent = require(sent_raw)
+        expected = qwen._derived_timeout(large_max_tokens)
+        self.assertAlmostEqual(sent, expected, places=1)
+        self.assertGreater(sent, 1200)
+        self.assertLess(sent, qwen.THRESHOLDS.stale_ceiling_sec)
+
+    def test_default_max_tokens_leaves_half_the_context_for_the_prompt(self) -> None:
+        self.assertEqual(qwen.THRESHOLDS.num_ctx, 16384)
+        self.assertEqual(qwen.DEFAULT_MAX_TOKENS, 8192)
+        self.assertEqual(qwen.THRESHOLDS.num_ctx - qwen.DEFAULT_MAX_TOKENS, 8192)
 
 
 class QwenExplainModeTests(QwenHandlerCase):

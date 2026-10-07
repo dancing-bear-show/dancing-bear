@@ -32,6 +32,8 @@ Outcome strings (the handler's second return value on failure):
 * ``terminal-model-not-found`` - HTTP 404 from Ollama
 * ``terminal-ollama-request-rejected: http-error-<code>`` - any other HTTP
   status that retrying cannot fix (400, 401, 403, ...)
+* ``terminal-output-truncated`` - Ollama stopped at the output cap
+  (``done_reason`` "length"); checked before the edit blocks are parsed
 * ``terminal-no-edits-found`` - the response holds no SEARCH/REPLACE block
 * ``terminal-edit-malformed`` - a block is missing a marker (e.g. truncated)
 * ``terminal-edit-outside-inputs`` - a block names a file that is not an input
@@ -94,24 +96,39 @@ class QwenThresholds:
 
     wait_ceiling_sec: float = 180
     lock_poll_interval_sec: float = 2
-    stale_ceiling_sec: float = 1200
+    # Must stay strictly greater than ollama_request_timeout_sec: a lock held
+    # by a live job that is still inside its model call must never read as
+    # stale.
+    stale_ceiling_sec: float = 2400
     deferral_ceiling_count: int = 20
     deferral_wallclock_ceiling_min: float = 45
-    model_resident_gb: float = 9
+    # Measured with `ollama ps`: 9.5 GB at num_ctx 8192, 10 GB at 16384.
+    model_resident_gb: float = 10
     memory_margin_gb: float = 4
     max_file_bytes: int = 200_000
     # payload.files entries accepted, checked on the raw list before any
-    # path is resolved, stat'd or opened. At num_ctx 8192 the whole prompt
-    # is ~32 KiB of text (chars/4), so a request naming more than 32 files
-    # cannot carry a useful share of each one; the cap bounds the per-file
+    # path is resolved, stat'd or opened. At num_ctx 16384 with the default
+    # max_tokens 8192, the prompt budget is 8192 tokens, ~32 KiB of text
+    # (chars/4), so a request naming more than 32 files cannot carry a
+    # useful share of each one; the cap bounds the per-file
     # confinement work that runs before the prompt-budget guard can refuse.
     max_input_files: int = 32
     max_files: int = 8
     max_lines: int = 400
     min_free_disk_gb: float = 5
     max_lane_depth: int = 10
-    ollama_request_timeout_sec: float = 600
-    num_ctx: int = 8192
+    # Measured generation rate used to derive per-request timeouts from
+    # max_tokens.  At num_ctx 16384 and max_tokens 16383 (~1,531 s of
+    # generation at 10.7 tok/s) plus overhead this yields ~1,965 s, which
+    # fits under the 2,000 s hard ceiling and below stale_ceiling_sec (2,400).
+    tok_per_sec: float = 10.7
+    request_timeout_overhead_sec: float = 434.0
+    # Hard ceiling on the request timeout; must stay strictly below
+    # stale_ceiling_sec.  Sized so the derived timeout for max_tokens up to
+    # num_ctx - 1 (16,383) never exceeds it:
+    #   ceil(16383 / 10.7 + 434) = 1,965 s  <  2,000 s.
+    ollama_request_timeout_sec: float = 2000
+    num_ctx: int = 16384
     # Retention for responses/ (see _prune_response_entries): a persisted
     # response older than the age is removed on the next persist, and at
     # most max_files responses are kept, newest first. At the 256 KiB
@@ -151,6 +168,8 @@ class QwenTransientError(Exception):
 
 TRANSIENT_OUTCOME_PREFIX = "ollama-request-failed"
 INVALID_JOB_ID_OUTCOME = "terminal-invalid-job-id"
+# Terminal, not retried: the same prompt and max_tokens truncate again.
+OUTPUT_TRUNCATED_OUTCOME = "terminal-output-truncated"
 
 # A job id becomes a file name (deferral state, patch artifact), and
 # `worker enqueue --id` accepts any string. Strict allowlist: a leading
@@ -1983,6 +2002,21 @@ def _persist_response(job_id: str, response_text: str) -> None:
         _log.debug("qwen: could not persist the model response (non-fatal): %s", describe_exception(exc))
 
 
+def _check_output_complete(response: dict[str, object]) -> None:
+    """Raise QwenGuardError(OUTPUT_TRUNCATED_OUTCOME) when Ollama reports
+    that generation stopped at num_predict.
+
+    Checked before the edit blocks are parsed: a response cut exactly at a
+    block boundary parses as valid blocks, and applying them would yield a
+    silently incomplete patch. Only done_reason "length" fails the job. An
+    absent or unrecognised done_reason (an older Ollama, or a reason this
+    code does not know) keeps the pre-existing behaviour rather than failing
+    jobs that may well be complete.
+    """
+    if response.get("done_reason") == "length":
+        raise QwenGuardError(OUTPUT_TRUNCATED_OUTCOME)
+
+
 def _validated_diff(response_text: str, files: dict[str, str]) -> str:
     """The diff built from the response's edit blocks, once git apply
     --check and the patch caps accept it. Raises QwenGuardError."""
@@ -2036,6 +2070,7 @@ def _generate_and_validate_patch(request: _GenerationRequest) -> tuple[str, dict
 
     response_text = str(response.get("response") or "")
     try:
+        _check_output_complete(response)
         diff = _validated_diff(response_text, request.files)
     except QwenGuardError:
         _persist_response(request.job_id, response_text)
@@ -2053,7 +2088,7 @@ def _write_patch_file(job_id: str, diff: str) -> Path:
 
 
 DEFAULT_TEMPERATURE = 0.2
-DEFAULT_MAX_TOKENS = 4096
+DEFAULT_MAX_TOKENS = 8192
 # Ollama accepts any float, but above 2 sampling degenerates into noise that
 # will never parse as a diff; below 0 is meaningless.
 MAX_TEMPERATURE = 2.0
@@ -2129,18 +2164,43 @@ def _resolve_payload_options(payload: dict[str, object]) -> GenerationOptions:
     )
 
 
-def _resolve_timeout(payload: dict[str, object]) -> float:
-    """payload["timeout"] is only injected by job_runtime, and only for a
-    positive resolved timeout_sec; anything else there was put in the payload
-    by hand and is rejected like any other invalid option. Raises QwenGuardError.
+def _derived_timeout(max_tokens: int) -> float:
+    """Request timeout derived from the token budget.
+
+    Uses the measured generation rate (tok_per_sec) plus a fixed overhead
+    for cold load and prompt evaluation, capped at
+    ollama_request_timeout_sec.  This ensures a valid request at any
+    max_tokens up to num_ctx - 1 has enough time to complete before the
+    timeout fires, rather than mis-classifying a slow but legitimate
+    generation as a retryable transport failure.
+    """
+    raw = max_tokens / THRESHOLDS.tok_per_sec + THRESHOLDS.request_timeout_overhead_sec
+    return min(raw, THRESHOLDS.ollama_request_timeout_sec)
+
+
+def _resolve_timeout(payload: dict[str, object], max_tokens: int) -> float:
+    """The model request timeout: payload["timeout"], capped at
+    THRESHOLDS.ollama_request_timeout_sec. Raises QwenGuardError.
+
+    When no explicit payload timeout is provided the timeout is derived
+    from max_tokens via _derived_timeout so that a request using a large
+    token budget is not misclassified as a transport failure.
+
+    payload["timeout"] is only injected by job_runtime, and only for a
+    positive resolved timeout_sec (a per-job timeout_sec or the daemon's
+    --job-timeout); anything else there was put in the payload by hand and
+    is rejected like any other invalid option. A smaller value is honoured.
+    A larger one is capped, so the model call - which runs under the model
+    lock - always ends before the lock's stale_ceiling_sec and a live job
+    never reads as stale to a waiter.
     """
     raw = payload.get("timeout")
     if raw is None:
-        return THRESHOLDS.ollama_request_timeout_sec
+        return _derived_timeout(max_tokens)
     value = _finite_number(raw)
     if value is None or value <= 0:
         raise _invalid_option("timeout must be a finite number > 0")
-    return value
+    return min(value, THRESHOLDS.ollama_request_timeout_sec)
 
 
 def _run_with_lock(request: _GenerationRequest) -> tuple[str, dict[str, object]] | str:
@@ -2382,7 +2442,7 @@ def _run_guarded(payload: dict[str, object], run: _JobRun) -> tuple[bool, object
     files, instruction = _validate_payload(payload)
     # Every option is validated before confinement touches the disk.
     options = _resolve_payload_options(payload)
-    timeout = _resolve_timeout(payload)
+    timeout = _resolve_timeout(payload, options.max_tokens)
     root = _repo_root().resolve()
     prepared = _PreparedJob(
         files=resolve_input_files(files, root),
