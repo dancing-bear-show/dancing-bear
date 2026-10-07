@@ -12,6 +12,7 @@ import os
 import stat
 import unittest
 import unittest.mock as mock
+from pathlib import Path
 
 from tests.worker_tests.qwen_fixtures import MODEL, RUNNING_DIGEST, PinRecordCase
 from worker import qwen
@@ -215,11 +216,11 @@ class RecordModelPinRefusalTests(PinRecordCase):
         original_read = qwen._read_pin_record
         call_count = [0]
 
-        def flaky_read(path: object) -> dict[str, object]:
+        def flaky_read(path: Path) -> dict[str, object]:
             call_count[0] += 1
             if call_count[0] > 1:  # first call is the pre-write read; fail the readback
                 raise qwen.ModelPinError("simulated transient read error")
-            return original_read(path)  # type: ignore[arg-type]
+            return original_read(path)
 
         with mock.patch.object(qwen, "_read_pin_record", side_effect=flaky_read):
             result = qwen.record_model_pin(MODEL)
