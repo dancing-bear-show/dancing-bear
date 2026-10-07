@@ -1,5 +1,9 @@
 """Tests for the shell-text lint rules (workflow.linter_shell, workflow.shell_text).
 
+The worker, guard-refused, python-not-isolated and extraction suites live in
+the sibling ``test_linter_shell_*.py`` modules; shared builders are in
+``helpers/shell_lint.py``.
+
 Every rule has three kinds of test:
 
 * a fire fixture excerpted from a real historical defect -- the commit it
@@ -13,114 +17,29 @@ Every rule has three kinds of test:
 from __future__ import annotations
 
 import tempfile
-import textwrap
 import unittest
-import unittest.mock as mock
 from pathlib import Path
-from typing import cast
 
-from workflow.linter import LintResult, lint_workflow
+from tests.workflow_tests.helpers.shell_lint import (
+    BARE_PYTHON,
+    OLLAMA_PARAMS,
+    OLLAMA_RULE,
+    _RuleCase,
+    _fenced,
+    _hits,
+    _lint,
+    _lint_text,
+    _stage,
+    _workflow,
+)
+from workflow.linter import lint_workflow
 from workflow.linter_shell import (
-    RULE_GUARD_REFUSED,
     RULE_PYTHON_NOT_ISOLATED,
     RULE_UNBOUND_VARIABLE,
     RULE_UNQUOTED_FAN_OUT_KEY,
     RULE_UNVALIDATED_PARAM,
     RULE_VALIDATE_WRITES_OUTPUT,
 )
-from workflow.linter_types import LintWarning
-from workflow.shell_text import (
-    extract_labelled_assignments,
-    extract_shell_segments,
-    parse_shell,
-    quote_context,
-)
-
-# The check behind each rule id, for the teeth tests.
-_RULE_CHECKS: dict[str, str] = {
-    RULE_UNVALIDATED_PARAM: "_unvalidated_params",
-    RULE_UNQUOTED_FAN_OUT_KEY: "_unquoted_fan_out_keys",
-    RULE_UNBOUND_VARIABLE: "_unbound_variables",
-    RULE_PYTHON_NOT_ISOLATED: "_unisolated_pythons",
-    RULE_VALIDATE_WRITES_OUTPUT: "_validate_writes_output",
-    RULE_GUARD_REFUSED: "_guard_refused",
-}
-
-
-def _indent(text: str, spaces: int) -> str:
-    return textwrap.indent(textwrap.dedent(text).strip("\n"), " " * spaces)
-
-
-def _stage(
-    description: str,
-    *,
-    name: str = "work",
-    kind: str = "execute",
-    depends_on: str = "[]",
-    extra: str = "",
-) -> str:
-    """One stage entry. *description* is dedented and placed in a folded scalar."""
-    return (
-        f"  - name: {name}\n"
-        f"    kind: {kind}\n"
-        f"    depends_on: {depends_on}\n"
-        f"    description: >\n{_indent(description, 6)}\n"
-        f"    agent:\n      role: code-writer\n"
-        f"{extra}"
-    )
-
-
-def _workflow(*stages: str, params: str = "", rules: str = "", tail: str = "") -> str:
-    trigger = "trigger:\n  source: manual\n"
-    if params:
-        trigger += f"  params:\n{_indent(params, 4)}\n"
-    if rules:
-        trigger += f"  param_rules:\n{_indent(rules, 4)}\n"
-    return (
-        'name: t\nversion: "1.0"\ndescription: d\n'
-        f"{trigger}stages:\n" + "".join(stages) + tail
-    )
-
-
-def _lint_text(yaml_text: str, tmp_dir: str, name: str = "wf.yaml") -> LintResult:
-    path = Path(tmp_dir) / name
-    path.write_text(yaml_text, encoding="utf-8")
-    return lint_workflow(path)
-
-
-def _lint(yaml_text: str) -> LintResult:
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        return _lint_text(yaml_text, tmp_dir)
-
-
-def _hits(result: LintResult, rule: str) -> list[LintWarning]:
-    return [w for w in result.warnings if w.rule == rule]
-
-
-class _RuleCase(unittest.TestCase):
-    rule: str = ""
-
-    def assert_fires(self, yaml_text: str, *, count: int = 1) -> list[LintWarning]:
-        result = _lint(yaml_text)
-        hits = _hits(result, self.rule)
-        self.assertEqual(len(hits), count, msg=[w.message for w in result.warnings])
-        for w in hits:
-            self.assertEqual(w.field, "description")
-            self.assertTrue(w.message.startswith(f"[{self.rule}] "))
-        self.assertTrue(result.valid, msg="shell rules are warnings, never errors")
-        return hits
-
-    def assert_silent(self, yaml_text: str) -> None:
-        result = _lint(yaml_text)
-        self.assertEqual(_hits(result, self.rule), [], msg=[w.message for w in result.warnings])
-
-    def assert_has_teeth(self, yaml_text: str) -> None:
-        """With this rule's check stubbed out, the fixture lints clean."""
-        self.assertTrue(_hits(_lint(yaml_text), self.rule))
-        with mock.patch(f"workflow.linter_shell.{_RULE_CHECKS[self.rule]}", return_value=[]):
-            result = _lint(yaml_text)
-        self.assertEqual(result.warnings, [])
-        self.assertTrue(result.valid)
 
 
 # ---------------------------------------------------------------------------
@@ -135,8 +54,6 @@ _OLLAMA_PROBE = """
       command -v ollama || echo "ollama: absent"
       curl -sS -m 3 -f -o /dev/null {ollama_host}/api/tags && echo "http: ok" || echo "http: unreachable"
 """
-_OLLAMA_PARAMS = 'ollama_host: "http://localhost:11434"'
-_OLLAMA_RULE = "ollama_host: 'https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?/?'"
 _CHECK_PARAMS = """
     Validate the host first:
 
@@ -149,7 +66,7 @@ class TestUnvalidatedParam(_RuleCase):
     rule = RULE_UNVALIDATED_PARAM
 
     def test_fires_on_historical_unvalidated_host(self) -> None:
-        hits = self.assert_fires(_workflow(_stage(_OLLAMA_PROBE), params=_OLLAMA_PARAMS))
+        hits = self.assert_fires(_workflow(_stage(_OLLAMA_PROBE), params=OLLAMA_PARAMS))
         self.assertIn("'{ollama_host}'", hits[0].message)
         self.assertIn("curl -sS", hits[0].message)
 
@@ -159,10 +76,10 @@ class TestUnvalidatedParam(_RuleCase):
         self.assert_fires(_workflow(_stage(desc), params='job_type: "qwen_patch"'))
 
     def test_param_rules_entry_validates(self) -> None:
-        self.assert_silent(_workflow(_stage(_OLLAMA_PROBE), params=_OLLAMA_PARAMS, rules=_OLLAMA_RULE))
+        self.assert_silent(_workflow(_stage(_OLLAMA_PROBE), params=OLLAMA_PARAMS, rules=OLLAMA_RULE))
 
     def test_check_params_in_same_stage_validates(self) -> None:
-        self.assert_silent(_workflow(_stage(_CHECK_PARAMS + _OLLAMA_PROBE), params=_OLLAMA_PARAMS))
+        self.assert_silent(_workflow(_stage(_CHECK_PARAMS + _OLLAMA_PROBE), params=OLLAMA_PARAMS))
 
     def test_check_params_as_argument_to_another_command_does_not_validate(self) -> None:
         # A token merely ENDING in "check-params" that is an argument to some
@@ -173,8 +90,81 @@ class TestUnvalidatedParam(_RuleCase):
             "  echo check-params --check 'ollama_host=https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?/?'\n"
             + _OLLAMA_PROBE
         )
-        hits = self.assert_fires(_workflow(_stage(desc), params=_OLLAMA_PARAMS))
+        hits = self.assert_fires(_workflow(_stage(desc), params=OLLAMA_PARAMS))
         self.assertIn("'{ollama_host}'", hits[0].message)
+
+    def test_check_params_run_by_another_program_does_not_validate(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6m6V99: any path-qualified program
+        # word used to count as the workflow CLI, so an arbitrary executable
+        # given a check-params operand suppressed the rule though no
+        # check-params ever ran. A bare `check-params` names no executable.
+        for program in ("/tmp/anything", "./bin/evil", "check-params"):  # nosec B108 - fixture text, never opened
+            with self.subTest(program=program):
+                operands = "" if program == "check-params" else " check-params"
+                desc = _fenced(f"{program}{operands} m.json --check host=trusted\n\necho {{host}}")
+                hits = self.assert_fires(_workflow(_stage(desc), params='host: "example.com"'))
+                self.assertIn("'{host}'", hits[0].message)
+
+    def test_workflow_cli_by_any_path_validates(self) -> None:
+        # Fenced so the parser, not the prose heuristic that picks shell
+        # lines out of a description, decides what the call runs.
+        for program in ("./bin/workflow", "/opt/repo/bin/workflow", "workflow"):
+            with self.subTest(program=program):
+                desc = _fenced(f"{program} check-params m.json --check host=trusted\n\necho {{host}}")
+                self.assert_silent(_workflow(_stage(desc), params='host: "example.com"'))
+
+    def test_check_params_in_a_child_shell_does_not_validate(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6njyuA: echo masks the check's
+        # failure, yet the call was credited to this stage and its descendants.
+        check = 'echo "$(./bin/workflow check-params m.json --check host=trusted)"'
+        same = _fenced(f"{check}\n\necho {{host}}")
+        hits = self.assert_fires(_workflow(_stage(same), params='host: "example.com"'))
+        self.assertEqual(hits[0].stage, "work")
+        descendant = _workflow(
+            _stage(_fenced(check), name="init"),
+            _stage(_fenced("echo {host}"), name="use", depends_on="[init]"),
+            params='host: "example.com"',
+        )
+        hits = self.assert_fires(descendant)
+        self.assertEqual(hits[0].stage, "use")
+
+    def test_check_params_whose_failure_is_masked_does_not_validate(self) -> None:
+        # Same thread: credit only a check whose exit status can stop the stage.
+        call = "./bin/workflow check-params m.json --check host=trusted"
+        for line in (f"{call} || true", f"! {call}", f"{call} | tee log", f"{call} &",
+                     f"if {call}; then :; fi", f"false || {call}", f"( {call} )",
+                     f"local H=$({call} --print host)", f"H=$({call} --print host; true)"):
+            with self.subTest(line=line):
+                desc = _fenced(f"{line}\n\necho {{host}}")
+                self.assert_fires(_workflow(_stage(desc), params='host: "example.com"'))
+
+    def test_check_params_whose_failure_stops_the_stage_validates(self) -> None:
+        # Happy path: a plain call, one joined by && or followed by `|| exit`,
+        # and the capture idiom the qwen workflows use (an assignment-only
+        # command exits with its substitution's status).
+        call = "./bin/workflow check-params m.json --check host=trusted"
+        for line in (call, f"{call} && echo ok", f"{call} || exit 1",
+                     f"H=$({call} --print host) || exit 1", f"H=$({call} --print host)"):
+            with self.subTest(line=line):
+                desc = _fenced(f"{line}\n\necho {{host}}")
+                self.assert_silent(_workflow(_stage(desc), params='host: "example.com"'))
+                yaml_text = _workflow(
+                    _stage(_fenced(line), name="init"),
+                    _stage(_fenced("echo {host}"), name="use", depends_on="[init]"),
+                    params='host: "example.com"',
+                )
+                self.assert_silent(yaml_text)
+
+    def test_placeholder_in_shell_comment_still_fires(self) -> None:
+        # Copilot "Previously missed" on PR #437 asked for comments to be
+        # skipped. Not for this rule: the value is substituted into the text
+        # before the shell reads it, so a newline in it ends the comment and
+        # the rest runs -- the break-out param_guard.py documents for a
+        # quoted heredoc. shell-unbound-variable does skip comments.
+        desc = "Run:\n\n  echo ok # document {host} and $UNBOUND\n"
+        result = _lint(_workflow(_stage(desc), params='host: "example.com"'))
+        self.assertEqual(len(_hits(result, self.rule)), 1, msg=[w.message for w in result.warnings])
+        self.assertEqual(_hits(result, RULE_UNBOUND_VARIABLE), [])
 
     def test_check_params_after_the_use_does_not_validate_it(self) -> None:
         # PR #433 review: check-params validation must respect ordering. A
@@ -182,7 +172,7 @@ class TestUnvalidatedParam(_RuleCase):
         # already reached shell by the time the check runs, so it must still
         # be flagged -- the check protects only uses that come after it.
         desc = _OLLAMA_PROBE + _CHECK_PARAMS
-        hits = self.assert_fires(_workflow(_stage(desc), params=_OLLAMA_PARAMS))
+        hits = self.assert_fires(_workflow(_stage(desc), params=OLLAMA_PARAMS))
         self.assertIn("'{ollama_host}'", hits[0].message)
 
     def test_check_params_after_the_use_in_a_later_fence_does_not_validate_it(self) -> None:
@@ -197,7 +187,7 @@ class TestUnvalidatedParam(_RuleCase):
             "Probe {host}:\n\n"
             "  echo {host}\n\n"
             "```bash\n"
-            "check-params --check host=trusted\n"
+            "./bin/workflow check-params m.json --check host=trusted\n"
             "```\n"
         )
         hits = self.assert_fires(_workflow(_stage(desc), params='host: "example.com"'))
@@ -210,7 +200,7 @@ class TestUnvalidatedParam(_RuleCase):
         # confirms the fix orders by real offset, not just "line beats fence".
         desc = (
             "```bash\n"
-            "check-params --check host=trusted\n"
+            "./bin/workflow check-params m.json --check host=trusted\n"
             "```\n\n"
             "Probe {host}:\n\n"
             "  echo {host}\n"
@@ -228,19 +218,32 @@ class TestUnvalidatedParam(_RuleCase):
         hits = self.assert_fires(_workflow(_stage(desc), params='host: "example.com"'))
         self.assertIn("'{host}'", hits[0].message)
 
-    def test_quoted_heredoc_body_placeholder_does_not_validate(self) -> None:
-        # Happy-path sibling: a QUOTED delimiter's body is inert to the shell
-        # (no expansion happens at all), so a {host} placeholder there is not
-        # a real unvalidated-param exposure and must stay silent.
+    def test_quoted_heredoc_body_placeholder_fires(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6nOAmF: a quoted delimiter stops the
+        # SHELL expanding the body, but {host} is substituted into the text
+        # before bash parses it, so a value of "EOF\n<command>" closes the
+        # heredoc and runs the rest (param_guard.py's module docstring). The
+        # body was dropped from line segments and skipped as inert in fences.
+        for desc in (
+            "Write the file:\n\n  cat > \"$TMPDIR/notes.txt\" <<'EOF'\n  {host}\n  EOF\n",
+            "```bash\n\ncat > \"$TMPDIR/notes.txt\" <<'EOF'\n\n{host}\n\nEOF\n\n```\n",
+        ):
+            with self.subTest(desc=desc):
+                hits = self.assert_fires(_workflow(_stage(desc), params='host: "example.com"'))
+                self.assertIn("'{host}'", hits[0].message)
+
+    def test_quoted_heredoc_body_placeholder_with_param_rule_is_silent(self) -> None:
+        # Happy path: an engine-enforced rule constrains the value first.
         desc = "Write the file:\n\n  cat > \"$TMPDIR/notes.txt\" <<'EOF'\n  {host}\n  EOF\n"
-        self.assert_silent(_workflow(_stage(desc), params='host: "example.com"'))
+        self.assert_silent(_workflow(
+            _stage(desc), params='host: "example.com"', rules="host: '[a-z.]+'"))
 
     def test_check_params_in_ancestor_stage_validates(self) -> None:
         yaml_text = _workflow(
             _stage(_CHECK_PARAMS, name="init"),
             _stage("Relay stage.", name="middle", depends_on="[init]"),
             _stage(_OLLAMA_PROBE, name="probe", depends_on="[middle]"),
-            params=_OLLAMA_PARAMS,
+            params=OLLAMA_PARAMS,
         )
         self.assert_silent(yaml_text)
 
@@ -248,14 +251,14 @@ class TestUnvalidatedParam(_RuleCase):
         yaml_text = _workflow(
             _stage(_CHECK_PARAMS, name="sibling"),
             _stage(_OLLAMA_PROBE, name="probe"),
-            params=_OLLAMA_PARAMS,
+            params=OLLAMA_PARAMS,
         )
         hits = self.assert_fires(yaml_text)
         self.assertEqual(hits[0].stage, "probe")
 
     def test_check_of_another_param_does_not_validate(self) -> None:
         other = _CHECK_PARAMS.replace("ollama_host=", "model_tag=")
-        self.assert_fires(_workflow(_stage(other + _OLLAMA_PROBE), params=_OLLAMA_PARAMS))
+        self.assert_fires(_workflow(_stage(other + _OLLAMA_PROBE), params=OLLAMA_PARAMS))
 
     def test_later_commands_check_flag_does_not_validate_earlier_call(self) -> None:
         # PR #433 review: _check_param_names_at scanned to the end of the
@@ -266,12 +269,12 @@ class TestUnvalidatedParam(_RuleCase):
             "  ./bin/workflow check-params \"{workspace}/manifest.json\"; "
             "echo --check 'ollama_host=https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?/?'\n"
         ) + _OLLAMA_PROBE
-        hits = self.assert_fires(_workflow(_stage(desc), params=_OLLAMA_PARAMS))
+        hits = self.assert_fires(_workflow(_stage(desc), params=OLLAMA_PARAMS))
         self.assertIn("'{ollama_host}'", hits[0].message)
 
     def test_prose_mention_is_not_shell(self) -> None:
         desc = "Probe {ollama_host} and record whether it answers.\n\nReport `{ollama_host}` as down.\n"
-        self.assert_silent(_workflow(_stage(desc), params=_OLLAMA_PARAMS))
+        self.assert_silent(_workflow(_stage(desc), params=OLLAMA_PARAMS))
 
     def test_engine_guarded_placeholders_are_exempt(self) -> None:
         desc = "Run:\n\n  ls {workspace}/outputs {work_dir}\n"
@@ -300,7 +303,7 @@ class TestUnvalidatedParam(_RuleCase):
         self.assertEqual(_hits(standalone, self.rule), [], msg="fragment declares no params itself")
 
     def test_has_teeth(self) -> None:
-        self.assert_has_teeth(_workflow(_stage(_OLLAMA_PROBE), params=_OLLAMA_PARAMS))
+        self.assert_has_teeth(_workflow(_stage(_OLLAMA_PROBE), params=OLLAMA_PARAMS))
 
     # ------------------------------------------------------------------
     # Grammar parity tests (shared PLACEHOLDER_RE from placeholders.py)
@@ -348,7 +351,7 @@ class TestIncludedFragmentsAreLinted(unittest.TestCase):
     def test_parent_lint_surfaces_fragment_context_free_findings(self) -> None:
         fragment = (
             "fragment: true\nstages:\n"
-            + _stage(_BARE_PYTHON, name="probe")
+            + _stage(BARE_PYTHON, name="probe")
         )
         with tempfile.TemporaryDirectory() as tmp_dir:
             frag = Path(tmp_dir) / "frag.yaml"
@@ -415,6 +418,22 @@ class TestUnquotedFanOutKey(_RuleCase):
 
     def test_key_in_prose_is_silent(self) -> None:
         self.assert_silent(_fan_out_workflow("Record findings for {domain} only."))
+
+    def test_key_after_apostrophe_in_comment_fires(self) -> None:
+        # An apostrophe in a comment opens no quote; read raw, it marked the
+        # rest of the segment single-quoted and hid the unquoted key.
+        self.assert_fires(_fan_out_workflow("echo ok # don't\n  rm {domain}"))
+
+    def test_key_in_comment_is_silent(self) -> None:
+        # Agent fan-out keys are held to [A-Za-z0-9][A-Za-z0-9._-]* by the
+        # orchestrator (SKILL.md SAFE_KEY_VALUE): no newline can end a comment.
+        self.assert_silent(_fan_out_workflow("echo ok # sweep {domain}"))
+
+    def test_key_in_quoted_heredoc_body_is_silent(self) -> None:
+        # PR #437 thread PRRT_kwDOQr1kjM6nOAmF, checked for this rule too: the
+        # same allowlist means no value can carry the newline that ends a
+        # quoted heredoc, so the body stays inert here (unlike a {param}).
+        self.assert_silent(_fan_out_workflow("cat <<'EOF'\n  {domain}\n  EOF"))
 
     def test_has_teeth(self) -> None:
         self.assert_has_teeth(_fan_out_workflow(self._HISTORICAL))
@@ -585,6 +604,24 @@ class TestUnboundVariable(_RuleCase):
     def test_has_teeth(self) -> None:
         self.assert_has_teeth(_workflow(_stage(_UNBOUND)))
 
+    def test_expansion_in_shell_comment_is_silent(self) -> None:
+        # Copilot "Previously missed" on PR #437: the shell never expands a
+        # comment, so a $NAME there is not a use.
+        self.assert_silent(_workflow(_stage("Run:\n\n  echo ok # document {host} and $UNBOUND\n")))
+
+    def test_hash_inside_a_word_is_not_a_comment(self) -> None:
+        for line in ("echo $FOO#bar", "echo a#b $FOO", 'echo "${#x}" "$FOO"'):
+            with self.subTest(line=line):
+                hits = self.assert_fires(_workflow(_stage(f"Run:\n\n  {line}\n")))
+                self.assertIn("$FOO", hits[0].message)
+
+    def test_apostrophe_in_comment_does_not_quote_later_lines(self) -> None:
+        # Read raw, the ' in "don't" opened a single quote that ran to the
+        # end of the segment and hid $FOO.
+        desc = "```bash\n\necho ok # don't\n\necho $FOO\n\n```\n"
+        hits = self.assert_fires(_workflow(_stage(desc)))
+        self.assertIn("$FOO", hits[0].message)
+
     def test_quoted_heredoc_body_does_not_spuriously_fire_unbound(self) -> None:
         # PR #433 review: a quoted-delimiter heredoc returned from
         # _absorb_heredoc_body without consuming its body lines, so
@@ -644,174 +681,37 @@ class TestUnboundVariable(_RuleCase):
         hits = self.assert_fires(_workflow(_stage(desc)))
         self.assertIn("$UNBOUND", hits[0].message)
 
+    # PR #433 review (linter_shell.py _assigned_names): parse_shell flattened
+    # commands from command substitutions into script.commands, so an
+    # assignment made in a child shell counted as a binding for the stage's
+    # shell, which never sees it.
 
-# ---------------------------------------------------------------------------
-# python-not-isolated
-# ---------------------------------------------------------------------------
+    def test_assignment_in_child_shell_does_not_bind_the_parent(self) -> None:
+        cases = {
+            "command substitution": 'echo "$(FOO=bar true)"; echo "$FOO"',
+            "subshell group": '( FOO=1 ); echo "$FOO"',
+            "backticks": 'echo `FOO=1 true`; echo "$FOO"',
+            "process substitution": 'diff <(FOO=1 sort a) b; echo "$FOO"',
+            "loop variable in a group": '( for FOO in a; do :; done ); echo "$FOO"',
+            "sibling child shell": '( FOO=1 ); ( echo "$FOO" )',
+        }
+        for label, line in cases.items():
+            with self.subTest(label):
+                hits = self.assert_fires(_workflow(_stage(_fenced(line))))
+                self.assertIn("$FOO", hits[0].message)
 
-# qwen-local-handler.yaml verify stage at 6474c76e (PR #391 round 0).
-_BARE_PYTHON = """
-    Confirm the import resolves to this worktree:
-
-      python3 -c "import worker; print(worker.__file__)"
-"""
-
-
-class TestPythonNotIsolated(_RuleCase):
-    rule = RULE_PYTHON_NOT_ISOLATED
-
-    def test_fires_on_historical_bare_interpreter(self) -> None:
-        hits = self.assert_fires(_workflow(_stage(_BARE_PYTHON)))
-        self.assertIn("lacks -I", hits[0].message)
-
-    def test_fires_on_script_and_venv_interpreter(self) -> None:
-        for command in ("python3 workflows/code/scripts/detect_facades.py --root src",
-                        ".venv/bin/python tests/fixtures/build.py",
-                        "python3 -S -c 'print(1)'"):
-            with self.subTest(command=command):
-                self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))
-
-    def test_isolated_forms_are_silent(self) -> None:
-        for command in ("python3 -I -S -c 'print(1)'", "python3 -IS -c 'print(1)'",
-                        "python3 -I -m json.tool f.json", ".venv/bin/python -I -m pip install x",
-                        "python3 -E -c 'print(1)'"):
-            with self.subTest(command=command):
-                self.assert_silent(_workflow(_stage(f"Run:\n\n  {command}\n")))
-
-    def test_explicit_pythonpath_is_exempt(self) -> None:
-        desc = 'Run:\n\n  PYTHONPATH="$PWD/src" python3 -m unittest tests.workflow_tests -v\n'
-        self.assert_silent(_workflow(_stage(desc)))
-
-    def test_prose_is_silent(self) -> None:
-        self.assert_silent(_workflow(_stage("Run:\n\n  python3 is required for this step\n")))
-
-    def test_fires_on_non_py_suffixed_script_operand(self) -> None:
-        # Copilot PR #433 r4099834636: a script path with no .py suffix, or a
-        # quoted variable holding the script path, still starts the
-        # interpreter with the ambient PYTHONPATH.
-        for command in ('python3 tools/run_checks', 'python3 "$SCRIPT"'):
-            with self.subTest(command=command):
-                self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))
-
-    def test_pythonpath_assignment_in_a_prior_command_does_not_exempt(self) -> None:
-        # PR #433 review r4118063072 (and unlinked triage finding
-        # linter_shell.py:489, same root cause): the exemption scanned the
-        # previous 3 tokens for any PYTHONPATH= prefix with no regard for
-        # command boundaries, so an assignment belonging to a PRIOR, unrelated
-        # command -- separated here by ';' -- wrongly exempted the python
-        # invocation that follows it. The interpreter still inherits the
-        # ambient PYTHONPATH and is not isolated.
-        desc = 'Run:\n\n  echo PYTHONPATH=/tmp; python3 tools/run_checks\n'
-        hits = self.assert_fires(_workflow(_stage(desc)))
-        self.assertIn("lacks -I", hits[0].message)
-
-    def test_pythonpath_assignment_in_the_same_command_still_exempts(self) -> None:
-        # Happy-path sibling: a real same-command PYTHONPATH= prefix -- no
-        # separator between it and the python invocation -- must keep
-        # exempting the call, same as test_explicit_pythonpath_is_exempt.
-        desc = 'Run:\n\n  echo setup; PYTHONPATH="$PWD/src" python3 tools/run_checks\n'
-        self.assert_silent(_workflow(_stage(desc)))
-
-    def test_fires_on_versioned_interpreter(self) -> None:
-        # Unlinked triage finding shell_text.py:209: _is_command_word only
-        # recognised the exact names "python"/"python3" or a path ending in
-        # "/python3", so a versioned interpreter line was never extracted as
-        # shell at all -- this rule never even saw it to flag it.
-        for command in ("python3.11 tools/run_checks", "/usr/bin/python3.12 -c 'print(1)'"):
-            with self.subTest(command=command):
-                self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))
-
-    def test_isolated_versioned_interpreter_is_silent(self) -> None:
-        # Happy-path sibling: a versioned interpreter that IS isolated must
-        # not fire, same as the unversioned forms in test_isolated_forms_are_silent.
-        self.assert_silent(_workflow(_stage("Run:\n\n  python3.11 -I -S -c 'print(1)'\n")))
-
-    def test_fires_on_bare_interpreter_with_no_operands(self) -> None:
-        # PR #433 review r4118063056: _is_invocation([]) returned False, so a
-        # command line consisting of just "python3"/"python" -- with no
-        # operands at all -- was never reported as unisolated, even though
-        # extract_shell_segments has already decided this is a real command
-        # line (not prose) and it still starts the interpreter with the
-        # ambient PYTHONPATH.
-        for command in ("python3", "python"):
-            with self.subTest(command=command):
-                hits = self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))
-                self.assertIn("lacks -I", hits[0].message)
-
-    def test_has_teeth(self) -> None:
-        self.assert_has_teeth(_workflow(_stage(_BARE_PYTHON)))
-
-    def test_isolated_form_after_value_taking_flag_is_silent(self) -> None:
-        # Copilot PRRT_kwDOQr1kjM6mhoot (PR #433): the flag scan stopped at
-        # the first arg not starting with "-", so "-X utf8" (a value-taking
-        # flag whose value is the NEXT token) was misread as the end of the
-        # flag list and "-I" right after it was never reached.
-        for command in (
-            "python3 -X utf8 -I -c 'print(1)'",
-            "python3 -W error -I -c 'print(1)'",
-            "python3 -X utf8 -W error -I -c 'print(1)'",
-        ):
-            with self.subTest(command=command):
-                self.assert_silent(_workflow(_stage(f"Run:\n\n  {command}\n")))
-
-    def test_interpreter_as_an_argument_is_silent(self) -> None:
-        # PR #433 review (linter_shell.py:570): every token matching the
-        # interpreter name was treated as an invocation, so `echo python3 -c`
-        # warned although echo runs, not python3.
-        for command in ("echo python3 -c 'print(1)'", "test -x .venv/bin/python",
-                        "grep -n python3 setup.cfg"):
-            with self.subTest(command=command):
-                self.assert_silent(_workflow(_stage(f"Run:\n\n  {command}\n")))
-
-    def test_interpreter_in_command_position_after_a_separator_fires(self) -> None:
-        # Happy path for the same fix: the interpreter is still found wherever
-        # it IS the program -- after a separator, a reserved word, a wrapper,
-        # or inside a command substitution.
-        for command in ("echo setup; python3 -c 'print(1)'",
-                        "if python3 -c 'import x'; then echo ok; fi",
-                        "cd src && env FOO=1 python3 -c 'print(1)'",
-                        "X=$(python3 -c 'print(1)'); echo \"$X\""):
-            with self.subTest(command=command):
-                self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))
-
-    def test_bare_interpreter_before_a_separator_fires(self) -> None:
-        # PR #433 review (linter_shell.py:574): the operand list ran past
-        # the separator, so `;`/`&&` became the first operand and the bare
-        # interpreter was taken for prose.
-        for command in ("python3 ; echo done", "python3 && echo done"):
-            with self.subTest(command=command):
-                hits = self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))
-                self.assertIn("lacks -I", hits[0].message)
-
-    def test_isolated_interpreter_before_a_separator_is_silent(self) -> None:
-        # Happy path: bounding the operands must not drop a later command's
-        # flags onto the interpreter or lose its own.
-        for command in ("python3 -I ; echo done", "python3 -I -c 'print(1)' && echo -X"):
-            with self.subTest(command=command):
-                self.assert_silent(_workflow(_stage(f"Run:\n\n  {command}\n")))
-
-    def test_env_pythonpath_exempts_only_its_own_command(self) -> None:
-        self.assert_silent(_workflow(_stage("Run:\n\n  cd src && env PYTHONPATH=. python3 -m foo\n")))
-        self.assert_fires(_workflow(_stage("Run:\n\n  cd src && env PYTHONPATH=. true; python3 -m foo\n")))
-
-    def test_fires_in_folded_unlabelled_fence_opening_with_python(self) -> None:
-        # PR #433 review (shell_text.py:317): "``` python -c ..." -- an
-        # unlabelled fence folded onto its first command -- was read as a
-        # fence tagged `python` and dropped, so the unisolated call was never
-        # linted. The space after the marker marks the word as body text.
-        hits = self.assert_fires(_workflow(_stage("``` python -c 'print(1)'\n```\n")))
-        self.assertIn("lacks -I", hits[0].message)
-
-    def test_folded_python_tagged_fence_is_still_not_shell(self) -> None:
-        # Happy path: a glued tag ("```python") is a language tag; the
-        # fence is Python source, not shell.
-        self.assert_silent(_workflow(_stage("```python python3 -c 'print(1)'\n```\n")))
-
-    def test_value_taking_flag_without_isolation_flag_still_fires(self) -> None:
-        # Sad-path sibling: consuming -X's value must not itself grant
-        # isolation -- a command with -X but no -I/-E still lacks it.
-        hits = self.assert_fires(_workflow(_stage("Run:\n\n  python3 -X utf8 -c 'print(1)'\n")))
-        self.assertIn("lacks -I", hits[0].message)
+    def test_binding_visible_where_the_shell_sees_it(self) -> None:
+        cases = {
+            "parent binding inside a child": 'FOO=1; echo "$(echo "$FOO")"',
+            "brace group": '{ FOO=1; }; echo "$FOO"',
+            "export": 'export FOO=1; echo "$FOO"',
+            "binding and use in one child": '( FOO=1; echo "$FOO" )',
+            "read and use in one substitution": 'echo "$(read -r FOO; echo "$FOO")"',
+            "outer child binding inside an inner one": '( FOO=1; ( echo "$FOO" ) )',
+        }
+        for label, line in cases.items():
+            with self.subTest(label):
+                self.assert_silent(_workflow(_stage(_fenced(line))))
 
 
 # ---------------------------------------------------------------------------
@@ -877,566 +777,6 @@ class TestValidateStageWritesOutput(_RuleCase):
 
     def test_has_teeth(self) -> None:
         self.assert_has_teeth(_workflow(_stage(_VERIFY, kind="validate")))
-
-
-# ---------------------------------------------------------------------------
-# shell-guard-refused
-# ---------------------------------------------------------------------------
-
-# qwen-admin.yaml health stage at f00a50d5 (PR #391 round 7), adapted to an
-# UNQUOTED delimiter: the guard's own contract (guard-contract.yaml "heredoc
-# subst runs" -> block) only refuses this shape because $(...) in the body
-# expands before the guard can inspect the result. The original fixture used
-# a quoted `<<'RAW'` delimiter, which the guard allows outright ("quoted
-# heredoc data" -> allow) -- Copilot PR #433 flagged that mismatch directly.
-_HEREDOC = """
-    Get the value off the command line:
-
-      cat > "$TMPDIR/qwen-admin-host" <<RAW
-      $(echo {ollama_host})
-      RAW
-"""
-# review-fix-threads.yaml verify-fixes, adapted to a mutating body: the guard
-# allows a read-only loop outright (guard-contract.yaml "loop variable in a
-# read" -> allow), so the original `do make test; done` body -- a false
-# positive Copilot PR #433 flagged -- must not fire this rule any more.
-_LOOP = "Run twice:\n\n  for pass in 1 2; do rm -rf \"$TMPDIR/scratch-$pass\"; done\n"
-
-
-class TestGuardRefused(_RuleCase):
-    rule = RULE_GUARD_REFUSED
-
-    def test_fires_on_historical_heredoc(self) -> None:
-        hits = self.assert_fires(_workflow(_stage(_HEREDOC), params=_OLLAMA_PARAMS, rules=_OLLAMA_RULE))
-        self.assertIn("heredoc", hits[0].message)
-
-    def test_fires_on_shell_loops(self) -> None:
-        for desc in (_LOOP, "Drain:\n\n  while test -s q.txt; do mv q.txt \"$TMPDIR/done\"; done\n"):
-            with self.subTest(desc=desc):
-                self.assertIn("loop", self.assert_fires(_workflow(_stage(desc)))[0].message)
-
-    def test_quoted_mutating_command_name_as_argument_is_silent(self) -> None:
-        # Unlinked triage finding linter_shell.py:631: _loop_body_is_mutating
-        # treated ANY token equal to a mutating command name as an executed
-        # command regardless of shell command position. shlex strips quotes
-        # during tokenisation, so a quoted argument like "rm" passed to echo
-        # is indistinguishable at the token level from a bare rm invocation --
-        # but it is not one: echo just prints the word "rm", the loop reads
-        # only.
-        desc = 'Report:\n\n  for f in src/*.py; do echo "rm" "$f"; done\n'
-        self.assert_silent(_workflow(_stage(desc)))
-
-    def test_real_mutating_command_after_argument_use_still_fires(self) -> None:
-        # Sad-path sibling: a genuine mutating invocation in COMMAND position
-        # later in the same loop body must still fire, so the command-position
-        # check does not accidentally suppress every mention of the word.
-        desc = 'Report:\n\n  for f in src/*.py; do echo "rm"; rm -f "$f"; done\n'
-        self.assertIn("loop", self.assert_fires(_workflow(_stage(desc)))[0].message)
-
-    def test_fires_on_path_qualified_mutating_command(self) -> None:
-        # PR #433 review (linter_shell.py:844): mutators were matched by exact
-        # bare token, while the guard resolves the basename -- `/bin/rm` in a
-        # loop was refused by the guard and passed here.
-        for command in ('for p in files; do /bin/rm -f "$p"; done',
-                        'for p in files; do "$HOME/bin/../../bin/mv" "$p" x; done'):
-            with self.subTest(command=command):
-                self.assertIn("loop", self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))[0].message)
-
-    def test_path_qualified_read_only_command_is_silent(self) -> None:
-        # Happy path: basename matching must not turn a read into a write.
-        self.assert_silent(_workflow(_stage('Run:\n\n  for p in files; do /usr/bin/wc -l "$p"; done\n')))
-
-    def test_fires_on_mutating_command_after_wrapper_or_reserved_word(self) -> None:
-        # PR #433 review (linter_shell.py:844, second finding): a command was
-        # in command position only as the first token or after punctuation,
-        # so `env rm` and `then rm` were skipped although the guard refuses
-        # both. Wrappers and reserved words now pass command position on.
-        for command in (
-            'for f in files; do env rm -f "$f"; done',
-            'for f in files; do if true; then rm -f "$f"; fi; done',
-            'for f in files; do sudo -u me rm "$f"; done',
-            'for f in files; do timeout 5 nice -n 2 rm "$f"; done',
-            'for f in files; do echo "$f" | xargs -n 1 rm; done',
-            'for f in files; do FOO=1 command rm "$f"; done',
-            'for f in files; do ! rm "$f"; done',
-        ):
-            with self.subTest(command=command):
-                self.assertIn("loop", self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))[0].message)
-
-    def test_mutating_name_as_wrapper_or_keyword_argument_is_silent(self) -> None:
-        # Happy path: after a wrapper or keyword, only the command word counts.
-        for command in (
-            'for f in files; do env FOO=1 wc -l "$f"; done',
-            "for f in files; do command -v rm; done",
-            'for f in files; do if true; then echo rm "$f"; fi; done',
-            'for f in files; do timeout 5 grep rm "$f"; done',
-        ):
-            with self.subTest(command=command):
-                self.assert_silent(_workflow(_stage(f"Run:\n\n  {command}\n")))
-
-    def test_command_after_the_loop_ends_is_not_in_the_loop(self) -> None:
-        # The old body scan ran to the end of the segment, past `done`.
-        self.assert_silent(_workflow(_stage('Run:\n\n  for f in a; do cat "$f"; done; rm -f x\n')))
-
-    def test_redirect_on_the_loop_itself_fires(self) -> None:
-        # `done > file` redirects the whole loop's output.
-        desc = 'Run:\n\n  for f in a; do cat "$f"; done > out.txt\n'
-        self.assertIn("loop", self.assert_fires(_workflow(_stage(desc)))[0].message)
-
-    def test_here_string_and_prose_are_silent(self) -> None:
-        for desc in (
-            "Run:\n\n  jq -r . <<< '{}'\n",
-            "NEITHER IS A HEREDOC. The earlier `<<'RAW'` form was broken.\n",
-            "The loop reads a file: zsh does not word-split `for R in $ROOTS`.\n",
-            'Run:\n\n  echo "use <<EOF in a script, not here"\n',
-        ):
-            with self.subTest(desc=desc):
-                self.assert_silent(_workflow(_stage(desc)))
-
-    def test_quoted_heredoc_delimiter_is_silent(self) -> None:
-        # Copilot PR #433 review: a quoted delimiter makes the body inert data --
-        # no expansion occurs inside it at all -- so the guard allows it outright
-        # (guard-contract.yaml "quoted heredoc data" -> allow). This must not fire
-        # even though {ollama_host} sits in the body, unlike the unquoted _HEREDOC
-        # fixture above.
-        desc = (
-            "Get the value off the command line:\n\n"
-            '  cat > "$TMPDIR/qwen-admin-host" <<\'RAW\'\n'
-            "  {ollama_host}\n"
-            "  RAW\n"
-        )
-        self.assert_silent(_workflow(_stage(desc), params=_OLLAMA_PARAMS, rules=_OLLAMA_RULE))
-
-    def test_read_only_loop_is_silent(self) -> None:
-        # guard-contract.yaml "loop variable in a read" -> allow: a loop whose
-        # body only reads is not something the guard refuses, so this rule must
-        # not warn on it either.
-        desc = 'Report line counts:\n\n  for f in src/*.py; do wc -l "$f"; done\n'
-        self.assert_silent(_workflow(_stage(desc)))
-
-    def test_static_heredoc_body_is_silent(self) -> None:
-        # PR #433 review: _has_heredoc previously fired for every unquoted
-        # delimiter regardless of body content. The guard only fails to
-        # inspect a heredoc body that contains a substitution -- a purely
-        # literal body like this one is something the guard accepts outright.
-        desc = (
-            "Write the file:\n\n"
-            '  cat > "$TMPDIR/notes.txt" <<EOF\n'
-            "  literal\n"
-            "  EOF\n"
-        )
-        self.assert_silent(_workflow(_stage(desc)))
-
-    def test_unquoted_heredoc_with_backtick_substitution_fires(self) -> None:
-        # A backtick substitution in the body is just as unresolvable to the
-        # guard as $(...); the sad path for the static-body fix must still
-        # catch this shape.
-        desc = (
-            "Write the file:\n\n"
-            '  cat > "$TMPDIR/notes.txt" <<EOF\n'
-            "  `date`\n"
-            "  EOF\n"
-        )
-        hits = self.assert_fires(_workflow(_stage(desc)))
-        self.assertIn("heredoc", hits[0].message)
-
-    def test_python_for_loop_is_not_shell(self) -> None:
-        desc = "Inline:\n\n  python3 -I -S -c \"\n  for parser in PARSERS:\n      print(parser)\n  \"\n"
-        self.assert_silent(_workflow(_stage(desc)))
-
-    def test_fires_on_loop_preceded_by_setup_line_in_same_fence(self) -> None:
-        # Copilot PR #433 r4099834657: split_tokens discards newlines, so a
-        # loop head right after setup text in the same fenced block glued
-        # onto that text's last word instead of following a separator. The
-        # blank line here is only to survive the folded (`>`) YAML scalar
-        # this fixture format uses -- extract_shell_segments still returns
-        # the setup line and the loop as a single fence segment either way.
-        # The body removes a file (mutating), so this also stays a positive
-        # case under the guard-contract-aligned loop check.
-        desc = "```bash\necho setup\n\nfor p in items; do rm -f \"$p\"; done\n```\n"
-        hits = self.assert_fires(_workflow(_stage(desc)))
-        self.assertIn("loop", hits[0].message)
-
-    def test_fires_on_loop_with_sed_in_place(self) -> None:
-        # PR #433 review r4099834XXX: sed -i is a write per the guard's
-        # "Written" table but was absent from _MUTATING_COMMANDS, so a loop
-        # calling it passed shell-guard-refused even though the guard refuses it.
-        for command in (
-            'for p in files; do sed -i "s/a/b/" "$p"; done',
-            'for p in files; do sed --in-place "s/a/b/" "$p"; done',
-            'for p in files; do sed -ie "s/a/b/" "$p"; done',
-        ):
-            with self.subTest(command=command):
-                desc = f"Run:\n\n  {command}\n"
-                self.assertIn("loop", self.assert_fires(_workflow(_stage(desc)))[0].message)
-
-    def test_sed_without_in_place_in_loop_is_silent(self) -> None:
-        # sed -n (or any sed call without -i/--in-place) only reads: the
-        # guard's "Written" table blocks sed operands only with -i present.
-        desc = 'Read:\n\n  for p in files; do sed -n "1p" "$p"; done\n'
-        self.assert_silent(_workflow(_stage(desc)))
-
-    def test_later_commands_dash_i_flag_does_not_taint_earlier_sed(self) -> None:
-        # Unlinked triage findings linter_shell.py:586/601: _has_sed_in_place
-        # scanned every token after "sed" in the WHOLE loop body, not just
-        # tokens belonging to that invocation, so a LATER unrelated command's
-        # own -i-shaped flag (here, "grep -i" after the read-only sed) was
-        # wrongly attributed to the earlier sed call, firing a false
-        # shell-guard-refused on an otherwise safe read-only loop.
-        desc = 'Read:\n\n  for p in files; do sed -n "1p" "$p"; grep -i pattern "$p"; done\n'
-        self.assert_silent(_workflow(_stage(desc)))
-
-    def test_fires_on_loop_with_unsafe_patch(self) -> None:
-        # patch is refused by the guard unless --dry-run or -o FILE is given,
-        # because it writes the files named inside the diff.
-        desc = 'Run:\n\n  for p in diffs; do patch < "$p"; done\n'
-        self.assertIn("loop", self.assert_fires(_workflow(_stage(desc)))[0].message)
-
-    def test_patch_with_safe_flag_in_loop_is_silent(self) -> None:
-        for command in (
-            'for p in diffs; do patch --dry-run < "$p"; done',
-            'for p in diffs; do patch -o "$p.out" < "$p"; done',
-        ):
-            with self.subTest(command=command):
-                self.assert_silent(_workflow(_stage(f"Run:\n\n  {command}\n")))
-
-    def test_later_commands_safe_flag_does_not_exempt_earlier_unsafe_patch(self) -> None:
-        # Sad-path sibling for the same bounding fix, applied to patch: a
-        # LATER command's --dry-run-shaped token must not be misread as
-        # belonging to an earlier, unsafe patch invocation and wrongly
-        # exempt it.
-        desc = 'Run:\n\n  for p in diffs; do patch < "$p"; echo --dry-run; done\n'
-        self.assertIn("loop", self.assert_fires(_workflow(_stage(desc)))[0].message)
-
-    def test_fd_duplication_in_loop_is_silent(self) -> None:
-        # Unlinked triage finding linter_shell.py:125/633: _REDIRECT_RE matched
-        # file-descriptor duplication like `2>&1`, which the guard treats as
-        # non-writing (guard-contract.yaml "fd duplication is not a path" and
-        # "fd dup is not a path" -> allow), causing a false shell-guard-refused
-        # on an otherwise read-only loop.
-        desc = 'Report line counts:\n\n  for f in src/*.py; do wc -l "$f" 2>&1; done\n'
-        self.assert_silent(_workflow(_stage(desc)))
-
-    def test_bracket_string_comparison_in_loop_is_silent(self) -> None:
-        # Unlinked triage finding linter_shell.py:633: the redirect scanner
-        # flagged '>' anywhere in a loop body, including inside a
-        # `[[ "$f" > a ]]` shell string comparison, which the guard contract
-        # explicitly allows as read-only (guard-contract.yaml
-        # "[[ > ]] compares" -> allow).
-        desc = 'Compare names:\n\n  for f in src/*.py; do [[ "$f" > "a" ]] && echo "$f"; done\n'
-        self.assert_silent(_workflow(_stage(desc)))
-
-    def test_real_redirect_after_bracket_comparison_still_fires(self) -> None:
-        # Sad-path sibling: a genuine write redirect elsewhere in the same
-        # loop body must still fire even when a bracket comparison's bare '>'
-        # also appears in the body -- the bracket exemption must not swallow
-        # an unrelated real redirect.
-        desc = (
-            "Run:\n\n"
-            '  for f in src/*.py; do [[ "$f" > "a" ]] && echo "$f" > out.log; done\n'
-        )
-        self.assertIn("loop", self.assert_fires(_workflow(_stage(desc)))[0].message)
-
-    def test_quoted_redirect_char_as_argument_is_silent(self) -> None:
-        # Copilot PRRT_kwDOQr1kjM6mhoo2 (PR #433): split_tokens strips quotes
-        # via shlex, so a quoted ">" argument becomes an indistinguishable
-        # bare ">" token and was misread as a write redirect. The loop only
-        # echoes the character; it writes nothing.
-        desc = 'Report:\n\n  for f in files; do echo ">" "$f"; done\n'
-        self.assert_silent(_workflow(_stage(desc)))
-
-    def test_real_redirect_alongside_quoted_char_still_fires(self) -> None:
-        # Sad-path sibling: a genuine write redirect in the same body as a
-        # quoted ">" argument must still fire -- the quote-awareness fix must
-        # not blind the scan to a real redirect appearing elsewhere.
-        desc = 'Report:\n\n  for f in files; do echo ">" "$f" > out.log; done\n'
-        self.assertIn("loop", self.assert_fires(_workflow(_stage(desc)))[0].message)
-
-    def test_second_heredoc_with_identical_opener_text_still_inspected(self) -> None:
-        # Unlinked triage findings linter_shell.py:552/568: _has_heredoc's
-        # full_text.find(text) fallback anchors to the FIRST occurrence of
-        # matching opener text, so when two heredocs share an identical
-        # opener (same redirect target and delimiter) the second, dangerous
-        # one's own substitution-bearing body could be missed if the search
-        # ever resolved against the wrong occurrence. Fixed by anchoring the
-        # search with the segment's own source offset (ShellSegment.start)
-        # rather than a text search. Here the first heredoc's body is static
-        # (guard accepts it) and the second, textually-identical-opener
-        # heredoc's body substitutes (guard refuses it) -- the rule must
-        # still fire, driven by the second occurrence.
-        desc = (
-            "First write:\n\n"
-            '  cat > "out" <<EOF\n'
-            "  literal\n"
-            "  EOF\n\n"
-            "Second write:\n\n"
-            '  cat > "out" <<EOF\n'
-            "  $(date)\n"
-            "  EOF\n"
-        )
-        hits = self.assert_fires(_workflow(_stage(desc)))
-        self.assertIn("heredoc", hits[0].message)
-
-    def test_has_teeth(self) -> None:
-        self.assert_has_teeth(_workflow(_stage(_LOOP)))
-
-
-# ---------------------------------------------------------------------------
-# Shell-text extraction and serialisation
-# ---------------------------------------------------------------------------
-
-
-class TestExtractShellSegments(unittest.TestCase):
-    def _texts(self, description: str) -> list[str]:
-        return [s.text for s in extract_shell_segments(description)]
-
-    def test_command_lines_spans_and_fences(self) -> None:
-        desc = (
-            "Intro prose mentioning gh in the middle.\n"
-            "  ./bin/github pr view --pr 1\n"
-            "Then run `git status --short` and read `outputs/x.json`.\n"
-            "```bash\nmake test\n```\n"
-            "```json\n{\"a\": 1}\n```\n"
-        )
-        texts = self._texts(desc)
-        self.assertIn("./bin/github pr view --pr 1", texts)
-        self.assertIn("git status --short", texts)
-        self.assertIn("make test", texts)
-        self.assertNotIn("outputs/x.json", texts)
-        self.assertFalse(any('"a"' in t for t in texts), msg="json fence is not shell")
-
-    def test_continuation_and_open_quote_pull_lines_in(self) -> None:
-        desc = "  HOST=$(./bin/workflow check-params m.json \\\n    --print ollama_host) || exit 1\n"
-        self.assertEqual(len(self._texts(desc)), 1)
-        self.assertIn("--print ollama_host", self._texts(desc)[0])
-
-    def test_weak_words_need_shell_context(self) -> None:
-        self.assertEqual(self._texts("  make sure the gate runs\n  test coverage matters\n"), [])
-        self.assertEqual(self._texts("  make -C src lint\n"), ["make -C src lint"])
-
-    def test_loop_head_needs_do_on_the_line(self) -> None:
-        # receipts-domain-build.yaml: Python's `for parser in PARSERS:` was
-        # read as shell before this; so was prose quoting `for R in $ROOTS`.
-        self.assertEqual(self._texts("  for parser in PARSERS:\n"), [])
-        self.assertEqual(self._texts("Note `for R in $ROOTS` splits.\n"), [])
-        self.assertEqual(self._texts("  for p in a b; do echo $p; done\n"), ["for p in a b; do echo $p; done"])
-
-    def test_prose_line_closing_a_paren_is_not_shell(self) -> None:
-        self.assertEqual(self._texts("  git add -A) and run /open-pr with a title\n"), [])
-
-    def test_fence_marker_alone_on_its_line_is_still_recognized(self) -> None:
-        # Happy path: a normal fence, unaffected by folded-scalar collapsing,
-        # still yields one fence segment with all its body lines intact.
-        desc = "```bash\necho setup\nfor p in items; do echo \"$p\"; done\n```\n"
-        segments = extract_shell_segments(desc)
-        fence_segments = [s for s in segments if s.origin == "fence"]
-        self.assertEqual(len(fence_segments), 1)
-        self.assertEqual(fence_segments[0].text, 'echo setup\nfor p in items; do echo "$p"; done')
-
-    def test_folded_scalar_collapses_fence_marker_onto_first_command(self) -> None:
-        # PR #433 review: most workflow stages use YAML folded scalars
-        # (`description: >`), which collapse a fence's opening marker line
-        # and its first command onto one line before this function ever
-        # sees them -- "```bash" + "echo setup" arrives as
-        # "```bash echo setup". The old _FENCE_RE required the marker alone
-        # on its line, so it missed that line entirely and the whole fenced
-        # block -- including the loop line -- was silently dropped as shell.
-        desc = '```bash echo setup\nfor p in items; do echo "$p"; done\n```\n'
-        segments = extract_shell_segments(desc)
-        fence_segments = [s for s in segments if s.origin == "fence"]
-        self.assertEqual(len(fence_segments), 1)
-        self.assertEqual(fence_segments[0].text, 'echo setup\nfor p in items; do echo "$p"; done')
-        # The collapsed first command must survive, not be discarded.
-        self.assertIn("echo setup", fence_segments[0].text)
-
-    def test_folded_scalar_collapses_unlabelled_fence_marker_onto_first_command(self) -> None:
-        # PR #433 review (follow-up): the fix above only covers a LABELLED
-        # fence folded onto one line ("```bash echo setup"). An UNLABELLED
-        # fence folded the same way ("``` echo setup") has no language tag,
-        # but the lang-tag group in _FENCE_OPEN_RE is greedy and captures
-        # "echo" as if it were one; _fence_is_shell then rejected it
-        # ("echo" not in _SHELL_FENCE_LANGS) and the whole block -- an
-        # unlabelled fence whose first line is a command, which the module's
-        # own contract says counts as shell -- was silently dropped.
-        desc = '``` echo setup\nfor p in items; do echo "$p"; done\n```\n'
-        segments = extract_shell_segments(desc)
-        fence_segments = [s for s in segments if s.origin == "fence"]
-        self.assertEqual(len(fence_segments), 1)
-        self.assertEqual(fence_segments[0].text, 'echo setup\nfor p in items; do echo "$p"; done')
-
-    def test_folded_scalar_collapsed_unlabelled_fence_with_prose_first_line_stays_silent(self) -> None:
-        # Sibling near-miss: when the collapsed first line is NOT a command
-        # (prose, not a recognised command word), the fence must still be
-        # rejected as non-shell -- the fix must not turn every unlabelled
-        # collapsed fence into shell regardless of content.
-        desc = "``` this is just prose\nmore prose\n```\n"
-        self.assertEqual(extract_shell_segments(desc), [])
-
-    def test_folded_python_fence_is_not_reclassified_as_unlabelled_shell(self) -> None:
-        # PR #433 review: a REAL language tag ("python") folded onto one
-        # line by a YAML folded scalar ("```python python3 -c ...") has the
-        # same shape, after folding, as the unlabelled-fence case above --
-        # an unrecognised tag with trailing text. Before this fix, both
-        # were handled identically: the fallback discarded the tag and
-        # treated "python python3 -c ..." as an unlabelled fence's first
-        # body line, and "python3" (a strong command in _STRONG_COMMANDS)
-        # made the fence lint as shell. A python-labelled fence is not a
-        # shell fence and must yield zero fence segments.
-        desc = '```python python3 -c "print(1)"\nmore_code = 2\n```\n'
-        segments = extract_shell_segments(desc)
-        fence_segments = [s for s in segments if s.origin == "fence"]
-        self.assertEqual(fence_segments, [])
-
-    def test_folded_unlabelled_fence_opening_with_python_is_shell(self) -> None:
-        # PR #433 review (shell_text.py:317): the space after the marker
-        # marks "python" as the body's first word, not a language tag.
-        desc = "``` python -c 'print(1)'\nmore_code\n```\n"
-        fence_segments = [s for s in extract_shell_segments(desc) if s.origin == "fence"]
-        self.assertEqual([s.text for s in fence_segments], ["python -c 'print(1)'\nmore_code"])
-
-    def test_spaced_shell_tag_with_trailing_text_stays_shell(self) -> None:
-        # "``` bash echo x" is shell whichever way the word is read.
-        desc = "``` bash echo x\n```\n"
-        self.assertEqual(len([s for s in extract_shell_segments(desc) if s.origin == "fence"]), 1)
-
-    def test_spaced_tag_alone_on_its_line_keeps_its_language(self) -> None:
-        # Nothing was folded onto "``` python", so the word is its tag.
-        self.assertEqual(extract_shell_segments("``` python\nprint(1)\n```\n"), [])
-
-    def test_assignment_and_if_lines_are_commands(self) -> None:
-        self.assertEqual(self._texts("  export FOO=1\n"), ["export FOO=1"])
-        self.assertEqual(self._texts("  if true; then echo ok; fi\n"), ["if true; then echo ok; fi"])
-        self.assertEqual(self._texts("  if the gate fails, stop\n"), [])
-
-    def test_quote_context_handles_nested_substitution(self) -> None:
-        text = 'X="$(jq -r \'.a\' "$F")" {k}'
-        ctx = quote_context(text)
-        self.assertEqual(ctx[text.index(".a")], "'")
-        self.assertEqual(ctx[text.index("{k}")], "")
-        self.assertEqual(ctx[text.index("$F")], '"')
-
-    def test_versioned_interpreter_is_a_command_line(self) -> None:
-        # Unlinked triage finding shell_text.py:209: only the exact names
-        # "python"/"python3", or a path ending in "/python3", were recognised
-        # -- a versioned interpreter like python3.11 was silently treated as
-        # prose and extracted no segment at all.
-        self.assertEqual(self._texts("  python3.11 tools/run_checks\n"), ["python3.11 tools/run_checks"])
-        self.assertEqual(
-            self._texts("  /usr/bin/python3.12 -c 'print(1)'\n"),
-            ["/usr/bin/python3.12 -c 'print(1)'"],
-        )
-
-    def test_unversioned_python_still_a_command_line(self) -> None:
-        # Happy-path sibling: the pre-existing exact-name/-path forms this
-        # function already handled must keep working after generalising to
-        # the regex-based versioned check.
-        self.assertEqual(self._texts("  python3 -c 'print(1)'\n"), ["python3 -c 'print(1)'"])
-        self.assertEqual(
-            self._texts("  /usr/bin/python3 -c 'print(1)'\n"), ["/usr/bin/python3 -c 'print(1)'"],
-        )
-
-    def test_heredoc_body_is_included_in_the_line_segment(self) -> None:
-        # Unlinked triage finding shell_text.py:305: _line_segments only ever
-        # emitted the heredoc OPENER line -- the opener itself has no
-        # unclosed quote or trailing backslash, so _can_continue stopped
-        # right after it and the body never became part of any segment's
-        # text. A caller-supplied placeholder substituted into an unquoted
-        # (shell-expanding) heredoc body must reach the same segment text a
-        # {param} scan inspects.
-        desc = "cat <<EOF\n{host}\nEOF\n"
-        segments = extract_shell_segments(desc)
-        self.assertEqual(len(segments), 1)
-        self.assertIn("{host}", segments[0].text)
-        self.assertEqual(segments[0].text, "cat <<EOF\n{host}\nEOF")
-
-    def test_quoted_heredoc_body_is_not_absorbed(self) -> None:
-        # Happy-path sibling: a quoted delimiter's body is inert (no shell
-        # expansion happens inside it at all), so absorbing it into the
-        # segment TEXT is unnecessary -- confirms the fix only widens the
-        # unquoted case's appended text, matching linter_shell.py's own
-        # quoted/unquoted heredoc distinction.
-        desc = "cat <<'EOF'\n{host}\nEOF\n"
-        segments = extract_shell_segments(desc)
-        self.assertEqual(len(segments), 1)
-        self.assertNotIn("{host}", segments[0].text)
-        self.assertEqual(segments[0].text, "cat <<'EOF'")
-
-    def test_quoted_heredoc_body_is_still_consumed_as_its_own_segment(self) -> None:
-        # PR #433 review: the quoted-delimiter branch used to return early
-        # without marking the body lines CONSUMED, so _line_segments revisited
-        # a command-looking body line as an INDEPENDENT segment of its own --
-        # even though the same body text is correctly excluded from the
-        # opener's segment text above. A quoted heredoc body must produce
-        # exactly one segment total (the opener), not two.
-        desc = "cat <<'EOF'\necho \"$UNBOUND\"\nEOF\n"
-        segments = extract_shell_segments(desc)
-        self.assertEqual(len(segments), 1, msg=segments)
-        self.assertEqual(segments[0].text, "cat <<'EOF'")
-
-
-class TestParseShell(unittest.TestCase):
-    """The shared simple-command model every rule reads."""
-
-    def _names(self, text: str) -> list[str]:
-        return [cmd.name for cmd in parse_shell(text).commands]
-
-    def test_command_word_follows_separators_keywords_and_wrappers(self) -> None:
-        cases = {
-            "a; b && c || d | e & f": ["a", "b", "c", "d", "e", "f"],
-            "if x; then y; elif z; then w; else v; fi": ["x", "y", "z", "w", "v"],
-            "while ! t; do { u; }; done": ["t", "u"],
-            "(cd src && make)": ["cd", "make"],
-            "FOO=1 BAR=2 env -u X BAZ=3 nice -n 5 timeout -s KILL 10 /bin/rm x": ["rm"],
-            "time -p sudo -u me xargs -I {} cp {} dst": ["cp"],
-            "echo rm python3 check-params": ["echo"],
-            "command -v rm": [""],
-        }
-        for text, names in cases.items():
-            with self.subTest(text=text):
-                self.assertEqual(self._names(text), names)
-
-    def test_substitutions_are_parsed_as_commands(self) -> None:
-        # `date`'s output is the outer command's program word.
-        self.assertEqual(
-            self._names('X="$(jq -r .a f)" `date` <(sort f) "${Y:-z}"'),
-            ["`date`", "jq", "date", "sort"],
-        )
-
-    def test_heredoc_body_is_data_not_commands(self) -> None:
-        script = parse_shell("cat <<'EOF'\nrm -rf /\nFOO=1\nEOF\ncat <<EOF\n$(date)\nEOF\necho done")
-        self.assertEqual([cmd.name for cmd in script.commands], ["cat", "cat", "echo", "date"])
-        self.assertEqual([(d.quoted, d.body) for d in script.heredocs],
-                         [(True, "rm -rf /\nFOO=1\n"), (False, "$(date)\n")])
-
-    def test_loop_membership_and_bindings(self) -> None:
-        script = parse_shell('for f in a; do rm "$f"; done; mv a b\nwhile read -r L; do :; done')
-        self.assertEqual([(c.name, c.in_loop) for c in script.commands],
-                         [("rm", True), ("mv", False), ("read", False), (":", True)])
-        self.assertEqual(script.loop_variables, ("f",))
-
-    def test_redirect_classification(self) -> None:
-        cmd = parse_shell('x 2>&1 >&- < in 3<>rw > "o" >> a &> b <<< s').commands[0]
-        self.assertEqual([(r.op, r.writes) for r in cmd.redirects], [
-            (">&", False), (">&", False), ("<", False), ("<>", True), (">", True),
-            (">>", True), ("&>", True), ("<<<", False),
-        ])
-        test = parse_shell('[[ "$a" > b ]] && [[ -n x ]]').commands
-        self.assertEqual(test, ())
-
-    def test_labelled_assignment_is_extracted_outside_segments_only(self) -> None:
-        desc = "Bash tool: F=\"x\"\n```bash\nNote: G=1\n```\ncat <<'EOF'\nLabel: H=1\nEOF\n"
-        self.assertEqual([s.text for s in extract_labelled_assignments(desc)], ['F="x"'])
-
-
-class TestRuleSerialisation(unittest.TestCase):
-    def test_rule_id_is_serialised(self) -> None:
-        result = _lint(_workflow(_stage(_BARE_PYTHON)))
-        warnings = cast(list[dict[str, str]], result.as_dict()["warnings"])
-        self.assertEqual([w["rule"] for w in warnings], [RULE_PYTHON_NOT_ISOLATED])
-
-    def test_unnamed_warning_serialises_empty_rule(self) -> None:
-        w = LintWarning(stage="s", field="f", message="m")
-        self.assertEqual(w.rule, "")
 
 
 if __name__ == "__main__":
