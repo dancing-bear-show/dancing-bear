@@ -521,42 +521,17 @@ def _cmd_count_sweep(args: argparse.Namespace) -> int:
     return 0
 
 
-def _merge_list_field(a: dict, b: dict, key: str) -> list:
-    """Return the union of two dicts' list fields, deduplicated where possible.
-
-    String lists (files_changed, missing_results, etc.) are deduplicated by
-    value.  Object lists (results, key_mismatches) are concatenated without
-    deduplication because dicts are not hashable.
-    """
-    a_list = list(a.get(key) or [])
-    b_list = list(b.get(key) or [])
-    if not a_list and not b_list:
-        return []
-    sample = (a_list or b_list)[0]
-    if isinstance(sample, str):
-        seen: dict[str, None] = {}
-        for item in a_list:
-            seen[item] = None
-        for item in b_list:
-            seen[item] = None
-        return list(seen.keys())
-    # Non-hashable items (dicts, lists): preserve both, append b after a.
-    return a_list + b_list
+def _union_str_list(a: list[str], b: list[str]) -> list[str]:
+    """Union two string lists, deduplicated, order-preserving (a first)."""
+    seen: dict[str, None] = {}
+    for item in a:
+        seen[item] = None
+    for item in b:
+        seen[item] = None
+    return list(seen.keys())
 
 
-_MERGE_LIST_FIELDS = [
-    "files_changed",
-    "results",
-    "missing_results",
-    "failed_tests",
-    "key_mismatches",
-    "out_of_scope_requests",
-    "out_of_scope_paths",
-    "rejected_tests_added",
-]
-
-
-def _load_fix_results_json(path: str, label: str) -> dict | None:
+def _load_fix_results_json(path: str, label: str) -> dict[str, object] | None:
     """Read a fix-results JSON file; return None and print to stderr on error."""
     p = Path(path)
     if not p.is_file():
@@ -577,34 +552,137 @@ def _load_fix_results_json(path: str, label: str) -> dict | None:
     return data
 
 
-def _merge_tests_by_result(fr: dict, rr: dict) -> dict:
-    """Merge tests_by_result dicts; refix values win on collision."""
-    fr_tbr = fr.get("tests_by_result") or {}
-    rr_tbr = rr.get("tests_by_result") or {}
-    if isinstance(fr_tbr, dict) and isinstance(rr_tbr, dict):
-        return {**fr_tbr, **rr_tbr}
-    return fr_tbr or rr_tbr  # type: ignore[return-value]
+def _require_str_list(doc: dict[str, object], key: str, label: str) -> list[str]:
+    """Return doc[key] as a list[str], or raise ValueError on wrong shape."""
+    val = doc.get(key) or []
+    if not isinstance(val, list):
+        raise ValueError(f"{label}: '{key}' must be a list, got {type(val).__name__}")
+    for i, item in enumerate(val):
+        if not isinstance(item, str):
+            raise ValueError(f"{label}: '{key}[{i}]' must be str, got {type(item).__name__}")
+    return list(val)
 
 
-def _merge_by_action(fr: dict, rr: dict) -> dict:
-    """Sum by_action counts key-by-key across both inputs."""
-    fr_ba = fr.get("by_action") or {}
-    rr_ba = rr.get("by_action") or {}
-    if isinstance(fr_ba, dict) and isinstance(rr_ba, dict):
-        all_keys = set(fr_ba) | set(rr_ba)
-        return {k: (fr_ba.get(k) or 0) + (rr_ba.get(k) or 0) for k in all_keys}
-    return fr_ba or rr_ba  # type: ignore[return-value]
+def _require_dict_of_str_lists(
+    doc: dict[str, object], key: str, label: str
+) -> dict[str, list[str]]:
+    """Return doc[key] as dict[str, list[str]], or raise ValueError on wrong shape."""
+    val = doc.get(key) or {}
+    if not isinstance(val, dict):
+        raise ValueError(f"{label}: '{key}' must be a dict, got {type(val).__name__}")
+    out: dict[str, list[str]] = {}
+    for k, v in val.items():
+        if not isinstance(v, list):
+            raise ValueError(f"{label}: '{key}[{k}]' must be a list, got {type(v).__name__}")
+        for i, item in enumerate(v):
+            if not isinstance(item, str):
+                raise ValueError(
+                    f"{label}: '{key}[{k}][{i}]' must be str, got {type(item).__name__}"
+                )
+        out[k] = list(v)
+    return out
+
+
+def _require_list_of_dicts(
+    doc: dict[str, object], key: str, label: str
+) -> list[dict[str, object]]:
+    """Return doc[key] as a list of dicts, or raise ValueError on wrong shape."""
+    val = doc.get(key) or []
+    if not isinstance(val, list):
+        raise ValueError(f"{label}: '{key}' must be a list, got {type(val).__name__}")
+    for i, item in enumerate(val):
+        if not isinstance(item, dict):
+            raise ValueError(f"{label}: '{key}[{i}]' must be a dict, got {type(item).__name__}")
+    return list(val)
+
+
+def _merge_results_by_id(
+    fr_results: list[dict[str, object]], rr_results: list[dict[str, object]]
+) -> list[dict[str, object]]:
+    """Merge two results lists; refix entry supersedes the original for same id.
+
+    Order: original entries first (replaced in place when refix has same id),
+    then any refix-only entries not present in the original.
+    """
+    seen: dict[str, dict[str, object]] = {}
+    for r in fr_results:
+        rid = str(r.get("id", ""))
+        seen[rid] = r
+    for r in rr_results:
+        rid = str(r.get("id", ""))
+        seen[rid] = r  # refix supersedes
+    return list(seen.values())
+
+
+def _merge_dicts_by_id(
+    fr_list: list[dict[str, object]], rr_list: list[dict[str, object]]
+) -> list[dict[str, object]]:
+    """Merge two lists of id-keyed dicts; rr entry supersedes fr on collision."""
+    seen: dict[str, dict[str, object]] = {}
+    for item in fr_list:
+        iid = str(item.get("id", ""))
+        seen[iid] = item
+    for item in rr_list:
+        iid = str(item.get("id", ""))
+        seen[iid] = item
+    return list(seen.values())
+
+
+def _merge_tests_by_result(
+    fr_tbr: dict[str, list[str]], rr_tbr: dict[str, list[str]]
+) -> dict[str, list[str]]:
+    """Union tests_by_result per key; dedup within each key's list."""
+    merged: dict[str, list[str]] = {}
+    all_keys = list(fr_tbr.keys()) + [k for k in rr_tbr if k not in fr_tbr]
+    for k in all_keys:
+        merged[k] = _union_str_list(fr_tbr.get(k) or [], rr_tbr.get(k) or [])
+    return merged
+
+
+_KNOWN_ACTIONS = ("fixed", "rejected", "moot", "deferred")
+
+
+def _recompute_by_action(results: list[dict[str, object]]) -> dict[str, int]:
+    """Derive by_action from the merged results list to avoid double-counting.
+
+    A refixed thread appears in both inputs with the same id; superseding it
+    in results (rather than summing) ensures the action count is correct.
+    """
+    by_action: dict[str, int] = dict.fromkeys(_KNOWN_ACTIONS, 0)
+    for result in results:
+        action = str(result.get("action", ""))
+        by_action[action] = by_action.get(action, 0) + 1
+    return by_action
+
+
+def _merge_missing_results(
+    fr_missing: list[str],
+    rr_missing: list[str],
+    rr_results: list[dict[str, object]],
+) -> list[str]:
+    """Union missing_results, then drop any id that refix resolved.
+
+    An id that refix produced a result for (any action) is no longer missing —
+    the fixer ran and produced an outcome, even if that outcome was "rejected".
+    """
+    merged = _union_str_list(fr_missing, rr_missing)
+    rr_ids = {str(r.get("id", "")) for r in rr_results}
+    return [mid for mid in merged if mid not in rr_ids]
 
 
 def _cmd_merge_fix_results(args: argparse.Namespace) -> int:
     """Merge fix-results.json and refix-results.json into a single file.
 
-    All list fields are unioned (deduplicated, order-preserving). The
-    ``by_action`` dict is summed key-by-key. Every field present in either
-    input is carried to the output.
+    Merging rules:
+    - files_changed, out_of_scope_paths, out_of_scope_requests: unioned strings
+    - results, failed_tests, key_mismatches: supersede by id (refix wins)
+    - tests_by_result: union lists per key (dedup, order-preserving)
+    - missing_results: union then drop ids refix resolved
+    - by_action: recomputed from merged results (no double-count)
+    - rejected_tests_added: concatenated (different ids, no dedup needed)
 
-    Exit 0 on success. Exit 1 if either input file is missing or not a JSON
-    object.
+    Exit 0 on success, 1 if a file is missing or not a JSON object,
+    2 if the tests_by_result field has an unexpected shape.
     """
     from core.fileutil import atomic_write_json
 
@@ -613,14 +691,49 @@ def _cmd_merge_fix_results(args: argparse.Namespace) -> int:
     if fr is None or rr is None:
         return 1
 
-    merged: dict = dict(fr)
-    for field in _MERGE_LIST_FIELDS:
-        merged[field] = _merge_list_field(fr, rr, field)
-    merged["tests_by_result"] = _merge_tests_by_result(fr, rr)
-    merged["by_action"] = _merge_by_action(fr, rr)
+    try:
+        fr_results = _require_list_of_dicts(fr, "results", "fix-results")
+        rr_results = _require_list_of_dicts(rr, "results", "refix-results")
+        fr_tbr = _require_dict_of_str_lists(fr, "tests_by_result", "fix-results")
+        rr_tbr = _require_dict_of_str_lists(rr, "tests_by_result", "refix-results")
+        fr_missing = _require_str_list(fr, "missing_results", "fix-results")
+        rr_missing = _require_str_list(rr, "missing_results", "refix-results")
+        fr_failed = _require_list_of_dicts(fr, "failed_tests", "fix-results")
+        rr_failed = _require_list_of_dicts(rr, "failed_tests", "refix-results")
+        fr_mismatches = _require_list_of_dicts(fr, "key_mismatches", "fix-results")
+        rr_mismatches = _require_list_of_dicts(rr, "key_mismatches", "refix-results")
+    except ValueError as exc:
+        print(f"merge-fix-results: {exc}", file=sys.stderr)
+        return 2
+
+    merged_results = _merge_results_by_id(fr_results, rr_results)
+    merged_files = _union_str_list(
+        _require_str_list(fr, "files_changed", "fix-results"),
+        _require_str_list(rr, "files_changed", "refix-results"),
+    )
+
+    merged: dict[str, object] = dict(fr)
+    merged["results"] = merged_results
+    merged["files_changed"] = merged_files
+    merged["tests_by_result"] = _merge_tests_by_result(fr_tbr, rr_tbr)
+    merged["missing_results"] = _merge_missing_results(fr_missing, rr_missing, rr_results)
+    merged["failed_tests"] = _merge_dicts_by_id(fr_failed, rr_failed)
+    merged["key_mismatches"] = _merge_dicts_by_id(fr_mismatches, rr_mismatches)
+    merged["by_action"] = _recompute_by_action(merged_results)
+    merged["out_of_scope_requests"] = _union_str_list(
+        _require_str_list(fr, "out_of_scope_requests", "fix-results"),
+        _require_str_list(rr, "out_of_scope_requests", "refix-results"),
+    )
+    merged["out_of_scope_paths"] = _union_str_list(
+        _require_str_list(fr, "out_of_scope_paths", "fix-results"),
+        _require_str_list(rr, "out_of_scope_paths", "refix-results"),
+    )
+    merged["rejected_tests_added"] = (
+        _require_list_of_dicts(fr, "rejected_tests_added", "fix-results")
+        + _require_list_of_dicts(rr, "rejected_tests_added", "refix-results")
+    )
+    merged["total_results"] = len(merged_results)
 
     atomic_write_json(args.out, merged)
-    fc = len(merged.get("files_changed") or [])
-    results = len(merged.get("results") or [])
-    print(f"merge-fix-results: files_changed={fc} results={results}")
+    print(f"merge-fix-results: files_changed={len(merged_files)} results={len(merged_results)}")
     return 0

@@ -766,43 +766,16 @@ class TestSweepFixRegressions(unittest.TestCase):
             f"fix-regressions.md not in selected guides for review-fix: {guide_names}",
         )
 
-    # --- merge-fix-results CLI: execution and schema ---
+    # --- merge-fix-results CLI: execution and correctness ---
 
-    def test_merge_fix_results_command_executes(self) -> None:
-        """merge-fix-results runs without error and produces a merged JSON file."""
+    def _run_merge(self, fr: dict, rr: dict) -> tuple[int, dict | None, str]:
+        """Run merge-fix-results CLI; return (rc, merged_dict_or_None, stderr)."""
         with tempfile.TemporaryDirectory() as td:
             fr_path = Path(td) / "fix-results.json"
             rr_path = Path(td) / "refix-results.json"
-            out_path = Path(td) / "fix-results-merged.json"
-            fr_path.write_text(json.dumps({
-                "files_changed": ["src/core/foo.py"],
-                "results": [{"id": "r1", "action": "fixed"}],
-                "missing_results": [],
-                "failed_tests": [],
-                "key_mismatches": [],
-                "out_of_scope_requests": [],
-                "out_of_scope_paths": [],
-                "rejected_tests_added": [],
-                "tests_by_result": {"r1": ["tests/core_tests/test_foo.py"]},
-                "by_action": {"fixed": 1, "rejected": 0},
-                "total_expected": 1,
-                "total_results": 1,
-            }), encoding="utf-8")
-            rr_path.write_text(json.dumps({
-                "files_changed": ["src/core/bar.py"],
-                "results": [{"id": "r2", "action": "fixed"}],
-                "missing_results": [],
-                "failed_tests": [],
-                "key_mismatches": [],
-                "out_of_scope_requests": [],
-                "out_of_scope_paths": [],
-                "rejected_tests_added": [],
-                "tests_by_result": {"r2": ["tests/core_tests/test_bar.py"]},
-                "by_action": {"fixed": 1, "rejected": 0},
-                "total_expected": 1,
-                "total_results": 1,
-            }), encoding="utf-8")
-
+            out_path = Path(td) / "merged.json"
+            fr_path.write_text(json.dumps(fr), encoding="utf-8")
+            rr_path.write_text(json.dumps(rr), encoding="utf-8")
             result = subprocess.run(  # nosec B603 - fixed argv invoking the repo's own CLI
                 [
                     "./bin/workflow",
@@ -815,21 +788,119 @@ class TestSweepFixRegressions(unittest.TestCase):
                 text=True,
                 cwd=str(_ROOT),
             )
-            self.assertEqual(
-                result.returncode,
-                0,
-                f"merge-fix-results failed: {result.stderr}",
-            )
-            self.assertTrue(out_path.is_file(), "merged file was not written")
-            merged = json.loads(out_path.read_text(encoding="utf-8"))
-            # files_changed must be the union of both inputs
-            self.assertIn("src/core/foo.py", merged["files_changed"])
-            self.assertIn("src/core/bar.py", merged["files_changed"])
-            # tests_by_result must carry both result IDs
-            self.assertIn("r1", merged["tests_by_result"])
-            self.assertIn("r2", merged["tests_by_result"])
-            # by_action must be summed: fixed=2
-            self.assertEqual(merged["by_action"]["fixed"], 2)
+            merged = None
+            if out_path.is_file():
+                merged = json.loads(out_path.read_text(encoding="utf-8"))
+            return result.returncode, merged, result.stderr
+
+    def _base_fr(self, **kwargs) -> dict:  # type: ignore[no-untyped-def]
+        base = {
+            "files_changed": [],
+            "results": [],
+            "missing_results": [],
+            "failed_tests": [],
+            "key_mismatches": [],
+            "out_of_scope_requests": [],
+            "out_of_scope_paths": [],
+            "rejected_tests_added": [],
+            "tests_by_result": {},
+            "by_action": {"fixed": 0, "rejected": 0},
+            "total_expected": 0,
+            "total_results": 0,
+        }
+        base.update(kwargs)
+        return base
+
+    def test_merge_fix_results_tests_by_result_unions_lists_per_key(self) -> None:
+        """Regression: {**fr_tbr, **rr_tbr} silently lost t1 when the same key
+        exists in both files.  Union per key must preserve all entries."""
+        fr = self._base_fr(
+            results=[{"id": "x", "action": "fixed"}, {"id": "y", "action": "fixed"}],
+            tests_by_result={"pass": ["t1"]},
+            by_action={"fixed": 2},
+            files_changed=["a.py", "b.py"],
+        )
+        rr = self._base_fr(
+            results=[{"id": "y", "action": "fixed"}],
+            tests_by_result={"pass": ["t2"]},
+            by_action={"fixed": 1},
+            files_changed=["b.py", "c.py"],
+        )
+        rc, merged, stderr = self._run_merge(fr, rr)
+        self.assertEqual(rc, 0, f"merge failed: {stderr}")
+        assert merged is not None  # nosec B101 - narrows Optional for mypy
+        self.assertIn("t1", merged["tests_by_result"]["pass"], "t1 was lost")
+        self.assertIn("t2", merged["tests_by_result"]["pass"], "t2 was lost")
+
+    def test_merge_fix_results_same_id_result_superseded(self) -> None:
+        """A refixed thread (same id in both files) must appear exactly once;
+        the refix entry wins."""
+        fr = self._base_fr(
+            results=[{"id": "shared", "action": "fixed", "source": "original"}],
+        )
+        rr = self._base_fr(
+            results=[{"id": "shared", "action": "fixed", "source": "refix"}],
+        )
+        rc, merged, stderr = self._run_merge(fr, rr)
+        self.assertEqual(rc, 0, f"merge failed: {stderr}")
+        assert merged is not None  # nosec B101 - narrows Optional for mypy
+        results_for_shared = [r for r in merged["results"] if r["id"] == "shared"]
+        self.assertEqual(len(results_for_shared), 1, "same-id appears more than once")
+        self.assertEqual(results_for_shared[0]["source"], "refix", "refix did not supersede")
+
+    def test_merge_fix_results_by_action_recomputed_not_summed(self) -> None:
+        """by_action must be derived from merged results, not summed.
+        2 threads, one refixed: by_action.fixed must be 2, not 3."""
+        fr = self._base_fr(
+            results=[{"id": "x", "action": "fixed"}, {"id": "y", "action": "fixed"}],
+            by_action={"fixed": 2},
+        )
+        rr = self._base_fr(
+            results=[{"id": "y", "action": "fixed"}],  # refix of y
+            by_action={"fixed": 1},
+        )
+        rc, merged, stderr = self._run_merge(fr, rr)
+        self.assertEqual(rc, 0, f"merge failed: {stderr}")
+        assert merged is not None  # nosec B101 - narrows Optional for mypy
+        self.assertEqual(merged["by_action"]["fixed"], 2,
+                         "double-counted: summing gave 3 for 2 threads")
+
+    def test_merge_fix_results_malformed_tests_by_result_exits_nonzero(self) -> None:
+        """A non-dict tests_by_result must exit non-zero (2), not silently pass it through."""
+        fr = self._base_fr(tests_by_result={"r1": "not-a-list"})
+        rr = self._base_fr()
+        rc, _merged, stderr = self._run_merge(fr, rr)
+        self.assertNotEqual(rc, 0, "malformed tests_by_result did not cause an error exit")
+        self.assertIn("tests_by_result", stderr, "error message must name the field")
+
+    def test_merge_fix_results_command_executes(self) -> None:
+        """merge-fix-results runs without error and produces a merged JSON file."""
+        fr = self._base_fr(
+            files_changed=["src/core/foo.py"],
+            results=[{"id": "r1", "action": "fixed"}],
+            tests_by_result={"r1": ["tests/core_tests/test_foo.py"]},
+            by_action={"fixed": 1},
+            total_expected=1,
+            total_results=1,
+        )
+        rr = self._base_fr(
+            files_changed=["src/core/bar.py"],
+            results=[{"id": "r2", "action": "fixed"}],
+            tests_by_result={"r2": ["tests/core_tests/test_bar.py"]},
+            by_action={"fixed": 1},
+            total_expected=1,
+            total_results=1,
+        )
+        rc, merged, stderr = self._run_merge(fr, rr)
+        self.assertEqual(rc, 0, f"merge-fix-results failed: {stderr}")
+        self.assertIsNotNone(merged)
+        assert merged is not None  # nosec B101 - narrows Optional for mypy
+        self.assertIn("src/core/foo.py", merged["files_changed"])
+        self.assertIn("src/core/bar.py", merged["files_changed"])
+        self.assertIn("r1", merged["tests_by_result"])
+        self.assertIn("r2", merged["tests_by_result"])
+        # by_action derived from merged results: 2 distinct threads, both fixed
+        self.assertEqual(merged["by_action"]["fixed"], 2)
 
     def test_merge_fix_results_carries_all_fields(self) -> None:
         """Merged file must carry the fields downstream readers need."""
