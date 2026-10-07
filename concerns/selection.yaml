@@ -188,6 +188,11 @@ task_type_rules:
     - workflow-fanout.md
     - workflow-fragments.md
     - patterns.md
+  review-fix:
+    - fix-regressions.md
+    - collateral-damage.md
+    - correctness.md
+    - tests.md
 
 # Default guides when no paths and no task_type are given.
 default_guides:

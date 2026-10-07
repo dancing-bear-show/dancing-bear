@@ -37,7 +37,7 @@ metadata:
 trigger:
   source: manual
   params:
-    task_type: ""      # "feature" | "test" | "refactor" | "docs" | "security" | "workflow" — hint for guide selection
+    task_type: ""      # "feature" | "test" | "refactor" | "docs" | "security" | "workflow" | "review-fix" — hint for guide selection
     file_paths: ""     # space or comma-separated list of files being changed (extensions drive guide selection)
     max_concerns: "20" # max concerns to include in the hint sheet (default 20, sorted critical-first)
   # Enforced by the engine in compile_workflow, BEFORE any {param} is
@@ -49,7 +49,7 @@ trigger:
   # brace, or newline. select-guides repeats these rules with check-params as
   # defence in depth, so keep the two copies identical.
   param_rules:
-    task_type: '(feature|test|security|docs|refactor|workflow)?'
+    task_type: '(feature|test|security|docs|refactor|workflow|review-fix)?'
     file_paths: '[A-Za-z0-9_./@+~, -]*'
     max_concerns: '[1-9][0-9]{0,2}'
 
@@ -71,7 +71,7 @@ stages:
       engine already enforced trigger.param_rules at compile time). The
       values are read from the engine-written manifest as data, never from
       this prompt:
-        ./bin/workflow check-params "{workspace}/manifest.json" --check 'task_type=(feature|test|security|docs|refactor|workflow)?' --check 'file_paths=[A-Za-z0-9_./@+~, -]*' --check 'max_concerns=[1-9][0-9]{0,2}'
+        ./bin/workflow check-params "{workspace}/manifest.json" --check 'task_type=(feature|test|security|docs|refactor|workflow|review-fix)?' --check 'file_paths=[A-Za-z0-9_./@+~, -]*' --check 'max_concerns=[1-9][0-9]{0,2}'
       A non-zero exit fails this stage: relay the stderr lines and stop.
 
       Step 2 — write the paths file. The caller-supplied file list is DATA,

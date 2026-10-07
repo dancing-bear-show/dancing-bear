@@ -598,5 +598,138 @@ class TestUnlinkedFindingTriageAndDispatchRules(unittest.TestCase):
         )
 
 
+class TestSweepFixRegressions(unittest.TestCase):
+    """Regression sweep stage is present, correctly ordered, and wired properly.
+
+    The nine regression patterns from the 2026-10-06 session (PRs #437/#448/
+    #452/#454/#455/#456) are all covered by concerns/fix-regressions.md, which
+    the stage selects via --task-type review-fix.
+    """
+
+    def setUp(self) -> None:
+        self.prompts = _prompts()
+        self.stages = list(self.prompts.keys())
+
+    # --- Stage existence and ordering ---
+
+    def test_sweep_stage_exists(self) -> None:
+        self.assertIn("sweep-fix-regressions", self.stages)
+
+    def test_sweep_is_after_fix_aggregate(self) -> None:
+        agg_idx = self.stages.index("fix-aggregate")
+        sweep_idx = self.stages.index("sweep-fix-regressions")
+        self.assertGreater(sweep_idx, agg_idx)
+
+    def test_sweep_is_before_commit_and_push(self) -> None:
+        sweep_idx = self.stages.index("sweep-fix-regressions")
+        commit_idx = self.stages.index("commit-and-push")
+        self.assertLess(sweep_idx, commit_idx)
+
+    # --- Prompt content ---
+
+    def test_sweep_prompt_calls_select_concerns_with_review_fix_task_type(self) -> None:
+        prompt = _flat(self.prompts["sweep-fix-regressions"])
+        self.assertIn("--task-type review-fix", prompt)
+
+    def test_sweep_prompt_uses_paths_file_not_inline_paths(self) -> None:
+        """Paths passed in shell text split on spaces (CLAUDE.md).
+        The stage must use --paths-file."""
+        prompt = _flat(self.prompts["sweep-fix-regressions"])
+        self.assertIn("--paths-file", prompt)
+
+    def test_sweep_prompt_names_blocking_findings_halt_commit(self) -> None:
+        prompt = _flat(self.prompts["sweep-fix-regressions"])
+        self.assertIn("blocking", prompt)
+        # The stage must document that blocking findings stop the push.
+        self.assertTrue(
+            "halt commit" in prompt.lower()
+            or "commit-and-push" in prompt.lower()
+        )
+
+    def test_sweep_prompt_exits_nonzero_on_unresolved_blocking_findings(self) -> None:
+        prompt = _flat(self.prompts["sweep-fix-regressions"])
+        self.assertIn("exit non-zero", prompt)
+
+    def test_sweep_prompt_names_unbacked_verification_check(self) -> None:
+        """Regression 6: verify test_output_tail contains 'Ran N tests'."""
+        prompt = _flat(self.prompts["sweep-fix-regressions"])
+        self.assertIn("test_output_tail", prompt)
+        self.assertIn("Ran N tests", prompt)
+
+    def test_sweep_prompt_names_gate_suppressions_check(self) -> None:
+        """Regression 7: type: ignore is forbidden by CLAUDE.md."""
+        prompt = _flat(self.prompts["sweep-fix-regressions"])
+        self.assertIn("# type: ignore", prompt)
+
+    def test_sweep_prompt_names_rename_schema_drift_check(self) -> None:
+        """Regression 8: renamed field must be updated everywhere."""
+        prompt = _flat(self.prompts["sweep-fix-regressions"])
+        self.assertIn("rename-schema-drift", prompt)
+
+    def test_sweep_prompt_is_read_only_no_edit(self) -> None:
+        """The sweep stage must not edit source files."""
+        prompt = _flat(self.prompts["sweep-fix-regressions"])
+        self.assertIn("MUST NOT edit", prompt)
+
+    def test_sweep_prompt_names_retry_bound(self) -> None:
+        """Remediation path: at most one retry per finding."""
+        prompt = _flat(self.prompts["sweep-fix-regressions"])
+        self.assertTrue(
+            "bounded" in prompt.lower() or "at most one" in prompt.lower(),
+            "Expected bounded retry language in sweep prompt",
+        )
+
+    def test_sweep_prompt_writes_findings_json(self) -> None:
+        prompt = _flat(self.prompts["sweep-fix-regressions"])
+        self.assertIn("sweep-findings.json", prompt)
+
+    # --- selection.yaml wiring ---
+
+    def test_selection_yaml_maps_review_fix_task_type_to_fix_regressions_guide(
+        self,
+    ) -> None:
+        """Run the real select-concerns binary; do not string-match the YAML."""
+        import subprocess
+        import json
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+            f.write("src/foo.py\n")
+            paths_file = f.name
+
+        result = subprocess.run(  # nosec B603 - fixed argv invoking the repo's own CLI
+            [
+                "./bin/workflow",
+                "select-concerns",
+                "--paths-file",
+                paths_file,
+                "--task-type",
+                "review-fix",
+                "--format",
+                "json",
+            ],
+            capture_output=True,
+            text=True,
+            cwd=str(_ROOT),
+        )
+        self.assertEqual(
+            result.returncode,
+            0,
+            f"select-concerns failed: {result.stderr}",
+        )
+        data = json.loads(result.stdout)
+        # Output is {"guides": [...]} — the guides key holds the list.
+        if isinstance(data, dict):
+            raw = data.get("guides") or data.get("selected") or []
+            guide_names: list[object] = raw if isinstance(raw, list) else []
+        else:
+            guide_names = list(data) if data else []
+        self.assertIn(
+            "fix-regressions.md",
+            guide_names,
+            f"fix-regressions.md not in selected guides for review-fix: {guide_names}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
