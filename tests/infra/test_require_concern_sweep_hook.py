@@ -59,14 +59,11 @@ HEAD_CREATES = [
     "ls\ngh pr create",
     "x#; gh pr create",
     "gh \\\npr create",
-    "echo `gh pr create`",
-    "echo $(gh pr create)",
     "{ gh pr create; }",
     "bash -c 'gh pr create'",
     "bash -O extglob -c 'gh pr create'",
     "bash -O extglob -O errexit -c 'gh pr create'",
     "sh -lc \"git push && gh pr create\"",
-    "eval gh pr create",
     "./bin/github pr create --base main --body-file b.md",
     "bin/github pr create --base main --body-file b.md",
     "python3 -m github_assistant pr create --base main --body-file b.md",
@@ -116,6 +113,12 @@ NOT_CREATES = [
     "ls *.py",
     "gh api repos/o/r/issues/$N/comments",
     "echo $'\\x70r'",
+    # Substitutions and here-docs whose bodies open no PR, comments, a literal query.
+    "gh pr view $(git branch --show-current)",
+    "git log $(git merge-base main HEAD)..HEAD",
+    "cat <<'EOF'\n$(gh pr create)\nEOF",
+    "# gh pr create",
+    "gh api graphql -f query='query($o: String!) { repository(owner: $o, name: \"r\") { id } }' -f o=x",
 ]
 
 #: Cannot be checked before the shell runs; blocked even with a HEAD record.
@@ -157,6 +160,52 @@ UNVERIFIABLE = [
     "if a; then if b; then :; fi; cd sub; fi; gh pr create",
     "for x in 1; do while false; do cd sub; done; done; gh pr create",
     "if false; then :; else for x in 1; do cd sub; done; fi; gh pr create",
+    # Forms the hook refuses rather than models (PR #454 review: fail closed on
+    # anything not fully modelled). Command substitution whose body opens a PR:
+    'URL="$(gh pr create)"',
+    'URL="`gh pr create`"',
+    "x=$(gh pr create)",
+    "echo $(gh pr create)",
+    "echo `gh pr create`",
+    'echo "$(echo "$(gh pr create)")"',
+    'gh pr view "$(gh pr create)"',
+    "cat <(gh pr create)",
+    "cat <<EOF\n$(gh pr create)\nEOF",
+    # eval: refused whenever PR words appear, and always with run-time text.
+    "eval gh pr create",
+    'eval "$X"',
+    "eval $X",
+    # env options that split a string into a command or change directory.
+    "env -S 'gh pr create'",
+    "env -S'gh pr create'",
+    "env --split-string='gh pr create'",
+    "env --split-string 'gh pr create'",
+    "env -C sub gh pr create",
+    # A shell whose script is built at run time, or read from stdin.
+    "CMD='gh pr create'; bash -c \"$CMD\"",
+    'zsh -c "$C"',
+    'sh -c "cd $D && gh pr create"',
+    "printf 'gh pr create' | bash",
+    # A program word built at run time.
+    "CMD='gh pr create'; $CMD",
+    "$(printf gh) pr create",
+    # A PR entry run by something other than a modelled wrapper.
+    "xargs gh pr create",
+    "find . -exec gh pr create \\;",
+    "sudo gh pr create",
+    "echo gh pr create",
+    "xargs -I{} sh -c 'gh pr create'",
+    # Code the hook cannot read that can redefine commands or move the shell.
+    ". ./env.sh; gh pr create",
+    "source ./env.sh && gh pr create",
+    "f() { cd sub; }; gh pr create",
+    "alias gh=hub; gh pr create",
+    # GraphQL bodies the hook cannot read.
+    "gh api graphql --input query.json",
+    "gh api graphql --input -",
+    'gh api graphql -f query="$Q"',
+    "gh api graphql -F query=@q.graphql",
+    'gh api "$E" --input q.json',
 ]
 
 
@@ -364,6 +413,70 @@ class RequireConcernSweepHookTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertEqual(run_hook(command, self.repo).returncode, 0, command)
 
+    def test_quoted_operators_are_words_not_separators(self) -> None:
+        """PR #454 review: shlex flattened `--title ';'` into a real `;`, so the hook
+        checked HEAD instead of `--head other`. A HEAD record must not authorize it."""
+        self._record(self.head)  # only HEAD has a record, not `other`
+        for command in (
+            "gh pr create --title ';' --head other",
+            "gh pr create --title '&&' --head other",
+            'gh pr create --title "|" --head other',
+            "gh pr create --title '(' --head other",
+            "gh pr create --title \\; --head other",
+            "gh pr create --body 'a; cd sub' --head other",
+        ):
+            with self.subTest(command=command):
+                self.assertBlocked(run_hook(command, self.repo), self.other)
+        self._record(self.other)
+        self.assertEqual(run_hook("gh pr create --title ';' --head other", self.repo).returncode, 0)
+
+    def test_unmodelled_directory_changes_do_not_borrow_another_record(self) -> None:
+        """PR #454 review: `cd X extra` fails in bash, bare/stack `pushd` does not move to
+        X, an opener after `then`/`else` was not counted, and `eval 'cd X'` moved the
+        shell unseen. Each checked the worktree's record while gh ran in the repo."""
+        wt = self.root / "wt"
+        _git(self.repo, "worktree", "add", "-q", str(wt), "other")
+        self._record(self.other)  # only the worktree's HEAD has a record
+        for template in (
+            "cd {wt} extra; gh pr create",
+            "cd {wt} extra && gh pr create",
+            "pushd; gh pr create",
+            "pushd +1; gh pr create",
+            "pushd -n {wt}; gh pr create",
+            "if false; then for x in 1; do :; done; cd {wt}; fi; gh pr create",
+            "if false; then select x in a; do break; done; cd {wt}; fi; gh pr create",
+            "if false; then :; else case a in b) :;; esac; cd {wt}; fi; gh pr create",
+            "while false; do for x in 1; do :; done; cd {wt}; done; gh pr create",
+            "eval 'cd {wt}'; gh pr create",
+            "eval cd {wt} && gh pr create",
+            "env cd {wt}; gh pr create",
+        ):
+            command = template.format(wt=wt)
+            with self.subTest(command=command):
+                self.assertBlocked(run_hook(command, self.repo), "cannot")
+        # Modelled forms still follow the cd to the worktree's record.
+        for template in (
+            "cd -P {wt}; gh pr create",
+            "cd -- {wt} && gh pr create",
+            "cd {wt} 2>/dev/null && gh pr create",
+            "pushd {wt} && gh pr create",
+            "command cd {wt}; gh pr create",
+        ):
+            command = template.format(wt=wt)
+            with self.subTest(command=command):
+                self.assertEqual(run_hook(command, self.repo).returncode, 0, command)
+
+    def test_heredoc_body_is_not_parsed_as_commands(self) -> None:
+        """The usual `--body "$(cat <<'EOF' ... EOF)"` form stays checkable: the body's
+        apostrophes, punctuation and PR words are text, not commands."""
+        command = (
+            "gh pr create --title \"fix: x\" --body \"$(cat <<'EOF'\n"
+            "It's done; (see #1) & gh pr create --head other | x\nEOF\n)\""
+        )
+        self.assertBlocked(run_hook(command, self.repo), self.head)
+        self._record(self.head)
+        self.assertEqual(run_hook(command, self.repo).returncode, 0)
+
     def test_a_record_naming_another_sha_does_not_count(self) -> None:
         self._record(self.other)
         path = Path(_git(self.repo, "rev-parse", "--absolute-git-dir"))
@@ -397,7 +510,9 @@ class RequireConcernSweepHookTests(unittest.TestCase):
         # every way of spelling pr without the substring must still reach Python.
         for command in ("gh p''r create", 'gh "p"r create', "gh p\\r create", "gh $'\\x70'r create",
                         "gh p${X}r create", "gh p`true`r create", "gh p{r,} create", "gh p? create",
-                        "gh p[r] create", "hub pu''ll-request"):
+                        "gh p[r] create", "hub pu''ll-request",
+                        # No PR word, yet the body can create one (PR #454 review).
+                        "gh api graphql --input query.json", "GH API graphql --input q"):
             with self.subTest(command=command):
                 self.assertBlocked(run_hook(command, self.repo, hook), "missing")
 

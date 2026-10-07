@@ -17,30 +17,46 @@ two in step.
 
 HOW A COMMAND IS READ
 ---------------------
-``shlex`` in POSIX mode with the shell's control operators as punctuation, so the
-stream splits into simple commands on ``&& || ; | & ( )`` and newlines. Every word in
-a simple command -- not only the first -- is tried as a program name, by basename and
-case-insensitively (macOS resolves ``GH`` to ``gh``). That covers ``VAR=1 gh``,
-``env gh``, ``command gh``, ``builtin gh``, and wrappers such as ``timeout 5 gh``,
-``xargs gh``, ``nohup gh`` or ``sudo gh`` with one rule, at the price of a false
-positive when ``gh pr create`` appears as bare unquoted arguments to something else.
-A quoted string (``echo "gh pr create"``) is one word and is not a program.
+A small quote-aware lexer (``_Lexer``) splits the text into words and control
+operators the way the shell does: a quoted or escaped ``;`` is part of a word, never
+a separator. Each word records whether the shell expands it at run time and the
+bodies of any command substitutions (``$(...)``, backticks, ``<(...)``) and unquoted
+here-documents inside it. Comments and here-document bodies are skipped as the shell
+skips them.
 
-``bash|sh|zsh|dash|ksh -c '<script>'`` and ``eval <words>`` are re-parsed.
+Each simple command has one program word, found by stripping reserved words,
+assignments, redirections and a short allowlist of transparent wrappers (``command``,
+``builtin``, ``exec``, ``nohup``, ``env`` with plain options, ``timeout``, ``nice``,
+``python -m``, ``./bin/assistant``). Only that word is treated as the program.
 
-FAIL CLOSED
------------
-* unbalanced quotes (shlex cannot tokenise) and the text mentions pr + create;
-* a ``$`` or backtick anywhere, plus a ``pr ... create|new`` word pair that no known
-  entry point accounted for (``$GH pr create``, ``$(echo gh) pr create``);
-* a ``--head`` / ``cd`` target known only at run time, a ``--head`` that does not
-  resolve to a local commit, a checkout git cannot read, a GraphQL createPullRequest.
+ALLOWLIST, NOT DENYLIST
+-----------------------
+The parser allows a command only when it has modelled every simple command in it.
+Anything it does not model fails CLOSED (exit 2, "cannot be checked") rather than
+being guessed at:
+
+* a command substitution whose body opens a PR (``URL="$(gh pr create)"``);
+* a PR entry point that is not the program word (``xargs gh pr create``,
+  ``find . -exec gh pr create \\;``, ``echo gh pr create``);
+* a program word built at run time (``$CMD``, ``"$(printf gh)"``, ``g{h,}``);
+* ``eval`` of run-time text, or any ``eval`` in a command that mentions PR words;
+* ``bash|sh|zsh|... -c`` whose script is built at run time (``bash -c "$CMD"``);
+  a shell reading a script from stdin in a command that mentions PR words;
+* ``env`` with an option other than ``-i``/``-u``/``-0``/``-v`` (``-S``, ``-C``);
+* ``source``/``.``, ``alias``, ``trap`` or a function definition in a command that
+  mentions PR words; ``xargs``/``find``/``sudo``/... whose own words mention them;
+* a ``cd``/``pushd`` this does not model (more than one operand, stack forms,
+  unknown options), inside a compound command, or after ``&&``/``||``;
+* ``gh api graphql`` with ``--input``, a ``@file`` query or a run-time query; a
+  ``--head`` / ``cd`` target known only at run time; a ``--head`` that does not
+  resolve; a checkout git cannot read; text that will not tokenise.
 
 KNOWN GAPS (listed in the hook header too)
 ------------------------------------------
 Command semantics this cannot see: a script file or Makefile target that runs
 ``gh pr create``; ``python3 -c`` / any program calling the GitHub API itself;
-``curl`` to api.github.com; user-defined ``gh alias`` names; ``git`` aliases.
+``curl`` to api.github.com; user-defined ``gh alias`` names; ``git`` aliases; a
+quoted command string handed to a program outside the shells and runners above.
 """
 
 from __future__ import annotations
@@ -48,11 +64,10 @@ from __future__ import annotations
 import json
 import os
 import re
-import shlex
 import stat
 import subprocess  # nosec B404 - fixed git argv lists, never a shell
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 RECORD_SUBDIR = ("dancing-bear", "concern-sweeps")
@@ -60,16 +75,19 @@ MODES = ("swept", "waived")
 MAX_DEPTH = 8
 
 _SEPARATOR_CHARS = frozenset("();|&\n")
-_SHELLS = frozenset({"bash", "sh", "zsh", "dash", "ksh"})
+_OPCHARS = frozenset("();<>|&\n")
+_BLANKS = frozenset(" \t\r")
+_SHELLS = frozenset({"bash", "sh", "zsh", "dash", "ksh", "fish"})
 _GITHUB_CLI = frozenset({"github", "github_assistant", "github_assistant.cli"})
 _SHA_RE = re.compile(r"[0-9a-f]{40}")
-_PULLS_ENDPOINT = re.compile(r"(?:^|/)repos/[^/\s]+/[^/\s]+/pulls/?$")
+_PULLS_ENDPOINT = re.compile(r"(?:^|/)repos/[^/\s]+/[^/\s]+/pulls/?(?:[?#].*)?$", re.IGNORECASE)
 _GIT_ENV_OVERRIDES = (
     "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
     "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES",
     "GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM",
 )
 _UNKNOWN_CWD = None
+_REFUSE_HINT = "Run a plain `gh pr create` from the checkout instead"
 
 
 class Unverifiable(Exception):
@@ -83,6 +101,18 @@ class Target:
     entry: str            # e.g. "gh pr create"
     cwd: Path | None      # the directory it runs in; None = unknown
     head: str | None      # branch named by --head, else None for HEAD
+
+
+@dataclass
+class Tok:
+    """One word or operator of a command line."""
+
+    text: str                 # quotes removed; `$...` constructs kept verbatim
+    op: bool = False          # a control or redirection operator
+    quoted: bool = False      # some part was quoted or escaped
+    expands: bool = False     # the shell expands part of it at run time
+    fd: bool = False          # digits glued to a redirection (`2>`)
+    subs: list[str] = field(default_factory=list)  # command-substitution bodies
 
 
 # ---------------------------------------------------------------------------
@@ -139,9 +169,8 @@ def _read_ansi_c(command: str, start: int) -> tuple[str, int]:
 def expand_ansi_c(command: str) -> str:
     """Rewrite bash ``$'...'`` as the plain single-quoted text it means, and ``$"..."`` as ``"..."``.
 
-    shlex has no ANSI-C quoting, so ``gh $'\\x70'r create`` would otherwise tokenise
-    as ``$\\x70r`` while bash runs ``gh pr create``. Only a ``$`` outside quotes starts
-    one, matching bash.
+    Used to flatten text before looking for PR words (``_mentions_pr``), so
+    ``gh $'\\x70'r create`` still reads as mentioning ``pr``.
     """
     out: list[str] = []
     state = ""  # "", "'" or '"'
@@ -169,43 +198,298 @@ def _ansi_step(command: str, i: int, state: str) -> tuple[str, int, str]:
     return ch, i + 1, (ch if ch in "'\"" else state)
 
 
-def tokenize(command: str) -> list[str]:
+_PROC_SUB = ("<(", ">(")
+
+
+class _Lexer:
+    """Quote-aware shell lexer: words keep their quoting provenance.
+
+    shlex flattens ``--title ';'`` into the same token as a real ``;``. Here a
+    quoted or escaped operator character is part of a word, and only unquoted
+    ``();<>|&`` and newline form operators.
+    """
+
+    def __init__(self, s: str) -> None:
+        self.s = s
+        self.i = 0
+        self.pending: list[tuple[Tok, bool]] = []  # here-docs awaiting their body
+        self.want_delim: bool | None = None  # strip-tabs flag of a `<<` awaiting its word
+
+    def run(self, in_sub: bool = False) -> list[Tok]:
+        toks: list[Tok] = []
+        depth = 0
+        while self.i < len(self.s):
+            ch = self.s[self.i]
+            if ch in _BLANKS:
+                self.i += 1
+            elif ch == "#":  # a comment: `#` at the start of a word
+                nl = self.s.find("\n", self.i)
+                self.i = len(self.s) if nl < 0 else nl
+            elif self._at_operator():
+                depth, closed = self._emit_operator(toks, depth, in_sub)
+                if closed:
+                    return toks
+            else:
+                toks.append(self._emit_word(in_sub))
+        if in_sub:
+            raise ValueError("unterminated command substitution")
+        return toks
+
+    def _at_operator(self) -> bool:
+        return (self.i < len(self.s) and self.s[self.i] in _OPCHARS
+                and not self.s.startswith(_PROC_SUB, self.i))
+
+    def _emit_operator(self, toks: list[Tok], depth: int, in_sub: bool) -> tuple[int, bool]:
+        text, depth, closed = self._operator(depth, in_sub)
+        if text:
+            toks.append(Tok(text, op=True))
+            if text.endswith("<<") and not text.endswith("<<<"):
+                self.want_delim = self.s.startswith("-", self.i)
+                self.i += int(self.want_delim)
+        return depth, closed
+
+    def _emit_word(self, in_sub: bool) -> Tok:
+        tok = self._word()
+        if in_sub and tok.text == "case" and not tok.quoted:
+            # `case x in a)` would close the substitution early.
+            raise ValueError("case inside a command substitution is not modelled")
+        if self.want_delim is not None:
+            self.pending.append((tok, self.want_delim))
+            self.want_delim = None
+        return tok
+
+    def _operator(self, depth: int, in_sub: bool) -> tuple[str, int, bool]:
+        """(operator run, paren depth, closed the enclosing substitution)."""
+        out: list[str] = []
+        while self._at_operator():
+            ch = self.s[self.i]
+            self.i += 1
+            if ch == ")" and in_sub and depth == 0:
+                return "".join(out), depth, True
+            depth += (ch == "(") - (ch == ")")
+            out.append(ch)
+            if ch == "\n" and self.pending:
+                self._heredocs()
+                break
+        return "".join(out), depth, False
+
+    def _heredocs(self) -> None:
+        """Consume the here-document bodies queued on the line just ended."""
+        for tok, strip in self.pending:
+            body = self._heredoc_body(tok.text, strip)
+            if not tok.quoted:  # an unquoted delimiter: the body is expanded
+                _Lexer(body)._expanding(tok, None)  # records subs on tok
+        self.pending = []
+
+    def _heredoc_body(self, delim: str, strip: bool) -> str:
+        s = self.s
+        body: list[str] = []
+        while self.i < len(s):
+            nl = s.find("\n", self.i)
+            end = len(s) if nl < 0 else nl
+            line = s[self.i:end]
+            self.i = end + 1 if nl >= 0 else end
+            if (line.lstrip("\t") if strip else line) == delim:
+                break
+            body.append(line)
+        return "\n".join(body)
+
+    def _word(self) -> Tok:
+        tok = Tok("")
+        parts: list[str] = []
+        while self.i < len(self.s) and self.s[self.i] not in _BLANKS:
+            part = self._word_part(tok)
+            if part is None:
+                break
+            parts.append(part)
+        tok.text = "".join(parts)
+        tok.fd = tok.text.isdigit() and not tok.quoted and self.s[self.i:self.i + 1] in ("<", ">")
+        return tok
+
+    def _word_part(self, tok: Tok) -> str | None:
+        """The next piece of the word at ``self.i``, or None where the word ends."""
+        s = self.s
+        ch = s[self.i]
+        if ch in _OPCHARS:
+            if not s.startswith(_PROC_SUB, self.i):
+                return None
+            start = self.i
+            tok.subs.append(self._sub(self.i + 2))
+            tok.expands = True
+            return s[start:self.i]
+        if ch == "\\":
+            tok.quoted = True
+            self.i += 2
+            return s[self.i - 1:self.i]
+        if ch == "'":
+            end = s.find("'", self.i + 1)
+            if end < 0:
+                raise ValueError("unterminated single quote")
+            tok.quoted = True
+            start, self.i = self.i + 1, end + 1
+            return s[start:end]
+        if ch == '"':
+            tok.quoted = True
+            self.i += 1
+            return self._expanding(tok, '"')
+        if ch == "$":
+            return self._dollar(tok, in_dquote=False)
+        if ch == "`":
+            return self._backtick(tok)
+        self.i += 1
+        return ch
+
+    def _sub(self, start: int) -> str:
+        """Lex a ``$(``/``<(`` body from ``start`` to its ``)``; return the body text."""
+        saved = self.pending, self.want_delim
+        self.pending, self.want_delim = [], None
+        self.i = start
+        self.run(in_sub=True)
+        self.pending, self.want_delim = saved
+        return self.s[start:self.i - 1]
+
+    def _dollar(self, tok: Tok, in_dquote: bool) -> str:
+        s = self.s
+        i = self.i
+        nxt = s[i + 1:i + 2]
+        if nxt == "(":
+            tok.subs.append(self._sub(i + 2))
+            tok.expands = True
+            return s[i:self.i]
+        if nxt == "{":
+            self.i = i + 2
+            self._brace(tok)
+            tok.expands = True
+            return s[i:self.i]
+        if not in_dquote and nxt == "'":
+            text, self.i = _read_ansi_c(s, i + 2)
+            tok.quoted = True
+            return text
+        if not in_dquote and nxt == '"':
+            self.i = i + 2
+            tok.quoted = True
+            return self._expanding(tok, '"')
+        self.i = i + 1
+        if nxt and (nxt.isalnum() or nxt in "_@*#?$!-"):
+            tok.expands = True
+        return "$"
+
+    def _expanding(self, tok: Tok, term: str | None) -> str:
+        """Double-quoted text (``term='"'``) or a here-doc body (``term=None``)."""
+        s = self.s
+        parts: list[str] = []
+        escapable = '$`"\\\n' if term else "$`\\\n"
+        while self.i < len(s):
+            ch = s[self.i]
+            if term is not None and ch == term:
+                self.i += 1
+                return "".join(parts)
+            if ch == "\\" and self.i + 1 < len(s):
+                nxt = s[self.i + 1]
+                parts.append(nxt if nxt in escapable else ch + nxt)
+                self.i += 2
+            elif ch == "$":
+                parts.append(self._dollar(tok, in_dquote=True))
+            elif ch == "`":
+                parts.append(self._backtick(tok))
+            else:
+                parts.append(ch)
+                self.i += 1
+        if term is not None:
+            raise ValueError("unterminated double quote")
+        return "".join(parts)
+
+    def _backtick(self, tok: Tok) -> str:
+        s = self.s
+        start = self.i
+        j = start + 1
+        body: list[str] = []
+        while j < len(s):
+            ch = s[j]
+            if ch == "\\" and j + 1 < len(s):
+                nxt = s[j + 1]
+                body.append(nxt if nxt in "$`\\" else ch + nxt)
+                j += 2
+                continue
+            if ch == "`":
+                self.i = j + 1
+                tok.subs.append("".join(body))
+                tok.expands = True
+                return s[start:self.i]
+            body.append(ch)
+            j += 1
+        raise ValueError("unterminated backtick")
+
+    def _brace(self, tok: Tok) -> None:
+        """Skip a ``${...}`` body (after ``${``), collecting substitutions inside it."""
+        s = self.s
+        depth = 1
+        while self.i < len(s):
+            ch = s[self.i]
+            if ch == "\\":
+                self.i += 2
+            elif ch == "'":
+                end = s.find("'", self.i + 1)
+                if end < 0:
+                    raise ValueError("unterminated single quote")
+                self.i = end + 1
+            elif ch == '"':
+                self.i += 1
+                self._expanding(tok, '"')
+            elif ch == "$":
+                self._dollar(tok, in_dquote=True)
+            elif ch == "`":
+                self._backtick(tok)
+            else:
+                depth += (ch == "{") - (ch == "}")
+                self.i += 1
+                if depth == 0:
+                    return
+        raise ValueError("unterminated ${...}")
+
+
+def tokenize(command: str) -> list[Tok]:
     """Words and control operators of ``command``; ValueError if it will not tokenise."""
-    lexer = shlex.shlex(expand_ansi_c(command.replace("\\\n", "")), posix=True, punctuation_chars="();<>|&\n")
-    lexer.whitespace = " \t\r"
-    lexer.whitespace_split = True
-    # No comment handling: shlex would end a word at `#` where bash does not
-    # (`x#; gh pr create` runs gh), which hides commands. A real comment that
-    # mentions gh pr create is a false positive instead -- the safe direction.
-    lexer.commenters = ""
-    return list(lexer)
+    return _Lexer(command.replace("\\\n", "")).run()
 
 
-def is_separator(token: str) -> bool:
-    return bool(token) and set(token) <= _SEPARATOR_CHARS
+def is_separator(tok: Tok) -> bool:
+    return tok.op and set(tok.text) <= _SEPARATOR_CHARS
 
 
-def split_commands(tokens: list[str]) -> list[list[tuple[int, str]]]:
-    """Simple commands as lists of (global index, word)."""
-    return [cmd for cmd, _ in split_with_operators(tokens) if cmd]
-
-
-def split_with_operators(tokens: list[str]) -> list[tuple[list[tuple[int, str]], str]]:
-    """(simple command, the separator token that ends it); the last ends with "".
+def split_with_operators(toks: list[Tok]) -> list[tuple[list[tuple[int, Tok]], str]]:
+    """(simple command, the separator text that ends it); the last ends with "".
 
     A command may be empty when separators are adjacent (`(cd x)`, `a; (b)`), so
     the parentheses still reach the caller even with no words between them.
     """
-    out: list[tuple[list[tuple[int, str]], str]] = []
-    cur: list[tuple[int, str]] = []
-    for idx, tok in enumerate(tokens):
+    out: list[tuple[list[tuple[int, Tok]], str]] = []
+    cur: list[tuple[int, Tok]] = []
+    for idx, tok in enumerate(toks):
         if is_separator(tok):
-            out.append((cur, tok))
+            out.append((cur, tok.text))
             cur = []
         else:
             cur.append((idx, tok))
     out.append((cur, ""))
     return out
+
+
+#: Words that can name a PR entry point or its payload. Used to decide whether a
+#: construct this parser refuses to model (eval, source, a shell reading stdin, a
+#: function definition) "could involve" PR creation.
+_PR_WORDS = re.compile(
+    r"(?<![a-z0-9_])(?:gh|hub|pr|pulls|pull-request|github\w*|graphql|createpullrequest)(?![a-z0-9_])"
+)
+
+
+def _mentions_pr(text: str) -> bool:
+    """Whether ``text``, with quoting and escapes flattened, names any PR word."""
+    try:
+        text = expand_ansi_c(text)
+    except ValueError:
+        pass  # an unterminated $'...': search the raw text instead
+    return bool(_PR_WORDS.search(re.sub(r"[\"'\\]", "", text.lower())))
 
 
 def _cd_applies(op: str) -> bool | None:
@@ -234,6 +518,10 @@ _RESERVED = frozenset({"{", "}", "!", "if", "then", "else", "elif", "fi", "do", 
 #: compound command (nesting depth > 0) may or may not execute, so we fail closed.
 _NEST_OPENERS = frozenset({"if", "while", "until", "for", "case", "select"})
 
+#: Openers whose header (``for x in ...``, ``case w in``) fills the rest of the
+#: simple command: nothing after them in it is a program.
+_HEADER_OPENERS = frozenset({"for", "case", "select"})
+
 #: Shell keywords that close a compound command and decrement the nesting depth.
 _NEST_CLOSERS = frozenset({"fi", "done", "esac"})
 
@@ -241,13 +529,7 @@ _NEST_CLOSERS = frozenset({"fi", "done", "esac"})
 #: as a value and must be skipped when scanning bash/sh for a ``-c`` script.
 #: ``-O``/``+O`` set/unset a shell option (bash), ``-o`` sets an option (most shells).
 _SHELL_VALUED_SHORT_OPTS = frozenset({"O", "o"})
-
-
-def _strip_reserved(words: list[str]) -> list[str]:
-    k = 0
-    while k < len(words) and words[k] in _RESERVED:
-        k += 1
-    return words[k:]
+_SHELL_VALUED_LONG_OPTS = frozenset({"--rcfile", "--init-file"})
 
 
 def _apply_parens(op: str, cwd: Path | None, stack: list[Path | None]) -> Path | None:
@@ -260,13 +542,8 @@ def _apply_parens(op: str, cwd: Path | None, stack: list[Path | None]) -> Path |
     return cwd
 
 
-def _word(tok: str) -> str:
-    """A word with command-substitution backticks at its edges removed."""
-    return tok.strip("`")
-
-
-def _prog(tok: str) -> str:
-    return os.path.basename(_word(tok)).lower()
+def _prog(word: str) -> str:
+    return os.path.basename(word).lower()
 
 
 def _dynamic(tok: str) -> bool:
@@ -280,7 +557,7 @@ def _literal(value: str, what: str) -> str:
 
 
 # Characters that make bash build a word at run time: parameter and command
-# substitution, brace expansion, globbing. shlex has already removed quotes and
+# substitution, brace expansion, globbing. The lexer has already removed quotes and
 # backslashes, so `p''r` and `p\r` arrive here as `pr`; these cannot be resolved.
 _EXPANDS = frozenset("$`{}*?[")
 
@@ -329,16 +606,22 @@ def _option_at(words: list[str], k: int, long: str, short: str | None, abbrev: b
     return None, 1
 
 
-def _flag_values(words: list[str], long: str, short: str | None, *, abbrev: bool = False) -> list[str]:
-    """Every value given to ``long`` (``--head X``, ``--head=X``) or ``short`` (``-H X``, ``-HX``)."""
-    values: list[str] = []
+def _option_toks(toks: list[Tok], long: str, short: str | None, *, abbrev: bool = False) -> list[tuple[str, bool]]:
+    """Every (value, expands-at-run-time) given to ``long`` / ``short``."""
+    words = [t.text for t in toks]
+    values: list[tuple[str, bool]] = []
     k = 0
     while k < len(words):
         value, used = _option_at(words, k, long, short, abbrev)
         if value is not None:
-            values.append(value)
+            values.append((value, toks[k + used - 1].expands))
         k += used
     return values
+
+
+def _flag_values(words: list[str], long: str, short: str | None, *, abbrev: bool = False) -> list[str]:
+    """Every value given to ``long`` (``--head X``, ``--head=X``) or ``short`` (``-H X``, ``-HX``)."""
+    return [v for v, _ in _option_toks([Tok(w) for w in words], long, short, abbrev=abbrev)]
 
 
 def _flag_value(words: list[str], long: str, short: str | None, *, abbrev: bool = False) -> str | None:
@@ -357,7 +640,8 @@ _HUB_GLOBAL_VALUED = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--names
 _HUB_MOVES_REPO = frozenset({"-C", "--git-dir", "--work-tree"})
 
 
-def _gh(words: list[str], pr_indices: set[int], gidx: list[int]) -> tuple[str, str | None] | None:
+def _gh(toks: list[Tok], pr_indices: set[int], gidx: list[int]) -> tuple[str, str | None] | None:
+    words = [t.text for t in toks]
     j = _skip_options(words, 1, _GH_GLOBAL_VALUED)
     sub = _decisive(words, j, "gh subcommand")
     if sub == "pr":
@@ -368,30 +652,76 @@ def _gh(words: list[str], pr_indices: set[int], gidx: list[int]) -> tuple[str, s
             return "gh pr create", _flag_value(words[j + 1:], "--head", "-H")
         return None
     if sub == "api":
-        return _gh_api(words[j + 1:])
+        return _gh_api(toks[j + 1:])
     return None
 
 
 # gh api's body-field flags: --raw-field/-f and --field/-F.
 _FIELD_FLAGS = (("--raw-field", "-f"), ("--field", "-F"))
+# gh api options that take the next word as their value.
+_API_VALUED = frozenset({"-X", "--method", "-f", "--raw-field", "-F", "--field", "-H", "--header",
+                         "--input", "-q", "--jq", "-t", "--template", "--hostname", "--cache",
+                         "-p", "--preview"})
+
+
+def _api_endpoint(words: list[str]) -> str | None:
+    k = 0
+    while k < len(words):
+        w = words[k]
+        if w in _API_VALUED:
+            k += 2
+        elif w.startswith("-") and w != "-":
+            k += 1
+        else:
+            return w
+    return None
 
 
 def _posts(rest: list[str]) -> bool:
-    """True when this gh api call is a POST, explicitly or implied by a body."""
+    """True when this gh api call may be a POST, explicitly or implied by a body."""
     fields = [v for long, short in _FIELD_FLAGS for v in _flag_values(rest, long, short)]
     method = _flag_value(rest, "--method", "-X")
+    if method is not None and _EXPANDS & set(method):
+        return True  # a method chosen at run time may be POST
     # gh api defaults to POST once a body is given (a field or --input).
     implied_post = method is None and bool(fields or _flag_values(rest, "--input", None))
     return (method or "").upper() == "POST" or implied_post
 
 
-def _gh_api(rest: list[str]) -> tuple[str, str | None] | None:
-    if any("createpullrequest" in w.lower() for w in rest):
+def _check_graphql(rest: list[Tok]) -> None:
+    """Refuse a GraphQL call whose query is not a literal this can read, or that creates a PR."""
+    words = [t.text for t in rest]
+    if _flag_values(words, "--input", None):
+        raise Unverifiable("gh api graphql --input sends a body this hook cannot read")
+    for long, short in _FIELD_FLAGS:
+        for value, expands in _option_toks(rest, long, short):
+            _check_graphql_field(value, expands, reads_files=short == "-F")
+
+
+def _check_graphql_field(value: str, expands: bool, reads_files: bool) -> None:
+    """One ``key=value`` field of a GraphQL call; only ``query`` carries the operation."""
+    key, _, body = value.partition("=")
+    if expands and (_dynamic(key) or key == "query"):
+        raise Unverifiable("gh api graphql query is not known until the shell runs")
+    if key != "query":
+        return
+    if reads_files and body.startswith("@"):
+        raise Unverifiable(f"gh api graphql reads its query from {body!r}, which this hook cannot read")
+    if "createpullrequest" in body.lower():
         raise Unverifiable("gh api graphql createPullRequest cannot be matched to a commit")
-    if not any(_PULLS_ENDPOINT.search(w) for w in rest):
-        # An endpoint built at run time (repos/o/r/$E) could be .../pulls.
-        endpoint = next((w for w in rest if not w.startswith("-") and "/" in w), None)
-        if endpoint is not None and _EXPANDS & set(endpoint) and _posts(rest):
+
+
+def _gh_api(rest_toks: list[Tok]) -> tuple[str, str | None] | None:
+    rest = [t.text for t in rest_toks]
+    endpoint = _api_endpoint(rest)
+    if endpoint is None:
+        return None
+    if endpoint.lower().rstrip("/").endswith("graphql"):
+        _check_graphql(rest_toks)
+        return None
+    if not _PULLS_ENDPOINT.search(endpoint):
+        # An endpoint built at run time (repos/o/r/$E, "$E") could be .../pulls or graphql.
+        if _EXPANDS & set(endpoint) and _posts(rest):
             raise Unverifiable(f"gh api endpoint {endpoint!r} is not known until the shell runs")
         return None
     if not _posts(rest):
@@ -438,15 +768,176 @@ def _hub(words: list[str]) -> tuple[str, str | None] | None:
 
 
 # ---------------------------------------------------------------------------
+# Finding the program word
+# ---------------------------------------------------------------------------
+
+
+_ASSIGNMENT = re.compile(r"[A-Za-z_]\w*\+?=.*", re.DOTALL)
+_PYTHON = re.compile(r"python[0-9.]*")
+#: env options that neither run a string nor change directory.
+_ENV_FLAGS = frozenset({"-", "-i", "--ignore-environment", "-0", "--null", "-v", "--debug"})
+_TIMEOUT_VALUED = frozenset({"-s", "--signal", "-k", "--kill-after"})
+_TIMEOUT_FLAGS = frozenset({"--preserve-status", "--foreground", "-v", "--verbose", "-f", "-p"})
+#: Programs that run other commands from their arguments or stdin. Refused when
+#: their own words mention PR words or name a shell.
+_RUNNERS = frozenset({"xargs", "find", "parallel", "watch", "su", "script", "flock",
+                      "sudo", "doas", "tmux", "screen"})
+#: Builtins whose effect on the rest of the command this does not model. Refused
+#: when the command mentions PR words.
+_OPAQUE_BUILTINS = frozenset({"source", ".", "alias", "function", "trap"})
+
+
+def _env_options(words: list[str], k: int) -> int:
+    while k < len(words) and words[k].startswith("-"):
+        w = words[k]
+        if w == "--":
+            return k + 1
+        if w in _ENV_FLAGS or w.startswith("--unset=") or (w.startswith("-u") and len(w) > 2):
+            k += 1
+        elif w in ("-u", "--unset"):
+            k += 2
+        elif not w.startswith("--") and set(w[1:]) <= set("i0v"):
+            k += 1
+        else:
+            raise Unverifiable(f"env {w} is not modelled (it can run a string or change directory)")
+    return k
+
+
+def _timeout_options(words: list[str], k: int) -> int:
+    while k < len(words) and words[k].startswith("-"):
+        w = words[k]
+        if w == "--":
+            k += 1
+            break
+        if w in _TIMEOUT_VALUED:
+            k += 2
+        elif w in _TIMEOUT_FLAGS or w.startswith(("--signal=", "--kill-after=")) or w[:2] in ("-s", "-k"):
+            k += 1
+        else:
+            raise Unverifiable(f"timeout {w} is not modelled")
+    return k + 1  # the duration
+
+
+def _nice_options(words: list[str], k: int) -> int:
+    while k < len(words) and words[k].startswith("-"):
+        w = words[k]
+        if w in ("-n", "--adjustment"):
+            k += 2
+        elif w.startswith(("-n", "--adjustment=")) or w[1:].lstrip("-").isdigit():
+            k += 1
+        else:
+            raise Unverifiable(f"nice {w} is not modelled")
+    return k
+
+
+def _python_module(words: list[str], k: int) -> int | None:
+    """Index of the module word in ``python -m MOD``, or None when not -m."""
+    j = k + 1
+    while j < len(words) and words[j].startswith("-"):
+        w = words[j]
+        if w == "-m":
+            return j + 1 if j + 1 < len(words) else None
+        if w == "-c":
+            return None
+        j += 2 if w in ("-W", "-X") else 1
+    return None
+
+
+def _lead(toks: list[Tok]) -> tuple[int | None, bool]:
+    """(index of the program word, whether a wrapper runs it), or (None, _) for none.
+
+    Strips reserved words, assignments and the transparent wrappers this models.
+    A compound-command header (``for x in ...``) has no program word.
+    """
+    words = [t.text for t in toks]
+    k: int | None = _after_reserved(toks)
+    wrapped = False
+    while k is not None and k < len(words):
+        prog = _prog(words[k])
+        if not toks[k].quoted and _ASSIGNMENT.fullmatch(words[k]):
+            k += 1
+        elif prog in ("command", "builtin"):
+            k = _command_options(words, k + 1)
+        elif prog in _WRAPPERS:
+            wrapped = True
+            k = _wrapper_end(prog, words, k + 1)
+        else:
+            idx = _program_index(prog, words, k)
+            return idx, wrapped or idx != k
+    return None, wrapped
+
+
+_WRAPPERS = frozenset({"exec", "nohup", "env", "timeout", "nice"})
+
+
+def _after_reserved(toks: list[Tok]) -> int | None:
+    """Index after the leading reserved words; None for a compound-command header."""
+    k = 0
+    while k < len(toks) and not toks[k].quoted and (toks[k].text in _RESERVED or toks[k].text in _NEST_OPENERS):
+        if toks[k].text in _HEADER_OPENERS:
+            return None
+        k += 1
+    return k
+
+
+def _command_options(words: list[str], k: int) -> int | None:
+    """Index after ``command``/``builtin`` options; None for ``-v``/``-V`` (a lookup only)."""
+    while k < len(words) and words[k].startswith("-"):
+        if words[k] in ("-v", "-V"):
+            return None
+        k += 1
+    return k
+
+
+def _program_index(prog: str, words: list[str], k: int) -> int:
+    """``words[k]`` is the program; a launcher (``python -m``, ``./bin/assistant``) moves it on."""
+    if _PYTHON.fullmatch(prog):
+        return _python_module(words, k) or k
+    if prog == "assistant" and k + 1 < len(words):
+        return k + 1
+    return k
+
+
+def _wrapper_end(prog: str, words: list[str], k: int) -> int:
+    if prog == "exec":
+        return _skip_options(words, k, frozenset({"-a"}))
+    if prog == "env":
+        return _env_options(words, k)
+    if prog == "timeout":
+        return _timeout_options(words, k)
+    if prog == "nice":
+        return _nice_options(words, k)
+    return k  # nohup
+
+
+def _program_unknown(tok: Tok) -> bool:
+    """A program word whose name the shell builds at run time."""
+    base = os.path.basename(tok.text)
+    return base not in ("[", "[[") and bool(_EXPANDS & set(base))
+
+
+# ---------------------------------------------------------------------------
 # Walking the command
 # ---------------------------------------------------------------------------
 
 
-def _cd_target(words: list[str], cwd: Path | None) -> Path | None:
-    args = [w for w in words[1:] if not w.startswith("-") or w == "-"]
-    if not args:
+_CD_OPTION_LETTERS = frozenset("LPe@")
+
+
+def _cd_target(prog: str, words: list[str], cwd: Path | None) -> Path | None:
+    """The directory after ``cd``/``pushd`` ``words[1:]``; None when not knowable.
+
+    Only the forms bash runs as a plain directory change are modelled: options
+    from ``-LPe@`` and exactly one operand (none for ``cd``, meaning HOME).
+    ``cd a b`` fails in bash and leaves the cwd unchanged; ``pushd`` with no
+    operand or ``+N``/``-N`` rotates the stack. Those are unknown.
+    """
+    operands = _cd_operands(prog, words[1:])
+    if operands is None or len(operands) > 1 or (prog == "pushd" and not operands):
+        return _UNKNOWN_CWD
+    if not operands:
         return Path.home()
-    arg = args[0]
+    arg = operands[0]
     if _dynamic(arg) or arg == "-" or (arg.startswith("~") and not (arg == "~" or arg.startswith("~/"))):
         return _UNKNOWN_CWD
     target = Path(os.path.expanduser(arg))
@@ -455,122 +946,135 @@ def _cd_target(words: list[str], cwd: Path | None) -> Path | None:
     return cwd / target if cwd is not None else _UNKNOWN_CWD
 
 
-def _strip_prefix(words: list[str]) -> list[str]:
-    """Drop leading VAR=value assignments and env / command / builtin."""
-    k = 0
-    while k < len(words):
-        w = words[k]
-        if re.fullmatch(r"[A-Za-z_]\w*\+?=.*", w, re.DOTALL) or w in ("env", "command", "builtin"):
-            k += 1
-        else:
-            break
-    return words[k:]
+def _cd_operands(prog: str, args: list[str]) -> list[str] | None:
+    """Operands of ``cd``/``pushd``; None for an option this does not model."""
+    operands: list[str] = []
+    options_done = False
+    for w in args:
+        if options_done or len(w) < 2 or w[0] not in "-+" or (w[0] == "+" and prog != "pushd"):
+            operands.append(w)
+        elif w == "--":
+            options_done = True
+        elif not (prog == "cd" and w[0] == "-" and set(w[1:]) <= _CD_OPTION_LETTERS):
+            return None  # pushd -n / +N / -N, or an unknown option
+    return operands
 
 
-def _shell_option(w: str) -> tuple[bool, bool]:
-    """(saw_c_flag, consumes_next_word) for a single shell option token.
+def _shell_script(toks: list[Tok]) -> tuple[bool, Tok | None]:
+    """(saw ``-c``, the first operand) of ``bash [options] ...``.
 
-    ``saw_c_flag`` is True when the token sets the ``-c`` flag (activates script mode).
-    ``consumes_next_word`` is True when the token takes the following word as its value
-    (e.g. ``-O extglob``), so that word must be skipped rather than treated as the script.
-    """
-    if w.startswith("--"):
-        return False, False
-    if not (w.startswith("-") or w.startswith("+")):
-        return False, False
-    has_c = "c" in w[1:] and w[0] == "-"
-    valued = len(w) == 2 and w[1] in _SHELL_VALUED_SHORT_OPTS
-    return has_c, valued
-
-
-def _shell_script(words: list[str]) -> str | None:
-    """The script of ``bash -c '<script>'`` (options may be clustered: ``-lc``).
-
-    Options that consume a value (e.g. ``-O extglob``, ``+O extglob``) are skipped
-    along with their argument so the scanner is not tricked into treating the option
-    value as the script. ``bash -O extglob -c 'gh pr create'`` must find the script,
-    not return None at ``extglob``.
+    Options may be clustered (``-lc``). Options that consume a value (``-O extglob``,
+    ``+O extglob``, ``--rcfile F``) are skipped with their value so it is not taken
+    for the script.
     """
     saw_c = False
-    it = iter(words[1:])
-    for w in it:
-        if w.startswith("--"):
-            continue
-        if w[0:1] in ("-", "+"):
-            has_c, valued = _shell_option(w)
-            saw_c = saw_c or has_c
-            if valued:
-                next(it, None)  # skip the option's value word
-            continue
-        return w if saw_c else None
-    return None
+    k = 1
+    while k < len(toks):
+        width, sets_c = _shell_option_width(toks[k].text)
+        if width == 0:
+            break
+        saw_c = saw_c or sets_c
+        k += width
+        if toks[k - width].text == "--":
+            break
+    return saw_c, (toks[k] if k < len(toks) else None)
 
 
-def _update_nest(cmd: list[tuple[int, str]], nest: int) -> int:
-    """Return updated nesting depth after scanning the leading reserved-word prefix of ``cmd``.
+def _shell_option_width(w: str) -> tuple[int, bool]:
+    """(words the option takes, whether it sets ``-c``); width 0 means an operand."""
+    if w.startswith("--"):
+        return (2 if w in _SHELL_VALUED_LONG_OPTS else 1), False
+    if w[:1] in ("-", "+") and len(w) > 1:
+        valued = len(w) == 2 and w[1] in _SHELL_VALUED_SHORT_OPTS
+        return (2 if valued else 1), (w[0] == "-" and "c" in w[1:])
+    return 0, False
 
-    Two phases:
 
-    1. ``cmd[0]`` is checked unconditionally — openers such as ``for``, ``case``,
-       and ``select`` are not in ``_RESERVED``, so they can only appear at position 0.
-    2. The remaining ``_RESERVED`` prefix (positions >= 1) is walked only when
-       ``cmd[0]`` is itself in ``_RESERVED`` (i.e. the command begins with a reserved
-       word, so positions 1+ may also be reserved-word prefix rather than arguments).
-       This catches openers embedded after a leading reserved word, e.g. ``then if b``
-       or ``else for x in``.  Skipping phase 2 when ``cmd[0]`` is a plain program
-       prevents counting reserved words that appear as arguments, e.g. ``echo fi``
-       or ``echo done``.
+def _update_nest(cmd: list[tuple[int, Tok]], nest: int) -> int:
+    """Return the nesting depth after the leading reserved-word prefix of ``cmd``.
+
+    Walks the prefix while it holds reserved words or openers, counting every
+    opener and closer in it: ``then for x in 1``, ``else case w in``, ``do select``.
+    ``for``/``case``/``select`` end the walk, because their header fills the rest
+    of the simple command. A plain program ends it too, so ``echo fi`` does not
+    count its argument as a closer.
     """
-    if not cmd:
-        return nest
-    first_w = _word(cmd[0][1]).lower()
-    if first_w in _NEST_OPENERS:
-        nest += 1
-    elif first_w in _NEST_CLOSERS:
-        nest = max(0, nest - 1)
-    if first_w in _RESERVED:
-        for _idx, _tok in cmd[1:]:
-            _w = _word(_tok).lower()
-            if _w not in _RESERVED:
-                break
-            if _w in _NEST_OPENERS:
-                nest += 1
-            elif _w in _NEST_CLOSERS:
-                nest = max(0, nest - 1)
+    for _idx, tok in cmd:
+        w = "" if tok.quoted else tok.text
+        if w in _NEST_OPENERS:
+            nest += 1
+        elif w in _NEST_CLOSERS:
+            nest = max(0, nest - 1)
+        if w in _HEADER_OPENERS or not (w in _RESERVED or w in _NEST_OPENERS):
+            break
     return nest
+
+
+def _defines_function(toks: list[Tok]) -> bool:
+    """``name() ...`` or ``name ( ) ...``: a function body runs later, not here."""
+    for a, b in zip(toks, toks[1:]):
+        if a.op and "()" in a.text:
+            return True
+        if a.op and a.text.endswith("(") and b.op and b.text.startswith(")"):
+            return True
+    return bool(toks) and toks[-1].op and "()" in toks[-1].text
+
+
+@dataclass
+class _Walk:
+    """State shared across the simple commands of one ``find_targets`` call."""
+
+    depth: int
+    vocab: bool                 # the command text mentions PR words
+    targets: list[Target] = field(default_factory=list)
+    pr_indices: set[int] = field(default_factory=set)
 
 
 def find_targets(command: str, cwd: Path | None, depth: int = 0) -> list[Target]:
     if depth > MAX_DEPTH:
         raise Unverifiable("commands nested too deeply to check")
     try:
-        tokens = tokenize(command)
+        toks = tokenize(command)
     except ValueError:
         low = command.lower()
-        if ("pr" in low and "create" in low) or "pull-request" in low or "createpullrequest" in low:
+        if ("pr" in low and "create" in low) or "pull-request" in low or _mentions_pr(command):
             raise Unverifiable("the command cannot be tokenised (unbalanced quote?)") from None
         return []
-    targets: list[Target] = []
-    pr_indices: set[int] = set()
+    walk = _Walk(depth=depth, vocab=_mentions_pr(command))
+    if walk.vocab and _defines_function(toks):
+        raise Unverifiable("a shell function definition may redefine a command; it is not modelled")
     stack: list[Path | None] = []
     nest = 0  # compound-command nesting depth (if/while/until/for/case/select → fi/done/esac)
     prev_op = ""  # separator that ended the previous simple command
-    for cmd, op in split_with_operators(tokens):
+    for cmd, op in split_with_operators(toks):
         # Update nesting BEFORE processing so that ``if cd /x; then ...`` is already
         # at depth 1 when the cd is evaluated (fail-closed; see _update_nest).
         nest = _update_nest(cmd, nest)
         # The separator follows its command: `cd x)` moves, then `)` restores.
         if cmd:
-            cwd = _walk_command(cmd, op, cwd, targets, pr_indices, depth, nest, prev_op)
+            cwd = _walk_command(cmd, op, cwd, walk, nest, prev_op)
         cwd = _apply_parens(op, cwd, stack)
         prev_op = op
-    _check_dynamic(tokens, pr_indices)
-    return targets
+    _check_dynamic([t.text for t in toks], walk.pr_indices)
+    return walk.targets
+
+
+def _strip_redirects(cmd: list[tuple[int, Tok]]) -> list[tuple[int, Tok]]:
+    """Drop redirection operators, their target words and glued fd numbers."""
+    out: list[tuple[int, Tok]] = []
+    skip = False
+    for idx, tok in cmd:
+        if skip:
+            skip = False
+        elif tok.op:
+            skip = True
+        elif not tok.fd:
+            out.append((idx, tok))
+    return out
 
 
 def _walk_command(
-    cmd: list[tuple[int, str]], op: str, cwd: Path | None,
-    targets: list[Target], pr_indices: set[int], depth: int,
+    cmd: list[tuple[int, Tok]], op: str, cwd: Path | None, walk: _Walk,
     nest: int = 0, prev_op: str = "",
 ) -> Path | None:
     """Collect targets in one simple command; return the cwd for the commands after it.
@@ -582,57 +1086,116 @@ def _walk_command(
     operator is ``&&`` or ``||`` only runs when the prior command succeeded or failed
     (respectively), which we cannot evaluate statically.
     """
-    gidx = [i for i, _ in cmd]
-    words = [_word(t) for _, t in cmd]
-    stripped = _strip_reserved(words)
-    head_words = _strip_prefix(stripped)
-    prog = _prog(head_words[0]) if head_words else ""
-    if prog == "popd":
-        return _UNKNOWN_CWD
-    if prog in ("cd", "pushd"):
-        applies = _cd_applies(op)
-        if applies is None:
-            return _UNKNOWN_CWD
-        # Fail closed when the cd/pushd is inside a compound command (if/while/for/…)
-        # or its preceding operator is && or || (it only runs when a prior command
-        # succeeded or failed, which we cannot evaluate statically).
-        if nest > 0 or "&&" in prev_op or "||" in prev_op:
-            return _UNKNOWN_CWD
-        return _cd_target(head_words, cwd) if applies else cwd
+    _check_substitutions(cmd, cwd, walk)
+    kept = _strip_redirects(cmd)
+    gidx = [i for i, _ in kept]
+    toks = [t for _, t in kept]
+    words = [t.text for t in toks]
+    lead, wrapped = _lead(toks)
+    if lead is not None:
+        if _program_unknown(toks[lead]):
+            raise Unverifiable(f"the program {words[lead]!r} is not known until the shell runs")
+        prog = _prog(words[lead])
+        if prog in ("cd", "pushd", "popd"):
+            conditional = wrapped or nest > 0 or "&&" in prev_op or "||" in prev_op
+            return _cd_effect(prog, words[lead:], op, cwd, conditional)
+        _check_opaque(prog, toks, lead, walk)
     for i in range(len(words)):
-        targets.extend(_targets_at(words, i, gidx, cwd, pr_indices, depth))
+        found = _targets_at(toks, i, gidx, cwd, walk, i == lead)
+        if found and i != lead:
+            runner = repr(words[lead]) if lead is not None else "no program"
+            raise Unverifiable(f"{found[0].entry} runs under {runner}, which this hook does not model")
+        walk.targets.extend(found)
     return cwd
 
 
+def _check_substitutions(cmd: list[tuple[int, Tok]], cwd: Path | None, walk: _Walk) -> None:
+    """Refuse a command whose ``$(...)``, backtick, ``<(...)`` or here-doc body opens a PR."""
+    for _, tok in cmd:
+        for body in tok.subs:
+            if find_targets(body, cwd, walk.depth + 1):
+                raise Unverifiable(
+                    "a command substitution ($(...) or backticks) opens a PR, and its result "
+                    "is not modelled"
+                )
+
+
+def _cd_effect(prog: str, words: list[str], op: str, cwd: Path | None, conditional: bool) -> Path | None:
+    """The cwd after a ``cd``/``pushd``/``popd`` ended by separator ``op``.
+
+    ``conditional`` covers a cd that may not run (inside a compound command, after
+    ``&&``/``||``) or that runs as a separate program (``env cd``, ``nohup cd``).
+    """
+    if prog == "popd":
+        return _UNKNOWN_CWD
+    applies = _cd_applies(op)
+    if applies is None or conditional:
+        return _UNKNOWN_CWD
+    return _cd_target(prog, words, cwd) if applies else cwd
+
+
+def _check_opaque(prog: str, toks: list[Tok], lead: int, walk: _Walk) -> None:
+    """Refuse a program word whose effect this does not model when PR creation could be involved."""
+    words = [t.text for t in toks]
+    if prog in _OPAQUE_BUILTINS and walk.vocab:
+        raise Unverifiable(f"`{words[lead]}` runs code or changes the shell in ways this hook does not model")
+    if prog in _RUNNERS and (
+        _mentions_pr(" ".join(words[lead:])) or any(_prog(w) in _SHELLS for w in words[lead + 1:])
+    ):
+        raise Unverifiable(f"`{words[lead]}` runs a command this hook cannot read")
+    if prog == "eval":
+        operands = toks[lead + 1:]
+        if any(t.expands for t in operands):
+            raise Unverifiable("eval runs text that is not known until the shell runs")
+        if walk.vocab:
+            raise Unverifiable("eval re-parses its arguments; this hook does not model it")
+
+
 def _targets_at(
-    words: list[str], i: int, gidx: list[int], cwd: Path | None, pr_indices: set[int], depth: int,
+    toks: list[Tok], i: int, gidx: list[int], cwd: Path | None, walk: _Walk, is_lead: bool,
 ) -> list[Target]:
+    words = [t.text for t in toks]
     prog = _prog(words[i])
     tail = words[i:]
     found: tuple[str, str | None] | None = None
     if prog == "gh":
-        found = _gh(tail, pr_indices, gidx[i:])
+        found = _gh(toks[i:], walk.pr_indices, gidx[i:])
     elif prog in _GITHUB_CLI:
-        found = _github(tail, pr_indices, gidx[i:])
+        found = _github(tail, walk.pr_indices, gidx[i:])
     elif prog == "pr-assistant":
         found = _pr_assistant(tail)
     elif prog == "hub":
         found = _hub(tail)
     elif prog in _SHELLS:
-        script = _shell_script(tail)
-        return find_targets(script, cwd, depth + 1) if script is not None else []
-    elif prog == "eval" and i + 1 < len(words):
-        return find_targets(" ".join(words[i + 1:]), cwd, depth + 1)
+        return _shell_targets(toks[i:], cwd, walk, is_lead)
+    elif prog == "eval" and is_lead and i + 1 < len(words):
+        if find_targets(" ".join(words[i + 1:]), cwd, walk.depth + 1):
+            raise Unverifiable("eval re-parses its arguments; this hook does not model it")
+        return []
     if found is None:
         return []
     return [Target(entry=found[0], cwd=cwd, head=found[1])]
 
 
-def _check_dynamic(tokens: list[str], pr_indices: set[int]) -> None:
+def _shell_targets(toks: list[Tok], cwd: Path | None, walk: _Walk, is_lead: bool) -> list[Target]:
+    saw_c, operand = _shell_script(toks)
+    if saw_c:
+        if operand is None:
+            return []
+        if operand.expands:
+            raise Unverifiable(
+                f"{toks[0].text} -c runs {operand.text!r}, which is not known until the shell runs"
+            )
+        return find_targets(operand.text, cwd, walk.depth + 1)
+    if is_lead and walk.vocab and (operand is None or operand.text == "-"):
+        raise Unverifiable(f"{toks[0].text} reads its commands from stdin, which this hook cannot read")
+    return []
+
+
+def _check_dynamic(words: list[str], pr_indices: set[int]) -> None:
     """Refuse `pr ... create|new` that no entry point accounted for, if anything is dynamic."""
-    if not any(_dynamic(t) for t in tokens):
+    if not any(_dynamic(t) for t in words):
         return
-    words = [_word(t) for t in tokens]
     for k, w in enumerate(words):
         if w == "pr" and k not in pr_indices and any(x in ("create", "new") for x in words[k + 1:]):
             raise Unverifiable("a program name is not known until the shell runs")
@@ -722,7 +1285,10 @@ def evaluate(payload: dict) -> int:
     try:
         targets = find_targets(command, cwd)
     except Unverifiable as exc:
-        return _block(f"this command may open a PR and cannot be checked: {exc}.\n{_advice(None)}")
+        return _block(
+            f"this command may open a PR and cannot be checked: {exc}.\n"
+            f"{_REFUSE_HINT}; the hook refuses forms it does not fully model.\n{_advice(None)}"
+        )
     for target in targets:
         try:
             cwd, sha = resolve_commit(target)

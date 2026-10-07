@@ -20,20 +20,22 @@
 #   ./bin/pr-assistant                (creates a PR when none exists; allowed with
 #                                      --no-create or --dry-run)
 #   hub pull-request
-# also inside `bash -c '...'` / `sh -c` / `eval`, and after `VAR=1`, `env`,
-# `command`, `builtin`, or wrappers like `timeout 5` / `xargs` / `sudo`.
+# also inside a static `bash -c '...'` / `sh -c`, and after `VAR=1`, `env`,
+# `command`, `builtin`, `exec`, `nohup`, `timeout 5` or `nice`.
 #
 # The commit checked is HEAD of the payload cwd (following a literal `cd`), or the
 # tip of the branch named by --head. Anything that cannot be known before the shell
 # runs -- an unbalanced quote, a `$VAR` program or --head, a `cd "$D"`, a --head
-# that does not resolve locally -- fails CLOSED.
+# that does not resolve locally -- fails CLOSED. So does any form the analyser does
+# not fully model: `$(...)`/backticks that open a PR, `eval`, `env -S`, `bash -c "$X"`,
+# `source`, a PR entry run by xargs/find/sudo, an unreadable `gh api graphql` body.
 #
 # KNOWN GAPS: command semantics no tokenizer can see -- a script file or Makefile
 # target that runs gh pr create, `python3 -c` or any program that calls the GitHub
 # API itself, curl to api.github.com, user-defined `gh alias` names, git aliases.
 #
 # COST: every Bash call pays one bash regex over the payload. Only a command whose
-# JSON text contains "pr" or "pull" (any case), a quote, a backslash, `$`, a
+# JSON text contains "pr", "pull", "gh", "hub" or "api" (any case), a quote, a backslash, `$`, a
 # backtick, a brace or a glob character reaches Python. The filter is load-bearing -- a command it passes is
 # never analysed -- so it errs toward Python for anything that can hide a word.
 
@@ -48,13 +50,16 @@ PAYLOAD="$(cat)"
 _re='"command"[[:space:]]*:[[:space:]]*"(([^"\\]|\\.)*)"'
 if [[ $PAYLOAD =~ $_re ]]; then
   _cmd=${BASH_REMATCH[1]}
+  # Any `gh`, `hub` or `api` reaches Python too: `gh api graphql --input q.json`
+  # names no PR word, yet its body can create one, and only the analyser can
+  # tell an inspectable GraphQL call from one it must refuse.
   # A quote, backslash, `$`, backtick, brace or glob character can spell "pr"
   # without the substring (`gh p''r create`, `gh p\r create`, `gh $'\x70'r create`,
   # `gh p{r,} create`, `gh p? create`), so any of them reaches Python too. The
   # capture is JSON-escaped: a `"` in the command arrives as `\"`, so the
   # backslash test covers double quotes as well.
   case "$_cmd" in
-    *[Pp][Rr]*|*[Pp][Uu][Ll][Ll]*|*\\*|*\'*|*\$*|*\`*|*\{*|*\**|*\?*|*\[*) ;;
+    *[Pp][Rr]*|*[Pp][Uu][Ll][Ll]*|*[Gg][Hh]*|*[Hh][Uu][Bb]*|*[Aa][Pp][Ii]*|*\\*|*\'*|*\$*|*\`*|*\{*|*\**|*\?*|*\[*) ;;
     *) exit 0 ;;
   esac
 elif [[ $PAYLOAD != *'"command"'* ]]; then
