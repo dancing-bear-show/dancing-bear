@@ -18,6 +18,8 @@ from pathlib import Path
 
 from workflow.compiler import compile_workflow
 from workflow.dispatch import build_agent_prompt
+from workflow.models import OutputCheck
+from workflow.output_checks import run_output_checks
 from workflow.parser import parse_workflow
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -689,17 +691,43 @@ class TestTriageThreadsValidatesOutput(unittest.TestCase):
             "triage-threads validates_output must include has_key:resolved_by_reviewer",
         )
 
-    def test_triage_output_check_absent_without_it(self) -> None:
-        # Confirm the check is not accidentally satisfied by a different key
-        # (non-matching case): has_key:resolved_by_reviewer should not equal
-        # has_key:threads or has_key:counts.
-        all_checks: list[str] = []
-        for oc in self.stage.spec.validates_output:
-            all_checks.extend(oc.checks)
-        self.assertNotIn(
-            "has_key:resolved_by_reviewer_TYPO",
-            all_checks,
-        )
+    def test_engine_rejects_triage_missing_resolved_by_reviewer(self) -> None:
+        # Behavioural: run the real output checker against a triage.json that
+        # lacks resolved_by_reviewer — the has_key check must fail.
+        with tempfile.TemporaryDirectory() as ws:
+            import os
+            os.makedirs(os.path.join(ws, "outputs"))
+            triage_path = os.path.join(ws, "outputs", "triage.json")
+            with open(triage_path, "w") as fh:
+                json.dump({"threads": [], "counts": {}}, fh)
+            results = run_output_checks(ws, [OutputCheck(
+                path="outputs/triage.json",
+                checks=["has_key:resolved_by_reviewer"],
+            )])
+            self.assertEqual(len(results), 1)
+            self.assertFalse(
+                results[0].passed,
+                "has_key:resolved_by_reviewer must fail when key is absent",
+            )
+
+    def test_engine_accepts_triage_with_resolved_by_reviewer(self) -> None:
+        # Behavioural: run the real output checker against a triage.json that
+        # includes resolved_by_reviewer (empty list is valid) — must pass.
+        with tempfile.TemporaryDirectory() as ws:
+            import os
+            os.makedirs(os.path.join(ws, "outputs"))
+            triage_path = os.path.join(ws, "outputs", "triage.json")
+            with open(triage_path, "w") as fh:
+                json.dump({"threads": [], "counts": {}, "resolved_by_reviewer": []}, fh)
+            results = run_output_checks(ws, [OutputCheck(
+                path="outputs/triage.json",
+                checks=["has_key:resolved_by_reviewer"],
+            )])
+            self.assertEqual(len(results), 1)
+            self.assertTrue(
+                results[0].passed,
+                "has_key:resolved_by_reviewer must pass when key is present",
+            )
 
 
 if __name__ == "__main__":
