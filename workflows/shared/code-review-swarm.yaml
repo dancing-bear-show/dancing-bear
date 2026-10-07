@@ -85,6 +85,16 @@ description: >
 # All stages that read or write per-file diffs MUST use this read-loop idiom.
 # If the scheme changes, update ALL occurrences: fetch-pr-context,
 # enumerate-targets, validate-concerns.
+#
+# Redirect quoting: the destination `> "${DEST}"` MUST be double-quoted so that
+# paths with spaces (e.g. src/a b.py → SAFE=src_a b.py) do not produce
+# "ambiguous redirect" errors. Always quote the full redirect destination.
+#
+# core.quotePath: changed-files.txt is produced with
+# `git -c core.quotePath=false diff … --name-only` so that non-ASCII paths
+# (e.g. src/café.py) are emitted as plain UTF-8 rather than C-quoted strings.
+# Both consumers — sweep_record.py (splitlines) and select-concerns
+# (--paths-file, also splitlines) — expect newline-delimited plain UTF-8.
 # ---------------------------------------------------------------------------
 
 trigger:
@@ -161,12 +171,16 @@ stages:
           }
 
       Step 2 — changed files and raw diff (local):
-          git diff ${MERGE_BASE}..${HEAD_SHA} --name-only > {workspace}/outputs/changed-files.txt
+          # Use -c core.quotePath=false so non-ASCII paths (e.g. src/café.py) are
+          # emitted as plain UTF-8, not C-quoted. Both changed-files.txt consumers
+          # (sweep_record.py and select-concerns --paths-file) read newline-delimited
+          # plain paths via splitlines(), so plain UTF-8 is the lossless format here.
+          git -c core.quotePath=false diff ${MERGE_BASE}..${HEAD_SHA} --name-only > {workspace}/outputs/changed-files.txt
           git diff ${MERGE_BASE}..${HEAD_SHA}             > {workspace}/outputs/full-diff.patch
         Per-file diffs:
           while IFS= read -r FILE; do
             SAFE=$(printf '%s' "$FILE" | tr '/' '_')
-            git diff "${MERGE_BASE}..${HEAD_SHA}" -- "$FILE" > {workspace}/outputs/diffs/${SAFE}.patch
+            git diff "${MERGE_BASE}..${HEAD_SHA}" -- "$FILE" > "{workspace}/outputs/diffs/${SAFE}.patch"
           done < {workspace}/outputs/changed-files.txt
 
       Step 3 — commit history (local):
@@ -230,7 +244,11 @@ stages:
         baseRefOid is a later commit we get only the PR's own changes:
           MERGE_BASE=$(git merge-base "$HEAD_SHA" "$BASE_SHA" 2>/dev/null || echo "$BASE_SHA")
         Use MERGE_BASE for all diffs:
-          git diff ${MERGE_BASE}..${HEAD_SHA} --name-only > {workspace}/outputs/changed-files.txt
+          # Use -c core.quotePath=false so non-ASCII paths (e.g. src/café.py) are
+          # emitted as plain UTF-8, not C-quoted. Both changed-files.txt consumers
+          # (sweep_record.py and select-concerns --paths-file) read newline-delimited
+          # plain paths via splitlines(), so plain UTF-8 is the lossless format here.
+          git -c core.quotePath=false diff ${MERGE_BASE}..${HEAD_SHA} --name-only > {workspace}/outputs/changed-files.txt
           git diff ${MERGE_BASE}..${HEAD_SHA}             > {workspace}/outputs/full-diff.patch
         Per-file diffs (needed by validators):
           Read filenames from changed-files.txt using a read loop so that no filename
@@ -238,7 +256,7 @@ stages:
             while IFS= read -r FILE; do
               SAFE=$(printf '%s' "$FILE" | tr '/' '_')  # see filename sanitization convention above
               git diff "${MERGE_BASE}..${HEAD_SHA}" -- "$FILE" \
-                > {workspace}/outputs/diffs/${SAFE}.patch
+                > "{workspace}/outputs/diffs/${SAFE}.patch"
             done < {workspace}/outputs/changed-files.txt
         The diffs/ subdirectory is created in Step 0 above.
         Store MERGE_BASE and HEAD_SHA in pr-context.json for downstream stages.
