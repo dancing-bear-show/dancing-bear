@@ -335,7 +335,7 @@ class TestCoverageAuditReadsOnlyValidatedTests(unittest.TestCase):
         self.prompt = _flat(_prompts()["verify-fixes"])
 
     def test_tests_come_from_the_validated_map(self) -> None:
-        self.assertIn('Take the tests to read ONLY from fix-results.json\'s top-level "tests_by_result"', self.prompt)
+        self.assertIn('Take the tests to read ONLY from fix-results-merged.json\'s top-level "tests_by_result"', self.prompt)
         self.assertIn('"rejected_tests_added"; never open those', self.prompt)
         self.assertNotIn('For every result with action "fixed" that lists tests_added', self.prompt)
 
@@ -585,7 +585,7 @@ class TestUnlinkedFindingTriageAndDispatchRules(unittest.TestCase):
             'This id has its OWN entry in triage.json', self.report_prompt
         )
         self.assertIn(
-            "Report its actual outcome from fix-results.json", self.report_prompt
+            "Report its actual outcome from fix-results-merged.json", self.report_prompt
         )
         self.assertIn(
             "never \"indeterminate\"", self.report_prompt
@@ -765,6 +765,93 @@ class TestSweepFixRegressions(unittest.TestCase):
             guide_names,
             f"fix-regressions.md not in selected guides for review-fix: {guide_names}",
         )
+
+    # --- merge-fix-results CLI: execution and schema ---
+
+    def test_merge_fix_results_command_executes(self) -> None:
+        """merge-fix-results runs without error and produces a merged JSON file."""
+        with tempfile.TemporaryDirectory() as td:
+            fr_path = Path(td) / "fix-results.json"
+            rr_path = Path(td) / "refix-results.json"
+            out_path = Path(td) / "fix-results-merged.json"
+            fr_path.write_text(json.dumps({
+                "files_changed": ["src/core/foo.py"],
+                "results": [{"id": "r1", "action": "fixed"}],
+                "missing_results": [],
+                "failed_tests": [],
+                "key_mismatches": [],
+                "out_of_scope_requests": [],
+                "out_of_scope_paths": [],
+                "rejected_tests_added": [],
+                "tests_by_result": {"r1": ["tests/core_tests/test_foo.py"]},
+                "by_action": {"fixed": 1, "rejected": 0},
+                "total_expected": 1,
+                "total_results": 1,
+            }), encoding="utf-8")
+            rr_path.write_text(json.dumps({
+                "files_changed": ["src/core/bar.py"],
+                "results": [{"id": "r2", "action": "fixed"}],
+                "missing_results": [],
+                "failed_tests": [],
+                "key_mismatches": [],
+                "out_of_scope_requests": [],
+                "out_of_scope_paths": [],
+                "rejected_tests_added": [],
+                "tests_by_result": {"r2": ["tests/core_tests/test_bar.py"]},
+                "by_action": {"fixed": 1, "rejected": 0},
+                "total_expected": 1,
+                "total_results": 1,
+            }), encoding="utf-8")
+
+            result = subprocess.run(  # nosec B603 - fixed argv invoking the repo's own CLI
+                [
+                    "./bin/workflow",
+                    "merge-fix-results",
+                    str(fr_path),
+                    str(rr_path),
+                    str(out_path),
+                ],
+                capture_output=True,
+                text=True,
+                cwd=str(_ROOT),
+            )
+            self.assertEqual(
+                result.returncode,
+                0,
+                f"merge-fix-results failed: {result.stderr}",
+            )
+            self.assertTrue(out_path.is_file(), "merged file was not written")
+            merged = json.loads(out_path.read_text(encoding="utf-8"))
+            # files_changed must be the union of both inputs
+            self.assertIn("src/core/foo.py", merged["files_changed"])
+            self.assertIn("src/core/bar.py", merged["files_changed"])
+            # tests_by_result must carry both result IDs
+            self.assertIn("r1", merged["tests_by_result"])
+            self.assertIn("r2", merged["tests_by_result"])
+            # by_action must be summed: fixed=2
+            self.assertEqual(merged["by_action"]["fixed"], 2)
+
+    def test_merge_fix_results_carries_all_fields(self) -> None:
+        """Merged file must carry the fields downstream readers need."""
+        prompt_commit = _flat(self.prompts["commit-and-push"])
+        # The merge command must appear in commit-and-push
+        self.assertIn("merge-fix-results", prompt_commit)
+        # The merge must not use python3 -c (which can cause IndentationError)
+        self.assertNotIn('python3 -I -S -c "', prompt_commit)
+        self.assertNotIn("python3 -c \"", prompt_commit)
+
+    def test_downstream_readers_reference_merged_file(self) -> None:
+        """verify-fixes, check-prose, plan-resolution, and report must read
+        fix-results-merged.json, not fix-results.json, for fields that
+        refix-regressions may have contributed to."""
+        for stage_name in ("verify-fixes", "check-prose", "plan-resolution", "report"):
+            with self.subTest(stage=stage_name):
+                prompt = _flat(self.prompts[stage_name])
+                self.assertIn(
+                    "fix-results-merged.json",
+                    prompt,
+                    f"{stage_name} does not reference fix-results-merged.json",
+                )
 
 
 if __name__ == "__main__":

@@ -519,3 +519,108 @@ def _cmd_count_sweep(args: argparse.Namespace) -> int:
         print(f"count-sweep: {result.reason}; the count is partial", file=sys.stderr)
         return int(ExitCode.ERROR)
     return 0
+
+
+def _merge_list_field(a: dict, b: dict, key: str) -> list:
+    """Return the union of two dicts' list fields, deduplicated where possible.
+
+    String lists (files_changed, missing_results, etc.) are deduplicated by
+    value.  Object lists (results, key_mismatches) are concatenated without
+    deduplication because dicts are not hashable.
+    """
+    a_list = list(a.get(key) or [])
+    b_list = list(b.get(key) or [])
+    if not a_list and not b_list:
+        return []
+    sample = (a_list or b_list)[0]
+    if isinstance(sample, str):
+        seen: dict[str, None] = {}
+        for item in a_list:
+            seen[item] = None
+        for item in b_list:
+            seen[item] = None
+        return list(seen.keys())
+    # Non-hashable items (dicts, lists): preserve both, append b after a.
+    return a_list + b_list
+
+
+_MERGE_LIST_FIELDS = [
+    "files_changed",
+    "results",
+    "missing_results",
+    "failed_tests",
+    "key_mismatches",
+    "out_of_scope_requests",
+    "out_of_scope_paths",
+    "rejected_tests_added",
+]
+
+
+def _load_fix_results_json(path: str, label: str) -> dict | None:
+    """Read a fix-results JSON file; return None and print to stderr on error."""
+    p = Path(path)
+    if not p.is_file():
+        print(f"merge-fix-results: {label} not found: {path}", file=sys.stderr)
+        return None
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        print(f"merge-fix-results: {label} is not valid JSON: {exc}", file=sys.stderr)
+        return None
+    if not isinstance(data, dict):
+        print(
+            f"merge-fix-results: {label} is not a JSON object "
+            f"(got {type(data).__name__})",
+            file=sys.stderr,
+        )
+        return None
+    return data
+
+
+def _merge_tests_by_result(fr: dict, rr: dict) -> dict:
+    """Merge tests_by_result dicts; refix values win on collision."""
+    fr_tbr = fr.get("tests_by_result") or {}
+    rr_tbr = rr.get("tests_by_result") or {}
+    if isinstance(fr_tbr, dict) and isinstance(rr_tbr, dict):
+        return {**fr_tbr, **rr_tbr}
+    return fr_tbr or rr_tbr  # type: ignore[return-value]
+
+
+def _merge_by_action(fr: dict, rr: dict) -> dict:
+    """Sum by_action counts key-by-key across both inputs."""
+    fr_ba = fr.get("by_action") or {}
+    rr_ba = rr.get("by_action") or {}
+    if isinstance(fr_ba, dict) and isinstance(rr_ba, dict):
+        all_keys = set(fr_ba) | set(rr_ba)
+        return {k: (fr_ba.get(k) or 0) + (rr_ba.get(k) or 0) for k in all_keys}
+    return fr_ba or rr_ba  # type: ignore[return-value]
+
+
+def _cmd_merge_fix_results(args: argparse.Namespace) -> int:
+    """Merge fix-results.json and refix-results.json into a single file.
+
+    All list fields are unioned (deduplicated, order-preserving). The
+    ``by_action`` dict is summed key-by-key. Every field present in either
+    input is carried to the output.
+
+    Exit 0 on success. Exit 1 if either input file is missing or not a JSON
+    object.
+    """
+    from core.fileutil import atomic_write_json
+
+    fr = _load_fix_results_json(args.fix_results, "fix-results")
+    rr = _load_fix_results_json(args.refix_results, "refix-results")
+    if fr is None or rr is None:
+        return 1
+
+    merged: dict = dict(fr)
+    for field in _MERGE_LIST_FIELDS:
+        merged[field] = _merge_list_field(fr, rr, field)
+    merged["tests_by_result"] = _merge_tests_by_result(fr, rr)
+    merged["by_action"] = _merge_by_action(fr, rr)
+
+    atomic_write_json(args.out, merged)
+    fc = len(merged.get("files_changed") or [])
+    results = len(merged.get("results") or [])
+    print(f"merge-fix-results: files_changed={fc} results={results}")
+    return 0

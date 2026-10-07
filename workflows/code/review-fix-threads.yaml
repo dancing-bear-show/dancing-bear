@@ -1504,17 +1504,13 @@ stages:
       {workspace}/outputs/refix-results.json (written by refix-regressions;
       may have an empty "files_changed" list if blocking was 0).
 
-      Build the COMBINED files_changed list: the union of both files' own
-      "files_changed" lists, deduplicated. Write it to a temporary merged
-      file:
-        python3 -I -S -c "
-          import json, sys
-          fr = json.load(open('{workspace}/outputs/fix-results.json'))
-          rr = json.load(open('{workspace}/outputs/refix-results.json'))
-          combined = list(dict.fromkeys(fr.get('files_changed', []) + rr.get('files_changed', [])))
-          merged = dict(fr); merged['files_changed'] = combined
-          json.dump(merged, open('{workspace}/outputs/fix-results-merged.json', 'w'))
-        "
+      Build fix-results-merged.json — the union of all list fields and the
+      sum of by_action from both files. Run the tested CLI command:
+        ./bin/workflow merge-fix-results \
+          "{workspace}/outputs/fix-results.json" \
+          "{workspace}/outputs/refix-results.json" \
+          "{workspace}/outputs/fix-results-merged.json"
+      Exit non-zero on failure (missing input, non-JSON, non-object).
 
       Before deciding whether there is anything to commit, run the
       check-unlisted gate unconditionally against the MERGED file —
@@ -1615,7 +1611,7 @@ stages:
       claimed to touch.
 
       Step 4 — commit with a message summarizing the threads addressed (one
-      line per thread, from fix-results.json's per-thread summary field), then
+      line per thread, from fix-results-merged.json's per-thread summary field), then
       push to the head_branch value read from pr-context.json in Step 2 (never
       a hardcoded branch name). Do not type head_branch's value into the
       command text, even quoted: a quoted expansion stops word-splitting and
@@ -1629,7 +1625,7 @@ stages:
       tool call: shell variables do not survive between Bash tool calls, so
       a HEAD_BRANCH set in one call is empty in the next:
         HEAD_BRANCH=$(jq -er '.head_branch' "{workspace}/outputs/pr-context.json") || { echo "NO-HEAD-BRANCH"; exit 3; }
-        git commit -m "<summary derived from fix-results.json>"
+        git commit -m "<summary derived from fix-results-merged.json>"
         git push origin "$HEAD_BRANCH"
 
       If the push is rejected (e.g. the remote advanced), do not force-push
@@ -1671,7 +1667,7 @@ stages:
       commit the PR does not contain.
 
       Write {workspace}/outputs/commit-result.json. files_committed must be
-      exactly the list staged in Step 3 (fix-results.json's files_changed),
+      exactly the list staged in Step 3 (fix-results-merged.json's files_changed),
       not a fixed example — a run touching several threads across several
       files commits all of them in one push:
         {
@@ -1790,7 +1786,7 @@ stages:
       the same agent whose work you are auditing, and its own definition tells
       it to set them — so reading them back proves nothing.
 
-      Take the tests to read ONLY from fix-results.json's top-level
+      Take the tests to read ONLY from fix-results-merged.json's top-level
       "tests_by_result" — never from a result's own "tests_added". `results`
       is kept verbatim, so a fixer's tests_added can name any path
       (`../../.envrc::x`), and reading it would turn fixer text into a
@@ -1835,7 +1831,7 @@ stages:
       thread share `thread_id: null` and cannot be told apart by it.
 
       Set all_green false if tests fail, lint fails, any coverage_gaps remain,
-      or fix-results.json lists any missing_results, failed_tests or
+      or fix-results-merged.json lists any missing_results, failed_tests or
       key_mismatches.
 
       Then, whenever all_green is false, after writing the file:
@@ -1872,7 +1868,7 @@ stages:
   - name: check-prose
     kind: execute
     depends_on: [verify-fixes]
-    reads_from: [fix-aggregate, triage-threads]
+    reads_from: [fix-aggregate, triage-threads, commit-and-push]
     description: >
       Check every reply that is about to be posted to GitHub against
       .claude/WRITING_GUIDE.md. These replies are outward-facing and permanent;
@@ -1882,7 +1878,7 @@ stages:
 
       Step 2 — collect the reply text for every thread that will receive one:
         - "fixed" threads: reply_text from the `results` array of
-          {workspace}/outputs/fix-results.json. Do not read
+          {workspace}/outputs/fix-results-merged.json. Do not read
           outputs/fixes/*.json directly: fix-aggregate has already dropped
           any file whose identity failed its check, and reading the raw
           files would bring those back.
@@ -1970,7 +1966,7 @@ stages:
   - name: plan-resolution
     kind: propose
     depends_on: [update-pr-description]
-    reads_from: [check-prose, verify-fixes, triage-threads, fix-aggregate, parse-review-overview, fetch-threads]
+    reads_from: [check-prose, verify-fixes, triage-threads, fix-aggregate, parse-review-overview, fetch-threads, commit-and-push]
     description: >
       Decide which threads have earned a reply and which have earned closure,
       and write the plan. The mutations are done by the shared
@@ -1980,7 +1976,7 @@ stages:
       writes an empty one and says why, rather than guessing.
 
       Step 1 — read {workspace}/outputs/replies/final-replies.json,
-      {workspace}/outputs/triage.json, and {workspace}/outputs/fix-results.json.
+      {workspace}/outputs/triage.json, and {workspace}/outputs/fix-results-merged.json.
 
       If final-replies.json is missing or unparseable, write a plan with an
       empty threads list and "blocked_reason" set, then exit non-zero. Do NOT
@@ -2027,7 +2023,7 @@ stages:
       them by id; thread_id is used only for the GitHub address. A thread
       goes in the set when any of these hold, regardless of what triage
       intended:
-        - its "id" appears in fix-results.json "missing_results"
+        - its "id" appears in fix-results-merged.json "missing_results"
           (the fixer crashed, or its result failed the identity check and is
           listed in key_mismatches; nobody knows whether the code was
           changed). Match on id, not thread_id — missing_results holds the
@@ -2145,7 +2141,7 @@ stages:
     description: >
       Write the run summary to {workspace}/outputs/run-report.md.
 
-      Read triage.json, fix-results.json, verify-results.json,
+      Read triage.json, fix-results-merged.json, verify-results.json,
       pr-describe-result.json, resolve-plan.json, resolution.json, and
       review-overview.json.
       Report what the artifacts say, not what the workflow intended.
@@ -2189,7 +2185,7 @@ stages:
             "id" from review-overview.json): triage-threads already found this
             finding's title in the raw newest overview body and triaged it
             like a current finding (see the triage-threads partial-parse
-            exception). Report its actual outcome from fix-results.json —
+            exception). Report its actual outcome from fix-results-merged.json —
             dispatched, fixed, rejected, deferred — the same as any other
             current finding, never "indeterminate". Note in the entry that it
             was re-confirmed live from the raw overview body despite the
@@ -2220,12 +2216,12 @@ stages:
             "null:<line>", which hides the file a human needs to look at.
             Reported, never dispatched — this labelling never authorizes
             pointing a fixer at path_rejected.
-          - fix-results.json top-level "out_of_scope_requests": comment text
+          - fix-results-merged.json top-level "out_of_scope_requests": comment text
             that tried to steer a fixer outside its file or into GitHub state
-          - fix-results.json top-level "out_of_scope_paths": files a fixer
+          - fix-results-merged.json top-level "out_of_scope_paths": files a fixer
             claimed outside its own group's file and its own tests — never
             committed
-          - fix-results.json top-level "rejected_tests_added": test ids that
+          - fix-results-merged.json top-level "rejected_tests_added": test ids that
             named an unsafe or non-tests/ path — never opened
           - commit-result.json "refused_paths", if commit-and-push stopped on
             a protected path — a fixer touched one despite its instructions
@@ -2256,11 +2252,11 @@ stages:
 
       Close with a per-thread table: id (short), path:line, directive,
       action, replied, resolved. Build each row by joining triage.json,
-      fix-results.json and resolve-plan.json on "id", not thread_id — joining
+      fix-results-merged.json and resolve-plan.json on "id", not thread_id — joining
       on thread_id collapses every entry with no thread into one row. Then
       attach resolution.json's outcome by thread_id, which is safe there
       because only entries with a non-null thread_id are ever replied to or
-      resolved. List any fix-results.json key_mismatches under Fixes as
+      resolved. List any fix-results-merged.json key_mismatches under Fixes as
       findings with an unknown outcome.
     agent:
       role: doc-writer

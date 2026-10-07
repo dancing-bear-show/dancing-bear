@@ -48,6 +48,7 @@ from workflow.cli_dispatch_review import (
     _cmd_check_thread_ids,
     _cmd_check_unlisted,
     _cmd_count_sweep,
+    _cmd_merge_fix_results,
     _cmd_parse_overview,
     _cmd_review_rounds,
     _cmd_select_concerns,
@@ -385,6 +386,17 @@ def cmd_count_sweep(args: argparse.Namespace) -> int:
     return _cmd_count_sweep(args)
 
 
+@app.command(
+    "merge-fix-results",
+    help="Merge fix-results.json and refix-results.json into a combined file",
+)
+@app.argument("fix_results", help="Path to fix-results.json (primary fixer output)")
+@app.argument("refix_results", help="Path to refix-results.json (regression-sweep fixer output)")
+@app.argument("out", help="Path to write the merged JSON output")
+def cmd_merge_fix_results(args: argparse.Namespace) -> int:
+    return _cmd_merge_fix_results(args)
+
+
 def _no_command_usage() -> int:
     """Preserve the legacy no-subcommand behavior (one-line usage to
     stderr, ExitCode.USAGE) rather than CLIApp's default (full --help),
@@ -393,7 +405,7 @@ def _no_command_usage() -> int:
         "Usage: workflow {parse,compile,run,lint,list,status,init-workspace,resume,"
         "validate-fragment,parse-overview,check-paths,select-concerns,check-params,"
         "check-fix-index,thread-fingerprints,check-thread-ids,aggregate-fix-results,"
-        "snapshot-dirty,check-unlisted,review-rounds,count-sweep} [options]",
+        "snapshot-dirty,check-unlisted,review-rounds,count-sweep,merge-fix-results} [options]",
         file=sys.stderr,
     )
     return ExitCode.USAGE

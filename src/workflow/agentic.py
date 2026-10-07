@@ -57,6 +57,11 @@ def build_agentic_capsule() -> str:
     lines.append(
         "  - count-sweep: ./bin/workflow count-sweep --pattern='<regex>' --path='<p>' [--path='<p>' ...]"
     )
+    lines.append(
+        "  - merge-fix-results: ./bin/workflow merge-fix-results "
+        "<workspace>/outputs/fix-results.json <workspace>/outputs/refix-results.json "
+        "<workspace>/outputs/fix-results-merged.json"
+    )
     lines.append("notes:")
     lines.append("  - ./bin/workflow list is the authoritative live catalog of available workflows")
     lines.append(
