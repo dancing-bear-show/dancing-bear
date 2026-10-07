@@ -612,20 +612,24 @@ class TestSweepFixRegressions(unittest.TestCase):
 
     # --- Stage existence and ordering ---
 
-    def test_sweep_stage_exists(self) -> None:
-        self.assertIn("sweep-fix-regressions", self.stages)
+    def test_all_three_sweep_stages_exist(self) -> None:
+        for name in ("sweep-fix-regressions", "refix-regressions", "resweep-regressions"):
+            with self.subTest(stage=name):
+                self.assertIn(name, self.stages)
 
-    def test_sweep_is_after_fix_aggregate(self) -> None:
-        agg_idx = self.stages.index("fix-aggregate")
-        sweep_idx = self.stages.index("sweep-fix-regressions")
-        self.assertGreater(sweep_idx, agg_idx)
+    def test_sweep_pipeline_ordering(self) -> None:
+        """fix-aggregate → sweep → refix → resweep → commit-and-push."""
+        agg = self.stages.index("fix-aggregate")
+        sweep = self.stages.index("sweep-fix-regressions")
+        refix = self.stages.index("refix-regressions")
+        resweep = self.stages.index("resweep-regressions")
+        commit = self.stages.index("commit-and-push")
+        self.assertLess(agg, sweep)
+        self.assertLess(sweep, refix)
+        self.assertLess(refix, resweep)
+        self.assertLess(resweep, commit)
 
-    def test_sweep_is_before_commit_and_push(self) -> None:
-        sweep_idx = self.stages.index("sweep-fix-regressions")
-        commit_idx = self.stages.index("commit-and-push")
-        self.assertLess(sweep_idx, commit_idx)
-
-    # --- Prompt content ---
+    # --- sweep-fix-regressions: reporter, exits 0 ---
 
     def test_sweep_prompt_calls_select_concerns_with_review_fix_task_type(self) -> None:
         prompt = _flat(self.prompts["sweep-fix-regressions"])
@@ -637,18 +641,12 @@ class TestSweepFixRegressions(unittest.TestCase):
         prompt = _flat(self.prompts["sweep-fix-regressions"])
         self.assertIn("--paths-file", prompt)
 
-    def test_sweep_prompt_names_blocking_findings_halt_commit(self) -> None:
+    def test_sweep_is_reporter_exits_zero(self) -> None:
+        """sweep-fix-regressions is a reporter — it exits 0 even with blocking
+        findings. The gate is resweep-regressions."""
         prompt = _flat(self.prompts["sweep-fix-regressions"])
-        self.assertIn("blocking", prompt)
-        # The stage must document that blocking findings stop the push.
-        self.assertTrue(
-            "halt commit" in prompt.lower()
-            or "commit-and-push" in prompt.lower()
-        )
-
-    def test_sweep_prompt_exits_nonzero_on_unresolved_blocking_findings(self) -> None:
-        prompt = _flat(self.prompts["sweep-fix-regressions"])
-        self.assertIn("exit non-zero", prompt)
+        self.assertIn("Exit 0", prompt)
+        self.assertIn("reporter", prompt)
 
     def test_sweep_prompt_names_unbacked_verification_check(self) -> None:
         """Regression 6: verify test_output_tail contains 'Ran N tests'."""
@@ -671,17 +669,55 @@ class TestSweepFixRegressions(unittest.TestCase):
         prompt = _flat(self.prompts["sweep-fix-regressions"])
         self.assertIn("MUST NOT edit", prompt)
 
-    def test_sweep_prompt_names_retry_bound(self) -> None:
-        """Remediation path: at most one retry per finding."""
-        prompt = _flat(self.prompts["sweep-fix-regressions"])
-        self.assertTrue(
-            "bounded" in prompt.lower() or "at most one" in prompt.lower(),
-            "Expected bounded retry language in sweep prompt",
-        )
-
     def test_sweep_prompt_writes_findings_json(self) -> None:
         prompt = _flat(self.prompts["sweep-fix-regressions"])
         self.assertIn("sweep-findings.json", prompt)
+
+    # --- refix-regressions: thread-fixer, edits source ---
+
+    def test_refix_is_noop_when_blocking_zero(self) -> None:
+        """refix writes empty results and exits 0 when no blocking findings."""
+        prompt = _flat(self.prompts["refix-regressions"])
+        self.assertIn("blocking", prompt)
+        self.assertIn("0", prompt)
+        # Must write refix-results.json even when nothing to do.
+        self.assertIn("refix-results.json", prompt)
+
+    def test_refix_passes_blocking_findings_to_fixer(self) -> None:
+        prompt = _flat(self.prompts["refix-regressions"])
+        self.assertIn("blocking_findings", prompt)
+
+    # --- resweep-regressions: reviewer, the gate ---
+
+    def test_resweep_exits_nonzero_when_findings_persist(self) -> None:
+        """resweep is the gate — it must exit non-zero if any finding persists."""
+        prompt = _flat(self.prompts["resweep-regressions"])
+        self.assertIn("exit non-zero", prompt)
+        self.assertIn("still_blocking", prompt)
+
+    def test_resweep_is_read_only_no_edit(self) -> None:
+        """resweep must not edit source files."""
+        prompt = _flat(self.prompts["resweep-regressions"])
+        self.assertIn("MUST NOT edit", prompt)
+
+    def test_resweep_reruns_probe_from_sweep_findings(self) -> None:
+        """resweep re-runs the probe commands sweep recorded, not a new scan."""
+        prompt = _flat(self.prompts["resweep-regressions"])
+        self.assertIn("probe", prompt)
+        self.assertIn("sweep-findings.json", prompt)
+
+    def test_resweep_checks_gate_suppressions_in_refix_diff(self) -> None:
+        """gate-suppressions in refix output must also be caught by resweep."""
+        prompt = _flat(self.prompts["resweep-regressions"])
+        self.assertIn("gate-suppression", prompt)
+
+    # --- commit-and-push sees refix files ---
+
+    def test_commit_reads_refix_results(self) -> None:
+        """commit-and-push must read refix-results.json and include its
+        files_changed in the files to stage."""
+        prompt = _flat(self.prompts["commit-and-push"])
+        self.assertIn("refix-results.json", prompt)
 
     # --- selection.yaml wiring ---
 

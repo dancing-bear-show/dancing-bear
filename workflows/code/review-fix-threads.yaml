@@ -12,7 +12,11 @@
 #     |
 #   fix-aggregate                (merges per-thread results; flags missing ones)
 #     |
-#   sweep-fix-regressions        (sweeps combined diff for regression patterns; blocking findings halt push)
+#   sweep-fix-regressions        (reviewer, read-only: sweeps diff; writes sweep-findings.json)
+#     |
+#   refix-regressions            (thread-fixer fan-out: re-fixes items with blocking findings; no-op when none)
+#     |
+#   resweep-regressions          (reviewer, read-only: re-probes each blocking finding; exit non-zero if any persist)
 #     |
 #   commit-and-push               (commits and pushes fixer edits before anything downstream
 #     |                            describes or verifies them — see its description for why)
@@ -1160,7 +1164,7 @@ stages:
       - fix-results.json
 
   # ===========================================================================
-  # Regression sweep — runs after fix-aggregate but before the push
+  # Regression sweep — three stages: sweep → refix → resweep → commit-and-push
   # ===========================================================================
 
   - name: sweep-fix-regressions
@@ -1169,12 +1173,12 @@ stages:
     reads_from: [fix-aggregate, triage-threads]
     description: >
       Sweep the fixers' combined diff for the regression patterns that
-      review-fix runs commonly introduce, so they are caught before the push
-      triggers another bot review round.
+      review-fix runs commonly introduce. This stage is a REPORTER — it writes
+      findings and exits 0 even when blocking findings exist. The gate is in
+      resweep-regressions.
 
       This stage is read-only: it MUST NOT edit any source file. It may run
-      probes (Bash) and write findings to {workspace}/validation/. A blocking
-      finding halts commit-and-push.
+      probes (Bash) and write findings to {workspace}/validation/.
 
       Step 1 — read inputs.
 
@@ -1201,7 +1205,7 @@ stages:
         file rather than expanding the list in shell text.
 
         Write the combined diff to {workspace}/validation/sweep-diff.patch
-        so probes can reference it.
+        so resweep-regressions can reference it as a baseline.
 
       Step 3 — build the changed-files list for concern selection.
 
@@ -1240,13 +1244,17 @@ stages:
           - concern_id: the guide's concern name (e.g. "instance-fix-not-class-fix")
           - thread_id: the triage entry's thread_id (null for unlinked findings)
           - id: the triage entry's id (e.g. "PRRT_..." or "unlinked:...")
+          - file_id: the fix-index item's file_id for this finding's id, so
+            refix-regressions can locate the fixer result to retry
           - path: the file the finding is in (from files_changed or from the
             concern's structural check)
           - line: integer line number, or null if not applicable
           - severity: "critical" | "major" | "minor" — from the concern guide
           - evidence: what you found — a quoted code fragment, command output,
             or prose description sufficient for a fixer to reproduce it
-          - probe: the command (if any) you ran to verify the finding, or null
+          - probe: the command (if any) you ran to verify the finding, or null;
+            resweep-regressions re-runs this command verbatim — make it
+            self-contained and side-effect-free
 
         A finding is blocking when severity is "critical" or "major".
 
@@ -1273,7 +1281,7 @@ stages:
           - stale-descriptions: for any changed constant or threshold, grep
             for its old value in docstrings, comments, and stage descriptions.
 
-      Step 6 — write {workspace}/validation/sweep-findings.json:
+      Step 6 — write {workspace}/validation/sweep-findings.json and exit 0.
 
         {
           "total": N,
@@ -1282,6 +1290,7 @@ stages:
             {
               "concern_id": "instance-fix-not-class-fix",
               "id": "PRRT_kwDO...",
+              "file_id": "PRRT_kwDO...-c2d49cee",
               "thread_id": "PRRT_kwDO...",
               "path": "src/foo.py",
               "line": 42,
@@ -1292,42 +1301,9 @@ stages:
           ]
         }
 
-      Step 7 — remediation dispatch.
-
-        If blocking is 0: exit 0 with a summary stating how many concerns were
-        swept and that none were blocking. commit-and-push will proceed.
-
-        If blocking > 0: for each blocking finding, look up the fix-index item
-        by the finding's id and re-dispatch that item's fixer with the finding
-        as an additional constraint. This is a BOUNDED retry: at most one
-        re-dispatch per finding; if the re-dispatch fails or the finding
-        persists, record it as unresolved and halt commit-and-push.
-
-        Re-dispatch instructions:
-          - Write {workspace}/validation/sweep-retry-<file_id>.json with the
-            finding detail. This is the sole channel for the retry instruction.
-          - Spawn the fixer agent (role: thread-fixer) with the original fix
-            item plus the finding, instructing it to address the named concern
-            without introducing new regressions.
-          - After the re-dispatch completes, re-run the specific probe from the
-            finding and confirm the finding is resolved.
-          - If resolved: remove the finding from the blocking list and continue.
-          - If not resolved or the probe could not be run: leave it blocking.
-
-        When any findings remain blocking after the retry pass: write the final
-        sweep-findings.json, set your stage result status to "failed", and exit
-        non-zero. commit-and-push depends on this stage and will not run.
-
-        When all findings are resolved or non-blocking: exit 0.
-
-        Rationale for bounded retry (not halt-and-report): the regression
-        patterns catalogued in concerns/fix-regressions.md are well-defined
-        and mechanical enough that a second fixer pass with the finding
-        in-context reliably resolves them. Halting on every finding would
-        require human intervention for common, automatable regressions (e.g.
-        an obvious test that asserts a pre-existing property). One bounded
-        retry keeps the workflow autonomous for the common case while halting
-        when a regression is genuinely ambiguous or the fixer cannot fix it.
+        Exit 0 in all cases — this stage is a reporter. The gate is in
+        resweep-regressions. Exit non-zero only if the sweep itself could not
+        complete (e.g. fix-results.json is unreadable).
     agent:
       role: reviewer
       model: sonnet
@@ -1337,6 +1313,173 @@ stages:
     writes_to:
       - validation/sweep-findings.json
 
+  - name: refix-regressions
+    kind: execute
+    depends_on: [sweep-fix-regressions]
+    reads_from: [sweep-fix-regressions, fix-aggregate, triage-threads]
+    description: >
+      Re-fix items that have blocking findings from sweep-fix-regressions.
+      This is the bounded single-retry pass: one re-dispatch per fix-index item
+      that has at least one blocking finding.
+
+      Step 1 — read {workspace}/validation/sweep-findings.json.
+
+        If "blocking" is 0, write {workspace}/outputs/refix-results.json with
+        {"total_expected": 0, "files_changed": [], "results": []} and exit 0.
+        There is nothing to refix.
+
+      Step 2 — for each blocking finding, identify the fix-index item by
+        finding.file_id. Group all blocking findings by file_id — one refix
+        agent per item, mirroring the fix-threads shape.
+
+        Read {workspace}/outputs/fix-index.json to recover the full item
+        (path, threads, comments). Read {workspace}/outputs/triage.json to
+        recover each affected thread's comment chain and ask.
+
+        Write {workspace}/validation/refix-index.json in the same shape as
+        fix-index.json but containing only the items that need a refix:
+          {
+            "total": N,
+            "items": [
+              {
+                "index": "0",
+                "data": {
+                  "path": "...",
+                  "threads": [ ... original thread item ... ],
+                  "blocking_findings": [
+                    {
+                      "concern_id": "...",
+                      "evidence": "...",
+                      "probe": "..."
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+
+        Run `./bin/workflow check-fix-index {workspace}/validation/refix-index.json`
+        to verify uniqueness and safety before dispatching.
+
+      Step 3 — for each item in refix-index.json, re-run the fix.
+
+        For each item in refix-index.json, read the item's "path" and
+        "blocking_findings". Your group contains the original thread(s) for one
+        file path, plus the blocking findings that the sweep identified.
+
+        Address each blocking finding in "blocking_findings" without introducing
+        new regressions. Follow your agent definition (.claude/agents/thread-fixer.md)
+        for scope, testing, and output format. Write ONE result file to
+        {workspace}/outputs/fixes/refix-<item_file_id>.json in the same schema
+        as the original fix result, where <item_file_id> is the item's "file_id"
+        from refix-index.json.
+
+        SCOPE: you may only edit the file named in "path" and its matching test
+        file. The blocking findings name specific code paths — address those and
+        no others. Do not resolve or reply to any thread.
+
+        An item you cannot fix gets action "rejected" with evidence — a missing
+        file is indistinguishable from a crashed agent.
+
+      Step 4 — aggregate refix results.
+
+        Read every {workspace}/outputs/fixes/refix-*.json result file.
+        Write {workspace}/outputs/refix-results.json:
+          {
+            "total_expected": N,
+            "files_changed": ["src/foo.py", ...],
+            "results": [ ... each result verbatim ... ]
+          }
+
+        "files_changed" is the union of all results' files_changed lists PLUS
+        the test file parts of tests_added ids, exactly as fix-aggregate builds
+        it. These are the additional files commit-and-push must stage.
+
+        Do NOT merge these results into fix-results.json — commit-and-push reads
+        both files explicitly (see its description). Merging would re-run the
+        identity checks fix-aggregate already ran and risk collisions.
+    agent:
+      role: thread-fixer
+      model: sonnet
+      tools: [Read, Edit, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - validation/refix-index.json
+      - outputs/refix-results.json
+
+  - name: resweep-regressions
+    kind: gather
+    depends_on: [refix-regressions]
+    reads_from: [sweep-fix-regressions, refix-regressions]
+    description: >
+      Re-probe each blocking finding from sweep-fix-regressions against the
+      post-refix working tree. This is the gate — it exits non-zero if any
+      blocking finding persists. Bounded to exactly one retry; there is no
+      second refix.
+
+      This stage is read-only: it MUST NOT edit any source file.
+
+      Step 1 — read {workspace}/validation/sweep-findings.json.
+
+        If "blocking" is 0, write {workspace}/validation/resweep.json with
+        {"total_checked": 0, "still_blocking": 0, "findings": []} and exit 0.
+        There was nothing to refix and nothing to re-check.
+
+      Step 2 — for each blocking finding in sweep-findings.json:
+
+        2a. Run the finding's "probe" command verbatim (the self-contained
+            command sweep-fix-regressions recorded). A probe that exits non-zero
+            means the finding PERSISTS. A null probe means the finding cannot
+            be re-verified automatically — treat it as persisting unless
+            refix-results.json records a "fixed" result for the same file_id.
+
+        2b. For the gate-suppressions-added concern specifically, re-grep the
+            diff of every file in refix-results.json's files_changed for the
+            suppression patterns:
+              git diff HEAD -- <file> | grep -E "# type: ignore|# noqa|# nosec|# NOSONAR|@unittest\.skip|@pytest\.mark\.skip|@unittest\.expectedFailure"
+            Any hit is a still-blocking finding, even if the original probe
+            did not name this file.
+
+      Step 3 — write {workspace}/validation/resweep.json:
+
+        {
+          "total_checked": N,
+          "still_blocking": N,
+          "findings": [
+            {
+              "concern_id": "...",
+              "id": "...",
+              "thread_id": "...",
+              "path": "...",
+              "line": null,
+              "severity": "critical",
+              "evidence": "probe exited N (expected 0): <output>",
+              "probe": "..."
+            }
+          ]
+        }
+
+        Include only findings that still block (probe returned non-zero or
+        matched a gate-suppression pattern). A resolved finding is not listed.
+
+      Step 4 — if still_blocking > 0: set your stage result status to "failed"
+        and exit non-zero. commit-and-push will not run.
+
+        If still_blocking == 0: exit 0.
+
+        This is the ONLY exit-non-zero gate in the sweep pipeline. sweep-fix-
+        regressions and refix-regressions both exit 0 on completion — the
+        correctness signal lives here.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Bash, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - validation/resweep.json
+
   # ===========================================================================
   # Commit and push — before anything downstream describes or tests the fixes
   # ===========================================================================
@@ -1344,8 +1487,8 @@ stages:
   - name: commit-and-push
     kind: publish
     executor: inline
-    depends_on: [sweep-fix-regressions]
-    reads_from: [fix-aggregate, init]
+    depends_on: [resweep-regressions]
+    reads_from: [fix-aggregate, refix-regressions, init]
     description: >
       Commit and push every fixer's file edits before verify-fixes tests them
       or update-pr-description describes them. Without this stage, both of
@@ -1357,10 +1500,26 @@ stages:
       X" and have that be true on the remote branch, not just true on this
       machine's disk.
 
-      Step 1 — read {workspace}/outputs/fix-results.json. Before deciding
-      whether there is anything to commit, run the check-unlisted gate
-      unconditionally — including when files_changed is empty:
-        ./bin/workflow check-unlisted "{workspace}/outputs/dirty-baseline.json" "{workspace}/outputs/fix-results.json"
+      Step 1 — read {workspace}/outputs/fix-results.json and
+      {workspace}/outputs/refix-results.json (written by refix-regressions;
+      may have an empty "files_changed" list if blocking was 0).
+
+      Build the COMBINED files_changed list: the union of both files' own
+      "files_changed" lists, deduplicated. Write it to a temporary merged
+      file:
+        python3 -I -S -c "
+          import json, sys
+          fr = json.load(open('{workspace}/outputs/fix-results.json'))
+          rr = json.load(open('{workspace}/outputs/refix-results.json'))
+          combined = list(dict.fromkeys(fr.get('files_changed', []) + rr.get('files_changed', [])))
+          merged = dict(fr); merged['files_changed'] = combined
+          json.dump(merged, open('{workspace}/outputs/fix-results-merged.json', 'w'))
+        "
+
+      Before deciding whether there is anything to commit, run the
+      check-unlisted gate unconditionally against the MERGED file —
+      including when files_changed is empty:
+        ./bin/workflow check-unlisted "{workspace}/outputs/dirty-baseline.json" "{workspace}/outputs/fix-results-merged.json"
       A fixer that edited a file but under-reported an empty files_changed
       list produces exactly that case, and an early return here — before
       this command ever ran — would let the edit reach the tree undetected,
@@ -1371,13 +1530,13 @@ stages:
       this stage failed, and exit non-zero — the same handling Step 3b uses,
       run here first so an empty files_changed cannot skip it.
 
-      Once check-unlisted has passed, branch on files_changed. If it is empty
-      (every thread was "rejected" or "moot", so nothing touched the tree —
-      and check-unlisted just confirmed no fixer left an unlisted edit
-      either), write {workspace}/outputs/commit-result.json with
-      {"committed": false, "reason": "no files changed", "sha": null} and stop
-      here — an empty commit is not a valid outcome and `git commit` with
-      nothing staged exits non-zero.
+      Once check-unlisted has passed, branch on the COMBINED files_changed
+      list. If it is empty (every thread was "rejected" or "moot" and no
+      refix made changes — check-unlisted just confirmed no fixer left an
+      unlisted edit either), write {workspace}/outputs/commit-result.json
+      with {"committed": false, "reason": "no files changed", "sha": null}
+      and stop here — an empty commit is not a valid outcome and `git commit`
+      with nothing staged exits non-zero.
 
       Step 2 — read {workspace}/outputs/pr-context.json (written by init) to
       get head_branch, then confirm the local checkout is still on it (init
@@ -1418,7 +1577,7 @@ stages:
       command and its inputs are identical to Step 1's run) is cheap and
       keeps this step's failure handling local to where staging is about to
       happen:
-        ./bin/workflow check-unlisted "{workspace}/outputs/dirty-baseline.json" "{workspace}/outputs/fix-results.json"
+        ./bin/workflow check-unlisted "{workspace}/outputs/dirty-baseline.json" "{workspace}/outputs/fix-results-merged.json"
       Before trusting dirty-baseline.json, check-unlisted must verify it
       against the "dirty_baseline_sha256" value init recorded in
       pr-context.json: re-hash the file on disk and fail closed (same as an
@@ -1440,9 +1599,10 @@ stages:
       concurrent session writing to this checkout, and a human has to say
       which.
 
-      Step 3 — stage exactly the files fix-results.json lists in
-      files_changed, by name. Never `git add -A` or `git add .`: a fixer only
-      has license to touch the file its thread was anchored to, and staging
+      Step 3 — stage exactly the files in the COMBINED files_changed list
+      (from fix-results-merged.json), by name. Never `git add -A` or
+      `git add .`: a fixer only has license to touch the file its thread was
+      anchored to, and staging
       everything would also pick up unrelated dirty files left by another
       process on this machine (this workflow shares a checkout with concurrent
       Claude sessions):
@@ -1532,6 +1692,7 @@ stages:
     required: true
     writes_to:
       - commit-result.json
+      - outputs/fix-results-merged.json
 
   # ===========================================================================
   # Verify
