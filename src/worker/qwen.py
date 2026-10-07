@@ -143,6 +143,7 @@ THRESHOLDS = QwenThresholds()
 JOB_TYPE = "qwen_patch"
 DEFAULT_MODEL_TAG = "qwen2.5-coder:14b"
 DEFAULT_OLLAMA_HOST = "http://localhost:11434"
+OLLAMA_HOST_ENV = "QWEN_OLLAMA_HOST"
 _GIB = 1024**3
 
 ALLOWLIST_DIRS = ("src/", "tests/", "bin/", "workflows/", "concerns/", "docs/")
@@ -419,6 +420,11 @@ def _ollama_get(url: str, timeout: float) -> dict[str, object]:
     except urllib.error.URLError as exc:  # HTTPError is a URLError subclass
         raise ConnectionError(str(exc.reason)) from exc
     return _parse_json_object(raw)
+
+
+def ollama_host() -> str:
+    """The Ollama base URL: $QWEN_OLLAMA_HOST, else DEFAULT_OLLAMA_HOST. Read at call time."""
+    return os.environ.get(OLLAMA_HOST_ENV, DEFAULT_OLLAMA_HOST)
 
 
 def _ollama_tags(host: str, timeout: float) -> dict[str, object]:
@@ -1385,29 +1391,66 @@ def _clear_deferral_state(job_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _recorded_digest_path() -> Path:
+def recorded_digest_path() -> Path:
     """Install-time digest record: a JSON object mapping model tag to its
-    /api/tags digest, e.g. {"qwen2.5-coder:14b": "9ec8...849"}. Written once
-    by the install step after the model is pulled; read on every job."""
+    /api/tags digest, e.g. {"qwen2.5-coder:14b": "9ec8...849"}. Written by
+    `qwen pin-model` (record_model_pin) after the model is pulled; read on
+    every job."""
     return get_worker_state_dir("qwen") / "model_digest.json"
+
+
+class ModelPinError(Exception):
+    """The digest record cannot be read or written safely; nothing was written."""
+
+
+def _read_pin_record(path: Path) -> dict[str, object]:
+    """Return the digest record at path as a dict; {} when it does not exist.
+
+    Read through _read_text_no_follow, so a symlink or a non-regular file is
+    refused. Raises ModelPinError for those, for any other read error, and
+    for content that is not a JSON object.
+    """
+    try:
+        raw = json.loads(_read_text_no_follow(path))
+    except FileNotFoundError:
+        return {}
+    except OSError as exc:
+        raise ModelPinError(f"unreadable digest record {path}: {describe_exception(exc)}") from exc
+    except ValueError as exc:  # JSONDecodeError and UnicodeDecodeError
+        raise ModelPinError(f"invalid digest record {path}: not valid JSON") from exc
+    if not isinstance(raw, dict):
+        raise ModelPinError(f"invalid digest record {path}: not a JSON object")
+    return raw
 
 
 def _load_recorded_digest(model: str) -> str | None:
     """Return the install-time digest recorded for model, or None if none was recorded."""
-    path = _recorded_digest_path()
+    path = recorded_digest_path()
     try:
-        raw = json.loads(_read_text_no_follow(path))
-    except FileNotFoundError:
-        return None
-    except (OSError, ValueError):
+        record = _read_pin_record(path)
+    except ModelPinError:
         _log.warning("qwen: unreadable model digest record at %s; treating %s as unpinned", path, mask_text(model))
         return None
-    value = raw.get(model) if isinstance(raw, dict) else None
+    value = record.get(model)
     return value if isinstance(value, str) and value.strip() else None
 
 
 def _normalise_digest(digest: str) -> str:
     return digest.strip().lower().removeprefix("sha256:")
+
+
+_DIGEST_HEX_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _is_valid_digest(value: str) -> bool:
+    """True when value is a non-empty, well-formed digest.
+
+    Accepts bare 64-hex-digit strings and the ``sha256:<64-hex>`` form that
+    Ollama returns. Rejects empty, whitespace-only, and malformed values that
+    _model_digest can return when the API supplies an unexpected format.
+    """
+    normalised = value.strip().lower().removeprefix("sha256:")
+    return bool(_DIGEST_HEX_RE.match(normalised))
 
 
 @dataclass(frozen=True)
@@ -1417,12 +1460,14 @@ class ModelPin:
     status is "match", "mismatch", "unpinned" (no install-time digest was
     recorded for this model) or "unverified" (the running digest could not
     be read). Only match/mismatch set matches_recorded; the others leave it
-    None, per contract.result_schema.
+    None, per contract.result_schema. recorded_digest is the install-time
+    value, or None when unpinned.
     """
 
     running_digest: str | None
     matches_recorded: bool | None
     status: str
+    recorded_digest: str | None = None
 
 
 def _check_model_pin(host: str, model: str) -> ModelPin:
@@ -1441,11 +1486,79 @@ def _check_model_pin(host: str, model: str) -> ModelPin:
         return ModelPin(running, None, "unpinned")
     if running is None:
         _log.warning("qwen: could not read the running digest for %s; pin unverified", shown)
-        return ModelPin(None, None, "unverified")
+        return ModelPin(None, None, "unverified", recorded)
     matches = _normalise_digest(running) == _normalise_digest(recorded)
     if not matches:
         _log.warning("qwen: model digest drift for %s: recorded %s, running %s", shown, recorded, running)
-    return ModelPin(running, matches, "match" if matches else "mismatch")
+    return ModelPin(running, matches, "match" if matches else "mismatch", recorded)
+
+
+def check_model_pin(model: str) -> ModelPin:
+    """_check_model_pin against the configured Ollama host (ollama_host())."""
+    return _check_model_pin(ollama_host(), model)
+
+
+@dataclass(frozen=True)
+class PinRecordResult:
+    """Outcome of record_model_pin. reason is "written" or "already-current"."""
+
+    model: str
+    digest: str
+    path: Path
+    written: bool
+    reason: str
+    readback_ok: bool
+
+
+def _write_pin_record(path: Path, record: dict[str, object]) -> None:
+    """Atomically replace path with record: 0700 parent (created if absent,
+    never a symlink) and a 0600 temp file renamed over the final name.
+    Raises ModelPinError on any OSError; the old record is then intact."""
+    data = (json.dumps(record, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    try:
+        dfd = _open_private_dir(path.parent)
+        try:
+            _replace_file_at(dfd, path.name, data)
+        finally:
+            os.close(dfd)
+    except OSError as exc:
+        raise ModelPinError(f"cannot write digest record {path}: {describe_exception(exc)}") from exc
+
+
+def record_model_pin(model: str) -> PinRecordResult:
+    """Record model's running digest in the install-time record.
+
+    Other tags in the record are kept. Raises ModelPinError, writing
+    nothing, when the running digest cannot be read or the existing record
+    is a symlink, not a regular file, or not a JSON object. A record that
+    already maps model to this digest is left untouched.
+    """
+    digest = _model_digest(ollama_host(), model)
+    if digest is None or not _is_valid_digest(digest):
+        raise ModelPinError(f"running digest unavailable for {model}")
+    path = recorded_digest_path()
+    # Validate the parent directory is not a symlink before the early-return
+    # path, which does not reach _write_pin_record's _open_private_dir check.
+    # Raises ModelPinError when path.parent is a symlink or unreadable,
+    # consistently with the documented refusal.
+    try:
+        dfd = _open_existing_private_dir(path.parent, repair_mode=False)
+        os.close(dfd)
+    except FileNotFoundError:
+        pass  # no record yet; _write_pin_record will create the directory
+    except OSError as exc:
+        raise ModelPinError(f"unreadable digest record {path}: {describe_exception(exc)}") from exc
+    record = _read_pin_record(path)
+    current = record.get(model)
+    if isinstance(current, str) and _normalise_digest(current) == _normalise_digest(digest):
+        return PinRecordResult(model, digest, path, written=False, reason="already-current", readback_ok=True)
+    record[model] = digest
+    _write_pin_record(path, record)
+    try:
+        readback = _read_pin_record(path).get(model)
+    except ModelPinError:
+        return PinRecordResult(model, digest, path, written=True, reason="written", readback_ok=False)
+    return PinRecordResult(model, digest, path, written=True, reason="written", readback_ok=readback == digest)
 
 
 @dataclass(frozen=True)
@@ -2448,7 +2561,7 @@ def _run_guarded(payload: dict[str, object], run: _JobRun) -> tuple[bool, object
         files=resolve_input_files(files, root),
         instruction=instruction,
         options=options,
-        host=os.environ.get("QWEN_OLLAMA_HOST", DEFAULT_OLLAMA_HOST),
+        host=ollama_host(),
         root=root,
     )
 
