@@ -142,25 +142,37 @@ description: >
   orchestrator must perform these steps for THAT STAGE INDIVIDUALLY before
   releasing the next dependent stage:
 
-    0. Check whether the stage produced a commit. Read the stage's output
-       JSON ({workspace}/outputs/handler-impl.json,
-       heartbeat-impl.json, or tests-impl.json). Before using the value,
-       VALIDATE it with check-params:
+    0. Determine whether the stage produced a commit. Read the stage's
+       output JSON ({workspace}/outputs/handler-impl.json,
+       heartbeat-impl.json, or tests-impl.json). Branch on three cases:
 
-         ./bin/workflow check-params "{workspace}"/outputs/<impl file> \
-           --top-level --check 'commit_sha=[0-9a-f]{40}'
+       (a) Key absent — the file is missing or has no commit_sha key.
+           This is a protocol error (the agent wrote a malformed output).
+           FAIL the stage; do not merge anything.
+           Check with:
+             python3 -I -S -c "import json,sys; d=json.load(open('{workspace}/outputs/<impl file>')); sys.exit(0 if 'commit_sha' in d else 1)"
 
-       If this call exits non-zero (commit_sha is null, absent, or not a
-       full 40-hex SHA), the stage recorded no changes. Skip steps 1–5
-       below entirely. Do NOT merge anything. Record the stage in
-       merge-baselines.json under a "no_change" key (or simply omit it —
-       merge-impl treats an absent entry for a null-commit_sha stage as a
-       legitimate no-change, not a protocol violation). Record the reason the
-       stage gave (e.g. route "a-no-change") in your notes so merge-impl can
-       verify it matches the declared route.
+       (b) Key present and value is JSON null — the stage recorded no
+           changes (e.g. impl-heartbeat route a-no-change). Skip steps 1–5
+           below entirely. Do NOT merge anything. Do NOT write an entry for
+           this stage in merge-baselines.json — merge-impl treats an absent
+           entry combined with a null commit_sha as a legitimate no-change,
+           not a protocol violation. Record the stage's declared reason
+           (e.g. "a-no-change") in your orchestrator notes.
+           Confirm null with:
+             python3 -I -S -c "import json,sys; d=json.load(open('{workspace}/outputs/<impl file>')); sys.exit(0 if d.get('commit_sha') is None else 1)"
 
-       Only when check-params exits 0 (commit_sha is a validated 40-hex SHA)
-       proceed to steps 1–5:
+       (c) Key present and value is non-null — validate the value is a
+           full 40-hex SHA before it reaches any git command:
+             ./bin/workflow check-params "{workspace}"/outputs/<impl file> \
+               --top-level --check 'commit_sha=[0-9a-f]{40}'
+           A non-zero exit (short SHA, ref name, junk, space, metachar)
+           FAILS the stage — the agent wrote a bad SHA while claiming a
+           commit happened. Do not skip, do not merge, do not resolve or
+           retry. Report it so the bad output is visible.
+
+       Only when case (c) exits 0 (validated 40-hex SHA) proceed to
+       steps 1–5:
 
     1. Immediately before merging, record the current feature-branch tip:
          pre_merge_tip=$(git rev-parse HEAD)
@@ -206,8 +218,9 @@ description: >
        All values are 40-hex SHAs. Add entries one at a time as each merge
        completes. merge-impl reads this file and re-runs step 4 for each
        stage to confirm the scope check holds. Only stages whose commit_sha
-       passed step 0 get an entry here — stages with commit_sha: null are
-       omitted (merge-impl handles them via the no_change_stages path).
+       passed step 0 case (c) get an entry here — stages with commit_sha:
+       null (case b) are omitted; merge-impl treats an absent entry for a
+       null-commit_sha stage as a legitimate no-change.
 
     LIMIT: this check catches paths changed outside the merge's scope
     (file copies, stray edits, accidental rebases). A bad conflict
