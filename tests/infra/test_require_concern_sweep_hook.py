@@ -336,6 +336,19 @@ class RequireConcernSweepHookTests(unittest.TestCase):
             command = template.format(wt=wt)
             with self.subTest(command=command):
                 self.assertBlocked(run_hook(command, self.repo), "cannot")
+        # -- r4: phase 2 must not run when cmd[0] is a plain program -----------------
+        # ``echo fi`` / ``echo done`` must not decrement nest; the `fi`/`done` there
+        # are arguments to echo, not shell closers.  cd after them should still be
+        # treated as inside the outer compound command (nest > 0 → blocked).
+        for template in (
+            # `echo fi` must not decrement the outer `if`'s nest counter
+            "if a; then :; echo fi; cd {wt}; fi; gh pr create",
+            # `echo done` must not decrement the outer `while`'s nest counter
+            "while a; do :; echo done; cd {wt}; done; gh pr create",
+        ):
+            command = template.format(wt=wt)
+            with self.subTest(command=command):
+                self.assertBlocked(run_hook(command, self.repo), "cannot")
         # -- non-conditional controls: unconditional cd still resolves the cwd ------
         # These must be ALLOWED (exit 0) because the worktree has a record and the cd
         # is unconditional (not inside any compound command, not preceded by &&/||).
@@ -343,6 +356,9 @@ class RequireConcernSweepHookTests(unittest.TestCase):
             "cd {wt} && gh pr create",
             "cd {wt}; gh pr create",
             "{{ cd {wt}; }} && gh pr create",  # {{ and }} are literal { } in .format()
+            # `echo if` is an argument to echo; it must NOT increment nest, so the
+            # subsequent cd is unconditional and resolves the cwd normally.
+            "echo if; cd {wt}; gh pr create",
         ):
             command = template.format(wt=wt)
             with self.subTest(command=command):

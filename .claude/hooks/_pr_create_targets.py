@@ -513,10 +513,13 @@ def _update_nest(cmd: list[tuple[int, str]], nest: int) -> int:
 
     1. ``cmd[0]`` is checked unconditionally — openers such as ``for``, ``case``,
        and ``select`` are not in ``_RESERVED``, so they can only appear at position 0.
-    2. The remaining ``_RESERVED`` prefix (positions >= 1) is walked to catch openers
-       embedded after a leading reserved word, e.g. ``then if b`` or ``else for x in``.
-       The loop stops as soon as a non-``_RESERVED`` word is seen (i.e. the real program
-       name), so it never counts an argument to the command.
+    2. The remaining ``_RESERVED`` prefix (positions >= 1) is walked only when
+       ``cmd[0]`` is itself in ``_RESERVED`` (i.e. the command begins with a reserved
+       word, so positions 1+ may also be reserved-word prefix rather than arguments).
+       This catches openers embedded after a leading reserved word, e.g. ``then if b``
+       or ``else for x in``.  Skipping phase 2 when ``cmd[0]`` is a plain program
+       prevents counting reserved words that appear as arguments, e.g. ``echo fi``
+       or ``echo done``.
     """
     if not cmd:
         return nest
@@ -525,14 +528,15 @@ def _update_nest(cmd: list[tuple[int, str]], nest: int) -> int:
         nest += 1
     elif first_w in _NEST_CLOSERS:
         nest = max(0, nest - 1)
-    for _idx, _tok in cmd[1:]:
-        _w = _word(_tok).lower()
-        if _w not in _RESERVED:
-            break
-        if _w in _NEST_OPENERS:
-            nest += 1
-        elif _w in _NEST_CLOSERS:
-            nest = max(0, nest - 1)
+    if first_w in _RESERVED:
+        for _idx, _tok in cmd[1:]:
+            _w = _word(_tok).lower()
+            if _w not in _RESERVED:
+                break
+            if _w in _NEST_OPENERS:
+                nest += 1
+            elif _w in _NEST_CLOSERS:
+                nest = max(0, nest - 1)
     return nest
 
 
