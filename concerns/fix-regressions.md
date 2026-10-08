@@ -158,27 +158,27 @@ regression shapes specific to automated review-fix runs.
 
 ### unbacked-verification-claims
 - **severity**: critical
-- **check**: The fixer's result JSON claims "tests OK" or "test_result: pass"
-  but the evidence is missing or contradicted. Verify: the log must contain a
-  `Ran N tests` line; the run must postdate the final fix commit; the run must
-  not end in `FAILED`; and the run must cover the changed files, not a subset.
+- **check**: The fixer's result JSON claims `test_result: "pass"` but the
+  evidence is missing or contradicted. Verify by re-running the result's
+  `test_command`: the output must contain a `Ran N tests` line and end in `OK`,
+  not `FAILED`. A null or empty `test_command` with `test_result: "pass"` is
+  itself a finding — there is no runnable evidence for the claim.
 - **triggers**: A fix result JSON has `test_result: "pass"` or the reply text
   asserts the suite is green.
 - **example**: PR #448 reported "1503 tests" but the log predated the final
   commit; PRs #452 and #455 reported OK while their logs ended in FAILED. A
   pushed fix whose test claim is unbacked leaves a regression undetected.
-  Fix: always re-run the suite after the final edit, capture the `Ran N tests`
-  / `OK` or `FAILED` line, and include it verbatim in the result JSON's
-  `test_output_tail`.
+  Fix: always re-run the suite after the final edit and verify via the
+  `test_command` in the result JSON.
 - **sweep**: procedure, applied to each fix result when the trigger matches:
-  1. Read the result's `test_output_tail` field.
-  2. Check for a `Ran N tests` line. If absent, record a finding: the suite
-     may not have run.
-  3. Check the outcome line (`OK` or `FAILED (errors=N, failures=N)`). If it
-     ends in FAILED, record a finding: the claim contradicts the log.
-  4. Check the commit timestamp against the test run timestamp (if available).
-     If the test predates the final fix commit, record a finding: the result
-     may cover an earlier, unpatched state.
+  1. Read the result's `test_command` and `test_result` fields.
+  2. If `test_result` is "pass" but `test_command` is null or empty, record a
+     finding: there is no runnable evidence for the pass claim.
+  3. Otherwise, re-run `test_command` (read-only; the sweep must not edit
+     source files). Check the output for a `Ran N tests` line. If absent,
+     record a finding: the suite may not have run.
+  4. Check the outcome line (`OK` or `FAILED (errors=N, failures=N)`). If it
+     ends in FAILED, record a finding: the claim contradicts the run output.
   5. Check whether the changed files are in scope: if the test command is
      scoped to a subset of the tree that excludes a changed file, record a
      finding.

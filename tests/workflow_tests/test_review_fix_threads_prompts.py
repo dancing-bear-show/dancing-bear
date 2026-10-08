@@ -773,9 +773,12 @@ class TestSweepFixRegressions(unittest.TestCase):
         self.assertIn("reporter", prompt)
 
     def test_sweep_prompt_names_unbacked_verification_check(self) -> None:
-        """Regression 6: verify test_output_tail contains 'Ran N tests'."""
+        """Regression 6: re-run test_command; verify 'Ran N tests' and OK.
+        test_output_tail is NOT in the thread-fixer schema — the check must
+        use test_command (a field that exists) instead."""
         prompt = _flat(self.prompts["sweep-fix-regressions"])
-        self.assertIn("test_output_tail", prompt)
+        self.assertNotIn("test_output_tail", prompt)
+        self.assertIn("test_command", prompt)
         self.assertIn("Ran N tests", prompt)
 
     def test_sweep_prompt_names_gate_suppressions_check(self) -> None:
@@ -816,6 +819,38 @@ class TestSweepFixRegressions(unittest.TestCase):
         self.assertIn('{"total": 0, "items": []}', prompt)
         self.assertIn("blocking_findings", prompt)
         self.assertIn("check-fix-index", prompt)
+
+    def test_refix_dispatch_gates_on_derived_count_not_blocking_field(self) -> None:
+        """Gate must derive blocking count from findings[].severity, not the
+        agent-written 'blocking' summary field — the two can disagree."""
+        prompt = _flat(self.prompts["refix-dispatch"])
+        # Must NOT gate on the bare .blocking key alone
+        self.assertNotIn('If "blocking" is 0', prompt)
+        # Must derive from findings list
+        self.assertIn("findings", prompt)
+        self.assertIn("severity", prompt)
+        # python3 -I -S -c is the prescribed single-line form
+        self.assertIn("python3 -I -S -c", prompt)
+
+    def test_resweep_gates_on_derived_count_not_blocking_field(self) -> None:
+        """resweep-regressions Step 1 must derive blocking count from
+        findings[].severity rather than the agent-written 'blocking' field."""
+        prompt = _flat(self.prompts["resweep-regressions"])
+        self.assertNotIn('If "blocking" is 0', prompt)
+        self.assertIn("findings", prompt)
+        self.assertIn("severity", prompt)
+        self.assertIn("python3 -I -S -c", prompt)
+
+    def test_refix_dispatch_treats_count_mismatch_as_error(self) -> None:
+        """A blocking count that disagrees with the findings list must fail
+        closed (continue as if blocking > 0), not skip the retry."""
+        prompt = _flat(self.prompts["refix-dispatch"])
+        self.assertIn("mismatch", prompt)
+
+    def test_resweep_treats_count_mismatch_as_error(self) -> None:
+        """resweep: count mismatch must fail closed, not skip re-check."""
+        prompt = _flat(self.prompts["resweep-regressions"])
+        self.assertIn("mismatch", prompt)
 
     def test_refix_results_come_from_aggregate_fix_results(self) -> None:
         """refix-results.json must have fix-results.json's schema, including
@@ -1043,6 +1078,66 @@ class TestSweepShellRunsAsRendered(unittest.TestCase):
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertEqual(res.stdout.count("# type: ignore"), 1)
         self.assertNotIn("E501", res.stdout)
+
+
+class TestUnbackedVerificationUsesRealSchema(unittest.TestCase):
+    """The unbacked-verification-claims check must only reference fields that
+    actually exist in the thread-fixer result schema (.claude/agents/thread-fixer.md).
+    Using a phantom field (e.g. test_output_tail) means every normal result
+    is flagged and the sweep becomes a false-positive machine."""
+
+    _THREAD_FIXER = _ROOT / ".claude/agents/thread-fixer.md"
+
+    def _schema_fields(self) -> set[str]:
+        """Extract top-level JSON field names from thread-fixer.md's schema block."""
+        text = self._THREAD_FIXER.read_text()
+        # Find the JSON code block that starts with { and contains "id":
+        in_block = False
+        fields: set[str] = set()
+        for line in text.splitlines():
+            if line.strip().startswith("```json"):
+                in_block = True
+                continue
+            if in_block and line.strip() == "```":
+                break
+            if in_block:
+                m = re.match(r'\s+"([^"]+)"\s*:', line)
+                if m:
+                    fields.add(m.group(1))
+        return fields
+
+    def test_schema_contains_test_command_not_test_output_tail(self) -> None:
+        """Confirm test_command is in the schema and test_output_tail is not."""
+        fields = self._schema_fields()
+        self.assertIn("test_command", fields,
+                      f"test_command missing from thread-fixer schema; found: {fields}")
+        self.assertNotIn("test_output_tail", fields,
+                         "test_output_tail must not be in thread-fixer schema")
+
+    def test_sweep_prompt_references_only_schema_fields(self) -> None:
+        """The unbacked-verification concern in the sweep prompt must not
+        reference test_output_tail (phantom field) — only fields the schema
+        defines (test_command, test_result)."""
+        prompt = _flat(_prompts()["sweep-fix-regressions"])
+        self.assertNotIn("test_output_tail", prompt,
+                         "sweep prompt references test_output_tail, which is not "
+                         "in thread-fixer schema and would flag every normal result")
+        # Both real schema fields must be present in the concern
+        self.assertIn("test_command", prompt)
+        self.assertIn("test_result", prompt)
+
+    def test_concern_guide_references_only_schema_fields(self) -> None:
+        """concerns/fix-regressions.md's unbacked-verification-claims sweep
+        procedure must use test_command, not test_output_tail."""
+        guide = (_ROOT / "concerns/fix-regressions.md").read_text()
+        # Locate the unbacked-verification section only
+        start = guide.find("### unbacked-verification-claims")
+        end = guide.find("\n### ", start + 1)
+        section = guide[start:end] if end != -1 else guide[start:]
+        self.assertNotIn("test_output_tail", section,
+                         "fix-regressions.md unbacked-verification sweep references "
+                         "test_output_tail, which is not in the thread-fixer schema")
+        self.assertIn("test_command", section)
 
 
 if __name__ == "__main__":

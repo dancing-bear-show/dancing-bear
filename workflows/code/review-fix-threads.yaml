@@ -1318,8 +1318,10 @@ stages:
             the code path that makes it fail, and note if that path did not
             exist before the fix.
           - unbacked-verification-claims: for each fix result with
-            test_result "pass", verify test_output_tail contains "Ran N tests"
-            and ends in "OK", not "FAILED".
+            test_result "pass" and a non-null test_command, re-run the
+            test_command and verify the output contains "Ran N tests" and
+            ends in "OK", not "FAILED". A null or empty test_command with
+            test_result "pass" is itself a finding (no runnable evidence).
           - gate-suppressions-added: grep the diff's ADDED lines only for
             "# type: ignore", "# noqa", "# nosec", "# NOSONAR",
             "@unittest.skip", "@pytest.mark.skip", "@unittest.expectedFailure"
@@ -1371,10 +1373,16 @@ stages:
       that sweep-fix-regressions found at least one blocking finding for.
       This stage edits no source file; it only writes the index.
 
-      Step 1 — read {workspace}/validation/sweep-findings.json. If "blocking"
-      is 0, write {workspace}/outputs/refix-index.json as
-      {"total": 0, "items": []} and exit 0. refix-threads then fans out over
-      no items and refix-aggregate writes an empty refix-results.json.
+      Step 1 — read {workspace}/validation/sweep-findings.json. Derive the
+      blocking count from the findings list, not the agent-written summary:
+
+        python3 -I -S -c "import json,sys; d=json.load(open(sys.argv[1])); reported=d.get('blocking',0); derived=sum(1 for f in d.get('findings',[]) if f.get('severity') in ('critical','major')); sys.exit(1) if reported!=derived else print(derived)" "{workspace}/validation/sweep-findings.json"
+
+      If exit 1 (count mismatch), treat it as derived > 0 and continue to
+      Step 2 — fail closed, not open. If derived is 0, write
+      {workspace}/outputs/refix-index.json as {"total": 0, "items": []} and
+      exit 0. refix-threads then fans out over no items and refix-aggregate
+      writes an empty refix-results.json.
 
       Step 2 — read {workspace}/outputs/fix-index.json. For every item, keep
       only the entries of its "data.threads" whose "id" is the "id" of at
@@ -1520,9 +1528,14 @@ stages:
       would execute untrusted text. Re-checking means re-applying the
       concern's own procedure, as the sweep did.
 
-      Step 1 — read {workspace}/validation/sweep-findings.json.
+      Step 1 — read {workspace}/validation/sweep-findings.json. Derive the
+        blocking count from the findings list, not the agent-written summary:
 
-        If "blocking" is 0, write {workspace}/validation/resweep.json with
+          python3 -I -S -c "import json,sys; d=json.load(open(sys.argv[1])); reported=d.get('blocking',0); derived=sum(1 for f in d.get('findings',[]) if f.get('severity') in ('critical','major')); sys.exit(1) if reported!=derived else print(derived)" "{workspace}/validation/sweep-findings.json"
+
+        If exit 1 (count mismatch), treat derived as the authoritative count
+        and continue; a mismatch is itself an error — fail closed. If derived
+        is 0, write {workspace}/validation/resweep.json with
         {"total_checked": 0, "still_blocking": 0, "findings": []} and exit 0.
         There was nothing to refix and nothing to re-check.
 
