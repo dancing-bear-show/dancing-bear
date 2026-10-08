@@ -744,22 +744,14 @@ class TestSweepFixRegressions(unittest.TestCase):
 
     # --- Stage existence and ordering ---
 
-    def test_all_three_sweep_stages_exist(self) -> None:
-        for name in ("sweep-fix-regressions", "refix-regressions", "resweep-regressions"):
-            with self.subTest(stage=name):
-                self.assertIn(name, self.stages)
-
     def test_sweep_pipeline_ordering(self) -> None:
-        """fix-aggregate → sweep → refix → resweep → commit-and-push."""
-        agg = self.stages.index("fix-aggregate")
-        sweep = self.stages.index("sweep-fix-regressions")
-        refix = self.stages.index("refix-regressions")
-        resweep = self.stages.index("resweep-regressions")
-        commit = self.stages.index("commit-and-push")
-        self.assertLess(agg, sweep)
-        self.assertLess(sweep, refix)
-        self.assertLess(refix, resweep)
-        self.assertLess(resweep, commit)
+        """fix-aggregate → sweep → refix-dispatch → refix-threads →
+        refix-aggregate → resweep → commit-and-push."""
+        order = ["fix-aggregate", "sweep-fix-regressions", "refix-dispatch",
+                 "refix-threads", "refix-aggregate", "resweep-regressions",
+                 "commit-and-push"]
+        positions = [self.stages.index(name) for name in order]
+        self.assertEqual(positions, sorted(positions))
 
     # --- sweep-fix-regressions: reporter, exits 0 ---
 
@@ -805,43 +797,70 @@ class TestSweepFixRegressions(unittest.TestCase):
         prompt = _flat(self.prompts["sweep-fix-regressions"])
         self.assertIn("sweep-findings.json", prompt)
 
-    # --- refix-regressions: thread-fixer, edits source ---
+    # --- refix: a real fan-out aggregated by the tested command ---
 
-    def test_refix_is_noop_when_blocking_zero(self) -> None:
-        """refix writes empty results and exits 0 when no blocking findings."""
-        prompt = _flat(self.prompts["refix-regressions"])
-        self.assertIn("blocking", prompt)
-        self.assertIn("0", prompt)
-        # Must write refix-results.json even when nothing to do.
-        self.assertIn("refix-results.json", prompt)
+    def test_refix_threads_is_a_fan_out_over_refix_dispatch(self) -> None:
+        """One thread-fixer per refix item, like fix-threads -- not one agent
+        for the whole index."""
+        stage = next(st for st in parse_workflow(str(_WORKFLOW)).stages
+                     if st.name == "refix-threads")
+        fan_out = stage.fan_out
+        if fan_out is None:
+            self.fail("refix-threads has no fan_out declaration")
+        self.assertEqual((fan_out.source, fan_out.field, fan_out.key),
+                         ("refix-dispatch", "items", "index"))
+        self.assertEqual(stage.agent.role if stage.agent else None, "thread-fixer")
 
-    def test_refix_passes_blocking_findings_to_fixer(self) -> None:
-        prompt = _flat(self.prompts["refix-regressions"])
+    def test_refix_dispatch_writes_an_empty_index_when_nothing_blocks(self) -> None:
+        prompt = _flat(self.prompts["refix-dispatch"])
+        self.assertIn('{"total": 0, "items": []}', prompt)
         self.assertIn("blocking_findings", prompt)
+        self.assertIn("check-fix-index", prompt)
+
+    def test_refix_results_come_from_aggregate_fix_results(self) -> None:
+        """refix-results.json must have fix-results.json's schema, including
+        tests_by_result, so the merge and verify-fixes see retry tests."""
+        with tempfile.TemporaryDirectory() as ws:
+            defn = parse_workflow(str(_WORKFLOW))
+            manifest = compile_workflow(defn, project_root=_ROOT,
+                                        trigger_params={"pr_number": "405"})
+            prompt = build_agent_prompt(manifest.resolved_stages["refix-aggregate"],
+                                        defn.name, ws)
+            ws = str(Path(ws).resolve())
+        self.assertIn(
+            f'./bin/workflow aggregate-fix-results "{ws}/outputs/refix-index.json" '
+            f'"{ws}/outputs/refixes" "{ws}/outputs/refix-results.json"',
+            prompt,
+        )
 
     # --- resweep-regressions: reviewer, the gate ---
 
-    def test_resweep_exits_nonzero_when_findings_persist(self) -> None:
-        """resweep is the gate — it must exit non-zero if any finding persists."""
+    def test_resweep_exit_contract(self) -> None:
         prompt = _flat(self.prompts["resweep-regressions"])
-        self.assertIn("exit non-zero", prompt)
-        self.assertIn("still_blocking", prompt)
+        self.assertIn("still_blocking > 0: set your stage result status to \"failed\" "
+                      "and exit 1", prompt)
+        self.assertIn("still_blocking == 0: exit 0", prompt)
+        self.assertIn("Any other exit: the check did not run — count it as still blocking",
+                      prompt)
 
     def test_resweep_is_read_only_no_edit(self) -> None:
         """resweep must not edit source files."""
         prompt = _flat(self.prompts["resweep-regressions"])
         self.assertIn("MUST NOT edit", prompt)
 
-    def test_resweep_reruns_probe_from_sweep_findings(self) -> None:
-        """resweep re-runs the probe commands sweep recorded, not a new scan."""
+    def test_resweep_never_executes_the_stored_probe(self) -> None:
+        """The probe is review-thread-driven text in an agent-writable file;
+        running it verbatim was a command-injection path."""
         prompt = _flat(self.prompts["resweep-regressions"])
-        self.assertIn("probe", prompt)
-        self.assertIn("sweep-findings.json", prompt)
+        self.assertIn('it never executes a finding\'s "probe" text', prompt)
+        self.assertNotIn("verbatim", prompt)
+        sweep = _flat(self.prompts["sweep-fix-regressions"])
+        self.assertIn("NO stage executes it", sweep)
+        self.assertNotIn("re-runs this command verbatim", sweep)
 
-    def test_resweep_checks_gate_suppressions_in_refix_diff(self) -> None:
-        """gate-suppressions in refix output must also be caught by resweep."""
+    def test_a_fixed_claim_never_resolves_a_finding(self) -> None:
         prompt = _flat(self.prompts["resweep-regressions"])
-        self.assertIn("gate-suppression", prompt)
+        self.assertIn('is a claim, not evidence — it never resolves a finding', prompt)
 
     # --- commit-and-push sees refix files ---
 
@@ -857,13 +876,10 @@ class TestSweepFixRegressions(unittest.TestCase):
         self,
     ) -> None:
         """Run the real select-concerns binary; do not string-match the YAML."""
-        import subprocess
-        import json
-        import tempfile
-
         with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
             f.write("src/foo.py\n")
             paths_file = f.name
+        self.addCleanup(Path(paths_file).unlink)
 
         result = subprocess.run(  # nosec B603 - fixed argv invoking the repo's own CLI
             [
@@ -879,6 +895,8 @@ class TestSweepFixRegressions(unittest.TestCase):
             capture_output=True,
             text=True,
             cwd=str(_ROOT),
+            timeout=60,
+            check=False,
         )
         self.assertEqual(
             result.returncode,
@@ -898,141 +916,7 @@ class TestSweepFixRegressions(unittest.TestCase):
             f"fix-regressions.md not in selected guides for review-fix: {guide_names}",
         )
 
-    # --- merge-fix-results CLI: execution and correctness ---
-
-    def _run_merge(self, fr: dict, rr: dict) -> tuple[int, dict | None, str]:
-        """Run merge-fix-results CLI; return (rc, merged_dict_or_None, stderr)."""
-        with tempfile.TemporaryDirectory() as td:
-            fr_path = Path(td) / "fix-results.json"
-            rr_path = Path(td) / "refix-results.json"
-            out_path = Path(td) / "merged.json"
-            fr_path.write_text(json.dumps(fr), encoding="utf-8")
-            rr_path.write_text(json.dumps(rr), encoding="utf-8")
-            result = subprocess.run(  # nosec B603 - fixed argv invoking the repo's own CLI
-                [
-                    "./bin/workflow",
-                    "merge-fix-results",
-                    str(fr_path),
-                    str(rr_path),
-                    str(out_path),
-                ],
-                capture_output=True,
-                text=True,
-                cwd=str(_ROOT),
-            )
-            merged = None
-            if out_path.is_file():
-                merged = json.loads(out_path.read_text(encoding="utf-8"))
-            return result.returncode, merged, result.stderr
-
-    def _base_fr(self, **kwargs) -> dict:  # type: ignore[no-untyped-def]
-        base = {
-            "files_changed": [],
-            "results": [],
-            "missing_results": [],
-            "failed_tests": [],
-            "key_mismatches": [],
-            "out_of_scope_requests": [],
-            "out_of_scope_paths": [],
-            "rejected_tests_added": [],
-            "tests_by_result": {},
-            "by_action": {"fixed": 0, "rejected": 0},
-            "total_expected": 0,
-            "total_results": 0,
-        }
-        base.update(kwargs)
-        return base
-
-    def test_merge_fix_results_tests_by_result_unions_lists_per_key(self) -> None:
-        """Regression: {**fr_tbr, **rr_tbr} silently lost t1 when the same key
-        exists in both files.  Union per key must preserve all entries."""
-        fr = self._base_fr(
-            results=[{"id": "x", "action": "fixed"}, {"id": "y", "action": "fixed"}],
-            tests_by_result={"pass": ["t1"]},
-            by_action={"fixed": 2},
-            files_changed=["a.py", "b.py"],
-        )
-        rr = self._base_fr(
-            results=[{"id": "y", "action": "fixed"}],
-            tests_by_result={"pass": ["t2"]},
-            by_action={"fixed": 1},
-            files_changed=["b.py", "c.py"],
-        )
-        rc, merged, stderr = self._run_merge(fr, rr)
-        self.assertEqual(rc, 0, f"merge failed: {stderr}")
-        assert merged is not None  # nosec B101 - narrows Optional for mypy
-        self.assertIn("t1", merged["tests_by_result"]["pass"], "t1 was lost")
-        self.assertIn("t2", merged["tests_by_result"]["pass"], "t2 was lost")
-
-    def test_merge_fix_results_same_id_result_superseded(self) -> None:
-        """A refixed thread (same id in both files) must appear exactly once;
-        the refix entry wins."""
-        fr = self._base_fr(
-            results=[{"id": "shared", "action": "fixed", "source": "original"}],
-        )
-        rr = self._base_fr(
-            results=[{"id": "shared", "action": "fixed", "source": "refix"}],
-        )
-        rc, merged, stderr = self._run_merge(fr, rr)
-        self.assertEqual(rc, 0, f"merge failed: {stderr}")
-        assert merged is not None  # nosec B101 - narrows Optional for mypy
-        results_for_shared = [r for r in merged["results"] if r["id"] == "shared"]
-        self.assertEqual(len(results_for_shared), 1, "same-id appears more than once")
-        self.assertEqual(results_for_shared[0]["source"], "refix", "refix did not supersede")
-
-    def test_merge_fix_results_by_action_recomputed_not_summed(self) -> None:
-        """by_action must be derived from merged results, not summed.
-        2 threads, one refixed: by_action.fixed must be 2, not 3."""
-        fr = self._base_fr(
-            results=[{"id": "x", "action": "fixed"}, {"id": "y", "action": "fixed"}],
-            by_action={"fixed": 2},
-        )
-        rr = self._base_fr(
-            results=[{"id": "y", "action": "fixed"}],  # refix of y
-            by_action={"fixed": 1},
-        )
-        rc, merged, stderr = self._run_merge(fr, rr)
-        self.assertEqual(rc, 0, f"merge failed: {stderr}")
-        assert merged is not None  # nosec B101 - narrows Optional for mypy
-        self.assertEqual(merged["by_action"]["fixed"], 2,
-                         "double-counted: summing gave 3 for 2 threads")
-
-    def test_merge_fix_results_malformed_tests_by_result_exits_nonzero(self) -> None:
-        """A non-dict tests_by_result must exit non-zero (2), not silently pass it through."""
-        fr = self._base_fr(tests_by_result={"r1": "not-a-list"})
-        rr = self._base_fr()
-        rc, _merged, stderr = self._run_merge(fr, rr)
-        self.assertNotEqual(rc, 0, "malformed tests_by_result did not cause an error exit")
-        self.assertIn("tests_by_result", stderr, "error message must name the field")
-
-    def test_merge_fix_results_command_executes(self) -> None:
-        """merge-fix-results runs without error and produces a merged JSON file."""
-        fr = self._base_fr(
-            files_changed=["src/core/foo.py"],
-            results=[{"id": "r1", "action": "fixed"}],
-            tests_by_result={"r1": ["tests/core_tests/test_foo.py"]},
-            by_action={"fixed": 1},
-            total_expected=1,
-            total_results=1,
-        )
-        rr = self._base_fr(
-            files_changed=["src/core/bar.py"],
-            results=[{"id": "r2", "action": "fixed"}],
-            tests_by_result={"r2": ["tests/core_tests/test_bar.py"]},
-            by_action={"fixed": 1},
-            total_expected=1,
-            total_results=1,
-        )
-        rc, merged, stderr = self._run_merge(fr, rr)
-        self.assertEqual(rc, 0, f"merge-fix-results failed: {stderr}")
-        self.assertIsNotNone(merged)
-        assert merged is not None  # nosec B101 - narrows Optional for mypy
-        self.assertIn("src/core/foo.py", merged["files_changed"])
-        self.assertIn("src/core/bar.py", merged["files_changed"])
-        self.assertIn("r1", merged["tests_by_result"])
-        self.assertIn("r2", merged["tests_by_result"])
-        # by_action derived from merged results: 2 distinct threads, both fixed
-        self.assertEqual(merged["by_action"]["fixed"], 2)
+    # --- merge-fix-results: behaviour is in test_merge_fix_results.py ---
 
     def test_merge_fix_results_carries_all_fields(self) -> None:
         """Merged file must carry the fields downstream readers need."""
@@ -1046,7 +930,7 @@ class TestSweepFixRegressions(unittest.TestCase):
     def test_downstream_readers_reference_merged_file(self) -> None:
         """verify-fixes, check-prose, plan-resolution, and report must read
         fix-results-merged.json, not fix-results.json, for fields that
-        refix-regressions may have contributed to."""
+        the refix stages may have contributed to."""
         for stage_name in ("verify-fixes", "check-prose", "plan-resolution", "report"):
             with self.subTest(stage=stage_name):
                 prompt = _flat(self.prompts[stage_name])
@@ -1055,6 +939,110 @@ class TestSweepFixRegressions(unittest.TestCase):
                     prompt,
                     f"{stage_name} does not reference fix-results-merged.json",
                 )
+
+
+def _stage_shell_lines(stage: str, workspace: str, starts: tuple[str, ...]) -> str:
+    """The shell lines a stage's agent receives, rendered for ``workspace``."""
+    defn = parse_workflow(str(_WORKFLOW))
+    manifest = compile_workflow(defn, project_root=_ROOT, trigger_params={"pr_number": "405"})
+    prompt = build_agent_prompt(manifest.resolved_stages[stage], defn.name, workspace)
+    return "\n".join(ln.strip() for ln in prompt.splitlines() if ln.strip().startswith(starts))
+
+
+_FIX_DIFF = "workflows/code/scripts/fix-diff.sh"
+_DIFF_LINES = ("jq -r '.files_changed[]'", f"bash {_FIX_DIFF}")
+_SUPPRESSION_LINE = ("awk '",)
+
+
+@unittest.skipUnless(all(map(shutil.which, ("git", "jq", "bash", "awk"))),
+                     "needs git, jq, bash and awk")
+class TestSweepShellRunsAsRendered(unittest.TestCase):
+    """Run the sweep/resweep shell lines exactly as rendered, in a temp repo.
+
+    PR #463 round 1: ``git diff HEAD`` omitted the fixers' untracked new test
+    files, and the suppression grep matched context and deleted lines.
+    """
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        self.ws, self.repo = root / "ws", root / "repo"
+        (self.ws / "outputs").mkdir(parents=True)
+        (self.ws / "validation").mkdir()
+        self._git("init", "-q", str(self.repo))
+        (self.repo / "src").mkdir()
+        (self.repo / "tests").mkdir()
+        # Pre-existing suppressions: one stays as context, one gets deleted.
+        (self.repo / "src/kept.py").write_text("a = 1  # noqa: E501\nb = 2\n")
+        (self.repo / "src/gone.py").write_text("x = 1  # type: ignore\ny = 2\n")
+        self._git("-C", str(self.repo), "add", "src/kept.py", "src/gone.py")
+        self._git("-C", str(self.repo), "commit", "-q", "-m", "base")
+        (self.repo / "src/kept.py").write_text("a = 1  # noqa: E501\nb = 3\n")
+        (self.repo / "src/gone.py").write_text("y = 2\n")
+        self.new_test = self.repo / "tests/test_new.py"
+        self.new_test.write_text("def test_x():\n    assert True\n")
+        files = ["src/kept.py", "src/gone.py", "tests/test_new.py"]
+        (self.ws / "outputs/fix-results.json").write_text(json.dumps({"files_changed": files}))
+        (self.ws / "outputs/refix-results.json").write_text(json.dumps({"files_changed": []}))
+
+    @staticmethod
+    def _git(*args: str) -> bytes:
+        argv = [str(shutil.which("git")), "-c", "user.name=t", "-c", "user.email=t@t", *args]
+        return subprocess.run(argv, check=True, capture_output=True, timeout=60).stdout  # nosec B603 - fixed argv, temp repo
+
+    def _bash(self, script: str) -> subprocess.CompletedProcess[str]:
+        argv = [str(shutil.which("bash")), "-c", script]
+        return subprocess.run(argv, cwd=self.repo, capture_output=True, text=True,  # nosec B603 - runs the workflow's own rendered lines in a temp repo
+                              timeout=60, check=False)
+
+    def _patch(self, stage: str, name: str) -> str:
+        script = _stage_shell_lines(stage, str(self.ws), _DIFF_LINES)
+        self.assertEqual(script.count(_FIX_DIFF), 1)
+        # The temp repo is the cwd, so point the rendered line at this checkout's script.
+        res = self._bash(script.replace(_FIX_DIFF, str(_ROOT / _FIX_DIFF)))
+        self.assertEqual((res.returncode, res.stderr), (0, ""))
+        return (self.ws / "validation" / name).read_text()
+
+    def test_sweep_diff_includes_untracked_files_without_staging(self) -> None:
+        patch = self._patch("sweep-fix-regressions", "sweep-diff.patch")
+        for path in ("src/kept.py", "src/gone.py", "tests/test_new.py"):
+            with self.subTest(path=path):
+                self.assertIn(f"b/{path}", patch)
+        self.assertIn("+def test_x():", patch)
+        self.assertEqual(self._git("-C", str(self.repo), "diff", "--cached", "--name-only"), b"")
+        self.assertIn(b"?? tests/", self._git("-C", str(self.repo), "status", "--porcelain"))
+
+    def test_fix_diff_fails_on_a_path_that_does_not_exist(self) -> None:
+        paths = self.ws / "validation/paths.txt"
+        for listed, expected_ok in (("src/kept.py\n", True), ("src/kept.py\nsrc/nope.py\n", False)):
+            with self.subTest(listed=listed):
+                paths.write_text(listed)
+                res = self._bash(f'bash "{_ROOT / _FIX_DIFF}" "{paths}"')
+                self.assertEqual(res.returncode == 0, expected_ok, res.stderr)
+
+    def _suppressions(self) -> subprocess.CompletedProcess[str]:
+        self._patch("resweep-regressions", "resweep-diff.patch")
+        script = _stage_shell_lines("resweep-regressions", str(self.ws), _SUPPRESSION_LINE)
+        return self._bash(script)
+
+    def test_context_and_deleted_suppressions_are_not_reported(self) -> None:
+        res = self._suppressions()
+        self.assertEqual((res.returncode, res.stdout), (1, ""))
+
+    def test_an_added_suppression_in_an_untracked_file_is_reported(self) -> None:
+        self.new_test.write_text("import unittest\n@unittest.skip('later')\ndef test_x():\n    pass\n")
+        res = self._suppressions()
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(len(res.stdout.splitlines()), 1)
+        self.assertIn("@unittest.skip('later')", res.stdout)
+
+    def test_an_added_suppression_in_a_tracked_file_is_reported(self) -> None:
+        (self.repo / "src/kept.py").write_text("a = 1  # noqa: E501\nb = 3  # type: ignore\n")
+        res = self._suppressions()
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(res.stdout.count("# type: ignore"), 1)
+        self.assertNotIn("E501", res.stdout)
 
 
 if __name__ == "__main__":

@@ -125,23 +125,33 @@ regression shapes specific to automated review-fix runs.
 ### vacuous-or-non-discriminating-tests
 - **severity**: critical
 - **check**: A test added by a fix cannot fail, or was never shown to fail
-  without the fix in place. Verify by reverting the fix and running the test.
-  If the test still passes without the fix, it is non-discriminating.
+  without the fix in place. Verify by running the new test against the
+  pre-fix code in a throwaway worktree — never by reverting the fix in the
+  shared tree. If the test still passes without the fix, it is
+  non-discriminating.
 - **triggers**: A test is added or modified by a fix commit.
 - **example**: PR #455 — a test asserted that a made-up key `..._TYPO` is
   absent from a result dict; the key is absent by construction and the test
   passes whether the fix is in place or not. A non-discriminating test provides
-  false confidence and masks a missing real assertion. Fix: run the test suite
-  with the fix reverted (or the guard removed) and confirm the new test fails.
-  Record the revert-and-run result explicitly in the thread reply.
+  false confidence and masks a missing real assertion. Fix: run the new test
+  against the pre-fix code (in a throwaway worktree, as below) and confirm it
+  fails. Record that result explicitly in the thread reply.
 - **sweep**: procedure, applied to the diff when the trigger matches:
   1. For each new test in the diff, identify what code path would cause it to
      fail.
   2. Verify that code path existed before the fix (i.e. the test targets the
      bug, not a pre-existing property).
-  3. Revert the fix's guard or change (not the test) and run the test. If it
-     passes, record a finding.
-  4. Restore the fix before any further steps.
+  3. Run the test against the pre-fix code WITHOUT touching the shared tree.
+     The sweep is read-only, and a revert left behind by a failed probe would
+     be committed. During a review-fix run the fixes are still uncommitted, so
+     HEAD is the pre-fix code: `git worktree add --detach <tmp> HEAD`, copy
+     only the new or changed test file(s) into `<tmp>`, run the test there
+     with `PYTHONPATH="<tmp>/src"`, then `git worktree remove --force <tmp>`.
+     If it passes against the pre-fix code, record a finding.
+  4. If the test cannot run in isolation (it depends on other changed files
+     that cannot be copied without also copying the fix), do not fall back to
+     reverting. Judge from the diff: name the assertion and the pre-fix code
+     path that would make it fail; if there is none, record a finding.
 - **cause**: FIX_REGRESSION — the test was written to assert a property that
   holds regardless of the fix; VACUOUS — the assertion targets a key or
   condition that cannot possibly be set by the code under test
@@ -191,7 +201,9 @@ regression shapes specific to automated review-fix runs.
   underlying issue rather than suppressing it. If the suppression is a genuine
   false positive, add it with a reason comment and a reference to the relevant
   CLAUDE.md rule; `# type: ignore` is never acceptable.
-- **sweep**: structural — for each suppression annotation added by the diff:
+- **sweep**: structural — for each suppression annotation on an ADDED diff
+  line (a `+` line inside a hunk; not context, not deletions, not the `+++`
+  file header):
   1. Is it `# type: ignore`? Record a critical finding unconditionally.
   2. Is it `# noqa`, `# nosec`, or `# NOSONAR`? Verify it has a reason comment
      and that the finding it suppresses predates the fix (is not a violation the
