@@ -1386,15 +1386,17 @@ stages:
       on a well-formed file; if the agent-written "blocking" field disagrees,
       it writes a summary_mismatch diagnostic to stderr. The derived count is
       authoritative (fail-closed: a mismatch must never reduce the count
-      below derived). Exit 2 means the file is malformed:
+      below derived). Exit 2 means the file is malformed — FAIL THE STAGE;
+      never treat a non-zero exit as "0 blocking":
 
         ./bin/workflow count-blocking "{workspace}/validation/sweep-findings.json"
 
-      Capture the printed number. If it is 0, write
-      {workspace}/outputs/refix-index.json as {"total": 0, "items": []} and
-      exit 0. refix-threads then fans out over no items and refix-aggregate
-      writes an empty refix-results.json. If it is non-zero (or if the
-      command itself failed), continue to Step 2.
+      Capture the printed number only on exit 0. If the command exits non-zero
+      (malformed input), fail this stage immediately. If the captured number is
+      0 (exit 0), write {workspace}/outputs/refix-index.json as
+      {"total": 0, "items": []} and exit 0. refix-threads then fans out over
+      no items and refix-aggregate writes an empty refix-results.json. If the
+      number is non-zero (exit 0), continue to Step 2.
 
       Step 2 — read {workspace}/outputs/fix-index.json. For every item, keep
       only the entries of its "data.threads" whose "id" is the "id" of at
@@ -1546,15 +1548,18 @@ stages:
         on a well-formed file; if the agent-written "blocking" field disagrees,
         it writes a summary_mismatch diagnostic to stderr. The derived count is
         authoritative (fail-closed: a mismatch must never reduce the count
-        below derived). Exit 2 means the file is malformed:
+        below derived). Exit 2 means the file is malformed — FAIL THIS STAGE;
+        never treat a non-zero exit as "0 blocking":
 
           ./bin/workflow count-blocking "{workspace}/validation/sweep-findings.json"
 
-        Capture the printed number. If it is 0, write
+        Capture the printed number only on exit 0. If the command exits
+        non-zero (malformed input), fail this stage immediately. If the
+        captured number is 0 (exit 0), write
         {workspace}/validation/resweep.json with
         {"total_checked": 0, "still_blocking": 0, "findings": []} and exit 0.
-        There was nothing to refix and nothing to re-check. If it is non-zero
-        (or if the command itself failed), continue to Step 2.
+        There was nothing to refix and nothing to re-check. If the number is
+        non-zero (exit 0), continue to Step 2.
 
       Step 2 — rebuild the diff over every file either pass changed,
       untracked files included, exactly as sweep-fix-regressions Step 3

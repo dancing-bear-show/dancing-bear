@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import io
 import json
 import tempfile
@@ -12,10 +13,19 @@ from workflow.cli import main
 from workflow.count_blocking import CountBlockingError, cmd_count_blocking, count_blocking
 
 
-def _write(tmp: Path, doc: object) -> str:
-    path = str(tmp / "findings.json")
+def _write(tmp: Path, doc: object, name: str = "findings.json") -> str:
+    path = str(tmp / name)
     Path(path).write_text(json.dumps(doc), encoding="utf-8")
     return path
+
+
+def _run(path: str) -> tuple[int, str, str]:
+    """Run cmd_count_blocking, return (exit_code, stdout, stderr)."""
+    buf = io.StringIO()
+    err = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = cmd_count_blocking(path, stderr=err)
+    return rc, buf.getvalue(), err.getvalue()
 
 
 class TestCountBlocking(unittest.TestCase):
@@ -25,24 +35,33 @@ class TestCountBlocking(unittest.TestCase):
         self.tmp = Path(td.name)
 
     # ------------------------------------------------------------------
-    # count_blocking() — pure logic
+    # count_blocking() — pure logic, happy paths
     # ------------------------------------------------------------------
 
-    def test_match_counts_critical_and_major(self) -> None:
+    def test_counts_critical_and_major(self) -> None:
         path = _write(self.tmp, {
             "blocking": 2,
             "findings": [
                 {"severity": "critical"},
                 {"severity": "major"},
                 {"severity": "minor"},
+                {"severity": "info"},
             ],
         })
         derived, reported = count_blocking(path)
         self.assertEqual(derived, 2)
         self.assertEqual(reported, 2)
 
+    def test_unknown_severity_counts_as_blocking_fail_closed(self) -> None:
+        """An unknown severity string (not minor/info) is counted as blocking."""
+        path = _write(self.tmp, {
+            "blocking": 1,
+            "findings": [{"severity": "unknown-future-level"}],
+        })
+        derived, _ = count_blocking(path)
+        self.assertEqual(derived, 1)
+
     def test_mismatch_returns_both_values(self) -> None:
-        """Reported != derived: both values returned, caller writes the diagnostic."""
         path = _write(self.tmp, {
             "blocking": 5,
             "findings": [{"severity": "critical"}, {"severity": "major"}],
@@ -63,97 +82,161 @@ class TestCountBlocking(unittest.TestCase):
         self.assertEqual(derived, 1)
         self.assertIsNone(reported)
 
-    def test_absent_findings_defaults_to_zero(self) -> None:
-        path = _write(self.tmp, {"blocking": 0})
-        derived, reported = count_blocking(path)
-        self.assertEqual(derived, 0)
-        self.assertEqual(reported, 0)
+    # ------------------------------------------------------------------
+    # count_blocking() — malformed inputs that must raise CountBlockingError
+    # ------------------------------------------------------------------
 
-    def test_non_dict_findings_items_are_skipped(self) -> None:
-        """Non-dict entries in findings must not crash the count."""
-        path = _write(self.tmp, {
-            "blocking": 1,
-            "findings": [None, "string", {"severity": "critical"}, 42],
-        })
-        derived, _ = count_blocking(path)
-        self.assertEqual(derived, 1)
+    def test_missing_findings_key_raises(self) -> None:
+        """A file with no 'findings' key (e.g. fix-results.json) must exit 2."""
+        path = _write(self.tmp, {"blocking": 0, "results": []})
+        with self.assertRaises(CountBlockingError) as cm:
+            count_blocking(path)
+        self.assertIn("findings", str(cm.exception))
 
-    def test_malformed_findings_not_a_list(self) -> None:
+    def test_findings_not_a_list_raises(self) -> None:
         path = _write(self.tmp, {"findings": {"bad": "value"}})
         with self.assertRaises(CountBlockingError):
             count_blocking(path)
 
-    def test_malformed_blocking_not_an_int(self) -> None:
+    def test_findings_not_a_list_integer_raises(self) -> None:
+        path = _write(self.tmp, {"findings": 99})
+        with self.assertRaises(CountBlockingError):
+            count_blocking(path)
+
+    def test_finding_not_an_object_raises(self) -> None:
+        """Any finding that is not a dict is malformed."""
+        path = _write(self.tmp, {"findings": [{"severity": "critical"}, "bad"]})
+        with self.assertRaises(CountBlockingError) as cm:
+            count_blocking(path)
+        self.assertIn("findings[1]", str(cm.exception))
+
+    def test_finding_null_raises(self) -> None:
+        path = _write(self.tmp, {"findings": [None]})
+        with self.assertRaises(CountBlockingError) as cm:
+            count_blocking(path)
+        self.assertIn("findings[0]", str(cm.exception))
+
+    def test_finding_missing_severity_raises(self) -> None:
+        path = _write(self.tmp, {"findings": [{"concern_id": "foo"}]})
+        with self.assertRaises(CountBlockingError) as cm:
+            count_blocking(path)
+        self.assertIn("severity", str(cm.exception))
+
+    def test_finding_non_string_severity_raises(self) -> None:
+        path = _write(self.tmp, {"findings": [{"severity": 42}]})
+        with self.assertRaises(CountBlockingError) as cm:
+            count_blocking(path)
+        self.assertIn("severity", str(cm.exception))
+
+    def test_blocking_not_an_int_raises(self) -> None:
         path = _write(self.tmp, {"blocking": "oops", "findings": []})
         with self.assertRaises(CountBlockingError):
             count_blocking(path)
 
-    def test_not_valid_json(self) -> None:
+    def test_not_valid_json_raises(self) -> None:
         path = str(self.tmp / "bad.json")
         Path(path).write_text("not json", encoding="utf-8")
         with self.assertRaises(CountBlockingError):
             count_blocking(path)
 
-    def test_top_level_not_an_object(self) -> None:
+    def test_top_level_not_an_object_raises(self) -> None:
         path = _write(self.tmp, [{"severity": "critical"}])
         with self.assertRaises(CountBlockingError):
             count_blocking(path)
 
-    def test_missing_file(self) -> None:
+    def test_missing_file_raises(self) -> None:
         with self.assertRaises(CountBlockingError):
             count_blocking(str(self.tmp / "nonexistent.json"))
 
     # ------------------------------------------------------------------
-    # cmd_count_blocking() — exit codes and stderr
+    # cmd_count_blocking() — exit 2 cases: stdout must NOT be a number
     # ------------------------------------------------------------------
 
-    def test_cmd_exits_0_on_match(self) -> None:
-        path = _write(self.tmp, {"blocking": 2, "findings": [
-            {"severity": "critical"}, {"severity": "major"},
-        ]})
-        err = io.StringIO()
-        rc = cmd_count_blocking(path, stderr=err)
-        self.assertEqual(rc, 0)
-        self.assertEqual(err.getvalue(), "")
+    def _assert_exit2_no_number(self, path: str) -> None:
+        rc, out, err = _run(path)
+        self.assertEqual(rc, 2, f"expected exit 2; stderr={err!r}")
+        self.assertIn("count-blocking:", err)
+        # stdout must not contain a number — a caller that captured stdout
+        # and treated it as the count would get an empty or error string.
+        self.assertFalse(out.strip().isdigit(),
+                         f"stdout must not be a number on exit 2, got {out!r}")
 
-    def test_cmd_prints_derived_count(self) -> None:
-        path = _write(self.tmp, {"blocking": 3, "findings": [
+    def test_exit2_missing_findings_key(self) -> None:
+        path = _write(self.tmp, {"blocking": 0, "results": []}, "no_findings.json")
+        self._assert_exit2_no_number(path)
+
+    def test_exit2_findings_not_a_list(self) -> None:
+        path = _write(self.tmp, {"findings": "bad"}, "bad_list.json")
+        self._assert_exit2_no_number(path)
+
+    def test_exit2_finding_not_an_object(self) -> None:
+        path = _write(self.tmp, {"findings": ["bad"]}, "bad_item.json")
+        self._assert_exit2_no_number(path)
+
+    def test_exit2_finding_null(self) -> None:
+        path = _write(self.tmp, {"findings": [None]}, "null_item.json")
+        self._assert_exit2_no_number(path)
+
+    def test_exit2_finding_missing_severity(self) -> None:
+        path = _write(self.tmp, {"findings": [{"concern_id": "x"}]}, "no_sev.json")
+        self._assert_exit2_no_number(path)
+
+    def test_exit2_finding_non_string_severity(self) -> None:
+        path = _write(self.tmp, {"findings": [{"severity": 99}]}, "bad_sev.json")
+        self._assert_exit2_no_number(path)
+
+    def test_exit2_blocking_not_an_int(self) -> None:
+        path = _write(self.tmp, {"blocking": "oops", "findings": []}, "bad_blocking.json")
+        self._assert_exit2_no_number(path)
+
+    def test_exit2_missing_file(self) -> None:
+        rc, stdout, _ = _run(str(self.tmp / "missing.json"))
+        self.assertEqual(rc, 2)
+        self.assertFalse(stdout.strip().isdigit())
+
+    def test_exit2_not_valid_json(self) -> None:
+        path = str(self.tmp / "notjson.json")
+        Path(path).write_text("!!!not json", encoding="utf-8")
+        self._assert_exit2_no_number(path)
+
+    def test_exit2_top_level_list(self) -> None:
+        path = _write(self.tmp, [{"severity": "critical"}], "list.json")
+        self._assert_exit2_no_number(path)
+
+    # ------------------------------------------------------------------
+    # cmd_count_blocking() — happy path stdout / stderr
+    # ------------------------------------------------------------------
+
+    def test_cmd_prints_derived_count_to_stdout(self) -> None:
+        path = _write(self.tmp, {"blocking": 2, "findings": [
             {"severity": "critical"}, {"severity": "major"}, {"severity": "minor"},
         ]})
-        import contextlib
-        buf = io.StringIO()
-        err = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            rc = cmd_count_blocking(path, stderr=err)
+        rc, out, err = _run(path)
         self.assertEqual(rc, 0)
-        self.assertEqual(buf.getvalue().strip(), "2")
+        self.assertEqual(out.strip(), "2")
+        self.assertEqual(err, "")
 
     def test_cmd_writes_mismatch_to_stderr(self) -> None:
         path = _write(self.tmp, {"blocking": 5, "findings": [{"severity": "critical"}]})
-        err = io.StringIO()
-        rc = cmd_count_blocking(path, stderr=err)
+        rc, _, err = _run(path)
         self.assertEqual(rc, 0)
-        self.assertIn("summary_mismatch", err.getvalue())
-        self.assertIn("reported=5", err.getvalue())
-        self.assertIn("derived=1", err.getvalue())
+        self.assertIn("summary_mismatch", err)
+        self.assertIn("reported=5", err)
+        self.assertIn("derived=1", err)
 
     def test_cmd_no_mismatch_on_correct_blocking(self) -> None:
         path = _write(self.tmp, {"blocking": 1, "findings": [{"severity": "major"}]})
-        err = io.StringIO()
-        cmd_count_blocking(path, stderr=err)
-        self.assertEqual(err.getvalue(), "")
+        rc, _, err = _run(path)
+        self.assertEqual(rc, 0)
+        self.assertEqual(err, "")
 
-    def test_cmd_exits_2_on_malformed_input(self) -> None:
-        path = _write(self.tmp, {"findings": "not-a-list"})
-        err = io.StringIO()
-        rc = cmd_count_blocking(path, stderr=err)
-        self.assertEqual(rc, 2)
-        self.assertIn("count-blocking:", err.getvalue())
-
-    def test_cmd_exits_2_on_missing_file(self) -> None:
-        err = io.StringIO()
-        rc = cmd_count_blocking(str(self.tmp / "missing.json"), stderr=err)
-        self.assertEqual(rc, 2)
+    def test_cmd_absent_blocking_no_mismatch(self) -> None:
+        """Missing 'blocking' → no mismatch diagnostic."""
+        path = _write(self.tmp, {"findings": [{"severity": "critical"}]})
+        rc, out, err = _run(path)
+        self.assertEqual(rc, 0)
+        self.assertEqual(err, "")
+        self.assertEqual(out.strip(), "1")
 
     # ------------------------------------------------------------------
     # CLI integration — ./bin/workflow count-blocking via main()
@@ -164,8 +247,18 @@ class TestCountBlocking(unittest.TestCase):
         rc = main(["count-blocking", path])
         self.assertEqual(rc, 0)
 
-    def test_cli_exits_2_on_malformed(self) -> None:
+    def test_cli_exits_2_on_missing_findings_key(self) -> None:
+        path = _write(self.tmp, {"results": []})
+        rc = main(["count-blocking", path])
+        self.assertEqual(rc, 2)
+
+    def test_cli_exits_2_on_malformed_findings(self) -> None:
         path = _write(self.tmp, {"findings": 99})
+        rc = main(["count-blocking", path])
+        self.assertEqual(rc, 2)
+
+    def test_cli_exits_2_on_non_object_finding(self) -> None:
+        path = _write(self.tmp, {"findings": ["not-an-object"]})
         rc = main(["count-blocking", path])
         self.assertEqual(rc, 2)
 
