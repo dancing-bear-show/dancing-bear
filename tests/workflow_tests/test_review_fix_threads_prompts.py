@@ -1137,6 +1137,28 @@ class TestResweepSuppressionAlwaysRuns(TestSweepShellRunsAsRendered):
                 "also being empty — otherwise the suppression scan is skipped",
             )
 
+    def test_jq_failure_fails_stage_not_counted_as_zero(self) -> None:
+        """When jq fails building the paths list the stage must fail outright.
+        The old 'count every blocking finding as still blocking' fallback yields
+        still_blocking=0 when derived=0, making the stage appear to pass."""
+        prompt = _flat(_prompts()["resweep-regressions"])
+        # The prompt must say FAIL THE STAGE (or equivalent) on jq/fix-diff failure,
+        # not "count every blocking finding" which silently passes at derived=0.
+        self.assertIn(
+            "FAIL THE STAGE",
+            prompt,
+            "resweep must instruct failing the stage outright on jq/fix-diff "
+            "failure — 'count every blocking finding as still blocking' is wrong "
+            "when derived=0 because it yields still_blocking=0 and passes",
+        )
+        # The old fallback text must not appear (it silently passes at derived=0).
+        self.assertNotIn(
+            "count every blocking finding as still blocking",
+            prompt,
+            "fallback 'count every blocking finding' must be removed — it passes "
+            "silently when derived=0",
+        )
+
     @unittest.skipUnless(all(map(shutil.which, ("git", "jq", "bash", "awk"))),
                          "needs git, jq, bash and awk")
     def test_suppression_detected_when_blocking_is_zero(self) -> None:
@@ -1179,7 +1201,7 @@ class TestSuppressionRegexAnchoring(unittest.TestCase):
         """Return True if the ERE pattern matches ``line``."""
         res = subprocess.run(  # nosec B603 - fixed argv, grep ERE, no shell
             [str(shutil.which("grep")), "-qE", self._PATTERN],
-            input=line, text=True, capture_output=True, check=False,
+            input=line, text=True, capture_output=True, check=False, timeout=10,
         )
         return res.returncode == 0
 
@@ -1384,7 +1406,7 @@ class TestSweepPipelineFailClosed(unittest.TestCase):
             rc = subprocess.run(  # nosec B603 - fixed argv list, no shell, temp dir
                 [str(shutil.which("jq")), "-r", ".files_changed[]", str(bad)],
                 stdout=out.open("wb"),
-                check=False,
+                check=False, timeout=10,
             ).returncode
             self.assertNotEqual(rc, 0, "jq must exit non-zero on malformed input")
 
@@ -1402,7 +1424,7 @@ class TestSweepPipelineFailClosed(unittest.TestCase):
                  "/^diff --git /{h=0; next} /^@@/{h=1; next} h && /^\\+/",
                  str(missing)],
                 stdout=out.open("wb"),
-                check=False,
+                check=False, timeout=10,
             ).returncode
             self.assertNotEqual(rc, 0,
                                 "awk must exit non-zero when its input file is missing")

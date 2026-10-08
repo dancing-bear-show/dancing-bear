@@ -1581,16 +1581,18 @@ stages:
       does:
 
           jq -r '.files_changed[]' "{workspace}/outputs/fix-results.json" "{workspace}/outputs/refix-results.json" > "{workspace}/validation/resweep-paths-raw.txt"
-          # jq failure → incomplete path list → treat as still blocking
-          if [ $? -ne 0 ]; then <fail: count every blocking finding as still blocking (Step 6)>; fi
+          # jq failure → FAIL THE STAGE outright (exit non-zero, report still_blocking as -1/unknown)
+          if [ $? -ne 0 ]; then <FAIL THE STAGE: exit non-zero; write resweep.json with still_blocking: -1 and error: "jq failed building paths list">; fi
           sort -u "{workspace}/validation/resweep-paths-raw.txt" > "{workspace}/validation/resweep-paths.txt"
           bash workflows/code/scripts/fix-diff.sh "{workspace}/validation/resweep-paths.txt" > "{workspace}/validation/resweep-diff.patch"
+          # fix-diff.sh failure → FAIL THE STAGE outright
+          if [ $? -ne 0 ]; then <FAIL THE STAGE: exit non-zero; write resweep.json with still_blocking: -1 and error: "fix-diff.sh failed building diff">; fi
 
-        Either command exiting non-zero means the diff is incomplete: count
-        every blocking finding as still blocking (Step 6). Check jq's exit
-        before piping its output into sort — a jq failure silently produces
-        an empty or partial file when piped, which then reads as "no files
-        changed" and lets the resweep pass on incomplete data.
+        A failure building the paths list or the diff fails the stage
+        outright — independent of the derived finding count. "Count every
+        blocking finding as still blocking" is the wrong fallback when
+        derived=0, because it yields still_blocking=0 and the stage appears
+        to pass. A failed diff means the scan cannot run; report an error.
 
       Step 3 — suppressions, a deterministic check over ADDED lines only.
         Context and deleted lines are not additions, and the `+++ b/<path>`
@@ -1599,8 +1601,8 @@ stages:
         (after an `@@` header) that start with `+` are considered:
 
           awk '/^diff --git /{h=0; next} /^@@/{h=1; next} h && /^\+/' "{workspace}/validation/resweep-diff.patch" > "{workspace}/validation/resweep-added-lines.txt"
-          # awk failure → diff was unreadable → treat as still blocking
-          if [ $? -ne 0 ]; then <fail: count check as still blocking>; fi
+          # awk failure → FAIL THE STAGE outright (cannot read the diff, cannot scan)
+          if [ $? -ne 0 ]; then <FAIL THE STAGE: exit non-zero; write resweep.json with still_blocking: -1 and error: "awk failed reading diff for suppression scan">; fi
           grep -nE '# type: ignore|# noqa|# nosec|# NOSONAR|@unittest\.skip(\(|$|[[:space:]])|@pytest\.mark\.skip(\(|$|[[:space:]])|@unittest\.expectedFailure' "{workspace}/validation/resweep-added-lines.txt"
 
         grep exit 0 (a hit): each hit is a still-blocking
