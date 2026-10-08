@@ -270,5 +270,109 @@ class SweepRecordTests(unittest.TestCase):
         self.assertEqual(set(sweep_record.REVIEW_OUTPUTS), {"review-consolidated", "consolidate"})
 
 
+def _make_repo_with_diff(root: Path, paths: list[str]) -> tuple[Path, str, str]:
+    """Create a repo where MERGE_BASE..HEAD changes exactly *paths*.
+
+    Returns (repo, merge_base, head_sha).
+    """
+    repo = root / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    (repo / "base.txt").write_text("base\n")
+    _git(repo, "add", "base.txt")
+    _git(repo, "commit", "-q", "-m", "base")
+    merge_base = _git(repo, "rev-parse", "HEAD")
+    for p in paths:
+        full = repo / p
+        full.parent.mkdir(parents=True, exist_ok=True)
+        full.write_text(f"{p}\n")
+        _git(repo, "add", p)
+    _git(repo, "commit", "-q", "-m", "feat")
+    head_sha = _git(repo, "rev-parse", "HEAD")
+    return repo, merge_base, head_sha
+
+
+def _make_workspace_with_context(root: Path, guides: list[str], merge_base: str, head_sha: str,
+                                  changed: list[str]) -> Path:
+    """A swarm workspace with full pr-context.json (merge_base + head_sha)."""
+    ws = root / "ws"
+    (ws / "outputs").mkdir(parents=True)
+    (ws / "outputs" / "changed-files.txt").write_text("\n".join(changed) + "\n")
+    ctx = {"commit_id": head_sha, "head_sha": head_sha, "merge_base": merge_base}
+    (ws / "outputs" / "pr-context.json").write_text(json.dumps(ctx))
+    index = {
+        "total": len(guides),
+        "items": [{"index": str(i), "data": {"guide": g}} for i, g in enumerate(guides)],
+    }
+    (ws / "outputs" / "concern-sweep-index.json").write_text(json.dumps(index))
+    (ws / "outputs" / "consolidated.json").write_text(json.dumps({"findings": []}))
+    return ws
+
+
+class DiffValidationTests(unittest.TestCase):
+    """_require_diff_matches_workspace — changed-files.txt must match git diff."""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name).resolve()
+
+    def _run_repo(self, repo: Path, ws: Path, head: str) -> tuple[int, str, str]:
+        return _run(repo, "write", "--head", head, "--workspace", str(ws))
+
+    def test_matching_list_records_successfully(self) -> None:
+        paths = ["src/core/util.py", "workflows/code/open-pr.yaml"]
+        repo, merge_base, head_sha = _make_repo_with_diff(self.root, paths)
+        guides = select_guides(paths)
+        ws = _make_workspace_with_context(self.root, guides, merge_base, head_sha, paths)
+        code, _, err = self._run_repo(repo, ws, head_sha)
+        self.assertEqual(code, 0, err)
+
+    def test_extra_path_in_workspace_is_refused(self) -> None:
+        paths = ["src/core/util.py"]
+        repo, merge_base, head_sha = _make_repo_with_diff(self.root, paths)
+        guides = select_guides(paths)
+        extra = paths + ["src/core/extra.py"]
+        ws = _make_workspace_with_context(self.root, guides, merge_base, head_sha, extra)
+        code, _, err = self._run_repo(repo, ws, head_sha)
+        self.assertEqual(code, 2)
+        self.assertIn("extra paths in workspace", err)
+        self.assertIn("src/core/extra.py", err)
+
+    def test_missing_path_in_workspace_is_refused(self) -> None:
+        paths = ["src/core/util.py", "src/core/other.py"]
+        repo, merge_base, head_sha = _make_repo_with_diff(self.root, paths)
+        guides = select_guides(paths)
+        subset = paths[:1]
+        ws = _make_workspace_with_context(self.root, guides, merge_base, head_sha, subset)
+        code, _, err = self._run_repo(repo, ws, head_sha)
+        self.assertEqual(code, 2)
+        self.assertIn("missing paths from git diff", err)
+        self.assertIn("src/core/other.py", err)
+
+    def test_non_ascii_path_round_trips(self) -> None:
+        path = "src/café/main.py"
+        repo, merge_base, head_sha = _make_repo_with_diff(self.root, [path])
+        guides = select_guides([path])
+        ws = _make_workspace_with_context(self.root, guides, merge_base, head_sha, [path])
+        code, _, err = self._run_repo(repo, ws, head_sha)
+        self.assertEqual(code, 0, err)
+
+    def test_absent_merge_base_skips_diff_check(self) -> None:
+        """A workspace from older swarm code that omits merge_base still records."""
+        paths = ["src/core/util.py"]
+        repo, _mb, head_sha = _make_repo_with_diff(self.root, paths)
+        guides = select_guides(paths)
+        # Workspace with wrong set of paths but no merge_base in pr-context.json.
+        ws = _make_workspace_with_context(self.root, guides, merge_base="", head_sha=head_sha,
+                                          changed=paths)
+        # Overwrite pr-context with no merge_base key.
+        (ws / "outputs" / "pr-context.json").write_text(
+            json.dumps({"commit_id": head_sha, "head_sha": head_sha})
+        )
+        code, _, err = self._run_repo(repo, ws, head_sha)
+        self.assertEqual(code, 0, err)
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

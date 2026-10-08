@@ -58,7 +58,6 @@
     "workflows/shared/adversarial-validate.yaml::cross-validate",
     "workflows/shared/adversarial-validate.yaml::validate-units",
     "workflows/shared/code-review-swarm.yaml::cross-unit-check",
-    "workflows/shared/code-review-swarm.yaml::fact-check-findings",
     "workflows/shared/complexity-reduce.yaml::human-gate",
     "workflows/shared/complexity-reduce.yaml::recheck",
     "workflows/shared/complexity-reduce.yaml::validate-callsites",

@@ -219,6 +219,51 @@ def _require_workspace_swept_head(workspace: Path, head: str) -> None:
         )
 
 
+def _require_diff_matches_workspace(repo: Path, workspace: Path) -> None:
+    """The workspace's changed-files.txt must match the recorded commit's actual diff.
+
+    fetch-pr-context writes ``merge_base`` and ``head_sha`` into
+    ``outputs/pr-context.json``.  Recompute the diff from git and compare; a
+    stale or hand-edited workspace can otherwise mint a record for HEAD while
+    omitting files that require guide coverage.
+    """
+    ctx_path = workspace / "outputs" / CONTEXT_NAME
+    data = _load_json(ctx_path, CONTEXT_NAME)
+    if not isinstance(data, dict):
+        raise SweepRecordError(f"{CONTEXT_NAME} is not a JSON object: {ctx_path}")
+    merge_base = data.get("merge_base")
+    head_sha = data.get("head_sha")
+    if not isinstance(merge_base, str) or not isinstance(head_sha, str):
+        # Local-mode context may omit merge_base; skip the check rather than
+        # hard-failing on a valid but partial context written by older swarm code.
+        return
+    diff_out = _git(repo, "-c", "core.quotePath=false", "diff",
+                    f"{merge_base}..{head_sha}", "--name-only")
+    git_paths = {ln for ln in diff_out.splitlines() if ln}
+    ws_path = workspace / "outputs" / CHANGED_FILES_NAME
+    try:
+        ws_text = ws_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        raise SweepRecordError(f"{CHANGED_FILES_NAME} not found: {ws_path}") from None
+    except (OSError, UnicodeDecodeError) as exc:
+        raise SweepRecordError(
+            f"{CHANGED_FILES_NAME} is unreadable or not UTF-8: {ws_path} ({exc})"
+        ) from None
+    ws_paths = {ln for ln in ws_text.splitlines() if ln.strip()}
+    extra = ws_paths - git_paths
+    missing = git_paths - ws_paths
+    if extra or missing:
+        parts: list[str] = []
+        if extra:
+            parts.append("extra paths in workspace: " + ", ".join(sorted(extra)))
+        if missing:
+            parts.append("missing paths from git diff: " + ", ".join(sorted(missing)))
+        raise SweepRecordError(
+            f"{CHANGED_FILES_NAME} does not match the recorded commit's diff "
+            f"({merge_base[:12]}..{head_sha[:12]}): " + "; ".join(parts)
+        )
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -261,6 +306,7 @@ def write_swept(repo: Path, head: str, workspace: Path) -> tuple[Path, SweepReco
     _require_selected_guides(ws, guides)
     _require_review_output(ws)
     _require_workspace_swept_head(ws, head)
+    _require_diff_matches_workspace(root, ws)
     record = SweepRecord(
         head_sha=head, mode=MODE_SWEPT, guides=guides, workspace=str(ws),
         reason=None, recorded_at=_now(),

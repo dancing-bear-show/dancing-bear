@@ -900,7 +900,7 @@ stages:
   # ===========================================================================
 
   - name: fact-check-findings
-    kind: validate
+    kind: execute
     depends_on: [consolidate, review-consolidated]
     reads_from: [consolidate, review-consolidated, fetch-pr-context]
     description: >

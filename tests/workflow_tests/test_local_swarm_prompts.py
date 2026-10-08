@@ -284,6 +284,19 @@ class TestOpenPrRecordSweepStage(unittest.TestCase):
         """swarm-fact-check-findings must be a stage (last running stage in local mode)."""
         self.assertIn("swarm-fact-check-findings", self.stages)
 
+    def test_record_sweep_reads_from_swarm_fact_check_findings(self) -> None:
+        """record-sweep must read from swarm-fact-check-findings (contract check)."""
+        stage = self.stages["record-sweep"]
+        self.assertIn("swarm-fact-check-findings", stage.spec.reads_from)
+
+    def test_swarm_fact_check_findings_writes_consolidated_json(self) -> None:
+        """swarm-fact-check-findings must declare consolidated.json in writes_to so
+        the record-sweep stage can read it.  A kind:validate stage that silently
+        replaces that file with a JSON array would break sweep-record write."""
+        stage = self.stages["swarm-fact-check-findings"]
+        self.assertIn("consolidated.json", stage.spec.writes_to,
+                      "swarm-fact-check-findings must list consolidated.json in writes_to")
+
 
 # ---------------------------------------------------------------------------
 # (5) Both code-review paths still compile
