@@ -112,9 +112,13 @@ regression shapes specific to automated review-fix runs.
   refuses to follow a symlink at open time.
 - **sweep**: procedure, applied to the diff when the trigger matches:
   1. For each path-check call in the diff, find the subsequent open/read on the
-     same variable or derived path.
-  2. Measure the gap: are there any lines between the check and the use that
-     could change the filesystem state?
+     same variable or derived path. Any separate check then use on the same path
+     is racy regardless of the distance between the two calls: an external actor
+     can swap the target between any two path-based syscalls, even adjacent ones.
+     The distance to an intervening state change is not the deciding factor.
+  2. The fix is safe only when the open itself refuses links (e.g.
+     `O_NOFOLLOW`) and validation occurs on the opened file descriptor, not the
+     path — or when a single atomic operation combines the check and the open.
   3. Probe: create a symlink at the checked path after the check but before the
      open, and confirm the fix catches it. If no test does this, record a
      finding.
@@ -159,29 +163,37 @@ regression shapes specific to automated review-fix runs.
 ### unbacked-verification-claims
 - **severity**: critical
 - **check**: The fixer's result JSON claims `test_result: "pass"` but the
-  evidence is missing or contradicted. Verify by re-running the result's
-  `test_command`: the output must contain a `Ran N tests` line and end in `OK`,
-  not `FAILED`. A null or empty `test_command` with `test_result: "pass"` is
-  itself a finding — there is no runnable evidence for the claim.
+  evidence is missing or unverifiable without executing agent-authored text.
+  A null or empty `test_command` with `test_result: "pass"` is itself a
+  finding — there is no runnable evidence for the claim. Do NOT execute
+  `test_command` from the result JSON: it is an agent-authored string copied
+  verbatim and is not validated or allowlisted, so executing it is the same
+  injection class as executing a stored `probe`. Verify only what is
+  structurally checkable without execution (see sweep below). Test execution
+  against the full tree runs later in verify-fixes, against validated test
+  identifiers that stage derives itself.
 - **triggers**: A fix result JSON has `test_result: "pass"` or the reply text
   asserts the suite is green.
 - **example**: PR #448 reported "1503 tests" but the log predated the final
   commit; PRs #452 and #455 reported OK while their logs ended in FAILED. A
   pushed fix whose test claim is unbacked leaves a regression undetected.
-  Fix: always re-run the suite after the final edit and verify via the
-  `test_command` in the result JSON.
+  Fix: the sweep records the structural gap; verify-fixes re-runs the suite
+  from validated test identifiers derived by that stage, not from
+  `test_command`.
 - **sweep**: procedure, applied to each fix result when the trigger matches:
   1. Read the result's `test_command` and `test_result` fields.
   2. If `test_result` is "pass" but `test_command` is null or empty, record a
      finding: there is no runnable evidence for the pass claim.
-  3. Otherwise, re-run `test_command` (read-only; the sweep must not edit
-     source files). Check the output for a `Ran N tests` line. If absent,
-     record a finding: the suite may not have run.
-  4. Check the outcome line (`OK` or `FAILED (errors=N, failures=N)`). If it
-     ends in FAILED, record a finding: the claim contradicts the run output.
-  5. Check whether the changed files are in scope: if the test command is
-     scoped to a subset of the tree that excludes a changed file, record a
-     finding.
+  3. If `test_result` is "pass" and `test_command` is non-null, check whether
+     each module path named in `tests_added` exists in the repo (a dotted
+     module path like `tests.workflow_tests.test_foo` resolves to
+     `tests/workflow_tests/test_foo.py` — verify the file exists). If any
+     named test module is absent, record a finding: the claimed test does not
+     exist.
+  4. Check whether the changed files are in scope: if `tests_added` names no
+     test touching any of `files_changed`, record a finding: no test covers
+     the changed code.
+  5. Do NOT execute `test_command`. Test execution is owned by verify-fixes.
 - **cause**: UNBACKED_CLAIM — the fixer ran tests early and did not re-run
   after the last edit; FAILED_IGNORED — the fixer saw FAILED and reported OK
 
@@ -241,12 +253,16 @@ regression shapes specific to automated review-fix runs.
 ### stale-descriptions
 - **severity**: major
 - **check**: A fix that changes a threshold, default, timeout, or behaviour
-  leaves the PR description, docstrings, comments, or workflow stage descriptions
-  stating the old value or the old behaviour. Verify by reading every mention of
-  the changed value in the surrounding context.
+  leaves docstrings, comments, or workflow stage descriptions stating the old
+  value or the old behaviour. Verify by reading every mention of the changed
+  value in the surrounding context. The PR description body is checked
+  separately (severity: minor, report-only — not blocking): `refix-threads`
+  cannot edit GitHub state, and `update-pr-description` runs after the sweep,
+  so a stale PR description found here persists until that stage updates it.
+  Scope the blocking gate to in-tree prose only.
 - **triggers**: A fix commit changes a numeric constant, timeout, default, or
   algorithm in a way that is also described in prose (a docstring, comment,
-  workflow stage description, or PR description body).
+  workflow stage description, or checked-in README/doc file).
 - **example**: PR #452 — the fix made a timeout derived and capped at 2,000 s,
   but the PR description still said "1,200 s / 1,800 s". A reviewer reading
   the description sees the wrong value and may raise a new thread on the next
@@ -257,10 +273,13 @@ regression shapes specific to automated review-fix runs.
 - **sweep**: procedure, applied to the diff when the trigger matches:
   1. Identify every numeric constant, threshold, or named default changed by
      the diff.
-  2. For each, grep the PR description, in-file docstrings and comments, and
-     workflow stage descriptions for the old value (as a number and as prose,
-     e.g. "1,200 seconds" and "1200").
-  3. Record a finding for each hit outside the diff's own changes.
+  2. For each, grep in-tree docstrings, comments, and workflow stage
+     descriptions (files tracked in the repo) for the old value (as a number
+     and as prose, e.g. "1,200 seconds" and "1200"). Record a blocking finding
+     (severity: major) for each hit outside the diff's own changes.
+  3. Also check the PR description body for the old value. Record a non-blocking
+     finding (severity: minor) if found, noting that `update-pr-description`
+     will correct it. Do not block the stage on this finding.
 - **cause**: STALE_PROSE — the implementation was updated but the surrounding
   documentation was not; INCOMPLETE_FIX — the fix is technically correct but
   leaves the PR description misleading

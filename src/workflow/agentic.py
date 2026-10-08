@@ -58,6 +58,9 @@ def build_agentic_capsule() -> str:
         "  - count-sweep: ./bin/workflow count-sweep --pattern='<regex>' --path='<p>' [--path='<p>' ...]"
     )
     lines.append(
+        "  - count-blocking: ./bin/workflow count-blocking PATH_TO_sweep-findings.json"
+    )
+    lines.append(
         "  - merge-fix-results: ./bin/workflow merge-fix-results "
         "<workspace>/outputs/fix-results.json <workspace>/outputs/refix-results.json "
         "<workspace>/outputs/fix-results-merged.json"

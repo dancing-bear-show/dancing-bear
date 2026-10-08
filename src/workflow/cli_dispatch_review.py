@@ -535,6 +535,19 @@ def _read_json_file(path: str, label: str) -> tuple[object, bool]:
         return None, False
 
 
+def _cmd_count_blocking(args: argparse.Namespace) -> int:
+    """Derive the blocking count from a sweep-findings.json file.
+
+    Prints the derived count to stdout. Writes a ``summary_mismatch``
+    diagnostic to stderr when the agent-written "blocking" summary field
+    disagrees with the derived count (the derived count is authoritative).
+    Exit 2 on malformed input (not-a-list findings, non-int blocking, or
+    unreadable file); else 0.
+    """
+    from workflow.count_blocking import cmd_count_blocking
+    return cmd_count_blocking(args.findings)
+
+
 def _cmd_merge_fix_results(args: argparse.Namespace) -> int:
     """Merge fix-results.json and refix-results.json into one file.
 

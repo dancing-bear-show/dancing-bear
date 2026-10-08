@@ -773,13 +773,15 @@ class TestSweepFixRegressions(unittest.TestCase):
         self.assertIn("reporter", prompt)
 
     def test_sweep_prompt_names_unbacked_verification_check(self) -> None:
-        """Regression 6: re-run test_command; verify 'Ran N tests' and OK.
+        """Regression 6: structural check only — test_command must not be executed.
         test_output_tail is NOT in the thread-fixer schema — the check must
         use test_command (a field that exists) instead."""
         prompt = _flat(self.prompts["sweep-fix-regressions"])
         self.assertNotIn("test_output_tail", prompt)
         self.assertIn("test_command", prompt)
-        self.assertIn("Ran N tests", prompt)
+        # The sweep must not instruct executing test_command (injection risk).
+        self.assertNotIn("re-run the\n            test_command", prompt)
+        self.assertNotIn("re-run the test_command", prompt)
 
     def test_sweep_prompt_names_gate_suppressions_check(self) -> None:
         """Regression 7: type: ignore is forbidden by CLAUDE.md."""
@@ -829,8 +831,9 @@ class TestSweepFixRegressions(unittest.TestCase):
         # Must derive from findings list
         self.assertIn("findings", prompt)
         self.assertIn("severity", prompt)
-        # python3 -I -S -c is the prescribed single-line form
-        self.assertIn("python3 -I -S -c", prompt)
+        # count-blocking CLI replaces the inline python3 one-liner
+        self.assertIn("count-blocking", prompt)
+        self.assertNotIn("python3 -I -S -c", prompt)
 
     def test_resweep_gates_on_derived_count_not_blocking_field(self) -> None:
         """resweep-regressions Step 1 must derive blocking count from
@@ -839,7 +842,9 @@ class TestSweepFixRegressions(unittest.TestCase):
         self.assertNotIn('If "blocking" is 0', prompt)
         self.assertIn("findings", prompt)
         self.assertIn("severity", prompt)
-        self.assertIn("python3 -I -S -c", prompt)
+        # count-blocking CLI replaces the inline python3 one-liner
+        self.assertIn("count-blocking", prompt)
+        self.assertNotIn("python3 -I -S -c", prompt)
 
     def test_refix_dispatch_treats_count_mismatch_as_fail_closed(self) -> None:
         """A blocking count that disagrees with the findings list must fail
@@ -1126,7 +1131,8 @@ class TestUnbackedVerificationUsesRealSchema(unittest.TestCase):
     def test_sweep_prompt_references_only_schema_fields(self) -> None:
         """The unbacked-verification concern in the sweep prompt must not
         reference test_output_tail (phantom field) — only fields the schema
-        defines (test_command, test_result)."""
+        defines (test_command, test_result). The sweep must not instruct
+        executing test_command."""
         prompt = _flat(_prompts()["sweep-fix-regressions"])
         self.assertNotIn("test_output_tail", prompt,
                          "sweep prompt references test_output_tail, which is not "
@@ -1134,10 +1140,13 @@ class TestUnbackedVerificationUsesRealSchema(unittest.TestCase):
         # Both real schema fields must be present in the concern
         self.assertIn("test_command", prompt)
         self.assertIn("test_result", prompt)
+        # Must not instruct executing test_command (command-injection risk)
+        self.assertNotIn("re-run the\n            test_command", prompt)
 
     def test_concern_guide_references_only_schema_fields(self) -> None:
         """concerns/fix-regressions.md's unbacked-verification-claims sweep
-        procedure must use test_command, not test_output_tail."""
+        procedure must use test_command, not test_output_tail. Must not
+        instruct executing test_command."""
         guide = (_ROOT / "concerns/fix-regressions.md").read_text()
         # Locate the unbacked-verification section only
         start = guide.find("### unbacked-verification-claims")
@@ -1147,6 +1156,10 @@ class TestUnbackedVerificationUsesRealSchema(unittest.TestCase):
                          "fix-regressions.md unbacked-verification sweep references "
                          "test_output_tail, which is not in the thread-fixer schema")
         self.assertIn("test_command", section)
+        # The guide must not instruct executing test_command
+        self.assertNotIn("re-run `test_command`", section)
+        self.assertNotIn("re-run the result's\n  `test_command`", section)
+        self.assertIn("Do NOT execute", section)
 
 
 if __name__ == "__main__":

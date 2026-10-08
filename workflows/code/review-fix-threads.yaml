@@ -1318,10 +1318,17 @@ stages:
             the code path that makes it fail, and note if that path did not
             exist before the fix.
           - unbacked-verification-claims: for each fix result with
-            test_result "pass" and a non-null test_command, re-run the
-            test_command and verify the output contains "Ran N tests" and
-            ends in "OK", not "FAILED". A null or empty test_command with
-            test_result "pass" is itself a finding (no runnable evidence).
+            test_result "pass", check structurally: (a) a null or empty
+            test_command with test_result "pass" is itself a finding (no
+            runnable evidence); (b) each module path in tests_added must
+            exist as a file in the repo (a dotted path like
+            tests.workflow_tests.test_foo resolves to
+            tests/workflow_tests/test_foo.py — verify the file exists); (c)
+            if tests_added names no test touching any of files_changed,
+            record a finding. Do NOT execute test_command: it is an
+            agent-authored string and executing it is the same injection
+            class as executing a stored probe. Test execution runs later
+            in verify-fixes against validated identifiers that stage derives.
           - gate-suppressions-added: grep the diff's ADDED lines only for
             "# type: ignore", "# noqa", "# nosec", "# NOSONAR",
             "@unittest.skip", "@pytest.mark.skip", "@unittest.expectedFailure"
@@ -1375,17 +1382,19 @@ stages:
 
       Step 1 — read {workspace}/validation/sweep-findings.json. Derive the
       blocking count from the findings list, not the agent-written summary.
-      The one-liner always prints the derived count and always exits 0; if the
-      agent-written "blocking" field disagrees, the derived count is authoritative
-      (fail-closed: a mismatch must never reduce the count below derived):
+      The CLI command always prints the derived count to stdout and exits 0
+      on a well-formed file; if the agent-written "blocking" field disagrees,
+      it writes a summary_mismatch diagnostic to stderr. The derived count is
+      authoritative (fail-closed: a mismatch must never reduce the count
+      below derived). Exit 2 means the file is malformed:
 
-        python3 -I -S -c "import json,sys; d=json.load(open(sys.argv[1])); reported=d.get('blocking',0); derived=sum(1 for f in d.get('findings',[]) if f.get('severity') in ('critical','major')); print(derived); (sys.stderr.write('summary_mismatch: reported=%d derived=%d\n'%(reported,derived)) if reported!=derived else None)" "{workspace}/validation/sweep-findings.json"
+        ./bin/workflow count-blocking "{workspace}/validation/sweep-findings.json"
 
       Capture the printed number. If it is 0, write
       {workspace}/outputs/refix-index.json as {"total": 0, "items": []} and
       exit 0. refix-threads then fans out over no items and refix-aggregate
       writes an empty refix-results.json. If it is non-zero (or if the
-      one-liner itself failed), continue to Step 2.
+      command itself failed), continue to Step 2.
 
       Step 2 — read {workspace}/outputs/fix-index.json. For every item, keep
       only the entries of its "data.threads" whose "id" is the "id" of at
@@ -1533,18 +1542,19 @@ stages:
 
       Step 1 — read {workspace}/validation/sweep-findings.json. Derive the
         blocking count from the findings list, not the agent-written summary.
-        The one-liner always prints the derived count and always exits 0; if
-        the agent-written "blocking" field disagrees, the derived count is
+        The CLI command always prints the derived count to stdout and exits 0
+        on a well-formed file; if the agent-written "blocking" field disagrees,
+        it writes a summary_mismatch diagnostic to stderr. The derived count is
         authoritative (fail-closed: a mismatch must never reduce the count
-        below derived):
+        below derived). Exit 2 means the file is malformed:
 
-          python3 -I -S -c "import json,sys; d=json.load(open(sys.argv[1])); reported=d.get('blocking',0); derived=sum(1 for f in d.get('findings',[]) if f.get('severity') in ('critical','major')); print(derived); (sys.stderr.write('summary_mismatch: reported=%d derived=%d\n'%(reported,derived)) if reported!=derived else None)" "{workspace}/validation/sweep-findings.json"
+          ./bin/workflow count-blocking "{workspace}/validation/sweep-findings.json"
 
         Capture the printed number. If it is 0, write
         {workspace}/validation/resweep.json with
         {"total_checked": 0, "still_blocking": 0, "findings": []} and exit 0.
         There was nothing to refix and nothing to re-check. If it is non-zero
-        (or if the one-liner itself failed), continue to Step 2.
+        (or if the command itself failed), continue to Step 2.
 
       Step 2 — rebuild the diff over every file either pass changed,
       untracked files included, exactly as sweep-fix-regressions Step 3

@@ -47,6 +47,7 @@ from workflow.cli_dispatch_review import (
     _cmd_check_paths,
     _cmd_check_thread_ids,
     _cmd_check_unlisted,
+    _cmd_count_blocking,
     _cmd_count_sweep,
     _cmd_merge_fix_results,
     _cmd_parse_overview,
@@ -387,6 +388,15 @@ def cmd_count_sweep(args: argparse.Namespace) -> int:
 
 
 @app.command(
+    "count-blocking",
+    help="Derive the blocking-finding count from sweep-findings.json; exit 2 on malformed input",
+)
+@app.argument("findings", help="Path to sweep-findings.json")
+def cmd_count_blocking(args: argparse.Namespace) -> int:
+    return _cmd_count_blocking(args)
+
+
+@app.command(
     "merge-fix-results",
     help="Merge fix-results.json and refix-results.json into a combined file",
 )
@@ -405,7 +415,8 @@ def _no_command_usage() -> int:
         "Usage: workflow {parse,compile,run,lint,list,status,init-workspace,resume,"
         "validate-fragment,parse-overview,check-paths,select-concerns,check-params,"
         "check-fix-index,thread-fingerprints,check-thread-ids,aggregate-fix-results,"
-        "snapshot-dirty,check-unlisted,review-rounds,count-sweep,merge-fix-results} [options]",
+        "snapshot-dirty,check-unlisted,review-rounds,count-sweep,count-blocking,"
+        "merge-fix-results} [options]",
         file=sys.stderr,
     )
     return ExitCode.USAGE
