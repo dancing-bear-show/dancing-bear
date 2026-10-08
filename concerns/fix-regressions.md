@@ -212,8 +212,10 @@ regression shapes specific to automated review-fix runs.
   reason comment and must not be added to suppress a new violation the fix
   itself introduced.
 - **triggers**: A fix commit adds any of `# type: ignore`, `# noqa`, `# nosec`,
-  `# NOSONAR`, `@unittest.skip`, `@pytest.mark.skip`, or
-  `@unittest.expectedFailure`.
+  `# NOSONAR`, `@unittest.skip` (bare skip — not `skipIf`/`skipUnless`),
+  `@pytest.mark.skip` (bare skip — not `skipif`), or `@unittest.expectedFailure`.
+  Conditional skip variants (`skipIf`, `skipUnless`, `skipif`) require a reason
+  argument and are not matched by this concern.
 - **example**: PR #456 added `# type: ignore[arg-type]` to pass mypy; CLAUDE.md
   forbids this unconditionally. A `# nosec` added to suppress a bandit finding
   the fix itself introduced hides a real security signal. Fix: resolve the

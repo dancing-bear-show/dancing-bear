@@ -1096,6 +1096,123 @@ class TestSweepShellRunsAsRendered(unittest.TestCase):
         self.assertNotIn("E501", res.stdout)
 
 
+@unittest.skipUnless(all(map(shutil.which, ("git", "jq", "bash", "awk"))),
+                     "needs git, jq, bash and awk")
+class TestResweepSuppressionAlwaysRuns(TestSweepShellRunsAsRendered):
+    """Suppression scan must run even when derived blocking count is 0.
+
+    PR #463 thread ~1574: the old fast-path on blocking=0 skipped Steps 2-4
+    entirely, meaning the deterministic suppression check never ran when the
+    sweep reviewer found nothing blocking.  A `# type: ignore` added by a
+    fixer would then be invisible to the stage.
+    """
+
+    def _sweep_findings_with_blocking(self, blocking: int) -> str:
+        """Write a sweep-findings.json with the given blocking count and return its path."""
+        findings = [{"severity": "critical"}] * blocking
+        doc = {"total": blocking, "blocking": blocking, "findings": findings}
+        path = str(self.ws / "validation" / "sweep-findings.json")
+        (self.ws / "validation").mkdir(parents=True, exist_ok=True)
+        Path(path).write_text(json.dumps(doc))
+        return path
+
+    def test_prompt_does_not_exit_early_on_zero_blocking(self) -> None:
+        """The resweep prompt must not say 'exit 0' immediately after blocking=0."""
+        prompt = _flat(_prompts()["resweep-regressions"])
+        # The old fast-path text described writing resweep.json and exiting
+        # immediately on 0.  The corrected version must only skip if no files changed.
+        lines = prompt.splitlines()
+        zero_exit_idx = next(
+            (i for i, ln in enumerate(lines)
+             if "still_blocking\": 0" in ln and "exit 0" in ln), None
+        )
+        # Any early-exit sentence on zero blocking must be conditional on
+        # files_changed also being empty, not on the derived count alone.
+        if zero_exit_idx is not None:
+            context = " ".join(lines[max(0, zero_exit_idx - 3): zero_exit_idx + 3])
+            self.assertIn(
+                "files_changed",
+                context,
+                "An early exit on zero blocking must be gated on files_changed "
+                "also being empty — otherwise the suppression scan is skipped",
+            )
+
+    @unittest.skipUnless(all(map(shutil.which, ("git", "jq", "bash", "awk"))),
+                         "needs git, jq, bash and awk")
+    def test_suppression_detected_when_blocking_is_zero(self) -> None:
+        """When sweep found 0 blocking findings but a fixer added # type: ignore,
+        the suppression scan must still run and report it as still-blocking."""
+        # The sweep found nothing blocking.
+        self._sweep_findings_with_blocking(0)
+        # The fixer added a # type: ignore in a tracked file.
+        (self.repo / "src/kept.py").write_text(
+            "a = 1  # noqa: E501\nb = 3  # type: ignore\n"
+        )
+        # Build the resweep diff (Step 2).
+        patch_content = self._patch("resweep-regressions", "resweep-diff.patch")
+        self.assertIn("# type: ignore", patch_content,
+                      "diff must contain the added type: ignore")
+        # Run the suppression grep (Step 3).
+        script = _stage_shell_lines("resweep-regressions", str(self.ws), _SUPPRESSION_LINE)
+        res = self._bash(script)
+        self.assertEqual(res.returncode, 0,
+                         f"suppression grep must exit 0 (hit) even when blocking=0; "
+                         f"stderr={res.stderr!r}")
+        self.assertIn("# type: ignore", res.stdout)
+
+
+@unittest.skipUnless(all(map(shutil.which, ("grep",))), "needs grep")
+class TestSuppressionRegexAnchoring(unittest.TestCase):
+    """@unittest.skip and @pytest.mark.skip must be anchored so that
+    skipIf/skipUnless/skipif (conditional, reason-bearing variants) are not
+    matched by the gate-suppressions grep."""
+
+    # The suppression grep pattern extracted from the rendered prompt.
+    _PATTERN = (
+        r'# type: ignore|# noqa|# nosec|# NOSONAR'
+        r'|@unittest\.skip(\(|$|[[:space:]])'
+        r'|@pytest\.mark\.skip(\(|$|[[:space:]])'
+        r'|@unittest\.expectedFailure'
+    )
+
+    def _grep(self, line: str) -> bool:
+        """Return True if the ERE pattern matches ``line``."""
+        res = subprocess.run(  # nosec B603 - fixed argv, grep ERE, no shell
+            [str(shutil.which("grep")), "-qE", self._PATTERN],
+            input=line, text=True, capture_output=True, check=False,
+        )
+        return res.returncode == 0
+
+    # --- must NOT match ---
+    def test_skipIf_not_matched(self) -> None:
+        self.assertFalse(self._grep("@unittest.skipIf(condition, 'reason')"))
+
+    def test_skipUnless_not_matched(self) -> None:
+        self.assertFalse(self._grep("@unittest.skipUnless(cond, 'reason')"))
+
+    def test_pytest_skipif_not_matched(self) -> None:
+        self.assertFalse(self._grep("@pytest.mark.skipif(sys.version_info < (3,), reason='old')"))
+
+    # --- must match ---
+    def test_bare_unittest_skip_matched(self) -> None:
+        self.assertTrue(self._grep("@unittest.skip"))
+
+    def test_unittest_skip_with_paren_matched(self) -> None:
+        self.assertTrue(self._grep("@unittest.skip('not yet implemented')"))
+
+    def test_bare_pytest_mark_skip_matched(self) -> None:
+        self.assertTrue(self._grep("@pytest.mark.skip"))
+
+    def test_pytest_mark_skip_with_paren_matched(self) -> None:
+        self.assertTrue(self._grep("@pytest.mark.skip(reason='slow')"))
+
+    def test_type_ignore_still_matched(self) -> None:
+        self.assertTrue(self._grep("x = 1  # type: ignore"))
+
+    def test_expected_failure_still_matched(self) -> None:
+        self.assertTrue(self._grep("@unittest.expectedFailure"))
+
+
 class TestUnbackedVerificationUsesRealSchema(unittest.TestCase):
     """The unbacked-verification-claims check must only reference fields that
     actually exist in the thread-fixer result schema (.claude/agents/thread-fixer.md).

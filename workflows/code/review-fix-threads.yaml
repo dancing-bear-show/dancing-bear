@@ -1566,12 +1566,15 @@ stages:
           ./bin/workflow count-blocking "{workspace}/validation/sweep-findings.json"
 
         Capture the printed number only on exit 0. If the command exits
-        non-zero (malformed input), fail this stage immediately. If the
-        captured number is 0 (exit 0), write
+        non-zero (malformed input), fail this stage immediately. Continue to
+        Step 2 whether the count is 0 or non-zero — Step 3's deterministic
+        suppression scan runs over the full fixer diff regardless, because a
+        skipped suppression is still-blocking even when the sweep reviewer
+        found nothing else. Only skip Steps 2–4 entirely if BOTH fix-results
+        AND refix-results report zero files_changed (nothing was modified at
+        all); in that case write
         {workspace}/validation/resweep.json with
         {"total_checked": 0, "still_blocking": 0, "findings": []} and exit 0.
-        There was nothing to refix and nothing to re-check. If the number is
-        non-zero (exit 0), continue to Step 2.
 
       Step 2 — rebuild the diff over every file either pass changed,
       untracked files included, exactly as sweep-fix-regressions Step 3
@@ -1598,7 +1601,7 @@ stages:
           awk '/^diff --git /{h=0; next} /^@@/{h=1; next} h && /^\+/' "{workspace}/validation/resweep-diff.patch" > "{workspace}/validation/resweep-added-lines.txt"
           # awk failure → diff was unreadable → treat as still blocking
           if [ $? -ne 0 ]; then <fail: count check as still blocking>; fi
-          grep -nE '# type: ignore|# noqa|# nosec|# NOSONAR|@unittest\.skip|@pytest\.mark\.skip|@unittest\.expectedFailure' "{workspace}/validation/resweep-added-lines.txt"
+          grep -nE '# type: ignore|# noqa|# nosec|# NOSONAR|@unittest\.skip(\(|$|[[:space:]])|@pytest\.mark\.skip(\(|$|[[:space:]])|@unittest\.expectedFailure' "{workspace}/validation/resweep-added-lines.txt"
 
         grep exit 0 (a hit): each hit is a still-blocking
         gate-suppressions-added finding unless fix-regressions.md's
@@ -1607,6 +1610,10 @@ stages:
         (including awk failure detected above): the check did not run —
         count it as still blocking. Run awk and grep as separate steps so
         an awk failure is distinguishable from "no matches".
+        The `@unittest.skip` and `@pytest.mark.skip` patterns are
+        right-anchored by `(\(|$|[[:space:]])` so that `skipIf`,
+        `skipUnless`, and `skipif` (conditional skips that require a
+        reason) are not matched.
 
       Step 4 — every other blocking finding. For each one, read the concern
         named by its "concern_id" in concerns/fix-regressions.md (or the
