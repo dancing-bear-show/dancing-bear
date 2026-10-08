@@ -39,9 +39,6 @@ from typing import IO
 #: values) counts as blocking so a new severity level is never silently ignored.
 _NON_BLOCKING_SEVERITIES: frozenset[str] = frozenset({"minor", "info"})
 
-#: All recognised severity levels, for documentation.
-_ALL_SEVERITIES: frozenset[str] = frozenset({"critical", "major", "minor", "info"})
-
 
 class CountBlockingError(ValueError):
     """The input file is malformed; the count cannot be derived."""
