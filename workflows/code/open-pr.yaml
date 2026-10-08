@@ -2,17 +2,24 @@ name: open-pr
 version: "1.0"
 description: >
   Comprehensive pre-PR validation and pull request creation for the dancing-bear
-  project. Covers six phases: auth pre-flight, code quality gate (mypy + qlty +
+  project. Covers eight phases: auth pre-flight, code quality gate (mypy + qlty +
   ruff + coverage, each reporting PASS/FAIL/UNAVAILABLE rather than treating a
-  missing tool as a pass), PR description generation from diff and commits, human review gate,
-  branch push and PR creation, and fact-check of the description against the
-  actual diff.
+  missing tool as a pass), the concern swarm in local mode (included from
+  code-review-swarm.yaml, stages prefixed swarm-), a sweep record for HEAD that
+  the require-concern-sweep hook checks before any PR is created, PR description
+  generation from diff and commits, human review gate, branch push and PR
+  creation, and fact-check of the description against the actual diff.
 
   Stage dependency graph:
 
     check-auth
         |
     scan-validate
+        |
+    swarm-* (local: fetch-pr-context -> concern-sweep-dispatch -> review ->
+             fact-check-findings; posting stages skipped)
+        |
+    record-sweep
         |
     generate-description
         |
@@ -35,6 +42,9 @@ trigger:
     test_path: ""         # Test directory path e.g. "tests/mail_tests/" (used when test_cmd is empty)
     min_coverage: "80"    # Minimum coverage threshold (percent)
     auth_domains: "github,qlty"  # Comma-separated services for pre-flight auth check
+    local: "true"         # Fixed: concern swarm always runs in local mode (no PR yet)
+  param_rules:
+    local: 'true'         # no PR exists yet, so the included swarm cannot run in PR mode
 
 workspace_dir: "{work_dir}/open-pr"
 
@@ -249,13 +259,65 @@ stages:
       - validation/scan-results.md
 
   # ===========================================================================
-  # Phase 3: Generate PR description from diff + commit history
+  # Phase 3: Record concern-swarm results and surface findings
+  # Runs after the swarm completes (swarm stages injected via include: below).
+  # ===========================================================================
+
+  - name: record-sweep
+    kind: execute
+    depends_on: [swarm-fact-check-findings]
+    reads_from: [swarm-fact-check-findings]
+    description: >
+      Write the sweep record for this local branch run and copy swarm findings
+      into the outer workspace for the human-gate to display.
+
+      Step 1 — the swarm stages are included into this workflow, so they
+        write to THIS workspace: {workspace}/outputs/pr-context.json,
+        concern-sweep-index.json and consolidated.json. Run:
+          ./bin/workflow sweep-record write --head "$(git rev-parse HEAD)" --workspace "{workspace}"
+
+      Step 2 — exit 0 means the record was written. Any other exit means the
+        sweep is not recorded, and the PR-create hook will refuse
+        push-and-create. Write {workspace}/validation/swarm-findings-summary.md
+        with one line quoting the refusal, then report this stage as FAILED so
+        the run stops here instead of at the hook after the human gate.
+
+      Step 3 — summarise the swarm findings for the human gate:
+        If {workspace}/outputs/consolidated-summary.md exists:
+          Copy it to {workspace}/validation/swarm-findings-summary.md.
+        Else if {workspace}/outputs/consolidated.json exists:
+          Read consolidated.json and write a brief markdown summary to
+          {workspace}/validation/swarm-findings-summary.md:
+            ## Pre-PR Concern Swarm Findings
+            Total: N (critical: X, major: Y, minor: Z)
+            [one line per finding: file:line — severity — finding sentence]
+        Else:
+          Write {workspace}/validation/swarm-findings-summary.md with
+          "No concern swarm findings (sweep ran clean or swarm output missing)."
+
+      Always write {workspace}/validation/swarm-findings-summary.md —
+      the human-gate reads it unconditionally.
+    agent:
+      role: researcher
+      model: haiku
+      tools: [Bash, Read, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - validation/swarm-findings-summary.md
+    outputs:
+      - name: swarm-findings-summary
+        mode: generate
+        description: Concern swarm findings summary for the human gate.
+
+  # ===========================================================================
+  # Phase 4: Generate PR description from diff + commit history
   # ===========================================================================
 
   - name: generate-description
     kind: gather
-    depends_on: [scan-validate]
-    reads_from: [scan-validate]
+    depends_on: [record-sweep]
+    reads_from: [scan-validate, record-sweep]
     description: >
       Gather diff and commit metadata, then write a complete PR description.
 
@@ -310,20 +372,23 @@ stages:
       - outputs/pr-description.md
 
   # ===========================================================================
-  # Phase 4: Human review gate
+  # Phase 5: Human review gate
   # ===========================================================================
 
   - name: human-gate
     kind: propose
     depends_on: [generate-description]
-    reads_from: [generate-description, scan-validate]
+    reads_from: [generate-description, scan-validate, record-sweep]
     description: >
-      Present the generated PR description and quality gate results to the
-      human for review and confirmation before pushing anything.
+      Present the generated PR description, quality gate results, and concern
+      swarm findings to the human for review and confirmation before pushing
+      anything.
 
       Display:
         1. {workspace}/validation/scan-results.md — quality gate summary
-        2. {workspace}/outputs/pr-description.md — the proposed PR description
+        2. {workspace}/validation/swarm-findings-summary.md — concern swarm
+           findings from the local branch review (if it exists)
+        3. {workspace}/outputs/pr-description.md — the proposed PR description
 
       Ask the user:
         A) Approve — proceed with push and PR creation
@@ -348,7 +413,7 @@ stages:
       - validation/human-gate-decision.md
 
   # ===========================================================================
-  # Phase 5: Push branch and create PR
+  # Phase 6: Push branch and create PR
   # ===========================================================================
 
   - name: push-and-create
@@ -403,7 +468,7 @@ stages:
       - validation/pr.json
 
   # ===========================================================================
-  # Phase 6: Fact-check PR description against actual diff
+  # Phase 7: Fact-check PR description against actual diff
   # ===========================================================================
 
   - name: fact-check
@@ -464,3 +529,15 @@ stages:
     required: true
     writes_to:
       - validation/fact-check.md
+
+include:
+  # Concern swarm runs in local mode (no PR exists yet): fetches diff from
+  # merge-base(origin/main, HEAD)..HEAD, sweeps concern guides, and produces
+  # consolidated findings. human-gate and post-comments are skipped (local=true).
+  # All swarm stages are prefixed with "swarm-".
+  # The last always-running stage in local mode is swarm-fact-check-findings.
+  # record-sweep (above) depends on it and calls ./bin/workflow sweep-record write.
+  - path: workflows/shared/code-review-swarm.yaml
+    prefix: "swarm"
+    depends_on: [scan-validate]
+    reads_from: []

@@ -62,6 +62,9 @@ trigger:
   params:
     pr_number: ""     # PR number to review (required; auto-detected from branch if blank)
     pr_size: "small"  # "small" (default, single consolidated agent) or "large" (full fan-out)
+    local: "false"    # "true": no GitHub calls; diff from merge-base(origin/main, HEAD)..HEAD
+  param_rules:
+    local: 'true|false'
 
 # Each run gets an isolated workspace so parallel invocations don't collide.
 workspace_dir: "{work_dir}/code-review-{pr_number}"

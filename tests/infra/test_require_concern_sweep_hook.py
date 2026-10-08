@@ -1,0 +1,574 @@
+"""Tests for the require-concern-sweep PreToolUse hook.
+
+The hook runs by path through ``bash`` with a synthetic payload over throwaway git
+repos, exactly as the harness would run it. The script under test defaults to the
+staged copy; set ``REQUIRE_CONCERN_SWEEP_HOOK`` to the installed
+``.claude/hooks/require-concern-sweep.sh`` to run the same suite against it.
+
+Records are written with ``workflow.sweep_record.write_waived`` -- the CLI's own
+writer -- so a drift between the record the CLI writes and the one the hook reads
+fails here.
+"""
+
+from __future__ import annotations
+
+import ast
+import json
+import os
+import shutil
+import subprocess  # nosec B404 - runs the hook and git with fixed argv
+import tempfile
+import unittest
+from pathlib import Path
+
+from tests.infra.test_check_pythonpath_hook import _launches_unisolated_python
+from workflow.sweep_record import write_waived
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+HOOK = Path(
+    os.environ.get("REQUIRE_CONCERN_SWEEP_HOOK")
+    or REPO_ROOT / ".claude" / "hooks" / "require-concern-sweep.sh"
+)
+HELPER = HOOK.parent / "_pr_create_targets.py"
+SETTINGS = REPO_ROOT / ".claude" / "settings.json"
+HOOK_COMMAND = 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/require-concern-sweep.sh"'
+
+_ENV = {
+    **{k: v for k, v in os.environ.items() if not k.startswith("GIT_") and k != "PYTHONPATH"},
+    "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid",
+    "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid",
+}
+
+#: Commands that open a PR for HEAD of the payload cwd.
+HEAD_CREATES = [
+    "gh pr create",
+    "gh pr create --base main --title t --body-file b.md",
+    "gh pr create --repo o/r --fill",
+    "gh pr --repo o/r create",
+    "gh pr new",
+    "cd sub && gh pr create",
+    "FOO=1 gh pr create",
+    "env gh pr create",
+    "env FOO=1 command gh pr create",
+    "builtin command gh pr create",
+    "/opt/homebrew/bin/gh pr create",
+    "GH pr create",
+    "timeout 60 gh pr create",
+    "git status; gh pr create",
+    "git push -u origin HEAD && gh pr create --fill",
+    "ls\ngh pr create",
+    "x#; gh pr create",
+    "gh \\\npr create",
+    "{ gh pr create; }",
+    "bash -c 'gh pr create'",
+    "bash -O extglob -c 'gh pr create'",
+    "bash -O extglob -O errexit -c 'gh pr create'",
+    "sh -lc \"git push && gh pr create\"",
+    "./bin/github pr create --base main --body-file b.md",
+    "bin/github pr create --base main --body-file b.md",
+    "python3 -m github_assistant pr create --base main --body-file b.md",
+    "./bin/assistant github pr create --base main --body-file b.md",
+    "./bin/pr-assistant",
+    "./bin/pr-assistant --base main --no-create --create",
+    "hub pull-request",
+    # Quoting that bash removes before running: the words are still `gh pr create`.
+    "gh p''r create",
+    'gh "p"r create',
+    "gh p\\r create",
+    "gh $'\\x70'r create",
+    "gh $'\\x70\\x72' create",
+    'gh $"pr" create',
+    "g''h pr create",
+    "gh pr cre''ate",
+    "hub pu''ll-request",
+    # Value-taking global options before the subcommand (PR #454 review).
+    "gh --repo o/r pr create",
+    "gh -R o/r pr create",
+    "gh -R=o/r pr create",
+    "./bin/github --agentic-domain x pr create",
+    "hub -c a=b pull-request",
+    # Command groups (non-conditional) keep the cwd of a cd inside them.
+    "{ cd sub; } && gh pr create",
+]
+
+#: Commands that are not PR creation and must pass with no record anywhere.
+NOT_CREATES = [
+    "gh pr view",
+    "gh pr view 12 --json title",
+    "gh pr list --state open",
+    'echo "gh pr create"',
+    "echo 'gh pr create --head x'",
+    'git commit -m "gh pr create"',
+    "ls -la",
+    "make test",
+    "./bin/github pr view --fields title",
+    "./bin/pr-assistant --no-create",
+    "./bin/pr-assistant --dry-run",
+    "gh api repos/o/r/pulls",
+    "gh api repos/o/r/pulls/12/comments",
+    "printf '%s' pr",
+    # Expansion in words that do not decide PR creation stays allowed.
+    "N=5; gh pr view $N",
+    "echo $HOME 'x'",
+    "ls *.py",
+    "gh api repos/o/r/issues/$N/comments",
+    "echo $'\\x70r'",
+    # Substitutions and here-docs whose bodies open no PR, comments, a literal query.
+    "gh pr view $(git branch --show-current)",
+    "git log $(git merge-base main HEAD)..HEAD",
+    "cat <<'EOF'\n$(gh pr create)\nEOF",
+    "# gh pr create",
+    "gh api graphql -f query='query($o: String!) { repository(owner: $o, name: \"r\") { id } }' -f o=x",
+]
+
+#: Cannot be checked before the shell runs; blocked even with a HEAD record.
+UNVERIFIABLE = [
+    "echo 'gh pr create",
+    'gh pr create --title "unterminated',
+    "$GH pr create",
+    'gh pr create --head "$BRANCH"',
+    'cd "$DIR" && gh pr create',
+    "gh api graphql -f query='mutation { createPullRequest(input: {}) { pullRequest { url } } }'",
+    "gh api -X POST repos/o/r/pulls -f title=t",
+    # A word that decides PR creation, built at run time: bash may expand it to pr.
+    "gh p${EMPTY}r create",
+    "gh p$EMPTY'r' create",
+    "gh p$(true)r create",
+    "gh p`true`r create",
+    "gh {pr,} create",
+    "gh p{r,} create",
+    "gh p? create",
+    "S=pr; gh $S create",
+    "gh pr $SUB",
+    "hub pull-$R",
+    "gh api -X POST repos/o/r/$E -f head=x",
+    # The directory gh runs in is not knowable, or not this one (PR #454 review).
+    "hub -C /elsewhere pull-request",
+    "hub --git-dir=/elsewhere/.git pull-request",
+    "cd sub || gh pr create",
+    "pushd sub && popd && gh pr create",
+    # A cd inside a compound command (if/while/for/case) may not execute;
+    # a cd preceded by && or || is conditional on the prior command's exit code.
+    # Both are fail-closed: the cwd after them is unknown (PR #454 review r2).
+    "if cd sub; then gh pr create; fi",
+    "if false; then cd sub; fi; gh pr create",
+    "if false; then echo hi; cd sub; fi; gh pr create",
+    "while false; do echo a; cd sub; done; gh pr create",
+    "for x in a; do cd sub; done; gh pr create",
+    "false && cd sub && gh pr create",
+    # Nested compound commands — opener in reserved-word prefix (PR #454 review r3).
+    "if a; then if b; then :; fi; cd sub; fi; gh pr create",
+    "for x in 1; do while false; do cd sub; done; done; gh pr create",
+    "if false; then :; else for x in 1; do cd sub; done; fi; gh pr create",
+    # Forms the hook refuses rather than models (PR #454 review: fail closed on
+    # anything not fully modelled). Command substitution whose body opens a PR:
+    'URL="$(gh pr create)"',
+    'URL="`gh pr create`"',
+    "x=$(gh pr create)",
+    "echo $(gh pr create)",
+    "echo `gh pr create`",
+    'echo "$(echo "$(gh pr create)")"',
+    'gh pr view "$(gh pr create)"',
+    "cat <(gh pr create)",
+    "cat <<EOF\n$(gh pr create)\nEOF",
+    # eval: refused whenever PR words appear, and always with run-time text.
+    "eval gh pr create",
+    'eval "$X"',
+    "eval $X",
+    # env options that split a string into a command or change directory.
+    "env -S 'gh pr create'",
+    "env -S'gh pr create'",
+    "env --split-string='gh pr create'",
+    "env --split-string 'gh pr create'",
+    "env -C sub gh pr create",
+    # A shell whose script is built at run time, or read from stdin.
+    "CMD='gh pr create'; bash -c \"$CMD\"",
+    'zsh -c "$C"',
+    'sh -c "cd $D && gh pr create"',
+    "printf 'gh pr create' | bash",
+    # A program word built at run time.
+    "CMD='gh pr create'; $CMD",
+    "$(printf gh) pr create",
+    # A PR entry run by something other than a modelled wrapper.
+    "xargs gh pr create",
+    "find . -exec gh pr create \\;",
+    "sudo gh pr create",
+    "echo gh pr create",
+    "xargs -I{} sh -c 'gh pr create'",
+    # Code the hook cannot read that can redefine commands or move the shell.
+    ". ./env.sh; gh pr create",
+    "source ./env.sh && gh pr create",
+    "f() { cd sub; }; gh pr create",
+    "alias gh=hub; gh pr create",
+    # GraphQL bodies the hook cannot read.
+    "gh api graphql --input query.json",
+    "gh api graphql --input -",
+    'gh api graphql -f query="$Q"',
+    "gh api graphql -F query=@q.graphql",
+    'gh api "$E" --input q.json',
+]
+
+
+def _git(cwd: Path, *args: str) -> str:
+    return subprocess.run(  # nosec B603 B607 - fixed argv
+        ["git", *args], cwd=str(cwd), env=_ENV, check=True, capture_output=True, text=True,
+    ).stdout.strip()
+
+
+def run_hook(command: str, cwd: Path, hook: Path = HOOK) -> subprocess.CompletedProcess[str]:
+    payload = {
+        "session_id": "s",
+        "transcript_path": "/Users/someone/.claude/projects/p/s.jsonl",
+        "cwd": str(cwd),
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {"command": command, "description": "d"},
+    }
+    return subprocess.run(  # nosec B603 B607 - fixed argv; the hook is a repo file
+        ["bash", str(hook)], input=json.dumps(payload), cwd=str(cwd), env=_ENV,
+        capture_output=True, text=True, timeout=60, check=False,
+    )
+
+
+class RequireConcernSweepHookTests(unittest.TestCase):
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name).resolve()
+        self.repo = self.root / "repo"
+        self.repo.mkdir()
+        _git(self.repo, "init", "-q", "-b", "main")
+        (self.repo / "a.txt").write_text("a\n")
+        _git(self.repo, "add", "a.txt")
+        _git(self.repo, "commit", "-q", "-m", "one")
+        _git(self.repo, "checkout", "-q", "-b", "other")
+        (self.repo / "a.txt").write_text("b\n")
+        _git(self.repo, "commit", "-q", "-am", "two")
+        self.other = _git(self.repo, "rev-parse", "HEAD")
+        _git(self.repo, "checkout", "-q", "main")
+        self.head = _git(self.repo, "rev-parse", "HEAD")
+        (self.repo / "sub").mkdir()
+
+    def _record(self, sha: str) -> None:
+        write_waived(self.repo, sha, "test")
+
+    def assertBlocked(self, proc: subprocess.CompletedProcess[str], needle: str = "Blocked") -> None:
+        self.assertEqual(proc.returncode, 2, proc.stderr)
+        self.assertIn(needle, proc.stderr)
+
+    # --- blocked without a record, allowed with one -------------------------
+
+    def test_pr_creates_are_blocked_without_a_record(self) -> None:
+        for command in HEAD_CREATES:
+            with self.subTest(command=command):
+                proc = run_hook(command, self.repo)
+                self.assertBlocked(proc, self.head)
+                self.assertIn("/open-pr", proc.stderr)
+                self.assertIn("sweep-record waive", proc.stderr)
+
+    def test_pr_creates_are_allowed_with_a_record_for_head(self) -> None:
+        self._record(self.head)
+        for command in HEAD_CREATES:
+            with self.subTest(command=command):
+                proc = run_hook(command, self.repo)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_head_names_another_branch(self) -> None:
+        self._record(self.head)
+        for command in (
+            "gh pr create --head other",
+            "gh pr create --head=other",
+            "gh pr create -H other",
+            "gh pr create -Hother",
+            "gh pr create --head me:other",
+            "./bin/github pr create --base main --body-file b --head other",
+            "./bin/github pr create --base main --body-file b --hea other",
+            "gh api -X POST repos/o/r/pulls -f head=other -f base=main",
+            "gh api -X POST repos/o/r/pu''lls -f head=other -f base=main",
+            "gh api repos/{owner}/{repo}/pulls -F head=other",
+        ):
+            with self.subTest(command=command):
+                self.assertBlocked(run_hook(command, self.repo), self.other)
+        self._record(self.other)
+        self.assertEqual(run_hook("gh pr create --head other", self.repo).returncode, 0)
+
+    def test_head_that_does_not_resolve_fails_closed(self) -> None:
+        self._record(self.head)
+        for command in ("gh pr create --head no-such-branch", "gh pr create --head -x", "gh pr create --head"):
+            with self.subTest(command=command):
+                self.assertBlocked(run_hook(command, self.repo), "cannot")
+
+    def test_record_from_another_worktree_counts(self) -> None:
+        wt = self.root / "wt"
+        _git(self.repo, "worktree", "add", "-q", str(wt), "other")
+        self._record(self.other)
+        self.assertEqual(run_hook("gh pr create", wt).returncode, 0)
+        self.assertBlocked(run_hook("gh pr create", self.repo), self.head)
+
+    def test_cd_that_does_not_reach_gh_is_not_followed(self) -> None:
+        """PR #454 review: a cd in a pipeline, background job or subshell leaves gh in the
+        original directory. Checking the cd target's record would let gh open from a
+        checkout that has none."""
+        wt = self.root / "wt"
+        _git(self.repo, "worktree", "add", "-q", str(wt), "other")
+        self._record(self.other)  # only the worktree's HEAD has a record
+        self.assertEqual(run_hook(f"cd {wt} && gh pr create", self.repo).returncode, 0)
+        self.assertEqual(run_hook(f"cd {wt}; gh pr create", self.repo).returncode, 0)
+        self.assertEqual(run_hook(f"(cd {wt} && gh pr create)", self.repo).returncode, 0)
+        for command in (f"cd {wt} & gh pr create", f"cd {wt} | gh pr create",
+                        f"(cd {wt}); gh pr create", f"( cd {wt} ) ; gh pr create"):
+            with self.subTest(command=command):
+                self.assertBlocked(run_hook(command, self.repo), self.head)
+
+    def test_cd_inside_conditional_branch_makes_cwd_unknown(self) -> None:
+        """A cd inside a compound command (if/while/for/case) or after && / || may not
+        execute; the hook must fail closed.
+
+        PR #454 review r2: the original fix only caught a cd that was the FIRST command
+        after a conditional keyword in the same simple command.  A cd in a later simple
+        command inside the compound body, or a cd guarded by && or ||, was still
+        incorrectly resolved.
+
+        PR #454 review r3: checking only cmd[0] missed openers that appear as the second
+        word in a reserved-word prefix (e.g. ``then if b``).  The inner ``fi`` then
+        decremented the counter to 0 and the subsequent cd was treated as unconditional.
+        The fix walks the full leading reserved-word prefix to count every opener/closer.
+
+        All commands below must block even when the worktree's HEAD has a record, because
+        the real shell may never reach that cd, leaving gh running in the original repo
+        (which has no record).
+        """
+        wt = self.root / "wt"
+        _git(self.repo, "worktree", "add", "-q", str(wt), "other")
+        self._record(self.other)  # only the worktree has a record, not self.repo
+        # -- coordinator probe cases: cd deeper inside a conditional body ------------
+        for template in (
+            # cd as the first command in the conditional body
+            "if false; then cd {wt}; fi; gh pr create",
+            # cd is a SECOND command in the body (original fix missed this)
+            "if false; then echo hi; cd {wt}; fi; gh pr create",
+            # while loop body
+            "while false; do echo a; cd {wt}; done; gh pr create",
+            # case body (cd follows the case-item separator ';;')
+            "case a in b) cd {wt};; esac; gh pr create",
+            # cd after && is conditional on the prior command
+            "false && cd {wt}; gh pr create",
+        ):
+            command = template.format(wt=wt)
+            with self.subTest(command=command):
+                self.assertBlocked(run_hook(command, self.repo), "cannot")
+        # -- additional shapes that must also fail closed ----------------------------
+        for template in (
+            "if true; then cd {wt}; fi; gh pr create",
+            "for x in 1; do cd {wt}; done; gh pr create",
+            "until false; do cd {wt}; done; gh pr create",
+            "false && cd {wt} && gh pr create",
+            "if cd {wt}; then gh pr create; fi",
+        ):
+            command = template.format(wt=wt)
+            with self.subTest(command=command):
+                self.assertBlocked(run_hook(command, self.repo), "cannot")
+        # -- nested compound commands (opener in prefix, r3 regression) --------------
+        # ``then if b`` — ``if`` is the second word of the prefix; an inner ``fi``
+        # must not decrement the outer nest back to zero.
+        for template in (
+            # nested if: outer fi should still leave nest=1 at the cd
+            "if a; then if b; then :; fi; cd {wt}; fi; gh pr create",
+            # do while / do until in a loop prefix
+            "for x in 1; do while false; do cd {wt}; done; done; gh pr create",
+            # else for: ``for`` as the second prefix word
+            "if false; then :; else for x in 1; do cd {wt}; done; fi; gh pr create",
+            # opener after { grouping — { opens no compound cmd but if does
+            "{{ if true; then cd {wt}; fi; }} && gh pr create",
+        ):
+            command = template.format(wt=wt)
+            with self.subTest(command=command):
+                self.assertBlocked(run_hook(command, self.repo), "cannot")
+        # -- r4: phase 2 must not run when cmd[0] is a plain program -----------------
+        # ``echo fi`` / ``echo done`` must not decrement nest; the `fi`/`done` there
+        # are arguments to echo, not shell closers.  cd after them should still be
+        # treated as inside the outer compound command (nest > 0 → blocked).
+        for template in (
+            # `echo fi` must not decrement the outer `if`'s nest counter
+            "if a; then :; echo fi; cd {wt}; fi; gh pr create",
+            # `echo done` must not decrement the outer `while`'s nest counter
+            "while a; do :; echo done; cd {wt}; done; gh pr create",
+        ):
+            command = template.format(wt=wt)
+            with self.subTest(command=command):
+                self.assertBlocked(run_hook(command, self.repo), "cannot")
+        # -- non-conditional controls: unconditional cd still resolves the cwd ------
+        # These must be ALLOWED (exit 0) because the worktree has a record and the cd
+        # is unconditional (not inside any compound command, not preceded by &&/||).
+        for template in (
+            "cd {wt} && gh pr create",
+            "cd {wt}; gh pr create",
+            "{{ cd {wt}; }} && gh pr create",  # {{ and }} are literal { } in .format()
+            # `echo if` is an argument to echo; it must NOT increment nest, so the
+            # subsequent cd is unconditional and resolves the cwd normally.
+            "echo if; cd {wt}; gh pr create",
+        ):
+            command = template.format(wt=wt)
+            with self.subTest(command=command):
+                self.assertEqual(run_hook(command, self.repo).returncode, 0, command)
+
+    def test_quoted_operators_are_words_not_separators(self) -> None:
+        """PR #454 review: shlex flattened `--title ';'` into a real `;`, so the hook
+        checked HEAD instead of `--head other`. A HEAD record must not authorize it."""
+        self._record(self.head)  # only HEAD has a record, not `other`
+        for command in (
+            "gh pr create --title ';' --head other",
+            "gh pr create --title '&&' --head other",
+            'gh pr create --title "|" --head other',
+            "gh pr create --title '(' --head other",
+            "gh pr create --title \\; --head other",
+            "gh pr create --body 'a; cd sub' --head other",
+        ):
+            with self.subTest(command=command):
+                self.assertBlocked(run_hook(command, self.repo), self.other)
+        self._record(self.other)
+        self.assertEqual(run_hook("gh pr create --title ';' --head other", self.repo).returncode, 0)
+
+    def test_unmodelled_directory_changes_do_not_borrow_another_record(self) -> None:
+        """PR #454 review: `cd X extra` fails in bash, bare/stack `pushd` does not move to
+        X, an opener after `then`/`else` was not counted, and `eval 'cd X'` moved the
+        shell unseen. Each checked the worktree's record while gh ran in the repo."""
+        wt = self.root / "wt"
+        _git(self.repo, "worktree", "add", "-q", str(wt), "other")
+        self._record(self.other)  # only the worktree's HEAD has a record
+        for template in (
+            "cd {wt} extra; gh pr create",
+            "cd {wt} extra && gh pr create",
+            "pushd; gh pr create",
+            "pushd +1; gh pr create",
+            "pushd -n {wt}; gh pr create",
+            "if false; then for x in 1; do :; done; cd {wt}; fi; gh pr create",
+            "if false; then select x in a; do break; done; cd {wt}; fi; gh pr create",
+            "if false; then :; else case a in b) :;; esac; cd {wt}; fi; gh pr create",
+            "while false; do for x in 1; do :; done; cd {wt}; done; gh pr create",
+            "eval 'cd {wt}'; gh pr create",
+            "eval cd {wt} && gh pr create",
+            "env cd {wt}; gh pr create",
+        ):
+            command = template.format(wt=wt)
+            with self.subTest(command=command):
+                self.assertBlocked(run_hook(command, self.repo), "cannot")
+        # Modelled forms still follow the cd to the worktree's record.
+        for template in (
+            "cd -P {wt}; gh pr create",
+            "cd -- {wt} && gh pr create",
+            "cd {wt} 2>/dev/null && gh pr create",
+            "pushd {wt} && gh pr create",
+            "command cd {wt}; gh pr create",
+        ):
+            command = template.format(wt=wt)
+            with self.subTest(command=command):
+                self.assertEqual(run_hook(command, self.repo).returncode, 0, command)
+
+    def test_heredoc_body_is_not_parsed_as_commands(self) -> None:
+        """The usual `--body "$(cat <<'EOF' ... EOF)"` form stays checkable: the body's
+        apostrophes, punctuation and PR words are text, not commands."""
+        command = (
+            "gh pr create --title \"fix: x\" --body \"$(cat <<'EOF'\n"
+            "It's done; (see #1) & gh pr create --head other | x\nEOF\n)\""
+        )
+        self.assertBlocked(run_hook(command, self.repo), self.head)
+        self._record(self.head)
+        self.assertEqual(run_hook(command, self.repo).returncode, 0)
+
+    def test_a_record_naming_another_sha_does_not_count(self) -> None:
+        self._record(self.other)
+        path = Path(_git(self.repo, "rev-parse", "--absolute-git-dir"))
+        records = path / "dancing-bear" / "concern-sweeps"
+        shutil.copy(records / f"{self.other}.json", records / f"{self.head}.json")
+        self.assertBlocked(run_hook("gh pr create", self.repo), self.head)
+
+    def test_outside_a_git_repo_fails_closed(self) -> None:
+        outside = self.root / "plain"
+        outside.mkdir()
+        self.assertBlocked(run_hook("gh pr create", outside), "cannot determine")
+
+    # --- not PR creation -----------------------------------------------------
+
+    def test_other_commands_are_allowed(self) -> None:
+        for command in NOT_CREATES:
+            with self.subTest(command=command):
+                proc = run_hook(command, self.repo)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_non_pr_commands_short_circuit_before_python(self) -> None:
+        """Without the helper, a PR-free command still passes and gh pr create fails closed."""
+        lone = self.root / "lone"
+        lone.mkdir()
+        hook = lone / HOOK.name
+        shutil.copy(HOOK, hook)
+        self.assertEqual(run_hook("ls -la && git status", self.repo, hook).returncode, 0)
+        self.assertBlocked(run_hook("gh pr create", self.repo, hook), "missing")
+        self.assertBlocked(run_hook("gh \\u0070r create", self.repo, hook), "missing")
+        # The pre-filter is load-bearing: a command it passes is never analysed, so
+        # every way of spelling pr without the substring must still reach Python.
+        for command in ("gh p''r create", 'gh "p"r create', "gh p\\r create", "gh $'\\x70'r create",
+                        "gh p${X}r create", "gh p`true`r create", "gh p{r,} create", "gh p? create",
+                        "gh p[r] create", "hub pu''ll-request",
+                        # No PR word, yet the body can create one (PR #454 review).
+                        "gh api graphql --input query.json", "GH API graphql --input q"):
+            with self.subTest(command=command):
+                self.assertBlocked(run_hook(command, self.repo, hook), "missing")
+
+    # --- fail closed ---------------------------------------------------------
+
+    def test_unverifiable_commands_fail_closed(self) -> None:
+        self._record(self.head)
+        for command in UNVERIFIABLE:
+            with self.subTest(command=command):
+                self.assertBlocked(run_hook(command, self.repo), "cannot")
+
+    def test_malformed_payload_fails_closed(self) -> None:
+        proc = subprocess.run(  # nosec B603 B607 - fixed argv
+            ["bash", str(HOOK)], input='{"tool_input": {"command": "gh pr create"', env=_ENV,
+            capture_output=True, text=True, timeout=60, check=False,
+        )
+        self.assertBlocked(proc)
+
+    # --- isolation -------------------------------------------------------------
+
+    def test_hook_and_settings_entry_never_start_an_unisolated_interpreter(self) -> None:
+        # Read the real settings file: a hook with passing tests and no
+        # PreToolUse entry never runs.
+        pre = json.loads(SETTINGS.read_text())["hooks"]["PreToolUse"]
+        entries = [e for e in pre if any(h.get("command") == HOOK_COMMAND for h in e["hooks"])]
+        self.assertEqual(len(entries), 1, "require-concern-sweep.sh is not wired exactly once")
+        entry = entries[0]
+        self.assertEqual(entry["matcher"], "Bash")
+        commands = [h["command"] for h in entry["hooks"]]
+        self.assertEqual(commands, [HOOK_COMMAND])
+        for text in (*commands, HOOK.read_text()):
+            self.assertFalse(_launches_unisolated_python(text))
+        launches = [
+            line for line in HOOK.read_text().splitlines()
+            if not line.lstrip().startswith("#") and "python3 " in line and not line.lstrip().startswith("echo")
+        ]
+        self.assertTrue(launches)
+        for line in launches:
+            self.assertIn("python3 -I -S ", line)
+        self.assertNotIn("bin/workflow", "\n".join(
+            line for line in HOOK.read_text().splitlines() if not line.lstrip().startswith("#")
+        ))
+
+    def test_helper_imports_only_the_standard_library(self) -> None:
+        allowed = {"__future__", "json", "os", "re", "shlex", "stat", "subprocess", "sys",
+                   "dataclasses", "pathlib"}
+        tree = ast.parse(HELPER.read_text())
+        imported: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                self.assertEqual(node.level, 0, "relative import in the helper")
+                imported.add((node.module or "").split(".")[0])
+            elif isinstance(node, ast.Import):
+                imported.update(alias.name.split(".")[0] for alias in node.names)
+        self.assertLessEqual(imported, allowed)
+
+
+if __name__ == "__main__":  # pragma: no cover
+    unittest.main()

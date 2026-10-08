@@ -308,7 +308,14 @@ class WorkflowOrchestrator:
         if not self._dry_run:
             for rel_path in stage.spec.writes_to:
                 # Same resolution as the prompt builder and the dispatcher.
-                atomic_write_json(self._workspace_dir / writes_to_relpath(rel_path), {})
+                target = self._workspace_dir / writes_to_relpath(rel_path)
+                # A sentinel only marks a path nothing wrote. Two alternative
+                # stages can share an output (code-review's small-path
+                # review-consolidated and large-path consolidate both write
+                # consolidated.json); writing {} over the one that ran erased
+                # the real report (PR #454 review).
+                if not target.exists():
+                    atomic_write_json(target, {})
         logger.info("Stage '%s' skipped — when condition false: %r", stage.spec.name, stage.spec.when)
         return make_stage_result(
             stage, started_at, StageStatus.skipped,
