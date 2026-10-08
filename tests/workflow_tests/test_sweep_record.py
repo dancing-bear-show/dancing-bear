@@ -29,14 +29,26 @@ def _git(cwd: Path, *args: str) -> str:
     ).stdout.strip()
 
 
-def _make_repo(root: Path) -> Path:
+def _make_repo(root: Path) -> tuple[Path, str]:
+    """Create a two-commit repo whose HEAD diff matches CHANGED.
+
+    Returns (repo, merge_base_sha).  HEAD adds the CHANGED files; merge_base is
+    the parent commit so ``git diff <merge_base>..HEAD --name-only`` returns CHANGED.
+    """
     repo = root / "repo"
     repo.mkdir()
     _git(repo, "init", "-q", "-b", "main")
     (repo / "a.txt").write_text("a\n")
     _git(repo, "add", "a.txt")
-    _git(repo, "commit", "-q", "-m", "one")
-    return repo
+    _git(repo, "commit", "-q", "-m", "base")
+    merge_base = _git(repo, "rev-parse", "HEAD")
+    for p in CHANGED:
+        full = repo / p
+        full.parent.mkdir(parents=True, exist_ok=True)
+        full.write_text(f"{p}\n")
+        _git(repo, "add", p)
+    _git(repo, "commit", "-q", "-m", "feat")
+    return repo, merge_base
 
 
 #: The diff every default workspace swept; GUIDES is what the canonical selector picks for it.
@@ -44,13 +56,21 @@ CHANGED = ["src/workflow/sweep_record.py", "workflows/code/open-pr.yaml"]
 
 
 def _make_workspace(root: Path, guides: list[str], review: str | None = "consolidated.json",
-                    commit_id: str | None = None, changed: list[str] | None = None) -> Path:
-    """A swarm workspace; ``commit_id`` defaults to the repo's HEAD, the commit it swept."""
+                    commit_id: str | None = None, changed: list[str] | None = None,
+                    merge_base: str | None = None) -> Path:
+    """A swarm workspace; ``commit_id`` defaults to the repo's HEAD, the commit it swept.
+
+    When *merge_base* is given it is stored in pr-context.json so the diff
+    check can validate without falling back to git.
+    """
     ws = root / "ws"
     (ws / "outputs").mkdir(parents=True)
     (ws / "outputs" / "changed-files.txt").write_text("\n".join(CHANGED if changed is None else changed) + "\n")
     swept = commit_id if commit_id is not None else _git(root / "repo", "rev-parse", "HEAD")
-    (ws / "outputs" / "pr-context.json").write_text(json.dumps({"commit_id": swept}))
+    ctx: dict[str, object] = {"commit_id": swept, "head_sha": swept}
+    if merge_base is not None:
+        ctx["merge_base"] = merge_base
+    (ws / "outputs" / "pr-context.json").write_text(json.dumps(ctx))
     index = {
         "total": len(guides),
         "items": [{"index": str(i), "data": {"guide": g}} for i, g in enumerate(guides)],
@@ -76,7 +96,7 @@ class SweepRecordTests(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name).resolve()
-        self.repo = _make_repo(self.root)
+        self.repo, self.merge_base = _make_repo(self.root)
         self.head = _git(self.repo, "rev-parse", "HEAD")
 
     def _record_file(self, head: str) -> Path:
@@ -88,7 +108,7 @@ class SweepRecordTests(unittest.TestCase):
     # --- happy paths -----------------------------------------------------
 
     def test_write_then_check(self) -> None:
-        ws = _make_workspace(self.root, GUIDES)
+        ws = _make_workspace(self.root, GUIDES, merge_base=self.merge_base)
         code, out, err = _run(self.repo, "write", "--head", self.head, "--workspace", str(ws))
         self.assertEqual(code, 0, err)
         path = self._record_file(self.head)
@@ -124,7 +144,7 @@ class SweepRecordTests(unittest.TestCase):
         self.assertEqual(_run(sub, "check", "--head", self.head)[0], 0)
 
     def test_record_is_visible_from_a_second_worktree(self) -> None:
-        ws = _make_workspace(self.root, GUIDES)
+        ws = _make_workspace(self.root, GUIDES, merge_base=self.merge_base)
         self.assertEqual(_run(self.repo, "write", "--head", self.head, "--workspace", str(ws))[0], 0)
         other = self.root / "wt2"
         _git(self.repo, "worktree", "add", "-q", "-b", "other", str(other))
@@ -134,7 +154,7 @@ class SweepRecordTests(unittest.TestCase):
     # --- refusals --------------------------------------------------------
 
     def test_write_refuses_a_head_that_is_not_checkout_head(self) -> None:
-        ws = _make_workspace(self.root, GUIDES)
+        ws = _make_workspace(self.root, GUIDES, merge_base=self.merge_base)
         old = self.head
         (self.repo / "a.txt").write_text("b\n")
         _git(self.repo, "commit", "-q", "-am", "two")
@@ -144,7 +164,7 @@ class SweepRecordTests(unittest.TestCase):
         self.assertFalse(self._record_file(old).exists())
 
     def test_write_refuses_a_workspace_that_swept_an_earlier_commit(self) -> None:
-        ws = _make_workspace(self.root, GUIDES)  # swept the first commit
+        ws = _make_workspace(self.root, GUIDES, merge_base=self.merge_base)  # swept the first commit
         (self.repo / "a.txt").write_text("b\n")
         _git(self.repo, "commit", "-q", "-am", "two")
         new = _git(self.repo, "rev-parse", "HEAD")
@@ -154,14 +174,14 @@ class SweepRecordTests(unittest.TestCase):
         self.assertFalse(self._record_file(new).exists())
 
     def test_write_refuses_a_workspace_without_pr_context(self) -> None:
-        ws = _make_workspace(self.root, GUIDES)
+        ws = _make_workspace(self.root, GUIDES, merge_base=self.merge_base)
         (ws / "outputs" / "pr-context.json").unlink()
         code, _, err = _run(self.repo, "write", "--head", self.head, "--workspace", str(ws))
         self.assertEqual(code, 2)
         self.assertIn("pr-context.json", err)
 
     def test_malformed_sha_exits_2_for_every_subcommand(self) -> None:
-        ws = _make_workspace(self.root, GUIDES)
+        ws = _make_workspace(self.root, GUIDES, merge_base=self.merge_base)
         bad = [self.head[:12], self.head.upper(), self.head + "0", "../" + self.head[3:], ""]
         for sha in bad:
             for argv in (
@@ -178,7 +198,8 @@ class SweepRecordTests(unittest.TestCase):
 
     def test_write_refuses_an_index_missing_a_guide_the_selector_picks(self) -> None:
         self.assertIn("collateral-damage.md", GUIDES)  # src/ and workflows/ changes select it
-        ws = _make_workspace(self.root, [g for g in GUIDES if g != "collateral-damage.md"])
+        ws = _make_workspace(self.root, [g for g in GUIDES if g != "collateral-damage.md"],
+                             merge_base=self.merge_base)
         code, _, err = _run(self.repo, "write", "--head", self.head, "--workspace", str(ws))
         self.assertEqual(code, 2)
         self.assertIn("collateral-damage.md", err)
@@ -188,13 +209,18 @@ class SweepRecordTests(unittest.TestCase):
         docs = ["README.md"]
         picked = select_guides(docs)
         self.assertNotIn("collateral-damage.md", picked)
-        ws = _make_workspace(self.root, picked, changed=docs)
-        code, _, err = _run(self.repo, "write", "--head", self.head, "--workspace", str(ws))
+        # Need a repo whose actual diff matches docs; can't reuse self.repo (diff is CHANGED).
+        docs_root = self.root / "docs_sub"
+        docs_root.mkdir()
+        docs_repo, docs_mb, docs_head = _make_repo_with_diff(docs_root, docs)
+        docs_head = _git(docs_repo, "rev-parse", "HEAD")
+        ws = _make_workspace_with_context(docs_root, picked, docs_mb, docs_head, docs)
+        code, _, err = _run(docs_repo, "write", "--head", docs_head, "--workspace", str(ws))
         self.assertEqual(code, 0, err)
 
     def test_write_refuses_unreadable_or_non_utf8_changed_files(self) -> None:
         """An unreadable or non-UTF-8 changed-files.txt must exit 2, not raise an uncaught exception."""
-        ws = _make_workspace(self.root, GUIDES)
+        ws = _make_workspace(self.root, GUIDES, merge_base=self.merge_base)
         changed = ws / "outputs" / "changed-files.txt"
         # Non-UTF-8 content: write raw bytes that are not valid UTF-8.
         changed.write_bytes(b"\xff\xfe invalid utf-8 bytes\n")
@@ -209,7 +235,7 @@ class SweepRecordTests(unittest.TestCase):
         self.assertIn("changed-files.txt", err)
 
     def test_write_refuses_a_missing_or_empty_changed_files_list(self) -> None:
-        ws = _make_workspace(self.root, GUIDES, changed=[])
+        ws = _make_workspace(self.root, GUIDES, changed=[], merge_base=self.merge_base)
         (ws / "outputs" / "changed-files.txt").write_text("\n")
         code, _, err = _run(self.repo, "write", "--head", self.head, "--workspace", str(ws))
         self.assertEqual(code, 2)
@@ -221,7 +247,7 @@ class SweepRecordTests(unittest.TestCase):
 
     def test_write_refuses_the_empty_sentinel_a_skipped_stage_leaves(self) -> None:
         """PR #454 review: a skipped large-path consolidate wrote {} over the real report."""
-        ws = _make_workspace(self.root, GUIDES)
+        ws = _make_workspace(self.root, GUIDES, merge_base=self.merge_base)
         sentinels: tuple[object, ...] = ({}, {"findings": None}, [])
         for doc in sentinels:
             with self.subTest(doc=doc):
@@ -232,7 +258,7 @@ class SweepRecordTests(unittest.TestCase):
         self.assertFalse(self._record_file(self.head).exists())
 
     def test_write_refuses_a_missing_or_unparseable_index(self) -> None:
-        ws = _make_workspace(self.root, GUIDES)
+        ws = _make_workspace(self.root, GUIDES, merge_base=self.merge_base)
         index = ws / "outputs" / "concern-sweep-index.json"
         index.write_text("{not json")
         self.assertEqual(_run(self.repo, "write", "--head", self.head, "--workspace", str(ws))[0], 2)
@@ -242,7 +268,7 @@ class SweepRecordTests(unittest.TestCase):
         self.assertIn("not found", err)
 
     def test_write_refuses_when_review_output_is_missing(self) -> None:
-        ws = _make_workspace(self.root, GUIDES, review=None)
+        ws = _make_workspace(self.root, GUIDES, review=None, merge_base=self.merge_base)
         code, _, err = _run(self.repo, "write", "--head", self.head, "--workspace", str(ws))
         self.assertEqual(code, 2)
         self.assertIn("consolidated.json", err)
@@ -358,19 +384,63 @@ class DiffValidationTests(unittest.TestCase):
         code, _, err = self._run_repo(repo, ws, head_sha)
         self.assertEqual(code, 0, err)
 
-    def test_absent_merge_base_skips_diff_check(self) -> None:
-        """A workspace from older swarm code that omits merge_base still records."""
+    def test_absent_merge_base_recomputed_and_passes_when_list_matches(self) -> None:
+        """When merge_base is absent, git recomputes it; if list matches, record is written."""
         paths = ["src/core/util.py"]
-        repo, _mb, head_sha = _make_repo_with_diff(self.root, paths)
+        repo, merge_base, head_sha = _make_repo_with_diff(self.root, paths)
         guides = select_guides(paths)
-        # Workspace with wrong set of paths but no merge_base in pr-context.json.
-        ws = _make_workspace_with_context(self.root, guides, merge_base="", head_sha=head_sha,
-                                          changed=paths)
-        # Overwrite pr-context with no merge_base key.
-        (ws / "outputs" / "pr-context.json").write_text(
-            json.dumps({"commit_id": head_sha, "head_sha": head_sha})
-        )
+        # Workspace without merge_base — git must recompute from the base branch.
+        # Set baseRefName to the actual merge_base sha so git can resolve it.
+        ws = _make_workspace_with_context(self.root, guides, merge_base, head_sha, paths)
+        # Remove merge_base from pr-context.json but leave baseRefName pointing at
+        # the merge_base commit so _resolve_merge_base can find it.
+        ctx = {"commit_id": head_sha, "head_sha": head_sha, "baseRefName": merge_base}
+        (ws / "outputs" / "pr-context.json").write_text(json.dumps(ctx))
         code, _, err = self._run_repo(repo, ws, head_sha)
+        self.assertEqual(code, 0, err)
+
+    def test_absent_merge_base_recomputed_and_refuses_when_list_differs(self) -> None:
+        """When merge_base is absent and recomputed, a mismatched list is still refused."""
+        paths = ["src/core/util.py"]
+        repo, merge_base, head_sha = _make_repo_with_diff(self.root, paths)
+        guides = select_guides(paths)
+        wrong = paths + ["src/core/extra.py"]
+        ws = _make_workspace_with_context(self.root, guides, merge_base, head_sha, wrong)
+        ctx = {"commit_id": head_sha, "head_sha": head_sha, "baseRefName": merge_base}
+        (ws / "outputs" / "pr-context.json").write_text(json.dumps(ctx))
+        code, _, err = self._run_repo(repo, ws, head_sha)
+        self.assertEqual(code, 2)
+        self.assertIn("extra paths in workspace", err)
+
+    def test_unresolvable_base_ref_is_refused(self) -> None:
+        """When neither merge_base nor a resolvable base ref is available, refuse."""
+        paths = ["src/core/util.py"]
+        repo, merge_base, head_sha = _make_repo_with_diff(self.root, paths)
+        guides = select_guides(paths)
+        ws = _make_workspace_with_context(self.root, guides, merge_base, head_sha, paths)
+        # No merge_base, no baseRefName, no origin/main — must refuse.
+        ctx = {"commit_id": head_sha, "head_sha": head_sha}
+        (ws / "outputs" / "pr-context.json").write_text(json.dumps(ctx))
+        code, _, err = self._run_repo(repo, ws, head_sha)
+        self.assertEqual(code, 2)
+        self.assertIn("cannot determine merge-base", err)
+
+    def test_malformed_merge_base_sha_is_refused(self) -> None:
+        """A merge_base that is not a valid 40-hex SHA must be refused."""
+        paths = ["src/core/util.py"]
+        repo, _, head_sha = _make_repo_with_diff(self.root, paths)
+        guides = select_guides(paths)
+        ws = _make_workspace_with_context(self.root, guides, "not-a-sha", head_sha, paths)
+        code, _, err = self._run_repo(repo, ws, head_sha)
+        self.assertEqual(code, 2)
+        self.assertIn("merge_base", err)
+
+    def test_waive_does_not_run_diff_check(self) -> None:
+        """waive is the explicit escape hatch; it must not be reachable from write."""
+        paths = ["src/core/util.py"]
+        repo, _, head_sha = _make_repo_with_diff(self.root, paths)
+        # waive with no workspace at all — if diff check were wired to waive, it would error.
+        code, _, err = _run(repo, "waive", "--head", head_sha, "--reason", "exempt")
         self.assertEqual(code, 0, err)
 
 

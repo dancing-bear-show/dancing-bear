@@ -219,37 +219,97 @@ def _require_workspace_swept_head(workspace: Path, head: str) -> None:
         )
 
 
-def _require_diff_matches_workspace(repo: Path, workspace: Path) -> None:
-    """The workspace's changed-files.txt must match the recorded commit's actual diff.
+def _resolve_merge_base(repo: Path, head_sha: str, base_ref: str | None) -> str:
+    """Return the merge-base between *head_sha* and *base_ref* (or origin/main).
 
-    fetch-pr-context writes ``merge_base`` and ``head_sha`` into
-    ``outputs/pr-context.json``.  Recompute the diff from git and compare; a
-    stale or hand-edited workspace can otherwise mint a record for HEAD while
-    omitting files that require guide coverage.
+    Uses the same rule as the swarm's fetch-pr-context stage:
+      git merge-base <head> <base>  (falls back to the base ref itself)
+    Raises SweepRecordError when git cannot resolve the base at all.
     """
-    ctx_path = workspace / "outputs" / CONTEXT_NAME
-    data = _load_json(ctx_path, CONTEXT_NAME)
-    if not isinstance(data, dict):
-        raise SweepRecordError(f"{CONTEXT_NAME} is not a JSON object: {ctx_path}")
-    merge_base = data.get("merge_base")
-    head_sha = data.get("head_sha")
-    if not isinstance(merge_base, str) or not isinstance(head_sha, str):
-        # Local-mode context may omit merge_base; skip the check rather than
-        # hard-failing on a valid but partial context written by older swarm code.
+    candidate = base_ref if base_ref else "origin/main"
+    try:
+        return _git(repo, "merge-base", head_sha, candidate)
+    except SweepRecordError:
+        pass
+    # Try the ref directly as a fallback (mirrors the swarm's ||  echo "$BASE_SHA").
+    try:
+        return _git(repo, "rev-parse", "--verify", f"{candidate}^{{commit}}")
+    except SweepRecordError:
+        pass
+    raise SweepRecordError(
+        f"cannot determine merge-base for HEAD {head_sha[:12]}: "
+        f"'git merge-base {head_sha[:12]} {candidate}' failed and "
+        f"'{candidate}' does not resolve to a commit; "
+        "set merge_base in pr-context.json or ensure origin/main is fetched"
+    )
+
+
+def _check_context_head(data: dict[str, object], head: str) -> None:
+    """Raise if pr-context.json records a head_sha that doesn't match *head*."""
+    ctx_head = data.get("head_sha")
+    if ctx_head is None:
         return
-    diff_out = _git(repo, "-c", "core.quotePath=false", "diff",
-                    f"{merge_base}..{head_sha}", "--name-only")
-    git_paths = {ln for ln in diff_out.splitlines() if ln}
+    if not isinstance(ctx_head, str) or not _SHA_RE.fullmatch(ctx_head):
+        raise SweepRecordError(
+            f"{CONTEXT_NAME} head_sha {ctx_head!r} is not a valid 40-hex SHA"
+        )
+    if ctx_head != head:
+        raise SweepRecordError(
+            f"{CONTEXT_NAME} head_sha {ctx_head!r} does not match --head {head}; "
+            "re-run the swarm on HEAD"
+        )
+
+
+def _extract_merge_base(repo: Path, data: dict[str, object], head: str) -> str:
+    """Return a validated merge-base SHA from pr-context.json, or recompute it."""
+    stored = data.get("merge_base")
+    if isinstance(stored, str) and stored:
+        if not _SHA_RE.fullmatch(stored):
+            raise SweepRecordError(
+                f"{CONTEXT_NAME} merge_base {stored!r} is not a valid 40-hex SHA"
+            )
+        return stored
+    base_ref = data.get("baseRefName")
+    return _resolve_merge_base(repo, head, base_ref if isinstance(base_ref, str) else None)
+
+
+def _read_workspace_paths(workspace: Path) -> set[str]:
+    """Return the set of paths in changed-files.txt; raise SweepRecordError on failure."""
     ws_path = workspace / "outputs" / CHANGED_FILES_NAME
     try:
-        ws_text = ws_path.read_text(encoding="utf-8")
+        text = ws_path.read_text(encoding="utf-8")
     except FileNotFoundError:
         raise SweepRecordError(f"{CHANGED_FILES_NAME} not found: {ws_path}") from None
     except (OSError, UnicodeDecodeError) as exc:
         raise SweepRecordError(
             f"{CHANGED_FILES_NAME} is unreadable or not UTF-8: {ws_path} ({exc})"
         ) from None
-    ws_paths = {ln for ln in ws_text.splitlines() if ln.strip()}
+    return {ln for ln in text.splitlines() if ln.strip()}
+
+
+def _require_diff_matches_workspace(repo: Path, workspace: Path, head: str) -> None:
+    """The workspace's changed-files.txt must match the recorded commit's actual diff.
+
+    fetch-pr-context writes ``merge_base`` and ``head_sha`` into
+    ``outputs/pr-context.json``.  If they are absent the merge-base is
+    recomputed from git so a workspace that simply omits the field still gets
+    checked — there is no skip path.
+
+    ``head`` is the SHA passed to ``sweep-record write``; ``head_sha`` in
+    pr-context.json must equal it, proving the context belongs to this commit.
+    """
+    ctx_path = workspace / "outputs" / CONTEXT_NAME
+    data = _load_json(ctx_path, CONTEXT_NAME)
+    if not isinstance(data, dict):
+        raise SweepRecordError(f"{CONTEXT_NAME} is not a JSON object: {ctx_path}")
+
+    _check_context_head(data, head)
+    merge_base = _extract_merge_base(repo, data, head)
+
+    diff_out = _git(repo, "-c", "core.quotePath=false", "diff",
+                    f"{merge_base}..{head}", "--name-only")
+    git_paths = {ln for ln in diff_out.splitlines() if ln}
+    ws_paths = _read_workspace_paths(workspace)
     extra = ws_paths - git_paths
     missing = git_paths - ws_paths
     if extra or missing:
@@ -260,7 +320,7 @@ def _require_diff_matches_workspace(repo: Path, workspace: Path) -> None:
             parts.append("missing paths from git diff: " + ", ".join(sorted(missing)))
         raise SweepRecordError(
             f"{CHANGED_FILES_NAME} does not match the recorded commit's diff "
-            f"({merge_base[:12]}..{head_sha[:12]}): " + "; ".join(parts)
+            f"({merge_base[:12]}..{head[:12]}): " + "; ".join(parts)
         )
 
 
@@ -306,7 +366,7 @@ def write_swept(repo: Path, head: str, workspace: Path) -> tuple[Path, SweepReco
     _require_selected_guides(ws, guides)
     _require_review_output(ws)
     _require_workspace_swept_head(ws, head)
-    _require_diff_matches_workspace(root, ws)
+    _require_diff_matches_workspace(root, ws, head)
     record = SweepRecord(
         head_sha=head, mode=MODE_SWEPT, guides=guides, workspace=str(ws),
         reason=None, recorded_at=_now(),
