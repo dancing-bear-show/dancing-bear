@@ -34,6 +34,8 @@ the current branch if `pr_number` is omitted.
 | Param | Default | Description |
 |-------|---------|-------------|
 | `pr_number` | `""` | PR number to review (required; auto-detected from branch if blank) |
+| `pr_size` | `"small"` | `small`: one consolidated reviewer; `large`: full per-guide fan-out |
+| `local` | `"false"` | `true`: review the local branch before a PR exists (diff `merge-base(origin/main, HEAD)..HEAD`, no GitHub calls, nothing posted); `/open-pr` runs it this way |
 
 ## DAG Overview
 

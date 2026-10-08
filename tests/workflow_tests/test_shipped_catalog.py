@@ -817,7 +817,11 @@ class TestBaselineDoesNotRot(unittest.TestCase):
             "validate_stage_missing_validation_block": 18,
             "validate_stage_long_description": 56,
             "isolated_stage_without_commit": 5,
-            "reads_from_upstream_without_writes_to": 9,
+            # 9 -> 12: open-pr includes code-review-swarm, so the fragment's three
+            # fan-out warnings (already baselined under code-review) recur with
+            # a swarm- prefix. Same defect, one fix: fan-out writes_to cannot name
+            # {index} paths.
+            "reads_from_upstream_without_writes_to": 12,
         }
         baseline = _baseline()
 

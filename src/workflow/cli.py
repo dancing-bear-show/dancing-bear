@@ -52,6 +52,9 @@ from workflow.cli_dispatch_review import (
     _cmd_review_rounds,
     _cmd_select_concerns,
     _cmd_snapshot_dirty,
+    _cmd_sweep_record_check,
+    _cmd_sweep_record_waive,
+    _cmd_sweep_record_write,
     _cmd_thread_fingerprints,
 )
 
@@ -385,6 +388,32 @@ def cmd_count_sweep(args: argparse.Namespace) -> int:
     return _cmd_count_sweep(args)
 
 
+sweep_record_group = app.group(
+    "sweep-record", help="Per-commit evidence that the concern swarm ran (or was waived)",
+)
+_HEAD_HELP = "Full 40-hex commit id"
+
+
+@sweep_record_group.command("write", help="Record a swarm run on HEAD (exit 0 written, 2 refused)")
+@app.argument("--head", required=True, help=_HEAD_HELP + "; must equal HEAD")
+@app.argument("--workspace", required=True, help="Swarm workspace dir holding outputs/")
+def cmd_sweep_record_write(args: argparse.Namespace) -> int:
+    return _cmd_sweep_record_write(args)
+
+
+@sweep_record_group.command("waive", help="Record a waived sweep (exit 0 written, 2 refused)")
+@app.argument("--head", required=True, help=_HEAD_HELP)
+@app.argument("--reason", required=True, help="Why the sweep was skipped (non-empty)")
+def cmd_sweep_record_waive(args: argparse.Namespace) -> int:
+    return _cmd_sweep_record_waive(args)
+
+
+@sweep_record_group.command("check", help="Print record mode (exit 0 found, 1 none, 2 bad sha)")
+@app.argument("--head", required=True, help=_HEAD_HELP)
+def cmd_sweep_record_check(args: argparse.Namespace) -> int:
+    return _cmd_sweep_record_check(args)
+
+
 def _no_command_usage() -> int:
     """Preserve the legacy no-subcommand behavior (one-line usage to
     stderr, ExitCode.USAGE) rather than CLIApp's default (full --help),
@@ -393,7 +422,7 @@ def _no_command_usage() -> int:
         "Usage: workflow {parse,compile,run,lint,list,status,init-workspace,resume,"
         "validate-fragment,parse-overview,check-paths,select-concerns,check-params,"
         "check-fix-index,thread-fingerprints,check-thread-ids,aggregate-fix-results,"
-        "snapshot-dirty,check-unlisted,review-rounds,count-sweep} [options]",
+        "snapshot-dirty,check-unlisted,review-rounds,count-sweep,sweep-record} [options]",
         file=sys.stderr,
     )
     return ExitCode.USAGE

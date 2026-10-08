@@ -16,6 +16,7 @@ You are a test specialist for dancing-bear. You write, expand, and refactor test
 2. Read the source module to understand what to test
 3. Never run tests that require network/secrets without explicit approval
 4. Read `concerns/tests.md` and `concerns/reuse.md` before writing — apply them while writing, not just as a final check
+5. Read `concerns/collateral-damage.md` when writing tests for a fix — tests must cover every input form and entry point reaching the guard, not just the reported case (see `incomplete-guard-coverage`)
 
 ## Test Patterns
 
