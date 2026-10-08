@@ -191,8 +191,15 @@ regression shapes specific to automated review-fix runs.
      named test module is absent, record a finding: the claimed test does not
      exist.
   4. Check whether the changed files are in scope: if `tests_added` names no
-     test touching any of `files_changed`, record a finding: no test covers
-     the changed code.
+     test touching any of `files_changed`, check `coverage_note`. A non-empty
+     `coverage_note` explains why no new test was needed (e.g. the change is a
+     comment, docstring, or rename with no call-site semantics). Accept that as
+     sufficient and do NOT record a finding. Record a finding only when
+     `tests_added` is empty AND `coverage_note` is absent or empty — meaning
+     the fixer made no test claim and offered no reason. If `coverage_note` is
+     present but appears to contradict the diff (e.g. claims "non-behavioural"
+     for a change that adds a new code path), record an info-level finding
+     noting the apparent contradiction; do not record it as blocking.
   5. Do NOT execute `test_command`. Test execution is owned by verify-fixes.
 - **cause**: UNBACKED_CLAIM — the fixer ran tests early and did not re-run
   after the last edit; FAILED_IGNORED — the fixer saw FAILED and reported OK

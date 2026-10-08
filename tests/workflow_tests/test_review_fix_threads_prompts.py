@@ -889,7 +889,7 @@ class TestSweepFixRegressions(unittest.TestCase):
         self.assertIn("still_blocking > 0: set your stage result status to \"failed\" "
                       "and exit 1", prompt)
         self.assertIn("still_blocking == 0: exit 0", prompt)
-        self.assertIn("Any other exit: the check did not run — count it as still blocking",
+        self.assertIn("the check did not run — count it as still blocking",
                       prompt)
 
     def test_resweep_is_read_only_no_edit(self) -> None:
@@ -999,8 +999,10 @@ def _stage_shell_lines(stage: str, workspace: str, starts: tuple[str, ...]) -> s
 
 
 _FIX_DIFF = "workflows/code/scripts/fix-diff.sh"
-_DIFF_LINES = ("jq -r '.files_changed[]'", f"bash {_FIX_DIFF}")
-_SUPPRESSION_LINE = ("awk '",)
+# jq and fix-diff.sh are now separate steps (jq to temp file, then sort)
+_DIFF_LINES = ("jq -r '.files_changed[]'", "sort -u ", f"bash {_FIX_DIFF}")
+# awk and grep are now separate steps (awk to temp file, then grep the temp file)
+_SUPPRESSION_LINE = ("awk '", "grep -nE '")
 
 
 @unittest.skipUnless(all(map(shutil.which, ("git", "jq", "bash", "awk"))),
@@ -1160,6 +1162,110 @@ class TestUnbackedVerificationUsesRealSchema(unittest.TestCase):
         self.assertNotIn("re-run `test_command`", section)
         self.assertNotIn("re-run the result's\n  `test_command`", section)
         self.assertIn("Do NOT execute", section)
+
+    def test_concern_guide_coverage_note_exempts_empty_tests_added(self) -> None:
+        """concerns/fix-regressions.md must accept empty tests_added when
+        coverage_note is present — an empty tests_added without coverage_note
+        is a finding, but one with a non-empty coverage_note is not."""
+        guide = (_ROOT / "concerns/fix-regressions.md").read_text()
+        start = guide.find("### unbacked-verification-claims")
+        end = guide.find("\n### ", start + 1)
+        section = guide[start:end] if end != -1 else guide[start:]
+        self.assertIn("coverage_note", section,
+                      "unbacked-verification section must reference coverage_note")
+        # Must not record a finding when coverage_note is present
+        self.assertNotIn("tests_added is empty AND coverage_note is absent or empty",
+                         section) or self.assertIn("coverage_note", section)
+        # The key requirement: non-empty coverage_note is accepted
+        self.assertIn("non-empty", section,
+                      "section must distinguish non-empty coverage_note")
+
+    def test_sweep_prompt_coverage_note_exempts_empty_tests_added(self) -> None:
+        """The sweep prompt's unbacked-verification-claims instruction must
+        accept empty tests_added when coverage_note is non-empty, matching
+        the thread-fixer contract."""
+        prompt = _flat(_prompts()["sweep-fix-regressions"])
+        self.assertIn("coverage_note", prompt,
+                      "sweep prompt must reference coverage_note in "
+                      "unbacked-verification-claims check")
+
+    def test_sweep_guide_coverage_note_is_in_thread_fixer_schema(self) -> None:
+        """coverage_note must be in the thread-fixer result schema so the
+        sweep's reference to it is not a phantom-field false positive."""
+        fixer_md = (_ROOT / ".claude/agents/thread-fixer.md").read_text()
+        self.assertIn('"coverage_note"', fixer_md,
+                      "coverage_note must appear in thread-fixer.md schema block")
+
+
+class TestSweepPipelineFailClosed(unittest.TestCase):
+    """The jq and awk pipelines in resweep-regressions must fail closed:
+    a failure of the first command must be detectable before its output
+    is consumed by the second command."""
+
+    def _resweep_prompt(self) -> str:
+        return _flat(_prompts()["resweep-regressions"])
+
+    def _lines_containing(self, prompt: str, pipe_fragment: str) -> str:
+        """Return joined lines that contain ``pipe_fragment``."""
+        return "\n".join(ln for ln in prompt.splitlines() if pipe_fragment in ln)
+
+    def test_resweep_jq_step_does_not_pipe_into_sort(self) -> None:
+        """jq must write to a temp file; sort reads that file separately.
+        A jq-piped-to-sort pattern masks jq failure."""
+        prompt = self._resweep_prompt()
+        self.assertNotIn(
+            "jq -r '.files_changed[]'",
+            self._lines_containing(prompt, "| sort"),
+            "jq must not pipe into sort — a separate step is required so "
+            "jq failure is detectable",
+        )
+
+    def test_resweep_awk_step_does_not_pipe_into_grep(self) -> None:
+        """awk must write to a temp file; grep reads that file separately.
+        An awk-piped-to-grep pattern masks awk failure."""
+        prompt = self._resweep_prompt()
+        self.assertNotIn(
+            "awk '",
+            self._lines_containing(prompt, "| grep"),
+            "awk must not pipe into grep — a separate step is required so "
+            "awk failure is detectable",
+        )
+
+    @unittest.skipUnless(all(map(shutil.which, ("jq", "bash", "awk", "sort"))),
+                         "needs jq, bash, awk and sort")
+    def test_jq_failure_is_visible_before_sort(self) -> None:
+        """When jq fails (malformed JSON), the exit code must be non-zero
+        before sort runs.  The old single-pipeline form masked this."""
+        import tempfile as _tempfile
+        with _tempfile.TemporaryDirectory() as tmp:
+            bad = Path(tmp) / "bad.json"
+            bad.write_text("not valid json\n")
+            out = Path(tmp) / "raw.txt"
+            rc = subprocess.run(  # nosec B603 - fixed argv list, no shell, temp dir
+                [str(shutil.which("jq")), "-r", ".files_changed[]", str(bad)],
+                stdout=out.open("wb"),
+                check=False,
+            ).returncode
+            self.assertNotEqual(rc, 0, "jq must exit non-zero on malformed input")
+
+    @unittest.skipUnless(all(map(shutil.which, ("awk", "grep"))),
+                         "needs awk and grep")
+    def test_awk_failure_is_visible_before_grep(self) -> None:
+        """When awk cannot read its input file, the exit code must be non-zero
+        before grep runs.  The old single-pipeline form masked this."""
+        import tempfile as _tempfile
+        with _tempfile.TemporaryDirectory() as tmp:
+            missing = Path(tmp) / "does-not-exist.patch"
+            out = Path(tmp) / "added-lines.txt"
+            rc = subprocess.run(  # nosec B603 - fixed argv list, no shell, temp dir
+                [str(shutil.which("awk")),
+                 "/^diff --git /{h=0; next} /^@@/{h=1; next} h && /^\\+/",
+                 str(missing)],
+                stdout=out.open("wb"),
+                check=False,
+            ).returncode
+            self.assertNotEqual(rc, 0,
+                                "awk must exit non-zero when its input file is missing")
 
 
 if __name__ == "__main__":
