@@ -97,7 +97,9 @@ def count_blocking(path: str) -> tuple[int, int | None]:
         for f in findings_raw
         if f.get("severity") not in _NON_BLOCKING_SEVERITIES
     )
-    reported: int | None = blocking_raw if type(blocking_raw) is int else None  # noqa: E721
+    reported: int | None = None
+    if isinstance(blocking_raw, int) and not isinstance(blocking_raw, bool):
+        reported = blocking_raw
     return derived, reported
 
 
@@ -122,11 +124,10 @@ def _validate_blocking(value: object) -> None:
     """Raise :class:`CountBlockingError` if the 'blocking' field is malformed.
 
     Absent is allowed (caller only calls this when the key is present).
-    Accepts only a plain non-negative ``int``; ``type(x) is int`` excludes
-    ``bool`` (``True``/``False`` subclass ``int`` in Python), ``float``,
-    ``None``, and strings.
+    Accepts only a plain non-negative ``int``; bools are rejected first
+    (``bool`` subclasses ``int`` in Python), then any non-int, then negatives.
     """
-    if not (type(value) is int and value >= 0):  # noqa: E721
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise CountBlockingError(
             f"'blocking' must be a non-negative integer, "
             f"got {type(value).__name__!r} {value!r}"
