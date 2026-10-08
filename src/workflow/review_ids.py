@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -430,15 +431,11 @@ class FixResults:
     scopes: dict[str, str | None] = field(default_factory=dict)
 
     def to_json(self) -> dict[str, Any]:
-        by_action = dict.fromkeys(_KNOWN_ACTIONS, 0)
-        for result in self.results:
-            action = str(result.get("action"))
-            by_action[action] = by_action.get(action, 0) + 1
         files_changed, out_of_scope = _files_changed(self.results, self.scopes)
         return {
             "total_expected": self.total_expected,
             "total_results": len(self.results),
-            "by_action": by_action,
+            "by_action": _count_actions(self.results),
             "files_changed": files_changed,
             "out_of_scope_paths": out_of_scope,
             **_validated_tests(self.results),
@@ -448,6 +445,15 @@ class FixResults:
             "out_of_scope_requests": _out_of_scope_requests(self.results),
             "results": list(self.results),
         }
+
+
+def _count_actions(results: Iterable[dict[str, Any]]) -> dict[str, int]:
+    """``by_action``: results per action, every known action present."""
+    by_action = dict.fromkeys(_KNOWN_ACTIONS, 0)
+    for result in results:
+        action = str(result.get("action"))
+        by_action[action] = by_action.get(action, 0) + 1
+    return by_action
 
 
 def _union_of(results: tuple[dict[str, Any], ...], field_name: str) -> list[str]:

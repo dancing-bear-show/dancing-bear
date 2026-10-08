@@ -521,6 +521,68 @@ def _cmd_count_sweep(args: argparse.Namespace) -> int:
     return 0
 
 
+def _read_json_file(path: str, label: str) -> tuple[object, bool]:
+    """``(document, True)``, or ``(None, False)`` after printing why not."""
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        msg = exc.strerror if isinstance(exc, OSError) else str(exc)
+        print(f"merge-fix-results: {label} is unreadable: {msg}", file=sys.stderr)
+        return None, False
+    try:
+        return json.loads(text), True
+    except json.JSONDecodeError as exc:
+        print(f"merge-fix-results: {label} is not valid JSON: {exc.msg}", file=sys.stderr)
+        return None, False
+
+
+def _cmd_count_blocking(args: argparse.Namespace) -> int:
+    """Derive the blocking count from a sweep-findings.json file.
+
+    Prints the derived count to stdout. Writes a ``summary_mismatch``
+    diagnostic to stderr when the agent-written "blocking" summary field
+    disagrees with the derived count (the derived count is authoritative).
+    Exit 2 on malformed input (not-a-list findings, non-int blocking, or
+    unreadable file); else 0.
+    """
+    from workflow.count_blocking import cmd_count_blocking
+    return cmd_count_blocking(args.findings)
+
+
+def _cmd_merge_fix_results(args: argparse.Namespace) -> int:
+    """Merge fix-results.json and refix-results.json into one file.
+
+    Both inputs are aggregate-fix-results output (the refix one against
+    refix-index.json); see :mod:`workflow.fix_merge` for the validation and
+    merge rules. Exit 0 once the merged file is written. Exit 1, writing
+    nothing, if an input is missing or not JSON. Exit 2, writing nothing, if
+    either document has a field of the wrong shape, an unsafe or unclaimed
+    files_changed path, a missing/non-string/repeated result id, or a retry
+    for a finding fix-results does not know.
+    """
+    from core.fileutil import atomic_write_json
+    from workflow.fix_merge import merge_fix_docs, parse_fix_doc
+
+    primary, ok_primary = _read_json_file(args.fix_results, "fix-results")
+    retry, ok_retry = _read_json_file(args.refix_results, "refix-results")
+    if not (ok_primary and ok_retry):
+        return int(ExitCode.ERROR)
+    try:
+        merged = merge_fix_docs(parse_fix_doc(primary, "fix-results"),
+                                parse_fix_doc(retry, "refix-results"))
+    except ValueError as exc:
+        print(f"merge-fix-results: {exc}", file=sys.stderr)
+        return int(ExitCode.USAGE)
+    atomic_write_json(args.out, merged)
+    print(
+        f"merge-fix-results: results={merged['total_results']} "
+        f"files_changed={len(merged['files_changed'])} "
+        f"failed_tests={len(merged['failed_tests'])} "
+        f"missing={len(merged['missing_results'])}"
+    )
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # sweep-record
 # ---------------------------------------------------------------------------

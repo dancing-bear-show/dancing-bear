@@ -497,7 +497,7 @@ class TestUnknownTaskType(unittest.TestCase):
     def test_valid_types_come_from_selection_yaml(self) -> None:
         self.assertEqual(
             set(valid_task_types()),
-            {"feature", "test", "security", "docs", "refactor", "workflow"},
+            {"feature", "test", "security", "docs", "refactor", "workflow", "review-fix"},
         )
 
 
