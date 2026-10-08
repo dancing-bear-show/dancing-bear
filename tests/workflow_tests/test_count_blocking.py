@@ -338,6 +338,48 @@ class TestCountBlocking(unittest.TestCase):
         rc = main(["count-blocking", str(self.tmp / "no.json")])
         self.assertEqual(rc, 2)
 
+    # ------------------------------------------------------------------
+    # info / minor severity — non-blocking
+    # ------------------------------------------------------------------
+
+    def test_info_severity_is_not_blocking(self) -> None:
+        """An info-level finding must not count as blocking."""
+        path = _write(self.tmp, {"findings": [{"severity": "info"}]}, "info.json")
+        derived, _ = count_blocking(path)
+        self.assertEqual(derived, 0)
+
+    def test_minor_severity_is_not_blocking(self) -> None:
+        path = _write(self.tmp, {"findings": [{"severity": "minor"}]}, "minor.json")
+        derived, _ = count_blocking(path)
+        self.assertEqual(derived, 0)
+
+    def test_cmd_info_severity_prints_zero(self) -> None:
+        """count-blocking on a file with only info findings must print 0."""
+        path = _write(self.tmp, {
+            "blocking": 0,
+            "findings": [{"severity": "info"}, {"severity": "minor"}],
+        }, "info_cmd.json")
+        rc, out, _ = _run(path)
+        self.assertEqual(rc, 0)
+        self.assertEqual(out.strip(), "0")
+
+    # ------------------------------------------------------------------
+    # UnicodeDecodeError — non-UTF-8 files exit 2
+    # ------------------------------------------------------------------
+
+    def test_non_utf8_file_raises(self) -> None:
+        """A file with non-UTF-8 bytes must raise CountBlockingError, not crash."""
+        path = str(self.tmp / "latin1.json")
+        Path(path).write_bytes(b'{"findings": [{"severity": "\xff\xfe"}]}')
+        with self.assertRaises(CountBlockingError):
+            count_blocking(path)
+
+    def test_exit2_non_utf8_file(self) -> None:
+        """cmd_count_blocking on a non-UTF-8 file must exit 2."""
+        path = str(self.tmp / "latin1_cmd.json")
+        Path(path).write_bytes(b'{"findings": [{"severity": "\xff\xfe"}]}')
+        self._assert_exit2_no_number(path)
+
 
 if __name__ == "__main__":
     unittest.main()

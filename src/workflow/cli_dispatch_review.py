@@ -525,8 +525,9 @@ def _read_json_file(path: str, label: str) -> tuple[object, bool]:
     """``(document, True)``, or ``(None, False)`` after printing why not."""
     try:
         text = Path(path).read_text(encoding="utf-8")
-    except OSError as exc:
-        print(f"merge-fix-results: {label} is unreadable: {exc.strerror}", file=sys.stderr)
+    except (OSError, UnicodeDecodeError) as exc:
+        msg = exc.strerror if isinstance(exc, OSError) else str(exc)
+        print(f"merge-fix-results: {label} is unreadable: {msg}", file=sys.stderr)
         return None, False
     try:
         return json.loads(text), True

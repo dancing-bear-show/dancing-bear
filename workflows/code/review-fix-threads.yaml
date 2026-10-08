@@ -1233,6 +1233,12 @@ stages:
         straight from the JSON so no path is ever typed into shell text:
 
           jq -r '.files_changed[]' "{workspace}/outputs/fix-results.json" > "{workspace}/validation/sweep-paths.txt"
+          # jq failure → paths file is empty or absent → vacuous sweep (fail-open)
+          if [ $? -ne 0 ]; then <fail: exit non-zero, patch is incomplete>; fi
+          # If fix-results has files but the paths file is empty, jq silently produced no output
+          jq -e '.files_changed | length > 0' "{workspace}/outputs/fix-results.json" > /dev/null 2>&1 && \
+            [ ! -s "{workspace}/validation/sweep-paths.txt" ] && \
+            <fail: paths file is empty despite non-empty files_changed — exit non-zero>
 
         This is what the diff loop and the concern selector read.
 
@@ -1293,7 +1299,7 @@ stages:
           - path: the file the finding is in (from files_changed or from the
             concern's structural check)
           - line: integer line number, or null if not applicable
-          - severity: "critical" | "major" | "minor" — from the concern guide
+          - severity: "critical" | "major" | "minor" | "info" — from the concern guide; critical and major are blocking, minor and info are non-blocking
           - evidence: what you found — a quoted code fragment, command output,
             or prose description sufficient for a fixer to reproduce it
           - probe: prose describing how you verified the finding (the input

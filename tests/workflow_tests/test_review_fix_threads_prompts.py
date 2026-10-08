@@ -1166,19 +1166,42 @@ class TestUnbackedVerificationUsesRealSchema(unittest.TestCase):
     def test_concern_guide_coverage_note_exempts_empty_tests_added(self) -> None:
         """concerns/fix-regressions.md must accept empty tests_added when
         coverage_note is present — an empty tests_added without coverage_note
-        is a finding, but one with a non-empty coverage_note is not."""
+        is a finding, but one with a non-empty coverage_note is not.
+
+        The assertion texts use backticks exactly as the guide writes them so
+        this test fails if the exemption sentence is deleted or rephrased.
+        """
         guide = (_ROOT / "concerns/fix-regressions.md").read_text()
         start = guide.find("### unbacked-verification-claims")
         end = guide.find("\n### ", start + 1)
         section = guide[start:end] if end != -1 else guide[start:]
-        self.assertIn("coverage_note", section,
-                      "unbacked-verification section must reference coverage_note")
-        # Must not record a finding when coverage_note is present
-        self.assertNotIn("tests_added is empty AND coverage_note is absent or empty",
-                         section) or self.assertIn("coverage_note", section)
-        # The key requirement: non-empty coverage_note is accepted
-        self.assertIn("non-empty", section,
-                      "section must distinguish non-empty coverage_note")
+        # Normalize whitespace so multi-line wrapped sentences are found as one.
+        flat = " ".join(section.split())
+        # The exemption sentence must appear (backtick field names preserved).
+        self.assertIn(
+            "A non-empty `coverage_note` explains why no new test was needed",
+            flat,
+            "guide must state that a non-empty coverage_note exempts empty "
+            "tests_added — delete or rephrase it and this test fails",
+        )
+        # The condition for recording a finding must name BOTH missing fields.
+        self.assertIn(
+            "`tests_added` is empty AND `coverage_note` is absent or empty",
+            flat,
+            "guide must record a finding only when BOTH tests_added and "
+            "coverage_note are absent — a missing coverage_note alone must not "
+            "trigger the finding",
+        )
+        # Empty tests_added on its own must NOT be described as a finding.
+        # Scan for any sentence fragment that marks it as a finding without AND.
+        for fragment in flat.split("."):
+            if "`tests_added`" in fragment and "finding" in fragment:
+                self.assertIn(
+                    "AND",
+                    fragment,
+                    f"sentence fragment describes tests_added as a finding without "
+                    f"requiring coverage_note to also be absent: {fragment!r}",
+                )
 
     def test_sweep_prompt_coverage_note_exempts_empty_tests_added(self) -> None:
         """The sweep prompt's unbacked-verification-claims instruction must

@@ -214,6 +214,24 @@ class TestMergeRejectsMalformedInput(MergeFixResultsCase):
         rc, merged, _ = self.run_merge(_doc(_result("x")), None, raw="{not json")
         self.assertEqual((rc, merged), (1, None))
 
+    def test_non_utf8_refix_input_exits_1_direct(self) -> None:
+        """Direct write of non-UTF-8 bytes to refix file triggers exit 1."""
+        fr = _doc(_result("x"))
+        with tempfile.TemporaryDirectory() as td:
+            fr_path = Path(td) / "fix-results.json"
+            rr_path = Path(td) / "refix-results.json"
+            out_path = Path(td) / "merged.json"
+            fr_path.write_text(json.dumps(fr), encoding="utf-8")
+            rr_path.write_bytes(b"\xff\xfe{not utf-8}")  # latin-1 BOM + garbage
+            proc = subprocess.run(  # nosec B603 - fixed argv invoking the repo's own CLI
+                ["./bin/workflow", "merge-fix-results",
+                 str(fr_path), str(rr_path), str(out_path)],
+                capture_output=True, text=True, cwd=str(_ROOT), timeout=_TIMEOUT, check=False,
+            )
+            self.assertEqual(proc.returncode, 1,
+                             f"expected exit 1 on non-UTF-8 input; stderr={proc.stderr!r}")
+            self.assertFalse(out_path.is_file(), "merged output must not be written on error")
+
 
 if __name__ == "__main__":
     unittest.main()

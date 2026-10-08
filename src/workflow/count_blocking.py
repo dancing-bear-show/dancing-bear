@@ -72,8 +72,9 @@ def count_blocking(path: str) -> tuple[int, int | None]:
     """
     try:
         text = Path(path).read_text(encoding="utf-8")
-    except OSError as exc:
-        raise CountBlockingError(f"cannot read {path!r}: {exc.strerror}") from exc
+    except (OSError, UnicodeDecodeError) as exc:
+        msg = exc.strerror if isinstance(exc, OSError) else str(exc)
+        raise CountBlockingError(f"cannot read {path!r}: {msg}") from exc
     try:
         doc = json.loads(text)
     except json.JSONDecodeError as exc:
