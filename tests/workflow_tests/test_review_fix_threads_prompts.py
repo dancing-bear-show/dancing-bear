@@ -841,16 +841,25 @@ class TestSweepFixRegressions(unittest.TestCase):
         self.assertIn("severity", prompt)
         self.assertIn("python3 -I -S -c", prompt)
 
-    def test_refix_dispatch_treats_count_mismatch_as_error(self) -> None:
+    def test_refix_dispatch_treats_count_mismatch_as_fail_closed(self) -> None:
         """A blocking count that disagrees with the findings list must fail
-        closed (continue as if blocking > 0), not skip the retry."""
+        closed (use derived count, which is >= reported). The one-liner must
+        always print the derived count and always exit 0 — exit 1 on mismatch
+        would leave no count to continue with."""
         prompt = _flat(self.prompts["refix-dispatch"])
         self.assertIn("mismatch", prompt)
+        # Derived count must be captured (printed), not inferred from exit code
+        self.assertIn("printed", prompt)
+        # The one-liner must not sys.exit(1) on mismatch
+        self.assertNotIn("sys.exit(1)", prompt)
 
-    def test_resweep_treats_count_mismatch_as_error(self) -> None:
-        """resweep: count mismatch must fail closed, not skip re-check."""
+    def test_resweep_treats_count_mismatch_as_fail_closed(self) -> None:
+        """resweep: mismatch must fail closed using the derived count. Same
+        rule: always print derived, always exit 0."""
         prompt = _flat(self.prompts["resweep-regressions"])
         self.assertIn("mismatch", prompt)
+        self.assertIn("printed", prompt)
+        self.assertNotIn("sys.exit(1)", prompt)
 
     def test_refix_results_come_from_aggregate_fix_results(self) -> None:
         """refix-results.json must have fix-results.json's schema, including

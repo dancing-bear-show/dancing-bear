@@ -1374,15 +1374,18 @@ stages:
       This stage edits no source file; it only writes the index.
 
       Step 1 — read {workspace}/validation/sweep-findings.json. Derive the
-      blocking count from the findings list, not the agent-written summary:
+      blocking count from the findings list, not the agent-written summary.
+      The one-liner always prints the derived count and always exits 0; if the
+      agent-written "blocking" field disagrees, the derived count is authoritative
+      (fail-closed: a mismatch must never reduce the count below derived):
 
-        python3 -I -S -c "import json,sys; d=json.load(open(sys.argv[1])); reported=d.get('blocking',0); derived=sum(1 for f in d.get('findings',[]) if f.get('severity') in ('critical','major')); sys.exit(1) if reported!=derived else print(derived)" "{workspace}/validation/sweep-findings.json"
+        python3 -I -S -c "import json,sys; d=json.load(open(sys.argv[1])); reported=d.get('blocking',0); derived=sum(1 for f in d.get('findings',[]) if f.get('severity') in ('critical','major')); print(derived); (sys.stderr.write('summary_mismatch: reported=%d derived=%d\n'%(reported,derived)) if reported!=derived else None)" "{workspace}/validation/sweep-findings.json"
 
-      If exit 1 (count mismatch), treat it as derived > 0 and continue to
-      Step 2 — fail closed, not open. If derived is 0, write
+      Capture the printed number. If it is 0, write
       {workspace}/outputs/refix-index.json as {"total": 0, "items": []} and
       exit 0. refix-threads then fans out over no items and refix-aggregate
-      writes an empty refix-results.json.
+      writes an empty refix-results.json. If it is non-zero (or if the
+      one-liner itself failed), continue to Step 2.
 
       Step 2 — read {workspace}/outputs/fix-index.json. For every item, keep
       only the entries of its "data.threads" whose "id" is the "id" of at
@@ -1529,15 +1532,19 @@ stages:
       concern's own procedure, as the sweep did.
 
       Step 1 — read {workspace}/validation/sweep-findings.json. Derive the
-        blocking count from the findings list, not the agent-written summary:
+        blocking count from the findings list, not the agent-written summary.
+        The one-liner always prints the derived count and always exits 0; if
+        the agent-written "blocking" field disagrees, the derived count is
+        authoritative (fail-closed: a mismatch must never reduce the count
+        below derived):
 
-          python3 -I -S -c "import json,sys; d=json.load(open(sys.argv[1])); reported=d.get('blocking',0); derived=sum(1 for f in d.get('findings',[]) if f.get('severity') in ('critical','major')); sys.exit(1) if reported!=derived else print(derived)" "{workspace}/validation/sweep-findings.json"
+          python3 -I -S -c "import json,sys; d=json.load(open(sys.argv[1])); reported=d.get('blocking',0); derived=sum(1 for f in d.get('findings',[]) if f.get('severity') in ('critical','major')); print(derived); (sys.stderr.write('summary_mismatch: reported=%d derived=%d\n'%(reported,derived)) if reported!=derived else None)" "{workspace}/validation/sweep-findings.json"
 
-        If exit 1 (count mismatch), treat derived as the authoritative count
-        and continue; a mismatch is itself an error — fail closed. If derived
-        is 0, write {workspace}/validation/resweep.json with
+        Capture the printed number. If it is 0, write
+        {workspace}/validation/resweep.json with
         {"total_checked": 0, "still_blocking": 0, "findings": []} and exit 0.
-        There was nothing to refix and nothing to re-check.
+        There was nothing to refix and nothing to re-check. If it is non-zero
+        (or if the one-liner itself failed), continue to Step 2.
 
       Step 2 — rebuild the diff over every file either pass changed,
       untracked files included, exactly as sweep-fix-regressions Step 3
