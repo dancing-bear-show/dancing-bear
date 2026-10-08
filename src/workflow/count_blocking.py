@@ -62,8 +62,13 @@ def count_blocking(path: str) -> tuple[int, int | None]:
     - The "findings" key is absent (a garbled file must not read as zero).
     - The "findings" value is not a list.
     - Any element of "findings" is not a JSON object.
-    - Any finding lacks a "severity" field or has a non-string "severity".
-    - The "blocking" key is present but is not an integer.
+    - Any finding lacks a "severity" field, has a non-string "severity",
+      or has an empty or whitespace-only "severity".
+    - The "blocking" key is present with a value that is not absent: null,
+      bool (JSON true/false), float, string, or negative integer all exit 2.
+      Only a plain Python ``int`` (``type(x) is int``) that is >= 0 is
+      accepted; bool subclasses int so ``isinstance`` alone is not sufficient.
+      Absent "blocking" is allowed (summary field, not required).
     """
     try:
         text = Path(path).read_text(encoding="utf-8")
@@ -83,31 +88,49 @@ def count_blocking(path: str) -> tuple[int, int | None]:
             f"'findings' must be a list, got {type(findings_raw).__name__}"
         )
     for i, item in enumerate(findings_raw):
-        if not isinstance(item, dict):
-            raise CountBlockingError(
-                f"findings[{i}] is not an object, got {type(item).__name__}"
-            )
-        sev = item.get("severity")
-        if sev is None:
-            raise CountBlockingError(
-                f"findings[{i}] is missing the 'severity' field"
-            )
-        if not isinstance(sev, str):
-            raise CountBlockingError(
-                f"findings[{i}].severity must be a string, got {type(sev).__name__}"
-            )
+        _validate_finding(i, item)
     blocking_raw = doc.get("blocking")
-    if blocking_raw is not None and not isinstance(blocking_raw, int):
-        raise CountBlockingError(
-            f"'blocking' must be an integer, got {type(blocking_raw).__name__}"
-        )
+    if "blocking" in doc:
+        _validate_blocking(blocking_raw)
     derived = sum(
         1
         for f in findings_raw
         if f.get("severity") not in _NON_BLOCKING_SEVERITIES
     )
-    reported: int | None = blocking_raw if isinstance(blocking_raw, int) else None
+    reported: int | None = blocking_raw if type(blocking_raw) is int else None  # noqa: E721
     return derived, reported
+
+
+def _validate_finding(i: int, item: object) -> None:
+    """Raise :class:`CountBlockingError` if findings[*i*] is malformed."""
+    if not isinstance(item, dict):
+        raise CountBlockingError(
+            f"findings[{i}] is not an object, got {type(item).__name__}"
+        )
+    sev = item.get("severity")
+    if sev is None:
+        raise CountBlockingError(f"findings[{i}] is missing the 'severity' field")
+    if not isinstance(sev, str):
+        raise CountBlockingError(
+            f"findings[{i}].severity must be a string, got {type(sev).__name__}"
+        )
+    if not sev.strip():
+        raise CountBlockingError(f"findings[{i}].severity must be non-empty")
+
+
+def _validate_blocking(value: object) -> None:
+    """Raise :class:`CountBlockingError` if the 'blocking' field is malformed.
+
+    Absent is allowed (caller only calls this when the key is present).
+    Accepts only a plain non-negative ``int``; ``type(x) is int`` excludes
+    ``bool`` (``True``/``False`` subclass ``int`` in Python), ``float``,
+    ``None``, and strings.
+    """
+    if not (type(value) is int and value >= 0):  # noqa: E721
+        raise CountBlockingError(
+            f"'blocking' must be a non-negative integer, "
+            f"got {type(value).__name__!r} {value!r}"
+        )
 
 
 def cmd_count_blocking(path: str, *, stderr: IO[str] | None = None) -> int:

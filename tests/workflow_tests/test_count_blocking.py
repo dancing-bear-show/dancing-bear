@@ -128,10 +128,58 @@ class TestCountBlocking(unittest.TestCase):
             count_blocking(path)
         self.assertIn("severity", str(cm.exception))
 
+    def test_finding_empty_severity_raises(self) -> None:
+        """Empty string severity is malformed — not a valid level."""
+        path = _write(self.tmp, {"findings": [{"severity": ""}]})
+        with self.assertRaises(CountBlockingError) as cm:
+            count_blocking(path)
+        self.assertIn("severity", str(cm.exception))
+
+    def test_finding_whitespace_severity_raises(self) -> None:
+        path = _write(self.tmp, {"findings": [{"severity": "   "}]})
+        with self.assertRaises(CountBlockingError) as cm:
+            count_blocking(path)
+        self.assertIn("severity", str(cm.exception))
+
+    # blocking field: absent is allowed; present-but-invalid exits 2
     def test_blocking_not_an_int_raises(self) -> None:
         path = _write(self.tmp, {"blocking": "oops", "findings": []})
         with self.assertRaises(CountBlockingError):
             count_blocking(path)
+
+    def test_blocking_null_raises(self) -> None:
+        """JSON null for blocking is invalid — absent is the allowed form."""
+        path = _write(self.tmp, {"blocking": None, "findings": []})
+        with self.assertRaises(CountBlockingError):
+            count_blocking(path)
+
+    def test_blocking_bool_true_raises(self) -> None:
+        """JSON true is a bool which subclasses int; must be rejected."""
+        path = _write(self.tmp, {"blocking": True, "findings": []})
+        with self.assertRaises(CountBlockingError):
+            count_blocking(path)
+
+    def test_blocking_bool_false_raises(self) -> None:
+        path = _write(self.tmp, {"blocking": False, "findings": []})
+        with self.assertRaises(CountBlockingError):
+            count_blocking(path)
+
+    def test_blocking_float_raises(self) -> None:
+        path = _write(self.tmp, {"blocking": 2.0, "findings": []})
+        with self.assertRaises(CountBlockingError):
+            count_blocking(path)
+
+    def test_blocking_negative_raises(self) -> None:
+        path = _write(self.tmp, {"blocking": -1, "findings": []})
+        with self.assertRaises(CountBlockingError):
+            count_blocking(path)
+
+    def test_blocking_absent_is_allowed(self) -> None:
+        """Missing 'blocking' key is allowed; reported is None."""
+        path = _write(self.tmp, {"findings": [{"severity": "critical"}]})
+        derived, reported = count_blocking(path)
+        self.assertEqual(derived, 1)
+        self.assertIsNone(reported)
 
     def test_not_valid_json_raises(self) -> None:
         path = str(self.tmp / "bad.json")
@@ -185,8 +233,32 @@ class TestCountBlocking(unittest.TestCase):
         path = _write(self.tmp, {"findings": [{"severity": 99}]}, "bad_sev.json")
         self._assert_exit2_no_number(path)
 
+    def test_exit2_finding_empty_severity(self) -> None:
+        path = _write(self.tmp, {"findings": [{"severity": ""}]}, "empty_sev.json")
+        self._assert_exit2_no_number(path)
+
+    def test_exit2_finding_whitespace_severity(self) -> None:
+        path = _write(self.tmp, {"findings": [{"severity": "  "}]}, "ws_sev.json")
+        self._assert_exit2_no_number(path)
+
     def test_exit2_blocking_not_an_int(self) -> None:
         path = _write(self.tmp, {"blocking": "oops", "findings": []}, "bad_blocking.json")
+        self._assert_exit2_no_number(path)
+
+    def test_exit2_blocking_null(self) -> None:
+        path = _write(self.tmp, {"blocking": None, "findings": []}, "null_blocking.json")
+        self._assert_exit2_no_number(path)
+
+    def test_exit2_blocking_bool_true(self) -> None:
+        path = _write(self.tmp, {"blocking": True, "findings": []}, "bool_blocking.json")
+        self._assert_exit2_no_number(path)
+
+    def test_exit2_blocking_float(self) -> None:
+        path = _write(self.tmp, {"blocking": 1.0, "findings": []}, "float_blocking.json")
+        self._assert_exit2_no_number(path)
+
+    def test_exit2_blocking_negative(self) -> None:
+        path = _write(self.tmp, {"blocking": -1, "findings": []}, "neg_blocking.json")
         self._assert_exit2_no_number(path)
 
     def test_exit2_missing_file(self) -> None:
