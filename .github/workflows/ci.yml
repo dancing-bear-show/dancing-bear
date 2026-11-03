@@ -3,9 +3,12 @@ on:
   push:
   pull_request:
 
+# Every job pins its runner image rather than using ubuntu-latest, which moved
+# to 26.04 on 2026-10-19 without a commit here. Bump the pins deliberately, in
+# a PR of their own, so an image change shows up as its own diff and CI run.
 jobs:
   qlty:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
       - uses: qltysh/qlty-action/install@main
@@ -18,7 +21,7 @@ jobs:
   # distinct failures instead of masking each other. It also runs in parallel
   # with the other two rather than lengthening the critical path.
   typecheck:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
         with:
@@ -67,7 +70,7 @@ jobs:
   # entries that document each way Python defeats static analysis (registry
   # dispatch, string-keyed reads, framework reflection, library protocols).
   deadcode:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -87,12 +90,12 @@ jobs:
         run: python -m vulture --config pyproject.toml
 
   tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
       # jq is what the .claude/hooks shell suites parse their payloads with, and
       # tests/infra/test_guard_hooks.py now FAILS rather than skips when it is absent
-      # (a skip reports green while exercising none of the guards). ubuntu-latest
+      # (a skip reports green while exercising none of the guards). ubuntu-26.04
       # currently ships jq preinstalled, so this is belt-and-braces -- but an implicit
       # dependency on a runner image is exactly the kind of thing that disappears in a
       # version bump, and the failure would then look like a broken guard rather than a
