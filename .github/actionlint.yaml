@@ -1,0 +1,7 @@
+# actionlint's built-in runner-label list predates GitHub's ubuntu-26.04 image,
+# so it reports the pinned label in .github/workflows/*.yml as unknown. It is a
+# GitHub-hosted image, not a self-hosted runner -- this key is just the only
+# place actionlint accepts extra labels. Drop the entry once actionlint knows it.
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04

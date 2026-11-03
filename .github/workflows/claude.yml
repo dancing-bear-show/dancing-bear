@@ -11,10 +11,14 @@ on:
     types: [created]
 
 jobs:
-  # Auto-review new PRs
+  # Auto-review new PRs. Dependabot PRs are skipped: GitHub withholds repo
+  # secrets from runs it triggers, so ANTHROPIC_API_KEY is empty and the job
+  # can only fail -- a red check on every version bump that reviews nothing.
   auto-review:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       pull-requests: write
@@ -56,7 +60,7 @@ jobs:
       github.event_name != 'pull_request' &&
       contains(github.event.comment.body, '@claude') &&
       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # contents is read-only on purpose: this job answers mentions, it does not
     # commit. Raise it to write only if you actually want "@claude, fix and push"
     # to work, and only alongside the author gate above.

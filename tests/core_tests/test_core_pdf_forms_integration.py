@@ -131,6 +131,14 @@ class PdfFormsRoundTripTests(unittest.TestCase):
         """The widget's /AS appearance state in the document just reopened."""
         return self._reopened.xref_get_key(widget.xref, "AS")[1]
 
+    def _raw_v(self, widget) -> str:
+        """The widget's /V exactly as stored, ``"null"`` when the key is absent.
+
+        Read from the object rather than ``field_value``, whose rendering of an
+        absent /V is a PyMuPDF choice: "" before 2.0, "Off" from 2.0 on.
+        """
+        return self._reopened.xref_get_key(widget.xref, "V")[1]
+
     def test_set_text_field_value_survives_save_and_reopen(self):
         self.assertEqual(set_text_field(self.doc, "applicant_name", "Ada Lovelace"), 1)
         widgets = self._reopen()
@@ -246,21 +254,21 @@ class PdfFormsRoundTripTests(unittest.TestCase):
         self.assertEqual(self._as_of(widget), "/Yes")
 
     def test_checkbox_cleared_with_none_has_no_value(self):
-        # A cleared box is NOT read back as "Off". set_checkbox writes
-        # ``V = null`` for the off state, and PyMuPDF surfaces a null /V as
-        # the empty string -- an untouched widget reports "Off", a cleared one
-        # reports "". Both are unticked; only the second has been written.
-        # The stub suite cannot distinguish these, because it asserts on the
-        # literal "null" handed to xref_set_key rather than on what a reader
-        # reports afterwards.
+        # set_checkbox writes ``V = null`` for the off state, so a cleared box
+        # has no /V in the saved file. The box is ticked and read back as /Yes
+        # first, so "null" afterwards proves the clear was written rather than
+        # the widget never having had a value -- an untouched widget is no
+        # control here, because PyMuPDF 2.0's add_widget stores no /V either
+        # (1.x stored /Off). This asserts on the stored object, not
+        # field_value: 2.0 reports an absent /V as "Off" where 1.x said "".
+        # The stub suite cannot see this, because it asserts on the literal
+        # "null" handed to xref_set_key rather than on the saved file.
         set_checkbox(self.doc, "agree", "Yes")
+        self.assertEqual(self._raw_v(self._reopen()["agree"]), "/Yes")
         self.assertEqual(set_checkbox(self.doc, "agree", None), 1)
-        self.assertEqual(self._reopen()["agree"].field_value, "")
-
-    def test_untouched_checkbox_reports_off_not_empty(self):
-        # The control for the case above: without a write, /V is genuinely
-        # "Off". This is what makes "" meaningful rather than incidental.
-        self.assertEqual(self._reopen()["agree"].field_value, "Off")
+        widget = self._reopen()["agree"]
+        self.assertEqual(self._raw_v(widget), "null")
+        self.assertEqual(self._as_of(widget), "/Off")
 
 
 class CheckboxSiblingPairTests(unittest.TestCase):
@@ -296,13 +304,16 @@ class CheckboxSiblingPairTests(unittest.TestCase):
         self.doc.xref_set_key(self.xrefs[1], "AP/N", val.replace("/Yes ", "/No "))
 
     def _values(self):
-        """Reopen and return {xref: (field_value, appearance_state)}.
+        """Reopen and return {xref: (stored /V, appearance_state)}.
 
         Both halves matter. ``/V`` is what a reader reports; ``/AS`` is the
         appearance state a *viewer* renders. They can disagree: writing ``/V``
         alone yields a widget that reports "Yes" while still drawing the Off
         appearance -- a box that is ticked in the data and blank on the page.
-        Asserting only ``field_value`` cannot see that, so both are returned.
+        Asserting only ``/V`` cannot see that, so both are returned.
+
+        ``/V`` is read raw (``"null"`` when absent), not via ``field_value``,
+        whose rendering of an absent /V changed in PyMuPDF 2.0.
         """
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -311,7 +322,10 @@ class CheckboxSiblingPairTests(unittest.TestCase):
         reopened = fitz.open(str(path))
         self.addCleanup(reopened.close)
         return {
-            w.xref: (w.field_value, reopened.xref_get_key(w.xref, "AS")[1])
+            w.xref: (
+                reopened.xref_get_key(w.xref, "V")[1],
+                reopened.xref_get_key(w.xref, "AS")[1],
+            )
             for pno in range(reopened.page_count)
             for w in (reopened[pno].widgets() or [])
         }
@@ -325,10 +339,12 @@ class CheckboxSiblingPairTests(unittest.TestCase):
     def test_ticking_yes_clears_the_no_sibling(self):
         self.assertEqual(set_checkbox(self.doc, "member_another_plan", "Yes"), 2)
         values = self._values()
-        # The sibling was written off, so its value is "" rather than "Off" --
-        # same distinction as test_checkbox_cleared_with_none_has_no_value.
-        self.assertEqual(values[self.xrefs[0]], ("Yes", "/Yes"))
-        self.assertEqual(values[self.xrefs[1]], ("", "/Off"))
+        # The sibling was written off: /V null, /AS /Off. An untouched sibling
+        # can look the same under PyMuPDF 2.0 (no /V), so the proof that a
+        # clear is *written* lives in test_clearing_the_field_leaves_neither_ticked,
+        # which ticks first.
+        self.assertEqual(values[self.xrefs[0]], ("/Yes", "/Yes"))
+        self.assertEqual(values[self.xrefs[1]], ("null", "/Off"))
 
     def test_ticking_no_clears_the_yes_sibling(self):
         # The mirror image: whichever widget owns the requested on-state wins,
@@ -336,13 +352,13 @@ class CheckboxSiblingPairTests(unittest.TestCase):
         # pass the test above and fail this one.
         self.assertEqual(set_checkbox(self.doc, "member_another_plan", "No"), 2)
         values = self._values()
-        self.assertEqual(values[self.xrefs[0]], ("", "/Off"))
-        self.assertEqual(values[self.xrefs[1]], ("No", "/No"))
+        self.assertEqual(values[self.xrefs[0]], ("null", "/Off"))
+        self.assertEqual(values[self.xrefs[1]], ("/No", "/No"))
 
     def test_clearing_the_field_leaves_neither_ticked(self):
         set_checkbox(self.doc, "member_another_plan", "Yes")
         self.assertEqual(set_checkbox(self.doc, "member_another_plan", None), 2)
-        self.assertEqual(set(self._values().values()), {("", "/Off")})
+        self.assertEqual(set(self._values().values()), {("null", "/Off")})
 
 
 if __name__ == "__main__":
