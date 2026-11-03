@@ -255,24 +255,20 @@ class PdfFormsRoundTripTests(unittest.TestCase):
 
     def test_checkbox_cleared_with_none_has_no_value(self):
         # set_checkbox writes ``V = null`` for the off state, so a cleared box
-        # has no /V in the saved file, while an untouched one stores /Off.
-        # Both are unticked; only the second has been written. This asserts on
-        # the stored object, not field_value: PyMuPDF 2.0 reports an absent /V
-        # as "Off" (earlier versions said ""), which erases the distinction.
-        # The stub suite cannot see this either, because it asserts on the
-        # literal "null" handed to xref_set_key rather than on the saved file.
+        # has no /V in the saved file. The box is ticked and read back as /Yes
+        # first, so "null" afterwards proves the clear was written rather than
+        # the widget never having had a value -- an untouched widget is no
+        # control here, because PyMuPDF 2.0's add_widget stores no /V either
+        # (1.x stored /Off). This asserts on the stored object, not
+        # field_value: 2.0 reports an absent /V as "Off" where 1.x said "".
+        # The stub suite cannot see this, because it asserts on the literal
+        # "null" handed to xref_set_key rather than on the saved file.
         set_checkbox(self.doc, "agree", "Yes")
+        self.assertEqual(self._raw_v(self._reopen()["agree"]), "/Yes")
         self.assertEqual(set_checkbox(self.doc, "agree", None), 1)
         widget = self._reopen()["agree"]
         self.assertEqual(self._raw_v(widget), "null")
         self.assertEqual(self._as_of(widget), "/Off")
-
-    def test_untouched_checkbox_stores_off_not_null(self):
-        # The control for the case above: without a write, /V is genuinely
-        # /Off. This is what makes "null" meaningful rather than incidental.
-        widget = self._reopen()["agree"]
-        self.assertEqual(self._raw_v(widget), "/Off")
-        self.assertEqual(widget.field_value, "Off")
 
 
 class CheckboxSiblingPairTests(unittest.TestCase):
@@ -343,8 +339,10 @@ class CheckboxSiblingPairTests(unittest.TestCase):
     def test_ticking_yes_clears_the_no_sibling(self):
         self.assertEqual(set_checkbox(self.doc, "member_another_plan", "Yes"), 2)
         values = self._values()
-        # The sibling was written off, so its /V is null rather than /Off --
-        # same distinction as test_checkbox_cleared_with_none_has_no_value.
+        # The sibling was written off: /V null, /AS /Off. An untouched sibling
+        # can look the same under PyMuPDF 2.0 (no /V), so the proof that a
+        # clear is *written* lives in test_clearing_the_field_leaves_neither_ticked,
+        # which ticks first.
         self.assertEqual(values[self.xrefs[0]], ("/Yes", "/Yes"))
         self.assertEqual(values[self.xrefs[1]], ("null", "/Off"))
 
