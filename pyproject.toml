@@ -60,7 +60,7 @@ calendars = [
   "beautifulsoup4==4.15.0",
 ]
 dev = [
-  "pytest==9.1.1",
+  "pytest==9.2.0",
   "vulture==2.16",
   # mypy is enforced incrementally, not wholesale. `make typecheck` stays
   # report-only (it prints findings and exits 0) because gating on a clean run
