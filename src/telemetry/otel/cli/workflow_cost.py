@@ -145,7 +145,7 @@ def _build_workspace_rows(stage_results: list[dict]) -> tuple[list[dict], bool]:
     return rows, has_cost
 
 
-def _load_stage_if_in_window(p: Path, cutoff: datetime) -> dict | None:
+def load_stage_if_in_window(p: Path, cutoff: datetime) -> dict | None:
     """Parse a stage JSON file and return its data if finished_at >= cutoff, else None."""
     try:
         data = json.loads(p.read_text())
@@ -181,7 +181,7 @@ def _run_since_mode(since_str: str, fmt: str) -> int:
     has_cost = False
     stages_in_window = 0
     for p in sorted(work_dir.glob("*/stages/*.json")):
-        data = _load_stage_if_in_window(p, cutoff)
+        data = load_stage_if_in_window(p, cutoff)
         if data is None:
             continue
         stages_in_window += 1

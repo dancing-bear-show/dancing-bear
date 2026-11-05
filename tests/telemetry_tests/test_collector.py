@@ -5,7 +5,6 @@ import calendar
 import io
 import json
 import os
-import subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,15 +12,35 @@ from unittest.mock import patch
 
 from rich.console import Console
 
+from core.process import CompletedRun
 import telemetry.collector as collector
 
 
 # ---------------------------------------------------------------------------
-# Helper: build a CompletedProcess quickly
+# Helper: build a CompletedRun quickly
 # ---------------------------------------------------------------------------
 
-def _cp(returncode: int = 0, stdout: str = "", stderr: str = "") -> subprocess.CompletedProcess:
-    return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr=stderr)
+def _cr(
+    returncode: int = 0,
+    stdout: str = "",
+    stderr: str = "",
+    timed_out: bool = False,
+    exec_error: OSError | None = None,
+) -> CompletedRun:
+    return CompletedRun(
+        stdout=stdout, stderr=stderr, returncode=returncode,
+        timed_out=timed_out, exec_error=exec_error,
+    )
+
+
+def _not_found() -> CompletedRun:
+    """Return a CompletedRun representing a missing binary."""
+    return _cr(returncode=127, exec_error=FileNotFoundError("not found"))
+
+
+def _timed_out() -> CompletedRun:
+    """Return a CompletedRun representing a timed-out command."""
+    return _cr(returncode=124, timed_out=True)
 
 
 # ---------------------------------------------------------------------------
@@ -348,8 +367,8 @@ class TestDockerEnv(unittest.TestCase):
 class TestRunCompose(unittest.TestCase):
 
     def test_success_on_first_try(self):
-        expected = _cp(returncode=0, stdout="done")
-        with patch("telemetry.collector.subprocess.run", return_value=expected) as mock_run:
+        expected = _cr(returncode=0, stdout="done")
+        with patch("telemetry.collector.run_binary", return_value=expected) as mock_run:
             result = collector._run_compose(["up", "-d"], env={})
         self.assertIs(result, expected)
         self.assertEqual(mock_run.call_count, 1)
@@ -358,9 +377,9 @@ class TestRunCompose(unittest.TestCase):
         self.assertEqual(cmd[0], "docker-compose")
 
     def test_fallback_to_plugin_on_file_not_found(self):
-        plugin_result = _cp(returncode=0, stdout="plugin ok")
-        side_effects = [FileNotFoundError(), plugin_result]
-        with patch("telemetry.collector.subprocess.run", side_effect=side_effects) as mock_run:
+        plugin_result = _cr(returncode=0, stdout="plugin ok")
+        side_effects = [_not_found(), plugin_result]
+        with patch("telemetry.collector.run_binary", side_effect=side_effects) as mock_run:
             result = collector._run_compose(["up", "-d"], env={})
         self.assertIs(result, plugin_result)
         self.assertEqual(mock_run.call_count, 2)
@@ -371,24 +390,20 @@ class TestRunCompose(unittest.TestCase):
 
     def test_both_forms_not_found_prints_error_and_returns_none(self):
         with _ConsoleCapture() as cap:
-            with patch("telemetry.collector.subprocess.run", side_effect=FileNotFoundError()):
+            with patch("telemetry.collector.run_binary", return_value=_not_found()):
                 result = collector._run_compose(["up", "-d"], env={})
         self.assertIsNone(result)
         self.assertIn("docker-compose not found", cap.err)
 
     def test_timeout_on_standalone_prints_error_and_returns_none(self):
-        # TimeoutExpired is only caught at the outer level (standalone), not the plugin branch
         with _ConsoleCapture() as cap:
-            with patch(
-                "telemetry.collector.subprocess.run",
-                side_effect=subprocess.TimeoutExpired(cmd="docker-compose", timeout=60),
-            ):
+            with patch("telemetry.collector.run_binary", return_value=_timed_out()):
                 result = collector._run_compose(["up", "-d"], env={})
         self.assertIsNone(result)
         self.assertIn("timed out", cap.err)
 
     def test_tail_args_passed_through(self):
-        with patch("telemetry.collector.subprocess.run", return_value=_cp()) as mock_run:
+        with patch("telemetry.collector.run_binary", return_value=_cr()) as mock_run:
             collector._run_compose(["logs", "--tail", "100"], env={})
         cmd = mock_run.call_args[0][0]
         self.assertIn("logs", cmd)
@@ -407,7 +422,7 @@ class TestPrintPortBindings(unittest.TestCase):
             "4317/tcp": [{"HostIp": "127.0.0.1", "HostPort": "4317"}]
         })
         with _ConsoleCapture() as cap:
-            with patch("telemetry.collector.subprocess.run", return_value=_cp(stdout=ports_json)):
+            with patch("telemetry.collector.run_binary", return_value=_cr(stdout=ports_json)):
                 collector._print_port_bindings("abc123def456", env={})
         self.assertIn("4317/tcp", cap.out)
         self.assertIn("127.0.0.1:4317", cap.out)
@@ -417,7 +432,7 @@ class TestPrintPortBindings(unittest.TestCase):
             "8080/tcp": [{"HostPort": "8080"}]
         })
         with _ConsoleCapture() as cap:
-            with patch("telemetry.collector.subprocess.run", return_value=_cp(stdout=ports_json)):
+            with patch("telemetry.collector.run_binary", return_value=_cr(stdout=ports_json)):
                 collector._print_port_bindings("abc123def456", env={})
         self.assertIn("0.0.0.0:8080", cap.out)
 
@@ -426,34 +441,31 @@ class TestPrintPortBindings(unittest.TestCase):
             "9090/tcp": [{"HostIp": "0.0.0.0"}]  # nosec B104 - fixture value, not a socket bind
         })
         with _ConsoleCapture() as cap:
-            with patch("telemetry.collector.subprocess.run", return_value=_cp(stdout=ports_json)):
+            with patch("telemetry.collector.run_binary", return_value=_cr(stdout=ports_json)):
                 collector._print_port_bindings("abc123def456", env={})
         self.assertIn("0.0.0.0:?", cap.out)
 
     def test_non_zero_returncode_no_output(self):
         with _ConsoleCapture() as cap:
-            with patch("telemetry.collector.subprocess.run", return_value=_cp(returncode=1, stderr="error")):
+            with patch("telemetry.collector.run_binary", return_value=_cr(returncode=1, stderr="error")):
                 collector._print_port_bindings("abc123def456", env={})
         self.assertEqual(cap.out.strip(), "")
 
     def test_empty_stdout_no_output(self):
         with _ConsoleCapture() as cap:
-            with patch("telemetry.collector.subprocess.run", return_value=_cp(stdout="")):
+            with patch("telemetry.collector.run_binary", return_value=_cr(stdout="")):
                 collector._print_port_bindings("abc123def456", env={})
         self.assertEqual(cap.out.strip(), "")
 
     def test_invalid_json_stdout_no_crash(self):
         with _ConsoleCapture() as cap:
-            with patch("telemetry.collector.subprocess.run", return_value=_cp(stdout="not json")):
+            with patch("telemetry.collector.run_binary", return_value=_cr(stdout="not json")):
                 collector._print_port_bindings("abc123def456", env={})
         self.assertEqual(cap.out.strip(), "")
 
     def test_timeout_no_crash(self):
         with _ConsoleCapture() as cap:
-            with patch(
-                "telemetry.collector.subprocess.run",
-                side_effect=subprocess.TimeoutExpired(cmd="docker", timeout=10),
-            ):
+            with patch("telemetry.collector.run_binary", return_value=_timed_out()):
                 collector._print_port_bindings("abc123def456", env={})
         self.assertEqual(cap.out.strip(), "")
 
@@ -461,14 +473,14 @@ class TestPrintPortBindings(unittest.TestCase):
         # None or [] for port → no print
         ports_json = json.dumps({"4317/tcp": None})
         with _ConsoleCapture() as cap:
-            with patch("telemetry.collector.subprocess.run", return_value=_cp(stdout=ports_json)):
+            with patch("telemetry.collector.run_binary", return_value=_cr(stdout=ports_json)):
                 collector._print_port_bindings("abc123def456", env={})
         self.assertEqual(cap.out.strip(), "")
 
     def test_empty_list_bindings_for_port(self):
         ports_json = json.dumps({"4317/tcp": []})
         with _ConsoleCapture() as cap:
-            with patch("telemetry.collector.subprocess.run", return_value=_cp(stdout=ports_json)):
+            with patch("telemetry.collector.run_binary", return_value=_cr(stdout=ports_json)):
                 collector._print_port_bindings("abc123def456", env={})
         self.assertEqual(cap.out.strip(), "")
 
@@ -483,11 +495,11 @@ class TestPrintContainerDetails(unittest.TestCase):
         log_lines = ["line1", "line2", "line3", "line4", "line5", "line6", "line7"]
         logs_stdout = "\n".join(log_lines)
         side_effects = [
-            _cp(stdout="{}"),       # inspect call (port bindings — empty json)
-            _cp(stdout=logs_stdout),  # logs call
+            _cr(stdout="{}"),          # inspect call (port bindings — empty json)
+            _cr(stdout=logs_stdout),   # logs call
         ]
         with _ConsoleCapture() as cap:
-            with patch("telemetry.collector.subprocess.run", side_effect=side_effects):
+            with patch("telemetry.collector.run_binary", side_effect=side_effects):
                 collector._print_container_details("abc123def456", env={})
         # lines 3-7 should appear; lines 1-2 should not
         self.assertIn("line7", cap.out)
@@ -498,41 +510,41 @@ class TestPrintContainerDetails(unittest.TestCase):
     def test_stderr_included_in_log_tail(self):
         # docker logs sends real logs to stderr; check combined
         side_effects = [
-            _cp(stdout="{}"),
-            _cp(stdout="stdout-line", stderr="stderr-line"),
+            _cr(stdout="{}"),
+            _cr(stdout="stdout-line", stderr="stderr-line"),
         ]
         with _ConsoleCapture() as cap:
-            with patch("telemetry.collector.subprocess.run", side_effect=side_effects):
+            with patch("telemetry.collector.run_binary", side_effect=side_effects):
                 collector._print_container_details("abc123def456", env={})
         self.assertIn("stdout-line", cap.out)
         self.assertIn("stderr-line", cap.out)
 
     def test_non_zero_returncode_no_log_section(self):
         side_effects = [
-            _cp(stdout="{}"),
-            _cp(returncode=1, stderr="error"),
+            _cr(stdout="{}"),
+            _cr(returncode=1, stderr="error"),
         ]
         with _ConsoleCapture() as cap:
-            with patch("telemetry.collector.subprocess.run", side_effect=side_effects):
+            with patch("telemetry.collector.run_binary", side_effect=side_effects):
                 collector._print_container_details("abc123def456", env={})
         self.assertNotIn("last 5 log lines", cap.out)
 
     def test_timeout_on_logs_no_crash(self):
         side_effects = [
-            _cp(stdout="{}"),
-            subprocess.TimeoutExpired(cmd="docker", timeout=10),
+            _cr(stdout="{}"),
+            _timed_out(),
         ]
         with _ConsoleCapture() as cap:
-            with patch("telemetry.collector.subprocess.run", side_effect=side_effects):
+            with patch("telemetry.collector.run_binary", side_effect=side_effects):
                 collector._print_container_details("abc123def456", env={})
         # Should not raise; output may be empty or have port section
         self.assertNotIn("last 5 log lines", cap.out)
 
     def test_exactly_five_log_lines_all_shown(self):
         logs_stdout = "\n".join(["a", "b", "c", "d", "e"])
-        side_effects = [_cp(stdout="{}"), _cp(stdout=logs_stdout)]
+        side_effects = [_cr(stdout="{}"), _cr(stdout=logs_stdout)]
         with _ConsoleCapture() as cap:
-            with patch("telemetry.collector.subprocess.run", side_effect=side_effects):
+            with patch("telemetry.collector.run_binary", side_effect=side_effects):
                 collector._print_container_details("abc123def456", env={})
         for line in ["a", "b", "c", "d", "e"]:
             self.assertIn(line, cap.out)
@@ -546,40 +558,37 @@ class TestPrintDockerContainers(unittest.TestCase):
 
     def test_docker_not_installed_prints_error(self):
         with _ConsoleCapture() as cap:
-            with patch("telemetry.collector.subprocess.run", side_effect=FileNotFoundError()):
+            with patch("telemetry.collector.run_binary", return_value=_not_found()):
                 collector._print_docker_containers(env={})
         self.assertIn("docker not found", cap.err)
 
     def test_timeout_prints_error(self):
         with _ConsoleCapture() as cap:
-            with patch(
-                "telemetry.collector.subprocess.run",
-                side_effect=subprocess.TimeoutExpired(cmd="docker", timeout=10),
-            ):
+            with patch("telemetry.collector.run_binary", return_value=_timed_out()):
                 collector._print_docker_containers(env={})
         self.assertIn("timed out", cap.err)
 
     def test_non_zero_returncode_prints_stderr(self):
         with _ConsoleCapture() as cap:
-            with patch("telemetry.collector.subprocess.run", return_value=_cp(returncode=1, stderr="permission denied")):
+            with patch("telemetry.collector.run_binary", return_value=_cr(returncode=1, stderr="permission denied")):
                 collector._print_docker_containers(env={})
         self.assertIn("permission denied", cap.err)
 
     def test_non_zero_returncode_unknown_error_fallback(self):
         with _ConsoleCapture() as cap:
-            with patch("telemetry.collector.subprocess.run", return_value=_cp(returncode=1, stderr="")):
+            with patch("telemetry.collector.run_binary", return_value=_cr(returncode=1, stderr="")):
                 collector._print_docker_containers(env={})
         self.assertIn("unknown error", cap.err)
 
     def test_empty_stdout_prints_not_running(self):
         with _ConsoleCapture() as cap:
-            with patch("telemetry.collector.subprocess.run", return_value=_cp(stdout="")):
+            with patch("telemetry.collector.run_binary", return_value=_cr(stdout="")):
                 collector._print_docker_containers(env={})
         self.assertIn("Collector not running", cap.out)
 
     def test_whitespace_only_stdout_prints_not_running(self):
         with _ConsoleCapture() as cap:
-            with patch("telemetry.collector.subprocess.run", return_value=_cp(stdout="   \n")):
+            with patch("telemetry.collector.run_binary", return_value=_cr(stdout="   \n")):
                 collector._print_docker_containers(env={})
         self.assertIn("Collector not running", cap.out)
 
@@ -587,7 +596,7 @@ class TestPrintDockerContainers(unittest.TestCase):
         valid_id = "a1b2c3d4e5f6"  # 12 hex chars
         ps_stdout = f"{valid_id}\tUp 2 hours\totel-collector\n"
         with _ConsoleCapture() as cap:
-            with patch("telemetry.collector.subprocess.run", return_value=_cp(stdout=ps_stdout)):
+            with patch("telemetry.collector.run_binary", return_value=_cr(stdout=ps_stdout)):
                 with patch("telemetry.collector._print_container_details") as mock_details:
                     collector._print_docker_containers(env={})
         mock_details.assert_called_once_with(valid_id, {})
@@ -597,7 +606,7 @@ class TestPrintDockerContainers(unittest.TestCase):
         bad_id = "not-a-hex-id!"
         ps_stdout = f"{bad_id}\tUp 2 hours\totel-collector\n"
         with _ConsoleCapture():
-            with patch("telemetry.collector.subprocess.run", return_value=_cp(stdout=ps_stdout)):
+            with patch("telemetry.collector.run_binary", return_value=_cr(stdout=ps_stdout)):
                 with patch("telemetry.collector._print_container_details") as mock_details:
                     collector._print_docker_containers(env={})
         mock_details.assert_not_called()
@@ -606,7 +615,7 @@ class TestPrintDockerContainers(unittest.TestCase):
         # The regex is [0-9a-f]{12,64} — uppercase does NOT match
         upper_id = "A1B2C3D4E5F6"
         ps_stdout = f"{upper_id}\tUp 2 hours\totel-collector\n"
-        with patch("telemetry.collector.subprocess.run", return_value=_cp(stdout=ps_stdout)):
+        with patch("telemetry.collector.run_binary", return_value=_cr(stdout=ps_stdout)):
             with patch("telemetry.collector._print_container_details") as mock_details:
                 collector._print_docker_containers(env={})
         mock_details.assert_not_called()
@@ -614,7 +623,7 @@ class TestPrintDockerContainers(unittest.TestCase):
     def test_too_short_hex_id_skipped(self):
         short_id = "a1b2c3"  # only 6 chars, less than 12
         ps_stdout = f"{short_id}\tUp\totel-collector\n"
-        with patch("telemetry.collector.subprocess.run", return_value=_cp(stdout=ps_stdout)):
+        with patch("telemetry.collector.run_binary", return_value=_cr(stdout=ps_stdout)):
             with patch("telemetry.collector._print_container_details") as mock_details:
                 collector._print_docker_containers(env={})
         mock_details.assert_not_called()
@@ -623,7 +632,7 @@ class TestPrintDockerContainers(unittest.TestCase):
         long_id = "a" * 64
         ps_stdout = f"{long_id}\tUp 1 day\totel-collector\n"
         with _ConsoleCapture():
-            with patch("telemetry.collector.subprocess.run", return_value=_cp(stdout=ps_stdout)):
+            with patch("telemetry.collector.run_binary", return_value=_cr(stdout=ps_stdout)):
                 with patch("telemetry.collector._print_container_details") as mock_details:
                     collector._print_docker_containers(env={})
         mock_details.assert_called_once_with(long_id, {})
@@ -633,7 +642,7 @@ class TestPrintDockerContainers(unittest.TestCase):
         id2 = "b2c3d4e5f6a1"
         ps_stdout = f"{id1}\tUp\totel-collector-1\n{id2}\tExited\totel-collector-2\n"
         with _ConsoleCapture():
-            with patch("telemetry.collector.subprocess.run", return_value=_cp(stdout=ps_stdout)):
+            with patch("telemetry.collector.run_binary", return_value=_cr(stdout=ps_stdout)):
                 with patch("telemetry.collector._print_container_details") as mock_details:
                     collector._print_docker_containers(env={})
         self.assertEqual(mock_details.call_count, 2)

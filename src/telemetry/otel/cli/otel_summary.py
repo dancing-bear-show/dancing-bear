@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import re
 import sys
 import time
@@ -11,8 +10,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from core.cli_output import emit_one, emit_rows
-from core.date_utils import now_utc, parse_iso_utc
+from core.date_utils import now_utc
 from telemetry.otel.cli._format_helpers import add_data_dir_argument, add_format_argument, get_work_dir
+from telemetry.otel.cli.workflow_cost import load_stage_if_in_window
 from telemetry.otel.menubar_provider import (
     OtelDisplayData,
     OtelMenubarProvider,
@@ -273,24 +273,16 @@ def _emit_table(data: OtelDisplayData, window: str = "24h") -> int:
 
 def _stage_cost_if_recent(p: Path, cutoff: datetime) -> float | None:
     """Return subagent_cost_usd from a stage JSON if it finished after cutoff."""
+    data = load_stage_if_in_window(p, cutoff)
+    if data is None:
+        return None
+    meta = data.get("metadata", {})
+    if "subagent_cost_usd" not in meta:
+        return None
+    cost_val = meta["subagent_cost_usd"]
     try:
-        data = json.loads(p.read_text())
-        if not isinstance(data, dict):
-            return None
-        finished_raw = data.get("finished_at", "")
-        if not finished_raw:
-            return None
-        finished = parse_iso_utc(finished_raw)
-        if finished is None:
-            return None
-        if finished < cutoff:
-            return None
-        meta = data.get("metadata", {})
-        if not isinstance(meta, dict) or "subagent_cost_usd" not in meta:
-            return None
-        cost_val = meta["subagent_cost_usd"]
         return float(cost_val) if cost_val else 0.0
-    except (OSError, ValueError, AttributeError, TypeError):
+    except (TypeError, ValueError):
         return None
 
 
