@@ -25,8 +25,9 @@ import re
 import subprocess  # nosec B404 - fixed git argv lists, never a shell
 import tempfile
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from pathlib import Path
+
+from core.date_utils import iso_now
 
 RECORD_SUBDIR = ("dancing-bear", "concern-sweeps")
 CHANGED_FILES_NAME = "changed-files.txt"
@@ -324,10 +325,6 @@ def _require_diff_matches_workspace(repo: Path, workspace: Path, head: str) -> N
         )
 
 
-def _now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
 def _mkdir_private(path: Path) -> None:
     """Create ``path`` and any missing parents under the common dir as 0o700."""
     missing: list[Path] = []
@@ -369,7 +366,7 @@ def write_swept(repo: Path, head: str, workspace: Path) -> tuple[Path, SweepReco
     _require_diff_matches_workspace(root, ws, head)
     record = SweepRecord(
         head_sha=head, mode=MODE_SWEPT, guides=guides, workspace=str(ws),
-        reason=None, recorded_at=_now(),
+        reason=None, recorded_at=iso_now(),
     )
     path = record_path(root, head)
     _write_atomic(path, record)
@@ -384,7 +381,7 @@ def write_waived(repo: Path, head: str, reason: str) -> tuple[Path, SweepRecord]
     root = checkout_root(repo)
     record = SweepRecord(
         head_sha=head, mode=MODE_WAIVED, guides=[], workspace=None,
-        reason=reason.strip(), recorded_at=_now(),
+        reason=reason.strip(), recorded_at=iso_now(),
     )
     path = record_path(root, head)
     _write_atomic(path, record)

@@ -12,11 +12,11 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 from types import FrameType
 
 from core.cli_errors import UsageError
+from core.date_utils import now_utc
 from core.cli_output import OutputWriter
 from core.pipeline import BaseProducer, RequestConsumer, ResultEnvelope, SafeProcessor
 from worker._helpers import (
@@ -180,7 +180,7 @@ def _reap_stale_unowned(job_timeout: int, root: Path, owned: set[str]) -> list[s
     later tick run it a second time while the original is still running.
     """
     paths = q._ensure_dirs(root)
-    now = datetime.now(UTC)
+    now = now_utc()
     log = logging.getLogger(q.__name__)
     reaped: list[str] = []
     for p in q._list_job_paths(paths["processing"]):

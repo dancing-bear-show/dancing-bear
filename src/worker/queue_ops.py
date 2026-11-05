@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from core.coerce import coerce_int
-from core.date_utils import iso_now, parse_iso_utc_strict
+from core.date_utils import iso_now, now_utc, parse_iso_utc_strict
 from core.fileutil import atomic_write_json, safe_load_json
 from worker._helpers import (
     FIELD_UPDATED_AT,
@@ -178,7 +178,7 @@ def _list_job_paths(folder: Path) -> list[Path]:
 def list_pending(root: Path | None = None) -> list[tuple[Path, dict[str, object]]]:
     paths = _ensure_dirs(root)
     items: list[tuple[Path, dict[str, object]]] = []
-    now = datetime.now(UTC)
+    now = now_utc()
     for p in _list_job_paths(paths["pending"]):
         data = safe_load_json(p, default={})
         if not isinstance(data, dict):
@@ -486,7 +486,7 @@ def retry(
             raw_attempts = data.get("attempts")
             attempts = int(raw_attempts) if isinstance(raw_attempts, (int, float, str)) else 0
             data["attempts"] = attempts + 1
-        nb = datetime.now(UTC) + timedelta(seconds=int(delay_sec))
+        nb = now_utc() + timedelta(seconds=int(delay_sec))
         data["status"] = "pending"
         data["not_before"] = nb.strftime(ISO_DATETIME_FORMAT)
         data[FIELD_UPDATED_AT] = iso_now()
@@ -1389,7 +1389,7 @@ def requeue_error(
     data["attempts"] = 0 if reset_attempts else int(data.get("attempts", 0))
     if new_max_attempts is not None:
         _apply_max_attempts(data, new_max_attempts)
-    nb = datetime.now(UTC) + timedelta(seconds=int(delay_sec))
+    nb = now_utc() + timedelta(seconds=int(delay_sec))
     data["not_before"] = nb.strftime(ISO_DATETIME_FORMAT)
     data[FIELD_UPDATED_AT] = iso_now()
     data["status"] = "pending"
@@ -1539,7 +1539,7 @@ def reap_stale_processing_jobs(
 ) -> list[str]:
     """Move processing jobs older than their effective timeout back to pending/."""
     paths = _ensure_dirs(root)
-    now = datetime.now(UTC)
+    now = now_utc()
     reaped: list[str] = []
 
     for p in _list_job_paths(paths["processing"]):
@@ -1573,7 +1573,7 @@ def purge(
     folder. dry_run returns the counts that would be deleted, deleting and
     creating nothing."""
     paths = _queue_paths(root) if dry_run else _ensure_dirs(root)
-    now = datetime.now(UTC)
+    now = now_utc()
     targets = folders or ["done", "error"]
     out: dict[str, int] = dict.fromkeys(targets, 0)
     for name in targets:

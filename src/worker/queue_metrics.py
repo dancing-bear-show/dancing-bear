@@ -5,9 +5,10 @@ Imports core types and helpers from queue_ops to avoid circular dependencies.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
+from core.date_utils import now_utc
 from worker.queue_ops import (
     _ensure_dirs,
     _get_file_mtime,
@@ -103,7 +104,7 @@ def status(root: Path | None = None) -> dict[str, object]:
     - root: queue root path
     """
     paths = _ensure_dirs(root)
-    now = datetime.now(UTC)
+    now = now_utc()
     c = counts(root)
 
     # Pending insights
