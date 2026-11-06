@@ -57,6 +57,9 @@ def _run_compose(tail: list[str], env: dict[str, str]) -> CompletedRun | None:
     if result.not_found:
         _err_console.print(f"[red]{_COMPOSE_NOT_FOUND_MSG}[/]")
         return None
+    if result.timed_out:
+        _err_console.print(f"[red]docker-compose timed out after {_COMPOSE_TIMEOUT_S}s.[/]")
+        return None
     return result
 
 

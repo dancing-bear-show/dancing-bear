@@ -402,6 +402,14 @@ class TestRunCompose(unittest.TestCase):
         self.assertIsNone(result)
         self.assertIn("timed out", cap.err)
 
+    def test_timeout_on_plugin_fallback_prints_error_and_returns_none(self):
+        with _ConsoleCapture() as cap:
+            with patch("telemetry.collector.run_binary", side_effect=[_not_found(), _timed_out()]) as mock_run:
+                result = collector._run_compose(["up", "-d"], env={})
+        self.assertIsNone(result)
+        self.assertEqual(mock_run.call_count, 2)
+        self.assertIn("timed out", cap.err)
+
     def test_tail_args_passed_through(self):
         with patch("telemetry.collector.run_binary", return_value=_cr()) as mock_run:
             collector._run_compose(["logs", "--tail", "100"], env={})
