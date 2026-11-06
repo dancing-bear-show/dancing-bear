@@ -42,6 +42,11 @@ def _docker_env() -> dict[str, str]:
     return env
 
 
+def _binary_missing(result: CompletedRun) -> bool:
+    """True only when exec failed with FileNotFoundError (other exec errors keep their diagnostic)."""
+    return isinstance(result.exec_error, FileNotFoundError)
+
+
 def _run_compose(tail: list[str], env: dict[str, str]) -> CompletedRun | None:
     """Run docker-compose or fall back to the docker compose plugin form."""
     cmd = [_COMPOSE_STANDALONE, "-f", str(_COMPOSE_PATH), "-p", _COMPOSE_PROJECT] + tail
@@ -49,12 +54,12 @@ def _run_compose(tail: list[str], env: dict[str, str]) -> CompletedRun | None:
     if result.timed_out:
         _err_console.print(f"[red]docker-compose timed out after {_COMPOSE_TIMEOUT_S}s.[/]")
         return None
-    if not result.not_found:
+    if not _binary_missing(result):
         return result
     # Standalone binary missing — fall back to the docker compose plugin form.
     cmd[0:1] = _COMPOSE_PLUGIN
     result = run_binary(cmd, env=env, timeout=_COMPOSE_TIMEOUT_S)
-    if result.not_found:
+    if _binary_missing(result):
         _err_console.print(f"[red]{_COMPOSE_NOT_FOUND_MSG}[/]")
         return None
     if result.timed_out:
@@ -144,7 +149,7 @@ def _print_docker_containers(env: dict[str, str]) -> None:
         ["docker", "ps", "-a", "--filter", "name=otel-collector", "--format", "{{.ID}}\t{{.Status}}\t{{.Names}}"],
         env=env, timeout=_DOCKER_CMD_TIMEOUT_S,
     )
-    if result.not_found:
+    if _binary_missing(result):
         _err_console.print("[red]docker not found. Install Docker to use the collector.[/]")
         return
     if result.timed_out:

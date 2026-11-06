@@ -395,6 +395,23 @@ class TestRunCompose(unittest.TestCase):
         self.assertIsNone(result)
         self.assertIn("docker-compose not found", cap.err)
 
+    def test_permission_error_does_not_fall_back_or_report_not_found(self):
+        denied = _cr(returncode=126, stderr="permission denied", exec_error=PermissionError("denied"))
+        with _ConsoleCapture() as cap:
+            with patch("telemetry.collector.run_binary", return_value=denied) as mock_run:
+                result = collector._run_compose(["up", "-d"], env={})
+        self.assertIs(result, denied)
+        self.assertEqual(mock_run.call_count, 1)
+        self.assertNotIn("docker-compose not found", cap.err)
+
+    def test_plugin_permission_error_not_reported_as_missing(self):
+        denied = _cr(returncode=126, stderr="permission denied", exec_error=PermissionError("denied"))
+        with _ConsoleCapture() as cap:
+            with patch("telemetry.collector.run_binary", side_effect=[_not_found(), denied]):
+                result = collector._run_compose(["up", "-d"], env={})
+        self.assertIs(result, denied)
+        self.assertNotIn("docker-compose not found", cap.err)
+
     def test_timeout_on_standalone_prints_error_and_returns_none(self):
         with _ConsoleCapture() as cap:
             with patch("telemetry.collector.run_binary", return_value=_timed_out()):
@@ -569,6 +586,15 @@ class TestPrintDockerContainers(unittest.TestCase):
             with patch("telemetry.collector.run_binary", return_value=_not_found()):
                 collector._print_docker_containers(env={})
         self.assertIn("docker not found", cap.err)
+
+    def test_permission_error_shows_diagnostic_not_missing(self):
+        denied = _cr(returncode=126, stderr="permission denied", exec_error=PermissionError("denied"))
+        with _ConsoleCapture() as cap:
+            with patch("telemetry.collector.run_binary", return_value=denied):
+                collector._print_docker_containers(env={})
+        self.assertIn("docker ps failed", cap.err)
+        self.assertIn("permission denied", cap.err)
+        self.assertNotIn("docker not found", cap.err)
 
     def test_timeout_prints_error(self):
         with _ConsoleCapture() as cap:
