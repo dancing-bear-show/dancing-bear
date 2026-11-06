@@ -79,36 +79,47 @@ stages:
       match against either spelling alone silently selects nothing on the
       other surface — which looks identical to a PR with no overview.
 
-      Its shape:
+      Two body formats exist (old format, still seen; new format from late 2026):
 
-        <!-- ccr-overview-v2 -->
-        ## Copilot review overview
-        ### 🟡 Changes recommended
-        **Findings:** 4 <picture>...alt="High severity"...</picture>
-        <details open>
-        <summary><strong>Open (4)</strong></summary>
-        - <picture>...alt="High severity"...</picture> [Title](#discussion_r4077827266) · New
-        </details>
-        <details>
-        <summary><strong>Resolved since last review (2)</strong></summary>
-        - ... [Title](#discussion_r4077652397)
-        </details>
+        OLD:
+          <!-- ccr-overview-v2 -->
+          ### 🟡 Changes recommended
+          **Findings:** 4 <picture>...alt="High severity"...</picture>
+          <summary><strong>Open (4)</strong></summary>
+          - <picture>...alt="High severity"...</picture> [Title](#discussion_r4077827266) · New
+          <summary><strong>Resolved since last review (2)</strong></summary>
+          - ... [Title](#discussion_r4077652397)
+        NEW (count before name; full URL links; "No open issues" for zero):
+          <!-- ccr-overview-v2 -->
+          ### 🟡 Changes recommended
+          **No open issues** 🎉          ← explicit zero; or omit for no headline
+          <summary><strong>2 open issues</strong></summary>
+          - <picture>...alt="Medium severity"...</picture> [Title](https://github.com/.../pull/N#discussion_r4487598144) · New
+          <summary><strong>2 resolved since last review</strong></summary>
+          <summary><strong>What changed in this PR</strong></summary>  ← no count; ends scope
 
       Step 2 — parse each body with a LINE-ORIENTED scan, not one regex over
       the whole body. The `<details>` blocks nest, so a
       `(?s)<details>.*?</details>` pattern matches across section boundaries
       and attributes findings to the wrong section. Walk the lines, update the
       current section on each `<summary>` line, and attach each
-      `[Title](#discussion_r<id>)` on a later line to whatever section is
-      current. This is not hypothetical: the naive regex was tried first and
-      returned zero findings on a body that has thirteen.
+      finding link on a later line to whatever section is current. This is not
+      hypothetical: the naive regex was tried first and returned zero findings
+      on a body that has thirteen.
 
-      Section headers seen in the wild: "Open", "Resolved since last review",
-      and "Previously missed". Treat the set as open-ended — match the
-      `<summary><strong>NAME (N)</strong></summary>` pattern and keep NAME
-      verbatim rather than matching against a fixed list, so a new section
-      name degrades to "carried through unclassified" instead of silently
-      dropping its findings.
+      Section headers come in two forms — old `NAME (N)` and new `N name` —
+      both normalised to canonical keys: "Open", "Resolved since last review",
+      "Previously missed". A header with no count (e.g. "What changed in this
+      PR") ends the current findings scope; its contents are never attributed
+      to any section. The set is otherwise open-ended: an unknown name is
+      carried through verbatim rather than dropped.
+
+      Finding links come in two forms — bare `#discussion_r<id>` anchors (old)
+      and full `https://...#discussion_r<id>` URLs (new). Both are accepted.
+
+      The claimed count comes from: (1) `**Findings:** N` per-severity badges,
+      summed; (2) `**No open issues**` → 0; (3) the declared Open section count
+      when neither headline is present. `None` means unknown → tripwire off.
 
       Findings are keyed by the REST comment databaseId in the
       `#discussion_r<id>` anchor. Join it against EVERY comment in every

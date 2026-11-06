@@ -1,0 +1,127 @@
+{
+  "pr_number": "473",
+  "threads": [
+    {
+      "thread_id": "PRRT_kwDOQr1kjM60U5ZD",
+      "source": "graphql-thread",
+      "author_kind": "bot",
+      "author": "copilot-pull-request-reviewer",
+      "is_resolved": true,
+      "is_outdated": true,
+      "path": "src/telemetry/collector.py",
+      "line": null,
+      "comments": [
+        {
+          "author": "copilot-pull-request-reviewer",
+          "author_kind": "bot",
+          "body": "🟡 `CompletedRun.not_found` covers every execution-time `OSError`, not just `FileNotFoundError`.",
+          "created_at": "2026-11-06T00:15:08Z",
+          "url": "https://github.com/dancing-bear-show/dancing-bear/pull/473#discussion_r4487598144",
+          "database_id": 4487598144
+        },
+        {
+          "author": "brian-sherwin",
+          "author_kind": "human",
+          "body": "Added a `_binary_missing` helper.",
+          "created_at": "2026-11-06T00:36:31Z",
+          "url": "https://github.com/dancing-bear-show/dancing-bear/pull/473#discussion_r4487738320",
+          "database_id": 4487738320
+        }
+      ],
+      "opening_body": "🟡 `CompletedRun.not_found` covers every execution-time `OSError`, not just `FileNotFoundError`.",
+      "latest_author_kind": "human"
+    },
+    {
+      "thread_id": "PRRT_kwDOQr1kjM60U5Z2",
+      "source": "graphql-thread",
+      "author_kind": "bot",
+      "author": "copilot-pull-request-reviewer",
+      "is_resolved": true,
+      "is_outdated": true,
+      "path": "src/telemetry/collector.py",
+      "line": null,
+      "comments": [
+        {
+          "author": "copilot-pull-request-reviewer",
+          "author_kind": "bot",
+          "body": "🟡 `CompletedRun.not_found` is true for every execution `OSError`, including `PermissionError`.",
+          "created_at": "2026-11-06T00:15:08Z",
+          "url": "https://github.com/dancing-bear-show/dancing-bear/pull/473#discussion_r4487598216",
+          "database_id": 4487598216
+        },
+        {
+          "author": "brian-sherwin",
+          "author_kind": "human",
+          "body": "`_print_docker_containers` now uses the shared `_binary_missing` helper.",
+          "created_at": "2026-11-06T00:36:35Z",
+          "url": "https://github.com/dancing-bear-show/dancing-bear/pull/473#discussion_r4487738836",
+          "database_id": 4487738836
+        }
+      ],
+      "opening_body": "🟡 `CompletedRun.not_found` is true for every execution `OSError`, including `PermissionError`.",
+      "latest_author_kind": "human"
+    },
+    {
+      "thread_id": null,
+      "source": "review-body",
+      "author_kind": "bot",
+      "author": "copilot-pull-request-reviewer[bot]",
+      "is_resolved": false,
+      "is_outdated": false,
+      "path": null,
+      "line": null,
+      "comments": [
+        {
+          "author": "copilot-pull-request-reviewer[bot]",
+          "author_kind": "bot",
+          "body": "<!-- ccr-overview-v2 -->\n\n### 🟡 Changes recommended\n\nExecution-time OSErrors are incorrectly treated as missing executables.",
+          "created_at": "2026-11-06T00:15:09Z",
+          "url": "https://github.com/dancing-bear-show/dancing-bear/pull/473#pullrequestreview-5793971969",
+          "database_id": 5793971969
+        }
+      ],
+      "opening_body": "<!-- ccr-overview-v2 -->",
+      "latest_author_kind": "bot"
+    },
+    {
+      "thread_id": null,
+      "source": "review-body",
+      "author_kind": "bot",
+      "author": "copilot-pull-request-reviewer[bot]",
+      "is_resolved": false,
+      "is_outdated": false,
+      "path": null,
+      "line": null,
+      "comments": [
+        {
+          "author": "copilot-pull-request-reviewer[bot]",
+          "author_kind": "bot",
+          "body": "<!-- ccr-overview-v2 -->\n\n### 🟢 Approval recommended\n\nThe shared-utility refactor has no active review issues blocking approval.",
+          "created_at": "2026-11-06T00:29:04Z",
+          "url": "https://github.com/dancing-bear-show/dancing-bear/pull/473#pullrequestreview-5794084483",
+          "database_id": 5794084483
+        }
+      ],
+      "opening_body": "<!-- ccr-overview-v2 -->",
+      "latest_author_kind": "bot"
+    }
+  ],
+  "review_bodies": [
+    {
+      "review_id": 5793971969,
+      "author": "copilot-pull-request-reviewer[bot]",
+      "author_kind": "bot",
+      "state": "COMMENTED",
+      "submitted_at": "2026-11-06T00:15:09Z",
+      "body": "<!-- ccr-overview-v2 -->\n\n### 🟡 Changes recommended\n\nExecution-time OSErrors are incorrectly treated as missing executables, causing misleading Docker installation messages, inappropriate Compose fallback, and loss of the original diagnostics.\n\n<details open>\n<summary><strong>2 open issues</strong></summary>\n\n- <picture><source media=\"(prefers-color-scheme: dark)\" srcset=\"https://github.githubassets.com/static/images/icons/copilot-code-review/medium-v2-dark.svg\"><source media=\"(prefers-color-scheme: light)\" srcset=\"https://github.githubassets.com/static/images/icons/copilot-code-review/medium-v2-light.svg\"><img src=\"https://github.githubassets.com/static/images/icons/copilot-code-review/medium-v2-light.png\" alt=\"Medium severity\" width=\"62\" height=\"18\" align=\"texttop\"></picture> [Restrict compose fallback to FileNotFoundError](https://github.com/dancing-bear-show/dancing-bear/pull/473#discussion_r4487598144) · New\n- <picture><source media=\"(prefers-color-scheme: dark)\" srcset=\"https://github.githubassets.com/static/images/icons/copilot-code-review/medium-v2-dark.svg\"><source media=\"(prefers-color-scheme: light)\" srcset=\"https://github.githubassets.com/static/images/icons/copilot-code-review/medium-v2-light.svg\"><img src=\"https://github.githubassets.com/static/images/icons/copilot-code-review/medium-v2-light.png\" alt=\"Medium severity\" width=\"62\" height=\"18\" align=\"texttop\"></picture> [Treat only FileNotFoundError as a missing Docker executable](https://github.com/dancing-bear-show/dancing-bear/pull/473#discussion_r4487598216) · New\n</details>\n\n<details>\n<summary><strong>What changed in this PR</strong></summary>\n\nThis refactor replaces duplicated helper logic in telemetry, worker, and workflow code with shared implementations, while improving handling of missing Docker binaries and Compose fallback timeouts.\n\n**Changes:**\n- Adopt `core.process.run_binary` for collector commands and update tests, including fallback-timeout coverage.\n- Share stage-file loading and time-window filtering between telemetry reports.\n- Replace local UTC timestamp logic with `now_utc()` and `iso_now()`.\n\n| File | Description |\r\n| ---- | ----------- |\r\n| tests/​telemetry_tests/​test_collector.py | Use `CompletedRun` fixtures and cover plugin fallback timeouts. |\r\n| tests/​telemetry_tests/​otel_cli/​test_workflow_cost.py | Update tests for the renamed stage loader. |\r\n| src/​workflow/​sweep_record.py | Replace the local timestamp helper with `iso_now()`. |\r\n| src/​worker/​queue_ops.py | Use `now_utc()` for queue timing operations. |\r\n| src/​worker/​queue_metrics.py | Use `now_utc()` for status metrics. |\r\n| src/​worker/​job_runtime.py | Use `now_utc()` when checking stale jobs. |\r\n| src/​worker/​commands.py | Use `now_utc()` for throughput-log date selection. |\r\n| src/​worker/​_helpers.py | Use `now_utc()` for performance-log timestamps. |\r\n| src/​telemetry/​otel/​cli/​workflow_cost.py | Expose the stage loader for cross-module reuse. |\r\n| src/​telemetry/​otel/​cli/​otel_summary.py | Reuse stage loading and time-window filtering. |\r\n| src/​telemetry/​collector.py | Replace direct subprocess calls with `run_binary`. |\n</details>\n\n<sub>Review effort: Balanced</sub>"
+    },
+    {
+      "review_id": 5794084483,
+      "author": "copilot-pull-request-reviewer[bot]",
+      "author_kind": "bot",
+      "state": "COMMENTED",
+      "submitted_at": "2026-11-06T00:29:04Z",
+      "body": "<!-- ccr-overview-v2 -->\n\n### 🟢 Approval recommended\n\nThe shared-utility refactor has no active review issues blocking approval.\n\n**No open issues** 🎉\n\n<details>\n<summary><strong>2 resolved since last review</strong></summary>\n\n- <picture><source media=\"(prefers-color-scheme: dark)\" srcset=\"https://github.githubassets.com/static/images/icons/copilot-code-review/medium-v2-dark.svg\"><source media=\"(prefers-color-scheme: light)\" srcset=\"https://github.githubassets.com/static/images/icons/copilot-code-review/medium-v2-light.svg\"><img src=\"https://github.githubassets.com/static/images/icons/copilot-code-review/medium-v2-light.png\" alt=\"Medium severity\" width=\"62\" height=\"18\" align=\"texttop\"></picture> [Treat only FileNotFoundError as a missing Docker executable](https://github.com/dancing-bear-show/dancing-bear/pull/473#discussion_r4487598216)\n- <picture><source media=\"(prefers-color-scheme: dark)\" srcset=\"https://github.githubassets.com/static/images/icons/copilot-code-review/medium-v2-dark.svg\"><source media=\"(prefers-color-scheme: light)\" srcset=\"https://github.githubassets.com/static/images/icons/copilot-code-review/medium-v2-light.svg\"><img src=\"https://github.githubassets.com/static/images/icons/copilot-code-review/medium-v2-light.png\" alt=\"Medium severity\" width=\"62\" height=\"18\" align=\"texttop\"></picture> [Restrict compose fallback to FileNotFoundError](https://github.com/dancing-bear-show/dancing-bear/pull/473#discussion_r4487598144)\n</details>\n\n<sub>Review effort: Balanced</sub>"
+    }
+  ]
+}
