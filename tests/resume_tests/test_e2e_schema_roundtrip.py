@@ -199,6 +199,7 @@ def make_template() -> dict[str, Any]:
             {"key": "experience", "title": "Experience"},
             {"key": "education", "title": "Education"},
             {"key": "presentations", "title": "Presentations"},
+            {"key": "projects", "title": "Projects"},
             {"key": "languages", "title": "Languages"},
             {"key": "coursework", "title": "Coursework"},
             {"key": "certifications", "title": "Certifications"},

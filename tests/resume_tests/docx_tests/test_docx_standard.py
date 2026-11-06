@@ -42,7 +42,7 @@ class TestSectionRenderers(unittest.TestCase):
         from resume.docx_standard import SECTION_RENDERERS
         expected = {
             "summary", "skills", "technologies", "interests",
-            "presentations", "languages", "coursework",
+            "presentations", "projects", "languages", "coursework",
             "certifications", "experience", "education", "teaching",
         }
         self.assertEqual(set(SECTION_RENDERERS.keys()), expected)

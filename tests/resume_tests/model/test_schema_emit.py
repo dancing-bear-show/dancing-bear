@@ -21,7 +21,7 @@ from resume.schema import (
 from resume.schema_emit import dataclass_schema, emit_schema
 
 #: Every declared field has a default, so the on-disk format has no required keys.
-EXPECTED_TOP_LEVEL_PROPERTIES = 22
+EXPECTED_TOP_LEVEL_PROPERTIES = 23
 
 
 class TestEmitSchemaDocument(unittest.TestCase):

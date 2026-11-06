@@ -144,7 +144,7 @@ sections:
   - key: education
     title: Education
 ```
-- Available section keys: `summary`, `skills`, `technologies`, `experience`, `education`, `interests`, `presentations`, `languages`, `coursework`, `certifications`
+- Available section keys: `summary`, `skills`, `technologies`, `experience`, `education`, `interests`, `presentations`, `projects`, `languages`, `coursework`, `certifications`
 
 Contact fields
 - Top-level or under `contact`: `email`, `phone`, `location`, `website`, `linkedin`, `github`, plus an optional `links` list. Example:
@@ -245,6 +245,10 @@ Template Keys (high‑value)
     - Overlay from profile (`interests:` list) or `config/interests.<profile>.yaml`.
   - `presentations` (Public Presentations): list of strings or dicts `{ title?, event?, year?, link?, priority? }`; add to template with `key: presentations`.
     - Overlay from profile (`presentations:` list) or `config/presentations.<profile>.yaml`.
+  - `projects` (Notable Projects): list of dicts `{ name, desc?, bullets?, tech?, link?, priority? }`; add to template with `key: projects`.
+    - `bullets` may be `list[str]` or `list[{ text, priority? }]` — same coercion as experience bullets.
+    - Rendered per project: bold name line (with hyperlink when `link` is set), optional `desc` paragraph, optional bullets (keyword-bolded), optional italic `Tech: ...` line.
+    - Overlay from profile (`projects:` list) or `config/projects.<profile>.yaml`.
   - `languages` (Languages): list of strings or dicts `{ name?/language?, level?/proficiency?, priority? }`; add to template with `key: languages`.
     - Overlay from profile or `config/languages.<profile>.yaml`.
   - `coursework` (Selected Coursework): list of strings or dicts `{ name?/course?, desc?, priority? }`; add to template with `key: coursework`.
@@ -288,7 +292,7 @@ Overlays + Filtering
   - `profile.yaml` (name/email/phone/location)
   - `skills_groups.yaml` (grouped skills; supports `name` + `desc`)
   - `experience.yaml` (canonical job history list)
-  - Optional: `interests.yaml`, `presentations.yaml`, `languages.yaml`, `coursework.yaml`
+  - Optional: `interests.yaml`, `presentations.yaml`, `projects.yaml`, `languages.yaml`, `coursework.yaml`
   - Legacy flat naming under `config/` (e.g., `profile.<prefix>.yaml`) remains supported and will be picked up if present.
 - Targeted scope (optional):
   - `--filter-skills-alignment` and `--filter-exp-alignment` filter to matched keywords from an alignment JSON; `--filter-*-job` supplies synonyms.
@@ -307,7 +311,7 @@ Examples
 - Sample inputs: `examples/linkedin.sample.txt`, `examples/resume.sample.txt`
 
 Profiles & Outputs
-- Profiles live under `config/profiles/<prefix>/` and may contain: `profile.yaml`, `skills_groups.yaml`, `experience.yaml`, `interests.yaml`, `presentations.yaml`, `languages.yaml`, `coursework.yaml`, `structure.yaml`.
+- Profiles live under `config/profiles/<prefix>/` and may contain: `profile.yaml`, `skills_groups.yaml`, `experience.yaml`, `interests.yaml`, `presentations.yaml`, `projects.yaml`, `languages.yaml`, `coursework.yaml`, `structure.yaml`.
 - Sample profile lives under `config/profiles/sample/`; keep private overlays in `_data/profiles_private/`.
 - Outputs are nested by profile in `out/<prefix>/` with conventional names: `data.json`, `summary.md`, `resume.docx`, `structure.json`, `alignment.json`, `style.json`.
 - Default profile is `sample`; override with `--profile <prefix>`.

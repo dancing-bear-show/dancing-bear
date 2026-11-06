@@ -41,7 +41,7 @@ def _apply_profile_config(out: dict[str, Any], prof_data: dict[str, Any]) -> Non
         if isinstance(contact.get("links"), list):
             out["links"] = contact["links"]
 
-    for key in ("interests", "presentations"):
+    for key in ("interests", "presentations", "projects"):
         if isinstance(prof_data.get(key), list):
             out[key] = prof_data[key]
 
@@ -98,7 +98,7 @@ def apply_profile_overlays(data: dict[str, Any], profile: str | None) -> dict[st
         out["experience"] = exp
 
     # Simple list overlays
-    for key in ("interests", "presentations", "languages", "coursework", "education", "certifications"):
+    for key in ("interests", "presentations", "projects", "languages", "coursework", "education", "certifications"):
         if (items := _load_list_overlay(prof_dir, cfg_dir, profile, key)):
             out[key] = items
 
