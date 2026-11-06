@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
 from core.cli_errors import CLIError, ExitCode
@@ -146,7 +146,7 @@ class StatusCommand:
     def _calculate_throughput() -> str | None:
         """Calculate throughput from today's perf log."""
         try:
-            ymd = datetime.now(UTC).strftime(DATE_FORMAT_YMD)
+            ymd = now_utc().strftime(DATE_FORMAT_YMD)
             path = Path.cwd() / "_data" / "logs" / f"perf-worker-{ymd}.jsonl"
             if not path.exists():
                 return None

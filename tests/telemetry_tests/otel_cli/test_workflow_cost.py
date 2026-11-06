@@ -16,7 +16,7 @@ from telemetry.otel.cli.workflow_cost import (
     _coerce_float,
     _coerce_int,
     _earliest_started_at,
-    _load_stage_if_in_window,
+    load_stage_if_in_window,
     _read_stage_results,
     main,
 )
@@ -140,7 +140,7 @@ class TestBuildWorkspaceRows(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# _load_stage_if_in_window
+# load_stage_if_in_window
 # ---------------------------------------------------------------------------
 
 
@@ -153,7 +153,7 @@ class TestLoadStageIfInWindow(unittest.TestCase):
                 "stage_name": "build",
                 "finished_at": "2026-04-16T10:00:00Z",
             }))
-            result = _load_stage_if_in_window(p, cutoff)
+            result = load_stage_if_in_window(p, cutoff)
         self.assertIsNotNone(result)
 
     def test_old_stage_returns_none(self):
@@ -164,21 +164,21 @@ class TestLoadStageIfInWindow(unittest.TestCase):
                 "stage_name": "build",
                 "finished_at": "2026-04-16T10:00:00Z",
             }))
-            result = _load_stage_if_in_window(p, cutoff)
+            result = load_stage_if_in_window(p, cutoff)
         self.assertIsNone(result)
 
     def test_missing_finished_at_returns_none(self):
         with tempfile.TemporaryDirectory() as td:
             p = Path(td) / "stage.json"
             p.write_text(json.dumps({"stage_name": "build"}))
-            result = _load_stage_if_in_window(p, datetime.now(timezone.utc))
+            result = load_stage_if_in_window(p, datetime.now(timezone.utc))
         self.assertIsNone(result)
 
     def test_invalid_json_returns_none(self):
         with tempfile.TemporaryDirectory() as td:
             p = Path(td) / "stage.json"
             p.write_text("not json")
-            result = _load_stage_if_in_window(p, datetime.now(timezone.utc))
+            result = load_stage_if_in_window(p, datetime.now(timezone.utc))
         self.assertIsNone(result)
 
 

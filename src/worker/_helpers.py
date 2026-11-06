@@ -12,8 +12,9 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import UTC, datetime
 from pathlib import Path
+
+from core.date_utils import now_utc
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -82,7 +83,7 @@ def log_perf_jsonl(
 ) -> None:
     """Write a performance log entry to a JSONL file (best-effort, never raises)."""
     try:
-        now = datetime.now(UTC)
+        now = now_utc()
         ts = now.strftime(ISO_DATETIME_FORMAT)
         ymd = now.strftime(DATE_FORMAT_YMD)
 
