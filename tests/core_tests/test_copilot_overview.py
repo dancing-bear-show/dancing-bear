@@ -1449,5 +1449,230 @@ class TestRealPayloadPr436(unittest.TestCase):
         self.assertEqual(out["newest"]["findings_claimed"], 0)
 
 
+class TestRealPayloadPr473(unittest.TestCase):
+    """Pin the parse of real PR #473 data — Copilot's new ccr-overview-v2 format.
+
+    PR #473 introduced a new body format:
+    - Section headers list the count FIRST: ``2 open issues`` instead of ``Open (2)``.
+    - Finding links use full GitHub URLs: ``https://...#discussion_r<id>`` instead
+      of bare ``#discussion_r<id>`` anchors.
+    - ``**No open issues** 🎉`` replaces ``**Findings:** None`` for a zero count.
+    - A ``What changed in this PR`` section with a file table must not produce
+      findings.
+    """
+
+    def _load(self) -> dict:
+        import json
+        from pathlib import Path
+
+        return json.loads(
+            (Path(__file__).parent / "data" / "copilot_overview_pr473.json")
+            .read_text(encoding="utf-8")
+        )
+
+    def test_pr473_known_counts(self):
+        """Newest review is the approval; both findings parse; status ok."""
+        data = self._load()
+        out = parse_overview(data["review_bodies"], data["threads"], pr_number="473")
+
+        self.assertEqual(out["newest"]["review_id"], 5794084483)
+        self.assertEqual(out["newest"]["verdict"], "Approval recommended")
+        self.assertEqual(out["newest"]["findings_claimed"], 0)
+        self.assertEqual(out["newest"]["sections"], {"Resolved since last review": 2})
+        self.assertEqual(out["status"], "ok")
+        self.assertEqual(out["parse_shortfall"], 0)
+        self.assertEqual(len(out["findings"]), 2)
+        self.assertIn("4487598144", out["findings"])
+        self.assertIn("4487598216", out["findings"])
+
+    def test_pr473_finding_attributes(self):
+        """Each finding: Medium severity, linked, correct thread, section history."""
+        data = self._load()
+        out = parse_overview(data["review_bodies"], data["threads"], pr_number="473")
+
+        for fid, expected_thread in (
+            ("4487598144", "PRRT_kwDOQr1kjM60U5ZD"),
+            ("4487598216", "PRRT_kwDOQr1kjM60U5Z2"),
+        ):
+            with self.subTest(fid=fid):
+                f = out["findings"][fid]
+                self.assertEqual(f["severity"], "Medium")
+                self.assertTrue(f["linked"])
+                self.assertEqual(f["thread_id"], expected_thread)
+                # Newest review puts these in the resolved section.
+                self.assertEqual(f["section"], "Resolved since last review")
+                # Sections history spans both reviews.
+                self.assertIn("Open", f["sections"])
+                self.assertIn("Resolved since last review", f["sections"])
+                self.assertTrue(f["current"])
+
+    def test_pr473_no_mismatched_citations(self):
+        """All cited discussion ids are found; both real threads are cited."""
+        data = self._load()
+        out = parse_overview(data["review_bodies"], data["threads"], pr_number="473")
+
+        self.assertEqual(out["cited_not_found"], [])
+        self.assertEqual(out["threads_not_cited"], [])
+
+
+class TestNewFormatBody(unittest.TestCase):
+    """New ccr-overview-v2 body format: count-first headers, full-URL links."""
+
+    def _new_section(self, count: int, name: str, *lines: str) -> str:
+        return "\n".join(
+            ["<details open>",
+             f"<summary><strong>{count} {name}</strong></summary>",
+             "", *lines, "</details>"]
+        )
+
+    def _full_url_linked(self, anchor: str, title: str, severity: str = "High",
+                         pr: int = 1) -> str:
+        url = f"https://github.com/example/repo/pull/{pr}#discussion_r{anchor}"
+        return f"- {_badge(severity)} [{title}]({url}) · New"
+
+    def _no_open_body(self, *sections: str) -> str:
+        return "\n".join(
+            [OVERVIEW_MARKER, "", "### 🟢 Approval recommended", "",
+             "**No open issues** \U0001f389", "", *sections]
+        )
+
+    def _new_format_open_body(self, *sections: str) -> str:
+        """Body with count-first open section and no ``**Findings:**`` line."""
+        return "\n".join(
+            [OVERVIEW_MARKER, "", "### 🟡 Changes recommended", "", *sections]
+        )
+
+    def test_count_first_header_parses_as_findings_section(self):
+        """``N open issues`` is a valid findings section header."""
+        body = _body(self._new_section(1, "open issues", _linked("111", "X")), claimed=1)
+        out = parse_overview([_review(body)], [_thread("A", 111)])
+
+        self.assertEqual(out["status"], "ok")
+        self.assertIn("111", out["findings"])
+        self.assertEqual(out["findings"]["111"]["section"], "Open")
+
+    def test_count_first_singular_header_is_accepted(self):
+        """``1 open issue`` normalises to the same section as ``open issues``."""
+        body = _body(self._new_section(1, "open issue", _linked("111", "X")), claimed=1)
+        out = parse_overview([_review(body)], [_thread("A", 111)])
+
+        self.assertEqual(out["findings"]["111"]["section"], "Open")
+
+    def test_full_url_link_is_parsed(self):
+        """Full ``https://...#discussion_r<id>`` link is equivalent to bare anchor."""
+        body = self._new_format_open_body(
+            self._new_section(1, "open issues", self._full_url_linked("222", "Fix it"))
+        )
+        out = parse_overview([_review(body)], [_thread("A", 222)])
+
+        self.assertIn("222", out["findings"])
+        self.assertEqual(out["findings"]["222"]["thread_id"], "A")
+
+    def test_no_open_issues_line_gives_findings_claimed_zero(self):
+        """``**No open issues**`` is an explicit zero, not unknown."""
+        body = self._no_open_body(
+            self._new_section(2, "resolved since last review",
+                              _linked("111", "Done"), _linked("222", "Done2"))
+        )
+        out = parse_overview([_review(body)], [_thread("A", 111), _thread("B", 222)])
+
+        self.assertEqual(out["newest"]["findings_claimed"], 0)
+        self.assertEqual(out["status"], "ok")
+        self.assertEqual(out["parse_shortfall"], 0)
+
+    def test_no_findings_line_derives_claim_from_open_section(self):
+        """When ``**Findings:**`` is absent, the Open section count is the claim."""
+        body = self._new_format_open_body(
+            self._new_section(2, "open issues", _linked("111", "A"), _linked("222", "B"))
+        )
+        out = parse_overview([_review(body)], [_thread("A", 111), _thread("B", 222)])
+
+        self.assertEqual(out["newest"]["findings_claimed"], 2)
+        self.assertEqual(out["parse_shortfall"], 0)
+        self.assertEqual(out["status"], "ok")
+
+    def test_malformed_new_format_open_section_triggers_shortfall(self):
+        """Open (2) declared but no parseable links → status partial, shortfall ≥ 1.
+
+        This is the tripwire the bug defeated: a new-format body whose open
+        section declares 2 but whose finding lines fail to parse returns
+        status 'partial', not 'ok'.
+        """
+        body = self._new_format_open_body(
+            "<details open>\n"
+            "<summary><strong>2 open issues</strong></summary>\n"
+            "\nNo links here — just text.\n"
+            "</details>"
+        )
+        out = parse_overview([_review(body)], [])
+
+        self.assertEqual(out["findings"], {})
+        self.assertGreater(out["parse_shortfall"], 0)
+        self.assertEqual(out["status"], "partial")
+
+    def test_what_changed_section_does_not_produce_findings(self):
+        """A count-less ``What changed in this PR`` section header ends scope.
+
+        Lines and even stray links under it must not be attributed to the
+        previous findings section.
+        """
+        body = "\n".join([
+            OVERVIEW_MARKER,
+            "### 🟡 Changes recommended",
+            "",
+            self._new_section(1, "open issues", self._full_url_linked("111", "Real finding")),
+            "",
+            "<details>",
+            "<summary><strong>What changed in this PR</strong></summary>",
+            "",
+            "Some description.",
+            "",
+            "| File | Description |",
+            "| ---- | ----------- |",
+            "| src/foo.py | Fixed it. |",
+            "",
+            "</details>",
+        ])
+        out = parse_overview([_review(body)], [_thread("A", 111)])
+
+        # Only the one real finding from the open section — the What changed
+        # section contributes nothing.
+        self.assertEqual(len(out["findings"]), 1)
+        self.assertIn("111", out["findings"])
+
+    def test_new_format_resolved_section_name_is_canonical(self):
+        """``N resolved since last review`` maps to the same key as old format."""
+        body = self._no_open_body(
+            self._new_section(1, "resolved since last review", _linked("111", "Done"))
+        )
+        out = parse_overview([_review(body)], [_thread("A", 111)])
+
+        self.assertEqual(out["newest"]["sections"], {"Resolved since last review": 1})
+        self.assertEqual(out["findings"]["111"]["section"], "Resolved since last review")
+
+    def test_section_counts_key_identical_across_formats(self):
+        """Old and new format headers produce the same ``sections`` dict keys."""
+        new_body = self._no_open_body(
+            self._new_section(2, "resolved since last review",
+                              _linked("111", "A"), _linked("222", "B"))
+        )
+        old_body = _body(
+            _section("Resolved since last review", 2,
+                     _linked("111", "A"), _linked("222", "B")),
+            claimed=0,
+        )
+        for label, body in (("new-format", new_body), ("old-format", old_body)):
+            with self.subTest(label=label):
+                out = parse_overview(
+                    [_review(body)],
+                    [_thread("A", 111), _thread("B", 222)],
+                )
+                self.assertEqual(
+                    out["newest"]["sections"],
+                    {"Resolved since last review": 2},
+                    f"sections dict mismatch for {label}",
+                )
+
+
 if __name__ == "__main__":
     unittest.main()

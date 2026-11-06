@@ -37,10 +37,20 @@ PREVIOUSLY_MISSED = "previously missed"
 #: Section holding findings still outstanding in the newest overview.
 OPEN_SECTION = "open"
 
+#: Old format: ``<Name> (N)`` — group(1)=name, group(2)=count.
 _SECTION = re.compile(r"<summary><strong>(.*?)\s*\((\d+)\)</strong></summary>")
+#: New format: ``<N> <name>`` — group(1)=count, group(2)=name.
+_SECTION_NEW = re.compile(r"<summary><strong>(\d+)\s+(.+?)</strong></summary>")
+#: Marker for any ``<strong>`` section header; used to detect count-less ones
+#: such as ``What changed in this PR`` that must end the current findings scope.
+_SECTION_HEADER = re.compile(r"<summary><strong>")
 #: Greedy title so a `]` inside it — `list[str]`, `foo[bar]` — does not end
-#: the capture early. The literal `](#discussion_r` suffix anchors the split.
-_LINK = re.compile(r"\[(.+)\]\(#discussion_r(\d+)\)")
+#: the capture early. Accepts both bare ``#discussion_r<id>`` anchors and full
+#: GitHub URLs ``https://...#discussion_r<id>``; ``[^)]*`` backtracks to the
+#: ``#`` prefix when the URL is long.
+_LINK = re.compile(r"\[(.+)\]\([^)]*#discussion_r(\d+)\)")
+#: ``**No open issues**`` headline — an explicit zero in the new body format.
+_NO_OPEN_ISSUES = re.compile(r"\*\*No open issues\*\*", re.IGNORECASE)
 _SEVERITY = re.compile(r'alt="([^"]*?)\s*severity"', re.IGNORECASE)
 _SUMMARY_TITLE = re.compile(r"</picture>\s*(.+?)\s*</summary>")
 _PATH_LINE = re.compile(r"^`([^`]+):(\d+)`$")
@@ -48,6 +58,30 @@ _CLAIMED_LINE = re.compile(r"\*\*Findings:\*\*(.*)")
 _CLAIMED_COUNT = re.compile(r"(\d+)\s*<picture")
 #: `### 🟡 Changes recommended` — the emoji is optional and is stripped.
 _VERDICT = re.compile(r"^###\s*(.+?)\s*$", re.MULTILINE)
+
+
+#: Maps lowercase-collapsed raw section names to their canonical display form.
+#: Covers both old-format (e.g. ``"Open"``) and new-format (e.g. ``"open issues"``)
+#: headers so both produce identical ``section`` and ``sections`` values.
+_SECTION_NAME_CANON: dict[str, str] = {
+    "open": "Open",
+    "open issue": "Open",
+    "open issues": "Open",
+    "resolved since last review": "Resolved since last review",
+    "previously missed": "Previously missed",
+}
+
+
+def _canon_section(name: str) -> str:
+    """Canonical display name for a section, normalising old and new formats.
+
+    Old-format ``Open (N)`` yields name ``"Open"``; new-format ``N open issues``
+    yields name ``"open issues"``.  Both collapse to ``"Open"`` after
+    normalisation, keeping downstream comparisons against ``OPEN_SECTION``
+    consistent.  Unknown names pass through verbatim so future sections survive.
+    """
+    key = " ".join(name.lower().split())
+    return _SECTION_NAME_CANON.get(key, name)
 
 
 def strip_zwsp(text: str) -> str:
@@ -327,6 +361,25 @@ def _open_pending(raw: str, section: str) -> _Pending:
     )
 
 
+def _match_section_header(raw: str) -> tuple[str | None, bool]:
+    """Return ``(canonical_name, is_header)`` for a possible section-header line.
+
+    ``(name, True)``  — a counted header; ``name`` is the canonical section name.
+    ``(None, True)``  — a count-less header (e.g. ``What changed in this PR``);
+                        the caller should end the current findings scope.
+    ``(None, False)`` — not a section header.
+    """
+    m = _SECTION.search(raw)
+    if m:
+        return _canon_section(m.group(1)), True
+    m = _SECTION_NEW.search(raw)
+    if m:
+        return _canon_section(m.group(2)), True
+    if _SECTION_HEADER.search(raw):
+        return None, True
+    return None, False
+
+
 def _record_linked(findings: dict[str, Finding], link: re.Match[str], raw: str,
                    section: str, review: dict[str, Any]) -> None:
     severity = _SEVERITY.search(raw)
@@ -385,9 +438,14 @@ def parse_body(review: dict[str, Any], findings: dict[str, Finding]) -> None:
     taken: set[str] = set()  # unlinked ids already recorded by this review
 
     for raw in (review.get("body") or "").splitlines():
-        header = _SECTION.search(raw)
-        if header:
-            section, pending = header.group(1), None
+        section_name, is_header = _match_section_header(raw)
+        if is_header:
+            # A counted header starts a new findings section; a count-less one
+            # (e.g. ``What changed in this PR``) ends the scope without
+            # starting a new one, so its content is never attributed to a
+            # findings section.
+            section = section_name  # None for count-less, name for counted
+            pending = None
             continue
 
         link = _LINK.search(raw)
@@ -444,29 +502,43 @@ def _merge_drifted(findings: dict[str, Finding]) -> dict[str, Finding]:
 def _claimed_count(review: dict[str, Any]) -> int | None:
     """The reviewer's own headline count, or None when absent.
 
-    The ``**Findings:**`` line is a per-severity breakdown, not one number:
-    ``**Findings:** 7 <High picture> · 8 <Medium picture>`` means fifteen.
-    Reading only the first number understates it — on PR #400 that was 7
-    against 15 — which hides a shortfall the count exists to expose. Sum every
-    count on the line.
+    Three sources are tried in order:
 
-    A line whose content (after stripping whitespace and inline HTML) is the
-    word "None" (case-insensitive) returns 0 rather than None. "None" is an
-    explicit zero from the reviewer and enables the ``parse_shortfall``
-    tripwire, while ``None`` (the Python value) means the line was absent and
-    the tripwire is disabled. A line with no parseable number and not "None"
-    returns None.
+    1. **Old format** — ``**Findings:**`` line with per-severity badges:
+       ``**Findings:** 7 <High picture> · 8 <Medium picture>`` means fifteen.
+       Reading only the first number understates it, which hides a shortfall
+       the count exists to expose.  Sum every count on the line.
+       A content of ``"None"`` (case-insensitive) returns 0 rather than None:
+       it is an explicit zero that enables the ``parse_shortfall`` tripwire,
+       while Python ``None`` means the line was absent and the tripwire is off.
+       A line with no parseable number and not ``"None"`` returns None.
+
+    2. **New format explicit zero** — ``**No open issues**`` headline returns 0.
+       This is the new-format equivalent of ``**Findings:** None``.
+
+    3. **New format fallback** — when neither headline is present, the declared
+       count of the ``Open`` section (if any) is used as the claim.  This is
+       the only source of a headline count in the new body format when there
+       are open issues.
+
+    Returning ``None`` means the count is unknown and the tripwire is disabled.
     """
-    line = _CLAIMED_LINE.search(review.get("body") or "")
-    if not line:
-        return None
-    content = line.group(1)
-    # Strip HTML tags to get the visible text, then check for the word "None".
-    visible = re.sub(r"<[^>]+>", "", content).strip()
-    if visible.lower() == "none":
+    body = review.get("body") or ""
+    # 1. Old format: **Findings:** line with per-severity badges.
+    line = _CLAIMED_LINE.search(body)
+    if line:
+        content = line.group(1)
+        # Strip HTML tags to get the visible text, then check for the word "None".
+        visible = re.sub(r"<[^>]+>", "", content).strip()
+        if visible.lower() == "none":
+            return 0
+        counts = [int(n) for n in _CLAIMED_COUNT.findall(content)]
+        return sum(counts) if counts else None
+    # 2. New format: **No open issues** means an explicit zero.
+    if _NO_OPEN_ISSUES.search(body):
         return 0
-    counts = [int(n) for n in _CLAIMED_COUNT.findall(content)]
-    return sum(counts) if counts else None
+    # 3. New format fallback: derive from the declared Open section count.
+    return _section_counts(review).get(_canon_section("open"))
 
 
 def _verdict(review: dict[str, Any]) -> str | None:
@@ -488,11 +560,19 @@ def _section_counts(review: dict[str, Any]) -> dict[str, int]:
 
     This is what the overview SAYS each section holds, which is not
     necessarily what parsed out of it — the difference is the signal.
+    Handles both old-format ``<Name> (N)`` and new-format ``<N> <name>`` headers;
+    section names are normalised to their canonical form via ``_canon_section``.
     """
-    return {
-        name: int(count)
-        for name, count in _SECTION.findall(review.get("body") or "")
-    }
+    result: dict[str, int] = {}
+    for raw in (review.get("body") or "").splitlines():
+        m = _SECTION.search(raw)
+        if m:
+            result[_canon_section(m.group(1))] = int(m.group(2))
+            continue
+        m = _SECTION_NEW.search(raw)
+        if m:
+            result[_canon_section(m.group(2))] = int(m.group(1))
+    return result
 
 
 def _open_findings(findings: dict[str, Finding], newest_review_id: Any) -> int:
