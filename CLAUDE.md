@@ -614,7 +614,7 @@ and hit a gap the YAML didn't cover, fix the YAML — that is how these get bett
 # Visualization + orchestration
 ./bin/charts render <spec.json>          # render a chart (also: grid, reshape)
 ./bin/diagrams from-yaml <spec.yaml>     # Mermaid from YAML (also: render, validate, embed, telemetry)
-./bin/workflow run <workflow.yaml>       # run a YAML DAG (also: parse, compile, lint, list, status)
+./bin/workflow run <workflow.yaml>       # run a YAML DAG (24 subcommands; see docs/workflow-engine.md)
 ```
 
 ## Auto-Familiarization
