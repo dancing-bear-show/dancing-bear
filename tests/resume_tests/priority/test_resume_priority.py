@@ -9,6 +9,7 @@ from resume.priority import (
     _filter_items,
     _filter_skills_groups,
     _filter_experience,
+    _filter_projects,
     filter_by_min_priority,
 )
 
@@ -205,6 +206,61 @@ class TestFilterExperience(unittest.TestCase):
         self.assertEqual(_filter_experience(None, cutoff=1), [])
 
 
+class TestFilterProjects(unittest.TestCase):
+    """Tests for _filter_projects function."""
+
+    def test_filters_projects_by_priority(self):
+        projects = [
+            {"name": "Alpha", "priority": 3},
+            {"name": "Beta", "priority": 1},
+        ]
+        result = _filter_projects(projects, cutoff=2)
+        names = [p["name"] for p in result]
+        self.assertIn("Alpha", names)
+        self.assertNotIn("Beta", names)
+
+    def test_filters_project_bullets_by_priority(self):
+        projects = [
+            {
+                "name": "Alpha",
+                "priority": 3,
+                "bullets": [
+                    {"text": "Important bullet", "priority": 3},
+                    {"text": "Minor bullet", "priority": 1},
+                ],
+            }
+        ]
+        result = _filter_projects(projects, cutoff=2)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(len(result[0]["bullets"]), 1)
+        self.assertEqual(result[0]["bullets"][0]["text"], "Important bullet")
+
+    def test_project_without_priority_defaults_to_1(self):
+        projects = [{"name": "No Priority"}]
+        result_low = _filter_projects(projects, cutoff=0.5)
+        result_high = _filter_projects(projects, cutoff=2)
+        self.assertEqual(len(result_low), 1)
+        self.assertEqual(len(result_high), 0)
+
+    def test_skips_non_dict_items(self):
+        projects = [{"name": "Valid"}, "string_item", None]
+        result = _filter_projects(projects, cutoff=1)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["name"], "Valid")
+
+    def test_preserves_project_metadata(self):
+        projects = [{"name": "Alpha", "desc": "A project", "tech": "Python", "priority": 3}]
+        result = _filter_projects(projects, cutoff=1)
+        self.assertEqual(result[0]["desc"], "A project")
+        self.assertEqual(result[0]["tech"], "Python")
+
+    def test_empty_projects(self):
+        self.assertEqual(_filter_projects([], cutoff=1), [])
+
+    def test_none_projects(self):
+        self.assertEqual(_filter_projects(None, cutoff=1), [])
+
+
 class TestFilterByMinPriority(unittest.TestCase):
     """Tests for filter_by_min_priority function."""
 
@@ -232,6 +288,17 @@ class TestFilterByMinPriority(unittest.TestCase):
                 {"title": "Senior Dev", "priority": 3, "bullets": []},
                 {"title": "Junior Dev", "priority": 1, "bullets": []},
             ],
+            "projects": [
+                {
+                    "name": "High Priority Project",
+                    "priority": 3,
+                    "bullets": [
+                        {"text": "Important bullet", "priority": 3},
+                        {"text": "Minor bullet", "priority": 1},
+                    ],
+                },
+                {"name": "Low Priority Project", "priority": 1, "bullets": []},
+            ],
         }
 
     def test_filters_skills_groups(self):
@@ -258,6 +325,18 @@ class TestFilterByMinPriority(unittest.TestCase):
         titles = [e["title"] for e in result["experience"]]
         self.assertIn("Senior Dev", titles)
         self.assertNotIn("Junior Dev", titles)
+
+    def test_filters_projects(self):
+        result = filter_by_min_priority(self.candidate, 2)
+        names = [p["name"] for p in result["projects"]]
+        self.assertIn("High Priority Project", names)
+        self.assertNotIn("Low Priority Project", names)
+
+    def test_filters_project_bullets(self):
+        result = filter_by_min_priority(self.candidate, 2)
+        proj = result["projects"][0]
+        self.assertEqual(len(proj["bullets"]), 1)
+        self.assertEqual(proj["bullets"][0]["text"], "Important bullet")
 
     def test_returns_copy_of_data(self):
         result = filter_by_min_priority(self.candidate, 1)

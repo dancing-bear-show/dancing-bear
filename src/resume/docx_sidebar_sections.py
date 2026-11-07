@@ -15,6 +15,8 @@ from docx.shared import Pt, Inches, RGBColor
 from docx.enum.table import WD_TABLE_ALIGNMENT
 
 from .docx_base import ResumeWriterBase
+from .docx_bullets import bold_text_in_paragraph
+from .docx_links import add_hyperlink, display_url, normalize_link_url
 from .schema import ExperienceEntry, PriorityItem, Presentation, Project, Resume, _Item
 from .docx_styles import (
     TextFormatter,
@@ -213,31 +215,57 @@ def _render_main_presentations(cell, resume: Resume, page_cfg: dict[str, Any], s
         _render_pres_entry(cell, pres, page_cfg, bullet_color)
 
 
-def _render_proj_entry(cell, proj: Project, page_cfg: dict[str, Any], bullet_color: str) -> None:
-    """Render a single project entry in the sidebar main column."""
+def _render_proj_bullets(cell, bullets: list[Any], keywords: list[str] | None, body_pt: float) -> None:
+    """Render normalised, keyword-bolded bullet paragraphs for a project entry."""
+    for b in bullets:
+        text = TextFormatter.normalize_bullet(str(b.text or "").strip())
+        if not text:
+            continue
+        p = cell.add_paragraph()
+        p.paragraph_format.left_indent = Inches(0.25)
+        bold_text_in_paragraph(p, text, keywords)
+        for run in p.runs:
+            run.font.size = Pt(body_pt - 1)
+        _tight_paragraph(p, after_pt=1)
+
+
+def _render_proj_entry(
+    cell,
+    proj: Project,
+    page_cfg: dict[str, Any],
+    bullet_color: str,
+    keywords: list[str] | None = None,
+) -> None:
+    """Render a single project entry in the sidebar main column.
+
+    Brought to parity with :class:`~resume.docx_sections_simple.ProjectsSectionRenderer`:
+    the ``link`` field is rendered as a hyperlink, bullets are normalised before
+    display, and keyword bolding is applied when *keywords* are provided.
+    """
     name = str(proj.name or "").strip()
     if not name:
         return
 
+    body_pt: float = page_cfg.get("body_pt", 10)
+
+    # Name paragraph: bold run + optional hyperlink (mirrors standard renderer).
     p = cell.add_paragraph()
     _add_colored_bullet_run(p, bullet_color)
     name_run = p.add_run(name)
     name_run.bold = True
-    name_run.font.size = Pt(page_cfg.get("body_pt", 10))
+    name_run.font.size = Pt(body_pt)
+    link = str(proj.link or "").strip()
+    url = normalize_link_url(link) if link else ""
+    if url:
+        p.add_run(" ")
+        add_hyperlink(p, url, display_url(url))
     _tight_paragraph(p, after_pt=0)
 
     desc = str(proj.desc or "").strip()
     if desc:
         _add_indented_run(cell, desc, page_cfg, IndentedRunStyle())
 
-    for b in proj.bullets:
-        text = str(b.text or "").strip()
-        if text:
-            p3 = cell.add_paragraph()
-            p3.paragraph_format.left_indent = Inches(0.25)
-            run = p3.add_run(text)
-            run.font.size = Pt(page_cfg.get("body_pt", 10) - 1)
-            _tight_paragraph(p3, after_pt=1)
+    _render_proj_bullets(cell, proj.bullets, keywords, body_pt)
 
     tech = str(proj.tech or "").strip()
     if tech:

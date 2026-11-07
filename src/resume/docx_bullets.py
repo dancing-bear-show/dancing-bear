@@ -25,6 +25,43 @@ _logger = logging.getLogger(__name__)
 NORMAL_PARAGRAPH_STYLE = "Normal"
 
 
+def bold_text_in_paragraph(p: Any, text: str, keywords: list[str] | None) -> None:
+    """Add *text* to *p*, bolding spans that match any keyword.
+
+    Shared by :class:`BulletRenderer` and sidebar project rendering so that
+    keyword bolding logic is not duplicated.  When *keywords* is empty or
+    ``None``, the text is added as a single plain run.
+
+    Args:
+        p: A python-docx paragraph (or any object with an ``add_run`` method).
+        text: The text to add; a no-op when empty.
+        keywords: Keywords whose occurrences in *text* will be bolded.  Pass
+            ``None`` or ``[]`` for plain text.
+    """
+    if not text:
+        return
+    if not keywords:
+        p.add_run(text)
+        return
+    lowered = text.lower()
+    idx = 0
+    emitted = False
+    while idx < len(text):
+        match_pos, match_kw = BulletRenderer._find_earliest_keyword(lowered, text, keywords, idx)
+        if match_pos is None:
+            p.add_run(text[idx:])
+            emitted = True
+            break
+        if match_pos > idx:
+            p.add_run(text[idx:match_pos])
+        br = p.add_run(match_kw or "")
+        br.bold = True
+        emitted = True
+        idx = match_pos + len(match_kw or "")
+    if not emitted:
+        p.add_run(text)
+
+
 class BulletRenderer:
     """Renders bullet lists with various styles."""
 
@@ -253,31 +290,7 @@ class BulletRenderer:
     def _bold_keywords(self, paragraph, text: str, keywords: list[str]):
         """Add text with keywords bolded.
 
-        The loop already emits the remaining text before breaking, so the
-        trailing fallback must not run when it did. Previously both fired when
-        no keyword matched — `idx` was still 0 at the break — and every
-        unmatched bullet rendered its text TWICE, concatenated with no
-        separator ("...at scaleInstrumented and monitored...").
+        Delegates to :func:`bold_text_in_paragraph` so the keyword-bolding
+        logic is not duplicated between the standard and sidebar renderers.
         """
-        lowered = text.lower()
-        idx = 0
-        emitted = False
-
-        while idx < len(text):
-            match_pos, match_kw = self._find_earliest_keyword(lowered, text, keywords, idx)
-
-            if match_pos is None:
-                paragraph.add_run(text[idx:])
-                emitted = True
-                break
-
-            if match_pos > idx:
-                paragraph.add_run(text[idx:match_pos])
-
-            br = paragraph.add_run(match_kw or "")
-            br.bold = True
-            emitted = True
-            idx = match_pos + len(match_kw or "")
-
-        if not emitted:
-            paragraph.add_run(text)
+        bold_text_in_paragraph(paragraph, text, keywords)

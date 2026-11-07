@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -28,7 +29,7 @@ def _validate_profile_name(profile: str) -> None:
     Rejects anything with path separators, ``..``, or a leading ``.``.
 
     Raises:
-        ValueError: On unsafe profile names.
+        CLIError(ExitCode.USAGE): On unsafe profile names.
     """
     parts = Path(profile).parts
     if (
@@ -37,9 +38,11 @@ def _validate_profile_name(profile: str) -> None:
         or parts[0] in (".", "..")
         or parts[0].startswith(".")
     ):
-        raise ValueError(
+        from core.cli_errors import CLIError, ExitCode
+        raise CLIError(
             f"Profile name {profile!r} must be a plain name segment "
-            "(no path separators, '..', or leading '.')"
+            "(no path separators, '..', or leading '.')",
+            ExitCode.USAGE,
         )
 
 
@@ -156,6 +159,13 @@ def apply_profile_overlays(data: dict[str, Any], profile: str | None) -> dict[st
     under CWD ``config/`` (e.g. ``config/profile.<prefix>.yaml``) are still
     checked as a secondary source for each overlay type.
 
+    When no profile directory is found and no legacy flat files exist, a warning
+    is printed to stderr naming the profile and every searched path, and *data*
+    is returned unchanged.  This allows the documented flow
+    ``extract --profile X`` → ``render --profile X`` to succeed even when the
+    user has not created a profile directory — the ``--profile`` flag is also the
+    output-naming prefix, so it must not block rendering.
+
     Args:
         data: Base candidate document (dict).
         profile: Profile name, or ``None`` / empty string for a no-op.
@@ -164,9 +174,8 @@ def apply_profile_overlays(data: dict[str, Any], profile: str | None) -> dict[st
         New dict with overlaid values; *data* is not mutated.
 
     Raises:
-        ValueError: If the profile name contains path-traversal characters.
-        CLIError(ExitCode.NOT_FOUND): If the profile is not found in any
-            location AND no legacy flat files exist under CWD ``config/``.
+        CLIError(ExitCode.USAGE): If the profile name contains path-traversal
+            characters.
     """
     if not profile:
         return data
@@ -178,7 +187,7 @@ def apply_profile_overlays(data: dict[str, Any], profile: str | None) -> dict[st
     prof_dir = resolve_profile_dir(profile)
 
     if prof_dir is None:
-        # No directory found anywhere.  Before erroring, check whether legacy
+        # No directory found anywhere.  Before warning, check whether legacy
         # flat files (config/<name>.<profile>.yaml) exist in the CWD — a user
         # running from the repo root may have only the old layout.
         legacy_found = any(
@@ -186,12 +195,12 @@ def apply_profile_overlays(data: dict[str, Any], profile: str | None) -> dict[st
             for name in _OVERLAY_NAMES
         )
         if not legacy_found:
-            from core.cli_errors import CLIError, ExitCode
             searched = "\n  ".join(str(p) for p in _searched_dirs(profile))
-            raise CLIError(
-                f"Profile '{profile}' not found. No directory at:\n  {searched}",
-                ExitCode.NOT_FOUND,
+            print(
+                f"resume: no overlays found for profile '{profile}'; searched:\n  {searched}",
+                file=sys.stderr,
             )
+            return out
         # Legacy flat files exist; set prof_dir to the conventional CWD location
         # so _get_overlay_paths can build the new-style path (which won't exist —
         # only the legacy flat files will load).

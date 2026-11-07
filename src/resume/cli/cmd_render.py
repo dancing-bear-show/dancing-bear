@@ -15,6 +15,7 @@ from core.paths import output_dir
 
 from ..io_utils import read_yaml_or_json, write_yaml_or_json
 from ..overlays import resolve_profile_dir
+from ..schema import Resume
 from ..templating import load_template, parse_seed_criteria
 from ..docx_writer import write_resume_docx
 from ..structure import infer_structure_from_docx
@@ -96,6 +97,28 @@ def _load_structure(args: argparse.Namespace) -> dict | None:
     return _find_structure_in_dirs(profile, out_dirs) or _find_structure_in_config(profile)
 
 
+def _has_resume_content(resume: Resume) -> bool:
+    """Return True if the resume has any meaningful content to render.
+
+    Checks name, experience, skills_groups, and summary (handling the
+    scalar-string form where an empty string is stored as a single blank item).
+    Returns False only when all four are empty — an accidental empty render that
+    would produce a blank document with exit 0.
+    """
+    if resume.name:
+        return True
+    if resume.experience:
+        return True
+    if resume.skills_groups:
+        return True
+    if resume.summary:
+        # Scalar form stores "" as [PriorityItem(text="")] — truthy list, empty text.
+        if resume.summary_is_scalar:
+            return bool(resume.summary[0].text)
+        return True
+    return False
+
+
 def cmd_render(args: argparse.Namespace) -> int:
     data = _load_candidate_data(args)
     template = load_template(args.template)
@@ -114,6 +137,14 @@ def cmd_render(args: argparse.Namespace) -> int:
     out_suf = out_docx.suffix.lower()
     if out_suf == ".pdf":
         raise CLIError("render writes .docx only; use 'resume export-pdf --docx <path>' to convert.", ExitCode.USAGE)
+    # Guard: refuse to write a completely empty resume (exit 0 with a blank docx
+    # was the original bug — an unknown profile + no base data produces nothing).
+    if not _has_resume_content(resume):
+        raise CLIError(
+            "No content to render: resume has no name, experience, summary, or skills. "
+            "Pass --data <path> to specify a data file or --profile to load a profile.",
+            ExitCode.USAGE,
+        )
     # default to docx
     # Ensure parent directory exists for nested profile layout
     try:

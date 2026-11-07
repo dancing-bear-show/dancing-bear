@@ -57,6 +57,25 @@ def _filter_experience(exp: list[Any] | None, cutoff: float) -> list[Any]:
     return new_exp
 
 
+def _filter_projects(projects: list[Any] | None, cutoff: float) -> list[Any]:
+    """Filter project entries and their bullets by priority cutoff.
+
+    Mirrors :func:`_filter_experience`: project-level ``priority`` gates the
+    whole entry, and each bullet's ``priority`` gates that bullet independently.
+    """
+    new_projects = []
+    for p in projects or []:
+        if not isinstance(p, dict):
+            continue
+        proj_pr = _score(p.get("priority")) if p.get("priority") is not None else 1.0
+        if proj_pr < cutoff:
+            continue
+        if isinstance(p.get("bullets"), list):
+            p = {**p, "bullets": _filter_items(p["bullets"], cutoff)}
+        new_projects.append(p)
+    return new_projects
+
+
 def filter_by_min_priority(data: dict[str, Any], min_prio: float) -> dict[str, Any]:
     """Apply priority/usefulness cutoff across known lists in candidate data."""
     d = dict(data)
@@ -70,6 +89,9 @@ def filter_by_min_priority(data: dict[str, Any], min_prio: float) -> dict[str, A
 
     if isinstance(d.get("experience"), list):
         d["experience"] = _filter_experience(d["experience"], min_prio)
+
+    if isinstance(d.get("projects"), list):
+        d["projects"] = _filter_projects(d["projects"], min_prio)
 
     return d
 

@@ -88,7 +88,12 @@ class FilterPipeline:
         self._synonyms: dict[str, list[str]] = {}
 
     def with_profile_overlays(self, profile: str | None) -> "FilterPipeline":
-        """Apply profile-specific config overlays from config/ directory.
+        """Apply profile-specific config overlays.
+
+        Locates the profile directory via
+        :func:`~resume.overlays.resolve_profile_dir` (config_home → CWD →
+        packaged).  When no profile directory is found and no legacy flat files
+        exist, a warning is printed to stderr and data is returned unchanged.
 
         Args:
             profile: Profile name (e.g., 'personal', 'work'). If None, no-op.

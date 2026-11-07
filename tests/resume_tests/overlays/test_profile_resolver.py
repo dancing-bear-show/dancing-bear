@@ -35,23 +35,35 @@ class TestValidateProfileName(unittest.TestCase):
 
     def test_rejects_path_traversal(self):
         from resume.overlays import _validate_profile_name
+        from core.cli_errors import CLIError
 
         for name in ("../x", "a/../b", "..", "a/b", "/etc/passwd"):
             with self.subTest(name=name):
-                with self.assertRaises(ValueError, msg=f"expected ValueError for {name!r}"):
+                with self.assertRaises(CLIError, msg=f"expected CLIError for {name!r}"):
                     _validate_profile_name(name)
 
     def test_rejects_leading_dot(self):
         from resume.overlays import _validate_profile_name
+        from core.cli_errors import CLIError
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(CLIError):
             _validate_profile_name(".hidden")
 
     def test_rejects_empty_string(self):
         from resume.overlays import _validate_profile_name
+        from core.cli_errors import CLIError
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(CLIError):
             _validate_profile_name("")
+
+    def test_rejects_path_traversal_exit_code_is_usage(self):
+        """Unsafe name raises CLIError with ExitCode.USAGE (not NOT_FOUND)."""
+        from resume.overlays import _validate_profile_name
+        from core.cli_errors import CLIError, ExitCode
+
+        with self.assertRaises(CLIError) as ctx:
+            _validate_profile_name("../evil")
+        self.assertEqual(ctx.exception.code, ExitCode.USAGE)
 
 
 # ---------------------------------------------------------------------------
@@ -142,10 +154,11 @@ class TestResolveProfileDir(TempDirMixin, unittest.TestCase):
         self.assertIsNone(result)
 
     def test_rejects_unsafe_name(self):
-        """Unsafe profile name raises ValueError immediately."""
+        """Unsafe profile name raises CLIError immediately (not ValueError)."""
         from resume.overlays import resolve_profile_dir
+        from core.cli_errors import CLIError
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(CLIError):
             resolve_profile_dir("../x")
 
 
@@ -254,90 +267,112 @@ class TestApplyProfileOverlaysFromConfigHome(TempDirMixin, unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# apply_profile_overlays — error on unknown profile
+# apply_profile_overlays — warning (not error) on unknown profile
 # ---------------------------------------------------------------------------
 
 
-class TestApplyProfileOverlaysNotFound(TempDirMixin, unittest.TestCase):
-    """CLIError is raised when profile is not found anywhere."""
+class TestApplyProfileOverlaysUnknownProfile(TempDirMixin, unittest.TestCase):
+    """Unknown profile emits a stderr warning and returns data unchanged."""
 
-    def test_errors_with_profile_name_and_searched_paths(self):
+    def test_returns_data_unchanged_for_unknown_profile(self):
+        """Unknown profile: return value equals the input data."""
         from resume.overlays import apply_profile_overlays
-        from core.cli_errors import CLIError
+
+        empty_home = Path(self.tmpdir) / "empty"
+        empty_home.mkdir()
+        base = {"name": "Test", "experience": [{"title": "Dev"}]}
+
+        with self.in_tmpdir():
+            with mock.patch.dict(os.environ, {"DANCING_BEAR_CONFIG_HOME": str(empty_home)}):
+                result = apply_profile_overlays(base, "unknown_profile_xyz")
+
+        self.assertEqual(result, base, "Data must be returned unchanged for unknown profile")
+
+    def test_does_not_raise_for_unknown_profile(self):
+        """No exception is raised when the profile is not found anywhere."""
+        from resume.overlays import apply_profile_overlays
 
         empty_home = Path(self.tmpdir) / "empty"
         empty_home.mkdir()
 
         with self.in_tmpdir():
             with mock.patch.dict(os.environ, {"DANCING_BEAR_CONFIG_HOME": str(empty_home)}):
-                with self.assertRaises(CLIError) as ctx:
-                    apply_profile_overlays({"name": "Test"}, "unknown_profile_xyz")
+                # Must not raise
+                apply_profile_overlays({}, "no_such_profile_abc")
 
-        msg = str(ctx.exception)
-        self.assertIn("unknown_profile_xyz", msg)
-        self.assertIn("not found", msg.lower())
+    def test_warning_includes_profile_name(self):
+        """The stderr warning names the missing profile."""
+        from resume.overlays import apply_profile_overlays
+        import io
 
-    def test_error_includes_searched_dirs(self):
-        """The CLIError message names every directory searched."""
+        empty_home = Path(self.tmpdir) / "empty"
+        empty_home.mkdir()
+        profile = "definitely_missing_profile_xyz"
+
+        buf = io.StringIO()
+        with self.in_tmpdir():
+            with mock.patch.dict(os.environ, {"DANCING_BEAR_CONFIG_HOME": str(empty_home)}):
+                with mock.patch("sys.stderr", buf):
+                    apply_profile_overlays({}, profile)
+
+        output = buf.getvalue()
+        self.assertIn(profile, output)
+
+    def test_warning_includes_searched_paths(self):
+        """The stderr warning lists at least one searched directory."""
         from resume.overlays import apply_profile_overlays, _searched_dirs
-        from core.cli_errors import CLIError
+        import io
 
         empty_home = Path(self.tmpdir) / "empty"
         empty_home.mkdir()
         profile = "no_such_profile_abc"
 
+        buf = io.StringIO()
         with self.in_tmpdir():
             with mock.patch.dict(os.environ, {"DANCING_BEAR_CONFIG_HOME": str(empty_home)}):
                 expected_dirs = _searched_dirs(profile)
-                with self.assertRaises(CLIError) as ctx:
+                with mock.patch("sys.stderr", buf):
                     apply_profile_overlays({}, profile)
 
-        msg = str(ctx.exception)
-        # At least one searched path should appear in the message
+        output = buf.getvalue()
         self.assertTrue(
-            any(str(d) in msg for d in expected_dirs),
-            f"Expected at least one of {expected_dirs} in error: {msg}",
+            any(str(d) in output for d in expected_dirs),
+            f"Expected at least one of {expected_dirs} in warning: {output!r}",
         )
 
-    def test_error_exit_code_is_not_found(self):
+    def test_legacy_only_profile_loads_without_warning(self):
+        """A profile with only legacy flat files loads silently."""
         from resume.overlays import apply_profile_overlays
-        from core.cli_errors import CLIError, ExitCode
+        import io
 
         empty_home = Path(self.tmpdir) / "empty"
         empty_home.mkdir()
 
-        with self.in_tmpdir():
-            with mock.patch.dict(os.environ, {"DANCING_BEAR_CONFIG_HOME": str(empty_home)}):
-                with self.assertRaises(CLIError) as ctx:
-                    apply_profile_overlays({}, "no_such_profile_abc")
-
-        self.assertEqual(ctx.exception.code, ExitCode.NOT_FOUND)
-
-    def test_legacy_only_profile_does_not_error(self):
-        """A profile with only legacy flat files does not raise CLIError."""
-        from resume.overlays import apply_profile_overlays
-
-        empty_home = Path(self.tmpdir) / "empty"
-        empty_home.mkdir()
-
+        buf = io.StringIO()
         with self.in_tmpdir():
             Path("config").mkdir()
             Path("config/profile.legacyonly.yaml").write_text("name: Legacy Only\n")
 
             with mock.patch.dict(os.environ, {"DANCING_BEAR_CONFIG_HOME": str(empty_home)}):
-                result = apply_profile_overlays({}, "legacyonly")
+                with mock.patch("sys.stderr", buf):
+                    result = apply_profile_overlays({}, "legacyonly")
 
         self.assertEqual(result["name"], "Legacy Only")
+        # Legacy flat files found → no warning written
+        self.assertEqual(buf.getvalue(), "")
 
-    def test_rejects_unsafe_profile_name_with_value_error(self):
-        """Unsafe profile names raise ValueError, not CLIError."""
+    def test_rejects_unsafe_profile_name_with_cli_error(self):
+        """Unsafe profile names raise CLIError with ExitCode.USAGE."""
         from resume.overlays import apply_profile_overlays
+        from core.cli_errors import CLIError, ExitCode
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(CLIError) as ctx:
             apply_profile_overlays({}, "../evil")
+        self.assertEqual(ctx.exception.code, ExitCode.USAGE)
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(CLIError) as ctx2:
             apply_profile_overlays({}, "a/b")
+        self.assertEqual(ctx2.exception.code, ExitCode.USAGE)
 
 
 # ---------------------------------------------------------------------------
@@ -388,9 +423,15 @@ class TestExperienceExportCLIFromUnrelatedCWD(TempDirMixin, unittest.TestCase):
         self.assertIn("E2E Test Engineer", output_text)
         self.assertIn("RegCo", output_text)
 
-    def test_unknown_profile_exits_nonzero(self):
-        """CLI exits non-zero when --profile names a non-existent profile."""
+    def test_unknown_profile_emits_warning_and_exports_data(self):
+        """CLI exits 0 (with stderr warning) when --profile names a non-existent profile.
+
+        The documented flow ``extract --profile X`` → ``render --profile X`` must
+        succeed even when no overlay directory exists for X — the flag doubles as
+        an output-naming prefix, so it must not block the pipeline.
+        """
         from resume.cli.main import main
+        import io
 
         empty_home = Path(self.tmpdir) / "empty_home"
         empty_home.mkdir()
@@ -398,20 +439,24 @@ class TestExperienceExportCLIFromUnrelatedCWD(TempDirMixin, unittest.TestCase):
         data_dir = Path(self.tmpdir) / "data"
         data_dir.mkdir()
         data_file = data_dir / "data.json"
-        data_file.write_text('{"name": "Test User"}')
+        data_file.write_text('{"name": "Test User", "experience": [{"title": "Dev"}]}')
 
         out_file = Path(self.tmpdir) / "out.yaml"
 
+        buf = io.StringIO()
         with self.in_tmpdir():
             with mock.patch.dict(os.environ, {"DANCING_BEAR_CONFIG_HOME": str(empty_home)}):
-                exit_code = main([
-                    "experience", "export",
-                    "--data", str(data_file),
-                    "--profile", "absolutely_nonexistent_profile_xyz",
-                    "--out", str(out_file),
-                ])
+                with mock.patch("sys.stderr", buf):
+                    exit_code = main([
+                        "experience", "export",
+                        "--data", str(data_file),
+                        "--profile", "absolutely_nonexistent_profile_xyz",
+                        "--out", str(out_file),
+                    ])
 
-        self.assertNotEqual(exit_code, 0, "CLI must exit non-zero for unknown profile")
+        self.assertEqual(exit_code, 0, "CLI must exit 0 — unknown profile emits a warning, not an error")
+        # Warning was printed mentioning the profile
+        self.assertIn("absolutely_nonexistent_profile_xyz", buf.getvalue())
 
 
 if __name__ == "__main__":

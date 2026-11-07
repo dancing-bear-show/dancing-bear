@@ -121,6 +121,33 @@ class TestProjectsSectionRendererUnit(unittest.TestCase):
         self.assertIn("First", lines)
         self.assertIn("Second", lines)
 
+    def test_link_added_as_hyperlink_run(self):
+        """The ``link`` field is added as a hyperlink paragraph run, not plain text."""
+        from unittest.mock import patch as _patch
+        renderer, _ = self._get_renderer()
+        resume = Resume.from_dict({
+            "projects": [{"name": "Linked", "link": "https://github.com/example/proj"}],
+        })
+        with _patch("resume.docx_sections_simple.add_hyperlink") as mock_hl:
+            renderer.render(resume)
+        mock_hl.assert_called_once()
+        call_args = mock_hl.call_args
+        # Second positional arg is the URL
+        self.assertIn("github.com", call_args[0][1])
+
+    def test_tech_runs_are_italic(self):
+        """Every run in the Tech paragraph has ``italic=True``."""
+        renderer, doc = self._get_renderer()
+        resume = Resume.from_dict({
+            "projects": [{"name": "Typed", "tech": "Python, Go"}],
+        })
+        renderer.render(resume)
+        # Find the Tech: paragraph
+        tech_paras = [p for p in doc.paragraphs if "Tech:" in (p.text or "")]
+        self.assertEqual(len(tech_paras), 1, "Expected exactly one Tech: paragraph")
+        for run in tech_paras[0].runs:
+            self.assertTrue(run.italic, f"Run {run.text!r} should be italic")
+
 
 class TestSectionHasDataRecognisesProjects(unittest.TestCase):
     """_section_has_data returns True when projects is non-empty."""
