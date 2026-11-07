@@ -14,6 +14,7 @@ from core.cli_framework import CLIApp
 from core.paths import output_dir
 
 from ..io_utils import read_yaml_or_json, write_yaml_or_json
+from ..overlays import resolve_profile_dir
 from ..templating import load_template, parse_seed_criteria
 from ..docx_writer import write_resume_docx
 from ..structure import infer_structure_from_docx
@@ -61,10 +62,12 @@ def _find_structure_in_dirs(
 def _find_structure_in_config(
     profile: str, extensions: tuple = (EXT_JSON, EXT_YAML, ".yml")
 ) -> dict | None:
-    """Search for structure file in config folder."""
-    config_dir = Path("config") / "profiles" / profile
+    """Search for structure file in the resolved profile directory."""
+    prof_dir = resolve_profile_dir(profile)
+    if prof_dir is None:
+        return None
     return _find_first_structure(
-        [config_dir], extensions, lambda out_dir, ext: out_dir / f"structure{ext}"
+        [prof_dir], extensions, lambda out_dir, ext: out_dir / f"structure{ext}"
     )
 
 
