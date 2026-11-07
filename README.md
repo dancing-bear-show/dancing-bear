@@ -59,12 +59,13 @@ CLI help:
 | Worker | `./bin/worker` | Background job queue and daemon |
 | Workflow | `./bin/workflow` | YAML DAG workflow engine |
 | Qlty | `./bin/qlty-assistant` | Scan, triage, and rank qlty findings by remediation tier |
+| GitHub | `./bin/github` | GitHub porcelain over `core.github` |
 
 Legacy `-assistant` suffixed binaries still work (e.g., `./bin/mail-assistant`).
 
 ## Architecture
 
-19 `src/` packages share a common `core/` framework and follow the same plan → dry-run → apply
+20 `src/` packages share a common `core/` framework and follow the same plan → dry-run → apply
 safety pattern before touching any real provider.
 
 ```mermaid
@@ -91,6 +92,7 @@ flowchart TB
         telemetry[telemetry/]
         slides[slides/]
         qlty[qlty/]
+        github_assistant[github_assistant/]
     end
 
     core[src/core/ — shared helpers + CLI framework]
@@ -288,6 +290,9 @@ Other mail commands:
 
 # Generate heuristic summary
 ./bin/assistant resume summarize --data candidate.yaml --out summary.yaml
+
+# Convert rendered DOCX to PDF via LibreOffice
+./bin/assistant resume export-pdf --docx resume.docx --out resume.pdf
 ```
 
 ## iOS (Phone)
@@ -344,6 +349,25 @@ bcsphone = 00008150-000578D421D8401C
 ./bin/apple-music-assistant dedupe --dry-run
 ```
 
+## Local Model Patches (qwen)
+
+Enqueue code-patch jobs processed locally by an Ollama-hosted model. The worker handles generation; this CLI manages jobs.
+
+```bash
+# Enqueue a patch (Ollama must be running with qwen2.5-coder:14b or --model override)
+./bin/qwen patch --files src/foo.py src/bar.py --instruction "add type hints to all functions"
+./bin/qwen patch --files src/foo.py --instruction "..." --explain  # dry-run: run guards, skip model
+
+# After job completes, print the git apply command
+./bin/qwen --apply <job-id>
+
+# Pin or verify the model digest
+./bin/qwen pin-model
+./bin/qwen pin-model --check
+```
+
+Patches land in `~/.local/share/dancing-bear/qwen/` (via `core.paths.output_dir("qwen")`). The handler never applies the patch — `--apply` only prints the command for the caller to run.
+
 ## LLM Utilities
 
 Context and navigation:
@@ -399,8 +423,9 @@ src/
   slides/       PowerPoint deck generation from YAML
   sheets/       styled .xlsx generation from YAML
   qlty/         qlty scan/triage wrapper
-  workflow/     YAML DAG engine (parse/compile/run/lint/list/status)
-  worker/       background job queue and daemon
+  github_assistant/  GitHub porcelain over core.github
+  workflow/     YAML DAG engine (24 subcommands; see docs/workflow-engine.md)
+  worker/       background job queue and daemon; qwen_patch job type (Ollama)
   telemetry/    Claude Code session telemetry (cost, tokens, TUI)
   core/         shared helpers and CLI framework
 ```

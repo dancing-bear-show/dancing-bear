@@ -22,6 +22,22 @@ curated:
       desc: Compact agentic capsule (token-efficient)
       cmd: ./bin/llm agentic --stdout --compact
 
+  qwen:
+    - id: qwen_patch_enqueue
+      desc: Enqueue a local Ollama code-patch job
+      steps:
+        - ./bin/qwen patch --files src/foo.py --instruction "add type hints to all functions"
+        - ./bin/worker status
+    - id: qwen_patch_apply
+      desc: Print the git apply command for a completed patch (copy and run it)
+      cmd: ./bin/qwen --apply JOB_ID
+    - id: qwen_pin_model
+      desc: Record the running model digest pin
+      cmd: ./bin/qwen pin-model
+    - id: qwen_pin_model_check
+      desc: Compare recorded vs running digest without writing
+      cmd: ./bin/qwen pin-model --check
+
   onboarding:
     - id: creds_example
       desc: Copy example Gmail creds

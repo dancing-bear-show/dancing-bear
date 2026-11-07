@@ -1,6 +1,6 @@
 LLM Agent Context Cache
 Concise reference for agent behavior and repo architecture
-Last Reviewed: 2026-08-11
+Last Reviewed: 2026-11-06
 
 Project Goal (Reminder)
 - Provide unified, dependable CLIs for personal workflows (mail, calendar, schedule, resume, phone, WhatsApp, maker).
@@ -40,6 +40,7 @@ src/
   apple_music/  # Apple Music CLI
   wifi/         # Wi-Fi CLI
   qlty/         # qlty scan/triage wrapper (tiers findings by remediation strategy)
+  github_assistant/  # GitHub porcelain over core.github
 bin/            # entry wrappers and helper scripts
 tests/          # lightweight unittest suite
 .llm/           # LLM context, flows, capsules
@@ -80,6 +81,13 @@ LLM Imperatives
 - `./bin/assistant` apps: apple-music, calendar, github, mail, maker, music, phone, resume, schedule, slides, whatsapp, wifi. Short wrappers also available: `./bin/mail`, `./bin/calendar`, `./bin/schedule`, `./bin/phone`, `./bin/wifi`, `./bin/whatsapp`, `./bin/maker`, `./bin/github`, `./bin/qlty-assistant`. The `-assistant` suffixed forms are legacy aliases (except `./bin/qlty-assistant`, whose suffix is required so it does not shadow the real `qlty` binary). `desk` uses `./bin/desk`.
 - Persist credentials to INI with profiles (single source of truth)
 - Default to dry-run style flows for destructive operations; provide plan/apply
+
+Local Model Patches (qwen)
+- `./bin/qwen patch --files <files> --instruction "<text>"` — enqueue a qwen_patch job (Ollama must be running)
+- `./bin/qwen --apply <job-id>` — print the git apply command for a completed patch (never applies itself)
+- `./bin/qwen pin-model [--check]` — record or verify the pinned Ollama model digest
+- Default model: `qwen2.5-coder:14b`. Patches land in `core.paths.output_dir("qwen")`.
+- Note: `bin/qwen` is a standalone helper, not a CLIApp-based app — it has no `--agentic` schema.
 
 Agentic Schemas - Notes
 - Prefer compact schemas from CLI over `--help` to save tokens.
