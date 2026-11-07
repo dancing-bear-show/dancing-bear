@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -31,12 +32,19 @@ def _validate_profile_name(profile: str) -> None:
     Raises:
         CLIError(ExitCode.USAGE): On unsafe profile names.
     """
-    parts = Path(profile).parts
+    # Check the raw string first so trailing-slash forms like "foo/" are caught
+    # before Path normalises them away (Path("foo/").parts == ("foo",)).
+    sep_chars = {"/"}
+    if os.sep != "/":
+        sep_chars.add(os.sep)
+    if os.altsep:
+        sep_chars.add(os.altsep)
+
     if (
-        not parts
-        or len(parts) != 1
-        or parts[0] in (".", "..")
-        or parts[0].startswith(".")
+        not profile
+        or any(ch in profile for ch in sep_chars)
+        or ".." in profile
+        or profile.startswith(".")
     ):
         from core.cli_errors import CLIError, ExitCode
         raise CLIError(
@@ -63,7 +71,7 @@ def resolve_profile_dir(profile: str) -> Path | None:
         First existing directory, or ``None`` when none is found.
 
     Raises:
-        ValueError: If the profile name contains path-traversal characters.
+        CLIError(ExitCode.USAGE): If the profile name contains path-traversal characters.
     """
     _validate_profile_name(profile)
     from core.paths import config_home

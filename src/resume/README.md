@@ -294,7 +294,7 @@ Overlays + Filtering
   3. Packaged `src/resume/config/profiles/<prefix>/` (e.g. `sample`, always found)
   - Files within: `profile.yaml` (name/email/phone/location), `skills_groups.yaml` (grouped skills; supports `name` + `desc`), `experience.yaml` (canonical job history list), optional `interests.yaml`, `presentations.yaml`, `projects.yaml`, `languages.yaml`, `coursework.yaml`
   - Legacy flat naming under CWD `config/` (e.g., `profile.<prefix>.yaml`) is still checked as a secondary source.
-  - An unrecognised profile name (no directory found and no legacy files) causes a non-zero exit with the searched paths listed.
+  - An unrecognised profile name (no directory found and no legacy files) emits a warning on stderr and continues with the base data; it does not exit non-zero unless the base data is also missing.
 - Targeted scope (optional):
   - `--filter-skills-alignment` and `--filter-exp-alignment` filter to matched keywords from an alignment JSON; `--filter-*-job` supplies synonyms.
 

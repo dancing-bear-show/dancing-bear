@@ -198,7 +198,7 @@ class FilterPipeline:
         """Filter items by priority/usefulness threshold.
 
         Applies to: skills_groups, technologies, interests, presentations,
-        languages, coursework, summary, and experience.
+        projects, languages, coursework, summary, and experience.
 
         Args:
             min_priority: Minimum priority/usefulness score. If None, no-op.

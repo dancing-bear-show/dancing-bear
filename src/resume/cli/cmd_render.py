@@ -18,6 +18,7 @@ from ..overlays import resolve_profile_dir
 from ..schema import Resume
 from ..templating import load_template, parse_seed_criteria
 from ..docx_writer import write_resume_docx
+from ..docx_standard import _section_has_data, _SECTION_DATA_KEYS
 from ..structure import infer_structure_from_docx
 from .args import PROFILE_HELP_DATA, PROFILE_HELP_OUT, OUT_DIR_HELP, DATA_HELP, EXT_JSON, EXT_YAML, OUT_DIR_DOMAIN
 from .helpers import _load_candidate_data, _apply_filter_pipeline, _extend_seed_with_style, _resolve_out
@@ -100,23 +101,16 @@ def _load_structure(args: argparse.Namespace) -> dict | None:
 def _has_resume_content(resume: Resume) -> bool:
     """Return True if the resume has any meaningful content to render.
 
-    Checks name, experience, skills_groups, and summary (handling the
-    scalar-string form where an empty string is stored as a single blank item).
-    Returns False only when all four are empty — an accidental empty render that
-    would produce a blank document with exit 0.
+    Delegates to ``_section_has_data`` for every key registered in
+    ``_SECTION_DATA_KEYS``, plus the ``name`` field, so new sections are
+    covered automatically without updating this guard.
+
+    Returns False only when every registered section and ``name`` are empty —
+    an accidental empty render would produce a blank document with exit 0.
     """
     if resume.name:
         return True
-    if resume.experience:
-        return True
-    if resume.skills_groups:
-        return True
-    if resume.summary:
-        # Scalar form stores "" as [PriorityItem(text="")] — truthy list, empty text.
-        if resume.summary_is_scalar:
-            return bool(resume.summary[0].text)
-        return True
-    return False
+    return any(_section_has_data(key, resume) for key in _SECTION_DATA_KEYS)
 
 
 def cmd_render(args: argparse.Namespace) -> int:

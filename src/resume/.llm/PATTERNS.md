@@ -4,8 +4,11 @@ Repo Path
 - `cd resume`
 
 Profile Overlay + Nested Outputs
-- Use `--profile <prefix>` to apply overlays from `config/profiles/<prefix>/`.
-- Outputs go to `out/<prefix>/` (e.g., `data.json`, `resume.docx`, `structure.json`).
+- Use `--profile <prefix>` to apply overlays. Search order (first hit wins):
+  1. `<config-home>/resume/profiles/<prefix>/` (honours `DANCING_BEAR_CONFIG_HOME` / `XDG_CONFIG_HOME`)
+  2. CWD `config/profiles/<prefix>/` (backward compat)
+  3. Packaged `src/resume/config/profiles/<prefix>/` (e.g. `sample`)
+- Outputs go to `<data-home>/resume/<prefix>/` (e.g., `data.json`, `resume.docx`, `structure.json`).
 
 One-Page Render (compact)
 - `python -m resume render --data out/<prefix>/data.json --template config/template.onepage.yaml --profile <prefix> --structure-from out/<prefix>/structure.json --out out/<prefix>/resume.onepage.docx`

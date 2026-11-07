@@ -117,7 +117,7 @@ class TestRenderProjEntryKeywordBolding(unittest.TestCase):
         self.assertEqual(call_kw, keywords)
 
     def test_no_keywords_still_renders_bullet(self):
-        """Without keywords, bullets are rendered as plain text (no bold helper)."""
+        """Without keywords, bold_text_in_paragraph is still called with keywords=None."""
         from resume.schema import Project
 
         cell, _ = _make_cell()
@@ -171,6 +171,71 @@ class TestRenderProjEntryBulletNormalisation(unittest.TestCase):
         self._fn(cell, proj, {"body_pt": 10}, "#4A90A4")
         # Only the name paragraph should be present
         self.assertEqual(len(paras), 1)
+
+
+class TestRenderMainProjectsKeywordsThreaded(unittest.TestCase):
+    """_render_main_projects receives keywords from the sidebar writer end-to-end.
+
+    The existing tests call _render_proj_entry directly, which masked this bug:
+    _render_main_projects was called without keywords, so keyword bolding never
+    fired through the sidebar dispatch path.
+    """
+
+    def test_sidebar_writer_threads_keywords_to_projects(self):
+        """Keywords from seed reach _render_main_projects via _render_main_content."""
+        from resume.docx_sidebar_sections import SidebarResumeWriter
+        from resume.schema import Resume
+
+        data = Resume.from_dict({
+            "name": "Casey Synthetic",
+            "projects": [{"name": "P1", "bullets": [{"text": "Built in Python"}]}],
+        })
+        template = {
+            "page": {}, "layout": {},
+            "sections": [{"key": "projects", "title": "Projects"}],
+        }
+        writer = SidebarResumeWriter(data, template)
+
+        cell = MagicMock()
+        cell.paragraphs = []
+
+        with patch("resume.docx_sidebar_sections.bold_text_in_paragraph") as mock_bold, \
+             patch("resume.docx_sidebar_sections._render_main_section_heading"):
+            writer._render_main_content(cell, keywords=["Python"])
+
+        # bold_text_in_paragraph must have been called with the keyword list,
+        # not None — confirming keywords reached _render_main_projects.
+        self.assertTrue(mock_bold.called, "bold_text_in_paragraph was never called")
+        kw_args = [call[0][2] for call in mock_bold.call_args_list]
+        self.assertTrue(
+            any(kw == ["Python"] for kw in kw_args),
+            f"Expected ['Python'] in keyword args, got {kw_args}",
+        )
+
+    def test_sidebar_writer_no_keywords_passes_none(self):
+        """When no keywords are given, None is passed to _render_main_projects."""
+        from resume.docx_sidebar_sections import SidebarResumeWriter
+        from resume.schema import Resume
+
+        data = Resume.from_dict({
+            "name": "Casey Synthetic",
+            "projects": [{"name": "P1", "bullets": [{"text": "Some bullet"}]}],
+        })
+        template = {
+            "page": {}, "layout": {},
+            "sections": [{"key": "projects", "title": "Projects"}],
+        }
+        writer = SidebarResumeWriter(data, template)
+        cell = MagicMock()
+        cell.paragraphs = []
+
+        with patch("resume.docx_sidebar_sections.bold_text_in_paragraph") as mock_bold, \
+             patch("resume.docx_sidebar_sections._render_main_section_heading"):
+            writer._render_main_content(cell)
+
+        self.assertTrue(mock_bold.called)
+        kw_args = [call[0][2] for call in mock_bold.call_args_list]
+        self.assertTrue(all(kw is None for kw in kw_args), f"Expected None, got {kw_args}")
 
 
 if __name__ == "__main__":

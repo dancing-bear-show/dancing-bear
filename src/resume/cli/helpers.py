@@ -17,6 +17,7 @@ from ..parsing_experience_text import parse_resume_text
 from ..pipeline import FilterPipeline
 
 from .args import DEFAULT_PROFILE, OUT_DIR_DOMAIN
+from ..overlays import _validate_profile_name
 
 
 def _extend_seed_with_style(seed: dict, style_profile_path: str | None) -> dict:
@@ -142,6 +143,7 @@ def _resolve_data(args: argparse.Namespace) -> str:
         return str(explicit)
 
     profile = getattr(args, "profile", None) or DEFAULT_PROFILE
+    _validate_profile_name(profile)
     base = config_home() / OUT_DIR_DOMAIN / profile
     # is_file(), not exists(): a directory named data.json would otherwise
     # satisfy the lookup and fail later inside the reader with a confusing
@@ -170,9 +172,13 @@ def _resolve_out(args: argparse.Namespace, default_ext: str, kind: str) -> Path:
 
     Backward compatibility is preserved elsewhere when reading (e.g., structure).
     """
+    # Validate the profile name even when --out is supplied: the profile value
+    # still controls output naming on other commands, and an invalid name would
+    # otherwise slip through silently when --out short-circuits the path build.
+    prefix = getattr(args, "profile", None) or DEFAULT_PROFILE
+    _validate_profile_name(prefix)
     if getattr(args, "out", None):
         return Path(args.out)
-    prefix = getattr(args, "profile", None) or DEFAULT_PROFILE
     out_dir = output_dir(OUT_DIR_DOMAIN, getattr(args, "out_dir", None)) / prefix
     name = f"{kind}{default_ext}" if kind else f"{default_ext.lstrip('.')}"
     path = out_dir / name

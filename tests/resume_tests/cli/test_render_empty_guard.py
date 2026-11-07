@@ -50,6 +50,10 @@ class TestHasResumeContent(unittest.TestCase):
     def test_list_summary_has_content(self):
         self.assertTrue(self._fn({"summary": [{"text": "A bullet"}]}))
 
+    def test_projects_only_has_content(self):
+        """A projects-only resume passes the guard (projects is a registered section)."""
+        self.assertTrue(self._fn({"projects": [{"name": "P1"}]}))
+
 
 class TestCmdRenderEmptyGuard(unittest.TestCase):
     """cmd_render refuses to write when the resume has no content."""
@@ -139,6 +143,24 @@ class TestCmdRenderEmptyGuard(unittest.TestCase):
         self.assertEqual(result, 0)
         mock_write.assert_called_once()
 
+    @patch("resume.cli.cmd_render.write_resume_docx")
+    @patch("resume.cli.cmd_render._load_structure", return_value=None)
+    @patch("resume.cli.cmd_render._apply_filter_pipeline")
+    @patch("resume.cli.cmd_render.load_template", return_value={"sections": []})
+    @patch("resume.cli.helpers.read_yaml_or_json", return_value={"name": "Test"})
+    def test_projects_only_resume_passes_guard(
+        self, mock_read, mock_template, mock_filter, mock_structure, mock_write
+    ) -> None:
+        """A resume with only projects is not blocked by the guard."""
+        from resume.cli.cmd_render import cmd_render
+        from resume.schema import Resume
+
+        mock_filter.return_value = Resume.from_dict({"projects": [{"name": "P1"}]})
+        args = self._make_args(out="out.docx")
+        result = cmd_render(args)
+        self.assertEqual(result, 0)
+        mock_write.assert_called_once()
+
 
 class TestExtractThenRenderUnknownProfile(TempDirMixin, unittest.TestCase):
     """extract → render flow with an unknown profile still renders extracted data."""
@@ -165,19 +187,15 @@ class TestExtractThenRenderUnknownProfile(TempDirMixin, unittest.TestCase):
         out_file = Path(self.tmpdir) / "resume.docx"
         buf = io.StringIO()
 
-        try:
-            with self.in_tmpdir():
-                with patch.dict(os.environ, {"DANCING_BEAR_CONFIG_HOME": str(empty_home)}):
-                    with patch("sys.stderr", buf):
-                        exit_code = main([
-                            "render",
-                            "--data", str(data_file),
-                            "--profile", "nonexistent_profile_xyz",
-                            "--out", str(out_file),
-                        ])
-        except Exception:
-            # python-docx may not be installed; skip write-level failure
-            return
+        with self.in_tmpdir():
+            with patch.dict(os.environ, {"DANCING_BEAR_CONFIG_HOME": str(empty_home)}):
+                with patch("sys.stderr", buf):
+                    exit_code = main([
+                        "render",
+                        "--data", str(data_file),
+                        "--profile", "nonexistent_profile_xyz",
+                        "--out", str(out_file),
+                    ])
 
         # The warning must name the profile
         self.assertIn("nonexistent_profile_xyz", buf.getvalue())
