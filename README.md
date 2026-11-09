@@ -366,7 +366,7 @@ Enqueue code-patch jobs processed locally by an Ollama-hosted model. The worker 
 ./bin/qwen pin-model --check
 ```
 
-Patches land in `~/.local/share/dancing-bear/qwen/` (via `core.paths.output_dir("qwen")`). The handler never applies the patch — `--apply` only prints the command for the caller to run.
+Patches land in `~/.local/share/dancing-bear/qwen/patches/` (via `core.paths.output_dir("qwen") / "patches"`). The handler never applies the patch — `--apply` only prints the command for the caller to run.
 
 ## LLM Utilities
 

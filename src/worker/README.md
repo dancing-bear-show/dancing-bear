@@ -40,7 +40,7 @@ Enqueue via `./bin/qwen`; do not call `worker enqueue` directly for this type.
 ./bin/qwen pin-model --check          # compare recorded vs running; no write
 ```
 
-Default model: `qwen2.5-coder:14b`. Patches are written to `core.paths.output_dir("qwen")`. The handler never applies the patch — `--apply` only prints the `git apply` command for the caller to run.
+Default model: `qwen2.5-coder:14b`. Patches are written to `core.paths.output_dir("qwen") / "patches"`. The handler never applies the patch — `--apply` only prints the `git apply` command for the caller to run.
 
 Build/install workflow: `workflows/code/qwen-local-handler.yaml`. Day-to-day administration: `workflows/code/qwen-admin.yaml`. Minimal worked example: `workflows/demo/qwen-job-type.yaml`.
 

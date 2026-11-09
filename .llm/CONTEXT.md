@@ -86,7 +86,7 @@ Local Model Patches (qwen)
 - `./bin/qwen patch --files <files> --instruction "<text>"` — enqueue a qwen_patch job (Ollama must be running)
 - `./bin/qwen --apply <job-id>` — print the git apply command for a completed patch (never applies itself)
 - `./bin/qwen pin-model [--check]` — record or verify the pinned Ollama model digest
-- Default model: `qwen2.5-coder:14b`. Patches land in `core.paths.output_dir("qwen")`.
+- Default model: `qwen2.5-coder:14b`. Patches land in `core.paths.output_dir("qwen") / "patches"`.
 - Note: `bin/qwen` is a standalone helper, not a CLIApp-based app — it has no `--agentic` schema.
 
 Agentic Schemas - Notes
