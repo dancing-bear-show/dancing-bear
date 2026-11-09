@@ -9,9 +9,8 @@ from __future__ import annotations
 
 import io
 import json
-import unittest
+import unittest.mock
 from pathlib import Path
-from unittest import mock
 
 from tests.fixtures import TempDirMixin
 
@@ -34,7 +33,7 @@ class TestUnsafeProfileNameViaCLI(TempDirMixin, unittest.TestCase):
         stderr_buf = io.StringIO()
 
         with self.in_tmpdir():
-            with mock.patch("sys.stderr", stderr_buf):
+            with unittest.mock.patch("sys.stderr", stderr_buf):
                 exit_code = main([
                     "render",
                     "--data", str(data_file),
@@ -57,7 +56,7 @@ class TestUnsafeProfileNameViaCLI(TempDirMixin, unittest.TestCase):
         stderr_buf = io.StringIO()
 
         with self.in_tmpdir():
-            with mock.patch("sys.stderr", stderr_buf):
+            with unittest.mock.patch("sys.stderr", stderr_buf):
                 exit_code = main([
                     "render",
                     "--data", str(data_file),
@@ -78,7 +77,7 @@ class TestUnsafeProfileNameViaCLI(TempDirMixin, unittest.TestCase):
         stderr_buf = io.StringIO()
 
         with self.in_tmpdir():
-            with mock.patch("sys.stderr", stderr_buf):
+            with unittest.mock.patch("sys.stderr", stderr_buf):
                 exit_code = main([
                     "experience", "export",
                     "--data", str(data_file),
@@ -112,7 +111,7 @@ class TestTrailingSlashAndDotProfiles(TempDirMixin, unittest.TestCase):
         stderr_buf = io.StringIO()
 
         with self.in_tmpdir():
-            with mock.patch("sys.stderr", stderr_buf):
+            with unittest.mock.patch("sys.stderr", stderr_buf):
                 exit_code = main([
                     "render",
                     "--data", str(data_file),
@@ -149,7 +148,7 @@ class TestTrailingSlashAndDotProfiles(TempDirMixin, unittest.TestCase):
         stderr_buf = io.StringIO()
 
         with self.in_tmpdir():
-            with mock.patch("sys.stderr", stderr_buf):
+            with unittest.mock.patch("sys.stderr", stderr_buf):
                 exit_code = main([
                     "extract",
                     "--profile", "foo/",
