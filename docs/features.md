@@ -236,3 +236,44 @@ suggest folder groupings.
 ./bin/phone analyze --layout ios.IconState.yaml --format text
 ./bin/phone checklist --plan ios.plan.yaml
 ```
+
+---
+
+## 10. PDF output
+
+Two ways to write PDFs today:
+
+- **DOCX → PDF.** `resume export-pdf` converts a rendered resume through
+  LibreOffice and checks that the PDF actually exists before reporting success.
+- **Fill AcroForm templates.** `core/pdf_forms.py` fills text fields and
+  checkboxes on government and insurance forms. It sizes each field's font to
+  fit its cell, ticks one box of a Yes/No pair without ticking the other, and
+  raises when a field name matches no widget.
+
+```bash
+./bin/assistant resume export-pdf --docx resume.docx --out resume.pdf
+# pdf_forms needs PyMuPDF from the [pdf] extra; make venv installs it
+```
+
+There's no CLI for form filling yet. A `pdffill` domain, plus `claims` and
+`receipts` built on it, are planned; their build workflows are in
+`workflows/code/*-domain-build.yaml`.
+
+---
+
+## 11. Local model patches (qwen)
+
+A local Ollama model (`qwen2.5-coder:14b` by default) writes code patches
+through the worker queue, with no API calls. The model returns
+SEARCH/REPLACE edit blocks, the diff is built locally and checked with
+`git apply --check`, and nothing is ever applied for you.
+
+```bash
+./bin/qwen patch --files src/foo.py --instruction "add type hints" --explain  # guards only, no model
+./bin/qwen patch --files src/foo.py --instruction "add type hints"
+./bin/qwen --apply <job-id>      # prints the git apply command
+./bin/qwen pin-model --check     # running model matches the recorded digest?
+```
+
+`workflows/code/qwen-local-handler.yaml` installs the stack;
+`workflows/code/qwen-admin.yaml` checks health, queue lanes and disk use.
