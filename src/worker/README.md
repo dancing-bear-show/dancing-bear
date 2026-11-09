@@ -17,7 +17,8 @@ Supports `--agentic`: `./bin/worker --agentic --agentic-format yaml --agentic-co
 ./bin/worker show <job-id>           # show job JSON
 ./bin/worker retry <job-id>          # requeue a single error job
 ./bin/worker requeue-errors          # move all error/ jobs back to pending/
-./bin/worker purge                   # delete old done/error jobs and prune saved qwen responses
+./bin/worker purge                   # delete old done/error jobs (default --folders done,error)
+./bin/worker purge --folders qwen-responses  # prune saved qwen responses (opt-in)
 ```
 
 Job types: `run_cli` (allowlisted `./bin/` command), `run_shell` (allowlisted shell script), `workflow_stage` (workflow engine stage), `qwen_patch` (local Ollama-backed code-patch generation).
