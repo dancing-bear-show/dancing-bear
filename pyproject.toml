@@ -324,5 +324,6 @@ include = [
   "slides*",
   "sheets*",
   "github_assistant*",
+  "monitor_poll*",
   "qlty*",
 ]
