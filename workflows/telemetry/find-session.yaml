@@ -103,7 +103,7 @@ stages:
 
         root = os.path.expanduser("~/.claude/projects")
         candidates = []
-        for path in glob.glob(os.path.join(root, "*", "*.jsonl")):
+        for path in sorted(glob.glob(os.path.join(root, "*", "*.jsonl"))):
             try:
                 mtime = datetime.fromtimestamp(os.path.getmtime(path), tz=timezone.utc)
                 size = os.path.getsize(path)
@@ -173,6 +173,15 @@ stages:
 
       keywords = [w for w in re.findall(r"[a-z0-9]+", query.lower()) if len(w) > 2]
 
+      def redact(text):
+          """Replace obvious secret-shaped values in excerpt text with [REDACTED]."""
+          text = re.sub(r'(?i)Bearer\s+[A-Za-z0-9._\-/+]{20,}', 'Bearer [REDACTED]', text)
+          text = re.sub(r'sk-[A-Za-z0-9_\-]{20,}', 'sk-[REDACTED]', text)
+          text = re.sub(r'ghp_[A-Za-z0-9]{30,}', 'ghp_[REDACTED]', text)
+          text = re.sub(r'AKIA[A-Z0-9]{16}', 'AKIA[REDACTED]', text)
+          text = re.sub(r'(?i)(password|token)=[^\s"\'&]{8,}', r'\1=[REDACTED]', text)
+          return text
+
       def score_text(text, weight):
           if not text or not keywords:
               return 0.0, None
@@ -182,28 +191,30 @@ stages:
               return 0.0, None
           distinct = sum(1 for k in keywords if k in low)
           bonus = 2.0 if distinct == len(keywords) else 1.0
-          return hits * weight * bonus, text.strip().replace(chr(10), " ")[:300]
+          return hits * weight * bonus, redact(text.strip().replace(chr(10), " ")[:300])
 
       def blocks(role, content):
-          """Yield (weight, source, text) for each scorable string in one message."""
+          """Yield (weight, source, text, excerptable) per scorable string.
+          tool_use input fields are scored for relevance but not used as excerpts."""
           user_src = "user_turn" if role == "user" else "tool_content"
           weight = 3.0 if role == "user" else 1.0
           if isinstance(content, str):
-              yield weight, user_src, content
+              yield weight, user_src, content, True
           elif isinstance(content, list):
               for block in content:
                   if not isinstance(block, dict):
                       continue
                   if block.get("type") == "text" and isinstance(block.get("text"), str):
-                      yield weight, user_src, block["text"]
+                      yield weight, user_src, block["text"], True
                   elif block.get("type") == "tool_use" and isinstance(block.get("input"), dict):
                       for key in ("content", "command", "file_path", "prompt"):
                           val = block["input"].get(key)
                           if isinstance(val, str):
-                              yield 1.0, "tool_content", val
+                              yield 1.0, "tool_content", val, False
 
       def score_file(session_file):
           best = dict(score=0.0, excerpt=None, excerpt_source=None, user_turns=0)
+          best_excerpt_score = 0.0
           try:
               with open(session_file, encoding="utf-8", errors="replace") as fh:
                   for line in fh:
@@ -217,10 +228,13 @@ stages:
                       role = msg.get("role")
                       if role == "user":
                           best["user_turns"] += 1
-                      for weight, source, text in blocks(role, msg.get("content")):
+                      for weight, source, text, excerptable in blocks(role, msg.get("content")):
                           s, snip = score_text(text, weight)
                           if s > best["score"]:
-                              best.update(score=s, excerpt=snip, excerpt_source=source)
+                              best["score"] = s
+                          if excerptable and snip and s > best_excerpt_score:
+                              best_excerpt_score = s
+                              best.update(excerpt=snip, excerpt_source=source)
           except OSError as exc:
               best.update(score=0.0, excerpt="error reading file: " + str(exc), excerpt_source="error")
           return best
@@ -248,8 +262,11 @@ stages:
       input.content / command / file_path / prompt string fields as
       tool_content (weight 1x) -- this is where real scripts and shell commands
       live. A hit on every distinct keyword in one block doubles that block's
-      score. Keeps only the highest-scoring block per file as the excerpt (max
-      300 chars, newlines flattened).
+      score. Excerpts come only from user_turn and assistant text blocks (not
+      tool_use inputs, which may contain credentials); the overall session score
+      reflects all blocks. Excerpts are redacted for obvious secret patterns
+      (Bearer tokens, sk-/ghp_/AKIA prefixes, password=/token= values) before
+      storing (max 300 chars, newlines flattened).
 
       Never invokes grep/xargs as a subprocess -- all matching is Python string
       parsing, so there is no macOS BSD-vs-GNU flag risk.
@@ -325,6 +342,7 @@ stages:
     validation:
       strategy: unit
       criteria:
+        - Read outputs/ranked-results.md (written by rank-results) before evaluating
         - Every reported result includes session_file, project_dir, mtime, and excerpt
         - Results are sorted by score descending
         - Reports "no match" honestly if no candidate scored above 0, instead of inventing a result

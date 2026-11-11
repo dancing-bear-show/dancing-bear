@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -71,6 +72,21 @@ class TestKnownRoles(unittest.TestCase):
             [],
             f"agent definitions absent from KNOWN_ROLES: {missing}",
         )
+
+    def test_every_known_role_has_a_workflow_skill_role_map_row(self) -> None:
+        """Each KNOWN_ROLES entry must have a row in the /workflow ROLE_MAP table.
+
+        The orchestrator spawns agents via ``ROLE_MAP[role]`` from
+        .claude/skills/workflow/SKILL.md, so a role registered here but absent
+        from that table dies with KeyError at spawn, before the stage writes
+        any output.
+        """
+        skill = Path(__file__).resolve().parents[2] / ".claude" / "skills" / "workflow" / "SKILL.md"
+        rows = re.findall(r"^\| `([^`]+)` \| `([^`]+)` \|$", skill.read_text(), re.MULTILINE)
+        mapped = {role for role, _ in rows}
+        self.assertTrue(mapped, f"no ROLE_MAP rows parsed from {skill}")
+        missing = sorted(set(KNOWN_ROLES) - mapped)
+        self.assertEqual(missing, [], f"KNOWN_ROLES absent from ROLE_MAP in {skill}: {missing}")
 
     def test_unknown_role_still_dispatches_with_warning(self) -> None:
         """An unregistered role must warn but still pass through as agent_type.

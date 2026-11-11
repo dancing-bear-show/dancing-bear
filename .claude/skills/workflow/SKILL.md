@@ -351,6 +351,7 @@ agent failure rather than a missing table row.
 | `researcher` | `researcher` |
 | `code-writer` | `code-writer` |
 | `code-writer-opus` | `code-writer-opus` |
+| `code-writer-haiku-scaffold` | `code-writer-haiku-scaffold` |
 | `doc-writer` | `doc-writer` |
 | `reviewer` | `reviewer` |
 | `tester` | `tester` |

@@ -55,7 +55,7 @@ stages:
     agent:
       role: unit-validator
       model: sonnet
-      tools: [Read, Glob, Write]
+      tools: [Read, Bash, Glob, Write]
       access: read-write
     validation:
       strategy: unit

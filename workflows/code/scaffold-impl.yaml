@@ -83,8 +83,8 @@ trigger:
     run_id: ""            # injected by the engine; if blank, workspace_dir collapses all runs
                           # into "{work_dir}/scaffold-impl-" -- always supply or rely on injection
   param_rules:
-    source_root: '((?!.*\.\.)[A-Za-z0-9_][A-Za-z0-9_./-]*)?'
-    test_path: '((?!.*\.\.)[A-Za-z0-9_][A-Za-z0-9_./-]*)?'
+    source_root: '(?!.*\.\.)[A-Za-z0-9_][A-Za-z0-9_./-]*'
+    test_path: '(?!.*\.\.)[A-Za-z0-9_][A-Za-z0-9_./-]*'
     concern_ids: '([a-z0-9_-]+(,[a-z0-9_-]+)*)?'
     max_files: '[1-9][0-9]{0,2}'
     coverage_threshold: '100|[1-9]?[0-9]'
@@ -122,7 +122,7 @@ stages:
     agent:
       role: researcher
       model: haiku
-      tools: [Read, Write, Glob]
+      tools: [Read, Write, Glob, Bash, Grep]
       access: read-write
     required: true
     writes_to:
@@ -715,9 +715,9 @@ stages:
       Do NOT add new public symbols not in the spec.
 
       At the end run, from the repo root:
-        PYTHONPATH="$PWD/src" python3 -m unittest discover -s "{test_path}" -t . -q 2>&1 | tail -5
-      Record pass/fail in the summary -- do not block on test failures here
-      (the run-tests stage owns the gate).
+        PYTHONPATH="$PWD/src" python3 -m unittest discover -s "{test_path}" -t . -q > "{workspace}/outputs/tighten-tests.log" 2>&1; echo "EXIT=$?"; grep -E "^Ran [0-9]+ tests" "{workspace}/outputs/tighten-tests.log" || echo "WARNING: no Ran N tests line"; tail -5 "{workspace}/outputs/tighten-tests.log"
+      Record pass/fail in the summary from the exit code and the Ran N tests line -- do not block
+      on test failures here (the run-tests stage owns the gate).
     agent:
       role: code-writer
       model: sonnet
@@ -783,8 +783,13 @@ stages:
 
         cov_json = os.path.join(workspace, "outputs", "coverage.json")
         scoped = ["-m", "unittest", "discover", "-s", test_path, "-t", ".", "-q"]
-        cov_run = run(["python3", "-m", "coverage", "run", "--source=" + source_root] + scoped)
-        cov_out = run(["python3", "-m", "coverage", "json", "-o", cov_json])
+        include = ",".join(files)
+        if files:
+            cov_run = run(["python3", "-m", "coverage", "run", "--include=" + include] + scoped)
+            cov_out = run(["python3", "-m", "coverage", "json", "--include=" + include, "-o", cov_json])
+        else:
+            cov_run = dict(exit_code=0, output="(no files)")
+            cov_out = dict(exit_code=0, output="(no files)")
 
         pct = 0.0
         uncovered = []
@@ -796,7 +801,7 @@ stages:
                 uncovered.extend(fname + ":" + str(n) for n in finfo.get("missing_lines", []))
         except (FileNotFoundError, json.JSONDecodeError):  # nosec B110 - missing report leaves pct at 0.0 and fails the gate below
             pass
-        coverage_passed = cov_run["exit_code"] == 0 and cov_out["exit_code"] == 0 and pct >= coverage_threshold
+        coverage_passed = (not files) or (cov_run["exit_code"] == 0 and cov_out["exit_code"] == 0 and pct >= coverage_threshold)
 
         results = dict(
             lint=lint_result,
@@ -894,20 +899,33 @@ stages:
     executor: inline
     depends_on: [code-correct]
     reads_from: [code-correct, run-tests]
-    description: >
-      If validation/corrections-applied.json is empty or absent (code-correct
-      made no changes), skip: the run-tests gate already passed and source is
-      unchanged. Write outputs/verify-corrections.json with "skipped": true and
-      finish.
+    description: |
+      If validation/corrections-applied.json is absent or contains an empty
+      array, skip: the run-tests gate already passed and source is unchanged.
+      Write outputs/verify-corrections.json with {"skipped": true} and finish.
 
-      Otherwise re-run the SAME hard gate as run-tests against the corrected
-      source -- the qlty check, `make typecheck-changed`, `make test` (confirm
-      the "Ran N tests" line), and the coverage gate vs {coverage_threshold}.
-      Write outputs/verify-corrections.json with the same schema as
-      test-results.json. Read it back and report the stage failed if any tool
-      failed or coverage dropped below threshold, so a regression introduced by
-      code-correct stops the workflow before the human gate instead of
-      surfacing in CI.
+      Otherwise run each gate command below via the Bash tool from the repo root.
+
+      Step 1 — load scaffolded file list from outputs/scaffold-spec.json files[*].path.
+
+      Step 2 — lint (same gate as run-tests):
+        ~/.qlty/bin/qlty check <file1> <file2> ...
+
+      Step 3 — typecheck (same gate as run-tests):
+        make typecheck-changed
+
+      Step 4 — test suite (exit code AND Ran N tests line required, same as run-tests):
+        make test > "{workspace}/outputs/verify-test.log" 2>&1; echo "EXIT=$?"; grep -E "^Ran [0-9]+ tests" "{workspace}/outputs/verify-test.log" || echo "FAIL: no Ran N tests line"
+
+      Step 5 — coverage (new files only via --include=, same as run-tests):
+        PYTHONPATH="$PWD/src" python3 -m coverage run --include=<comma-joined file list> -m unittest discover -s "{test_path}" -t . -q
+        PYTHONPATH="$PWD/src" python3 -m coverage json --include=<comma-joined file list> -o {workspace}/outputs/verify-coverage.json
+        Read verify-coverage.json totals.percent_covered. Gate: pct >= {coverage_threshold}.
+
+      Write outputs/verify-corrections.json with the same schema as test-results.json
+      (keys: lint, typecheck, tests, coverage). Report the stage failed if any gate
+      failed or coverage dropped below threshold, so a code-correct regression stops
+      the workflow before the human gate instead of surfacing in CI.
     agent:
       role: code-writer
       model: sonnet

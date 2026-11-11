@@ -46,7 +46,7 @@ stages:
       - local_files: list files in the {target} directory (or parse the {files} param)
       - migration: list migration artifacts by name from {target}
 
-      Write a JSON array of units to {workspace}/manifest.json, each entry with
+      Write a JSON array of units to {workspace}/outputs/manifest.json, each entry with
       fields: path, unit_type, source.
     agent:
       role: researcher
@@ -63,7 +63,7 @@ stages:
           trigger param.
     required: true
     writes_to:
-      - manifest.json
+      - outputs/manifest.json
 
   # =========================================================================
   # Group 1: Per-unit validation (depends on discover-units)
@@ -76,8 +76,8 @@ stages:
     reads_from:
       - discover-units
     description: >
-      Per-unit validation. Read the manifest from discover-units to know which
-      units to validate. Check each unit against four criteria, producing a
+      Per-unit validation. Read the manifest from discover-units (at
+      outputs/manifest.json) to know which units to validate. Check each unit against four criteria, producing a
       finding per unit per criterion.
 
       Criteria:
@@ -126,6 +126,7 @@ stages:
     validation:
       strategy: cross_unit
       criteria:
+        - Read outputs/manifest.json (from discover-units) and validation/unit-findings.json (from validate-units) before evaluating each criterion
         - Shared data points (constants, config values, thresholds) match across all units
         - Interface contracts are consistent between producer and consumer modules
         - Naming and terminology are uniform across all units
@@ -172,8 +173,10 @@ stages:
       The user can approve (proceed to completion), request corrections
       (trigger revalidation pass), or dismiss findings.
 
-      If corrections are requested, write the list of units needing
-      correction to {workspace}/corrections-needed.json.
+      Always write outputs/corrections-needed.json as a JSON array of unit paths
+      needing correction; write an empty array [] if the user approves without
+      requesting corrections. This sentinel ensures revalidate can skip
+      deterministically.
     agent:
       role: doc-writer
       model: sonnet
@@ -195,6 +198,7 @@ stages:
     required: true
     writes_to:
       - validation/findings-summary.json
+      - outputs/corrections-needed.json
 
   # =========================================================================
   # Group 4: Re-validate corrected units (conditional, depends on review)
@@ -205,10 +209,11 @@ stages:
     description: >
       Re-validate only units that were corrected after the review gate.
       Confirm fixes landed without introducing new errors. Skip entirely
-      if no corrections were made.
+      if outputs/corrections-needed.json (from review-findings) is an empty array.
 
-      Read corrections-needed.json from review-findings to determine which
-      units to re-check. Apply the same per-unit criteria as validate-units,
+      Read outputs/corrections-needed.json from review-findings to get the list
+      of units to re-check; read outputs/manifest.json from discover-units for
+      unit metadata. Apply the same per-unit criteria as validate-units,
       and confirm that:
         - Previously failing claims now pass after correction
         - Corrections did not introduce new factual errors or inconsistencies
