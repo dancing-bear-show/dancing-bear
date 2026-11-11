@@ -31,12 +31,20 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _workspace_or_none(raw: str) -> Path | None:
-    """Return the workspace path, or print the not-found message and return None."""
+    """Return the run workspace, or print why it is not one and return None.
+
+    A run workspace has a manifest.json (as ``resume`` requires).  Checking for
+    it stops an empty or mistyped argument -- ``Path("")`` is the current
+    directory -- from writing a stages/ dir into an arbitrary directory.
+    """
     workspace = Path(raw)
-    if workspace.is_dir():
-        return workspace
-    print(format_workflow_not_found(raw, label="workspace"), file=sys.stderr)
-    return None
+    if not raw or not workspace.is_dir():
+        print(format_workflow_not_found(raw, label="workspace"), file=sys.stderr)
+        return None
+    if not (workspace / "manifest.json").is_file():
+        print(f"Error: {workspace} is not a run workspace (no manifest.json)", file=sys.stderr)
+        return None
+    return workspace
 
 
 def _planned_stages(workspace: Path) -> list[str]:

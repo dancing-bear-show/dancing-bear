@@ -178,6 +178,21 @@ class SetStateCliTests(_WorkspaceCase):
         self.assertEqual(out, "")
         self.assertIn("not found", err)
 
+    def test_non_workspace_dirs_refused(self) -> None:
+        """An empty argument is Path("") == cwd; a dir without manifest.json is no run."""
+        bare = self.ws.parent / "bare"
+        bare.mkdir()
+        for target, needle in (("", "not found"), (str(bare), "no manifest.json")):
+            with self.subTest(target=target):
+                code, _, err = _run("set-state", target, "build")
+                self.assertEqual(code, 1)
+                self.assertIn(needle, err)
+                code, _, err = _run("seed-pr-lifecycle", target, "pr", "--pr", "1")
+                self.assertEqual(code, 1)
+                self.assertIn(needle, err)
+        self.assertFalse((bare / "stages").exists())
+        self.assertFalse(Path("stages").exists())
+
     def test_stage_not_in_plan(self) -> None:
         code, _, err = _run("set-state", str(self.ws), "typo")
         self.assertEqual(code, 1)
