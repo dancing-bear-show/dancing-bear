@@ -113,10 +113,12 @@ dynamic input.
   building `next_command` strings with IDs or branch names; `$` regex anchors (which
   match before a trailing `\n`) used for validation; doc or workflow command templates
   with `{path}` and no quoting.
-- **example**: A branch name `refs/heads/--force` passed to `git push` without `--`
-  becomes a force-push flag. A base ref `main:refs/heads/x` passed to `git fetch`
-  mutates the remote ref. Fix: validate branch names against `^[A-Za-z0-9._/-]+$`
-  and always pass `--` before the branch argument: `git push origin -- {branch}`.
+- **example**: A user-supplied value that itself starts with `-` (`--force`, `-f`,
+  `--upload-pack=<cmd>`) passed to `git push origin {branch}` without `--` is parsed
+  as an option. A base ref `main:refs/heads/x` passed to `git fetch` mutates the
+  remote ref. Fix: validate with
+  `re.fullmatch(r"[A-Za-z0-9._/][A-Za-z0-9._/-]*", name)` (fullmatch, first char
+  not `-`) and pass `--` before positional refs: `git push origin -- {branch}`.
 - **see also**: `shell-injection`, `unvalidated-passthrough` in correctness.md
 
 ### path-alias-guard-compares-paths-not-identity

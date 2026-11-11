@@ -23,7 +23,9 @@ doc file. Load alongside `patterns.md` for changes that also touch source files.
   - Over-summarizing: a "Summary" section that restates what was just written
   - Emoji in prose: emoji is never permitted in headings, prose, bullet points,
     or PR section headers; emoji inside fenced code blocks showing example tool
-    or shell output is allowed — do not flag those
+    or shell output is allowed — do not flag those. Also exempt: the review
+    severity markers 🔴/🟡/🟢 (required by `.github/CLAUDE_REVIEW.md` and
+    CLAUDE.md) and the PR-body attribution line `🤖 Generated with [Claude Code](...)`
   - Bold overuse: bold on more than 1 in 10 phrases, or every bullet label
     bolded (e.g. `**Field**: value` on every line) — reserve bold for genuinely
     critical terms

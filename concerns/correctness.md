@@ -541,4 +541,3 @@ changes — new functions, modified logic, CLI `run()` methods, and datetime han
   to include unverified content. Fix: capture the verified set once and pass it
   explicitly to the mutation step, or use a private copy (e.g. `GIT_INDEX_FILE` pointing
   at a per-invocation temp file seeded from the verified HEAD SHA).
-- **see also**: `guard-check-after-side-effect` (in-process ordering only)

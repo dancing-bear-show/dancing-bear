@@ -449,7 +449,7 @@ source files introduce new `sys.exit()` paths, HTTP clients, or mock boundaries.
 - **triggers**: Any `.py` source file added or modified in `src/`; new CLI
   handlers, public methods, or classes introduced in the diff without corresponding
   test additions.
-- **example**: `make cov` shows new functions in `src/mail/filter_sync.py` at 0%
+- **example**: `make cov` shows new functions in `src/mail/filters/processors_plan.py` at 0%
   coverage — the PR added 80 lines of source with no corresponding tests. Add
   unit tests for the new paths until coverage is restored to at least the
   pre-PR level.

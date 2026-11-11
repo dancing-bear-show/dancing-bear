@@ -550,4 +550,3 @@ regression shapes specific to automated review-fix runs.
   turning a detectable failure into a silent zero. The correct fix is `-> float | None`
   in the annotation. Separately, a fix that drops a dataclass field to resolve an
   `assignment` error silently removes that field from every serialized JSON output.
-- **see also**: `suppression-masks-real-mypy-finding` in correctness.md
