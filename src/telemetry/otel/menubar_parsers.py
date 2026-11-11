@@ -7,6 +7,14 @@ from pathlib import Path
 from core.fileutil import find_rotated_files, iter_jsonl_file
 from telemetry._menubar_budget import _safe_float, _safe_int, _to_int
 from telemetry.otel._constants import METRIC_COST_USAGE
+from telemetry.otel.otlp_walk import (
+    RECORD_EXCEPTIONS,
+    iter_log_records,
+    iter_metrics,
+    metric_series,
+    parse_unix_nano,
+    select_datapoint_value,
+)
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -94,58 +102,64 @@ def _is_event_success(attrs: dict[str, object]) -> bool:
     return str(v).lower() not in ("false", "0", "no")
 
 
-def _iter_envelope_level(
-    container: dict[str, object], key: str
-) -> Iterator[dict[str, object]]:
-    """Yield the dict entries of ``container[key]``, skipping malformed input.
-
-    One level of an OTLP envelope: a missing key, a non-list value, and any
-    non-dict entry within the list are all skipped silently.
-    """
-    values = container.get(key, [])
-    if not isinstance(values, list):
-        return
-    for value in values:
-        if isinstance(value, dict):
-            yield value
-
-
-def _iter_list_value(
-    container: dict[str, object], key: str
-) -> Iterator[dict[str, object]]:
-    """Yield the entries of ``container[key]`` unfiltered, skipping a non-list value.
-
-    Unlike :func:`_iter_envelope_level` this does not drop non-dict entries: the
-    leaf level is declared as dicts by the caller contract and is passed through
-    as-is.
-    """
-    values = container.get(key, [])
-    if isinstance(values, list):
-        yield from values
-
-
 def _iter_log_records(raw_objs: list[dict[str, object]]) -> Iterator[dict[str, object]]:
-    """Yield every logRecord dict from a list of decoded OTLP resourceLogs objects."""
+    """Yield every logRecord dict from a list of decoded OTLP resourceLogs objects.
+
+    Non-dict entries at any level, including the logRecords themselves, are
+    skipped.
+    """
     for obj in raw_objs:
-        for resource_log in _iter_envelope_level(obj, "resourceLogs"):
-            for scope_log in _iter_envelope_level(resource_log, "scopeLogs"):
-                yield from _iter_list_value(scope_log, "logRecords")
+        yield from iter_log_records(obj)
 
 
-def _accumulate_datapoint(
-    dp: dict[str, object],
-    name: str,
-    cutoff: float,
-    out: list[tuple[str, float, dict[str, object]]],
-) -> None:
-    """Append (name, value, attrs) to *out* if the datapoint timestamp >= cutoff."""
-    ts_nano = _parse_nano_ts(dp.get("timeUnixNano", 0))
-    if ts_nano / 1e9 < cutoff:
-        return
-    value = _safe_float(dp.get("asDouble", dp.get("asInt", 0)), 0.0)
+def _read_datapoint(
+    dp: dict[str, object], cutoff: float
+) -> tuple[float, float, dict[str, object]] | None:
+    """Return ``(ts_secs, value, attrs)`` for one datapoint, or None.
+
+    None when the timestamp is absent, unusable, or before *cutoff*, or when
+    the value cannot be converted (e.g. an oversized number). The value is
+    ``asDouble``, else ``asInt``, per ``otlp_walk.select_datapoint_value``.
+    """
+    ts_nano = parse_unix_nano(dp.get("timeUnixNano"))
+    if not ts_nano or ts_nano / 1e9 < cutoff:
+        return None
+    try:
+        value = select_datapoint_value(dp)
+    except RECORD_EXCEPTIONS:
+        return None
     raw_attrs = dp.get("attributes", [])
     attrs = _parse_attrs(raw_attrs if isinstance(raw_attrs, list) else [])
-    out.append((name, value, attrs))
+    return ts_nano / 1e9, value, attrs
+
+
+def parse_metric_points(
+    raw_lines: list[dict[str, object]], cutoff: float
+) -> list[tuple[str, float, dict[str, object]]]:
+    """Return ``(metric_name, value, attrs)`` for the in-window metric points.
+
+    A delta point carries only the increment since the previous export, so
+    every delta point counts. A cumulative point carries the running total, so
+    summing every export of one series overcounts by the number of exports;
+    only the latest point of each cumulative series (metric name plus
+    attributes) is kept.
+    """
+    deltas: list[tuple[str, float, dict[str, object]]] = []
+    latest: dict[tuple[str, ...], tuple[float, float, dict[str, object]]] = {}
+    for raw in raw_lines:
+        for name, is_cumulative, dp in _iter_metric_datapoints(raw):
+            point = _read_datapoint(dp, cutoff)
+            if point is None:
+                continue
+            ts, value, attrs = point
+            if not is_cumulative:
+                deltas.append((name, value, attrs))
+                continue
+            key = (name, *(f"{k}={v}" for k, v in sorted(attrs.items())))
+            prev = latest.get(key)
+            if prev is None or ts > prev[0]:
+                latest[key] = point
+    return [(key[0], value, attrs) for key, (_, value, attrs) in latest.items()] + deltas
 
 
 def _accumulate_loc_delta(
@@ -262,24 +276,16 @@ def _str_or_empty(value: object) -> str:
     return str(value) if value is not None else ""
 
 
-def _iter_metric_points(metric: dict[str, object]) -> Iterator[dict[str, object]]:
-    """Yield the datapoint dicts of one OTLP metric, preferring gauge over sum."""
-    gauge = metric.get("gauge", {})
-    sum_data = metric.get("sum", {})
-    gauge_dict = gauge if isinstance(gauge, dict) else {}
-    sum_dict = sum_data if isinstance(sum_data, dict) else {}
-    if gauge_dict.get("dataPoints"):
-        return _iter_envelope_level(gauge_dict, "dataPoints")
-    return _iter_envelope_level(sum_dict, "dataPoints")
+_CUMULATIVE_TEMPORALITY = 2  # OTLP AggregationTemporality: 1 = DELTA, 2 = CUMULATIVE
 
 
 def _iter_metric_datapoints(
     raw: dict[str, object],
-) -> Iterator[tuple[str, dict[str, object]]]:
-    """Yield (metric_name, datapoint_dict) pairs from a single raw metrics JSONL record."""
-    for resource_metric in _iter_envelope_level(raw, "resourceMetrics"):
-        for scope_metric in _iter_envelope_level(resource_metric, "scopeMetrics"):
-            for metric in _iter_envelope_level(scope_metric, "metrics"):
-                name = _str_or_empty(metric.get("name"))
-                for datapoint in _iter_metric_points(metric):
-                    yield name, datapoint
+) -> Iterator[tuple[str, bool, dict[str, object]]]:
+    """Yield (metric_name, is_cumulative, datapoint_dict) from one raw metrics record."""
+    for metric in iter_metrics(raw):
+        name = _str_or_empty(metric.get("name"))
+        shape, points = metric_series(metric)
+        is_cumulative = shape.get("aggregationTemporality") == _CUMULATIVE_TEMPORALITY
+        for datapoint in points:
+            yield name, is_cumulative, datapoint

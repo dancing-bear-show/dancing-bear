@@ -290,6 +290,30 @@ class TestMetricDataPointFromDict(unittest.TestCase):
         self.assertEqual(dp.time_unix_nano, 0)
         self.assertEqual(dp.start_time_unix_nano, 0)
 
+    def test_integer_point_reads_as_int(self):
+        # OTLP JSON encodes an integer point as a string "asInt" with no asDouble.
+        dp = MetricDataPoint.from_dict({"timeUnixNano": str(_TIME_NS), "asInt": "1234"})
+        self.assertAlmostEqual(dp.value, 1234.0)
+
+    def test_as_double_wins_over_as_int(self):
+        dp = MetricDataPoint.from_dict({"asDouble": 1.5, "asInt": "9"})
+        self.assertAlmostEqual(dp.value, 1.5)
+
+    def test_unusable_time_raises_value_error(self):
+        for bad in (None, "garbage", -1, 2**70):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                MetricDataPoint.from_dict({"timeUnixNano": bad})
+
+    def test_unusable_start_time_defaults_to_zero(self):
+        dp = MetricDataPoint.from_dict({"timeUnixNano": _TIME_NS, "startTimeUnixNano": "x"})
+        self.assertEqual(dp.start_time_unix_nano, 0)
+
+    def test_non_string_attribute_key_becomes_empty(self):
+        dp = MetricDataPoint.from_dict(
+            {"attributes": [{"key": [], "value": {"stringValue": "v"}}, None, "x"]}
+        )
+        self.assertEqual([a.key for a in dp.attributes], [""])
+
 
 class TestMetricDataPointTimestampProperties(unittest.TestCase):
 
