@@ -159,6 +159,13 @@ bin-wrappers-check:
 # it is a convenience, not the enforcement point. Adding a new *.test.sh needs no
 # change here or in CI; the wrapper discovers the directory and fails if a suite on
 # disk is not wired in.
+.PHONY: hooks
+hooks:
+	# Wire .githooks/ as the active git hooks directory for this checkout.
+	# Run once after cloning. bin/bootstrap reminds you to do this.
+	git config core.hooksPath .githooks
+	@echo "Git hooks directory set to .githooks/ (commit-msg and pre-push active)"
+
 .PHONY: hooks-test
 hooks-test:
 	@for s in .claude/hooks/tests/*.test.sh; do \

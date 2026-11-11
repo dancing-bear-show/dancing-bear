@@ -21,6 +21,45 @@ Do not assume the entry point is `./bin/<app>` — three differ: `apple-music` a
 `./bin/assistant resume`. `./bin/llm inventory --stdout` is
 the authoritative list.
 
+## False-Positive Guards
+
+Do NOT flag these patterns — they are intentional and correct:
+
+### TYPE_CHECKING Imports
+
+`TYPE_CHECKING` guards are used for forward references and to break import
+cycles. Names imported under `if TYPE_CHECKING:` look unused at runtime but
+are referenced in annotations. Before flagging an import as unused, check
+whether the full file uses it in a type annotation, default argument, or
+`isinstance()` call.
+
+```python
+from __future__ import annotations  # enables string-form annotations
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from mail.providers.gmail import GmailClient  # used in: def send(client: GmailClient)
+```
+
+**Never flag**: an import whose only references are in type annotations, when
+`from __future__ import annotations` is present at the top of the file.
+
+### stderr vs stdout
+
+Diagnostic output (warnings, errors, progress) belongs on stderr; data output
+(JSON, CSV, YAML, tables) belongs on stdout. Flag the REVERSE of this — data
+going to stderr or diagnostics going to stdout — not code that correctly sends
+errors to stderr:
+
+```python
+# Correct — do NOT flag
+print("No messages found", file=sys.stderr)
+print(json.dumps(result))                    # data to stdout
+
+# Flag this — data on stderr
+print(json.dumps(result), file=sys.stderr)
+```
+
 ## Verification Must Actually Verify
 
 The most valuable findings in this repo's recent history are checks that **pass
@@ -64,9 +103,18 @@ Before requesting a change to satisfy a qlty finding, confirm the finding is rea
   excluded from smells via `test_patterns` in `.qlty/qlty.toml`.
 
 Prefer a genuine refactor; where a rule genuinely misfires, a suppression with a
-stated reason is correct. Suppression codes are linter-specific: `# noqa:` takes
-ruff codes, `# NOSONAR` takes SonarQube codes (S3776), `# nosec` takes bandit
-codes (B603). A SonarQube code in a `# noqa:` suppresses nothing.
+stated reason is correct. Suppression codes are linter-specific:
+- `# noqa: <code>` — ruff codes only (e.g. `F401`, `E402`). Never put a bandit
+  or SonarQube code here; it suppresses nothing and may cause ruff to warn.
+- `# nosec <code>` — bandit codes only (e.g. `B603`, `B607`).
+- `# NOSONAR` — SonarQube suppression. **This codebase does not use SonarQube.**
+  A `# NOSONAR` comment in this repo is dead annotation; use `# nosec` instead.
+- Suppress bandit false positives with a reason comment explaining intent
+  (see `tests/mail_tests/test_config_resolver.py` for the house style).
+
+A SonarQube code in a `# noqa:` suppresses nothing — the same mismatch in
+reverse. Always match the suppression syntax to the tool that produces the
+finding.
 
 ## Review Priorities
 
@@ -137,9 +185,32 @@ An active migration is closing `dict[str, Any]` boundaries onto typed schemas
 - Assert the invocation element-by-element, not with `assertIn`. Paths
   containing spaces, quotes, `;`, `$( )`, backticks, `&&` or `|` must reach argv
   verbatim — a path with a space stays one element.
-- Pin `timeout` and `capture_output`.
+- **`timeout=` is required** on every `subprocess.run`, `check_output`, and
+  `call` invocation; an unbounded wait hangs CI and blocks the whole runner.
+  For `Popen`, an unbounded `communicate()` or `wait()` has the same effect.
+  Bounded waits and intentionally detached daemons (documented as such) are fine.
+- Pin `capture_output`.
 - Test the negative: assert the subprocess is **not** invoked when a pre-check
   fails, and that argument validation raises before the process would run.
+
+### Mask Before Emit
+
+Credential values, tokens, and secrets must be masked **before** they appear in
+any log message, exception text, or diagnostic output — masking applied after a
+value was already emitted is not a fix.
+
+```python
+# Flag this — token leaks into logs before masking
+log.debug("token=%s", token)
+log.debug("token=%s", mask(token))  # too late if the first line already ran
+
+# Correct — mask first, never emit the raw value
+log.debug("token=%s", mask(token))
+```
+
+The same rule applies to truncation: if a value is truncated before display,
+truncate before masking, not the other way around — a suffix-truncated secret
+may still be reconstructable.
 
 ### Workflow YAML
 
