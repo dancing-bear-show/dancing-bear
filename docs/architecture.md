@@ -3,7 +3,7 @@
 How this repo is put together, for someone about to change it. For setup and
 first commands, see the README's **Quick Start** and **Commands** sections.
 
-The short version: 19 packages under `src/` share one `core/` framework, and
+The short version: 20 packages under `src/` share one `core/` framework, and
 every command that touches real data goes through **plan → dry-run → apply**.
 
 ## 1. The 10,000-foot view
@@ -29,6 +29,7 @@ per domain, plus `core/` underneath them all.
 | `telemetry/` | Claude Code session cost/token telemetry |
 | `worker/` | background job queue and daemon |
 | `apple_music/`, `wifi/`, `qlty/` | Apple Music, Wi-Fi, qlty scan/triage |
+| `github_assistant/` | GitHub porcelain over `core.github` |
 | `core/` | shared framework — everything below |
 
 ```mermaid

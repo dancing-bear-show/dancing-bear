@@ -43,13 +43,14 @@ src/                      # all Python source packages (installable via package-
   diagrams/               # Mermaid diagram generation (flowchart/sequence/gantt/pie; telemetry cost/token pies)
   slides/                 # generate PowerPoint decks from YAML deck definitions
   sheets/                 # generate styled .xlsx spreadsheets from YAML workbook definitions
-  workflow/               # YAML DAG workflow engine (parse/compile/run/lint/list/status)
+  workflow/               # YAML DAG workflow engine (24 subcommands; see docs/workflow-engine.md)
   core/                   # shared helpers
   telemetry/              # Claude Code session telemetry (cost, tokens, TUI)
   worker/                 # background job queue and daemon
   apple_music/            # Apple Music CLI
   wifi/                   # Wi-Fi CLI
   qlty/                   # qlty scan/triage wrapper (tiers findings by remediation strategy)
+  github_assistant/       # GitHub porcelain over core.github
 bin/                      # entry wrappers and helper scripts
 tests/                    # lightweight unittest suite
 .llm/                     # LLM context, flows, capsules
@@ -613,7 +614,7 @@ and hit a gap the YAML didn't cover, fix the YAML — that is how these get bett
 # Visualization + orchestration
 ./bin/charts render <spec.json>          # render a chart (also: grid, reshape)
 ./bin/diagrams from-yaml <spec.yaml>     # Mermaid from YAML (also: render, validate, embed, telemetry)
-./bin/workflow run <workflow.yaml>       # run a YAML DAG (also: parse, compile, lint, list, status)
+./bin/workflow run <workflow.yaml>       # run a YAML DAG (24 subcommands; see docs/workflow-engine.md)
 ```
 
 ## Auto-Familiarization

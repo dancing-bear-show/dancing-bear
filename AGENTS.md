@@ -20,7 +20,7 @@ telemetry).
 ./bin/llm domain-map --stdout
 ```
 
-All 19 apps support `--agentic`. `./bin/llm inventory --stdout` prints the exact invocation for each — `./bin/<app>` is wrong for three of them.
+All 19 CLIApp-based apps support `--agentic`. `./bin/llm inventory --stdout` prints the exact invocation for each — `./bin/<app>` is wrong for three of them. `bin/qwen` is a standalone helper and does not have `--agentic`.
 
 ## Key Rules
 
@@ -32,30 +32,31 @@ All 19 apps support `--agentic`. `./bin/llm inventory --stdout` prints the exact
 
 ## Architecture
 
-19 packages under `src/`:
+20 packages under `src/`:
 ```
-mail/         Gmail/Outlook providers, CLI wiring
-calendars/    Outlook calendar CLI + Gmail scans
-schedule/     plan/apply calendar schedules
-resume/       extract/summarize/render resumes
-phone/        iOS layout tooling
-whatsapp/     local-only ChatStorage search
-wifi/         diagnostics
-desk/         macOS filesystem tidying
-apple_music/  Apple Music API
-maker/        utility generators
-charts/       time-series chart rendering
-diagrams/     Mermaid diagram generation
-slides/       PowerPoint deck generation from YAML
-sheets/       styled .xlsx generation from YAML
-qlty/         qlty scan/triage wrapper
-workflow/     YAML DAG engine
-worker/       background job queue and daemon
-telemetry/    Claude Code session telemetry
-core/         shared helpers and CLI framework
-bin/          entry wrappers (see bin/_wrappers.yaml)
-.llm/         LLM context, flows, capsules
-config/       YAML inputs (source of truth)
+mail/              Gmail/Outlook providers, CLI wiring
+calendars/         Outlook calendar CLI + Gmail scans
+schedule/          plan/apply calendar schedules
+resume/            extract/summarize/render resumes; export-pdf via LibreOffice
+phone/             iOS layout tooling
+whatsapp/          local-only ChatStorage search
+wifi/              diagnostics
+desk/              macOS filesystem tidying
+apple_music/       Apple Music API
+maker/             utility generators
+charts/            time-series chart rendering
+diagrams/          Mermaid diagram generation
+slides/            PowerPoint deck generation from YAML
+sheets/            styled .xlsx generation from YAML
+qlty/              qlty scan/triage wrapper
+github_assistant/  GitHub porcelain over core.github
+workflow/          YAML DAG engine (24 subcommands)
+worker/            background job queue and daemon; qwen_patch job type (Ollama)
+telemetry/         Claude Code session telemetry
+core/              shared helpers and CLI framework; pdf_forms (AcroForm fill, [pdf] extra)
+bin/               entry wrappers (see bin/_wrappers.yaml); bin/qwen standalone helper
+.llm/              LLM context, flows, capsules
+config/            YAML inputs (source of truth)
 ```
 
 Generated output lands outside the checkout (`src/core/paths.py`): `--out-dir`, else

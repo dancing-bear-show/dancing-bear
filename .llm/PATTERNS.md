@@ -495,3 +495,15 @@ WiFi Patterns
 # Diagnostics
 ./bin/wifi diagnose
 ```
+
+PDF Form Fill Patterns (core/pdf_forms.py, needs `[pdf]` extra)
+```python
+import fitz  # PyMuPDF
+from core.pdf_forms import fill_text_fields, set_checkbox
+
+doc = fitz.open(template)
+fill_text_fields(doc, {"<field_name>": "value"})  # names are template-specific; KeyError if one matches no widget
+set_checkbox(doc, "2.member_another_plan", "Yes")  # on-state, not label: confirm against a render
+doc.save(out_path)
+# Narrow cells get smaller fonts via DEFAULT_FONT_SIZES (prefix -> pt); override with sizes=
+```

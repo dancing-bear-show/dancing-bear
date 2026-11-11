@@ -49,8 +49,45 @@ Override trigger params with repeatable `--params key=value`:
   --params profile=gmail_personal --params dry_run=true
 ```
 
-`init-workspace`, `resume`, and `validate-fragment` cover run management; see
-`./bin/workflow --help`.
+### Run management
+
+| Subcommand | Purpose |
+|---|---|
+| `init-workspace` | Create workspace dir, write `manifest.json` + `plan.json`, print path |
+| `resume <workspace>` | Show stages that need re-running; exit 0 if all done, exit 2 if stages remain |
+| `validate-fragment <file>` | Validate a `fragment: true` YAML (not a full workflow); use instead of `lint` |
+| `check-params <workspace>` | Validate params from a workspace JSON file; exit 0 pass, 1 fail |
+
+### Review-thread remediation helpers
+
+These are plumbing subcommands used by the `review-fix-threads` workflow internals.
+
+| Subcommand | Purpose |
+|---|---|
+| `check-fix-index` | Fail unless every `fix-index.json` entry has a unique `id` and filename-safe `file_id` |
+| `thread-fingerprints` | Print each `threads.json` entry's `database_id` and body fingerprint as JSON |
+| `check-thread-ids` | Id-coherence gate: compare `triage.json` thread ids vs `threads.json`; exit 0 pass, 1 halt |
+| `aggregate-fix-results` | Merge `fixes/<file_id>.json` into `fix-results.json`, verifying identity |
+| `snapshot-dirty` | Record the checkout's dirty/untracked paths and content hashes as JSON |
+| `check-unlisted` | Exit 1 if a path changed since the snapshot is absent from `fix-results` files_changed |
+| `merge-fix-results` | Merge `fix-results.json` and `refix-results.json` into a combined file |
+| `review-rounds` | Fetch PR bot-review-round data and write per-PR JSON + summary |
+
+### Concern swarm / sweep
+
+| Subcommand | Purpose |
+|---|---|
+| `sweep-record` | Per-commit evidence that the concern swarm ran (or was waived); required before `open-pr` |
+| `select-concerns` | Select concern guides for given file paths and optional task type |
+| `parse-overview` | Parse a Copilot `ccr-overview-v2` review body into structured findings |
+| `count-sweep` | Count lines matching a regex under repo-relative paths; prints `{hits, files}` |
+| `count-blocking` | Derive the blocking-finding count from `sweep-findings.json`; exit 2 on malformed input |
+
+### Path and workspace guards
+
+| Subcommand | Purpose |
+|---|---|
+| `check-paths` | Exit non-zero if any path escapes the repo or touches protected dirs (`.git`, `.github`, `.claude`, `.envrc`) |
 
 ## Anatomy of a workflow
 

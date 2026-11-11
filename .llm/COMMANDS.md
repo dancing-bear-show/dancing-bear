@@ -146,3 +146,12 @@ Phone (iOS) — Auto‑organize into folders:
   - `./bin/phone auto-folders --layout ./ipad.IconState.yaml --plan ./ipad.plan.yaml --place-folders-from-page 2`
 - Then build+install the multi‑page profile:
   - `./bin/ios-pages-sync --plan ./ipad.plan.yaml --layout ./ipad.IconState.yaml --out ./ipad.hslayout.mobileconfig --udid <UDID>`
+
+Resume PDF:
+- `./bin/assistant resume export-pdf --docx ./resume.docx --out ./resume.pdf`
+
+Local model patches (qwen; Ollama must be running):
+- Guards only: `./bin/qwen patch --files src/foo.py --instruction "..." --explain`
+- Enqueue: `./bin/qwen patch --files src/foo.py --instruction "..."`
+- Print apply command: `./bin/qwen --apply <job-id>`
+- Check model pin: `./bin/qwen pin-model --check`
