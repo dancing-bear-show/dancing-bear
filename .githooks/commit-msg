@@ -2,13 +2,14 @@
 # Conventional Commits message validator.
 # Source of truth for allowed types: .github/COMMIT_CONVENTION.md
 # Allows: Merge commits, Revert commits, fixup!/squash! prefixes, empty messages.
-# Validates first non-comment line matches: type[(scope)]...[!]: subject
+# Validates first non-comment line matches: type[(scope[,scope2])]...[!]: subject
 set -euo pipefail
 
 msg_file="$1"
 
-# Extract first non-empty, non-comment line
-first_line=$(sed -n "/^[#;]/d; /^[[:space:]]*$/d; 1p" "$msg_file" | tr -d '\r')
+# Extract first non-empty, non-comment line.
+# Use p;q (not 1p) so lines skipped by d do not consume the address.
+first_line=$(sed -n "/^[#;]/d; /^[[:space:]]*$/d; p; q" "$msg_file" | tr -d '\r')
 
 # Allow empty messages (e.g., template-only file)
 if [[ -z "${first_line}" ]]; then
@@ -25,7 +26,7 @@ fi
 # Types from .github/COMMIT_CONVENTION.md
 # Multiple scopes are allowed (e.g. dependabot's chore(deps)(deps-dev): ...).
 # Breaking change marker ! is optional after the last scope.
-regex='^(feat|fix|docs|refactor|test|chore|perf|ci|style|revert)(\([a-z0-9._-]+\))*!?: .+'
+regex='^(feat|fix|docs|refactor|test|chore|perf|ci|style|revert)(\([a-z0-9.,_-]+\))*!?: .+'
 
 if [[ ! "${first_line}" =~ ${regex} ]]; then
   cat 1>&2 <<ERR
@@ -35,7 +36,7 @@ Found:  ${first_line}
 
 Expected: type[(scope)]: subject
   Types: feat, fix, docs, refactor, test, chore, perf, ci, style, revert
-  Scope: optional; multiple scopes allowed (e.g. chore(deps)(deps-dev): ...)
+  Scope: optional; comma-separated or multiple scopes (e.g. refactor(core,workflow): ..., chore(deps)(deps-dev): ...)
   Breaking change: add ! before the colon (e.g. feat(mail)!: ...)
 
 Examples:

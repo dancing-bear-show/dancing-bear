@@ -110,6 +110,14 @@ class TestCommitMsgHookAcceptsValid(unittest.TestCase):
         """Messages whose only non-blank lines are comments bypass validation."""
         self._assert_accepted("# This is a comment\n# Another comment\n")
 
+    def test_comment_then_valid_line(self) -> None:
+        """A comment on line 1 followed by a valid commit line must be accepted."""
+        self._assert_accepted("# comment\nfeat(mail): ok\n")
+
+    def test_comma_separated_scopes(self) -> None:
+        """Comma-separated scopes like refactor(core,workflow): ... must be accepted."""
+        self._assert_accepted("refactor(core,workflow): consolidate helpers\n")
+
     def test_all_types_accepted(self) -> None:
         """Every type from COMMIT_CONVENTION.md must be accepted."""
         types = ["feat", "fix", "docs", "refactor", "test", "chore", "perf", "ci", "style", "revert"]
@@ -147,6 +155,14 @@ class TestCommitMsgHookRejectsInvalid(unittest.TestCase):
 
     def test_colon_only(self) -> None:
         self._assert_rejected("feat:\n")
+
+    def test_blank_first_line_not_bypassed(self) -> None:
+        """A blank first line must not cause the validator to skip the real message."""
+        self._assert_rejected("\nbad message\n")
+
+    def test_comment_first_line_not_bypassed(self) -> None:
+        """A comment on line 1 must not cause the validator to skip the real message."""
+        self._assert_rejected("# comment\nbad message\n")
 
 
 class TestPrePushHookBlocksMain(unittest.TestCase):
