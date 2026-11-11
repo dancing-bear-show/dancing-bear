@@ -9,7 +9,7 @@ import json
 import sys
 from dataclasses import dataclass, asdict, is_dataclass
 from enum import Enum
-from typing import Any, Sequence, TextIO
+from typing import Any, Mapping, Sequence, TextIO
 
 
 class OutputFormat(str, Enum):
@@ -320,15 +320,24 @@ def output_table(data: Any, headers: list[str] | None = None) -> None:
     writer.print_data(data, headers)
 
 
-def emit_one(data: object, fmt: str = "json") -> None:
-    """Emit a single JSON object to stdout."""
+def emit_one(data: object, fmt: str = "json") -> int:
+    """Emit a single object to stdout. Returns 0.
+
+    ``json`` (default) and ``jsonl`` print the object itself; ``yaml`` prints it
+    as a YAML mapping; ``table``/``csv`` render a dict as a one-row table.
+    """
     if fmt == "jsonl":
         print(json.dumps(data, separators=(",", ":"), ensure_ascii=False, default=str))
+    elif fmt == "yaml":
+        output_yaml(data)
+    elif fmt in ("table", "csv") and isinstance(data, dict):
+        emit_rows([data], fmt)
     else:
         print(json.dumps(data, indent=2, ensure_ascii=False, default=str))
+    return 0
 
 
-def _emit_rows_csv(rows: list[dict[str, object]], cols: list[str]) -> None:
+def _emit_rows_csv(rows: Sequence[Mapping[str, object]], cols: list[str]) -> None:
     """Write rows as CSV to stdout."""
     import csv
     import sys as _sys
@@ -337,14 +346,14 @@ def _emit_rows_csv(rows: list[dict[str, object]], cols: list[str]) -> None:
     w.writerows(rows)
 
 
-def _emit_rows_table_plain(rows: list[dict[str, object]], cols: list[str]) -> None:
+def _emit_rows_table_plain(rows: Sequence[Mapping[str, object]], cols: list[str]) -> None:
     """Write rows as a tab-separated plain-text table to stdout."""
     print("\t".join(cols))
     for row in rows:
         print("\t".join(str(row.get(c, "")) for c in cols))
 
 
-def _emit_rows_table(rows: list[dict[str, object]], cols: list[str]) -> None:
+def _emit_rows_table(rows: Sequence[Mapping[str, object]], cols: list[str]) -> None:
     """Write rows as a rich table, falling back to plain text if rich is unavailable."""
     try:
         from rich.table import Table
@@ -358,18 +367,33 @@ def _emit_rows_table(rows: list[dict[str, object]], cols: list[str]) -> None:
 
 
 def emit_rows(  # NOSONAR S3516 - always returns 0 by design; callers chain return emit_rows() as exit code
-    rows: list[dict[str, object]],
+    rows: Sequence[Mapping[str, object]],
     fmt: str = "json",
     headers: list[str] | None = None,
     empty_msg: str = "No results.",
+    *,
+    structured_empty: bool = False,
 ) -> int:
-    """Emit list of dicts as table, json, or csv. Returns 0 on success."""
+    """Emit list of dicts as table, json, yaml, or csv. Returns 0 on success.
+
+    With no rows, ``empty_msg`` goes to stderr. ``structured_empty`` also emits
+    an empty document (``[]`` or a header-only csv) for machine formats so a
+    piped consumer still receives parseable output.
+    """
     if not rows:
         print(empty_msg, file=sys.stderr)
+        if not structured_empty:
+            return 0
+        if fmt in ("json", "yaml"):
+            print("[]")
+        elif fmt == "csv" and headers:
+            _emit_rows_csv([], headers)
         return 0
     cols = headers or list(rows[0].keys())
     if fmt == "json":
         print(json.dumps(rows, ensure_ascii=False, default=str))
+    elif fmt == "yaml":
+        output_yaml(rows)
     elif fmt == "csv":
         _emit_rows_csv(rows, cols)
     else:  # table

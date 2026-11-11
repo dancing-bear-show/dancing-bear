@@ -8,7 +8,14 @@ import unittest
 from pathlib import Path
 
 from core.cli_errors import CLIError
-from core.fileutil import atomic_write_json, load_json_or_exit, safe_load_json, write_once
+from core.fileutil import (
+    SymlinkDestinationError,
+    atomic_write_json,
+    atomic_write_text,
+    load_json_or_exit,
+    safe_load_json,
+    write_once,
+)
 
 
 class TestAtomicWriteJson(unittest.TestCase):
@@ -140,6 +147,69 @@ class TestLoadJsonOrExit(unittest.TestCase):
             load_json_or_exit("/no/such/file.json")
         self.assertIn("file.json", str(cm.exception))
 
+
+
+class TestAtomicWriteText(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.dir = Path(tmp.name)
+
+    def _leftovers(self):
+        return [p.name for p in self.dir.iterdir() if p.name.endswith(".tmp")]
+
+    def test_creates_parent_dirs_and_writes_utf8(self):
+        target = self.dir / "a" / "b.txt"
+        atomic_write_text(target, "caf\u00e9\n")
+        self.assertEqual(target.read_text(encoding="utf-8"), "caf\u00e9\n")
+
+    def test_new_file_mode_respects_requested_bits(self):
+        target = self.dir / "secret.md"
+        atomic_write_text(target, "x", new_file_mode=0o600)
+        self.assertEqual(target.stat().st_mode & 0o777, 0o600)
+
+    def test_overwrite_preserves_existing_mode(self):
+        target = self.dir / "keep.txt"
+        target.write_text("old")
+        target.chmod(0o640)
+        atomic_write_text(target, "new", new_file_mode=0o600)
+        self.assertEqual(target.read_text(), "new")
+        self.assertEqual(target.stat().st_mode & 0o777, 0o640)
+
+    def test_symlink_replaced_not_written_through(self):
+        real = self.dir / "real.txt"
+        real.write_text("untouched")
+        link = self.dir / "link.txt"
+        link.symlink_to(real)
+        atomic_write_text(link, "replaced")
+        self.assertFalse(link.is_symlink())
+        self.assertEqual(link.read_text(), "replaced")
+        self.assertEqual(real.read_text(), "untouched")
+
+    def test_symlink_refused_when_requested(self):
+        real = self.dir / "real.txt"
+        real.write_text("untouched")
+        link = self.dir / "link.txt"
+        link.symlink_to(real)
+        with self.assertRaises(SymlinkDestinationError):
+            atomic_write_text(link, "nope", refuse_symlink=True)
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(real.read_text(), "untouched")
+
+    def test_directory_destination_rejected(self):
+        target = self.dir / "adir"
+        target.mkdir()
+        with self.assertRaises(IsADirectoryError):
+            atomic_write_text(target, "x")
+        self.assertEqual(self._leftovers(), [])
+
+    def test_failed_write_removes_temp_and_keeps_old_content(self):
+        target = self.dir / "t.txt"
+        target.write_text("old")
+        with self.assertRaises(UnicodeEncodeError):
+            atomic_write_text(target, "\ud800")  # lone surrogate cannot encode
+        self.assertEqual(target.read_text(), "old")
+        self.assertEqual(self._leftovers(), [])
 
 if __name__ == "__main__":
     unittest.main()
