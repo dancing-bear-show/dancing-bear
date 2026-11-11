@@ -105,14 +105,14 @@ Before requesting a change to satisfy a qlty finding, confirm the finding is rea
 Prefer a genuine refactor; where a rule genuinely misfires, a suppression with a
 stated reason is correct. Suppression codes are linter-specific:
 - `# noqa: <code>` — ruff codes only (e.g. `F401`, `E402`). Never put a bandit
-  or SonarQube code here; it suppresses nothing and may cause ruff to warn.
+  or radarlint/SonarQube code here; it suppresses nothing and may cause ruff to warn.
 - `# nosec <code>` — bandit codes only (e.g. `B603`, `B607`).
-- `# NOSONAR` — SonarQube suppression. **This codebase does not use SonarQube.**
-  A `# NOSONAR` comment in this repo is dead annotation; use `# nosec` instead.
+- `# NOSONAR` — suppresses radarlint (SonarQube-rule) findings reported via
+  qlty (e.g. `S1481`, `S3776`). Used deliberately; not dead annotation.
 - Suppress bandit false positives with a reason comment explaining intent
   (see `tests/mail_tests/test_config_resolver.py` for the house style).
 
-A SonarQube code in a `# noqa:` suppresses nothing — the same mismatch in
+A code in the wrong comment (e.g. a SonarQube code in `# noqa:`) suppresses nothing — the same mismatch in
 reverse. Always match the suppression syntax to the tool that produces the
 finding.
 
@@ -202,15 +202,13 @@ value was already emitted is not a fix.
 ```python
 # Flag this — token leaks into logs before masking
 log.debug("token=%s", token)
-log.debug("token=%s", mask(token))  # too late if the first line already ran
+print(token)
 
 # Correct — mask first, never emit the raw value
 log.debug("token=%s", mask(token))
 ```
 
-The same rule applies to truncation: if a value is truncated before display,
-truncate before masking, not the other way around — a suffix-truncated secret
-may still be reconstructable.
+Mask the full value; never print a prefix or suffix slice of a secret.
 
 ### Workflow YAML
 

@@ -38,14 +38,14 @@
 <!-- Run these before merging. Catches the most common feedback issues early. -->
 
 ### Required Checks
-- [ ] Tests passing — confirm output includes `Ran N tests` line:
+- [ ] Tests passing — no `Ran N tests` line means the suite did not run:
   ```bash
-  make test > /tmp/t.log 2>&1; echo "EXIT=$?"; grep -E "^Ran [0-9]+ tests|^OK|FAILED" /tmp/t.log
+  make test > /tmp/t.log 2>&1; echo "EXIT=$?"; grep -E "^Ran [0-9]+ tests" /tmp/t.log
   ```
 - [ ] qlty clean over changed files:
   ```bash
   git diff --name-only main...HEAD > /tmp/changed.txt
-  ~/.qlty/bin/qlty check $(cat /tmp/changed.txt)
+  xargs ~/.qlty/bin/qlty check < /tmp/changed.txt
   ```
 - [ ] Type check on changed files:
   ```bash
