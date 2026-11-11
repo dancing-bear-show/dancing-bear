@@ -97,7 +97,6 @@ def run_poll(
     start = clock()
     deadline = start + timeout
     polls = 0
-    last = Probe(Outcome.PENDING)
     while True:
         try:
             last = condition()
