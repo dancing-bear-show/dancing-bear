@@ -59,6 +59,9 @@ from workflow.cli_dispatch_review import (
     _cmd_sweep_record_write,
     _cmd_thread_fingerprints,
 )
+from workflow.cli_lifecycle import _cmd_seed_pr_lifecycle, _cmd_set_state
+from workflow.models import StageStatus
+from workflow.set_state import DEFAULT_PR_FRAGMENT
 
 _PATH_HELP = "Path to workflow YAML file"
 
@@ -241,6 +244,45 @@ def cmd_init_workspace(args: argparse.Namespace) -> int:
 @app.argument("--format", "-f", **_format_kwargs(default="table"))
 def cmd_resume(args: argparse.Namespace) -> int:
     return _cmd_resume(args)
+
+
+@app.command(
+    "set-state",
+    help="Write a stage-result marker for a stage finished outside the orchestrator",
+)
+@app.argument("workspace_dir", help="Workspace directory of the run")
+@app.argument("stage_name", help="Stage name to mark; must be in the run's plan")
+@app.argument(
+    "--status", default="success", choices=[s.value for s in StageStatus],
+    help="Status to record (default: success)",
+)
+@app.argument("--data", default="", metavar="JSON", help="JSON object stored as the result's data")
+@app.argument(
+    "--stage-index", dest="stage_index", type=int, default=None, metavar="N",
+    help="Marker index (default: max existing + 1, so it outranks older markers)",
+)
+@app.argument("--note", default=None, help="Free text stored in metadata.note")
+@app.argument("--format", "-f", **_format_kwargs(formats=["json", "yaml", "table"], default="table"))
+def cmd_set_state(args: argparse.Namespace) -> int:
+    return _cmd_set_state(args)
+
+
+@app.command(
+    "seed-pr-lifecycle",
+    help="Mark every stage of an included PR fragment success for one PR",
+)
+@app.argument("workspace_dir", help="Workspace directory of the run")
+@app.argument("prefix", help="Include prefix of the fragment's stages (e.g. 'pr' for pr-open-pr)")
+@app.argument("--pr", dest="pr_number", type=int, required=True, help="PR number")
+@app.argument("--url", default=None, help="PR URL, stored on the open-pr stage")
+@app.argument("--note", default=None, help="Free text stored in metadata.note on every stage")
+@app.argument(
+    "--fragment", default="", metavar="PATH",
+    help=f"Fragment whose stages to seed (default: {DEFAULT_PR_FRAGMENT})",
+)
+@app.argument("--format", "-f", **_format_kwargs(formats=["json", "csv", "table"], default="table"))
+def cmd_seed_pr_lifecycle(args: argparse.Namespace) -> int:
+    return _cmd_seed_pr_lifecycle(args)
 
 
 @app.command(
@@ -439,15 +481,11 @@ def cmd_sweep_record_check(args: argparse.Namespace) -> int:
 def _no_command_usage() -> int:
     """Preserve the legacy no-subcommand behavior (one-line usage to
     stderr, ExitCode.USAGE) rather than CLIApp's default (full --help),
-    since this is a public CLI surface."""
-    print(
-        "Usage: workflow {parse,compile,run,lint,list,status,init-workspace,resume,"
-        "validate-fragment,parse-overview,check-paths,select-concerns,check-params,"
-        "check-fix-index,thread-fingerprints,check-thread-ids,aggregate-fix-results,"
-        "snapshot-dirty,check-unlisted,review-rounds,count-sweep,count-blocking,"
-        "merge-fix-results,sweep-record} [options]",
-        file=sys.stderr,
-    )
+    since this is a public CLI surface.  The name list is derived from the
+    registered commands so a new subcommand cannot be left out."""
+    names = [name for name, cmd in app._commands.items() if cmd.parent is None]
+    names.extend(app._groups)
+    print(f"Usage: workflow {{{','.join(names)}}} [options]", file=sys.stderr)
     return ExitCode.USAGE
 
 

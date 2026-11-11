@@ -17,6 +17,14 @@ def build_agentic_capsule() -> str:
     lines.append("  - status: ./bin/workflow status <workspace-dir>")
     lines.append("  - init-workspace: ./bin/workflow init-workspace <file.yaml>")
     lines.append("  - resume: ./bin/workflow resume <workspace-dir>")
+    lines.append(
+        "  - set-state: ./bin/workflow set-state <workspace-dir> <stage> "
+        "[--status success] [--data '{json}'] [--stage-index N] [--note T]"
+    )
+    lines.append(
+        "  - seed-pr-lifecycle: ./bin/workflow seed-pr-lifecycle <workspace-dir> <prefix> "
+        "--pr N [--url U] [--note T] [--fragment PATH]"
+    )
     lines.append("  - validate-fragment: ./bin/workflow validate-fragment <fragment.yaml>")
     lines.append(
         "  - check-params: ./bin/workflow check-params <workspace>/manifest.json "
@@ -90,6 +98,11 @@ def build_agentic_capsule() -> str:
     lines.append("  - file arguments are positional (./bin/workflow run <file>), not --input")
     lines.append("  - --params accepts k=v pairs; repeat for multiple params")
     lines.append("  - resume exits 0 if all stages done, exits 2 if stages remain")
+    lines.append(
+        "  - set-state / seed-pr-lifecycle: stuck-run recovery; write stage markers for work "
+        "done outside the orchestrator (index = max+1, so they supersede older markers); "
+        "stage must be in plan.json; exit 1 on unknown workspace/stage, bad name or --data"
+    )
     lines.append(
         "  - check-params validates trigger params as JSON data (exit 0 pass, 1 fail); "
         "--print writes one value to stdout only if every --check passed, so a stage "

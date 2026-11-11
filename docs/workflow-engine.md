@@ -57,6 +57,34 @@ Override trigger params with repeatable `--params key=value`:
 | `resume <workspace>` | Show stages that need re-running; exit 0 if all done, exit 2 if stages remain |
 | `validate-fragment <file>` | Validate a `fragment: true` YAML (not a full workflow); use instead of `lint` |
 | `check-params <workspace>` | Validate params from a workspace JSON file; exit 0 pass, 1 fail |
+| `set-state <workspace> <stage>` | Write a stage-result marker for a stage finished outside the orchestrator |
+| `seed-pr-lifecycle <workspace> <prefix> --pr N` | Mark every stage of an included PR fragment `success` for one PR |
+
+#### Recovering a stuck run
+
+When a stage's work was finished by hand (for example a PR opened and merged by
+a separately dispatched agent), record it instead of re-running it:
+
+```bash
+./bin/workflow resume <workspace>                       # which stages still need a run
+./bin/workflow set-state <workspace> build --note "fixed by hand"
+./bin/workflow seed-pr-lifecycle <workspace> pr --pr 711 --url <pr-url>
+./bin/workflow run <file> --execute --workspace <workspace>   # continue from there
+```
+
+Markers are written through the engine's own `StageResult` writer as
+`stages/NNN-<stage>.json`, with `metadata.seeded_by` and `seeded_at`. The index
+defaults to the highest existing index plus one, so a new marker supersedes an
+older (for example `failed`) one rather than editing it. The stage must appear
+in the run's `plan.json`; a name outside it, an unsafe name, or a non-object
+`--data` exits 1 without writing. `seed-pr-lifecycle` reads stage names from
+`--fragment` (default `workflows/shared/pr-open-and-wait-ci.yaml`), checks every
+`<prefix>-<stage>` before the first write, and stores `pr_number` and `url` on
+the `open-pr` stage.
+
+`run --workspace` resumes by keeping every stage that has any `success` marker,
+so `set-state --status failed` does not force a re-run there; `resume` reports
+the newest marker.
 
 ### Review-thread remediation helpers
 
