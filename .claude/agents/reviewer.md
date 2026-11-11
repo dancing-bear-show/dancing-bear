@@ -1,7 +1,7 @@
 ---
 name: reviewer
 description: Read-only code review and analysis agent. Use for code review, dead code analysis, pattern finding.
-model: claude-sonnet-4-6
+model: claude-sonnet-5-5
 disallowedTools: Edit, NotebookEdit
 skills:
   - dancing-bear-rules

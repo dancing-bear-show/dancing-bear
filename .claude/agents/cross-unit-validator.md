@@ -1,7 +1,7 @@
 ---
 name: cross-unit-validator
 description: Multi-unit consistency validator. Cross-references shared data points, checks interface contracts, verifies naming consistency. Returns structured JSON findings.
-model: claude-sonnet-4-6
+model: claude-sonnet-5-5
 disallowedTools: Edit, NotebookEdit
 skills:
   - dancing-bear-rules
