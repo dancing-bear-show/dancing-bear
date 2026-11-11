@@ -1,0 +1,1022 @@
+name: scaffold-impl
+version: "1.0"
+description: >
+  Multi-wave code generation workflow: plan -> scaffold -> tighten -> validate.
+
+  Wave 1 (Opus): reads the task spec and concern library, produces a
+  machine-readable scaffold specification -- one FileScaffoldSpec per file,
+  with public interface, method contracts, concern excerpts, and stub/implement
+  flags. The spec is validated before any code agent fires.
+
+  Wave 2 (Haiku swarm): one agent per file in the spec, executed in parallel.
+  Each agent gets a single FileScaffoldSpec -- a concrete, self-contained
+  contract. Haiku writes compilable scaffolds: correct signatures, correct
+  imports, stubs where stub_ok=true, real implementations where rules are
+  provided. No cross-file reasoning required.
+
+  Wave 3 (Sonnet): reads all scaffold outputs together. Fills cross-file
+  invariants (imports, __all__, type consistency), implements stub_ok methods
+  that depend on sibling files, and gates quality with qlty, mypy and tests.
+
+  Wave 4 -- code-validate + code-correct:
+  - reviewer (Sonnet): reads authoritative concern docs, checks implementation
+    against each stub_ok=false contract, writes code-findings.json
+  - code-writer (Sonnet): applies surgical fixes for FAIL findings
+
+  Stage dependency graph:
+
+    load-concerns (inline)
+         |
+    plan-scaffold (Opus)
+         |
+    resolve-signatures (inline -- enrich imports_needed with real def lines)
+         |
+    validate-spec (execute -- structural check before swarm fires)
+         |
+    index-spec (inline -- build zero-padded fan-out index)
+         |
+    precondition-clean-tree (inline -- assert clean tree, snapshot backups)
+         |
+    scaffold-swarm (Haiku, parallel fan-out -- one agent per file)
+         |
+    place-scaffolds (inline -- copy swarm outputs to their final paths)
+         |
+    syntax-check (inline -- fail before tighten loads bad files)
+         |
+    tighten (Sonnet -- sees all scaffold outputs together)
+         |
+    run-tests (inline -- qlty, typecheck-changed, unittest, coverage)
+         |
+    code-validate -> code-correct -> verify-corrections
+         |
+    clear-markers
+         |
+    human-gate
+
+  Wave 2 cost estimate: ~$0.003 per file at Haiku rates.
+  Wave 3 is one Sonnet call regardless of file count.
+
+  IMPORTANT: This workflow uses executor: inline stages. It must be run via the
+  /workflow skill -- NOT via ./bin/workflow run --execute. The Python CLI
+  dispatcher raises NotImplementedError for inline stages.
+
+  Shell blocks below take caller params as quoted argv values. Every such
+  param is constrained by trigger.param_rules, so no value can carry shell
+  metacharacters; the Python bodies read them from sys.argv only.
+
+metadata:
+  author: dancing-bear
+  created: "2026-11-11"
+
+trigger:
+  source: manual
+  params:
+    task: ""              # plain-language description of what to build
+    source_root: ""       # e.g. "src/workflow" -- scope for concern loading and coverage
+    test_path: ""         # e.g. "tests/workflow_tests" -- one directory, where unittest discovery runs
+    concern_ids: ""       # comma-separated concern doc names to load (e.g. "correctness,patterns")
+                          # omit to let the planner choose from concerns/*.md
+    max_files: "20"       # safety cap on Haiku swarm size
+    coverage_threshold: "80"  # new-code coverage % the run-tests gate enforces (matches CI)
+    inject_stubs: "false"  # "true" forces plan-scaffold to mark one function per file as
+                           # stub_ok=true, exercising the code-correct path in tests
+    run_id: ""            # injected by the engine; if blank, workspace_dir collapses all runs
+                          # into "{work_dir}/scaffold-impl-" -- always supply or rely on injection
+  param_rules:
+    source_root: '((?!.*\.\.)[A-Za-z0-9_][A-Za-z0-9_./-]*)?'
+    test_path: '((?!.*\.\.)[A-Za-z0-9_][A-Za-z0-9_./-]*)?'
+    concern_ids: '([a-z0-9_-]+(,[a-z0-9_-]+)*)?'
+    max_files: '[1-9][0-9]{0,2}'
+    coverage_threshold: '100|[1-9]?[0-9]'
+    inject_stubs: 'true|false'
+    run_id: '([A-Za-z0-9_-]{1,64})?'
+
+workspace_dir: "{work_dir}/scaffold-impl-{run_id}"
+
+stages:
+  # -- Wave 0: load concerns ---------------------------------------------------
+
+  - name: load-concerns
+    kind: gather
+    executor: inline
+    description: >
+      Load concern excerpts from concerns/*.md files referenced by {concern_ids}
+      (or all of them if blank). For each concern file, extract rule IDs,
+      one-sentence descriptions, and the relevant paragraph. To pick guides for
+      the paths under {source_root}, write those paths one per line to a file
+      with the Write tool and run
+      `./bin/workflow select-concerns --paths-file <that file> --format json`.
+
+      Write outputs/concerns.json:
+      {
+        "concern_id": {
+          "source": "concerns/correctness.md",
+          "rules": [
+            { "id": "rule-id", "summary": "one sentence", "excerpt": "paragraph" }
+          ]
+        }
+      }
+
+      Read concerns/*.md directly with Read/Glob -- grep the headings first and
+      read only the sections you excerpt.
+    agent:
+      role: researcher
+      model: haiku
+      tools: [Read, Write, Glob]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/concerns.json
+
+  # -- Wave 1: plan ------------------------------------------------------------
+
+  - name: plan-scaffold
+    kind: execute
+    depends_on: [load-concerns]
+    reads_from: [load-concerns]
+    description: >
+      Read the task description ({task}), the loaded concern excerpts
+      (outputs/concerns.json), and the existing codebase under {source_root}.
+
+      Produce a machine-readable scaffold specification: outputs/scaffold-spec.json.
+
+      The spec is a JSON object with two top-level keys:
+
+        "summary": one-paragraph plain-language description of what will be built
+        "files": list of FileScaffoldSpec objects
+
+      Each FileScaffoldSpec:
+      {
+        "path": "src/foo/bar.py",
+        "description": "one sentence -- role of this file",
+        "public_interface": ["ClassName", "function_name"],
+        "imports_needed": [
+          {"module": "core.cli_output", "names": ["emit_rows"]},
+          {"module": "core.paths", "names": ["output_dir"]}
+        ],
+        "reads_from": ["src/foo/models.py"],  // other spec files this depends on
+        "test_fixture": "tests/fakes/example.py",  // null if no fixture
+        "contracts": [
+          {
+            "name": "method_or_function_name",
+            "signature": "def fetch(self, key: str) -> dict[str, object]",
+            "stub_ok": false,
+            "rules": [
+              {
+                "rule": "Raise KeyError on missing key -- never return None",
+                "concern_id": "correctness",
+                "rule_id": "never-return-none",
+                "excerpt": "...verbatim paragraph from concern doc..."
+              }
+            ]
+          }
+        ]
+      }
+
+      Rules for the planner:
+      - Module names are rooted at src/ (src/core/paths.py is "core.paths").
+      - stub_ok: true -> Haiku writes `raise NotImplementedError` or `...`
+      - stub_ok: false -> Haiku must implement using the provided rules
+      - Keep each FileScaffoldSpec self-contained: include only the concern
+        excerpts that Haiku needs for that file's contracts
+      - Cap at {max_files} files; if more are needed, split into phases and
+        note the phases in "summary"
+      - Do NOT invent concern rules not present in outputs/concerns.json
+      - Use dataclasses for structured data, never plain dicts; PEP 585/604
+        type hints; reuse helpers that already exist in src/core/
+      - The spec is validated before the swarm fires -- malformed specs fail fast
+      - imports_needed MUST use the structured form: each entry is an object
+        with "module" (most precise path) and "names" (list of symbols imported).
+        The resolve-signatures stage will add a "signatures" dict automatically --
+        do NOT attempt to fill it yourself.
+
+      inject_stubs={inject_stubs}: if "true", mark the LAST contract of EACH file
+      in the spec as stub_ok=true (leave all others as stub_ok=false). This forces
+      Haiku to emit a `raise NotImplementedError` stub for that contract, which
+      code-validate will flag as FAIL, exercising the code-correct correction path.
+      Use only when running workflow integration tests -- never in production runs.
+
+      Write outputs/scaffold-spec.json.
+    agent:
+      role: code-writer-opus
+      model: opus
+      tools: [Read, Write, Bash, Glob, Grep]
+      access: read-write
+    outputs:
+      - name: scaffold-spec
+        mode: generate
+        description: JSON scaffold specification per file
+        schema:
+          type: object
+          required: [summary, files]
+          properties:
+            summary: {type: string}
+            files:
+              type: array
+              items:
+                type: object
+                required: [path, description, public_interface, imports_needed, contracts]
+                properties:
+                  imports_needed:
+                    type: array
+                    items:
+                      type: object
+                      required: [module, names]
+                      properties:
+                        module: {type: string}
+                        names: {type: array, items: {type: string}}
+                        signatures: {type: object}  # added by resolve-signatures stage
+    required: true
+    writes_to:
+      - outputs/scaffold-spec.json
+
+  # -- Wave 1b: resolve real signatures from src/ --------------------------------
+
+  - name: resolve-signatures
+    kind: gather
+    executor: inline
+    depends_on: [plan-scaffold]
+    reads_from: [plan-scaffold]
+    description: |
+      Enrich each FileScaffoldSpec's imports_needed entries with the real
+      function/class signatures extracted from src/. This prevents Haiku from
+      hallucinating call signatures and shrinks the tighten pass (the dominant
+      cost in the workflow).
+
+      Reads scaffold-spec.json from {workspace}/outputs/, adds a "signatures"
+      dict keyed by symbol name to each imports_needed entry, writes the spec
+      back atomically, then writes outputs/resolve-signatures.json:
+        "enriched": N, "missed": [...], "complete": true
+
+      The file is written first with "complete": false and rewritten with true
+      only after the loop finishes, so a crash mid-loop is detectable.
+      Run from the repo root (strip the common 8-space indent from the body):
+
+        python3 -I -S - "{workspace}" <<'PYEOF'
+        import ast, json, os, sys
+
+        ws = sys.argv[1]
+        if not ws:
+            sys.exit("FAIL: empty workspace argv")
+        out_dir = os.path.join(ws, "outputs")
+        spec_path = os.path.join(out_dir, "scaffold-spec.json")
+        res_path = os.path.join(out_dir, "resolve-signatures.json")
+        with open(spec_path, encoding="utf-8") as fh:
+            spec = json.load(fh)
+        with open(res_path, "w", encoding="utf-8") as fh:
+            json.dump(dict(enriched=0, missed=[], complete=False), fh)
+
+        DEFS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+
+        def find_module(mod):
+            base = os.path.join("src", *mod.split("."))
+            for cand in (base + ".py", os.path.join(base, "__init__.py")):
+                if os.path.isfile(cand):
+                    return cand
+            return None
+
+        def signature(node):
+            if isinstance(node, ast.ClassDef):
+                bases = ", ".join(ast.unparse(b) for b in node.bases)
+                return "class " + node.name + ("(" + bases + ")" if bases else "")
+            kw = "async def " if isinstance(node, ast.AsyncFunctionDef) else "def "
+            ret = " -> " + ast.unparse(node.returns) if node.returns is not None else ""
+            return kw + node.name + "(" + ast.unparse(node.args) + ")" + ret
+
+        def module_names(tree):
+            defs = dict((n.name, n) for n in tree.body if isinstance(n, DEFS))
+            other = set()
+            for n in tree.body:
+                if isinstance(n, ast.Assign):
+                    other.update(t.id for t in n.targets if isinstance(t, ast.Name))
+                elif isinstance(n, ast.AnnAssign) and isinstance(n.target, ast.Name):
+                    other.add(n.target.id)
+                elif isinstance(n, ast.ImportFrom):
+                    other.update(a.asname or a.name for a in n.names)
+            return defs, other
+
+        enriched = 0
+        missed = []
+        for entry in spec["files"]:
+            for imp in entry.get("imports_needed", []):
+                mod = imp["module"]
+                path = find_module(mod)
+                if path is None:
+                    imp["signatures"] = dict()
+                    missed.append(mod + " (file not found)")
+                    continue
+                with open(path, encoding="utf-8") as fh:
+                    defs, other = module_names(ast.parse(fh.read()))
+                sigs = dict()
+                for name in imp["names"]:
+                    if name in defs:
+                        sigs[name] = signature(defs[name])
+                        enriched += 1
+                    elif name in other:
+                        sigs[name] = name + " (module-level name)"
+                        enriched += 1
+                    else:
+                        missed.append(mod + ":" + name)
+                imp["signatures"] = sigs
+
+        tmp = spec_path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(spec, fh, indent=2)
+        os.replace(tmp, spec_path)
+        with open(res_path, "w", encoding="utf-8") as fh:
+            json.dump(dict(enriched=enriched, missed=missed, complete=True), fh, indent=2)
+        print("enriched %d, missed %d" % (enriched, len(missed)))
+        PYEOF
+
+      Module-not-found misses ("<module> (file not found)") are logged but not
+      fatal (WARN in validate-spec). Symbol-not-found misses ("<module>:<name>",
+      module resolved but name absent) are FAIL -- the planner named a symbol
+      that does not exist in the module. validate-spec check 8 distinguishes
+      these two cases.
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/resolve-signatures.json
+
+  # -- Wave 1c: validate spec before swarm ---------------------------------------
+
+  - name: validate-spec
+    kind: execute
+    depends_on: [resolve-signatures]
+    reads_from: [plan-scaffold, resolve-signatures]
+    description: >
+      Validate scaffold-spec.json before the Haiku swarm fires.
+      Fail fast here rather than letting 20 agents produce garbage.
+
+      Read scaffold-spec.json from the workspace outputs directory.
+      Check each FileScaffoldSpec:
+      1. path exists in repo OR is a plausible new file under {source_root}
+      2. imports_needed are real modules (grep src/ for each); each entry must be
+         an object with "module" and "names" keys (not a bare string)
+      3. contracts with stub_ok=false have at least one rule
+      4. concern excerpts are non-empty strings (not null)
+      5. file count <= {max_files}
+      6. no duplicate paths across files
+      7. no path has basename __init__.py -- init files are tighten's responsibility
+         (Haiku cannot populate __all__ correctly without cross-file context)
+      8. For each imports_needed entry's missing signatures, distinguish two cases:
+         - Module file NOT FOUND (entry["signatures"] is empty AND resolve-signatures.json
+           lists the module under "missed" with "(file not found)"): WARN -- dynamic
+           export, facade re-export, or wrong path. Swarm proceeds, Haiku guesses.
+         - Module WAS FOUND but symbol absent (a "<module>:<name>" entry in "missed"):
+           FAIL -- the planner named a symbol that does not exist at module level.
+           Force plan-scaffold re-run.
+      9. Assert resolve-signatures.json has "complete": true -- if absent or false the
+         enrichment stage crashed mid-loop and the spec is partially enriched. FAIL.
+
+      Write validation/spec-findings.json with the standard findings schema:
+      [{"id": "F-001", "file": "path/to/file", "check": "check-name",
+        "status": "PASS|FAIL|WARN", "detail": "..."}]
+
+      Report the stage as failed (and write at least one FAIL finding) if any
+      check fails -- the swarm will not fire when required findings exist.
+    agent:
+      role: unit-validator
+      model: haiku
+      tools: [Read, Write, Bash, Grep]
+      access: read-write
+    outputs:
+      - name: spec-findings
+        mode: generate
+        description: Validation findings for scaffold-spec.json
+        schema:
+          type: array
+          items:
+            type: object
+            required: [id, file, check, status]
+    required: true
+    writes_to:
+      - validation/spec-findings.json
+
+  # -- Wave 1d: index spec for fan-out -------------------------------------------
+
+  - name: index-spec
+    kind: gather
+    executor: inline
+    depends_on: [validate-spec]
+    reads_from: [plan-scaffold]
+    description: |
+      Build a zero-padded fan-out index and write per-item spec files.
+      Pure enumeration -- no judgment, deterministic output.
+
+      Run from the repo root (strip the common 8-space indent from the body):
+
+        python3 -I -S - "{workspace}" <<'PYEOF'
+        import json, os, sys
+
+        ws = sys.argv[1]
+        if not ws:
+            sys.exit("FAIL: empty workspace argv; refusing to operate against filesystem root")
+        with open(os.path.join(ws, "outputs", "scaffold-spec.json"), encoding="utf-8") as fh:
+            spec = json.load(fh)
+        stages = os.path.join(ws, "stages")
+        os.makedirs(stages, exist_ok=True)
+        items = []
+        for i, entry in enumerate(spec["files"]):
+            idx = "%03d" % i
+            spec_file = os.path.join(stages, "spec-" + idx + ".json")
+            with open(spec_file, "w", encoding="utf-8") as fh:
+                json.dump(entry, fh)
+            items.append(dict(index=idx, path=entry["path"], spec_file=spec_file))
+        index = dict(total=len(items), items=items)
+        with open(os.path.join(ws, "outputs", "scaffold-index.json"), "w", encoding="utf-8") as fh:
+            json.dump(index, fh, indent=2)
+        print("Indexed %d files" % len(items))
+        PYEOF
+
+      Each item carries only index, path and spec_file -- the swarm agent
+      reads its full spec from spec_file directly rather than receiving
+      excerpts inlined into the fan-out item. This bounds orchestrator context
+      regardless of how many concern excerpts the planner inlined.
+    outputs:
+      - name: items
+        mode: generate
+        description: Fan-out index for scaffold-swarm
+        schema:
+          type: object
+          required: [total, items]
+          properties:
+            total: {type: integer}
+            items:
+              type: array
+              items:
+                type: object
+                required: [index, path, spec_file]
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/scaffold-index.json
+
+  # -- Wave 2 precondition: assert clean tree before writes ----------------------
+
+  - name: precondition-clean-tree
+    kind: gather
+    executor: inline
+    depends_on: [index-spec]
+    reads_from: [index-spec]
+    description: |
+      Assert the working tree is clean on all target paths before any scaffold
+      agent writes to them. Snapshot any existing files to {workspace}/backups/
+      so a failed run can be restored.
+
+      Run from the repo root (strip the common 8-space indent from the body):
+
+        python3 -I -S - "{workspace}" <<'PYEOF'
+        import json, os, shutil, subprocess, sys
+
+        ws = sys.argv[1]
+        if not ws:
+            sys.exit("FAIL: empty workspace argv; refusing to operate against filesystem root")
+        with open(os.path.join(ws, "outputs", "scaffold-index.json"), encoding="utf-8") as fh:
+            index = json.load(fh)
+        paths = [item["path"] for item in index["items"]]
+
+        result = subprocess.run(
+            ["git", "status", "--porcelain", "--"] + paths,
+            capture_output=True, text=True, check=False,
+        )
+        if result.stdout.strip():
+            print("FAIL: dirty working tree on target paths:\n" + result.stdout, file=sys.stderr)
+            sys.exit(1)
+
+        backups = os.path.join(ws, "backups")
+        os.makedirs(backups, exist_ok=True)
+        snapshotted = []
+        for path in paths:
+            if os.path.exists(path):
+                dest = os.path.join(backups, path)
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                shutil.copy2(path, dest)
+                snapshotted.append(path)
+
+        os.makedirs(os.path.join(ws, "stages"), exist_ok=True)
+        data = dict(snapshotted=snapshotted, checked_paths=paths)
+        with open(os.path.join(ws, "stages", "precondition-clean-tree.json"), "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=2)
+        print("Clean tree verified. Snapshotted %d existing files." % len(snapshotted))
+        PYEOF
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - stages/precondition-clean-tree.json
+
+  # -- Wave 2: Haiku scaffold swarm ----------------------------------------------
+
+  - name: scaffold-swarm
+    kind: execute
+    depends_on: [precondition-clean-tree]
+    reads_from: [index-spec]
+    fan_out:
+      source: index-spec
+      field: items
+      key: index
+      mode: agent
+    description: >
+      For each FileScaffoldSpec in the indexed spec, generate the scaffold file.
+      Each agent receives ONE spec entry, identified by item {index}.
+
+      Isolation contract: each agent runs in its own isolated worktree. The
+      orchestrator tells the agent its absolute cwd in the proceed message and
+      copies {workspace}/stages/spec-{index}.json into <cwd>/inputs/spec-{index}.json
+      before signaling proceed. The agent writes its output to the absolute path
+      <cwd>/outputs/scaffold-{index}.py, then signals via SendMessage to "main",
+      including its cwd. The orchestrator copies the staged file back into
+      {workspace}/outputs/ (place-scaffolds later moves it to spec.path).
+      Bare relative paths are NOT safe -- they resolve against the orchestrator
+      cwd and leak into the shared repo tree. Absolute paths outside the
+      worktree (e.g. {workspace}/...) prompt, because subagents do not inherit
+      the parent's allow list.
+
+      Instructions per agent:
+      1. Read your FileScaffoldSpec from <cwd>/inputs/spec-{index}.json
+         (do NOT read {workspace}/stages/spec-{index}.json -- that absolute
+         path is outside your worktree and will trigger a permission prompt)
+      2. Read any files listed in spec.reads_from (for import/type context only)
+      3. Write the scaffold to <cwd>/outputs/scaffold-{index}.py. Write imports
+         as if the file lived at its eventual home spec.path:
+         - Correct module docstring (one sentence from spec.description)
+         - All imports from spec.imports_needed. Each entry is an object:
+           {module, names, signatures?}. Write `from <module> import <names>`.
+           When "signatures" is present, use those exact signatures -- do NOT
+           guess or invent a different call signature.
+         - All public_interface items declared (classes, functions)
+         - For each contract:
+             - stub_ok=true -> write the signature + `raise NotImplementedError`
+               with a `# SONNET-REVIEW: stub` marker
+             - stub_ok=false -> implement using the rules and concern excerpts
+         - Correct type hints (PEP 585/604, no typing.Optional/List/Dict)
+         - No placeholder comments like "# TODO: implement"
+      4. Do NOT synthesize across files or add undeclared public symbols
+      5. Signal completion via SendMessage to "main", including your cwd. The
+         agent has Read+Write only (no Bash), so the orchestrator copies the
+         staged file out of the worktree and the engine writes the stage result
+         marker; do not write a marker yourself.
+
+      Never commit from this stage: the agent has no Bash, and its work is the
+      staged file under <cwd>/outputs/, which the orchestrator copies back
+      directly rather than merging a branch.
+    agent:
+      role: code-writer-haiku-scaffold
+      model: haiku
+      isolation: worktree
+      access: read-write
+      tools: [Read, Write]
+    required: true
+
+  # -- Placement: swarm outputs -> final paths -----------------------------------
+
+  - name: place-scaffolds
+    kind: gather
+    executor: inline
+    depends_on: [scaffold-swarm]
+    reads_from: [index-spec]
+    description: |
+      Copy each swarm output {workspace}/outputs/scaffold-<index>.py to its
+      spec path. A missing swarm output is recorded and fails the stage.
+
+      Run from the repo root (strip the common 8-space indent from the body):
+
+        python3 -I -S - "{workspace}" <<'PYEOF'
+        import json, os, shutil, sys
+
+        ws = sys.argv[1]
+        if not ws:
+            sys.exit("FAIL: empty workspace argv; refusing to operate against filesystem root")
+        with open(os.path.join(ws, "outputs", "scaffold-index.json"), encoding="utf-8") as fh:
+            index = json.load(fh)
+        placed = []
+        missing = []
+        for item in index["items"]:
+            staged = os.path.join(ws, "outputs", "scaffold-" + item["index"] + ".py")
+            if not os.path.isfile(staged):
+                missing.append(item["path"])
+                continue
+            os.makedirs(os.path.dirname(item["path"]) or ".", exist_ok=True)
+            shutil.copy2(staged, item["path"])
+            placed.append(item["path"])
+        with open(os.path.join(ws, "outputs", "placement.json"), "w", encoding="utf-8") as fh:
+            json.dump(dict(placed=placed, missing=missing), fh, indent=2)
+        if missing:
+            print("MISSING swarm output for: " + ", ".join(missing), file=sys.stderr)
+            sys.exit(1)
+        print("Placed %d files" % len(placed))
+        PYEOF
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/placement.json
+
+  # -- Syntax gate: fail before tighten loads bad files --------------------------
+
+  - name: syntax-check
+    kind: gather
+    executor: inline
+    depends_on: [place-scaffolds]
+    reads_from: [plan-scaffold, place-scaffolds]
+    description: |
+      Verify every scaffold-generated file is syntactically valid Python before
+      tighten loads them all into context. A syntax error caught here costs
+      nothing; caught in tighten it wastes a full Sonnet call.
+
+      Run from the repo root (strip the common 8-space indent from the body):
+
+        python3 -I -S - "{workspace}" <<'PYEOF'
+        import json, os, sys
+
+        ws = sys.argv[1]
+        if not ws:
+            sys.exit("FAIL: empty workspace argv; refusing to operate against filesystem root")
+        with open(os.path.join(ws, "outputs", "scaffold-spec.json"), encoding="utf-8") as fh:
+            spec = json.load(fh)
+        paths = [entry["path"] for entry in spec["files"]]
+
+        errors = []
+        for path in paths:
+            if not os.path.isfile(path):
+                errors.append(dict(path=path, error="file not found - scaffold agent may have failed"))
+                continue
+            with open(path, encoding="utf-8") as fh:
+                source = fh.read()
+            try:
+                compile(source, path, "exec")
+            except SyntaxError as exc:
+                errors.append(dict(path=path, error=str(exc)))
+
+        summary = dict(checked=len(paths), errors=errors)
+        with open(os.path.join(ws, "outputs", "syntax-check.json"), "w", encoding="utf-8") as fh:
+            json.dump(summary, fh, indent=2)
+        for e in errors:
+            print("SYNTAX ERROR: " + e["path"] + ": " + e["error"], file=sys.stderr)
+        if errors:
+            sys.exit(1)
+        print("OK: %d files pass syntax check" % len(paths))
+        PYEOF
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/syntax-check.json
+
+  # -- Wave 3: Sonnet tighten ----------------------------------------------------
+
+  - name: tighten
+    kind: execute
+    depends_on: [syntax-check]
+    reads_from: [plan-scaffold, place-scaffolds]
+    description: >
+      Read all scaffold files produced by the swarm (paths from
+      outputs/scaffold-spec.json -> files[*].path) and tighten them as a unit.
+
+      Tightening tasks (in order):
+      1. Cross-file imports: ensure every `from X import Y` resolves; add
+         __all__ entries where missing. Note: imports_needed entries carry a
+         "signatures" dict with pre-resolved def lines -- prefer these over
+         guessing, but if a signature looks malformed re-read the source
+         file as the ground truth. Do not blindly trust signatures for symbols
+         that appear in resolve-signatures.json "missed" list.
+      2. Type consistency: align types across module boundaries
+         (e.g. method return types match caller expectations)
+      3. Stub_ok stubs: implement any raise NotImplementedError methods that
+         can now be implemented with full cross-file context
+      4. Lint auto-fix: run `~/.qlty/bin/qlty check --fix` with the paths from
+         scaffold-spec.json files[*].path passed explicitly
+      5. Type check: run `make typecheck-changed` (it covers uncommitted files)
+      5b. Review SONNET-REVIEW markers: for each `# SONNET-REVIEW: stub`
+          you promote to a real implementation, remove the marker. For
+          complex logic you add or encounter, add `# SONNET-REVIEW: complexity
+          -- <reason>`. The clear-markers stage will recount after code-correct.
+      6. Write outputs/tighten-summary.json listing every change made per file
+
+      Do NOT change public interfaces declared in the spec.
+      Do NOT add new public symbols not in the spec.
+
+      At the end run, from the repo root:
+        PYTHONPATH="$PWD/src" python3 -m unittest discover -s "{test_path}" -t . -q 2>&1 | tail -5
+      Record pass/fail in the summary -- do not block on test failures here
+      (the run-tests stage owns the gate).
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Write, Edit, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/tighten-summary.json
+
+  # -- Wave 3b: test gate --------------------------------------------------------
+
+  - name: run-tests
+    kind: gather
+    executor: inline
+    depends_on: [tighten, plan-scaffold]
+    reads_from: [tighten, plan-scaffold]
+    description: |
+      Run the linter, type check, test suite and coverage gate. All must pass
+      before code-validate fires. This mirrors what CI enforces so the workflow
+      never declares "green" on code CI would reject.
+
+      The script runs each tool through subprocess with an argv list (never
+      shell text) and reads the four params from sys.argv. Run from the repo
+      root (strip the common 8-space indent from the body):
+
+        python3 -I -S - "{workspace}" "{test_path}" "{source_root}" "{coverage_threshold}" <<'PYEOF'
+        import json, os, re, subprocess, sys
+
+        workspace = sys.argv[1]
+        test_path = sys.argv[2]
+        source_root = sys.argv[3]
+        coverage_threshold = float(sys.argv[4])
+        if not workspace:
+            sys.exit("FAIL: empty workspace argv; refusing to operate against filesystem root")
+
+        with open(os.path.join(workspace, "outputs", "scaffold-spec.json"), encoding="utf-8") as fh:
+            files = [entry["path"] for entry in json.load(fh)["files"]]
+
+        env = dict(os.environ, PYTHONPATH=os.path.join(os.getcwd(), "src"))
+
+        def text(value):
+            if value is None:
+                return ""
+            return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else value
+
+        def run(cmd, timeout_s=900):
+            try:
+                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_s, env=env, check=False)
+                return dict(exit_code=proc.returncode, output=(proc.stdout + proc.stderr)[-20000:])
+            except subprocess.TimeoutExpired as exc:
+                partial = (text(exc.stdout) + text(exc.stderr))[-20000:]
+                return dict(exit_code=124, output="TIMEOUT after %ds\n%s" % (timeout_s, partial))
+
+        qlty = os.path.expanduser("~/.qlty/bin/qlty")
+        lint_result = run([qlty, "check"] + files) if files else dict(exit_code=0, output="(no files)")
+        mypy_result = run(["make", "typecheck-changed"])
+
+        # Full suite: exit code 0 alone is not evidence the suite ran.
+        suite = run(["make", "test"], timeout_s=1800)
+        ran = re.search(r"^Ran [0-9]+ tests", suite["output"], re.M)
+        if suite["exit_code"] == 0 and not ran:
+            suite = dict(exit_code=1, output="no 'Ran N tests' line in make test output\n" + suite["output"])
+
+        cov_json = os.path.join(workspace, "outputs", "coverage.json")
+        scoped = ["-m", "unittest", "discover", "-s", test_path, "-t", ".", "-q"]
+        cov_run = run(["python3", "-m", "coverage", "run", "--source=" + source_root] + scoped)
+        cov_out = run(["python3", "-m", "coverage", "json", "-o", cov_json])
+
+        pct = 0.0
+        uncovered = []
+        try:
+            with open(cov_json, encoding="utf-8") as fh:
+                data = json.load(fh)
+            pct = data.get("totals", dict()).get("percent_covered", 0.0)
+            for fname, finfo in data.get("files", dict()).items():
+                uncovered.extend(fname + ":" + str(n) for n in finfo.get("missing_lines", []))
+        except (FileNotFoundError, json.JSONDecodeError):  # nosec B110 - missing report leaves pct at 0.0 and fails the gate below
+            pass
+        coverage_passed = cov_run["exit_code"] == 0 and cov_out["exit_code"] == 0 and pct >= coverage_threshold
+
+        results = dict(
+            lint=lint_result,
+            typecheck=mypy_result,
+            tests=dict(exit_code=suite["exit_code"], output=suite["output"]),
+            coverage=dict(pct=pct, threshold=coverage_threshold, passed=coverage_passed, uncovered=uncovered),
+        )
+        with open(os.path.join(workspace, "outputs", "test-results.json"), "w", encoding="utf-8") as fh:
+            json.dump(results, fh, indent=2)
+
+        gates = [("lint", lint_result), ("typecheck", mypy_result), ("tests", suite)]
+        failed = [name for name, res in gates if res["exit_code"] != 0]
+        if not coverage_passed:
+            failed.append("coverage")
+        if failed:
+            print("GATE FAILED: " + ", ".join(failed))
+            sys.exit(1)
+        print("All gates passed.")
+        PYEOF
+
+      This is a hard gate matching CI: the workflow stops here rather than
+      shipping a PR that CI will immediately reject.
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/test-results.json
+      - outputs/coverage.json
+
+  # -- Wave 4: code-validate -> code-correct -------------------------------------
+  # Explicit stages replacing the validate-and-correct shared fragment.
+  # That fragment fact-checks prose; these stages check code compliance.
+
+  - name: code-validate
+    kind: execute
+    depends_on: [run-tests]
+    reads_from: [plan-scaffold, tighten, run-tests]
+    description: >
+      Read the scaffold spec (scaffold-spec.json), the tightened source files,
+      and the test results (test-results.json). For each stub_ok=false contract,
+      verify the implementation satisfies the rules in its rules[] list by reading
+      the actual source file. For each finding, construct the concern doc path from
+      the finding's concern_id field: `concerns/<concern_id>.md`. Read that
+      file directly -- do not rely solely on the spec excerpt. If the file does not
+      exist, note it in the finding.
+
+      Write validation/code-findings.json with findings schema:
+      [{"id": "F-001", "file": "src/...", "contract": "method_name",
+        "rule_id": "...", "status": "PASS|FAIL|WARN", "actual": "...", "fix": "..."}]
+
+      test-results.json is guaranteed clean by the run-tests gate -- focus solely
+      on concern-rule compliance.
+
+      If there are no stub_ok=false contracts and no marker checks to perform,
+      write `[]` for the findings array -- the file must exist and be valid JSON.
+      code-correct tolerates an empty findings array.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Write, Grep, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - validation/code-findings.json
+
+  - name: code-correct
+    kind: execute
+    depends_on: [code-validate]
+    reads_from: [code-validate, plan-scaffold]
+    description: >
+      Read validation/code-findings.json. For each FAIL finding, apply the fix
+      described in the finding to the source file. Use Edit (not Write) to make
+      surgical changes -- do not rewrite passing sections. Write
+      validation/corrections-applied.json listing each fix: file, contract,
+      change made.
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Edit, Write, Bash]
+      access: read-write
+    required: false
+    writes_to:
+      - validation/corrections-applied.json
+
+  # -- Re-verify after corrections -----------------------------------------------
+  # code-correct edits source files; nothing downstream re-runs the gate, so a
+  # bad or incomplete fix would ship unverified. Re-run the same hard gate that
+  # run-tests applied, but only when corrections were actually made.
+
+  - name: verify-corrections
+    kind: gather
+    executor: inline
+    depends_on: [code-correct]
+    reads_from: [code-correct, run-tests]
+    description: >
+      If validation/corrections-applied.json is empty or absent (code-correct
+      made no changes), skip: the run-tests gate already passed and source is
+      unchanged. Write outputs/verify-corrections.json with "skipped": true and
+      finish.
+
+      Otherwise re-run the SAME hard gate as run-tests against the corrected
+      source -- the qlty check, `make typecheck-changed`, `make test` (confirm
+      the "Ran N tests" line), and the coverage gate vs {coverage_threshold}.
+      Write outputs/verify-corrections.json with the same schema as
+      test-results.json. Read it back and report the stage failed if any tool
+      failed or coverage dropped below threshold, so a regression introduced by
+      code-correct stops the workflow before the human gate instead of
+      surfacing in CI.
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/verify-corrections.json
+
+  # -- Clear verified markers ----------------------------------------------------
+
+  - name: clear-markers
+    kind: gather
+    executor: inline
+    depends_on: [verify-corrections]
+    reads_from: [verify-corrections, plan-scaffold]
+    description: |
+      Remove # SONNET-REVIEW: stub markers from any method that code-correct
+      promoted to a real implementation (i.e. no longer raises NotImplementedError).
+      Count all remaining open markers across generated files.
+
+      Run from the repo root (strip the common 8-space indent from the body):
+
+        python3 -I -S - "{workspace}" <<'PYEOF'
+        import json, os, subprocess, sys
+
+        ws = sys.argv[1]
+        if not ws:
+            sys.exit("FAIL: empty workspace argv; refusing to operate against filesystem root")
+        with open(os.path.join(ws, "outputs", "scaffold-spec.json"), encoding="utf-8") as fh:
+            spec = json.load(fh)
+        paths = [entry["path"] for entry in spec["files"]]
+
+        cleared = 0
+        for path in paths:
+            if not os.path.isfile(path):
+                continue
+            with open(path, encoding="utf-8") as fh:
+                lines = fh.read().splitlines(keepends=True)
+            kept = []
+            file_cleared = 0
+            for i, line in enumerate(lines):
+                if "SONNET-REVIEW: stub" not in line or "raise NotImplementedError" in line:
+                    kept.append(line)
+                    continue
+                # Marker-only comment line: keep it only if the next non-blank line still raises.
+                j = i + 1
+                while j < len(lines) and lines[j].strip() == "":
+                    j += 1
+                if j < len(lines) and "raise NotImplementedError" in lines[j]:
+                    kept.append(line)
+                else:
+                    file_cleared += 1
+            cleared += file_cleared
+            if file_cleared:
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write("".join(kept))
+
+        open_count = 0
+        if paths:
+            found = subprocess.run(["grep", "-rho", "SONNET-REVIEW"] + paths, capture_output=True, text=True, check=False)
+            open_count = len(found.stdout.strip().splitlines()) if found.stdout.strip() else 0
+
+        summary = dict(cleared_stub_markers=cleared, sonnet_review_open=open_count, paths_checked=paths)
+        with open(os.path.join(ws, "outputs", "marker-summary.json"), "w", encoding="utf-8") as fh:
+            json.dump(summary, fh, indent=2)
+        print("Cleared %d stub markers. %d markers remaining." % (cleared, open_count))
+        PYEOF
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/marker-summary.json
+
+  # -- Human gate ----------------------------------------------------------------
+
+  - name: human-gate
+    kind: propose
+    depends_on: [clear-markers]
+    reads_from: [plan-scaffold, resolve-signatures, tighten, run-tests, code-validate, verify-corrections, clear-markers]
+    human_gate: true
+    description: >
+      Present a summary for human review before any PR is opened:
+
+      1. Files generated (from scaffold-spec.json)
+      2. Tightening changes (from tighten-summary.json)
+      3. Test results (from test-results.json) -- include lint/typecheck/test AND the
+         new-code coverage % vs threshold, plus verify-corrections.json if it exists
+         (code-correct is optional; only runs when code-validate finds FAILs)
+      4. Validation findings (from code-validate and code-correct findings)
+      5. Signature resolution coverage (from resolve-signatures.json):
+         enriched count, missed symbols list, and "complete": true/false.
+         Label unresolved symbols "hallucination risk -- tighten verification
+         required."
+      6. Any remaining WARN findings that were not auto-corrected
+      7. Open SONNET-REVIEW markers: count and list from marker-summary.json
+         sonnet_review_open -- these are stubs or complexity regions that need
+         attention before the code is production-ready
+
+      Format as a concise markdown report. Do not open a PR -- wait for
+      human approval before proceeding.
+    agent:
+      role: doc-writer
+      model: sonnet
+      access: read-write
+      tools: [Read, Write]
+    required: true
+    writes_to:
+      - human-gate-summary.md

@@ -33,6 +33,7 @@ KNOWN_ROLES: frozenset[str] = frozenset({
     "thread-fixer",
     "code-writer-opus",
     "tester-opus",
+    "code-writer-haiku-scaffold",
     "Explore",
     "Plan",
 })
