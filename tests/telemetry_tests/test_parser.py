@@ -266,6 +266,23 @@ class TestPricing(unittest.TestCase):
         cost = compute_cost(TokenMetrics(1_000_000, 0, 0, 0), "claude-opus-5[1m]")
         self.assertAlmostEqual(cost, 5.0, places=2)
 
+    @mock.patch("telemetry.pricing._cost_multiplier", return_value=1.0)
+    def test_compute_cost_one_hour_cache_writes_price_at_2x(self, _mult):
+        # 1M cache writes on sonnet-4-6 ($3/M): 5m TTL = 1.25x, 1h TTL = 2.0x.
+        all_5m = compute_cost(TokenMetrics(0, 0, 0, 1_000_000), "claude-sonnet-4-6")
+        all_1h = compute_cost(TokenMetrics(0, 0, 0, 1_000_000, 1_000_000), "claude-sonnet-4-6")
+        mixed = compute_cost(TokenMetrics(0, 0, 0, 1_000_000, 400_000), "claude-sonnet-4-6")
+        self.assertAlmostEqual(all_5m, 3.75, places=6)
+        self.assertAlmostEqual(all_1h, 6.0, places=6)
+        self.assertAlmostEqual(mixed, 0.6 * 3.75 + 0.4 * 6.0, places=6)
+
+    @mock.patch("telemetry.pricing._cost_multiplier", return_value=1.0)
+    def test_compute_cost_one_hour_share_is_capped_at_total_writes(self, _mult):
+        # An inconsistent record (1h count above the total) never prices more
+        # tokens than were written.
+        cost = compute_cost(TokenMetrics(0, 0, 0, 100, 500), "claude-sonnet-4-6")
+        self.assertAlmostEqual(cost, 100 * 3.0 * 2.0 / 1_000_000, places=9)
+
     def test_zero_tokens(self):
         cost = compute_cost(TokenMetrics(0, 0, 0, 0), "claude-opus-4-6")
         self.assertEqual(cost, 0.0)
