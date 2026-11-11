@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+import os
 
 from agent_helpers.cli import main
-from tests.fixtures import capture_stderr, capture_stdout
+from tests.fixtures import capture_stderr, capture_stdout, write_csv_content
 
 
 def run_main(argv: list[str]) -> tuple[int, str, str]:
@@ -26,6 +26,4 @@ def run_json(argv: list[str]) -> dict:
 
 def write(directory: str, name: str, text: str) -> str:
     """Write ``text`` to ``directory/name`` and return the path."""
-    path = Path(directory) / name
-    path.write_text(text, encoding="utf-8")
-    return str(path)
+    return write_csv_content(os.path.join(directory, name), text)

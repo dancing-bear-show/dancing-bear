@@ -6,6 +6,8 @@ import ast
 import re
 from pathlib import Path
 
+from .validate import parse_all_names as _parse_all_names
+
 EXTRACT_CHOICES = ("dispatch-map", "all-list", "imports", "added-functions")
 
 _DISPATCH_NAMES = frozenset({"dispatch", "forward_map", "DISPATCH"})
@@ -61,12 +63,17 @@ def _assigned_values(tree: ast.AST, names: frozenset[str]) -> list[ast.expr]:
 
 
 def extract_all_list(patch_text: str) -> list[str]:
-    """Extract ``__all__`` items from the post-image (AST first, regex fallback)."""
+    """Extract ``__all__`` items from the post-image (AST first, regex fallback).
+
+    Uses the shared ``parse_all_names`` implementation from validate, which
+    supports list, tuple, annotated and augmented-assignment forms.  Falls back
+    to a regex when the post-image cannot be parsed (partial-file patches).
+    """
     image = reconstruct_post_image(patch_text)
     try:
-        for value in _assigned_values(ast.parse(image), frozenset({"__all__"})):
-            if isinstance(value, ast.List):
-                return [e.value for e in value.elts if isinstance(e, ast.Constant) and isinstance(e.value, str)]
+        names = _parse_all_names(ast.parse(image))
+        if names is not None:
+            return names
     except SyntaxError:  # partial-file patches rarely parse; the regex fallback below handles them
         pass  # nosec B110 - intentional fall-through to regex extraction
     match = re.search(r"__all__\s*=\s*\[([^\]]*)\]", image, re.DOTALL)

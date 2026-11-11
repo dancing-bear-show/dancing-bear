@@ -10,7 +10,9 @@ from core.agentic import (
     tree_and_flow_sections as _tree_and_flow_sections,
 )
 
-_PURPOSE = "Structured checks for agent sessions: tests, AST/import/JSON validation, patch analysis, git ops"
+from .meta import META as _META
+
+_PURPOSE = _META.purpose
 
 
 def _load_parser():
@@ -43,8 +45,10 @@ def build_agentic_capsule() -> str:
     ]
     notes_body = "\n".join(
         [
-            "- Result commands print one JSON object and exit 0: read the verdict from the body",
-            "  (`passed`, `status`, `overall`, `valid`). Exit 2 = usage error.",
+            "- Result commands exit 0; `--format json` (default) prints one JSON object: read the verdict",
+            "  from the body (`passed`, `status`, `overall`, `valid`). Exit 2 = usage error.",
+            "  `summarize-findings` with `--format table` or `--format csv` prints rows instead of JSON;",
+            "  it also exits non-zero (exit 1) on unreadable or non-array input.",
             "- run-tests: `test` runs `make test` (or `unittest discover` per --paths); `lint` runs",
             "  `make lint`; `typecheck` runs `make typecheck-changed`. `test` is `passed: false`",
             "  unless output has `Ran N tests` with N > 0 (exit 0 alone is not evidence).",

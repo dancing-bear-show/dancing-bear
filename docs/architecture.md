@@ -298,7 +298,7 @@ naming the intentional failure mode. qlty and bandit enforce this.
 
 A bare invocation is not an error, so it is not covered by the table above.
 18 of the 20 apps print full help to **stdout** and exit **0**, which is
-`run_with_assistant`'s default.
+`run_with_assistant`'s default (source: `tests/cli_no_subcommand_contract.py`).
 
 Two differ deliberately, and both say so in the source: `worker` (1) and
 `workflow` (2) print a one-line usage to **stderr** via `_no_command_usage()`,

@@ -1,8 +1,9 @@
 # agent_helpers
 
-Single-purpose checks for agent sessions. One JSON object on stdout, exit 0;
-read the verdict from the body. Exit 2 is a usage error; `summarize-findings`
-exits 1 on unreadable input.
+Single-purpose checks for agent sessions. Result commands exit 0; with
+`--format json` (default) one JSON object is on stdout — read the verdict from
+the body. `summarize-findings --format table|csv` prints rows instead of JSON.
+Exit 2 is a usage error; `summarize-findings` exits 1 on unreadable input.
 
 ```bash
 ./bin/agent-helpers run-tests                          # make test; fails without "Ran N tests" (N > 0)

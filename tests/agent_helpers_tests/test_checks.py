@@ -96,6 +96,74 @@ class TestRunCheckVerdict(unittest.TestCase):
         self.assertGreater(rb.call_args.kwargs["timeout"], 0)
 
 
+class TestResolveTestPath(TempDirMixin, unittest.TestCase):
+    """Path-confinement guard for _resolve_test_path."""
+
+    def _resolve(self, raw: str):
+        return checks._resolve_test_path(Path(self.tmpdir).resolve(), raw)
+
+    def test_relative_path_inside_repo_accepted(self):
+        subdir = Path(self.tmpdir) / "tests"
+        subdir.mkdir()
+        path, error = self._resolve("tests")
+        self.assertIsNone(error)
+        self.assertIsNotNone(path)
+
+    def test_relative_path_escaping_repo_rejected(self):
+        _, error = self._resolve("../outside")
+        self.assertIn("escapes", error or "")
+
+    def test_absolute_path_inside_repo_accepted(self):
+        subdir = Path(self.tmpdir) / "sub"
+        subdir.mkdir()
+        _, error = self._resolve(str(subdir))
+        self.assertIsNone(error)
+
+    def test_absolute_path_outside_repo_rejected(self):
+        # Use the parent of tmpdir — guaranteed to be outside the repo root.
+        parent = str(Path(self.tmpdir).parent)
+        _, error = self._resolve(parent)
+        self.assertIn("escapes", error or "")
+
+    def test_dot_resolves_to_root_and_is_accepted(self):
+        """'.' resolves to repo root itself; accepted since path == root is allowed."""
+        path, error = self._resolve(".")
+        self.assertIsNone(error)
+        self.assertEqual(path, Path(self.tmpdir).resolve())
+
+    def test_empty_string_resolves_to_root_and_is_accepted(self):
+        """An empty string is treated the same as '.'."""
+        path, error = self._resolve("")
+        self.assertIsNone(error)
+        self.assertEqual(path, Path(self.tmpdir).resolve())
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "symlinks not available")
+    def test_symlink_inside_repo_pointing_outside_rejected(self):
+        """A symlink that resolves outside the repo root is rejected."""
+        outside = Path(self.tmpdir).parent / "outside_target"
+        outside.mkdir(exist_ok=True)
+        link = Path(self.tmpdir) / "escape_link"
+        try:
+            os.symlink(str(outside), str(link))
+        except (OSError, NotImplementedError):
+            self.skipTest("symlink creation failed on this platform")
+        _, error = self._resolve("escape_link")
+        self.assertIn("escapes", error or "")
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "symlinks not available")
+    def test_symlink_inside_repo_pointing_inside_accepted(self):
+        """A symlink whose target is inside the repo root is accepted."""
+        target = Path(self.tmpdir) / "real_dir"
+        target.mkdir()
+        link = Path(self.tmpdir) / "link_to_real"
+        try:
+            os.symlink(str(target), str(link))
+        except (OSError, NotImplementedError):
+            self.skipTest("symlink creation failed on this platform")
+        _, error = self._resolve("link_to_real")
+        self.assertIsNone(error)
+
+
 class TestBuildCommands(TempDirMixin, unittest.TestCase):
     def test_directory_uses_discover(self):
         (Path(self.tmpdir) / "tests").mkdir()
@@ -180,6 +248,10 @@ class TestRunTestsCli(unittest.TestCase):
             result = run_json(["run-tests"])
         self.assertFalse(result["passed"])
         self.assertEqual(result["error"], "not inside a git repository")
+        # The error path must emit the same full CheckResult shape as the normal path.
+        for key in ("tool", "paths", "commands", "exit_code", "passed", "tests_run",
+                    "timed_out", "error", "output", "truncated"):
+            self.assertIn(key, result, f"key {key!r} missing from outside-repo error body")
 
 
 if __name__ == "__main__":

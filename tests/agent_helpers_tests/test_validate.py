@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import os
 import unittest
 from textwrap import dedent
 
+from agent_helpers.validate import parse_all_names
 from tests.agent_helpers_tests.helpers import run_json, run_main, write
 from tests.fixtures import TempDirMixin
+
+import ast
 
 
 class TestValidateImports(unittest.TestCase):
@@ -34,6 +38,22 @@ class TestValidateImports(unittest.TestCase):
         self.assertEqual(result["overall"], "FAIL")
         self.assertEqual([m["status"] for m in result["modules"]], ["PASS", "FAIL", "PASS"])
 
+    def test_import_order_empty_list_returns_fail(self):
+        """_overall([]) must return FAIL, not PASS."""
+        result = run_json(["validate-imports", "--import-order", "os,sys"])
+        # sanity: non-empty succeeds
+        self.assertEqual(result["overall"], "PASS")
+        # Directly test _overall with empty list via the library
+        from agent_helpers.validate import _overall
+        self.assertEqual(_overall([]), "FAIL")
+
+    def test_import_order_blank_value_is_usage_error(self):
+        """--import-order with only commas (zero modules) exits 2."""
+        rc, out, err = run_main(["validate-imports", "--import-order", ","])
+        self.assertEqual(rc, 2)
+        self.assertEqual(out, "")
+        self.assertIn("zero module names", err)
+
     def test_requires_module_or_import_order(self):
         rc, out, err = run_main(["validate-imports"])
         self.assertEqual(rc, 2)
@@ -44,6 +64,56 @@ class TestValidateImports(unittest.TestCase):
         rc, _out, err = run_main(["validate-imports", "--module", "os"])
         self.assertEqual(rc, 2)
         self.assertIn("--symbols", err)
+
+
+class TestParseAllNames(unittest.TestCase):
+    """parse_all_names: shared __all__ extractor used by validate-ast and analyze-patch."""
+
+    def _tree(self, source: str) -> ast.Module:
+        return ast.parse(dedent(source))
+
+    def test_list_assignment(self):
+        tree = self._tree('__all__ = ["a", "b"]')
+        self.assertEqual(parse_all_names(tree), ["a", "b"])
+
+    def test_tuple_assignment(self):
+        tree = self._tree('__all__ = ("a", "b")')
+        self.assertEqual(parse_all_names(tree), ["a", "b"])
+
+    def test_annotated_assignment(self):
+        tree = self._tree('__all__: list[str] = ["a", "b"]')
+        self.assertEqual(parse_all_names(tree), ["a", "b"])
+
+    def test_augmented_assignment_appends(self):
+        tree = self._tree('__all__ = ["a"]\n__all__ += ["b"]')
+        self.assertEqual(parse_all_names(tree), ["a", "b"])
+
+    def test_no_all_returns_none(self):
+        tree = self._tree("x = 1\n")
+        self.assertIsNone(parse_all_names(tree))
+
+    def test_validate_ast_and_analyze_patch_agree_on_list(self):
+        """Both commands must yield the same names for a simple list assignment."""
+        import tempfile
+        source = '__all__ = ["a", "b"]\ndef a(): ...\ndef b(): ...\n'
+        # validate-ast --all-exported
+        with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as f:
+            f.write(source)
+            py_path = f.name
+        # analyze-patch --extract all-list
+        diff_text = "--- a/m.py\n+++ b/m.py\n@@ -0,0 +1,3 @@\n"
+        for line in source.splitlines():
+            diff_text += f"+{line}\n"
+        with tempfile.NamedTemporaryFile("w", suffix=".diff", delete=False) as f:
+            f.write(diff_text)
+            diff_path = f.name
+        try:
+            ast_result = run_json(["validate-ast", "--file", py_path, "--all-exported"])
+            patch_result = run_json(["analyze-patch", "--patch", diff_path, "--extract", "all-list"])
+            self.assertEqual(sorted(ast_result["all_list"]), sorted(patch_result["results"]))
+        finally:
+            os.unlink(py_path)
+            os.unlink(diff_path)
 
 
 class TestValidateAst(TempDirMixin, unittest.TestCase):
@@ -101,6 +171,18 @@ class TestValidateAst(TempDirMixin, unittest.TestCase):
         result = run_json(["validate-ast", "--file", path, "--function", "f", "--complexity"])
         self.assertEqual(result["nesting_depth"], 3)
 
+    def test_function_without_complexity_does_not_report_nesting_depth(self):
+        """--function without --complexity must not include nesting_depth."""
+        path = write(self.tmpdir, "f.py", "def f(): ...\n")
+        result = run_json(["validate-ast", "--file", path, "--function", "f"])
+        self.assertEqual(result["status"], "PASS")
+        self.assertNotIn("nesting_depth", result)
+
+    def test_all_exported_and_function_are_mutually_exclusive(self):
+        path = write(self.tmpdir, "f.py", "x = 1\n")
+        rc, out, _err = run_main(["validate-ast", "--file", path, "--all-exported", "--function", "f"])
+        self.assertEqual((rc, out), (2, ""))
+
     def test_unknown_function_fails(self):
         path = write(self.tmpdir, "f.py", "def f(): ...\n")
         result = run_json(["validate-ast", "--file", path, "--function", "g", "--complexity"])
@@ -110,7 +192,7 @@ class TestValidateAst(TempDirMixin, unittest.TestCase):
     def test_missing_file_fails_without_raising(self):
         result = run_json(["validate-ast", "--file", self.tmpdir + "/nope.py", "--all-exported"])
         self.assertEqual(result["status"], "FAIL")
-        self.assertTrue(result["error"])
+        self.assertIn("nope.py", result["error"])
 
     def test_syntax_error_fails_without_raising(self):
         path = write(self.tmpdir, "broken.py", "def (:\n")
@@ -148,10 +230,25 @@ class TestValidateJson(TempDirMixin, unittest.TestCase):
         self.assertEqual(result["counts"], {})
         self.assertIn("not a list", result["error"])
 
+    def test_count_missing_key(self):
+        """--count with a key absent from the object reports key-not-found."""
+        path = write(self.tmpdir, "f.json", '{"other": 1}')
+        result = run_json(["validate-json", "--file", path, "--count", "missing"])
+        self.assertEqual(result["counts"], {})
+        self.assertIn("key not found", result["error"])
+
     def test_keys_on_non_object_reports_missing(self):
         path = write(self.tmpdir, "f.json", "[1, 2]")
         result = run_json(["validate-json", "--file", path, "--keys", "a"])
         self.assertIn("key not found", result["error"])
+
+    def test_keys_blank_value_is_zero_checks(self):
+        """--keys with only commas checks zero keys; valid stays true."""
+        path = write(self.tmpdir, "f.json", '{"a": 1}')
+        result = run_json(["validate-json", "--file", path, "--keys", ","])
+        self.assertTrue(result["valid"])
+        self.assertEqual(result["keys"], [])
+        self.assertIsNone(result["error"])
 
     def test_invalid_json(self):
         path = write(self.tmpdir, "f.json", "{not json")
@@ -162,7 +259,16 @@ class TestValidateJson(TempDirMixin, unittest.TestCase):
     def test_missing_file(self):
         result = run_json(["validate-json", "--file", self.tmpdir + "/nope.json"])
         self.assertFalse(result["valid"])
-        self.assertTrue(result["error"])
+        self.assertIn("nope.json", result["error"])
+
+    def test_unreadable_file_unicode_error(self):
+        """A file with invalid UTF-8 is reported as invalid without raising."""
+        path = os.path.join(self.tmpdir, "bad.json")
+        with open(path, "wb") as f:
+            f.write(b"\xff\xfe")  # invalid UTF-8 start bytes
+        result = run_json(["validate-json", "--file", path])
+        self.assertFalse(result["valid"])
+        self.assertIsNotNone(result["error"])
 
 
 if __name__ == "__main__":

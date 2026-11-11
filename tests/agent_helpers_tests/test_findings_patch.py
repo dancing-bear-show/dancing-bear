@@ -37,6 +37,12 @@ class TestSummarizeFindings(TempDirMixin, unittest.TestCase):
         result = run_json(["summarize-findings", "--input", self._findings([])])
         self.assertEqual(result, {"total": 0, "by_severity": {}})
 
+    def test_csv_empty_findings_emits_header(self):
+        """An empty findings list with --format csv must still write the header row."""
+        rc, out, _err = run_main(["summarize-findings", "--input", self._findings([]), "--format", "csv"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(out.strip(), "group,count")
+
     def test_non_array_is_an_error(self):
         rc, out, err = run_main(["summarize-findings", "--input", self._findings({"a": 1})])
         self.assertEqual((rc, out), (1, ""))

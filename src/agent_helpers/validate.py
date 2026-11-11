@@ -29,10 +29,10 @@ class SymbolResult:
 
 
 def _overall(results: list[SymbolResult]) -> str:
-    return PASS if all(r.status == PASS for r in results) else FAIL
+    return PASS if results and all(r.status == PASS for r in results) else FAIL
 
 
-def validate_symbols(module_name: str, symbols: list[str]) -> dict:
+def validate_symbols(module_name: str, symbols: list[str]) -> dict[str, object]:
     """Import ``module_name`` and check each symbol exists as an attribute."""
     try:
         mod = importlib.import_module(module_name)
@@ -49,7 +49,7 @@ def validate_symbols(module_name: str, symbols: list[str]) -> dict:
     return {"module": module_name, "symbols": [asdict(r) for r in results], "overall": _overall(results)}
 
 
-def validate_import_order(module_names: list[str]) -> dict:
+def validate_import_order(module_names: list[str]) -> dict[str, object]:
     """Import each module in sequence, reporting per-module status."""
     results: list[SymbolResult] = []
     for name in module_names:
@@ -98,19 +98,47 @@ def _find_function(tree: ast.Module, name: str) -> ast.FunctionDef | ast.AsyncFu
     return None
 
 
-def _all_list(tree: ast.Module) -> list[str] | None:
-    """Return the string entries of a top-level ``__all__`` list, else None."""
-    for node in ast.iter_child_nodes(tree):
-        if not isinstance(node, ast.Assign):
-            continue
-        is_all = any(isinstance(t, ast.Name) and t.id == "__all__" for t in node.targets)
-        if is_all and isinstance(node.value, (ast.List, ast.Tuple)):
-            return [
-                elt.value
-                for elt in node.value.elts
-                if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
-            ]
+def _str_elements(node: ast.expr) -> list[str]:
+    """Extract string literals from a list or tuple AST node."""
+    if isinstance(node, (ast.List, ast.Tuple)):
+        return [elt.value for elt in node.elts if isinstance(elt, ast.Constant) and isinstance(elt.value, str)]
+    return []
+
+
+def _all_assign_value(node: ast.AST) -> ast.expr | None:
+    """Return the RHS of a top-level ``__all__`` assignment, or None.
+
+    Covers simple assignment, annotated assignment, and augmented assignment.
+    """
+    if isinstance(node, ast.Assign):
+        if any(isinstance(t, ast.Name) and t.id == "__all__" for t in node.targets):
+            return node.value
+    elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+        if isinstance(node.target, ast.Name) and node.target.id == "__all__":
+            return node.value
     return None
+
+
+def parse_all_names(tree: ast.Module) -> list[str] | None:
+    """Return string entries of ``__all__`` from the module AST, else None.
+
+    Supported assignment forms (top-level only):
+    - ``__all__ = [...]`` or ``__all__ = (...)`` (list or tuple)
+    - ``__all__: list[str] = [...]`` (annotated assignment)
+    - ``__all__ += [...]`` or ``__all__ += (...)`` (augmented assignment)
+
+    For augmented assignments the new items are appended to those found in
+    any preceding regular assignment.  Returns ``None`` when no ``__all__``
+    assignment is present in the module.
+    """
+    names: list[str] = []
+    found = False
+    for node in ast.iter_child_nodes(tree):
+        value = _all_assign_value(node)
+        if value is not None:
+            found = True
+            names.extend(_str_elements(value))
+    return names if found else None
 
 
 def _defined_names(tree: ast.Module) -> set[str]:
@@ -128,13 +156,13 @@ def _defined_names(tree: ast.Module) -> set[str]:
     return defined
 
 
-def _ast_failure(file: str, error: str, **extra: object) -> dict:
+def _ast_failure(file: str, error: str, **extra: object) -> dict[str, object]:
     return {"file": file, **extra, "status": FAIL, "error": error}
 
 
-def check_all_exported(tree: ast.Module, file: str) -> dict:
+def check_all_exported(tree: ast.Module, file: str) -> dict[str, object]:
     """Verify every name in ``__all__`` is bound at the module top level."""
-    exported = _all_list(tree)
+    exported = parse_all_names(tree)
     if exported is None:
         return _ast_failure(file, "__all__ not found in module")
     undefined = [n for n in exported if n not in _defined_names(tree)]
@@ -146,16 +174,20 @@ def check_all_exported(tree: ast.Module, file: str) -> dict:
     }
 
 
-def check_function_nesting(tree: ast.Module, file: str, func_name: str) -> dict:
-    """Report the maximum branch-nesting depth of a top-level function."""
+def check_function_nesting(tree: ast.Module, file: str, func_name: str, *, report_depth: bool = False) -> dict[str, object]:
+    """Report whether a top-level function exists; include nesting depth when ``report_depth`` is True."""
     fn_node = _find_function(tree, func_name)
     if fn_node is None:
         return _ast_failure(file, f"function {func_name!r} not found", function=func_name)
-    depth = max((nesting_depth(child) for child in ast.iter_child_nodes(fn_node)), default=0)
-    return {"file": file, "function": func_name, "nesting_depth": depth, "status": PASS}
+    result: dict[str, object] = {"file": file, "function": func_name, "status": PASS}
+    if report_depth:
+        result["nesting_depth"] = max(
+            (nesting_depth(child) for child in ast.iter_child_nodes(fn_node)), default=0
+        )
+    return result
 
 
-def validate_ast(file: str, *, all_exported: bool, function: str | None) -> dict:
+def validate_ast(file: str, *, all_exported: bool, function: str | None, complexity: bool = False) -> dict[str, object]:
     """Parse ``file`` and run the requested structural check."""
     try:
         source = Path(file).read_text(encoding="utf-8")
@@ -167,7 +199,7 @@ def validate_ast(file: str, *, all_exported: bool, function: str | None) -> dict
         return _ast_failure(file, f"SyntaxError: {exc}")
     if all_exported:
         return check_all_exported(tree, file)
-    return check_function_nesting(tree, file, function or "")
+    return check_function_nesting(tree, file, function or "", report_depth=complexity)
 
 
 # ---------------------------------------------------------------------------
@@ -200,7 +232,17 @@ def _check_count(data: object, count_arg: str | None) -> tuple[dict[str, int], s
     return {key: len(value)}, None
 
 
-def validate_json(file: str, keys: str | None, count: str | None) -> dict:
+def _json_result(
+    file: str,
+    valid: bool,
+    keys: list[str],
+    counts: dict[str, int],
+    error: str | None,
+) -> dict[str, object]:
+    return {"valid": valid, "file": file, "keys": keys, "counts": counts, "error": error}
+
+
+def validate_json(file: str, keys: str | None, count: str | None) -> dict[str, object]:
     """Parse ``file`` as JSON; optionally verify top-level keys and a list length.
 
     ``valid`` reflects parseability only; a missing key or non-list count is
@@ -209,11 +251,11 @@ def validate_json(file: str, keys: str | None, count: str | None) -> dict:
     try:
         raw = Path(file).read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
-        return {"valid": False, "file": file, "keys": [], "counts": {}, "error": str(exc)}
+        return _json_result(file, False, [], {}, str(exc))
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
-        return {"valid": False, "file": file, "keys": [], "counts": {}, "error": f"JSON parse error: {exc}"}
+        return _json_result(file, False, [], {}, f"JSON parse error: {exc}")
     present, key_error = _check_keys(data, keys)
     counts, count_error = _check_count(data, count)
-    return {"valid": True, "file": file, "keys": present, "counts": counts, "error": key_error or count_error}
+    return _json_result(file, True, present, counts, key_error or count_error)
