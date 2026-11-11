@@ -10,7 +10,7 @@ packages** under `src/` — `apple_music`, `calendars`, `charts`, `core`, `desk`
 library). The codebase follows a
 pipeline architecture with Consumer/Processor/Producer patterns.
 
-All 19 apps support `--agentic --agentic-format json` (added in #291). Agents are
+All 20 apps support `--agentic --agentic-format json` (added in #291). Agents are
 instructed to prefer capsules over `--help`, which makes a wrong command in a
 capsule a machine-readable instruction to run something broken — not a stale
 comment. `tests/core_tests/test_capsule_parser_drift.py` (#293) resolves every

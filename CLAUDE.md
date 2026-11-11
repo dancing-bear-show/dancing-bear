@@ -51,6 +51,7 @@ src/                      # all Python source packages (installable via package-
   wifi/                   # Wi-Fi CLI
   qlty/                   # qlty scan/triage wrapper (tiers findings by remediation strategy)
   github_assistant/       # GitHub porcelain over core.github
+  monitor_poll/           # poll a condition (command/file/URL/gh PR+run) until it resolves or times out
 bin/                      # entry wrappers and helper scripts
 tests/                    # lightweight unittest suite
 .llm/                     # LLM context, flows, capsules
@@ -88,8 +89,8 @@ All CLIs use argparse with positional subcommand dispatch. Arguments are passed 
 - Flags (`--dry-run`, `--profile`, `--format`) always follow the subcommand
 - The `assistant` dispatcher strips the app name and passes remaining argv directly to the app's `main()`
 - The workflow engine (`src/workflow/compiler.py`) inserts `--` before flags for most skills; `llm` and `docs` CLIs are exempt (`_NO_SEPARATOR_CLIS`). `docs` is reserved for a planned external documentation CLI — no `bin/docs` ships today
-- `--` separator is now **optional** for all CLIApp-based CLIs (mail, calendar, schedule, resume, phone, whatsapp, desk, wifi, maker, apple_music, workflow, worker, slides, sheets, telemetry, qlty, charts, diagrams, github); `src/core/cli_framework.py` strips bare `--` tokens automatically. The workflow engine's `_NO_SEPARATOR_CLIS` exemption for `llm`/`docs` remains unchanged.
-- Auto-derived agentic schema: **all 19 apps** support `--agentic --agentic-format json` to emit a machine-readable parser schema that never drifts from the real CLI; add `--agentic-compact` to strip low-value fields; add `--agentic-domain <prefix>` to filter to one subcommand group. Run `./bin/llm inventory --stdout` for the authoritative list — it prints the exact invocation per app, because `./bin/<app>` is wrong for three of them (`apple-music` and `qlty` use `-assistant` wrappers, and `resume` goes through `./bin/assistant resume`).
+- `--` separator is now **optional** for all CLIApp-based CLIs (mail, calendar, schedule, resume, phone, whatsapp, desk, wifi, maker, apple_music, workflow, worker, slides, sheets, telemetry, qlty, charts, diagrams, github, monitor-poll); `src/core/cli_framework.py` strips bare `--` tokens automatically. The workflow engine's `_NO_SEPARATOR_CLIS` exemption for `llm`/`docs` remains unchanged.
+- Auto-derived agentic schema: **all 20 apps** support `--agentic --agentic-format json` to emit a machine-readable parser schema that never drifts from the real CLI; add `--agentic-compact` to strip low-value fields; add `--agentic-domain <prefix>` to filter to one subcommand group. Run `./bin/llm inventory --stdout` for the authoritative list — it prints the exact invocation per app, because `./bin/<app>` is wrong for three of them (`apple-music` and `qlty` use `-assistant` wrappers, and `resume` goes through `./bin/assistant resume`).
 - Most apps get this via `CLIApp.run_with_assistant()`. Four wire it manually to preserve legacy no-subcommand exit codes: charts (1) and diagrams (0) call `assistant.add_agentic_flags(parser)` then `maybe_emit_agentic(...)` before their `cmd_func is None` branch; worker (1) and workflow (2) pass `on_no_command=` through `run_with_assistant()`.
 
 ## Development Rules
@@ -680,7 +681,7 @@ outlook_token = /path/to/outlook_token.json
 Never use a bare `sleep` loop in a Bash tool call to wait for a condition.
 
 - **Background task**: Set `run_in_background: true` on the Bash tool call, then use the Monitor tool with the returned task ID to stream output and get notified on completion.
-- **Poll until condition**: Run `until <check>; do sleep 2; done` inside Monitor — you get one notification when the loop exits.
+- **Poll until condition**: Run `until <check>; do sleep 2; done` inside Monitor — you get one notification when the loop exits. Alternative: `./bin/monitor-poll <cmd|output|file|http|gh-pr|gh-run> ... --timeout N` as one blocking background call; it ends with a verdict record and an exit code.
 - **One-time fixed delay** (`sleep 1` to let a server bind its port): acceptable. Sleep-as-retry-loop: never.
 
 ## Worktree Isolation
