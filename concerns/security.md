@@ -101,3 +101,44 @@ dynamic input.
 - **example**: A stage runs `curl "{ollama_host}"`. The engine substitutes the raw value into the shell source before any shell sees it, so a value of `$(rm -rf /)` produces `curl "$(rm -rf /)"`, and the shell executes the command substitution; the double quotes stop only word-splitting. A shell variable is different: in `curl "$host"` with `host` holding the text `$(rm -rf /)`, curl receives that text unexpanded, because an expanded value is not re-parsed. A sibling stage splices `{worktree_path}` into a `source` line with no quotes, so a path containing a space also splits into two words. Fix: validate the value against an allowlist before substitution (a `param_rules` full-match regex such as `https?://[A-Za-z0-9._-]+(:[0-9]{1,5})?/?`), or pass it as data — an argv element, or a value the command reads from a file into a quoted variable — instead of splicing it into shell source.
 - **sweep**: every workflow-supplied value interpolated into a shell command in a stage description or executor script is allowlist-validated before substitution or passed as data (argv, or read from a file); a quoted `{placeholder}` does not count, since the substituted text is parsed as shell source; a real shell variable expansion is double-quoted
 - **cause**: SIBLING — a quoting gap fixed at one call site recurs unfixed at a sibling call site interpolating the same variable elsewhere; INCOMPLETE_FIX — a fix added double quotes around a substituted placeholder, which cannot stop command substitution in text the engine has already spliced into shell source, so the same value can still trigger $() or backtick expansion
+
+### argv-unvalidated-ref-or-option-injection
+- **severity**: major
+- **check**: Values interpolated into git/gh/other CLI argv must be validated as the
+  intended type. Reject branch names starting with `-`, containing `:` or a trailing
+  newline. Use `--` end-of-options separators and fully qualified refs. Any value
+  substituted into a shell string, emitted as a `next_command`/recovery hint, or
+  placed in a copy-paste doc template must be `shlex.quote`d. Extends `shell-injection`.
+- **triggers**: `git fetch origin <user_value>`; `git push <branch>`; f-strings
+  building `next_command` strings with IDs or branch names; `$` regex anchors (which
+  match before a trailing `\n`) used for validation; doc or workflow command templates
+  with `{path}` and no quoting.
+- **example**: A branch name `refs/heads/--force` passed to `git push` without `--`
+  becomes a force-push flag. A base ref `main:refs/heads/x` passed to `git fetch`
+  mutates the remote ref. Fix: validate branch names against `^[A-Za-z0-9._/-]+$`
+  and always pass `--` before the branch argument: `git push origin -- {branch}`.
+- **see also**: `shell-injection`, `unvalidated-passthrough` in correctness.md
+
+### path-alias-guard-compares-paths-not-identity
+- **severity**: major
+- **check**: Verify that a guard stopping an output, temp, or workspace path from
+  clobbering an input compares file identity (`os.path.samefile`, `st_dev`/`st_ino`)
+  rather than `resolve()` equality or `normpath()`, and runs before any delete,
+  truncate, or rename. `resolve()` does not detect hardlinks, case-only aliases, or
+  `symlink/..` cycles that arrive at the same inode via a different string.
+- **triggers**: `a.resolve() == b.resolve()` or `normpath()` used to protect a
+  destructive write; stale-output deletion or atomic-write temp-sibling logic that
+  takes a user-supplied `--out`/`--config`; workspace paths that may contain a
+  symlink followed by `..`; output paths that may be a FIFO or a symlink.
+- **example**:
+  ```python
+  # bad: a hardlink or symlink-then-.. defeats resolve() comparison; config is deleted
+  if out.resolve() == config.resolve():
+      raise SystemExit("--out must differ from --config")
+  out.unlink(missing_ok=True)
+
+  # good: compare identity when the target exists; reject before the unlink
+  if out.exists() and os.path.samefile(out, config):
+      raise SystemExit("--out must differ from --config")
+  out.unlink(missing_ok=True)
+  ```

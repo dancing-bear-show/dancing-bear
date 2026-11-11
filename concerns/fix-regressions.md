@@ -292,3 +292,262 @@ regression shapes specific to automated review-fix runs.
 - **cause**: STALE_PROSE — the implementation was updated but the surrounding
   documentation was not; INCOMPLETE_FIX — the fix is technically correct but
   leaves the PR description misleading
+
+### narrow-fix-no-blast-radius-check
+- **severity**: major
+- **check**: Verify that a fix targeting one flagged line or function has been
+  checked against its callers, callees, and adjacent invariants — not just against
+  the literal complaint.
+- **triggers**: Any fix that modifies a function with 2+ call sites, changes a field
+  name or return shape, alters control flow, or moves logic between scopes. Ask:
+  "What else reads the thing I just changed?"
+- **example**: A fix adds an early `return None` to a helper for a
+  previously-unhandled edge case. The function also returns that value in a tuple
+  consumed by two other call sites — both callers pattern-match the tuple assuming
+  a concrete value and raise `TypeError` at runtime on the new `None`. The fix
+  addressed the flagged edge case; it did not verify downstream consumption of the
+  value it now returns.
+- **see also**: `return-type-mismatch` in correctness.md
+
+### fix-introduces-uncaught-exception-path
+- **severity**: critical
+- **check**: Verify that a refactor or fix does not leave an exception propagation
+  path uncaught that was previously absorbed by the code it replaced.
+- **triggers**: Fixes that remove or restructure `try/except` blocks; fixes that
+  inline a helper that previously caught its own errors; fixes that replace a
+  `return None` early-exit with a raise.
+- **example**: A refactor extracts a file-parsing block into a helper. The original
+  `try/except OSError` that lived around the inline code is not carried into the
+  helper. Callers now receive an unhandled `OSError` on missing files where they
+  previously received `None`.
+- **see also**: `silent-failure` in correctness.md
+
+### fallback-path-shares-failure-mode-with-primary
+- **severity**: major
+- **check**: Verify that an `except` fallback (a value substitution, a `str()`/`repr()`
+  call, a secondary serialization attempt) does not share the same underlying failure
+  characteristic as the primary path it's catching for — specifically, that it cannot
+  raise the same exception type it's supposed to be a safe fallback from.
+- **triggers**: An `except RecursionError:` (or `except MemoryError:`, `except
+  TimeoutError:`) block whose fallback body itself performs a recursive operation
+  (`str()`, `repr()`, a custom recursive serializer) over the same failing input,
+  rather than a bounded/non-recursive operation; any fallback that re-runs a smaller
+  version of the same algorithm on the same data instead of switching to a
+  fundamentally different, bounded strategy.
+- **example**: `except (TypeError, ValueError, RecursionError): data["result"] =
+  str(result)` — `str()` on a deeply-nested Python structure recurses just as deep
+  as `json.dumps()` did, so the fallback raises its own uncaught `RecursionError` on
+  exactly the input that triggered the `except` clause. Fix: wrap the fallback itself
+  in its own bounded `try/except`, falling back further to a non-recursive description
+  string (`f"<{type(result).__name__}: too deeply nested to serialize>"`) rather than
+  assuming any single fallback is safe.
+- **see also**: `fix-introduces-uncaught-exception-path`
+
+### flag-contract-silently-broken
+- **severity**: critical
+- **check**: Verify that a fix does not make conditional behavior unconditional,
+  breaking an existing flag or option's contract.
+- **triggers**: Fixes that restructure an `if flag:` block; fixes that move
+  initialization code outside a conditional; fixes that change a `return early`
+  path to fall through.
+- **example**: A buffering fix moves the `self._buf = []` initialization before the
+  `if self.cache_output:` guard. Callers that pass `cache_output=False` now get
+  buffering behavior they explicitly opted out of — the flag is still accepted but
+  silently ignored.
+
+### cross-scope-change-silently-undone
+- **severity**: major
+- **check**: Verify that a fix applied to a method or block is not later overwritten
+  by a sibling call in the same scope — particularly when `apply_`, `update()`,
+  `merge()`, or similar mutating helpers run after the fix's write.
+- **triggers**: Fixes that set a field or key on an object that is subsequently passed
+  to a bulk-update or merge helper; fixes in methods that have a corresponding
+  `_apply` or `_finalize` call in the same execution path.
+- **example**: A fix adds `result["scope"] = team_scope` to prevent cross-team
+  leakage. The next line calls `result.update(base_config)` where `base_config` also
+  contains a `"scope"` key — the fix's assignment is immediately overwritten, and the
+  leakage survives.
+
+### credential-timing-window
+- **severity**: critical
+- **check**: Verify that a masking or sanitization fix applies before the value is
+  used in any log, error message, or external call — not just before it is stored.
+- **triggers**: Fixes that add masking to a value that is also referenced in an
+  `except` block, a log line, or an error-response payload; fixes applied to the
+  assignment side when the value was already read on the expression side earlier in
+  the same scope.
+- **example**: A fix adds `value = mask(value)` after an API call that already
+  logged `value` in its exception handler. The masked assignment is correct for
+  future storage, but the credential was already emitted in the log entry that was
+  written during the exception.
+- **see also**: `credential-logging` in security.md
+
+### eviction-on-unmasked-data
+- **severity**: critical
+- **check**: Verify that cache eviction, rotation, or cleanup logic operates on
+  already-masked data and does not expose the unmasked form during the eviction
+  step itself.
+- **triggers**: Fixes that add eviction logic (LRU eviction, TTL expiry, cache
+  rotation) to a structure that holds sensitive values; eviction callbacks that log
+  or return the evicted value.
+- **example**: A fix adds LRU eviction to a token cache. The eviction callback logs
+  the evicted entry for debugging. The entry was stored in its raw (unmasked) form —
+  the log line emits the plaintext token.
+
+### early-exit-drops-valid-items
+- **severity**: major
+- **check**: Verify that an early-exit or skip condition added by a fix does not
+  inadvertently drop valid items that belong in the output.
+- **triggers**: Fixes that add `continue`, `break`, or `return []` inside a loop or
+  filter; fixes that move an expiry or validity check earlier in a pipeline; fixes
+  that convert a `pass` to a `continue`.
+- **example**: A fix adds `if item.expires_at < now: continue` to skip expired
+  cache entries. The loop previously processed all entries; valid non-expired items
+  that come after an expired entry are now silently dropped because the loop counter
+  was also being used as an index into a parallel list.
+
+### assertion-weakened-by-fix
+- **severity**: major
+- **check**: Verify that a test fix does not weaken the assertion to make the test
+  pass — the assertion should still verify the behavior under test, not merely
+  confirm the fixed code does not raise.
+- **triggers**: Test fixes that replace `assertEqual(result, expected)` with
+  `assertIsNotNone(result)`; fixes that change `assertNotIn(bad, output)` to
+  `assertIn(good, output)` without verifying `bad` is also absent; fixes that add
+  `or []` to an assertion value to handle `None`.
+- **example**: A fix changes `self.assertEqual(items, [expected_item])` to
+  `self.assertTrue(len(items) > 0)` because the fix changed the output format. The
+  new assertion no longer verifies the content — a list containing entirely wrong
+  items would also pass.
+- **see also**: `weak-assertion` in tests.md
+
+### stale-writes-to-contract
+- **severity**: major
+- **check**: Verify that the `writes_to` list in a workflow stage still matches the
+  files the stage actually writes after a rename, restructure, or scope change in
+  the fix.
+- **triggers**: Workflow YAML fixes that rename an output file, split a stage into
+  two, merge two stages into one, or change the workspace path of an output; any fix
+  to a stage description that alters what gets written.
+- **example**: A fix renames `outputs/findings.json` to `outputs/matches.json` in a
+  stage's description but leaves `writes_to: [outputs/findings.json]` unchanged. The
+  compiler accepts the file (the declared path is syntactically valid) but downstream
+  stages that `reads_from` this stage receive a stale path — the actual file is at
+  the new name and the downstream read silently fails.
+- **see also**: `writes-to-output-path-mismatch` in workflow.md
+
+### unused-import-after-fix
+- **severity**: minor
+- **check**: Verify that a fix which removes a function call, changes an import alias,
+  or inlines a helper does not leave the original import in place as dead code.
+- **triggers**: Fixes that delete or rename a function; fixes that switch from one
+  helper to another; fixes that remove a conditional branch that was the only consumer
+  of an import.
+- **example**: A fix replaces `from core.io import write_json` with the correct
+  `atomic_write_json` equivalent and updates the call site, but the original
+  `write_json` import line is not removed. Ruff flags `F401` on the unused import;
+  CI may fail.
+
+### unverified-correction-restates-error
+- **severity**: major
+- **check**: Verify that a fix correcting a factual, numeric, or analytical claim
+  actually recomputes the claim from source data — not just restates it in different
+  words while carrying the same underlying error forward.
+- **triggers**: Fixes to prose/documentation that "correct" a stated percentage,
+  comparison, or count without a visible recomputation step; corrections applied
+  under time pressure across consecutive review rounds where the second correction is
+  not independently re-derived from the raw numbers.
+- **example**: Round N's review flags a doc claiming two computed means "agree
+  exactly." The round-N fix rewrites this to "only 1 of 5 rows match," but that
+  count was itself not recomputed carefully — a precise per-row recheck shows 3 of 5
+  rows actually match. The correction changed the wording without re-verifying the
+  arithmetic, so the document is wrong twice in a row.
+- **see also**: `assertion-weakened-by-fix`
+
+### recurring-narrow-fix-same-hotspot
+- **severity**: major
+- **check**: Before fixing a reported issue, check whether this same file/function
+  has already been the subject of a fix in the immediately preceding review round(s).
+  If so, do not simply patch the newly reported case — ask whether the fix closes the
+  underlying class of bug, or only the specific instance just reported. A hotspot that
+  has absorbed 2+ consecutive round-fixes is a signal the design itself is wrong, not
+  that the latest edge case merely was not covered yet.
+- **triggers**: A file or function appearing in the fix list of 2 or more consecutive
+  review rounds on the same PR; a fix whose diff is structurally identical to the
+  previous round's fix in the same location (same kind of conditional/guard added,
+  same data structure patched) rather than a change to the underlying approach; any
+  fix to matching/joining/dedup logic that keys on inferred or fuzzy data (content
+  prefixes, computed tuples) when a stable identifier is available but unused.
+- **example**: A PR's dedup logic joins two data sources by a fuzzy composite key
+  (path, line, first-80-chars-of-body). Round 5 patches it to stop discarding
+  metadata on a match. Round 6 patches it again to stop dropping a comment when two
+  same-keyed entries collide with no match on the other side. Round 7 finds a third
+  collision variant: two distinct entries from different sources both matching the
+  same target, only the first surviving. Three rounds "fixed" the reported case each
+  time, but the fuzzy key itself was never fixed — a stable identifier (e.g. a
+  database row ID) existed the whole time and would have closed the entire class of
+  collision.
+- **see also**: `narrow-fix-no-blast-radius-check`
+
+### adjacent-occurrence-sweep
+- **severity**: major
+- **check**: Before marking a fix complete, search for the same bug pattern or code
+  shape in sibling files — not just the one location a reviewer flagged. A reviewer's
+  comment names one site because that is the site they happened to read; it is not a
+  claim that the pattern is unique to that site. Grep the repo (or at minimum the same
+  domain/package directory) for the literal construct being fixed before writing the
+  fix off as done.
+- **triggers**: Any fix to string/token parsing, comment-stripping, validation, or
+  guard logic that exists as inline code (not a shared helper) in more than one file
+  of the same domain; any fix applied to a function whose name, signature, or body
+  closely mirrors a function in a sibling file; cognitive-complexity fixes applied to
+  one function when the same diff/PR touches other functions with a structurally
+  similar body.
+- **example**: A reviewer flags that an inline parser strips `#`-prefixed comments
+  but not `//`-prefixed ones at one call site. The fix patches that one site. A later
+  review round finds the identical bug in a sibling file — same comment-stripping
+  logic, inlined a second time rather than shared, never swept after the first fix
+  landed. A single sibling-file grep after the first finding would have collapsed
+  both into one round.
+- **see also**: `recurring-narrow-fix-same-hotspot`
+
+### pr-desc-stale-after-fix-round
+- **severity**: minor
+- **check**: After a fix round that changes the implementation approach, count, or
+  structure, verify the PR body and affected docstrings still describe what the code
+  actually does — not what was planned or what an earlier iteration did.
+- **triggers**: A fix commit that changes an approach (e.g. switches algorithm, merges
+  two helpers, removes a feature), alters a count (fewer tests, different output
+  fields), or renames a key artifact; PR descriptions or docstrings that make a
+  specific claim (a count, an algorithm, a named artifact, a behavior, a file list)
+  that contradicts the final diff — e.g. the body says "re-implemented using a single
+  enricher pass" but the code still has two passes. Verb tense alone is not evidence:
+  present-tense or future-tense verbs like "adds a subcommand" accurately describe
+  shipped code and must not be flagged; only flag when the specific claim no longer
+  matches the diff.
+- **example**: Round-3 notes say "re-implemented using a single enricher pass" but
+  the PR body still refers to the original two-pass approach from the initial
+  description. A reviewer reading the body misunderstands the design and raises a
+  question that a correct body would have answered. Fix: after each fix round that
+  changes approach or counts, grep the PR body for the superseded claim and update
+  it before pushing.
+
+### mypy-fix-alters-serialized-output
+- **severity**: major
+- **check**: Verify that a fix applied to silence a mypy `arg-type`, `return-value`,
+  or `assignment` error actually corrects the annotation — not the emitted value. A
+  mypy finding can be resolved either by fixing the annotation (correct) or by
+  changing the computed value to match the wrong annotation (wrong). Confirm the
+  function's output, serialized fields, and return shape are unchanged after the fix.
+- **triggers**: A fix that resolves a mypy `arg-type`, `return-value`, or `assignment`
+  error by changing a default, adding an `or <fallback>` expression, dropping a field
+  from a dataclass, or coercing a type at the return site rather than updating the
+  annotation; any mypy-fix commit touching a function that is also called by
+  serialization, CLI output, or downstream pipeline code.
+- **example**: mypy reports `return-value: Incompatible return value type (got "float
+  | None", expected "float")`. A fix adds `or 0.0` at the return site — this silences
+  mypy but masks a missing-region error that the caller was supposed to surface,
+  turning a detectable failure into a silent zero. The correct fix is `-> float | None`
+  in the annotation. Separately, a fix that drops a dataclass field to resolve an
+  `assignment` error silently removes that field from every serialized JSON output.
+- **see also**: `suppression-masks-real-mypy-finding` in correctness.md
