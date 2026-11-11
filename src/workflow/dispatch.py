@@ -33,6 +33,9 @@ KNOWN_ROLES: frozenset[str] = frozenset({
     "thread-fixer",
     "code-writer-opus",
     "tester-opus",
+    "ci-fixer-opus",
+    "critic-opus",
+    "workflow-debugger",
     "Explore",
     "Plan",
 })

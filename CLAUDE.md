@@ -740,7 +740,10 @@ Never use a bare `sleep` loop in a Bash tool call to wait for a condition.
 | `ci-fixer` | Sonnet | CI failure diagnosis and fix |
 | `code-writer-opus` | Opus | Escalate from code-writer when Sonnet is stuck or producing incorrect code after retries |
 | `tester-opus` | Opus | Escalate from tester when Sonnet fails to produce passing tests after iteration |
+| `ci-fixer-opus` | Opus | Escalate from ci-fixer when failure involves entangled cross-domain regressions or deep test-infrastructure reasoning |
 | `critic` | Opus | Adversarial critique of plans, workflow designs, architecture decisions |
+| `critic-opus` | Opus | Escalate from critic when the plan is unusually complex or a prior critique pass missed something |
+| `workflow-debugger` | Sonnet | Diagnose failed or stuck workflow runs — daemon, fan_out, DAG, and worker_queue issues |
 | `haiku-reviewer` | Haiku | Concern-sweep fan-out stages; writes JSON findings, no Bash |
 | `workflow-author` | Sonnet | Authoring and editing workflow YAML DAGs |
 | `thread-fixer` | Sonnet | One PR review thread per agent; fixes only what that thread asked, never resolves it |
