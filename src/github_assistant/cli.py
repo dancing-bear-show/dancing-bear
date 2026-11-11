@@ -46,7 +46,11 @@ from core.github import (
     resolve_thread,
     viewer_login,
 )
+from core.github import activity as _activity
+from core.github import copilot as _copilot
 from core.github import pulls as _pulls
+from core.github import review_cycle as _review_cycle
+from core.github import summary as _summary
 from core.github import threads as _threads_mod
 
 from .meta import META
@@ -588,6 +592,118 @@ def cmd_pr_review_comment(args) -> int:
         commit_id=args.commit_id, body=_read_body(args.body_file),
     ))
     return ExitCode.SUCCESS
+
+
+def _summary_targets(gh: GhCLI, args) -> list[int]:
+    """``--pr`` alone, or the numbers ``pr list`` returns for the filters."""
+    if args.pr is not None:
+        return [int(args.pr)]
+    rows = _pulls.pr_list(
+        gh, fields=["number"], state=args.state, limit=int(args.limit),
+        author=args.author, repo=_repo(args),
+    )
+    return [int(r["number"]) for r in rows if isinstance(r, dict) and r.get("number") is not None]
+
+
+@pr_group.command("summary", help="Summarize PRs: size, branches, top dirs; path-filterable")
+@app.argument("--repo", help="OWNER/NAME (defaults to current checkout)")
+@app.argument("--pr", type=int, help="One PR (else list by --state/--author/--limit)")
+@app.argument("--state", choices=("open", "closed", "merged", "all"), default="merged")
+@app.argument("--author", help="Filter by author login (@me allowed)")
+@app.argument("--limit", type=int, default=5)
+@app.argument("--include-path", action="append", default=[], dest="include_path",
+              help="Keep PRs touching this path (repeatable)")
+@app.argument("--exclude-path", action="append", default=[], dest="exclude_path",
+              help="Drop PRs touching this path (repeatable)")
+@app.argument("--path-mode", choices=_summary.PATH_MODES, default="prefix", dest="path_mode")
+@app.argument("--files", action="store_true", help="Include per-file changes in JSON")
+@app.argument("--format", choices=("json", "text"), default="json", help="Output format")
+def cmd_pr_summary(args) -> int:
+    gh = _gh()
+    owner, name = resolve_owner_repo(gh, _repo(args))
+    summaries = []
+    for number in _summary_targets(gh, args):
+        s = _summary.fetch_pr_summary(gh, owner, name, number)
+        if _summary.matches_paths(
+            (f.path for f in s.files), include=args.include_path,
+            exclude=args.exclude_path, mode=args.path_mode,
+        ):
+            summaries.append(s)
+    if args.format == "text":
+        text = "\n".join(_summary.render_summary_text(s) for s in summaries)
+        print(text or "No matching pull requests.")
+        return ExitCode.SUCCESS
+    rows = [s.to_dict() for s in summaries]
+    if not args.files:
+        for row in rows:
+            row.pop("files", None)
+    _print_json(rows)
+    return ExitCode.SUCCESS
+
+
+# ---- activity ---------------------------------------------------------------
+
+
+@app.command("activity", help="My recent PRs, open review requests, and issues")
+@app.argument("--owner", help="Limit to repos owned by this user/org")
+@app.argument("--limit", type=int, default=10, help="Max items per section (1-100)")
+@app.argument("--format", choices=("json", "text"), default="json", help="Output format")
+def cmd_activity(args) -> int:
+    data = _activity.fetch_activity(_gh(), owner=args.owner, limit=int(args.limit))
+    if args.format == "text":
+        sys.stdout.write(_activity.render_activity_text(data))
+    else:
+        _print_json(data.to_dict())
+    return ExitCode.SUCCESS
+
+
+# ---- copilot group ----------------------------------------------------------
+
+
+copilot_group = app.group("copilot", help="Copilot reviewer: re-request, full review round-trip")
+
+
+@copilot_group.command("request", help="Request a Copilot (re-)review on a PR")
+@app.argument("--repo", help="OWNER/NAME (defaults to current checkout)")
+@app.argument("--pr", required=True, type=int, help="PR number")
+@app.argument("--dry-run", action="store_true", dest="dry_run", help="Report only; request nothing")
+def cmd_copilot_request(args) -> int:
+    gh = _gh()
+    owner, name = resolve_owner_repo(gh, _repo(args))
+    switch = _copilot.copilot_review_switch()
+    if switch.warning:
+        print(f"warning: {switch.warning}", file=sys.stderr)
+    out: dict[str, Any] = {"pr": int(args.pr), "requested": False, "skip_reason": None, "requested_reviewers": []}
+    if not switch.enabled:
+        out["skip_reason"] = _review_cycle.SKIP_DISABLED
+    elif args.dry_run:
+        out["requested"] = True
+    else:
+        out["requested_reviewers"] = _copilot.request_copilot_review(gh, owner, name, int(args.pr))
+        out["requested"] = True
+    _print_json(out)
+    return ExitCode.SUCCESS
+
+
+@copilot_group.command("cycle", help="Reply to + resolve open Copilot threads, then re-request review")
+@app.argument("--repo", help="OWNER/NAME (defaults to current checkout)")
+@app.argument("--pr", required=True, type=int, help="PR number")
+@app.argument("--body-file", required=True, dest="body_file", help="Reply body path (- for stdin)")
+@app.argument("--run-id", dest="run_id", help="Append a run marker; skip threads already answered")
+@app.argument("--no-request", action="store_true", dest="no_request", help="Skip the re-review request")
+@app.argument("--dry-run", action="store_true", dest="dry_run", help="Report only; post nothing")
+def cmd_copilot_cycle(args) -> int:
+    gh = _gh()
+    owner, name = resolve_owner_repo(gh, _repo(args))
+    opts = _review_cycle.CycleOptions(
+        body=_read_body(args.body_file), run_id=args.run_id,
+        request=not args.no_request, dry_run=bool(args.dry_run),
+    )
+    result = _review_cycle.run_review_cycle(gh, owner, name, int(args.pr), opts)
+    for warning in result.warnings:
+        print(f"warning: {warning}", file=sys.stderr)
+    _print_json(result.to_dict())
+    return ExitCode.ERROR if result.errors else ExitCode.SUCCESS
 
 
 # ---- run group --------------------------------------------------------------

@@ -179,6 +179,10 @@ got it wrong in three different ways:
 
 ## Notes
 
+- After a run, `./bin/github copilot request --pr N` asks Copilot for a fresh
+  review. `./bin/github copilot cycle` is the bulk shortcut for Copilot-only
+  threads that need one shared reply; it is not a substitute for this
+  workflow's per-thread triage and fixes.
 - The `thread-fixer` agent fixes exactly one thread and is forbidden from
   touching anything the thread did not ask about. Out-of-scope findings are
   reported, not fixed.
