@@ -14,8 +14,11 @@ from core.cli_framework import CLIApp
 from core.paths import output_dir
 
 from ..io_utils import read_yaml_or_json, write_yaml_or_json
+from ..overlays import resolve_profile_dir
+from ..schema import Resume
 from ..templating import load_template, parse_seed_criteria
 from ..docx_writer import write_resume_docx
+from ..docx_standard import _section_has_data, _SECTION_DATA_KEYS
 from ..structure import infer_structure_from_docx
 from .args import PROFILE_HELP_DATA, PROFILE_HELP_OUT, OUT_DIR_HELP, DATA_HELP, EXT_JSON, EXT_YAML, OUT_DIR_DOMAIN
 from .helpers import _load_candidate_data, _apply_filter_pipeline, _extend_seed_with_style, _resolve_out
@@ -61,10 +64,12 @@ def _find_structure_in_dirs(
 def _find_structure_in_config(
     profile: str, extensions: tuple = (EXT_JSON, EXT_YAML, ".yml")
 ) -> dict | None:
-    """Search for structure file in config folder."""
-    config_dir = Path("config") / "profiles" / profile
+    """Search for structure file in the resolved profile directory."""
+    prof_dir = resolve_profile_dir(profile)
+    if prof_dir is None:
+        return None
     return _find_first_structure(
-        [config_dir], extensions, lambda out_dir, ext: out_dir / f"structure{ext}"
+        [prof_dir], extensions, lambda out_dir, ext: out_dir / f"structure{ext}"
     )
 
 
@@ -93,6 +98,21 @@ def _load_structure(args: argparse.Namespace) -> dict | None:
     return _find_structure_in_dirs(profile, out_dirs) or _find_structure_in_config(profile)
 
 
+def _has_resume_content(resume: Resume) -> bool:
+    """Return True if the resume has any meaningful content to render.
+
+    Delegates to ``_section_has_data`` for every key registered in
+    ``_SECTION_DATA_KEYS``, plus the ``name`` field, so new sections are
+    covered automatically without updating this guard.
+
+    Returns False only when every registered section and ``name`` are empty —
+    an accidental empty render would produce a blank document with exit 0.
+    """
+    if resume.name:
+        return True
+    return any(_section_has_data(key, resume) for key in _SECTION_DATA_KEYS)
+
+
 def cmd_render(args: argparse.Namespace) -> int:
     data = _load_candidate_data(args)
     template = load_template(args.template)
@@ -111,6 +131,14 @@ def cmd_render(args: argparse.Namespace) -> int:
     out_suf = out_docx.suffix.lower()
     if out_suf == ".pdf":
         raise CLIError("render writes .docx only; use 'resume export-pdf --docx <path>' to convert.", ExitCode.USAGE)
+    # Guard: refuse to write a completely empty resume (exit 0 with a blank docx
+    # was the original bug — an unknown profile + no base data produces nothing).
+    if not _has_resume_content(resume):
+        raise CLIError(
+            "No content to render: resume has no name, experience, summary, or skills. "
+            "Pass --data <path> to specify a data file or --profile to load a profile.",
+            ExitCode.USAGE,
+        )
     # default to docx
     # Ensure parent directory exists for nested profile layout
     try:

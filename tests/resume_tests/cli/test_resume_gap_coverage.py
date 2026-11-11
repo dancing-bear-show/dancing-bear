@@ -56,8 +56,9 @@ class TestCmdRenderUnit(unittest.TestCase):
         self, mock_read, mock_template, mock_filter, mock_structure, mock_write
     ) -> None:
         from resume.cli.cmd_render import cmd_render
+        from resume.schema import Resume
 
-        mock_filter.return_value = {"name": "Test"}
+        mock_filter.return_value = Resume.from_dict({"name": "Test"})
         args = self._make_args(out="out.docx")
         result = cmd_render(args)
         self.assertEqual(result, 0)
@@ -72,8 +73,9 @@ class TestCmdRenderUnit(unittest.TestCase):
         self, mock_read, mock_template, mock_filter, mock_structure, mock_write
     ) -> None:
         from resume.cli.cmd_render import cmd_render
+        from resume.schema import Resume
 
-        mock_filter.return_value = {"name": "Test", "skills": ["Python"]}
+        mock_filter.return_value = Resume.from_dict({"name": "Test"})
         args = self._make_args(out="out.docx")
         cmd_render(args)
         mock_write.assert_called_once()
@@ -111,8 +113,9 @@ class TestCmdRenderUnit(unittest.TestCase):
         self, mock_read, mock_template, mock_filter, mock_structure, mock_write
     ) -> None:
         from resume.cli.cmd_render import cmd_render
+        from resume.schema import Resume
 
-        mock_filter.return_value = {"name": "Test"}
+        mock_filter.return_value = Resume.from_dict({"name": "Test"})
         args = self._make_args(out="out.docx", min_priority=0.7)
         cmd_render(args)
         # _apply_filter_pipeline is called with the float value
@@ -128,8 +131,9 @@ class TestCmdRenderUnit(unittest.TestCase):
         self, mock_read, mock_template, mock_filter, mock_structure, mock_write
     ) -> None:
         from resume.cli.cmd_render import cmd_render
+        from resume.schema import Resume
 
-        mock_filter.return_value = {"name": "Test"}
+        mock_filter.return_value = Resume.from_dict({"name": "Test"})
         args = self._make_args(out="out.docx", min_priority=None)
         cmd_render(args)
         call_args = mock_filter.call_args

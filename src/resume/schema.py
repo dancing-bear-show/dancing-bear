@@ -78,6 +78,7 @@ __all__ = [
     "Education",
     "Presentation",
     "ExperienceEntry",
+    "Project",
     "Resume",
 ]
 
@@ -437,6 +438,28 @@ class ExperienceEntry(_Item):
         return value
 
 
+@dataclass
+class Project(_Item):
+    """A project entry.
+
+    ``bullets`` follows the same coercion as :class:`ExperienceEntry`: bare
+    strings in the list are upgraded to :class:`PriorityItem` items.
+    """
+
+    name: str = ""
+    desc: str = ""
+    bullets: list[PriorityItem] = field(default_factory=list)
+    tech: str = ""
+    link: str = ""
+    priority: float = 1.0
+
+    @classmethod
+    def _convert(cls, name: str, value: Any) -> Any:
+        if name == "bullets":
+            return _as_items(value, PriorityItem, "Project.bullets")
+        return value
+
+
 #: Contact keys promoted to top-level scalars. ``name`` is included, fixing the
 #: audited asymmetry where only email/phone/location were promoted.
 _CONTACT_PROMOTED = ("name", "email", "phone", "location")
@@ -448,6 +471,7 @@ _LIST_ITEM_TYPES: dict[str, type[_Item]] = {
     "skills_groups": SkillGroup,
     "experience": ExperienceEntry,
     "presentations": Presentation,
+    "projects": Project,
     "technologies": SkillGroupItem,
     "languages": NamedLevelItem,
     "coursework": CourseworkItem,
@@ -505,6 +529,7 @@ class Resume(_Item):
     presentations: list[Presentation] = field(default_factory=list)
 
     # priority-filterable, empty in current production data
+    projects: list[Project] = field(default_factory=list)
     technologies: list[SkillGroupItem] = field(default_factory=list)
     languages: list[NamedLevelItem] = field(default_factory=list)
     coursework: list[CourseworkItem] = field(default_factory=list)

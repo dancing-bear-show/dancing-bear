@@ -216,18 +216,18 @@ class TestUnrecognizedSectionKeysStillRender(unittest.TestCase):
 
         rendered: list[str] = []
 
-        class _ProjectsRenderer:
+        class _PortfolioRenderer:
             def __init__(self, doc, page_cfg):
                 self.doc = doc
 
             def render(self, resume, sec):
                 rendered.append("called")
-                self.doc.add_paragraph("Synthetic project body")
+                self.doc.add_paragraph("Synthetic portfolio body")
 
         patched = dict(SECTION_RENDERERS)
-        patched["projects"] = _ProjectsRenderer
+        patched["portfolio"] = _PortfolioRenderer
 
-        template = {"sections": [{"key": "projects", "title": "Projects"}]}
+        template = {"sections": [{"key": "portfolio", "title": "Portfolio"}]}
 
         with tempfile.TemporaryDirectory() as tmpdir:
             out = os.path.join(tmpdir, "unmapped.docx")
@@ -244,20 +244,20 @@ class TestUnrecognizedSectionKeysStillRender(unittest.TestCase):
             text = "\n".join(p.text for p in Document(out).paragraphs)
 
         self.assertEqual(rendered, ["called"], "unmapped section renderer was skipped")
-        self.assertIn("Projects", text)
-        self.assertIn("Synthetic project body", text)
+        self.assertIn("Portfolio", text)
+        self.assertIn("Synthetic portfolio body", text)
 
     def test_section_with_no_registered_renderer_is_skipped(self):
         """An unknown key with no renderer emits no heading, matching the factory.
 
         This is the other half of the divergence: the old CLI path emitted the
         heading *before* looking the renderer up, leaving a heading with no
-        body for a key like "projects" that nothing can draw.
+        body for a key like "portfolio" that nothing can draw.
         """
         from resume.docx_writer import write_resume_docx
         from resume.schema import Resume
 
-        template = {"sections": [{"key": "projects", "title": "Projects"}]}
+        template = {"sections": [{"key": "portfolio", "title": "Portfolio"}]}
 
         with tempfile.TemporaryDirectory() as tmpdir:
             out = os.path.join(tmpdir, "norenderer.docx")
@@ -269,7 +269,7 @@ class TestUnrecognizedSectionKeysStillRender(unittest.TestCase):
 
             text = "\n".join(p.text for p in Document(out).paragraphs)
 
-        self.assertNotIn("Projects", text)
+        self.assertNotIn("Portfolio", text)
 
 
 if __name__ == "__main__":

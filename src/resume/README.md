@@ -104,7 +104,7 @@ Commands
   - Example: `python3 -m resume extract --linkedin linkedin.txt --resume resume.txt --out out/data.json`
 - `summarize` — Build a concise summary from unified data
   - Example: `python3 -m resume summarize --data out/data.json --seed 'keywords=Python Kubernetes AWS' --out out/summary.md`
-  - With profile overlays: add `--profile <prefix>` to overlay `config/profiles/<prefix>/profile.yaml` (plus grouped skills and experience). Legacy `config/profile.<prefix>.yaml` is still supported.
+  - With profile overlays: add `--profile <prefix>` to overlay profile data (plus grouped skills and experience). Search order: `<config-home>/resume/profiles/<prefix>/`, then CWD `config/profiles/<prefix>/`, then the packaged config. Legacy `config/profile.<prefix>.yaml` is still supported.
 - `render` — Render a `.docx` using a YAML/JSON template (optionally mimic a reference resume's structure)
   - **Note:** `--template` is required to render resume sections (Summary, Skills, Experience, Education). Without it, only the header (name, headline, contact) is rendered.
   - Example: `python3 -m resume render --data out/data.json --template config/template.example.yaml --seed 'keywords=Python AWS' --out out/jane_doe.docx`
@@ -144,7 +144,7 @@ sections:
   - key: education
     title: Education
 ```
-- Available section keys: `summary`, `skills`, `technologies`, `experience`, `education`, `interests`, `presentations`, `languages`, `coursework`, `certifications`
+- Available section keys: `summary`, `skills`, `technologies`, `experience`, `education`, `interests`, `presentations`, `projects`, `languages`, `coursework`, `certifications`
 
 Contact fields
 - Top-level or under `contact`: `email`, `phone`, `location`, `website`, `linkedin`, `github`, plus an optional `links` list. Example:
@@ -245,6 +245,10 @@ Template Keys (high‑value)
     - Overlay from profile (`interests:` list) or `config/interests.<profile>.yaml`.
   - `presentations` (Public Presentations): list of strings or dicts `{ title?, event?, year?, link?, priority? }`; add to template with `key: presentations`.
     - Overlay from profile (`presentations:` list) or `config/presentations.<profile>.yaml`.
+  - `projects` (Notable Projects): list of dicts `{ name, desc?, bullets?, tech?, link?, priority? }`; add to template with `key: projects`.
+    - `bullets` may be `list[str]` or `list[{ text, priority? }]` — same coercion as experience bullets.
+    - Rendered per project: bold name line (with hyperlink when `link` is set), optional `desc` paragraph, optional bullets (keyword-bolded), optional italic `Tech: ...` line.
+    - Overlay from profile (`projects:` list) or `config/projects.<profile>.yaml`.
   - `languages` (Languages): list of strings or dicts `{ name?/language?, level?/proficiency?, priority? }`; add to template with `key: languages`.
     - Overlay from profile or `config/languages.<profile>.yaml`.
   - `coursework` (Selected Coursework): list of strings or dicts `{ name?/course?, desc?, priority? }`; add to template with `key: coursework`.
@@ -284,12 +288,13 @@ experience:
   - `python3 -m resume render --data out/data.json --template config/template.example.yaml --min-priority 0.8 --out out/jane_doe.compact.docx`
 
 Overlays + Filtering
-- Overlays (auto‑applied with `--profile <prefix>`) via `config/profiles/<prefix>/`:
-  - `profile.yaml` (name/email/phone/location)
-  - `skills_groups.yaml` (grouped skills; supports `name` + `desc`)
-  - `experience.yaml` (canonical job history list)
-  - Optional: `interests.yaml`, `presentations.yaml`, `languages.yaml`, `coursework.yaml`
-  - Legacy flat naming under `config/` (e.g., `profile.<prefix>.yaml`) remains supported and will be picked up if present.
+- Overlays (auto‑applied with `--profile <prefix>`) — profile directory search order:
+  1. `<config-home>/resume/profiles/<prefix>/` (honours `DANCING_BEAR_CONFIG_HOME` / `XDG_CONFIG_HOME`)
+  2. CWD `config/profiles/<prefix>/` (backward compat for existing scripts)
+  3. Packaged `src/resume/config/profiles/<prefix>/` (e.g. `sample`, always found)
+  - Files within: `profile.yaml` (name/email/phone/location), `skills_groups.yaml` (grouped skills; supports `name` + `desc`), `experience.yaml` (canonical job history list), optional `interests.yaml`, `presentations.yaml`, `projects.yaml`, `languages.yaml`, `coursework.yaml`
+  - Legacy flat naming under CWD `config/` (e.g., `profile.<prefix>.yaml`) is still checked as a secondary source.
+  - An unrecognised profile name (no directory found and no legacy files) emits a warning on stderr and continues with the base data; it does not exit non-zero unless the base data is also missing.
 - Targeted scope (optional):
   - `--filter-skills-alignment` and `--filter-exp-alignment` filter to matched keywords from an alignment JSON; `--filter-*-job` supplies synonyms.
 
@@ -307,8 +312,9 @@ Examples
 - Sample inputs: `examples/linkedin.sample.txt`, `examples/resume.sample.txt`
 
 Profiles & Outputs
-- Profiles live under `config/profiles/<prefix>/` and may contain: `profile.yaml`, `skills_groups.yaml`, `experience.yaml`, `interests.yaml`, `presentations.yaml`, `languages.yaml`, `coursework.yaml`, `structure.yaml`.
-- Sample profile lives under `config/profiles/sample/`; keep private overlays in `_data/profiles_private/`.
+- Private profiles live under `<config-home>/resume/profiles/<prefix>/` (resolved per `DANCING_BEAR_CONFIG_HOME` / `XDG_CONFIG_HOME`). The CWD `config/profiles/<prefix>/` path is searched second for backward compat; the packaged `src/resume/config/profiles/<prefix>/` is the third fallback (always found for `sample`).
+- A profile directory may contain: `profile.yaml`, `skills_groups.yaml`, `experience.yaml`, `interests.yaml`, `presentations.yaml`, `projects.yaml`, `languages.yaml`, `coursework.yaml`, `structure.yaml`.
+- Sample profile lives under `config/profiles/sample/` (packaged); keep private overlays outside the checkout under `<config-home>/resume/profiles/<prefix>/`.
 - Outputs are nested by profile in `out/<prefix>/` with conventional names: `data.json`, `summary.md`, `resume.docx`, `structure.json`, `alignment.json`, `style.json`.
 - Default profile is `sample`; override with `--profile <prefix>`.
 

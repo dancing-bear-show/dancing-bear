@@ -301,11 +301,9 @@ stages:
 
       Pass the profile's experience.yaml explicitly via --data as shown. The
       resume CLI's `--profile` flag is dual-purpose: it sets the output filename
-      prefix AND selects overlays, but overlay lookup resolves against
-      `config/profiles/<prefix>/` relative to the working directory
-      (src/resume/overlays.py:85), which is not where a private profile lives.
-      Passing --data names the file directly and does not depend on the working
-      directory.
+      prefix AND selects overlays. Use --data here to name the file directly
+      rather than relying on the overlay lookup (which searches config_home,
+      then CWD config/profiles/, then the packaged config).
 
       Then validate the export before continuing. Read {workspace}/outputs/baseline.yaml
       and confirm:

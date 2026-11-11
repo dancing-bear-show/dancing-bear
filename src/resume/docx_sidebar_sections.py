@@ -3,6 +3,7 @@
 Extracted from docx_sidebar. Provides:
   - _render_main_education, _render_exp_entry, _render_main_experience
   - _render_main_teaching, _render_pres_entry, _render_main_presentations
+  - _render_proj_entry, _render_main_projects
   - write_resume_docx_sidebar: backward-compatible function
   - SidebarResumeWriter: two-column sidebar layout writer class
 """
@@ -14,7 +15,10 @@ from docx.shared import Pt, Inches, RGBColor
 from docx.enum.table import WD_TABLE_ALIGNMENT
 
 from .docx_base import ResumeWriterBase
-from .schema import ExperienceEntry, PriorityItem, Presentation, Resume, _Item
+from .docx_standard import _seed_keywords
+from .docx_bullets import bold_text_in_paragraph
+from .docx_links import add_hyperlink, display_url, normalize_link_url
+from .schema import ExperienceEntry, PriorityItem, Presentation, Project, Resume, _Item
 from .docx_styles import (
     TextFormatter,
     _apply_paragraph_shading,
@@ -212,6 +216,70 @@ def _render_main_presentations(cell, resume: Resume, page_cfg: dict[str, Any], s
         _render_pres_entry(cell, pres, page_cfg, bullet_color)
 
 
+def _render_proj_bullets(cell, bullets: list[PriorityItem], keywords: list[str] | None, body_pt: float) -> None:
+    """Render normalised, keyword-bolded bullet paragraphs for a project entry."""
+    for b in bullets:
+        text = TextFormatter.normalize_bullet(str(b.text or "").strip())
+        if not text:
+            continue
+        p = cell.add_paragraph()
+        p.paragraph_format.left_indent = Inches(0.25)
+        bold_text_in_paragraph(p, text, keywords)
+        for run in p.runs:
+            run.font.size = Pt(body_pt - 1)
+        _tight_paragraph(p, after_pt=1)
+
+
+def _render_proj_entry(
+    cell,
+    proj: Project,
+    page_cfg: dict[str, Any],
+    bullet_color: str,
+    keywords: list[str] | None = None,
+) -> None:
+    """Render a single project entry in the sidebar main column.
+
+    Brought to parity with :class:`~resume.docx_sections_simple.ProjectsSectionRenderer`:
+    the ``link`` field is rendered as a hyperlink, bullets are normalised before
+    display, and keyword bolding is applied when *keywords* are provided.
+    """
+    name = str(proj.name or "").strip()
+    if not name:
+        return
+
+    body_pt: float = page_cfg.get("body_pt", 10)
+
+    # Name paragraph: bold run + optional hyperlink (mirrors standard renderer).
+    p = cell.add_paragraph()
+    _add_colored_bullet_run(p, bullet_color)
+    name_run = p.add_run(name)
+    name_run.bold = True
+    name_run.font.size = Pt(body_pt)
+    link = str(proj.link or "").strip()
+    url = normalize_link_url(link) if link else ""
+    if url:
+        p.add_run(" ")
+        add_hyperlink(p, url, display_url(url))
+    _tight_paragraph(p, after_pt=0)
+
+    desc = str(proj.desc or "").strip()
+    if desc:
+        _add_indented_run(cell, desc, page_cfg, IndentedRunStyle())
+
+    _render_proj_bullets(cell, proj.bullets, keywords, body_pt)
+
+    tech = str(proj.tech or "").strip()
+    if tech:
+        _add_indented_run(cell, f"Tech: {tech}", page_cfg, IndentedRunStyle(italic=True, size_offset=-1, after_pt=4))
+
+
+def _render_main_projects(cell, resume: Resume, page_cfg: dict[str, Any], sec: dict[str, Any] | None = None, keywords: list[str] | None = None) -> None:  # nosec - sec kept for API compatibility
+    """Render projects in main column with optional keyword bolding."""
+    bullet_color = page_cfg.get("main_bullet_color", "#4A90A4")
+    for proj in resume.projects:
+        _render_proj_entry(cell, proj, page_cfg, bullet_color, keywords=keywords)
+
+
 # Fallback usable width: US Letter (8.5") minus the default 0.5" margins.
 # Only used when the real section geometry cannot be read; page size and
 # margins (page.margins_in) are both configurable, so prefer the measured
@@ -338,8 +406,9 @@ class SidebarResumeWriter(ResumeWriterBase):
         # Render sidebar content (Profile + Skills)
         self._render_sidebar_content(sidebar_cell)
 
-        # Render main content
-        self._render_main_content(main_cell)
+        # Render main content; extract keywords from seed so projects can bold them.
+        keywords = _seed_keywords(seed)
+        self._render_main_content(main_cell, keywords)
 
     def _render_centered_header_line(self, p, text: str, style: CenteredHeaderLineStyle) -> None:
         """Render one centered, colored, shaded header line onto an existing paragraph."""
@@ -479,17 +548,25 @@ class SidebarResumeWriter(ResumeWriterBase):
         "experience": _render_main_experience,
         "teaching": _render_main_teaching,
         "presentations": _render_main_presentations,
+        "projects": _render_main_projects,
     }
 
-    def _render_main_content(self, cell) -> None:
+    # Sections whose renderers accept a ``keywords`` argument for bolding.
+    _MAIN_SECTIONS_WITH_KEYWORDS: frozenset[str] = frozenset({"projects"})
+
+    def _render_main_content(self, cell, keywords: list[str] | None = None) -> None:
         """Render main column content (education, experience, teaching, presentations)."""
         sections = self.template.get("sections") or []
 
         for sec in sections:
-            renderer = self._MAIN_SECTION_RENDERERS.get(sec.get("key"))
+            key = sec.get("key")
+            renderer = self._MAIN_SECTION_RENDERERS.get(key)
             if renderer is None:
                 continue
             _render_main_section_heading(cell, sec.get("title", ""), self.page_cfg)
-            renderer(cell, self.resume, self.page_cfg, sec)
+            if key in self._MAIN_SECTIONS_WITH_KEYWORDS:
+                renderer(cell, self.resume, self.page_cfg, sec, keywords)
+            else:
+                renderer(cell, self.resume, self.page_cfg, sec)
 
 

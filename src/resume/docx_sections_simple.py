@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from .docx_links import add_hyperlink, display_url, normalize_link_url
 from .docx_list_sections import ListSectionRenderer
-from .schema import Presentation, Resume
+from .schema import Presentation, PriorityItem, Project, Resume
 
 
 class InterestsSectionRenderer(ListSectionRenderer):
@@ -139,4 +139,78 @@ class PresentationsSectionRenderer(ListSectionRenderer):
             if display := self._render_presentation(pres, glyph):
                 lines.append(display)
 
+        return lines
+
+
+class ProjectsSectionRenderer(ListSectionRenderer):
+    """Renders projects section.
+
+    Per project: a bold name line with an optional hyperlink, an optional
+    ``desc`` paragraph, optional bullets (keyword-bolded), and an optional
+    italic tech line.  Projects whose ``name`` is empty are silently skipped.
+    """
+
+    def _normalize_bullets(self, bullets: list[PriorityItem]) -> list[str]:
+        """Return non-empty bullet texts, normalized for display."""
+        return [
+            self.text.normalize_bullet(str(b.text or "").strip())
+            for b in bullets
+            if str(b.text or "").strip()
+        ]
+
+    def _render_project(
+        self,
+        proj: Project,
+        glyph: str,
+        keywords: list[str] | None,
+    ) -> list[str]:
+        """Render one project entry; return display lines (may be empty)."""
+        name = str(proj.name or "").strip()
+        if not name:
+            return []
+
+        lines: list[str] = [name]
+
+        # Name paragraph: bold run + optional hyperlink run.
+        link = str(proj.link or "").strip()
+        url = normalize_link_url(link) if link else ""
+        p = self.doc.add_paragraph()
+        name_run = p.add_run(name)
+        name_run.bold = True
+        if url:
+            p.add_run(" ")
+            add_hyperlink(p, url, display_url(url))
+
+        # Optional desc paragraph (plain prose).
+        desc = str(proj.desc or "").strip()
+        if desc:
+            cleaned = self.text.clean_inline(desc)
+            if cleaned:
+                self.doc.add_paragraph(cleaned)
+
+        # Optional bullets with keyword bolding.
+        bullet_texts = self._normalize_bullets(proj.bullets)
+        if bullet_texts:
+            self.bullets.add_bullets(bullet_texts, keywords=keywords, glyph=glyph)
+
+        # Optional tech line (italic).
+        tech = str(proj.tech or "").strip()
+        if tech:
+            tech_p = self.doc.add_paragraph(f"Tech: {tech}")
+            for run in tech_p.runs:
+                run.italic = True
+
+        return lines
+
+    def render(
+        self,
+        resume: Resume,
+        sec: dict | None = None,
+        keywords: list[str] | None = None,
+    ) -> list[str]:
+        """Render every project entry."""
+        glyph = self.bullets.resolve_glyph(sec)
+        lines: list[str] = []
+        for proj in resume.projects:
+            lines.extend(self._render_project(proj, glyph, keywords))
         return lines

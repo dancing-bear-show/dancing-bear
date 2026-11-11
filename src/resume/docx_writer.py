@@ -264,7 +264,7 @@ def _render_sections(
         if not key:
             continue
 
-        # Skip sections with no registered renderer (e.g. "projects").
+        # Skip sections with no registered renderer (e.g. "unknown_key").
         renderer_class = SECTION_RENDERERS.get(key)
         if renderer_class is None:
             continue

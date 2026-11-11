@@ -33,7 +33,12 @@ Scope Filters
 - Filter Skills and Experience to matched keywords via alignment JSON: `--filter-skills-alignment`, `--filter-exp-alignment`; supply job YAML for synonyms.
 
 Overlays
-- Apply profile, grouped skills, experience, and optional lists from `config/profiles/<prefix>/` when `--profile <prefix>` is used.
+- Apply profile, grouped skills, experience, and optional lists when `--profile <prefix>` is used.
+- Profile directory search order (first hit wins):
+  1. `<config-home>/resume/profiles/<prefix>/` (honours `DANCING_BEAR_CONFIG_HOME` / `XDG_CONFIG_HOME`)
+  2. CWD `config/profiles/<prefix>/` (backward compat for existing scripts)
+  3. Packaged `src/resume/config/profiles/<prefix>/` (e.g. `sample`, always found)
+- An unrecognised profile emits a warning on stderr and continues with base data; it does not exit non-zero unless the base data is also missing.
 - Legacy flat naming under `config/` (e.g., `profile.<prefix>.yaml`) is still honored for back-compat.
 
 Proposal Guidance
@@ -43,7 +48,7 @@ Proposal Guidance
 Workflow Hints
 - `cd ~/code/dancing-bear/resume`
 - Extract → curate → align → render.
-- Use `--profile <prefix>` to overlay `config/profiles/<prefix>/`.
+- Use `--profile <prefix>` to apply profile overlays (see Overlays above for the 3-tier search order).
 - Tidy old artifacts with `resume files tidy` (archive or delete), optionally `--purge-temp`.
 
 Alignment Pattern (example)

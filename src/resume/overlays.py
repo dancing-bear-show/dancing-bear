@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +11,88 @@ from .io_utils import read_yaml_or_json
 # Fields to copy from profile config
 _PROFILE_FIELDS = ("name", "headline", "summary", "email", "phone", "location", "website", "linkedin", "github")
 _CONTACT_FIELDS = ("email", "phone", "location", "website", "linkedin", "github")
+
+# Overlay file names; used both for loading and legacy-exists checks.
+_OVERLAY_NAMES = (
+    "profile", "skills_groups", "experience", "interests",
+    "presentations", "projects", "languages", "coursework",
+    "education", "certifications",
+)
+
+# Root of the packaged config tree; anchored to this file, not the CWD.
+_PACKAGED_CONFIG_DIR = Path(__file__).parent / "config"
+
+
+def _validate_profile_name(profile: str) -> None:
+    """Reject profile names that could cause path traversal.
+
+    Accepts plain name segments such as ``sample``, ``brian``, ``tech-company``.
+    Rejects anything with path separators, ``..``, or a leading ``.``.
+
+    Raises:
+        CLIError(ExitCode.USAGE): On unsafe profile names.
+    """
+    # Check the raw string first so trailing-slash forms like "foo/" are caught
+    # before Path normalises them away (Path("foo/").parts == ("foo",)).
+    sep_chars = {"/"}
+    if os.sep != "/":
+        sep_chars.add(os.sep)
+    if os.altsep:
+        sep_chars.add(os.altsep)
+
+    if (
+        not profile
+        or any(ch in profile for ch in sep_chars)
+        or ".." in profile
+        or profile.startswith(".")
+    ):
+        from core.cli_errors import CLIError, ExitCode
+        raise CLIError(
+            f"Profile name {profile!r} must be a plain name segment "
+            "(no path separators, '..', or leading '.')",
+            ExitCode.USAGE,
+        )
+
+
+def resolve_profile_dir(profile: str) -> Path | None:
+    """Resolve the profile overlay directory, first hit wins.
+
+    Search order:
+
+    1. ``<config_home>/resume/profiles/<profile>`` — private profiles
+       (honours ``DANCING_BEAR_CONFIG_HOME`` / ``XDG_CONFIG_HOME``).
+    2. CWD ``config/profiles/<profile>`` — backward compat for existing scripts.
+    3. ``<package>/config/profiles/<profile>`` — packaged profiles (e.g. ``sample``).
+
+    Args:
+        profile: Profile name; must be a plain name segment (validated here).
+
+    Returns:
+        First existing directory, or ``None`` when none is found.
+
+    Raises:
+        CLIError(ExitCode.USAGE): If the profile name contains path-traversal characters.
+    """
+    _validate_profile_name(profile)
+    from core.paths import config_home
+    for candidate in (
+        config_home() / "resume" / "profiles" / profile,
+        Path("config") / "profiles" / profile,
+        _PACKAGED_CONFIG_DIR / "profiles" / profile,
+    ):
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
+def _searched_dirs(profile: str) -> list[Path]:
+    """Return the directories :func:`resolve_profile_dir` would have searched."""
+    from core.paths import config_home
+    return [
+        config_home() / "resume" / "profiles" / profile,
+        Path("config") / "profiles" / profile,
+        _PACKAGED_CONFIG_DIR / "profiles" / profile,
+    ]
 
 
 def _try_load_from_paths(paths: tuple[Path, ...]) -> dict[str, Any] | None:
@@ -41,7 +125,7 @@ def _apply_profile_config(out: dict[str, Any], prof_data: dict[str, Any]) -> Non
         if isinstance(contact.get("links"), list):
             out["links"] = contact["links"]
 
-    for key in ("interests", "presentations"):
+    for key in ("interests", "presentations", "projects"):
         if isinstance(prof_data.get(key), list):
             out[key] = prof_data[key]
 
@@ -76,13 +160,59 @@ def _load_list_overlay(prof_dir: Path, cfg_dir: Path, profile: str, key: str) ->
 
 
 def apply_profile_overlays(data: dict[str, Any], profile: str | None) -> dict[str, Any]:
-    """Overlay profile-specific config files under config/ onto data."""
+    """Overlay profile-specific config files onto *data*.
+
+    Locates the profile directory via :func:`resolve_profile_dir` (config_home →
+    CWD → packaged), then loads each overlay file in turn.  Legacy flat files
+    under CWD ``config/`` (e.g. ``config/profile.<prefix>.yaml``) are still
+    checked as a secondary source for each overlay type.
+
+    When no profile directory is found and no legacy flat files exist, a warning
+    is printed to stderr naming the profile and every searched path, and *data*
+    is returned unchanged.  This allows the documented flow
+    ``extract --profile X`` → ``render --profile X`` to succeed even when the
+    user has not created a profile directory — the ``--profile`` flag is also the
+    output-naming prefix, so it must not block rendering.
+
+    Args:
+        data: Base candidate document (dict).
+        profile: Profile name, or ``None`` / empty string for a no-op.
+
+    Returns:
+        New dict with overlaid values; *data* is not mutated.
+
+    Raises:
+        CLIError(ExitCode.USAGE): If the profile name contains path-traversal
+            characters.
+    """
     if not profile:
         return data
 
+    _validate_profile_name(profile)
+
     out = dict(data)
     cfg_dir = Path("config")
-    prof_dir = cfg_dir / "profiles" / str(profile)
+    prof_dir = resolve_profile_dir(profile)
+
+    if prof_dir is None:
+        # No directory found anywhere.  Before warning, check whether legacy
+        # flat files (config/<name>.<profile>.yaml) exist in the CWD — a user
+        # running from the repo root may have only the old layout.
+        legacy_found = any(
+            (cfg_dir / f"{name}.{profile}.yaml").exists()
+            for name in _OVERLAY_NAMES
+        )
+        if not legacy_found:
+            searched = "\n  ".join(str(p) for p in _searched_dirs(profile))
+            print(
+                f"resume: no overlays found for profile '{profile}'; searched:\n  {searched}",
+                file=sys.stderr,
+            )
+            return out
+        # Legacy flat files exist; set prof_dir to the conventional CWD location
+        # so _get_overlay_paths can build the new-style path (which won't exist —
+        # only the legacy flat files will load).
+        prof_dir = cfg_dir / "profiles" / profile
 
     # Profile config
     paths = _get_overlay_paths(prof_dir, cfg_dir, profile, "profile")
@@ -98,7 +228,7 @@ def apply_profile_overlays(data: dict[str, Any], profile: str | None) -> dict[st
         out["experience"] = exp
 
     # Simple list overlays
-    for key in ("interests", "presentations", "languages", "coursework", "education", "certifications"):
+    for key in ("interests", "presentations", "projects", "languages", "coursework", "education", "certifications"):
         if (items := _load_list_overlay(prof_dir, cfg_dir, profile, key)):
             out[key] = items
 

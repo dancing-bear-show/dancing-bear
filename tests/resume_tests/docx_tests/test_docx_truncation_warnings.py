@@ -145,10 +145,10 @@ class TestSectionHasData(unittest.TestCase):
         return Resume.from_dict(data)
 
     def test_unknown_key_is_treated_as_having_data(self):
-        # "projects" is not a registered key; we conservatively assume it has data
+        # "portfolio" is not a registered key; we conservatively assume it has data
         # to avoid silently hiding real content from an unrecognised renderer.
         fn = self._fn()
-        self.assertTrue(fn("projects", self._resume({})))
+        self.assertTrue(fn("portfolio", self._resume({})))
 
     def test_known_key_missing_from_data_returns_false(self):
         fn = self._fn()
@@ -244,15 +244,15 @@ class TestStandardResumeWriterSectionSuppression(unittest.TestCase):
             writer._resolve_sections = lambda: writer.template["sections"]
             writer._render_content()
 
-    # --- Test 4: unknown key "projects" -> no heading rendered ---
+    # --- Test 4: unknown key "portfolio" -> no heading rendered ---
 
     def test_unknown_key_produces_no_heading(self):
         writer = self._make_writer(
-            data={"projects": [{"name": "Foo"}]},
-            sections=[{"key": "projects", "title": "Notable Projects"}],
+            data={"portfolio": [{"name": "Foo"}]},
+            sections=[{"key": "portfolio", "title": "Portfolio"}],
         )
         self._render_sections_only(writer)
-        self.assertNotIn("Notable Projects", self._heading_titles(writer))
+        self.assertNotIn("Portfolio", self._heading_titles(writer))
 
     # --- Test 5: known section with empty data -> no heading rendered ---
 

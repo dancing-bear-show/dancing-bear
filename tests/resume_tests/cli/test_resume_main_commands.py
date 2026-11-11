@@ -163,11 +163,13 @@ class TestStructureHelpers(unittest.TestCase):
         result = _find_structure_in_dirs("prof", [Path("out")])
         self.assertEqual(result, {"sections": ["legacy"]})
 
+    @patch('resume.cli.cmd_render.resolve_profile_dir')
     @patch('resume.cli.cmd_render._try_load_structure')
-    def test_find_structure_in_config(self, mock_try_load):
-        """Test _find_structure_in_config searches config directory."""
+    def test_find_structure_in_config(self, mock_try_load, mock_resolve):
+        """Test _find_structure_in_config searches the resolved profile directory."""
         from resume.cli.cmd_render import _find_structure_in_config
 
+        mock_resolve.return_value = Path("config/profiles/prof")
         mock_try_load.side_effect = lambda p: {"sections": []} if "config/profiles" in str(p) else None
 
         result = _find_structure_in_config("prof")
@@ -359,12 +361,14 @@ class TestResumeCommands(unittest.TestCase):
     @patch('resume.cli.cmd_align.build_keyword_spec')
     @patch('resume.cli.cmd_align.load_job_config')
     @patch('resume.cli.cmd_align.align_candidate_to_job')
+    @patch('resume.cli.cmd_align.apply_profile_overlays')
     @patch('resume.cli.helpers.read_yaml_or_json')
-    def test_cmd_align_without_tailored(self, mock_read, mock_align, mock_load_job, mock_build_kw, mock_write):
+    def test_cmd_align_without_tailored(self, mock_read, mock_overlays, mock_align, mock_load_job, mock_build_kw, mock_write):
         """Test cmd_align without tailored output."""
         from resume.cli.cmd_align import cmd_align
 
         mock_read.return_value = {"name": "Test"}
+        mock_overlays.side_effect = lambda data, _prof: data  # passthrough
         mock_load_job.return_value = {"title": "Engineer"}
         mock_build_kw.return_value = ({"python": 1}, {})
         mock_align.return_value = {"score": 85}
@@ -388,12 +392,14 @@ class TestResumeCommands(unittest.TestCase):
     @patch('resume.cli.cmd_align.build_keyword_spec')
     @patch('resume.cli.cmd_align.load_job_config')
     @patch('resume.cli.cmd_align.align_candidate_to_job')
+    @patch('resume.cli.cmd_align.apply_profile_overlays')
     @patch('resume.cli.helpers.read_yaml_or_json')
-    def test_cmd_align_with_tailored(self, mock_read, mock_align, mock_load_job, mock_build_kw, mock_build_tailored, mock_write):
+    def test_cmd_align_with_tailored(self, mock_read, mock_overlays, mock_align, mock_load_job, mock_build_kw, mock_build_tailored, mock_write):
         """Test cmd_align with tailored output."""
         from resume.cli.cmd_align import cmd_align
 
         mock_read.return_value = {"name": "Test"}
+        mock_overlays.side_effect = lambda data, _prof: data  # passthrough
         mock_load_job.return_value = {"title": "Engineer"}
         mock_build_kw.return_value = ({"python": 1}, {})
         mock_align.return_value = {"score": 85}
@@ -416,8 +422,9 @@ class TestResumeCommands(unittest.TestCase):
         self.assertEqual(mock_write.call_count, 2)
 
     @patch('resume.cli.cmd_align.write_yaml_or_json')
+    @patch('resume.cli.cmd_align.apply_profile_overlays')
     @patch('resume.cli.helpers.read_yaml_or_json')
-    def test_cmd_candidate_init_without_experience(self, mock_read, mock_write):
+    def test_cmd_candidate_init_without_experience(self, mock_read, mock_overlays, mock_write):
         """Test cmd_candidate_init without experience."""
         from resume.cli.cmd_align import cmd_candidate_init
 
@@ -429,6 +436,7 @@ class TestResumeCommands(unittest.TestCase):
             "location": "San Francisco",
             "skills": ["Python", "Docker"],
         }
+        mock_overlays.side_effect = lambda data, _prof: data  # passthrough
 
         args = MagicMock()
         args.data = "data.json"
@@ -447,8 +455,9 @@ class TestResumeCommands(unittest.TestCase):
         self.assertNotIn("experience", written_data)
 
     @patch('resume.cli.cmd_align.write_yaml_or_json')
+    @patch('resume.cli.cmd_align.apply_profile_overlays')
     @patch('resume.cli.helpers.read_yaml_or_json')
-    def test_cmd_candidate_init_with_experience(self, mock_read, mock_write):
+    def test_cmd_candidate_init_with_experience(self, mock_read, mock_overlays, mock_write):
         """Test cmd_candidate_init with experience."""
         from resume.cli.cmd_align import cmd_candidate_init
 
@@ -468,6 +477,7 @@ class TestResumeCommands(unittest.TestCase):
                 }
             ],
         }
+        mock_overlays.side_effect = lambda data, _prof: data  # passthrough
 
         args = MagicMock()
         args.data = "data.json"

@@ -22,6 +22,7 @@ from .docx_sections_simple import (
     CourseworkSectionRenderer,
     CertificationsSectionRenderer,
     PresentationsSectionRenderer,
+    ProjectsSectionRenderer,
     TeachingSectionRenderer,
 )
 from .docx_sections_skills import (
@@ -42,6 +43,7 @@ SECTION_RENDERERS = {
     "technologies": TechnologiesSectionRenderer,
     "interests": InterestsSectionRenderer,
     "presentations": PresentationsSectionRenderer,
+    "projects": ProjectsSectionRenderer,
     "languages": LanguagesSectionRenderer,
     "coursework": CourseworkSectionRenderer,
     "certifications": CertificationsSectionRenderer,
@@ -51,7 +53,7 @@ SECTION_RENDERERS = {
 }
 
 # Sections that need keywords passed to render()
-SECTIONS_WITH_KEYWORDS = {"summary", "experience"}
+SECTIONS_WITH_KEYWORDS = {"summary", "experience", "projects"}
 
 # Maps each registered section key to the data key(s) it reads.
 # A section is considered empty when ALL of its data keys are absent or falsy.
@@ -64,6 +66,7 @@ _SECTION_DATA_KEYS: dict[str, tuple[str, ...]] = {
     "technologies": ("technologies", "skills_groups"),
     "interests": ("interests",),
     "presentations": ("presentations",),
+    "projects": ("projects",),
     "languages": ("languages",),
     "coursework": ("coursework",),
     "certifications": ("certifications",),
@@ -134,7 +137,7 @@ class StandardResumeWriter(ResumeWriterBase):
         if not key:
             return
 
-        # Skip sections with no registered renderer (e.g. "projects").
+        # Skip sections with no registered renderer (e.g. "unknown_key").
         renderer_class = SECTION_RENDERERS.get(key)
         if renderer_class is None:
             return
