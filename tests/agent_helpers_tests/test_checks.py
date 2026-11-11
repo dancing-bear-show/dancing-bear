@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import os
 import sys
-import unittest
+import unittest.mock
 from pathlib import Path
-from unittest import mock
 
 from agent_helpers import checks
 from agent_helpers.checks import build_commands, parse_tests_run, run_check
@@ -34,7 +33,7 @@ class TestParseTestsRun(unittest.TestCase):
 
 class TestRunCheckVerdict(unittest.TestCase):
     def _check(self, tool: str, run: CompletedRun, paths: list[str] | None = None):
-        with mock.patch.object(checks, "run_binary", return_value=run) as rb:
+        with unittest.mock.patch.object(checks, "run_binary", return_value=run) as rb:
             result = run_check(tool, "/repo", paths or [])
         return result, rb
 
@@ -90,7 +89,7 @@ class TestRunCheckVerdict(unittest.TestCase):
         self.assertTrue(result.passed)
 
     def test_child_env_replaces_foreign_pythonpath(self):
-        with mock.patch.dict(os.environ, {"PYTHONPATH": "/other/checkout/src"}):
+        with unittest.mock.patch.dict(os.environ, {"PYTHONPATH": "/other/checkout/src"}):
             _, rb = self._check("test", _run(stderr="Ran 1 test in 0s\n"))
         self.assertEqual(rb.call_args.kwargs["env"]["PYTHONPATH"], "/repo/src")
         self.assertEqual(rb.call_args.kwargs["cwd"], "/repo")
@@ -131,7 +130,7 @@ class TestBuildCommands(TempDirMixin, unittest.TestCase):
         self.assertIn("not found", error or "")
 
     def test_bad_path_yields_failed_result_without_running(self):
-        with mock.patch.object(checks, "run_binary") as rb:
+        with unittest.mock.patch.object(checks, "run_binary") as rb:
             result = run_check("test", self.tmpdir, ["nope"])
         rb.assert_not_called()
         self.assertFalse(result.passed)
@@ -163,21 +162,21 @@ class TestRunCheckRealSubprocess(TempDirMixin, unittest.TestCase):
 
 class TestRunTestsCli(unittest.TestCase):
     def test_default_tool_runs_make_test(self):
-        with mock.patch("agent_helpers.cli.resolve_repo_root", return_value=("/repo", None)), \
-                mock.patch.object(checks, "run_binary", return_value=_run(stderr="Ran 2 tests in 0s\n")):
+        with unittest.mock.patch("agent_helpers.cli.resolve_repo_root", return_value=("/repo", None)), \
+                unittest.mock.patch.object(checks, "run_binary", return_value=_run(stderr="Ran 2 tests in 0s\n")):
             result = run_json(["run-tests"])
         self.assertTrue(result["passed"])
         self.assertEqual(result["tests_run"], 2)
         self.assertEqual(result["commands"], [["make", "test"]])
 
     def test_paths_with_lint_is_usage_error(self):
-        with mock.patch("agent_helpers.cli.resolve_repo_root", return_value=("/repo", None)):
+        with unittest.mock.patch("agent_helpers.cli.resolve_repo_root", return_value=("/repo", None)):
             rc, out, err = run_main(["run-tests", "--tool", "lint", "--paths", "tests"])
         self.assertEqual((rc, out), (2, ""))
         self.assertIn("--paths", err)
 
     def test_outside_repo_reports_failure_in_body(self):
-        with mock.patch("agent_helpers.cli.resolve_repo_root", return_value=("", "not inside a git repository")):
+        with unittest.mock.patch("agent_helpers.cli.resolve_repo_root", return_value=("", "not inside a git repository")):
             result = run_json(["run-tests"])
         self.assertFalse(result["passed"])
         self.assertEqual(result["error"], "not inside a git repository")

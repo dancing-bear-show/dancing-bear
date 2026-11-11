@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import os
-import unittest
-from unittest import mock
+import unittest.mock
 
 from agent_helpers import git_ops
 from core.process import CompletedRun, run_binary
@@ -118,7 +117,7 @@ class TestWorktrees(GitRepoCase):
 class TestTimeoutAndCli(GitRepoCase):
     def test_timeout_is_reported_in_output(self):
         timed_out = CompletedRun(stdout="", stderr="partial", returncode=124, timed_out=True)
-        with mock.patch.object(git_ops, "run_binary", return_value=timed_out):
+        with unittest.mock.patch.object(git_ops, "run_binary", return_value=timed_out):
             result = git_ops.op_worktree_list(self.repo)
         self.assertEqual(result["status"], "error")
         self.assertTrue(result["output"].startswith("timed out"))
@@ -131,7 +130,7 @@ class TestTimeoutAndCli(GitRepoCase):
         self.assertEqual(result["op"], "worktree-list")
 
     def test_cli_outside_repo_reports_error_in_body(self):
-        with mock.patch("agent_helpers.cli.resolve_repo_root", return_value=("", "not inside a git repository")):
+        with unittest.mock.patch("agent_helpers.cli.resolve_repo_root", return_value=("", "not inside a git repository")):
             result = run_json(["git-ops", "--op", "worktree-list"])
         self.assertEqual(result["status"], "error")
         self.assertEqual(result["output"], "not inside a git repository")
