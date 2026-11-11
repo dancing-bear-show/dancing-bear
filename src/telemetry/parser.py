@@ -10,6 +10,8 @@ from pathlib import Path
 from core.date_utils import now_utc, parse_iso_utc
 from typing import Any, Iterator
 
+from telemetry.providers.transcript_parse import extract_cache_creation, message_key
+
 
 PROJECTS_DIR = Path.home() / ".claude" / "projects"
 
@@ -27,6 +29,9 @@ class SessionStats:
     cache_read_tokens: int = 0
     cache_create_tokens: int = 0
     tool_counts: dict[str, int] = field(default_factory=dict)
+    # Output count already added per billed call (message.id, requestId), so the
+    # per-content-block copies of one call are counted once.
+    seen_output: dict[tuple[str, str | None], int] = field(default_factory=dict, repr=False)
 
     @property
     def duration_seconds(self) -> float:
@@ -39,12 +44,29 @@ class SessionStats:
         return (self.input_tokens + self.output_tokens +
                 self.cache_read_tokens + self.cache_create_tokens)
 
-    def accumulate_usage(self, usage: dict[str, Any]) -> None:
-        """Add token counts from a usage dict."""
-        self.input_tokens += usage.get("input_tokens", 0)
-        self.output_tokens += usage.get("output_tokens", 0)
-        self.cache_read_tokens += usage.get("cache_read_input_tokens", 0)
-        self.cache_create_tokens += usage.get("cache_creation_input_tokens", 0)
+    def accumulate_usage(
+        self, usage: dict[str, Any] | None, key: tuple[str, str | None] | None = None
+    ) -> None:
+        """Add token counts from a usage dict (null-safe).
+
+        *key* identifies the billed call. A repeat of a call already counted
+        adds only its output growth: the other counts were final on, and added
+        from, the first copy.
+        """
+        usage = usage or {}
+        output = usage.get("output_tokens") or 0
+        if key is not None:
+            prev = self.seen_output.get(key)
+            if prev is not None:
+                if output > prev:
+                    self.output_tokens += output - prev
+                    self.seen_output[key] = output
+                return
+            self.seen_output[key] = output
+        self.input_tokens += usage.get("input_tokens") or 0
+        self.output_tokens += output
+        self.cache_read_tokens += usage.get("cache_read_input_tokens") or 0
+        self.cache_create_tokens += extract_cache_creation(usage)[0]
 
     def update_time_range(self, ts: datetime) -> None:
         """Expand the session time range to include ts."""
@@ -77,17 +99,18 @@ def _parse_ts(raw: str) -> datetime | None:
     return parse_iso_utc(raw)
 
 
-def _process_assistant_record(stats: SessionStats, msg: dict[str, Any]) -> None:
-    """Extract model, usage, and tool calls from an assistant message."""
+def _process_assistant_record(stats: SessionStats, rec: dict[str, Any]) -> None:
+    """Extract model, usage, and tool calls from an assistant record."""
     stats.events += 1
+    msg = rec.get("message") or {}
 
     model = msg.get("model", "")
     if model and not stats.model:
         stats.model = model
 
-    stats.accumulate_usage(msg.get("usage", {}))
+    stats.accumulate_usage(msg.get("usage"), message_key(msg.get("id"), rec.get("requestId")))
 
-    for block in msg.get("content", []):
+    for block in msg.get("content") or []:
         if isinstance(block, dict) and block.get("type") == "tool_use":
             name = block.get("name", "unknown")
             stats.tool_counts[name] = stats.tool_counts.get(name, 0) + 1
@@ -97,11 +120,11 @@ def _process_user_record(stats: SessionStats, rec: dict[str, Any]) -> None:
     """Extract subagent token usage from a user message."""
     sub = rec.get("toolUseResult")
     if sub and isinstance(sub, dict):
-        stats.accumulate_usage(sub.get("usage", {}))
+        stats.accumulate_usage(sub.get("usage"))
 
 
 _RECORD_HANDLERS: dict[str, Any] = {
-    "assistant": lambda stats, rec: _process_assistant_record(stats, rec.get("message", {})),
+    "assistant": _process_assistant_record,
     "user": _process_user_record,
 }
 

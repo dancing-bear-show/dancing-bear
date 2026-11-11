@@ -188,8 +188,14 @@ def make_assistant_record(
     tool_blocks: list[dict] | None = None,
     include_usage: bool = True,
     agent_name: str | None = None,
+    message_id: str | None = None,
+    request_id: str | None = None,
 ) -> dict:
-    """Build an assistant-type JSONL record."""
+    """Build an assistant-type JSONL record.
+
+    ``message_id``/``request_id`` set ``message.id`` and ``requestId``, the pair
+    that identifies one billed API call across its per-content-block records.
+    """
     content = list(tool_blocks) if tool_blocks is not None else []
     usage = {
         "input_tokens": input_tokens,
@@ -197,18 +203,23 @@ def make_assistant_record(
         "cache_read_input_tokens": cache_read_tokens,
         "cache_creation_input_tokens": cache_creation_tokens,
     }
-    record = {
+    message: dict[str, object] = {
+        "model": model,
+        "usage": usage if include_usage else {},
+        "content": content,
+    }
+    if message_id is not None:
+        message["id"] = message_id
+    record: dict[str, object] = {
         "type": "assistant",
         "sessionId": session_id,
         "timestamp": timestamp,
-        "message": {
-            "model": model,
-            "usage": usage if include_usage else {},
-            "content": content,
-        },
+        "message": message,
     }
     if agent_name is not None:
         record["agentName"] = agent_name
+    if request_id is not None:
+        record["requestId"] = request_id
     return record
 
 

@@ -45,6 +45,40 @@ class TestParseSession(unittest.TestCase):
                 f.write(json.dumps(rec) + "\n")
         return path
 
+    def test_content_block_copies_of_one_call_counted_once(self):
+        # One turn written as three records (thinking, text, tool_use) sharing
+        # message.id/requestId; output_tokens climbs to its final value.
+        def block(out: int) -> dict:
+            return {
+                "type": "assistant",
+                "requestId": "req-1",
+                "timestamp": "2026-04-16T10:00:00Z",
+                "message": {
+                    "id": "msg-1",
+                    "model": "claude-opus-4-6",
+                    "usage": {
+                        "input_tokens": 2,
+                        "output_tokens": out,
+                        "cache_read_input_tokens": 700,
+                        "cache_creation_input_tokens": 30,
+                    },
+                },
+            }
+
+        stats = parse_session(self._write_jsonl([block(3), block(3), block(161)]))
+        self.assertEqual(stats.input_tokens, 2)
+        self.assertEqual(stats.output_tokens, 161)
+        self.assertEqual(stats.cache_read_tokens, 700)
+        self.assertEqual(stats.cache_create_tokens, 30)
+
+    def test_null_usage_does_not_raise(self):
+        path = self._write_jsonl([
+            {"type": "assistant", "message": {"model": "claude-opus-4-6", "usage": None}},
+            {"type": "user", "toolUseResult": {"agentId": "a", "usage": None}},
+        ])
+        stats = parse_session(path)
+        self.assertEqual(stats.total_tokens, 0)
+
     def test_assistant_usage(self):
         path = self._write_jsonl([
             {

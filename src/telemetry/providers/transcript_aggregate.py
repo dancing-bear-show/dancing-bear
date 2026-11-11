@@ -18,6 +18,12 @@ from pathlib import Path
 from telemetry.timeutil import parse_iso_utc
 from telemetry.models import AgentTokenRow
 from telemetry.pricing import TokenMetrics, compute_cost
+from telemetry.providers.transcript_parse import (
+    MessageKey,
+    extract_cache_creation,
+    is_billable_usage,
+    message_key,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,13 +34,32 @@ class TokenAccumulators:
 
     Each dict keyed by (agent_name, model) except call_count which is keyed by agent_name.
     Fields hold defaultdict(int) so callers can increment without a membership check.
+    ``cache_write_1h`` is the 1-hour-TTL part of ``cache_write``. ``seen`` maps
+    each billed call already counted to the output count counted for it, so a
+    call repeated across records or files is billed once.
     """
 
     input: dict[tuple[str, str], int] = field(default_factory=lambda: defaultdict(int))
     output: dict[tuple[str, str], int] = field(default_factory=lambda: defaultdict(int))
     cache_read: dict[tuple[str, str], int] = field(default_factory=lambda: defaultdict(int))
     cache_write: dict[tuple[str, str], int] = field(default_factory=lambda: defaultdict(int))
+    cache_write_1h: dict[tuple[str, str], int] = field(default_factory=lambda: defaultdict(int))
     call_count: dict[str, int] = field(default_factory=lambda: defaultdict(int))
+    seen: dict[MessageKey, int] = field(default_factory=dict)
+
+
+@dataclass
+class _AgentUsage:
+    """One billed assistant record, reduced to what the agent breakdown needs."""
+
+    agent_name: str
+    model: str
+    input_tokens: int
+    output_tokens: int
+    cache_read: int
+    cache_write: int
+    cache_write_1h: int
+    key: MessageKey | None
 
 
 def build_agent_row(
@@ -45,16 +70,17 @@ def build_agent_row(
 
     Single pass: collect per-model token totals, then compute cost once per model.
     """
-    per_model: dict[str, list[int]] = {}  # model -> [in, out, cr, cw]
+    per_model: dict[str, list[int]] = {}  # model -> [in, out, cr, cw, cw_1h]
     for (n, m) in accs.input:
         if n != agent_name:
             continue
         if m not in per_model:
-            per_model[m] = [0, 0, 0, 0]
+            per_model[m] = [0, 0, 0, 0, 0]
         per_model[m][0] += accs.input[n, m]
         per_model[m][1] += accs.output.get((n, m), 0)
         per_model[m][2] += accs.cache_read.get((n, m), 0)
         per_model[m][3] += accs.cache_write.get((n, m), 0)
+        per_model[m][4] += accs.cache_write_1h.get((n, m), 0)
 
     models_used = sorted(m for m in per_model if m)
     total_input = sum(v[0] for v in per_model.values())
@@ -64,7 +90,7 @@ def build_agent_row(
 
     if per_model:
         cost = sum(
-            compute_cost(TokenMetrics(v[0], v[1], v[2], v[3]), m)
+            compute_cost(TokenMetrics(v[0], v[1], v[2], v[3], v[4]), m)
             for m, v in per_model.items()
         )
     else:
@@ -82,12 +108,12 @@ def build_agent_row(
     )
 
 
-def _parse_agent_usage_line(raw_line: str, since: datetime) -> tuple[str, str, dict] | None:
-    """Parse one JSONL line into (agent_name, model, usage), else None.
+def _parse_agent_usage_line(raw_line: str, since: datetime) -> _AgentUsage | None:
+    """Parse one JSONL line into an ``_AgentUsage``, else None.
 
     Returns None for blank lines, unparseable JSON, non-assistant records,
-    records with no usage block, and records whose timestamp is older than
-    ``since``.
+    records with no billable usage (absent, null, all-zero, or the
+    ``<synthetic>`` model), and records whose timestamp is older than ``since``.
 
     A record whose timestamp is missing or unparseable is COUNTED, not skipped:
     ``parse_iso_utc`` returns None for those, and the cutoff only excludes a
@@ -107,28 +133,58 @@ def _parse_agent_usage_line(raw_line: str, since: datetime) -> tuple[str, str, d
     if record.get("type") != "assistant":
         return None
 
-    msg = record.get("message", {})
-    usage = msg.get("usage")
-    if not usage:
+    msg = record.get("message") or {}
+    usage = msg.get("usage") or {}
+    model = msg.get("model", "") or ""
+    cache_write, cache_write_1h = extract_cache_creation(usage)
+    if not is_billable_usage(model, usage, cache_write):
         return None
 
     ts = parse_iso_utc(record.get("timestamp", ""))
     if ts is not None and ts < since:
         return None
 
-    agent_name = record.get("agentName") or "(orchestrator)"
-    model = msg.get("model", "") or ""
-    return agent_name, model, usage
+    return _AgentUsage(
+        agent_name=record.get("agentName") or "(orchestrator)",
+        model=model,
+        input_tokens=_count(usage.get("input_tokens")),
+        output_tokens=_count(usage.get("output_tokens")),
+        cache_read=_count(usage.get("cache_read_input_tokens")),
+        cache_write=cache_write,
+        cache_write_1h=cache_write_1h,
+        key=message_key(msg.get("id"), record.get("requestId")),
+    )
 
 
-def _apply_agent_usage(accs: TokenAccumulators, agent_name: str, model: str, usage: dict) -> None:
-    """Add one parsed usage record's token counts into accs."""
-    key = (agent_name, model)
-    accs.input[key] += usage.get("input_tokens", 0)
-    accs.output[key] += usage.get("output_tokens", 0)
-    accs.cache_read[key] += usage.get("cache_read_input_tokens", 0)
-    accs.cache_write[key] += usage.get("cache_creation_input_tokens", 0)
-    accs.call_count[agent_name] += 1
+def _count(value: object) -> int:
+    """Return a token count, treating null and non-numeric values as 0."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0
+    return int(value)
+
+
+def _apply_agent_usage(accs: TokenAccumulators, rec: _AgentUsage) -> None:
+    """Add one parsed usage record's token counts into accs.
+
+    A later copy of a call already counted (another content block of the same
+    turn, or a resumed session's copy) adds only its output growth: every other
+    field was final on, and counted from, the first copy.
+    """
+    key = (rec.agent_name, rec.model)
+    if rec.key is not None:
+        prev_output = accs.seen.get(rec.key)
+        if prev_output is not None:
+            if rec.output_tokens > prev_output:
+                accs.output[key] += rec.output_tokens - prev_output
+                accs.seen[rec.key] = rec.output_tokens
+            return
+        accs.seen[rec.key] = rec.output_tokens
+    accs.input[key] += rec.input_tokens
+    accs.output[key] += rec.output_tokens
+    accs.cache_read[key] += rec.cache_read
+    accs.cache_write[key] += rec.cache_write
+    accs.cache_write_1h[key] += rec.cache_write_1h
+    accs.call_count[rec.agent_name] += 1
 
 
 def accumulate_agent_tokens(
@@ -141,9 +197,7 @@ def accumulate_agent_tokens(
         with open(jsonl_file, encoding="utf-8") as fh:
             for raw_line in fh:
                 parsed = _parse_agent_usage_line(raw_line, since)
-                if parsed is None:
-                    continue
-                agent_name, model, usage = parsed
-                _apply_agent_usage(accs, agent_name, model, usage)
+                if parsed is not None:
+                    _apply_agent_usage(accs, parsed)
     except OSError as exc:  # nosec B110 - non-fatal; log and continue
         logger.warning("Could not read JSONL file: %s", exc)

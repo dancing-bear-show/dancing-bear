@@ -7,6 +7,7 @@ lives in ``transcript_aggregate``.
 
 import logging
 from collections.abc import Iterator
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -22,7 +23,9 @@ from telemetry.providers.transcript_aggregate import (
 from telemetry.providers.transcript_parse import (
     JSONL_GLOB,
     SUBDIR_GLOB,
+    MessageKey,
     iter_jsonl_files,
+    message_key,
     parse_assistant_record,
     parse_session_file,
     parse_user_record,
@@ -30,6 +33,93 @@ from telemetry.providers.transcript_parse import (
 
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _SessionUnit:
+    """One parsed session (a flat file, or an old-format subagent file group)."""
+
+    session_id: str
+    project_path: str
+    events: list[SessionEvent]
+    agents: list[AgentSummary]
+    fallback_ts: datetime  # file mtime; used when the session has no events
+
+    @property
+    def start_time(self) -> datetime:
+        return min((e.timestamp for e in self.events), default=self.fallback_ts)
+
+    @property
+    def api_events(self) -> list[SessionEvent]:
+        return [e for e in self.events if e.event_type == "api_request"]
+
+
+@dataclass
+class _SnapshotSeen:
+    """The largest output count and cost already counted for one billed call."""
+
+    output_tokens: int
+    cost: float
+
+
+def _unbilled_part(
+    e: SessionEvent, seen: dict[MessageKey, _SnapshotSeen] | None
+) -> tuple[float, int, bool] | None:
+    """Return ``(cost, output_tokens, first_copy)`` not yet counted for *e*, or None.
+
+    A call repeated in another file (a resumed session) contributes only its
+    output growth over what *seen* already holds; input and cache tokens are
+    final on the first copy and are not added again (``first_copy`` False).
+    None means the copy adds nothing. Updates *seen*.
+    """
+    cost = e.cost_usd or 0.0
+    output = e.output_tokens or 0
+    key = message_key(e.message_id, e.request_id)
+    if seen is None or key is None:
+        return cost, output, True
+    prev = seen.get(key)
+    if prev is not None and output <= prev.output_tokens:
+        return None
+    seen[key] = _SnapshotSeen(output, cost)
+    if prev is None:
+        return cost, output, True
+    return cost - prev.cost, output - prev.output_tokens, False
+
+
+def _global_max_output(units: list[_SessionUnit]) -> dict[MessageKey, int]:
+    """Return the largest ``output_tokens`` per billed call across *units*."""
+    global_max: dict[MessageKey, int] = {}
+    for unit in units:
+        for e in unit.api_events:
+            key = message_key(e.message_id, e.request_id)
+            if key is not None:
+                global_max[key] = max(global_max.get(key, -1), e.output_tokens or 0)
+    return global_max
+
+
+def _billable_events(
+    api_events: list[SessionEvent],
+    billed: set[MessageKey],
+    global_max: dict[MessageKey, int],
+) -> list[SessionEvent]:
+    """Return the events of one session that are billed to it; update *billed*.
+
+    A resumed or compacted session copies earlier records into a new file, so
+    one call can appear in several sessions, sometimes as an incomplete
+    snapshot. The call is billed once: to the first session (in scan order)
+    holding its completed snapshot (``global_max``). Copies in other sessions,
+    and incomplete copies anywhere, are dropped. Events without a message id
+    are always billed.
+    """
+    kept: list[SessionEvent] = []
+    for e in api_events:
+        key = message_key(e.message_id, e.request_id)
+        if key is None:
+            kept.append(e)
+        elif key not in billed and (e.output_tokens or 0) == global_max.get(key):
+            billed.add(key)
+            kept.append(e)
+    return kept
 
 
 class TranscriptProvider:
@@ -51,15 +141,19 @@ class TranscriptProvider:
         output_tokens: int,
         cache_read: int,
         cache_create: int,
+        cache_1h: int = 0,
     ) -> float:
         """Compute USD cost for a set of token counts at the given model's rates.
 
         Delegates to ``pricing.compute_cost`` so the configured
         ``cost_multiplier`` is applied to every cost computed in this provider
         (MTD, per-session, per-tool, per-agent), not just paths that go
-        through ``pricing.compute_cost`` directly.
+        through ``pricing.compute_cost`` directly. ``cache_1h`` is the
+        1-hour-TTL part of ``cache_create``.
         """
-        return compute_cost(TokenMetrics(input_tokens, output_tokens, cache_read, cache_create), model)
+        return compute_cost(
+            TokenMetrics(input_tokens, output_tokens, cache_read, cache_create, cache_1h), model
+        )
 
     def _parse_assistant_record(
         self,
@@ -108,34 +202,6 @@ class TranscriptProvider:
     # Session discovery
     # ------------------------------------------------------------------
 
-    def _session_summary_from_file(
-        self, jsonl_file: Path, project_path: str
-    ) -> SessionSummary:
-        """Build a SessionSummary from a single .jsonl transcript file."""
-        file_ts = datetime.fromtimestamp(jsonl_file.stat().st_mtime, tz=timezone.utc)
-        try:
-            events, agents = self.parse_session_with_agents(jsonl_file)
-        except Exception:
-            events, agents = [], []
-
-        api_events = [e for e in events if e.event_type == "api_request"]
-        return SessionSummary(
-            session_id=jsonl_file.stem,
-            project_path=project_path or None,
-            start_time=events[0].timestamp if events else file_ts,
-            end_time=events[-1].timestamp if events else file_ts,
-            model=(api_events[0].model or "") if api_events else "",
-            total_cost=sum(e.cost_usd or 0.0 for e in api_events),
-            cost_is_estimated=False,
-            total_events=len(events),
-            efficiency_score=0.0,
-            agents=agents,
-            input_tokens=sum(e.input_tokens or 0 for e in api_events),
-            output_tokens=sum(e.output_tokens or 0 for e in api_events),
-            cache_read_tokens=sum(e.cache_read_tokens or 0 for e in api_events),
-            cache_creation_tokens=sum(e.cache_creation_tokens or 0 for e in api_events),
-        )
-
     @staticmethod
     def _iter_jsonl_files(project_dir: Path) -> Iterator[tuple[Path, str]]:
         """Yield (jsonl_path, session_id) for all JSONL files under project_dir.
@@ -148,117 +214,113 @@ class TranscriptProvider:
         """
         return iter_jsonl_files(project_dir)
 
-    def _merge_subagent_files(
-        self, jsonl_files: list[Path]
-    ) -> tuple[list[SessionEvent], list[AgentSummary], datetime | None]:
-        """Parse and merge all subagent JSONL files, returning (events, agents, latest_mtime)."""
-        all_events: list[SessionEvent] = []
-        all_agents: list[AgentSummary] = []
-        file_ts: datetime | None = None
+    def _parse_session_safe(
+        self, jsonl_file: Path
+    ) -> tuple[list[SessionEvent], list[AgentSummary]]:
+        """Parse one file; an unreadable or corrupt file yields no events."""
+        try:
+            return self.parse_session_with_agents(jsonl_file)
+        except Exception as exc:  # nosec B110 - one corrupt file must not abort the scan
+            logger.debug("skipping unreadable transcript %s: %s", jsonl_file, exc)
+            return [], []
 
-        for jsonl_file in jsonl_files:
-            ts = datetime.fromtimestamp(jsonl_file.stat().st_mtime, tz=timezone.utc)
-            if file_ts is None or ts > file_ts:
-                file_ts = ts
-            try:
-                evts, agents = self.parse_session_with_agents(jsonl_file)
-            except Exception:
-                evts, agents = [], []
-            all_events.extend(evts)
-            all_agents.extend(agents)
-
-        return all_events, all_agents, file_ts
-
-    def _session_summary_from_old_format(
-        self, session_id: str, jsonl_files: list[Path], project_path: str
-    ) -> SessionSummary:
-        """Build a SessionSummary by aggregating multiple subagent JSONL files.
-
-        The old subdirectory format stores one JSONL per subagent; they must be
-        merged into a single session-level summary.
-        """
-        all_events, all_agents, file_ts = self._merge_subagent_files(jsonl_files)
-        fallback_ts = file_ts or now_utc()
-        # Replace per-file session_id values (agent-id stems) with the real session_id
-        for event in all_events:
-            event.session_id = session_id
-
-        api_events = [e for e in all_events if e.event_type == "api_request"]
-        return SessionSummary(
-            session_id=session_id,
-            project_path=project_path or None,
-            start_time=min((e.timestamp for e in all_events), default=fallback_ts),
-            end_time=max((e.timestamp for e in all_events), default=fallback_ts),
-            model=(api_events[0].model or "") if api_events else "",
-            total_cost=sum(e.cost_usd or 0.0 for e in api_events),
-            cost_is_estimated=False,
-            total_events=len(all_events),
-            efficiency_score=0.0,
-            agents=all_agents,
-            input_tokens=sum(e.input_tokens or 0 for e in api_events),
-            output_tokens=sum(e.output_tokens or 0 for e in api_events),
-            cache_read_tokens=sum(e.cache_read_tokens or 0 for e in api_events),
-            cache_creation_tokens=sum(e.cache_creation_tokens or 0 for e in api_events),
-        )
-
-    def _collect_flat_sessions(
-        self,
-        project_dir: Path,
-        project_path: str,
-        since: datetime | None,
-        summaries: list[SessionSummary],
-    ) -> None:
-        """Append SessionSummary objects from new flat-format .jsonl files."""
+    def _flat_units(
+        self, project_dir: Path, project_path: str, since: datetime | None
+    ) -> list[_SessionUnit]:
+        """Parse the new flat-format ``<session>.jsonl`` files of one project."""
+        units: list[_SessionUnit] = []
         for jsonl_file in project_dir.glob(JSONL_GLOB):
             file_ts = datetime.fromtimestamp(jsonl_file.stat().st_mtime, tz=timezone.utc)
+            # A file is only appended to, so one last modified before ``since``
+            # cannot hold an in-window event.
             if since is not None and file_ts < since:
                 continue
-            summary = self._session_summary_from_file(jsonl_file, project_path)
-            if since is not None and summary.start_time < since:
-                continue
-            summaries.append(summary)
+            events, agents = self._parse_session_safe(jsonl_file)
+            units.append(_SessionUnit(jsonl_file.stem, project_path, events, agents, file_ts))
+        return units
 
-    def _collect_subdir_sessions(
-        self,
-        project_dir: Path,
-        project_path: str,
-        since: datetime | None,
-        summaries: list[SessionSummary],
-    ) -> None:
-        """Append SessionSummary objects from old subdirectory-format .jsonl files."""
+    def _subdir_units(
+        self, project_dir: Path, project_path: str, since: datetime | None
+    ) -> list[_SessionUnit]:
+        """Parse old subdirectory-format sessions, merging each session's files.
+
+        The old format stores one JSONL per subagent; they are merged into one
+        session-level unit whose events carry the real session id.
+        """
         subdir_files: dict[str, list[Path]] = {}
         for jsonl_file in project_dir.glob(SUBDIR_GLOB):
-            session_id = jsonl_file.parent.parent.name
-            subdir_files.setdefault(session_id, []).append(jsonl_file)
+            subdir_files.setdefault(jsonl_file.parent.parent.name, []).append(jsonl_file)
 
+        units: list[_SessionUnit] = []
         for session_id, files in subdir_files.items():
             latest_ts = max(
                 datetime.fromtimestamp(f.stat().st_mtime, tz=timezone.utc) for f in files
             )
             if since is not None and latest_ts < since:
                 continue
-            summary = self._session_summary_from_old_format(session_id, files, project_path)
-            if since is not None and summary.start_time < since:
-                continue
-            summaries.append(summary)
+            events: list[SessionEvent] = []
+            agents: list[AgentSummary] = []
+            for jsonl_file in files:
+                evts, file_agents = self._parse_session_safe(jsonl_file)
+                events.extend(evts)
+                agents.extend(file_agents)
+            for event in events:
+                event.session_id = session_id
+            units.append(_SessionUnit(session_id, project_path, events, agents, latest_ts))
+        return units
+
+    @staticmethod
+    def _summary_from_unit(
+        unit: _SessionUnit, billable: list[SessionEvent]
+    ) -> SessionSummary:
+        """Build a SessionSummary; cost and tokens come from *billable* only."""
+        api_events = unit.api_events
+        return SessionSummary(
+            session_id=unit.session_id,
+            project_path=unit.project_path or None,
+            start_time=unit.start_time,
+            end_time=max((e.timestamp for e in unit.events), default=unit.fallback_ts),
+            model=(api_events[0].model or "") if api_events else "",
+            total_cost=sum(e.cost_usd or 0.0 for e in billable),
+            cost_is_estimated=False,
+            total_events=len(unit.events),
+            efficiency_score=0.0,
+            agents=unit.agents,
+            input_tokens=sum(e.input_tokens or 0 for e in billable),
+            output_tokens=sum(e.output_tokens or 0 for e in billable),
+            cache_read_tokens=sum(e.cache_read_tokens or 0 for e in billable),
+            cache_creation_tokens=sum(e.cache_creation_tokens or 0 for e in billable),
+        )
 
     def get_sessions(self, since: datetime | None = None) -> list[SessionSummary]:
         """Scan all project dirs under projects_dir for .jsonl files.
 
         Returns a list of SessionSummary objects, one per session found.
         Handles both the new flat format and the old subdirectory format.
-        """
-        summaries: list[SessionSummary] = []
-        if not self.projects_dir.exists():
-            return summaries
 
+        Two phases keep cross-session dedup correct under ``since``: every
+        session is parsed and filtered on its real ``start_time`` first, and
+        only then is each duplicated call assigned to one kept session, so a
+        call is never billed to a session that is not in the result.
+        """
+        if not self.projects_dir.exists():
+            return []
+
+        units: list[_SessionUnit] = []
         for project_dir in self.projects_dir.iterdir():
             if not project_dir.is_dir():
                 continue
             project_path = "/" + project_dir.name.lstrip("-").replace("-", "/")
-            self._collect_flat_sessions(project_dir, project_path, since, summaries)
-            self._collect_subdir_sessions(project_dir, project_path, since, summaries)
+            units.extend(self._flat_units(project_dir, project_path, since))
+            units.extend(self._subdir_units(project_dir, project_path, since))
 
+        kept = [u for u in units if since is None or u.start_time >= since]
+        global_max = _global_max_output(kept)
+        billed: set[MessageKey] = set()
+        summaries = [
+            self._summary_from_unit(u, _billable_events(u.api_events, billed, global_max))
+            for u in kept
+        ]
         summaries.sort(key=lambda s: s.end_time or s.start_time, reverse=True)
         return summaries
 
@@ -278,13 +340,22 @@ class TranscriptProvider:
         bucket_start: datetime,
         num_slots: int,
         totals: dict,
+        seen: dict[MessageKey, _SnapshotSeen] | None = None,
     ) -> None:
-        """Add one api_request event's cost and tokens into the running totals dict."""
-        cost = e.cost_usd or 0.0
+        """Add one api_request event's cost and tokens into the running totals dict.
+
+        ``seen`` tracks billed calls across every file in the scan; see
+        ``_unbilled_part``.
+        """
+        part = _unbilled_part(e, seen)
+        if part is None:
+            return
+        cost, output, first_copy = part
         totals["cost"] += cost
-        totals["input_tokens"] += e.input_tokens or 0
-        totals["output_tokens"] += e.output_tokens or 0
-        totals["cache_read_tokens"] += e.cache_read_tokens or 0
+        totals["output_tokens"] += output
+        if first_copy:
+            totals["input_tokens"] += e.input_tokens or 0
+            totals["cache_read_tokens"] += e.cache_read_tokens or 0
         if e.model:
             totals["models"][e.model] = totals["models"].get(e.model, 0.0) + cost
         offset = (e.timestamp - bucket_start).total_seconds()
@@ -322,10 +393,15 @@ class TranscriptProvider:
         if not self.projects_dir.exists():
             return totals
 
+        # Shared across all projects and files so a call copied into a resumed
+        # session's file is counted once.
+        seen: dict[MessageKey, _SnapshotSeen] = {}
         for project_dir in self.projects_dir.iterdir():
             if not project_dir.is_dir():
                 continue
-            self._accumulate_windowed_project(project_dir, since, bucket_start, num_slots, totals)
+            self._accumulate_windowed_project(
+                project_dir, since, bucket_start, num_slots, totals, seen
+            )
 
         return totals
 
@@ -336,6 +412,7 @@ class TranscriptProvider:
         bucket_start: datetime,
         num_slots: int,
         totals: dict,
+        seen: dict[MessageKey, _SnapshotSeen],
     ) -> None:
         """Accumulate windowed totals for all JSONL files in one project directory."""
         seen_sessions: set[str] = set()
@@ -350,7 +427,7 @@ class TranscriptProvider:
                 totals["sessions"] += 1
                 seen_sessions.add(session_id)
             for e in windowed:
-                self._accumulate_windowed_event(e, bucket_start, num_slots, totals)
+                self._accumulate_windowed_event(e, bucket_start, num_slots, totals, seen)
 
     def get_current_session_id(self) -> str | None:
         """Return the session ID of the most recently modified .jsonl file.
