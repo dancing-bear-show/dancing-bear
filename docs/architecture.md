@@ -3,7 +3,7 @@
 How this repo is put together, for someone about to change it. For setup and
 first commands, see the README's **Quick Start** and **Commands** sections.
 
-The short version: 20 packages under `src/` share one `core/` framework, and
+The short version: 21 packages under `src/` share one `core/` framework, and
 every command that touches real data goes through **plan → dry-run → apply**.
 
 ## 1. The 10,000-foot view
@@ -170,7 +170,7 @@ built on. Dispatch is **positional subcommands**, never flag-prefixed:
 The workflow engine still inserts one when compiling stages
 (`src/workflow/compiler.py`); `llm` and `docs` are exempt via `_NO_SEPARATOR_CLIS`.
 
-All 19 apps support `--agentic --agentic-format json`, which emits a
+All 20 apps support `--agentic --agentic-format json`, which emits a
 machine-readable schema derived from the real parser. It cannot drift from the
 actual CLI. Run `./bin/llm inventory --stdout` for the authoritative invocation
 per app; `./bin/<app>` is wrong for three of them.
@@ -297,7 +297,7 @@ naming the intentional failure mode. qlty and bandit enforce this.
 ### No-subcommand exit codes (rule A7)
 
 A bare invocation is not an error, so it is not covered by the table above.
-17 of the 19 apps print full help to **stdout** and exit **0**, which is
+18 of the 20 apps print full help to **stdout** and exit **0**, which is
 `run_with_assistant`'s default.
 
 Two differ deliberately, and both say so in the source: `worker` (1) and

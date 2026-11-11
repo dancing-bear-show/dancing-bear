@@ -33,6 +33,7 @@ src/
   diagrams/     # Mermaid diagram generation (flowchart/sequence/gantt/pie; telemetry cost/token pies)
   slides/       # generate PowerPoint decks from YAML deck definitions
   sheets/       # generate styled .xlsx spreadsheets from YAML workbook definitions
+  agent_helpers/ # agent-facing checks: run tests/lint/typecheck, validate imports/AST/JSON, analyze patches, git ops
   workflow/     # YAML DAG workflow engine (parse/compile/run/lint/list/status)
   core/         # shared helpers
   telemetry/    # Claude Code session telemetry (cost, tokens, TUI)
@@ -78,7 +79,7 @@ Activation Policy (Recommended)
 
 LLM Imperatives
 - Activate env when running Python commands only if needed; prefer `direnv` or direct `.venv/bin/python` when relevant.
-- `./bin/assistant` apps: apple-music, calendar, github, mail, maker, music, phone, resume, schedule, slides, whatsapp, wifi. Short wrappers also available: `./bin/mail`, `./bin/calendar`, `./bin/schedule`, `./bin/phone`, `./bin/wifi`, `./bin/whatsapp`, `./bin/maker`, `./bin/github`, `./bin/qlty-assistant`. The `-assistant` suffixed forms are legacy aliases (except `./bin/qlty-assistant`, whose suffix is required so it does not shadow the real `qlty` binary). `desk` uses `./bin/desk`.
+- `./bin/assistant` apps: agent-helpers, apple-music, calendar, github, mail, maker, music, phone, resume, schedule, slides, whatsapp, wifi. Short wrappers also available: `./bin/mail`, `./bin/calendar`, `./bin/schedule`, `./bin/phone`, `./bin/wifi`, `./bin/whatsapp`, `./bin/maker`, `./bin/github`, `./bin/agent-helpers`, `./bin/qlty-assistant`. The `-assistant` suffixed forms are legacy aliases (except `./bin/qlty-assistant`, whose suffix is required so it does not shadow the real `qlty` binary). `desk` uses `./bin/desk`.
 - Persist credentials to INI with profiles (single source of truth)
 - Default to dry-run style flows for destructive operations; provide plan/apply
 

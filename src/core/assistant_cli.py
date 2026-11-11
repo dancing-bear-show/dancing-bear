@@ -27,6 +27,7 @@ APP_MODULES: dict[str, str] = {
     # name cannot be ``github`` without shadowing PyPI's ``github`` package on
     # any sys.path.
     "github": "github_assistant.__main__",
+    "agent-helpers": "agent_helpers.__main__",
 }
 
 

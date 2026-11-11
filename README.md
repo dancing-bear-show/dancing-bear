@@ -60,6 +60,7 @@ CLI help:
 | Workflow | `./bin/workflow` | YAML DAG workflow engine |
 | Qlty | `./bin/qlty-assistant` | Scan, triage, and rank qlty findings by remediation tier |
 | GitHub | `./bin/github` | GitHub porcelain over `core.github` |
+| Agent Helpers | `./bin/agent-helpers` | Run tests/lint/typecheck, validate imports/AST/JSON, analyze patches |
 
 Legacy `-assistant` suffixed binaries still work (e.g., `./bin/mail-assistant`).
 
@@ -93,6 +94,7 @@ flowchart TB
         slides[slides/]
         qlty[qlty/]
         github_assistant[github_assistant/]
+        agent_helpers[agent_helpers/]
     end
 
     core[src/core/ — shared helpers + CLI framework]
@@ -424,6 +426,7 @@ src/
   sheets/       styled .xlsx generation from YAML
   qlty/         qlty scan/triage wrapper
   github_assistant/  GitHub porcelain over core.github
+  agent_helpers/  agent-facing checks (tests, validators, patch analysis)
   workflow/     YAML DAG engine (24 subcommands; see docs/workflow-engine.md)
   worker/       background job queue and daemon; qwen_patch job type (Ollama)
   telemetry/    Claude Code session telemetry (cost, tokens, TUI)
