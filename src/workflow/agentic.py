@@ -76,6 +76,18 @@ def build_agentic_capsule() -> str:
     lines.append("  - sweep-record.write: ./bin/workflow sweep-record write --head <sha40> --workspace <dir>")
     lines.append("  - sweep-record.waive: ./bin/workflow sweep-record waive --head <sha40> --reason '<text>'")
     lines.append("  - sweep-record.check: ./bin/workflow sweep-record check --head <sha40>")
+    lines.append(
+        "  - fleet.run: ./bin/workflow fleet run <file.yaml> --fan-over items:a,b "
+        "--fan-param 'k={item}' [--param k=v] [--batch-size N] [--force-items a,b] "
+        "[--base-dir DIR] [--dry-run]"
+    )
+    lines.append("  - fleet.status: ./bin/workflow fleet status <file.yaml> [--filter STATUS]")
+    lines.append("  - fleet.reset: ./bin/workflow fleet reset <file.yaml> [--filter STATUS] [--items a,b]")
+    lines.append("  - fleet.report: ./bin/workflow fleet report <file.yaml> [--filter STATUS]")
+    lines.append(
+        "  - fleet.mark: ./bin/workflow fleet mark <file.yaml> <item> <running/done/failed/skipped> "
+        "[--workspace DIR] [--error MSG] [--force]"
+    )
     lines.append("notes:")
     lines.append("  - ./bin/workflow list is the authoritative live catalog of available workflows")
     lines.append(
@@ -94,6 +106,12 @@ def build_agentic_capsule() -> str:
         "outputs/changed-files.txt, and outputs/consolidated.json with a findings list; "
         "exit 2 refused; check "
         "exits 0 found (prints mode), 1 none, 2 bad sha; the PR-create hook requires one"
+    )
+    lines.append(
+        "  - fleet: ledger at <data-home>/workflow-fleet/<slug>/ledger.json; --fan-over items:a,b or file:<path>; run inits one "
+        "workspace per batch item and marks it running (it never executes stages); run each with "
+        "/workflow, then fleet mark; a failed item is retried in its old workspace, reset starts "
+        "fresh; mark done exits 1 while the workspace has stages left unless --force"
     )
     lines.append("  - file arguments are positional (./bin/workflow run <file>), not --input")
     lines.append("  - --params accepts k=v pairs; repeat for multiple params")

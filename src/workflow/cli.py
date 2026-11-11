@@ -59,6 +59,16 @@ from workflow.cli_dispatch_review import (
     _cmd_sweep_record_write,
     _cmd_thread_fingerprints,
 )
+from workflow.cli_fleet import (
+    FILTER_ALL,
+    FILTER_CHOICES,
+    MARK_CHOICES,
+    _cmd_fleet_mark,
+    _cmd_fleet_report,
+    _cmd_fleet_reset,
+    _cmd_fleet_run,
+    _cmd_fleet_status,
+)
 from workflow.cli_lifecycle import _cmd_seed_pr_lifecycle, _cmd_set_state
 from workflow.models import StageStatus
 from workflow.set_state import DEFAULT_PR_FRAGMENT
@@ -476,6 +486,75 @@ def cmd_sweep_record_waive(args: argparse.Namespace) -> int:
 @app.argument("--head", required=True, help=_HEAD_HELP)
 def cmd_sweep_record_check(args: argparse.Namespace) -> int:
     return _cmd_sweep_record_check(args)
+
+
+def _batch_size(raw: str) -> int:
+    """argparse type: integer >= 0 (0 = every pending/failed item)."""
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"expected an integer, got {raw!r}") from exc
+    if value < 0:
+        raise argparse.ArgumentTypeError(f"must be >= 0, got {value}")
+    return value
+
+
+fleet_group = app.group(
+    "fleet", help="Track one workflow across many items in resumable batches (ledger-backed)",
+)
+_FLEET_FORMATS = ["table", "json", "csv"]
+
+
+@fleet_group.command("run", help="Add items to the ledger; init a workspace per item in the next batch")
+@app.argument("path", help=_PATH_HELP)
+@app.argument("--fan-over", required=True, metavar="SOURCE", help="Items: items:a,b,c or file:<path> (one per line)")
+@app.argument(
+    "--fan-param", action="append", default=[], metavar="key=...{item}...",
+    help="Per-item param; {item} is substituted (repeatable)",
+)
+@app.argument("--param", action="append", default=[], metavar="key=value", help="Param for every item (repeatable)")
+@app.argument("--batch-size", type=_batch_size, default=10, metavar="N", help="Items per batch; 0 = all (default: 10)")
+@app.argument("--force-items", default="", metavar="a,b", help="Reset these items to pending first")
+@app.argument("--base-dir", default="", help="Base directory for item workspaces")
+@app.argument("--dry-run", action="store_true", help="Show the batch; write nothing")
+@app.argument("--format", "-f", **_format_kwargs(formats=_FLEET_FORMATS, default="table"))
+def cmd_fleet_run(args: argparse.Namespace) -> int:
+    return _cmd_fleet_run(args)
+
+
+@fleet_group.command("status", help="Show fleet progress and per-item status")
+@app.argument("path", help=_PATH_HELP)
+@app.argument("--filter", default=FILTER_ALL, choices=FILTER_CHOICES, help="Only items with this status")
+@app.argument("--format", "-f", **_format_kwargs(formats=_FLEET_FORMATS, default="table"))
+def cmd_fleet_status(args: argparse.Namespace) -> int:
+    return _cmd_fleet_status(args)
+
+
+@fleet_group.command("reset", help="Return items to pending (next run starts them fresh)")
+@app.argument("path", help=_PATH_HELP)
+@app.argument("--filter", default=None, choices=FILTER_CHOICES, help="Reset every item with this status")
+@app.argument("--items", default="", metavar="a,b", help="Reset these items")
+def cmd_fleet_reset(args: argparse.Namespace) -> int:
+    return _cmd_fleet_reset(args)
+
+
+@fleet_group.command("report", help="Per-item stage progress from each workspace, plus status totals")
+@app.argument("path", help=_PATH_HELP)
+@app.argument("--filter", default=FILTER_ALL, choices=FILTER_CHOICES, help="Only items with this status")
+@app.argument("--format", "-f", **_format_kwargs(formats=_FLEET_FORMATS, default="table"))
+def cmd_fleet_report(args: argparse.Namespace) -> int:
+    return _cmd_fleet_report(args)
+
+
+@fleet_group.command("mark", help="Record an item's outcome (done refused while stages remain)")
+@app.argument("path", help=_PATH_HELP)
+@app.argument("item", help="Item name")
+@app.argument("status", choices=MARK_CHOICES, help="New status")
+@app.argument("--workspace", default=None, help="Item's run workspace (default: the ledger's)")
+@app.argument("--error", default=None, metavar="MSG", help="Error message, for failed")
+@app.argument("--force", action="store_true", help="Mark done even if the workspace has stages left")
+def cmd_fleet_mark(args: argparse.Namespace) -> int:
+    return _cmd_fleet_mark(args)
 
 
 def _no_command_usage() -> int:
