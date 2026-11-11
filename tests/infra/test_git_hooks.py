@@ -102,6 +102,10 @@ class TestCommitMsgHookAcceptsValid(unittest.TestCase):
         """squash! commits bypass validation."""
         self._assert_accepted("squash! fix(core): handle missing token\n")
 
+    def test_amend_commit(self) -> None:
+        """amend! commits (git commit --fixup=amend:<sha>) bypass validation."""
+        self._assert_accepted("amend! feat(mail): something\n")
+
     def test_empty_message(self) -> None:
         """Empty messages (template-only) bypass validation."""
         self._assert_accepted("")
@@ -189,7 +193,6 @@ class TestPrePushHookBlocksMain(unittest.TestCase):
         """Force-pushes use a real (non-zero) remote SHA — still blocked."""
         line = f"refs/heads/feature {_FAKE_SHA} refs/heads/main {_FAKE_SHA}\n"
         self._assert_blocked(line)
-
 
     def test_blocks_delete_push_to_main(self) -> None:
         """Deleting main (local SHA = all zeros) is blocked like any other push."""

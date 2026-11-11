@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Conventional Commits message validator.
 # Source of truth for allowed types: .github/COMMIT_CONVENTION.md
-# Allows: Merge commits, Revert commits, fixup!/squash! prefixes, empty messages.
+# Allows: Merge commits, Revert commits, fixup!/squash!/amend! prefixes, empty messages.
 # Validates first non-comment line matches: type[(scope[,scope2])]...[!]: subject
 set -euo pipefail
 
@@ -19,7 +19,7 @@ fi
 # Bypass for git-generated prefixes
 if [[ "${first_line}" =~ ^Merge\  ]] || \
    [[ "${first_line}" =~ ^Revert\  ]] || \
-   [[ "${first_line}" =~ ^(fixup\!|squash\!) ]]; then
+   [[ "${first_line}" =~ ^(fixup\!|squash\!|amend\!) ]]; then
   exit 0
 fi
 
