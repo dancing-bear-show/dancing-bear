@@ -28,6 +28,7 @@ Thin wrappers around Python package CLIs. Regenerate generated wrappers with `ma
 | `workflow` | `workflow.cli` |
 | `qlty-assistant` | `qlty` |
 | `github` | `github_assistant` |
+| `memory` | `memory` |
 
 
 **Legacy `-assistant` aliases** (5, retained for compatibility): `mail-assistant`, `phone-assistant`, `calendar-assistant`, `schedule-assistant`, `wifi-assistant`

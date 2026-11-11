@@ -325,4 +325,5 @@ include = [
   "sheets*",
   "github_assistant*",
   "qlty*",
+  "memory*",
 ]

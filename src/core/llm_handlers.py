@@ -84,6 +84,7 @@ _AGENTIC_APPS: dict[str, str] = {
     "github": "./bin/github",
     "mail": "./bin/mail",
     "maker": "./bin/maker",
+    "memory": "./bin/memory",
     "phone": "./bin/phone",
     "qlty": "./bin/qlty-assistant",
     "resume": "./bin/assistant resume",

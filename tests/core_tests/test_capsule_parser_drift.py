@@ -55,6 +55,7 @@ APPS = {
     "github": [["./bin/github"]],
     "mail": [["./bin/mail"], ["./bin/mail-assistant"]],
     "maker": [["./bin/maker"]],
+    "memory": [["./bin/memory"]],
     "phone": [["./bin/phone"], ["./bin/phone-assistant"]],
     "qlty-assistant": [["./bin/qlty-assistant"]],
     "resume": [["./bin/assistant", "resume"]],

@@ -37,6 +37,7 @@ python:
   # either landed on sys.path; the wrapper name is `github` because there is no
   # colliding binary on PATH to worry about.
   github: {module: github_assistant, doc: "GitHub porcelain over core.github: review threads, PR view/edit/checks."}
+  memory: {module: memory, doc: "Claude auto-memory CLI — list, validate, consolidate, export/import, backup."}
 
   # Metals utilities
 

@@ -48,7 +48,7 @@ little.
 ## The schema is derived, not written
 
 The usual objection to CLIs is that agents need structured tool definitions,
-and argv is only strings. This repo answers that directly. All 19 apps support
+and argv is only strings. This repo answers that directly. All 20 apps support
 
 ```bash
 ./bin/mail --agentic --agentic-format json
