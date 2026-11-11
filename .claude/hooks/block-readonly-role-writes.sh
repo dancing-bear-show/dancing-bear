@@ -116,7 +116,6 @@ READONLY_ROLES=(
   "Explore"
   "reviewer"
   "critic"
-  "critic-opus"
   "fact-checker"
   "unit-validator"
   "cross-unit-validator"
