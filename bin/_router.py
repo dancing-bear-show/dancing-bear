@@ -103,6 +103,7 @@ _MODULE_MAP: dict[str, str] = {
     "workflow": "workflow.cli",
     "qlty-assistant": "qlty",
     "github": "github_assistant",
+    "agent-helpers": "agent_helpers",
     "mail-assistant": "mail",
     "phone-assistant": "phone",
     "calendar-assistant": "calendars",

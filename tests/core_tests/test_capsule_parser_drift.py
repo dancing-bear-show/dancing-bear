@@ -53,6 +53,7 @@ APPS = {
     "desk": [["./bin/desk"]],
     "diagrams": [["./bin/diagrams"]],
     "github": [["./bin/github"]],
+    "agent-helpers": [["./bin/agent-helpers"]],
     "mail": [["./bin/mail"], ["./bin/mail-assistant"]],
     "maker": [["./bin/maker"]],
     "phone": [["./bin/phone"], ["./bin/phone-assistant"]],

@@ -37,6 +37,7 @@ python:
   # either landed on sys.path; the wrapper name is `github` because there is no
   # colliding binary on PATH to worry about.
   github: {module: github_assistant, doc: "GitHub porcelain over core.github: review threads, PR view/edit/checks."}
+  agent-helpers: {module: agent_helpers, doc: "Structured checks for agent sessions: run tests/lint/typecheck, validate imports/AST/JSON, analyze patches, git ops."}
 
   # Metals utilities
 
