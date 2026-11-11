@@ -1,17 +1,10 @@
 #!/usr/bin/env bash
-# Block direct pushes to main/master (including force-pushes).
-# Rejects any non-delete push targeting protected branches, regardless
-# of whether the push is force or fast-forward.
+# Block direct pushes to main/master: fast-forward, force, and delete alike.
+# Deleting other branches is unaffected.
 # Install: git config core.hooksPath .githooks  (or: make hooks)
 set -euo pipefail
 
-while read -r local_ref local_oid remote_ref _remote_oid; do
-  # Skip delete pushes (local_oid is all zeros)
-  if [[ "$local_oid" == "0000000000000000000000000000000000000000" ]]; then
-    continue
-  fi
-
-  # Block pushes to protected branches
+while read -r _local_ref _local_oid remote_ref _remote_oid; do
   case "$remote_ref" in
     refs/heads/main|refs/heads/master)
       cat 1>&2 <<ERR

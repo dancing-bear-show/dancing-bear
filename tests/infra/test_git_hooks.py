@@ -175,6 +175,12 @@ class TestPrePushHookBlocksMain(unittest.TestCase):
         self._assert_blocked(line)
 
 
+    def test_blocks_delete_push_to_main(self) -> None:
+        """Deleting main (local SHA = all zeros) is blocked like any other push."""
+        line = f"(delete) {_ZERO_SHA} refs/heads/main {_FAKE_SHA}\n"
+        self._assert_blocked(line)
+
+
 class TestPrePushHookAllowsOther(unittest.TestCase):
     """pre-push must exit 0 for pushes that do not target main or master."""
 
@@ -194,9 +200,9 @@ class TestPrePushHookAllowsOther(unittest.TestCase):
         line = f"refs/heads/worktree-agent-abc {_FAKE_SHA} refs/heads/worktree-agent-abc {_ZERO_SHA}\n"
         self._assert_allowed(line)
 
-    def test_allows_delete_push_to_main(self) -> None:
-        """Delete pushes (local SHA = all zeros) are exempt even for main."""
-        line = f"refs/heads/feature {_ZERO_SHA} refs/heads/main {_FAKE_SHA}\n"
+    def test_allows_delete_push_to_feature_branch(self) -> None:
+        """Deleting a non-protected branch is allowed."""
+        line = f"(delete) {_ZERO_SHA} refs/heads/feat/old {_FAKE_SHA}\n"
         self._assert_allowed(line)
 
     def test_empty_stdin(self) -> None:
