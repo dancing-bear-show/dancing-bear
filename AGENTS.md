@@ -50,7 +50,7 @@ slides/            PowerPoint deck generation from YAML
 sheets/            styled .xlsx generation from YAML
 qlty/              qlty scan/triage wrapper
 github_assistant/  GitHub porcelain over core.github
-workflow/          YAML DAG engine (24 subcommands)
+workflow/          YAML DAG engine (27 subcommands)
 worker/            background job queue and daemon; qwen_patch job type (Ollama)
 telemetry/         Claude Code session telemetry
 core/              shared helpers and CLI framework; pdf_forms (AcroForm fill, [pdf] extra)

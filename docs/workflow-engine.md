@@ -41,6 +41,9 @@ Reinventing one produces a second, diverging implementation.
 ./bin/workflow status <workspace-dir>      # status of a run
 ```
 
+27 subcommands in all (the `sweep-record` and `fleet` groups count once each);
+`./bin/workflow --agentic --agentic-format json --agentic-compact` is authoritative.
+
 `run` defaults to **dry-run**. Nothing executes until you pass `--execute`.
 Override trigger params with repeatable `--params key=value`:
 
