@@ -46,7 +46,7 @@ stages:
         {validation_criteria}
 
       For each criterion, check it against the source files in {workspace}/outputs/.
-      Use Bash only to verify file existence (ls) or run targeted checks; use Write only to emit findings.
+      Use the Glob tool (not Bash) to verify file existence — Glob: /absolute/path/to/file or Glob: /absolute/path/to/dir/*. Use Write only to emit findings. Do NOT use Bash for file checks.
 
       Write findings to {workspace}/validation/vtr-findings.json using the standard
       findings array format:
@@ -55,13 +55,13 @@ stages:
     agent:
       role: unit-validator
       model: sonnet
-      tools: [Read, Bash, Write]
+      tools: [Read, Glob, Write]
       access: read-write
     validation:
       strategy: unit
       criteria:
         - Every quantitative claim traces to a source file in the workspace
-        - '{validation_criteria}'
+        - All criteria in {validation_criteria} are checked
       max_revisions: 2
     required: true
     writes_to:
