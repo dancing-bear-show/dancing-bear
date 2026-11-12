@@ -21,13 +21,16 @@ metadata:
 trigger:
   source: manual
   params:
-    mode: ""      # code_change | local_files | migration
-    target: ""    # directory (local_files) or migration name (migration)
-    files: ""     # optional comma-separated file list (local_files)
+    mode: ""             # code_change | local_files | migration
+    target: ""           # directory (local_files) or migration name (migration)
+    files: ""            # optional comma-separated file list (local_files)
+    base_ref: "origin/main"  # git merge-base ref for code_change diff
   param_rules:
     mode: '(code_change|local_files|migration)?'
     target: '((?!.*\.\.)[A-Za-z0-9_][A-Za-z0-9_./-]*)?'
     files: '((?!.*\.\.)[A-Za-z0-9_][A-Za-z0-9_./,-]*)?'
+    base_ref: '(?!.*\.\.)[A-Za-z0-9][A-Za-z0-9_./-]*'
+  required: [mode]
 
 workspace_dir: "{work_dir}/adversarial-validation-{mode}-{target}"
 
@@ -42,7 +45,7 @@ stages:
       Discover validation units based on {mode}. The agent selects the
       appropriate discovery method:
 
-      - code_change: run `git diff main...HEAD --name-only` to list changed files
+      - code_change: run `git diff {base_ref}...HEAD --name-only` to list changed files
       - local_files: list files in the {target} directory (or parse the {files} param)
       - migration: list migration artifacts by name from {target}
 
@@ -170,8 +173,12 @@ stages:
       Present all validation findings (per-unit and cross-unit) to the user.
       Summarize by severity: critical findings first, then minor, then info.
 
-      The user can approve (proceed to completion), request corrections
-      (trigger revalidation pass), or dismiss findings.
+      To approve without corrections: continue. To trigger re-validation: list
+      the unit paths that need re-checking, then PAUSE. The user must apply
+      corrections directly to the listed unit files outside this workflow (by
+      editing them on disk) before continuing the gate. This workflow does not
+      apply corrections itself -- the revalidate stage re-checks the files as
+      they exist on disk after the human edits.
 
       Always write outputs/corrections-needed.json as a JSON array of unit paths
       needing correction; write an empty array [] if the user approves without
@@ -207,15 +214,17 @@ stages:
   - name: revalidate
     kind: execute
     description: >
-      Re-validate only units that were corrected after the review gate.
-      Confirm fixes landed without introducing new errors. Skip entirely
-      if outputs/corrections-needed.json (from review-findings) is an empty array.
+      Re-validate only units listed in outputs/corrections-needed.json (written
+      by review-findings). Corrections are applied by the human outside this
+      workflow before the gate is continued; this stage re-checks the unit files
+      as they currently exist on disk -- it does not apply any changes itself.
+      Skip entirely if outputs/corrections-needed.json is an empty array.
 
       Read outputs/corrections-needed.json from review-findings to get the list
       of units to re-check; read outputs/manifest.json from discover-units for
       unit metadata. Apply the same per-unit criteria as validate-units,
       and confirm that:
-        - Previously failing claims now pass after correction
+        - Previously failing claims now pass in the current on-disk files
         - Corrections did not introduce new factual errors or inconsistencies
         - Cross-reference values were updated consistently with the correction
 

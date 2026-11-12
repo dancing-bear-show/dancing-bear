@@ -90,6 +90,7 @@ trigger:
     coverage_threshold: '100|[1-9]?[0-9]'
     inject_stubs: 'true|false'
     run_id: '([A-Za-z0-9_-]{1,64})?'
+  required: [task, source_root, test_path]
 
 workspace_dir: "{work_dir}/scaffold-impl-{run_id}"
 
@@ -189,6 +190,15 @@ stages:
         with "module" (most precise path) and "names" (list of symbols imported).
         The resolve-signatures stage will add a "signatures" dict automatically --
         do NOT attempt to fill it yourself.
+      - For EACH source file (path under {source_root}/), emit a corresponding
+        test file spec whose path is under {test_path}/ (e.g. if the source file
+        is {source_root}/foo/bar.py, the test file is {test_path}/test_bar.py).
+        Test file specs should: set stub_ok=true for every contract (Haiku writes
+        `raise NotImplementedError` stubs that tighten fills); set imports_needed
+        to include the module under test; and have contracts that cover the
+        public_interface of the source file. Test files count toward the {max_files}
+        cap. The run-tests coverage gate measures source files only (paths under
+        {source_root}/) -- do NOT rely on test files in --include to reach threshold.
 
       inject_stubs={inject_stubs}: if "true", mark the LAST contract of EACH file
       in the spec as stub_ok=true (leave all others as stub_ok=false). This forces
@@ -354,7 +364,7 @@ stages:
 
       Read scaffold-spec.json from the workspace outputs directory.
       Check each FileScaffoldSpec:
-      1. path exists in repo OR is a plausible new file under {source_root}
+      1. path exists in repo OR is a plausible new file under {source_root} or {test_path}
       2. imports_needed are real modules (grep src/ for each); each entry must be
          an object with "module" and "names" keys (not a bare string)
       3. contracts with stub_ok=false have at least one rule
@@ -410,14 +420,34 @@ stages:
 
       Run from the repo root (strip the common 8-space indent from the body):
 
-        python3 -I -S - "{workspace}" <<'PYEOF'
+        python3 -I -S - "{workspace}" "{source_root}" "{test_path}" <<'PYEOF'
         import json, os, sys
 
         ws = sys.argv[1]
+        source_root = sys.argv[2]
+        test_path = sys.argv[3]
         if not ws:
             sys.exit("FAIL: empty workspace argv; refusing to operate against filesystem root")
         with open(os.path.join(ws, "outputs", "scaffold-spec.json"), encoding="utf-8") as fh:
             spec = json.load(fh)
+
+        # Deterministic path safety assertion: reject absolute paths, '..' components,
+        # and paths that don't start with source_root/ or test_path/.
+        bad_paths = []
+        for entry in spec["files"]:
+            p = entry["path"]
+            parts = p.replace("\\", "/").split("/")
+            if os.path.isabs(p):
+                bad_paths.append(p + ": absolute path not allowed")
+            elif ".." in parts:
+                bad_paths.append(p + ": '..' component not allowed")
+            elif not (p.startswith(source_root + "/") or p.startswith(test_path + "/")):
+                bad_paths.append(p + ": must start with " + source_root + "/ or " + test_path + "/")
+        if bad_paths:
+            for msg in bad_paths:
+                print("FAIL: " + msg, file=sys.stderr)
+            sys.exit("FAIL: spec contains unsafe or out-of-scope paths -- see above")
+
         stages = os.path.join(ws, "stages")
         os.makedirs(stages, exist_ok=True)
         items = []
@@ -756,6 +786,11 @@ stages:
         with open(os.path.join(workspace, "outputs", "scaffold-spec.json"), encoding="utf-8") as fh:
             files = [entry["path"] for entry in json.load(fh)["files"]]
 
+        # Coverage measures source files only. Test files (under test_path) are
+        # run as part of the suite but must NOT appear in --include -- they would
+        # inflate the percentage and hide uncovered source lines.
+        source_files = [f for f in files if f.startswith(source_root + "/") and not f.startswith(test_path + "/")]
+
         env = dict(os.environ, PYTHONPATH=os.path.join(os.getcwd(), "src"))
 
         def text(value):
@@ -783,16 +818,20 @@ stages:
 
         cov_json = os.path.join(workspace, "outputs", "coverage.json")
         scoped = ["-m", "unittest", "discover", "-s", test_path, "-t", ".", "-q"]
-        include = ",".join(files)
-        if files:
+        include = ",".join(source_files)
+        if source_files:
             cov_run = run(["python3", "-m", "coverage", "run", "--include=" + include] + scoped)
             cov_out = run(["python3", "-m", "coverage", "json", "--include=" + include, "-o", cov_json])
         else:
-            cov_run = dict(exit_code=0, output="(no files)")
-            cov_out = dict(exit_code=0, output="(no files)")
+            cov_run = dict(exit_code=0, output="(no source files)")
+            cov_out = dict(exit_code=0, output="(no source files)")
 
         pct = 0.0
         uncovered = []
+        cov_note = ""
+        if cov_out["exit_code"] != 0:
+            cov_note = "coverage json exited %d (possible 'No data to report'): %s" % (
+                cov_out["exit_code"], cov_out["output"][-500:])
         try:
             with open(cov_json, encoding="utf-8") as fh:
                 data = json.load(fh)
@@ -800,14 +839,15 @@ stages:
             for fname, finfo in data.get("files", dict()).items():
                 uncovered.extend(fname + ":" + str(n) for n in finfo.get("missing_lines", []))
         except (FileNotFoundError, json.JSONDecodeError):  # nosec B110 - missing report leaves pct at 0.0 and fails the gate below
-            pass
-        coverage_passed = (not files) or (cov_run["exit_code"] == 0 and cov_out["exit_code"] == 0 and pct >= coverage_threshold)
+            if not cov_note:
+                cov_note = "coverage.json missing or invalid -- no data reported"
+        coverage_passed = (not source_files) or (cov_run["exit_code"] == 0 and cov_out["exit_code"] == 0 and pct >= coverage_threshold)
 
         results = dict(
             lint=lint_result,
             typecheck=mypy_result,
             tests=dict(exit_code=suite["exit_code"], output=suite["output"]),
-            coverage=dict(pct=pct, threshold=coverage_threshold, passed=coverage_passed, uncovered=uncovered),
+            coverage=dict(pct=pct, threshold=coverage_threshold, passed=coverage_passed, uncovered=uncovered, note=cov_note),
         )
         with open(os.path.join(workspace, "outputs", "test-results.json"), "w", encoding="utf-8") as fh:
             json.dump(results, fh, indent=2)
@@ -816,6 +856,8 @@ stages:
         failed = [name for name, res in gates if res["exit_code"] != 0]
         if not coverage_passed:
             failed.append("coverage")
+            if cov_note:
+                print("COVERAGE FAIL: " + cov_note)
         if failed:
             print("GATE FAILED: " + ", ".join(failed))
             sys.exit(1)
@@ -907,6 +949,8 @@ stages:
       Otherwise run each gate command below via the Bash tool from the repo root.
 
       Step 1 — load scaffolded file list from outputs/scaffold-spec.json files[*].path.
+        Filter to source_files only: paths that start with {source_root}/ and NOT
+        with {test_path}/. Use this filtered list (not all spec files) for Steps 2 and 5.
 
       Step 2 — lint (same gate as run-tests):
         ~/.qlty/bin/qlty check <file1> <file2> ...
@@ -917,10 +961,12 @@ stages:
       Step 4 — test suite (exit code AND Ran N tests line required, same as run-tests):
         make test > "{workspace}/outputs/verify-test.log" 2>&1; echo "EXIT=$?"; grep -E "^Ran [0-9]+ tests" "{workspace}/outputs/verify-test.log" || echo "FAIL: no Ran N tests line"
 
-      Step 5 — coverage (new files only via --include=, same as run-tests):
-        PYTHONPATH="$PWD/src" python3 -m coverage run --include=<comma-joined file list> -m unittest discover -s "{test_path}" -t . -q
-        PYTHONPATH="$PWD/src" python3 -m coverage json --include=<comma-joined file list> -o {workspace}/outputs/verify-coverage.json
+      Step 5 — coverage (source files only via --include=, same as run-tests):
+        PYTHONPATH="$PWD/src" python3 -m coverage run --include=<comma-joined source_files list> -m unittest discover -s "{test_path}" -t . -q
+        PYTHONPATH="$PWD/src" python3 -m coverage json --include=<comma-joined source_files list> -o {workspace}/outputs/verify-coverage.json
         Read verify-coverage.json totals.percent_covered. Gate: pct >= {coverage_threshold}.
+        If coverage json exits non-zero (e.g. "No data to report"), treat as a gate
+        failure with the message from coverage json output -- do not silently leave pct at 0.
 
       Write outputs/verify-corrections.json with the same schema as test-results.json
       (keys: lint, typecheck, tests, coverage). Report the stage failed if any gate

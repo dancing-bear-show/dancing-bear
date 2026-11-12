@@ -82,7 +82,17 @@ class TestKnownRoles(unittest.TestCase):
         any output.
         """
         skill = Path(__file__).resolve().parents[2] / ".claude" / "skills" / "workflow" / "SKILL.md"
-        rows = re.findall(r"^\| `([^`]+)` \| `([^`]+)` \|$", skill.read_text(), re.MULTILINE)
+        text = skill.read_text()
+        header = "| Agent Role | subagent_type |"
+        self.assertIn(header, text, f"ROLE_MAP table header not found in {skill}")
+        # Only the contiguous table under the header: other two-column tables
+        # in SKILL.md must not satisfy this check.
+        table = []
+        for line in text.split(header, 1)[1].splitlines()[1:]:
+            if not line.startswith("|"):
+                break
+            table.append(line)
+        rows = re.findall(r"^\| `([^`]+)` \| `([^`]+)` \|$", "\n".join(table), re.MULTILINE)
         mapped = {role for role, _ in rows}
         self.assertTrue(mapped, f"no ROLE_MAP rows parsed from {skill}")
         missing = sorted(set(KNOWN_ROLES) - mapped)

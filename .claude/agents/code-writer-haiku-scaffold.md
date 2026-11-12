@@ -57,25 +57,24 @@ Do **NOT** read or write an absolute path outside your own worktree either —
 including anything under the workflow work directory (`{workspace}`). Those trigger a
 permission block for this role, in **either direction**, because subagents do
 not inherit the parent session's allow list. Reads prompt for the same reason
-writes do. Your `FileScaffoldSpec` is usually inlined into this prompt, so you
-never need to read a file at all; if it is instead copied into your worktree
-at `inputs/`, read it from `<cwd>/inputs/...` (absolute, using the cwd the
-orchestrator gave you) — never from an absolute `{workspace}/...` or
-`item.spec_file` path, which would prompt.
+writes do. Your `FileScaffoldSpec` is **always** copied into your worktree at
+`<cwd>/inputs/spec-{index}.json` before you are invoked — read it from that
+absolute path (using the cwd the orchestrator stated). Never read it from an
+absolute `{workspace}/...` or `item.spec_file` path, which would prompt.
 
 Write the file's *imports* as if it lived at its eventual `spec.path`, but write
 the *file itself* to the absolute `<cwd>/outputs/...` path in your worktree.
 
 ## What to produce
 
-Given a `FileScaffoldSpec` (usually inlined directly into your prompt by the
-orchestrator — in which case you read zero files and only write your output —
-or, less commonly, copied into your worktree at `<cwd>/inputs/...`, an absolute
-path built from the cwd the orchestrator gave you; never read it from an
+Given a `FileScaffoldSpec` at `<cwd>/inputs/spec-{index}.json` (always read
+from that absolute path using the cwd the orchestrator stated; never from an
 absolute `{workspace}/...` or `item.spec_file` path, which would prompt):
 
 1. Write the file to `<cwd>/outputs/<filename>` — the **absolute output path** under
-   your own worktree cwd (its eventual home is `spec.path`; the orchestrator copies it there)
+   your own worktree cwd (its final repo location is `spec.path`; the orchestrator
+   copies it to `{workspace}/outputs/scaffold-{index}.py`, then the `place-scaffolds`
+   inline stage moves it to `spec.path`)
 2. Module docstring: one sentence from `spec.description`
 3. All imports from `spec.imports_needed` — use the most specific path
    (`from core.cli_output import emit_rows` not `import core`,
@@ -122,21 +121,25 @@ the `request_id` of the `shutdown_request` you received, then keep waiting for `
 {"type": "shutdown_response", "request_id": "<request_id of the shutdown_request>", "approve": false, "reason": "copy not confirmed — awaiting all_clear"}
 ```
 
-Do NOT write the `stages/{index}-scaffold-swarm.json` marker yourself. This is deliberate, and
-it does not break the workflow engine's file-based completion contract — the two halves
-are split by necessity:
+Do NOT write any stage completion marker yourself. This is deliberate, and
+it does not break the workflow engine's file-based completion contract — the
+responsibilities are split across three actors:
 
 - **You (Haiku) signal via SendMessage** because your tool set is Read + Write only (no
   Bash). You cannot reliably synthesize the stage-marker JSON with timestamps, and you
-  write your file to the work dir, not the repo path the marker must reference.
-- **The orchestrator writes the file-based marker.** On receiving your SendMessage it
-  copies your staged file from the work dir into `spec.path`, sends you `all_clear`, then
-  writes `stages/{index}-scaffold-swarm.json` (the `writes_to` marker the engine polls for).
-  So the engine still sees the file-based completion signal it requires — the orchestrator,
-  not the agent, produces it.
+  write your file to your own worktree, not to the workspace the marker must reference.
+- **The orchestrator does the first copy.** On receiving your SendMessage it copies
+  your staged file from `<cwd>/outputs/scaffold-{index}.py` (your worktree) into
+  `{workspace}/outputs/scaffold-{index}.py`, then sends you `all_clear`.
+- **The `place-scaffolds` inline stage does the final copy.** It runs after all swarm
+  agents complete and copies each `{workspace}/outputs/scaffold-{index}.py` to its
+  final repo location (`spec.path`). You never write directly to `spec.path`.
+- **The engine writes the fan-out completion file** by fan-out position after the
+  orchestrator confirms each agent's staged file is in the workspace. The engine
+  names and writes this file; neither you nor the orchestrator should write it.
 
-If you write a stage marker yourself it will reference a work-dir path the
-orchestrator has not yet copied, and may race the orchestrator's own write.
+If you write a stage marker yourself it will reference paths the orchestrator
+has not yet reconciled, and may race the engine's own write.
 
 ## Clearing markers
 
