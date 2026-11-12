@@ -4,7 +4,7 @@ Thin wrappers around Python package CLIs. Regenerate generated wrappers with `ma
 
 ## Generated Python wrappers (`bin/_wrappers.yaml`)
 
-**Primary entry points** (20):
+**Primary entry points** (21):
 
 | Wrapper | Module |
 |---------|--------|
@@ -29,6 +29,7 @@ Thin wrappers around Python package CLIs. Regenerate generated wrappers with `ma
 | `qlty-assistant` | `qlty` |
 | `github` | `github_assistant` |
 | `memory` | `memory` |
+| `monitor-poll` | `monitor_poll` |
 
 
 **Legacy `-assistant` aliases** (5, retained for compatibility): `mail-assistant`, `phone-assistant`, `calendar-assistant`, `schedule-assistant`, `wifi-assistant`

@@ -126,6 +126,7 @@ exclude_patterns = [
   "bin/mail-assistant",
   "bin/maker",
   "bin/memory",
+  "bin/monitor-poll",
   "bin/phone",
   "bin/phone-assistant",
   "bin/qlty-assistant",

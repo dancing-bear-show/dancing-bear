@@ -56,6 +56,7 @@ APPS = {
     "mail": [["./bin/mail"], ["./bin/mail-assistant"]],
     "maker": [["./bin/maker"]],
     "memory": [["./bin/memory"]],
+    "monitor-poll": [["./bin/monitor-poll"]],
     "phone": [["./bin/phone"], ["./bin/phone-assistant"]],
     "qlty-assistant": [["./bin/qlty-assistant"]],
     "resume": [["./bin/assistant", "resume"]],

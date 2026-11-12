@@ -28,6 +28,7 @@ APP_MODULES: dict[str, str] = {
     # any sys.path.
     "github": "github_assistant.__main__",
     "memory": "memory.__main__",
+    "monitor-poll": "monitor_poll.__main__",
 }
 
 

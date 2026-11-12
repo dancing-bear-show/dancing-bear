@@ -42,6 +42,7 @@ src/
   qlty/         # qlty scan/triage wrapper (tiers findings by remediation strategy)
   github_assistant/  # GitHub porcelain over core.github
   memory/       # Claude auto-memory list/validate/consolidate/export/backup
+  monitor_poll/  # poll a condition until it resolves or times out
 bin/            # entry wrappers and helper scripts
 tests/          # lightweight unittest suite
 .llm/           # LLM context, flows, capsules

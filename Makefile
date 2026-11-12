@@ -151,6 +151,13 @@ bin-wrappers:
 bin-wrappers-check:
 	@$(PYTHON) bin/_gen_wrappers.py --check
 
+# Wire .githooks/ as the active git hooks directory for this checkout.
+# Run once after cloning. bin/bootstrap reminds you to do this.
+.PHONY: hooks
+hooks:
+	git config core.hooksPath .githooks
+	@echo "Git hooks directory set to .githooks/ (commit-msg and pre-push active)"
+
 # The .claude/hooks guard suites, for running them directly.
 #
 # `make test` and CI already cover these through tests/infra/test_guard_hooks.py,

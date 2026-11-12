@@ -31,6 +31,7 @@ per domain, plus `core/` underneath them all.
 | `apple_music/`, `wifi/`, `qlty/` | Apple Music, Wi-Fi, qlty scan/triage |
 | `github_assistant/` | GitHub porcelain over `core.github` |
 | `memory/` | Claude auto-memory inspection, validation, transport |
+| `monitor_poll/` | poll a condition until it resolves or times out |
 | `core/` | shared framework — everything below |
 
 ```mermaid
