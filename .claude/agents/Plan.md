@@ -1,7 +1,7 @@
 ---
 name: Plan
 description: Software architect agent for designing implementation plans. Returns step-by-step plans, identifies critical files, considers trade-offs.
-model: claude-sonnet-4-6
+model: claude-sonnet-5-5
 # Same Write/Edit split as `researcher`, for the same reason. This role's
 # contract is "never write CODE", and a plan document is not code. Workflow
 # stages routinely assign `role: Plan` to produce a plan artifact — e.g.

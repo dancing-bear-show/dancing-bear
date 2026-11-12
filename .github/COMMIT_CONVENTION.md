@@ -29,7 +29,7 @@ This project follows [Conventional Commits](https://www.conventionalcommits.org/
 
 ## Scopes
 
-Use the assistant or module name:
+Use the assistant or module name; several may be comma-separated, e.g. `refactor(core,workflow): ...`:
 
 - `mail` - mail
 - `calendar` - calendars
