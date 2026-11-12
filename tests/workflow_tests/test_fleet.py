@@ -8,10 +8,9 @@ import json
 import os
 import tempfile
 import threading
-import unittest
+import unittest.mock
 from collections.abc import Iterator
 from pathlib import Path
-from unittest import mock
 
 from workflow import fleet
 from workflow.cli import main
@@ -83,7 +82,7 @@ class _DataHomeCase(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name).resolve()
-        patcher = mock.patch.dict(os.environ, {"DANCING_BEAR_DATA_HOME": str(self.root / "data")})
+        patcher = unittest.mock.patch.dict(os.environ, {"DANCING_BEAR_DATA_HOME": str(self.root / "data")})
         patcher.start()
         self.addCleanup(patcher.stop)
         self.wf = self.root / "fleet-demo.yaml"
