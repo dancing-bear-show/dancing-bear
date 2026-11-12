@@ -1,7 +1,7 @@
 ---
 name: thread-fixer
 description: Fixes exactly one PR review thread. Use in review-thread remediation fan-outs where each agent owns a single reviewer comment and must not touch anything the thread did not ask about. Writes a structured result JSON; never resolves threads itself.
-model: claude-sonnet-4-6
+model: claude-sonnet-5-5
 skills:
   - dancing-bear-rules
 ---

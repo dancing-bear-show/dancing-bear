@@ -33,6 +33,35 @@
 - [ ] Tests added/updated for new functionality
 - [ ] CLI flags/commands are backward compatible
 
+## Pre-Submission Validation
+
+<!-- Run these before merging. Catches the most common feedback issues early. -->
+
+### Required Checks
+- [ ] Tests passing — no `Ran N tests` line means the suite did not run:
+  ```bash
+  make test > /tmp/t.log 2>&1; echo "EXIT=$?"; grep -E "^Ran [0-9]+ tests" /tmp/t.log
+  ```
+- [ ] qlty clean over changed files:
+  ```bash
+  git diff --name-only main...HEAD > /tmp/changed.txt
+  xargs ~/.qlty/bin/qlty check < /tmp/changed.txt
+  ```
+- [ ] Type check on changed files:
+  ```bash
+  make typecheck-changed
+  ```
+- [ ] No new dead code:
+  ```bash
+  make deadcode
+  ```
+- [ ] New code has test coverage (check with `make cov`)
+
+### Documentation (required if public CLI or docs changed)
+- [ ] `--help` output matches implementation
+- [ ] `--agentic` schema matches implementation
+- [ ] New parameters have type, required status, and defaults documented
+
 ## Breaking Changes
 <!-- If any, describe migration path -->
 None
