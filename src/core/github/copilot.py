@@ -68,18 +68,35 @@ def is_copilot_thread(entry: dict[str, Any]) -> bool:
     return opening.get("author_kind") == "bot" and normalize_login(opening.get("author")) == COPILOT_LOGIN
 
 
-def copilot_threads(doc: dict[str, Any], *, include_resolved: bool = False) -> list[dict[str, Any]]:
+def _all_bot_comments(entry: dict[str, Any]) -> bool:
+    """True when every comment in the thread was authored by a bot."""
+    return all(c.get("author_kind") == "bot" for c in (entry.get("comments") or []))
+
+
+def copilot_threads(
+    doc: dict[str, Any], *, include_resolved: bool = False
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Copilot-opened thread entries from a ``threads.json`` document.
+
+    Returns ``(selected, skipped_human_reply)`` where:
+
+    - ``selected``: threads opened by Copilot with only bot comments; safe to
+      reply and resolve.
+    - ``skipped_human_reply``: threads opened by Copilot that contain at least
+      one human comment; not touched so a human follow-up is not silently closed.
 
     Raises on a truncated document: acting on a partial list would present an
     incomplete run as complete.
     """
     if doc.get("truncated"):
         raise GhError("review-thread fetch incomplete (reported counts did not match); rerun")
-    return [
+    candidates = [
         e for e in doc.get("threads") or []
         if is_copilot_thread(e) and (include_resolved or not e.get("is_resolved"))
     ]
+    selected = [e for e in candidates if _all_bot_comments(e)]
+    skipped = [e for e in candidates if not _all_bot_comments(e)]
+    return selected, skipped
 
 
 def request_copilot_review(gh: GhCLI, owner: str, repo: str, pr: int) -> list[str]:

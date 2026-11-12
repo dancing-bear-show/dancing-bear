@@ -610,7 +610,7 @@ def _summary_targets(gh: GhCLI, args) -> list[int]:
 @app.argument("--pr", type=int, help="One PR (else list by --state/--author/--limit)")
 @app.argument("--state", choices=("open", "closed", "merged", "all"), default="merged")
 @app.argument("--author", help="Filter by author login (@me allowed)")
-@app.argument("--limit", type=int, default=5)
+@app.argument("--limit", type=int, default=5, help="Max PRs scanned before path filtering")
 @app.argument("--include-path", action="append", default=[], dest="include_path",
               help="Keep PRs touching this path (repeatable)")
 @app.argument("--exclude-path", action="append", default=[], dest="exclude_path",
@@ -673,11 +673,12 @@ def cmd_copilot_request(args) -> int:
     switch = _copilot.copilot_review_switch()
     if switch.warning:
         print(f"warning: {switch.warning}", file=sys.stderr)
-    out: dict[str, Any] = {"pr": int(args.pr), "requested": False, "skip_reason": None, "requested_reviewers": []}
+    out: dict[str, Any] = {"pr": int(args.pr), "requested": False, "planned": False,
+                           "skip_reason": None, "requested_reviewers": []}
     if not switch.enabled:
         out["skip_reason"] = _review_cycle.SKIP_DISABLED
     elif args.dry_run:
-        out["requested"] = True
+        out["planned"] = True
     else:
         out["requested_reviewers"] = _copilot.request_copilot_review(gh, owner, name, int(args.pr))
         out["requested"] = True

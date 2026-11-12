@@ -50,7 +50,7 @@ class ActivityItem:
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class Activity:
     """Activity sections for one user; ``to_dict`` is the CLI's JSON."""
 

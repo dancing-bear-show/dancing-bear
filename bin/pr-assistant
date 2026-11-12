@@ -135,6 +135,7 @@ def fetch_copilot_threads(gh, owner, repo, pr_number):
     raises rather than resolving from a partial list.
     """
     doc, _raw = fetch_review_threads(gh, owner, repo, pr_number)
+    selected, _skipped = copilot_threads(doc)
     return [
         {
             "id": entry.get("thread_id"),
@@ -142,7 +143,7 @@ def fetch_copilot_threads(gh, owner, repo, pr_number):
             "line": entry.get("line") if entry.get("line") is not None else "",
             "body": entry.get("opening_body") or "",
         }
-        for entry in copilot_threads(doc)
+        for entry in selected
     ]
 
 

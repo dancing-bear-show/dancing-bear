@@ -1,8 +1,8 @@
 """Per-PR change summaries: size, branches, touched files, top directories.
 
 Files are paged through the ``files`` connection and count-checked against
-``changedFiles``: a PR summarised from its first page alone reports the wrong
-top directories with nothing to show it was cut short.
+the connection's ``totalCount``: a PR summarised from its first page alone
+reports the wrong top directories with nothing to show it was cut short.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from typing import Any
 
 from core.gh_cli import GhCLI, GhError
 
-from .threads import MAX_PAGES, _dig, _next_cursor
+from .threads import MAX_PAGES, dig, next_cursor
 
 FILE_PAGE = 100
 PATH_MODES = ("prefix", "glob", "regex")
@@ -46,7 +46,7 @@ class FileChange:
     deletions: int = 0
 
 
-@dataclass
+@dataclass(frozen=True)
 class PRSummary:
     """One PR's change summary; ``to_dict`` is the CLI's JSON row."""
 
@@ -105,8 +105,8 @@ def fetch_pr_summary(gh: GhCLI, owner: str, repo: str, pr: int) -> PRSummary:
     cursor: str | None = None
     for _ in range(MAX_PAGES):
         data = gh.graphql_checked(PR_DETAIL_QUERY, {"owner": owner, "name": repo, "pr": int(pr), "after": cursor})
-        node = _dig(data, "repository", "pullRequest", what=f"PR #{pr}")
-        conn = _dig(node, "files", what=f"PR #{pr} files")
+        node = dig(data, "repository", "pullRequest", what=f"PR #{pr}")
+        conn = dig(node, "files", what=f"PR #{pr} files")
         for f in conn.get("nodes") or []:
             files.append(FileChange(
                 path=str(f.get("path") or ""),
@@ -114,7 +114,7 @@ def fetch_pr_summary(gh: GhCLI, owner: str, repo: str, pr: int) -> PRSummary:
                 deletions=int(f.get("deletions") or 0),
             ))
         reported = conn.get("totalCount")
-        cursor = _next_cursor(conn.get("pageInfo"), cursor, f"PR #{pr} files")
+        cursor = next_cursor(conn.get("pageInfo"), cursor, f"PR #{pr} files")
         if cursor is None:
             break
     else:

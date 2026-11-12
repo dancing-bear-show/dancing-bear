@@ -2,9 +2,10 @@
 
 The fake answers at the subprocess boundary (``GhCLI(run_func=FakeGh)``), so
 each test sees the exact gh calls a live run would make. The load-bearing
-claims: only Copilot-opened unresolved threads are touched; a thread is
-resolved only after its own reply verified; any failure skips the re-review;
-``--dry-run`` issues no mutation.
+claims: only Copilot-opened unresolved threads with all-bot comments are
+touched; threads with any human reply are skipped and listed in
+``skipped_human_reply``; a thread is resolved only after its own reply
+verified; any failure skips the re-review; ``--dry-run`` issues no mutation.
 """
 
 from __future__ import annotations
@@ -16,21 +17,10 @@ from unittest.mock import patch
 
 from core.gh_cli import GhCLI, GhError
 from core.github import copilot, review_cycle
-from core.github.mutations import run_marker
-from tests.core_tests.github_fakes import FakeGh, GhCall, ok
+from tests.core_tests.github_fakes import FakeGh, GhCall, comment_node, ok
 
 COPILOT = "copilot-pull-request-reviewer"
 ACTOR = "alice"
-
-
-def _comment(i: int, login: str, typename: str, body: str = "") -> dict[str, Any]:
-    return {
-        "databaseId": i,
-        "author": {"login": login, "__typename": typename},
-        "body": body or f"comment {i}",
-        "createdAt": "2026-01-01T00:00:00Z",
-        "url": f"https://example.invalid/c{i}",
-    }
 
 
 def _thread(tid: str, *comments: dict[str, Any], resolved: bool = False) -> dict[str, Any]:
@@ -46,7 +36,7 @@ def _thread(tid: str, *comments: dict[str, Any], resolved: bool = False) -> dict
 
 
 def _copilot_thread(tid: str, *extra: dict[str, Any], resolved: bool = False) -> dict[str, Any]:
-    return _thread(tid, _comment(1, COPILOT, "Bot"), *extra, resolved=resolved)
+    return _thread(tid, comment_node(1, COPILOT, "Bot"), *extra, resolved=resolved)
 
 
 class Scripted:
@@ -137,8 +127,30 @@ class TestCopilotThreadSelection(unittest.TestCase):
 
     def test_resolved_filtered_unless_asked(self):
         doc = {"threads": [self._entry(COPILOT, "bot", is_resolved=True)]}
-        self.assertEqual(copilot.copilot_threads(doc), [])
-        self.assertEqual(len(copilot.copilot_threads(doc, include_resolved=True)), 1)
+        selected, skipped = copilot.copilot_threads(doc)
+        self.assertEqual(selected, [])
+        self.assertEqual(skipped, [])
+        selected2, _ = copilot.copilot_threads(doc, include_resolved=True)
+        self.assertEqual(len(selected2), 1)
+
+    def test_mixed_author_thread_is_in_skipped_not_selected(self):
+        """A Copilot-opened thread with a human reply is skipped, not selected."""
+        entry = {"source": "graphql-thread", "thread_id": "T", "is_resolved": False,
+                 "comments": [{"author": COPILOT, "author_kind": "bot"},
+                               {"author": "alice", "author_kind": "human"}]}
+        doc = {"threads": [entry]}
+        selected, skipped = copilot.copilot_threads(doc)
+        self.assertEqual(selected, [])
+        self.assertEqual(len(skipped), 1)
+        self.assertEqual(skipped[0]["thread_id"], "T")
+
+    def test_pure_bot_thread_is_selected(self):
+        """A Copilot-opened thread where all comments are bots is selected."""
+        entry = self._entry(COPILOT, "bot")
+        doc = {"threads": [entry]}
+        selected, skipped = copilot.copilot_threads(doc)
+        self.assertEqual(len(selected), 1)
+        self.assertEqual(skipped, [])
 
     def test_truncated_doc_raises(self):
         with self.assertRaisesRegex(GhError, "incomplete"):
@@ -179,8 +191,8 @@ class TestRunReviewCycle(unittest.TestCase):
         script = Scripted([
             _copilot_thread("CP1"),
             _copilot_thread("CP_DONE", resolved=True),
-            _thread("HUMAN", _comment(2, "bob", "User")),
-            _thread("IMPOSTOR", _comment(3, COPILOT, "User")),
+            _thread("HUMAN", comment_node(2, "bob", "User")),
+            _thread("IMPOSTOR", comment_node(3, COPILOT, "User")),
         ])
         result, fake = self._run(script)
         self.assertEqual(_mutations(fake, "addPullRequestReviewThreadReply"), ["CP1"])
@@ -189,6 +201,7 @@ class TestRunReviewCycle(unittest.TestCase):
         self.assertIsNone(result.re_review_skip_reason)
         self.assertEqual(result.to_dict()["replied"], 1)
         self.assertEqual(len(_requests(fake)), 1)
+        self.assertEqual(result.skipped_human_reply, [])
 
     def test_failed_reply_never_resolves_that_thread_and_skips_rereview(self):
         script = Scripted([_copilot_thread("BAD"), _copilot_thread("GOOD")])
@@ -213,22 +226,29 @@ class TestRunReviewCycle(unittest.TestCase):
         self.assertEqual(fake.graphql_calls("mutation"), [])
         self.assertEqual(_requests(fake), [])
         self.assertEqual(result.threads[0].status, "would_reply")
-        self.assertTrue(result.re_review_requested)
+        self.assertFalse(result.re_review_requested)
+        self.assertTrue(result.re_review_planned)
 
-    def test_run_marker_skips_reply_but_still_resolves(self):
-        mine = _comment(9, ACTOR, "User", body=f"Fixed.\n\n{run_marker('r1')}")
-        result, fake = self._run(Scripted([_copilot_thread("CP1", mine)]), run_id="r1")
+    def test_human_reply_in_copilot_thread_skips_it(self):
+        """A Copilot thread containing any human comment is skipped, not replied or resolved."""
+        human_reply = comment_node(9, ACTOR, "User", body="can you explain this?")
+        result, fake = self._run(Scripted([_copilot_thread("CP1", human_reply)]))
         self.assertEqual(_mutations(fake, "addPullRequestReviewThreadReply"), [])
-        self.assertEqual(_mutations(fake, "resolveReviewThread"), ["CP1"])
-        self.assertEqual(result.threads[0].status, "already_replied")
+        self.assertEqual(_mutations(fake, "resolveReviewThread"), [])
+        self.assertIn("CP1", result.skipped_human_reply)
+        # no threads processed → no re-review
+        self.assertEqual(result.re_review_skip_reason, review_cycle.SKIP_NO_THREADS)
 
-    def test_marker_from_someone_else_does_not_skip(self):
-        forged = _comment(9, "mallory", "User", body=run_marker("r1"))
-        result, fake = self._run(Scripted([_copilot_thread("CP1", forged)]), run_id="r1")
-        self.assertEqual(_mutations(fake, "addPullRequestReviewThreadReply"), ["CP1"])
-        posted = fake.graphql_calls("addPullRequestReviewThreadReply")[0].value("body") or ""
-        self.assertTrue(posted.endswith(run_marker("r1")))
-        self.assertEqual(result.threads[0].status, "replied")
+    def test_mixed_copilot_thread_skipped_pure_still_processed(self):
+        """Pure-bot thread is replied and resolved; mixed thread is listed in skipped_human_reply."""
+        mixed_reply = comment_node(5, "bob", "User")
+        script = Scripted([_copilot_thread("CP_PURE"), _copilot_thread("CP_MIXED", mixed_reply)])
+        result, fake = self._run(script)
+        self.assertEqual(_mutations(fake, "addPullRequestReviewThreadReply"), ["CP_PURE"])
+        self.assertEqual(_mutations(fake, "resolveReviewThread"), ["CP_PURE"])
+        self.assertIn("CP_MIXED", result.skipped_human_reply)
+        self.assertNotIn("CP_PURE", result.skipped_human_reply)
+        self.assertTrue(result.re_review_requested)
 
     def test_truncated_fetch_raises_before_any_mutation(self):
         script = Scripted([_copilot_thread("CP1")], total=5)
@@ -254,8 +274,15 @@ class TestRunReviewCycle(unittest.TestCase):
         self.assertEqual(result.re_review_skip_reason, review_cycle.SKIP_NOT_ASKED)
         self.assertEqual(_requests(fake), [])
 
+    def test_no_threads_skips_request(self):
+        """When no Copilot threads are selected, the re-review is skipped, not requested."""
+        result, fake = self._run(Scripted([]))
+        self.assertEqual(result.re_review_skip_reason, review_cycle.SKIP_NO_THREADS)
+        self.assertFalse(result.re_review_requested)
+        self.assertEqual(_requests(fake), [])
+
     def test_request_failure_is_recorded_not_raised(self):
-        script = Scripted([])
+        script = Scripted([_copilot_thread("CP1")])
         script.request_rc = 1
         result, _ = self._run(script)
         self.assertFalse(result.re_review_requested)

@@ -28,6 +28,7 @@ from .threads import fetch_review_threads
 SKIP_ERRORS = "errors present"
 SKIP_DISABLED = "copilot review disabled"
 SKIP_NOT_ASKED = "not requested"
+SKIP_NO_THREADS = "no_copilot_threads"
 SKIP_REQUEST_FAILED = "request failed"
 
 
@@ -51,10 +52,14 @@ class ReviewCycleResult:
     dry_run: bool
     threads: list[ThreadOutcome] = field(default_factory=list)
     re_review_requested: bool = False
-    #: Why no re-review was requested; None when it was.
+    #: True under ``--dry-run`` when a re-review would be requested.
+    re_review_planned: bool = False
+    #: Why no re-review was requested; None when it was (or when planned).
     re_review_skip_reason: str | None = None
     request_error: str | None = None
     warnings: list[str] = field(default_factory=list)
+    #: Thread IDs skipped because a human has replied in the thread.
+    skipped_human_reply: list[str] = field(default_factory=list)
 
     @property
     def errors(self) -> list[str]:
@@ -129,6 +134,9 @@ def _maybe_request(gh: GhCLI, owner: str, repo: str, result: ReviewCycleResult, 
     if result.errors:
         result.re_review_skip_reason = SKIP_ERRORS
         return
+    if not result.threads:
+        result.re_review_skip_reason = SKIP_NO_THREADS
+        return
     switch = copilot_review_switch()
     if switch.warning:
         result.warnings.append(switch.warning)
@@ -136,7 +144,7 @@ def _maybe_request(gh: GhCLI, owner: str, repo: str, result: ReviewCycleResult, 
         result.re_review_skip_reason = SKIP_DISABLED
         return
     if result.dry_run:
-        result.re_review_requested = True
+        result.re_review_planned = True
         return
     try:
         request_copilot_review(gh, owner, repo, result.pr)
@@ -155,8 +163,9 @@ def run_review_cycle(gh: GhCLI, owner: str, repo: str, pr: int, opts: CycleOptio
     """
     marked = mark_body(opts.body, opts.run_id)
     doc, _raw = fetch_review_threads(gh, owner, repo, int(pr))
-    selected = copilot_threads(doc)
+    selected, skipped_human_reply = copilot_threads(doc)
     result = ReviewCycleResult(pr=int(pr), dry_run=opts.dry_run)
+    result.skipped_human_reply = [str(e["thread_id"]) for e in skipped_human_reply]
     actor = viewer_login(gh) if opts.run_id else None
     for entry in selected:
         if opts.dry_run:
