@@ -1,7 +1,7 @@
 ---
 name: doc-writer
 description: Documentation and writing agent. Use for PR descriptions, changelogs, postmortems, READMEs, and any prose-heavy work.
-model: claude-sonnet-4-6
+model: claude-sonnet-5-5
 skills:
   - dancing-bear-rules
 ---
