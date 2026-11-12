@@ -52,7 +52,8 @@ class TrackedPollTests(TempDirMixin, unittest.TestCase):
         with mock.patch("sys.stderr") as err:
             with state.tracked_poll("file", {}, blocker / "sub") as st:
                 st.status = state.STATUS_DONE
-        self.assertTrue(err.write.called)
+        written = "".join(str(a) for call in err.write.call_args_list for a in call.args)
+        self.assertIn("warning", written.lower())
 
 
 class LoadStatesTests(TempDirMixin, unittest.TestCase):
@@ -89,6 +90,26 @@ class PruneTests(TempDirMixin, unittest.TestCase):
         state.prune_stale(root)
         self.assertFalse(old.exists())
         self.assertTrue(new.exists())
+
+    def test_running_poll_with_alive_pid_survives_pruning(self):
+        root = Path(self.tmpdir)
+        path = root / "p1.json"
+        path.write_text(json.dumps({"poll_id": "p1", "pid": 4242, "status": state.STATUS_RUNNING}))
+        week_ago = time.time() - 7 * 24 * 3600
+        os.utime(path, (week_ago, week_ago))
+        with mock.patch.object(state, "is_pid_alive", return_value=True):
+            state.prune_stale(root)
+        self.assertTrue(path.exists())
+
+    def test_running_poll_with_dead_pid_is_pruned(self):
+        root = Path(self.tmpdir)
+        path = root / "p2.json"
+        path.write_text(json.dumps({"poll_id": "p2", "pid": 4242, "status": state.STATUS_RUNNING}))
+        week_ago = time.time() - 7 * 24 * 3600
+        os.utime(path, (week_ago, week_ago))
+        with mock.patch.object(state, "is_pid_alive", return_value=False):
+            state.prune_stale(root)
+        self.assertFalse(path.exists())
 
 
 class FindAndSignalTests(unittest.TestCase):

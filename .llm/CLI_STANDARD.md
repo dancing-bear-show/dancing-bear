@@ -25,7 +25,7 @@ uniform exception→exit-code mapping.
 `AppMeta` derives every fallback string (agentic, domain-map, inventory,
 familiarize) from one `app_id` + `purpose`. Hand-written fallback literals
 duplicate that derivation and drift from it.
-*Conformant (19):* every app. Confirm on merged `main` with
+*Conformant (20):* every app. Confirm on merged `main` with
 `ls src/*/meta.py | wc -l` rather than trusting this line — it is a snapshot,
 not a gate, and it sat stale through three merges before anyone checked.
 
@@ -57,9 +57,9 @@ Applies to **every app** for A1–A7.
 Proven by three contracts:
 - `tests/agentic_cli_contract.py` → `AgenticCLIContractMixin` — **A1–A5**
 - `tests/cli_separator_contract.py` → `SeparatorContractMixin` — **A6**
-  (19 CLIApp apps; `telemetry` now adopts this contract)
+  (20 CLIApp apps; `telemetry` now adopts this contract)
 - `tests/cli_no_subcommand_contract.py` → `NoSubcommandContractMixin` — **A7**
-  (19 adopters; each declares its own expected exit code and stream)
+  (20 adopters; each declares its own expected exit code and stream)
 
 Every rule in this tier is now guarded by a contract.
 
@@ -92,10 +92,10 @@ not repeated per app.
 **A7. MUST make no-subcommand behaviour deliberate** — help + 0 by default, or
 an explicit `on_no_command` whose non-zero code is *documented in the source*.
 Proven by `tests/cli_no_subcommand_contract.py` → `NoSubcommandContractMixin`
-(18 adopters), which pins each app's exit code **and which stream carries the
+(20 adopters), which pins each app's exit code **and which stream carries the
 output**.
 
-*Conformant (16):* help to stdout, exit 0 — every app except the two below.
+*Conformant (18):* help to stdout, exit 0 — every app except the two below.
 
 *Documented exceptions (2):* `worker` (1) and `workflow` (2) print a one-line
 usage to **stderr**. Both carry a docstring on `_no_command_usage()` saying they

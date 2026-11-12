@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import argparse
+
 from core.agentic import (
     build_capsule as _build_capsule,
     build_cli_tree as _core_build_cli_tree,
@@ -13,7 +15,7 @@ from core.agentic import (
 from .meta import META
 
 
-def _load_parser():
+def _load_parser() -> argparse.ArgumentParser:
     # Import inside the function so a broken parser cannot poison module import;
     # cached_parser_loader turns that into a swallowed None the shared contract
     # tests catch by asserting the capsule is substantial (>= 200B).

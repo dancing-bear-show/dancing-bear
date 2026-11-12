@@ -24,6 +24,7 @@ from core.gh_cli import GhCLI, GhError
 from core.github import client as gh_client
 from core.github import pulls
 from core.process import CompletedRun, run_binary
+from core.secrets import mask_url
 
 from .engine import Condition, ConditionError, Outcome, Probe
 
@@ -158,11 +159,12 @@ def http_condition(
         try:
             code, body = _fetch(url, attempt_timeout, opener)
         except http.client.InvalidURL as exc:
-            raise ConditionError(f"invalid URL {url!r}: {exc}") from exc
+            raise ConditionError(f"invalid URL {mask_url(url)!r}: {exc}") from exc
         except (http.client.HTTPException, OSError) as exc:  # URLError and timeouts are OSErrors
+            # str(exc) for URLError/HTTPException contains the error reason, not the original URL.
             return Probe(Outcome.PENDING, f"unreachable: {_clip(str(exc))}")
         except ValueError as exc:
-            raise ConditionError(f"invalid URL {url!r}: {exc}") from exc
+            raise ConditionError(f"invalid URL {mask_url(url)!r}: {exc}") from exc
         if code != status:
             return Probe(Outcome.PENDING, f"HTTP {code}")
         if body_re is not None and not body_re.search(body.decode("utf-8", "replace")):

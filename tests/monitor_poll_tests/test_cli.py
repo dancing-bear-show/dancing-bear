@@ -237,8 +237,10 @@ class CancelTests(CliTestCase):
 
     def test_cancel_by_pid(self):
         write_state_file(self.root, pid=4242)
-        with mock.patch.object(state, "is_pid_alive", return_value=True), mock.patch.object(state.os, "kill"):
+        with mock.patch.object(state, "is_pid_alive", return_value=True), \
+                mock.patch.object(state.os, "kill") as kill:
             rc, rec = self._cancel("--pid", "4242")
+        kill.assert_called_once_with(4242, mock.ANY)
         self.assertEqual((rc, rec["poll_id"]), (0, "p1"))
 
     def test_finished_poll_is_never_signalled(self):
@@ -278,6 +280,34 @@ class SharedFlagsTests(unittest.TestCase):
                 sub = next(a for a in parser._actions if getattr(a, "choices", None) and name in a.choices)
                 flags = {o for act in sub.choices[name]._actions for o in act.option_strings}
                 self.assertLessEqual({"--timeout", "--interval", "--ticks", "--format"}, flags)
+
+
+class NonFiniteArgTests(CliTestCase):
+    """nan and inf are rejected with exit 2 on --timeout and --interval.
+
+    argparse calls sys.exit(2) for type errors, which raises SystemExit before
+    run_with_assistant returns a code. The helper captures stderr and asserts
+    the exit code from the exception.
+    """
+
+    def _assert_bad_arg(self, *argv: str) -> None:
+        with capture_stderr() as err:
+            with self.assertRaises(SystemExit) as ctx:
+                cli.main(list(argv))
+        self.assertEqual(ctx.exception.code, 2)
+        self.assertIn("finite", err.getvalue())
+
+    def test_nan_timeout_exits_2(self):
+        self._assert_bad_arg("cmd", "--timeout", "nan", "--", "true")
+
+    def test_inf_timeout_exits_2(self):
+        self._assert_bad_arg("cmd", "--timeout", "inf", "--", "true")
+
+    def test_nan_interval_exits_2(self):
+        self._assert_bad_arg("cmd", "--interval", "nan", "--", "true")
+
+    def test_inf_interval_exits_2(self):
+        self._assert_bad_arg("cmd", "--interval", "inf", "--", "true")
 
 
 if __name__ == "__main__":

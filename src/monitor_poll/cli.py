@@ -16,7 +16,10 @@ first as an NDJSON line (flushed), and the final record is the last line.
 
 Exit codes:
   0  condition resolved successfully (verdict passed)
+  0  cancel: SIGTERM sent (cancelled:true), or refused (cancelled:false, poll
+     already finished or pid not alive)
   1  condition failed or the timeout elapsed (verdict failed, timed_out)
+  1  cancel: send_sigterm failed (OS refused to signal the pid)
   2  condition could not be evaluated (verdict error), or bad usage
   6  cancel: no matching poll
 """
@@ -25,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from dataclasses import asdict, dataclass
 from functools import lru_cache
@@ -74,6 +78,8 @@ def _non_negative(raw: str) -> float:
         value = float(raw)
     except ValueError:
         raise argparse.ArgumentTypeError(f"not a number: {raw!r}") from None
+    if not math.isfinite(value):
+        raise argparse.ArgumentTypeError("must be a finite number")
     if value < 0:
         raise argparse.ArgumentTypeError("must be >= 0")
     return value

@@ -199,6 +199,17 @@ class HttpConditionTests(unittest.TestCase):
         with self.assertRaises(ConditionError):
             check()
 
+    def test_credentials_not_leaked_in_condition_error(self):
+        # An invalid port triggers ValueError inside http.client which is caught and re-raised
+        # as ConditionError. The error message must not expose userinfo or query credentials.
+        url = "http://user:pw123@localhost:abc/x?access_token=SEKRET99"
+        check = conditions.http_condition(url)
+        with self.assertRaises(ConditionError) as ctx:
+            check()
+        msg = str(ctx.exception)
+        self.assertNotIn("pw123", msg)
+        self.assertNotIn("SEKRET99", msg)
+
 
 def gh_client_with(stdout: str = "", stderr: str = "", returncode: int = 0) -> tuple[GhCLI, list[list[str]]]:
     calls: list[list[str]] = []

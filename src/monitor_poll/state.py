@@ -134,11 +134,19 @@ def is_pid_alive(pid: int) -> bool:
 
 
 def prune_stale(root: Path, now: float | None = None) -> None:
-    """Delete state files not modified within ``STALE_FILE_AGE_SECONDS``."""
+    """Delete state files not modified within ``STALE_FILE_AGE_SECONDS``.
+
+    Running polls whose pid is still alive are never deleted: a poll running
+    longer than 24 h would otherwise be pruned by ``status`` and then be
+    unreachable to ``cancel``.
+    """
     cutoff = (time.time() if now is None else now) - STALE_FILE_AGE_SECONDS
     for path in root.glob("*.json"):
         try:
             if path.stat().st_mtime < cutoff:
+                entry = PollState.from_dict(safe_load_json(path))
+                if entry is not None and entry.status == STATUS_RUNNING and is_pid_alive(entry.pid):
+                    continue
                 path.unlink(missing_ok=True)
         except OSError:  # nosec B110 - pruning is best-effort; a racing delete is fine
             pass
