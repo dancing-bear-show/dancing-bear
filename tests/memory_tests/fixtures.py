@@ -11,9 +11,9 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
+import unittest.mock
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest import mock
 
 from memory.models import (
     BUNDLE_VERSION,
@@ -47,7 +47,7 @@ def isolate_home(test: unittest.TestCase) -> Path:
         "DANCING_BEAR_DATA_HOME": str(home / "data"),
         "DANCING_BEAR_CONFIG_HOME": str(home / "config"),
     }
-    patcher = mock.patch.dict(os.environ, env)
+    patcher = unittest.mock.patch.dict(os.environ, env)
     patcher.start()
     test.addCleanup(patcher.stop)
     for var in ("XDG_DATA_HOME", "XDG_CONFIG_HOME"):

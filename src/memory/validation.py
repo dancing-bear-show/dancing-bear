@@ -431,11 +431,10 @@ def _check_ref_dead_cli(
     # ctx.repo for worktree slugs decodes to a non-existent garbled path (e.g.
     # /Users/name/code/repo--claude-worktrees-<name>). Fall back to git toplevel
     # so CLI existence checks resolve against the actual checkout being validated.
+    # Use git rather than Path.cwd(), which only works when invoked from the
+    # repo root.
     bin_dir = ctx.repo / "bin"
     if not bin_dir.is_dir():
-        # ctx.repo for worktree slugs decodes to a garbled non-existent path.
-        # Use git to find the actual repo root rather than Path.cwd(), which
-        # only works when invoked from the repo root.
         try:
             toplevel = subprocess.check_output(  # nosec B603 B607 - fixed git argv, no shell
                 ["git", "rev-parse", "--show-toplevel"],
@@ -445,6 +444,9 @@ def _check_ref_dead_cli(
             ).strip()
             bin_dir = Path(toplevel) / "bin"
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+            # Not in a git checkout (or git missing): keep the decoded bin_dir,
+            # and the is_dir() guard below skips the check rather than
+            # flagging every CLI mention as dead.
             pass
     if not bin_dir.is_dir():
         return ()
@@ -536,7 +538,7 @@ CHECK_REGISTRY: dict[str, Check] = {
     "ref-broken-wikilink": _check_ref_broken_wikilink,
     "ref-dead-path": _check_ref_dead_path,
     "ref-dead-cli": _check_ref_dead_cli,
-    "stale-superseded-pr": lambda store, ctx: _check_stale_superseded_pr(store, ctx),
+    "stale-superseded-pr": _check_stale_superseded_pr,
 }
 
 # Checks run when the caller names none. stale-superseded-pr calls GitHub, so
