@@ -28,7 +28,7 @@ from .threads import fetch_review_threads
 SKIP_ERRORS = "errors present"
 SKIP_DISABLED = "copilot review disabled"
 SKIP_NOT_ASKED = "not requested"
-SKIP_NO_THREADS = "no_copilot_threads"
+SKIP_NO_THREADS = "no copilot threads"
 SKIP_REQUEST_FAILED = "request failed"
 
 
@@ -87,6 +87,18 @@ def _outcome(entry: dict[str, Any], status: str) -> ThreadOutcome:
 
 def _already_replied(entry: dict[str, Any], run_id: str | None, actor: str | None) -> bool:
     return bool(run_id and actor and has_run_marker(entry.get("comments") or [], run_id, actor=actor))
+
+
+def _only_own_replies(entry: dict[str, Any], run_id: str | None, actor: str | None) -> bool:
+    """True when every non-bot comment is ``actor``'s reply carrying this run's marker.
+
+    Such a thread is a retry of this run (reply posted, resolve failed), not a
+    human follow-up, so it must be settled rather than skipped.
+    """
+    if not (run_id and actor):
+        return False
+    humans = [c for c in entry.get("comments") or [] if c.get("author_kind") != "bot"]
+    return bool(humans) and all(_already_replied({"comments": [c]}, run_id, actor) for c in humans)
 
 
 def _settle_thread(
@@ -163,10 +175,12 @@ def run_review_cycle(gh: GhCLI, owner: str, repo: str, pr: int, opts: CycleOptio
     """
     marked = mark_body(opts.body, opts.run_id)
     doc, _raw = fetch_review_threads(gh, owner, repo, int(pr))
-    selected, skipped_human_reply = copilot_threads(doc)
+    selected, skipped = copilot_threads(doc)
     result = ReviewCycleResult(pr=int(pr), dry_run=opts.dry_run)
-    result.skipped_human_reply = [str(e["thread_id"]) for e in skipped_human_reply]
     actor = viewer_login(gh) if opts.run_id else None
+    retries = [e for e in skipped if _only_own_replies(e, opts.run_id, actor)]
+    selected = selected + retries
+    result.skipped_human_reply = [str(e["thread_id"]) for e in skipped if e not in retries]
     for entry in selected:
         if opts.dry_run:
             status = "already_replied" if _already_replied(entry, opts.run_id, actor) else "would_reply"

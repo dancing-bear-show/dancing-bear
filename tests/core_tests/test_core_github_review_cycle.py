@@ -16,7 +16,7 @@ from typing import Any
 from unittest.mock import patch
 
 from core.gh_cli import GhCLI, GhError
-from core.github import copilot, review_cycle
+from core.github import copilot, mutations, review_cycle
 from tests.core_tests.github_fakes import FakeGh, GhCall, comment_node, ok
 
 COPILOT = "copilot-pull-request-reviewer"
@@ -238,6 +238,23 @@ class TestRunReviewCycle(unittest.TestCase):
         self.assertIn("CP1", result.skipped_human_reply)
         # no threads processed → no re-review
         self.assertEqual(result.re_review_skip_reason, review_cycle.SKIP_NO_THREADS)
+
+    def test_run_id_retry_resolves_thread_holding_only_own_marked_reply(self):
+        """Reply landed but resolve failed last run: the retry resolves without re-replying."""
+        own = comment_node(9, ACTOR, "User", body="Fixed.\n\n" + mutations.run_marker("r1"))
+        result, fake = self._run(Scripted([_copilot_thread("CP1", own)]), run_id="r1")
+        self.assertEqual(_mutations(fake, "addPullRequestReviewThreadReply"), [])
+        self.assertEqual(_mutations(fake, "resolveReviewThread"), ["CP1"])
+        self.assertEqual(result.threads[0].status, "already_replied")
+        self.assertEqual(result.skipped_human_reply, [])
+
+    def test_run_id_retry_still_skips_unmarked_viewer_comment(self):
+        """A viewer comment without this run's marker is a human follow-up, not a retry."""
+        other = comment_node(9, ACTOR, "User", body="Fixed.\n\n" + mutations.run_marker("other-run"))
+        result, fake = self._run(Scripted([_copilot_thread("CP1", other)]), run_id="r1")
+        self.assertEqual(_mutations(fake, "addPullRequestReviewThreadReply"), [])
+        self.assertEqual(_mutations(fake, "resolveReviewThread"), [])
+        self.assertEqual(result.skipped_human_reply, ["CP1"])
 
     def test_mixed_copilot_thread_skipped_pure_still_processed(self):
         """Pure-bot thread is replied and resolved; mixed thread is listed in skipped_human_reply."""
