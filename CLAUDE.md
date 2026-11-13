@@ -43,7 +43,7 @@ src/                      # all Python source packages (installable via package-
   diagrams/               # Mermaid diagram generation (flowchart/sequence/gantt/pie; telemetry cost/token pies)
   slides/                 # generate PowerPoint decks from YAML deck definitions
   sheets/                 # generate styled .xlsx spreadsheets from YAML workbook definitions
-  workflow/               # YAML DAG workflow engine (24 subcommands; see docs/workflow-engine.md)
+  workflow/               # YAML DAG workflow engine (27 subcommands; see docs/workflow-engine.md)
   core/                   # shared helpers
   telemetry/              # Claude Code session telemetry (cost, tokens, TUI)
   worker/                 # background job queue and daemon
@@ -615,7 +615,7 @@ and hit a gap the YAML didn't cover, fix the YAML — that is how these get bett
 # Visualization + orchestration
 ./bin/charts render <spec.json>          # render a chart (also: grid, reshape)
 ./bin/diagrams from-yaml <spec.yaml>     # Mermaid from YAML (also: render, validate, embed, telemetry)
-./bin/workflow run <workflow.yaml>       # run a YAML DAG (24 subcommands; see docs/workflow-engine.md)
+./bin/workflow run <workflow.yaml>       # run a YAML DAG (27 subcommands; see docs/workflow-engine.md)
 ```
 
 ## Auto-Familiarization

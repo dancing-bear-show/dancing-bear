@@ -425,7 +425,7 @@ src/
   qlty/         qlty scan/triage wrapper
   github_assistant/  GitHub porcelain over core.github
   monitor_poll/  poll a condition (command, file, URL, GitHub PR/run) until it resolves or times out
-  workflow/     YAML DAG engine (24 subcommands; see docs/workflow-engine.md)
+  workflow/     YAML DAG engine (27 subcommands; see docs/workflow-engine.md)
   worker/       background job queue and daemon; qwen_patch job type (Ollama)
   telemetry/    Claude Code session telemetry (cost, tokens, TUI)
   core/         shared helpers and CLI framework
