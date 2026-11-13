@@ -29,7 +29,7 @@ from telemetry.otel.cost_models import (
 from telemetry.otel.models import MetricDataPoint
 from telemetry.otel.reader import OTLPDataDir, OTLPReader
 from telemetry.otel.utils import parse_time_window
-from telemetry.pricing import TokenMetrics, compute_raw_cost, get_model_pricing
+from telemetry.pricing import TokenMetrics, compute_raw_cost
 
 # Re-export perf functions for backward compatibility (tests import from here)
 __all__ = [
@@ -373,6 +373,7 @@ def get_model_performance(
             "input_tokens": 0,
             "output_tokens": 0,
             "cache_creation_tokens": 0,
+            "cache_read_tokens": 0,
             "latencies": [],
             "error_count": 0,
         }
@@ -384,6 +385,7 @@ def get_model_performance(
         model_data[model]["input_tokens"] += req["input_tokens"]
         model_data[model]["output_tokens"] += req["output_tokens"]
         model_data[model]["cache_creation_tokens"] += req["cache_creation_tokens"]
+        model_data[model]["cache_read_tokens"] += req["cache_read_tokens"]
         if req.get("duration_ms") is not None:
             model_data[model]["latencies"].append(req["duration_ms"])
 
@@ -397,12 +399,14 @@ def get_model_performance(
 
     results = []
     for model_name, data in sorted(model_data.items()):
-        # Legacy formula (cache writes at 1x, no cache reads); not yet on compute_raw_cost.
-        input_price, output_price = get_model_pricing(model_name)
-        cost = (
-            (data["input_tokens"] * input_price / 1_000_000)
-            + (data["output_tokens"] * output_price / 1_000_000)
-            + (data["cache_creation_tokens"] * input_price / 1_000_000)
+        cost = compute_raw_cost(
+            TokenMetrics(
+                input_tokens=data["input_tokens"],
+                output_tokens=data["output_tokens"],
+                cache_read_tokens=data["cache_read_tokens"],
+                cache_creation_tokens=data["cache_creation_tokens"],
+            ),
+            model_name,
         )
         latencies = sorted(data["latencies"])
         avg_latency = sum(latencies) / len(latencies) if latencies else 0.0

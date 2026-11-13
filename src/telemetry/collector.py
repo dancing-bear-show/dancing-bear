@@ -12,6 +12,7 @@ from rich.console import Console
 from core.cli_output import emit_rows
 from core.process import CompletedRun, run_binary
 from telemetry.otel.config import _get_repo_root
+from telemetry.otel.otlp_walk import parse_unix_nano
 
 console = Console()
 _err_console = Console(stderr=True)
@@ -129,8 +130,8 @@ def _parse_otlp_event(line: str) -> dict[str, object] | None:
         return None
     try:
         record = data["resourceLogs"][0]["scopeLogs"][0]["logRecords"][0]
-        ts_ns = int(record.get("timeUnixNano") or 0)
-        if ts_ns == 0:
+        ts_ns = parse_unix_nano(record.get("timeUnixNano"))
+        if not ts_ns:  # absent, zero, negative, oversized, or not numeric
             return None
         timestamp = datetime.fromtimestamp(ts_ns / 1e9, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         body = record.get("body", {}).get("stringValue")
@@ -139,7 +140,7 @@ def _parse_otlp_event(line: str) -> dict[str, object] | None:
         raw_attrs = record.get("attributes", [])
         attributes = {a["key"]: _decode_otlp_value(a.get("value")) for a in raw_attrs}
         return {"timestamp": timestamp, "body": body, "attributes": attributes}
-    except (KeyError, IndexError, TypeError, ValueError, AttributeError):
+    except (KeyError, IndexError, TypeError, ValueError, AttributeError, OverflowError, OSError):
         return None
 
 

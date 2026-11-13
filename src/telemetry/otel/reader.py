@@ -13,6 +13,7 @@ from telemetry.otel.models import (
     OTLPMetricsRecord,
     OTLPSpansRecord,
 )
+from telemetry.otel.otlp_walk import RECORD_EXCEPTIONS
 
 
 class _FromDict(Protocol):
@@ -74,9 +75,11 @@ class OTLPReader:
         """Read *file_path* plus rotation files, parsing into *record_class*; skip malformed lines."""
         records = []
         for data in iter_rotated_jsonl(file_path, tolerant=True):
+            if not isinstance(data, dict):
+                continue
             try:
                 records.append(record_class.from_dict(data))
-            except (KeyError, ValueError):
+            except RECORD_EXCEPTIONS:
                 continue
         return records
 

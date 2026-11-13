@@ -1,5 +1,5 @@
-"""Tests for TranscriptProvider session-level methods (TestSessionSummaryFromFile,
-TestIterJsonlFiles, TestSessionSummaryFromOldFormat, TestGetSessions,
+"""Tests for TranscriptProvider session-level methods (TestFlatSessionSummary,
+TestIterJsonlFiles, TestOldFormatSessionSummary, TestGetSessions,
 TestGetCurrentSessionId, TestFindSessionFile, TestGetWindowedTotals,
 TestAggregateAgents, TestProviderConstructor)."""
 from __future__ import annotations
@@ -19,14 +19,21 @@ from tests.telemetry_tests.shared_fixtures import (
 )
 
 
-class TestSessionSummaryFromFile(TempProjectsDirMixin, unittest.TestCase):
+class TestFlatSessionSummary(TempProjectsDirMixin, unittest.TestCase):
+    """A flat ``<session>.jsonl`` file becomes one SessionSummary."""
+
+    def _only_session(self):
+        sessions = self.provider.get_sessions()
+        self.assertEqual(len(sessions), 1)
+        return sessions[0]
+
     def test_summary_built_from_valid_file(self):
-        path = _write_jsonl(
-            self.projects_dir,
+        _write_jsonl(
+            self.project_dir("-my-project"),
             "sess-1.jsonl",
             [make_assistant_record(model="claude-sonnet-4-6", input_tokens=10, output_tokens=5)],
         )
-        summary = self.provider._session_summary_from_file(path, "/my/project")
+        summary = self._only_session()
         self.assertEqual(summary.session_id, "sess-1")
         self.assertEqual(summary.project_path, "/my/project")
         self.assertEqual(summary.model, "claude-sonnet-4-6")
@@ -34,15 +41,15 @@ class TestSessionSummaryFromFile(TempProjectsDirMixin, unittest.TestCase):
         self.assertFalse(summary.cost_is_estimated)
 
     def test_empty_project_path_becomes_none(self):
-        path = _write_jsonl(self.projects_dir, "sess-1.jsonl", [make_assistant_record()])
-        summary = self.provider._session_summary_from_file(path, "")
-        self.assertIsNone(summary.project_path)
+        from telemetry.providers.transcript import _SessionUnit
+
+        unit = _SessionUnit("sess-1", "", [], [], datetime.now(timezone.utc))
+        self.assertIsNone(TranscriptProvider._summary_from_unit(unit, []).project_path)
 
     def test_malformed_file_falls_back_gracefully(self):
-        path = self.projects_dir / "sess-1.jsonl"
+        path = self.project_dir() / "sess-1.jsonl"
         path.write_text('{"type": "assistant"', encoding="utf-8")
-        summary = self.provider._session_summary_from_file(path, "/p")
-        self.assertEqual(summary.total_events, 0)
+        self.assertEqual(self._only_session().total_events, 0)
 
 
 class TestIterJsonlFiles(TempProjectsDirMixin, unittest.TestCase):
@@ -73,22 +80,22 @@ class TestIterJsonlFiles(TempProjectsDirMixin, unittest.TestCase):
         self.assertEqual(session_ids, {"sess-flat", "sess-old"})
 
 
-class TestSessionSummaryFromOldFormat(TempProjectsDirMixin, unittest.TestCase):
+class TestOldFormatSessionSummary(TempProjectsDirMixin, unittest.TestCase):
+    """Old-format ``<session>/subagents/*.jsonl`` files merge into one summary."""
+
     def test_aggregates_multiple_subagent_files(self):
         pdir = self.project_dir()
-        f1 = _write_jsonl(
+        _write_jsonl(
             pdir,
             "sess-1/subagents/agent-a.jsonl",
             [make_assistant_record(session_id="agent-a", input_tokens=10, output_tokens=5)],
         )
-        f2 = _write_jsonl(
+        _write_jsonl(
             pdir,
             "sess-1/subagents/agent-b.jsonl",
             [make_assistant_record(session_id="agent-b", input_tokens=20, output_tokens=10)],
         )
-        summary = self.provider._session_summary_from_old_format(
-            "sess-1", [f1, f2], "/proj"
-        )
+        [summary] = self.provider.get_sessions()
         self.assertEqual(summary.session_id, "sess-1")
         self.assertEqual(summary.total_events, 2)
         self.assertEqual(summary.input_tokens, 30)
@@ -96,25 +103,33 @@ class TestSessionSummaryFromOldFormat(TempProjectsDirMixin, unittest.TestCase):
 
     def test_session_id_overwritten_on_events(self):
         pdir = self.project_dir()
-        f1 = _write_jsonl(
+        _write_jsonl(
             pdir,
             "sess-1/subagents/agent-a.jsonl",
             [make_assistant_record(session_id="agent-a")],
         )
-        summary = self.provider._session_summary_from_old_format("sess-1", [f1], "/proj")
-        self.assertEqual(summary.session_id, "sess-1")
+        [unit] = self.provider._subdir_units(pdir, "/proj", None)
+        self.assertEqual(unit.session_id, "sess-1")
+        self.assertEqual({e.session_id for e in unit.events}, {"sess-1"})
 
-    def test_empty_files_list_uses_fallback_timestamp(self):
-        summary = self.provider._session_summary_from_old_format("sess-1", [], "/proj")
+    def test_session_without_events_uses_file_mtime(self):
+        pdir = self.project_dir()
+        empty = pdir / "sess-1" / "subagents" / "agent-a.jsonl"
+        empty.parent.mkdir(parents=True, exist_ok=True)
+        empty.write_text("", encoding="utf-8")
+        [summary] = self.provider.get_sessions()
         self.assertEqual(summary.total_events, 0)
-        self.assertIsInstance(summary.start_time, datetime)
+        self.assertEqual(
+            summary.start_time,
+            datetime.fromtimestamp(empty.stat().st_mtime, tz=timezone.utc),
+        )
 
     def test_malformed_subagent_file_skipped_gracefully(self):
         pdir = self.project_dir()
         bad = pdir / "sess-1" / "subagents" / "agent-a.jsonl"
         bad.parent.mkdir(parents=True, exist_ok=True)
         bad.write_text("not json\n", encoding="utf-8")
-        summary = self.provider._session_summary_from_old_format("sess-1", [bad], "/proj")
+        [summary] = self.provider.get_sessions()
         self.assertEqual(summary.total_events, 0)
 
 
