@@ -539,5 +539,69 @@ class TestNonAsciiRoundTrip(unittest.TestCase):
         self.assertUnescaped(out)
 
 
+
+class TestEmitRowsYamlAndEmpty(unittest.TestCase):
+    def _run(self, *args, **kwargs):
+        out, err = StringIO(), StringIO()
+        with unittest.mock.patch("sys.stdout", out), unittest.mock.patch("sys.stderr", err):
+            rc = emit_rows(*args, **kwargs)
+        return rc, out.getvalue(), err.getvalue()
+
+    def test_yaml_rows(self):
+        import yaml
+
+        rc, out, _ = self._run([{"a": 1, "b": "x"}], "yaml")
+        self.assertEqual(rc, 0)
+        self.assertEqual(yaml.safe_load(out), [{"a": 1, "b": "x"}])
+
+    def test_empty_default_prints_only_message(self):
+        rc, out, err = self._run([], "json", empty_msg="none")
+        self.assertEqual((rc, out), (0, ""))
+        self.assertIn("none", err)
+
+    def test_empty_structured_json_and_yaml_emit_empty_list(self):
+        for fmt in ("json", "yaml"):
+            with self.subTest(fmt=fmt):
+                rc, out, err = self._run([], fmt, empty_msg="none", structured_empty=True)
+                self.assertEqual(rc, 0)
+                self.assertEqual(json.loads(out), [])
+                self.assertIn("none", err)
+
+    def test_empty_structured_csv_emits_header_only(self):
+        _, out, _ = self._run([], "csv", headers=["slug", "type"], structured_empty=True)
+        self.assertEqual(out.strip(), "slug,type")
+
+    def test_empty_structured_table_prints_nothing(self):
+        _, out, err = self._run([], "table", empty_msg="none", structured_empty=True)
+        self.assertEqual(out, "")
+        self.assertIn("none", err)
+
+
+class TestEmitOneFormats(unittest.TestCase):
+    def _run(self, data, fmt):
+        out = StringIO()
+        with unittest.mock.patch("sys.stdout", out):
+            rc = emit_one(data, fmt)
+        return rc, out.getvalue()
+
+    def test_returns_zero_for_json(self):
+        rc, out = self._run({"k": 1}, "json")
+        self.assertEqual(rc, 0)
+        self.assertEqual(json.loads(out), {"k": 1})
+
+    def test_yaml_mapping(self):
+        import yaml
+
+        _, out = self._run({"k": 1, "s": "v"}, "yaml")
+        self.assertEqual(yaml.safe_load(out), {"k": 1, "s": "v"})
+
+    def test_csv_renders_one_row(self):
+        _, out = self._run({"k": 1, "s": "v"}, "csv")
+        self.assertEqual(out.splitlines(), ["k,s", "1,v"])
+
+    def test_non_dict_table_falls_back_to_json(self):
+        _, out = self._run([1, 2], "table")
+        self.assertEqual(json.loads(out), [1, 2])
+
 if __name__ == "__main__":
     unittest.main()

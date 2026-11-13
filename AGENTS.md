@@ -20,7 +20,7 @@ telemetry).
 ./bin/llm domain-map --stdout
 ```
 
-All 19 CLIApp-based apps support `--agentic`. `./bin/llm inventory --stdout` prints the exact invocation for each — `./bin/<app>` is wrong for three of them. `bin/qwen` is a standalone helper and does not have `--agentic`.
+All 20 CLIApp-based apps support `--agentic`. `./bin/llm inventory --stdout` prints the exact invocation for each — `./bin/<app>` is wrong for three of them. `bin/qwen` is a standalone helper and does not have `--agentic`.
 
 ## Key Rules
 
@@ -50,6 +50,7 @@ slides/            PowerPoint deck generation from YAML
 sheets/            styled .xlsx generation from YAML
 qlty/              qlty scan/triage wrapper
 github_assistant/  GitHub porcelain over core.github
+memory/            Claude auto-memory list/validate/consolidate/export
 monitor_poll/      poll a condition until it resolves or times out
 workflow/          YAML DAG engine (27 subcommands)
 worker/            background job queue and daemon; qwen_patch job type (Ollama)

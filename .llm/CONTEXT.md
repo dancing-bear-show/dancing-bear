@@ -41,6 +41,7 @@ src/
   wifi/         # Wi-Fi CLI
   qlty/         # qlty scan/triage wrapper (tiers findings by remediation strategy)
   github_assistant/  # GitHub porcelain over core.github
+  memory/       # Claude auto-memory list/validate/consolidate/export/backup
   monitor_poll/  # poll a condition until it resolves or times out
 bin/            # entry wrappers and helper scripts
 tests/          # lightweight unittest suite
@@ -79,7 +80,7 @@ Activation Policy (Recommended)
 
 LLM Imperatives
 - Activate env when running Python commands only if needed; prefer `direnv` or direct `.venv/bin/python` when relevant.
-- `./bin/assistant` apps: apple-music, calendar, github, mail, maker, music, phone, resume, schedule, slides, whatsapp, wifi. Short wrappers also available: `./bin/mail`, `./bin/calendar`, `./bin/schedule`, `./bin/phone`, `./bin/wifi`, `./bin/whatsapp`, `./bin/maker`, `./bin/github`, `./bin/qlty-assistant`. The `-assistant` suffixed forms are legacy aliases (except `./bin/qlty-assistant`, whose suffix is required so it does not shadow the real `qlty` binary). `desk` uses `./bin/desk`.
+- `./bin/assistant` apps: apple-music, calendar, github, mail, maker, memory, music, phone, resume, schedule, slides, whatsapp, wifi. Short wrappers also available: `./bin/mail`, `./bin/calendar`, `./bin/schedule`, `./bin/phone`, `./bin/wifi`, `./bin/whatsapp`, `./bin/maker`, `./bin/github`, `./bin/memory`, `./bin/qlty-assistant`. The `-assistant` suffixed forms are legacy aliases (except `./bin/qlty-assistant`, whose suffix is required so it does not shadow the real `qlty` binary). `desk` uses `./bin/desk`.
 - Persist credentials to INI with profiles (single source of truth)
 - Default to dry-run style flows for destructive operations; provide plan/apply
 

@@ -2,11 +2,11 @@
 
 ## Project Context
 
-This is a Python 3.11 monorepo containing personal assistant CLIs. It ships **20
+This is a Python 3.11 monorepo containing personal assistant CLIs. It ships **21
 packages** under `src/` — `apple_music`, `calendars`, `charts`, `core`, `desk`,
-`diagrams`, `github_assistant`, `mail`, `maker`, `phone`, `qlty`, `resume`,
+`diagrams`, `github_assistant`, `mail`, `maker`, `memory`, `phone`, `qlty`, `resume`,
 `schedule`, `sheets`, `slides`, `telemetry`, `whatsapp`, `wifi`, `worker`,
-`workflow` — of which **19 are agentic-schema apps** (`core` is the shared
+`workflow` — of which **20 are agentic-schema apps** (`core` is the shared
 library). The codebase follows a
 pipeline architecture with Consumer/Processor/Producer patterns.
 

@@ -1,0 +1,558 @@
+# Spot and correct memory files that contradict or merely restate checked-in
+# authoritative docs (CLAUDE.md, .llm/*.md, concerns/*.md).
+#
+# Policy: CLAUDE.md and checked-in instructions ALWAYS win over memory in any
+# real conflict. The default fix direction is always to update or delete the
+# memory file — never to edit CLAUDE.md/concerns to match memory.
+#
+# DAG:
+#   init
+#     |
+#   scan-anchors       (gather — mechanical extraction + grep, no LLM)
+#     |
+#   judge-pairs        (gather — Sonnet reads each candidate pair, classifies)
+#     |
+#   propose-fixes      (execute — draft specific fix for each contradiction/redundant)
+#     |
+#   human-gate         (propose — present all pairs + proposed fixes for approval)
+#     |
+#   apply-fixes        (execute — conditionally runs when apply=true)
+
+name: fix-memory-contradictions
+version: "1.0"
+description: >
+  Detects memory files that contradict or merely restate checked-in authoritative
+  docs (CLAUDE.md, .llm/*.md, concerns/*.md), then proposes and — after explicit
+  human approval — applies fixes.
+
+  Phase 1 (scan-anchors): mechanical detection only. Extracts "rule anchors"
+  (backticked identifiers, quoted flags) from each memory body, greps CLAUDE.md
+  and .llm/*.md and concerns/*.md for the same anchors, and produces candidate
+  co-mention pairs. No LLM judgment at this stage — mirrors the same approach
+  described in the ./bin/memory validate contradiction-topic-overlap design, which
+  explicitly deferred semantic judgment to a workflow stage like this one.
+
+  Phase 2 (judge-pairs): Sonnet reads the full body of each candidate pair
+  (memory excerpt + checked-in doc excerpt) and classifies it as one of:
+  contradiction | redundant | compatible | checked-in-doc-is-stale.
+  STRONG BIAS: the default posture is "the memory is stale or wrong, fix the
+  memory." The checked-in-doc-is-stale classification is a high-scrutiny escape
+  hatch reserved for clear cases where the memory is demonstrably still correct
+  and CLAUDE.md has gone stale — NOT a 50/50 coin flip.
+
+  Phase 3 (propose-fixes): drafts the specific edit or deletion for each
+  contradiction/redundant pair. Compatible pairs need no action; stale-doc pairs
+  are flagged with heightened scrutiny notes for the human gate.
+
+  Phase 4 (human-gate): nothing is applied without explicit approval. Human
+  reviews all classified pairs and proposed fixes, then approves, edits, or
+  rejects each.
+
+  Phase 5 (apply-fixes): conditionally runs only when the apply param is "true".
+  Edits or deletes approved memory files. Stale-checked-in-doc fixes are gated
+  behind a second explicit confirmation given the higher blast radius of touching
+  authoritative docs.
+
+metadata:
+  author: dancing-bear
+  created: "2026-08-04"
+
+trigger:
+  source: manual
+  params:
+    store: ""            # project-slug memory store to scan; default: current repo's store
+                         # (slug derived from cwd git remote). Leave blank to auto-detect.
+    memory_type: "feedback"  # memory type(s) to scan: feedback | project | reference | user | all
+                              # Defaults to "feedback" — the type most likely to encode
+                              # durable rules that can drift against checked-in docs.
+    apply: "false"       # set to "true" to apply approved fixes after the human gate;
+                         # default "false" means the workflow is report-only
+  param_rules:
+    memory_type: 'feedback|project|reference|user|all'
+    apply: 'true|false'
+
+workspace_dir: "{work_dir}/fix-memory-contradictions"
+
+stages:
+
+  # ============================================================================
+  # Group 0: Bootstrap
+  # ============================================================================
+
+  - name: init
+    kind: gather
+    executor: inline
+    description: >
+      Bootstrap the workspace. Create all output directories needed by later stages:
+        mkdir -p {workspace}/outputs
+        mkdir -p {workspace}/validation
+      Exit 0 immediately after.
+    required: true
+    writes_to: []
+
+  # ============================================================================
+  # Group 1: Mechanical scan — extract anchors and find co-mention pairs
+  # ============================================================================
+
+  - name: scan-anchors
+    kind: gather
+    depends_on: [init]
+    description: >
+      Mechanical anchor extraction and grep — NO LLM judgment in this stage.
+      This stage mirrors the contradiction-topic-overlap check described in the
+      `./bin/memory` validate design: extract rule anchors from memory bodies,
+      grep authoritative docs for those same anchors, report co-mention pairs.
+      The memory CLI ships in this repo; this stage still does the extraction
+      directly so the mechanical anchor/grep pass stays self-contained.
+
+      Step 1 — locate the memory store:
+        If {store} param is non-empty, use it as the project slug directly.
+        Otherwise, auto-detect: run `git rev-parse --show-toplevel` to get the
+        repo root, then derive the project slug from the canonical path encoding:
+          slug = repo_root.replace("/", "-").lstrip("-")
+          # e.g. /Users/alice/code/proj
+          #   -> -Users-alice-code-proj -> Users-alice-code-proj
+        Memory store root: ~/.claude/projects/<slug>/memory/
+        Verify the directory exists. If not found, write ALL SIX declared
+        writes_to outputs (not just two) so the orchestrator's post-group
+        existence check does not falsely mark this stage failed:
+          {workspace}/outputs/scan-result.json: {"status": "no-store", "slug": "<slug>"}
+          {workspace}/outputs/memory-files.json: {"slug": "<slug>", "store_root": "", "memory_type_filter": "{memory_type}", "files": []}
+          {workspace}/outputs/auth-doc-paths.json: []
+          {workspace}/outputs/memory-anchors.json: {}
+          {workspace}/outputs/candidate-pairs.json: []
+          {workspace}/outputs/scan-summary.json: {"status": "no-store", "memory_files_scanned": 0, "candidate_pairs": 0, "anchors_extracted": 0}
+        and exit 0.
+
+      Step 2 — enumerate memory files:
+        List all *.md files in the memory store root. Skip MEMORY.md (the index).
+        Filter by {memory_type} param:
+          - "all": include every memory file
+          - specific type (e.g. "feedback"): include only files whose frontmatter
+            metadata.type or flat type field matches the requested type. Read each
+            file's first 40 lines to check frontmatter. If frontmatter is absent or
+            type cannot be parsed, include the file anyway (scan defensively).
+        Write {workspace}/outputs/memory-files.json:
+          {"slug": "<slug>", "store_root": "~/.claude/projects/<slug>/memory/",
+            "memory_type_filter": "{memory_type}", "files": ["slug1.md", ...]}
+
+      Step 3 — define authoritative source paths:
+        Authoritative docs to search for anchor co-mentions:
+          1. CLAUDE.md (repo root — use git rev-parse --show-toplevel)
+          2. .llm/*.md  (all .md files under .llm/ in repo root)
+          3. concerns/*.md (all .md files under concerns/ in repo root)
+        Build the full list of authoritative file paths. Write them to
+        {workspace}/outputs/auth-doc-paths.json as a JSON array of absolute paths.
+
+      Step 4 — extract rule anchors from each memory file:
+        For each memory file:
+          Read the file body (skip the YAML frontmatter --- block).
+          Extract "rule anchors" using these two patterns:
+            a. Backticked identifiers: `[^`]+`  (content between backticks)
+               Filter: keep only tokens that look like code/CLI identifiers —
+               at least 3 chars, contains at least one of: _, -, /, . or is
+               ALL_CAPS or camelCase or starts with --. Exclude prose words in
+               backticks that are clearly English (e.g. `true`, `false`, `null`,
+               `None`, `yes`, `no`, `ok` are fine to include since they may be
+               meaningful config values — err on the side of inclusion).
+            b. Quoted flags: strings matching --[a-z][a-z0-9_-]+ (double-dash flags)
+               anywhere in the body.
+          Deduplicate anchors per file. Write:
+          {workspace}/outputs/memory-anchors.json:
+            {
+              "slug1.md": ["anchor1", "anchor2", ...],
+              ...
+            }
+
+      Step 5 — grep authoritative docs for each anchor:
+        For each memory file and each of its anchors:
+          Search each authoritative doc for the anchor (exact string match, grep -n -F).
+          Collect all hits: (auth_doc_path, line_number, line_text).
+          A co-mention pair exists when:
+            memory file M mentions anchor A AND at least one authoritative doc D mentions A.
+          Record the pair:
+            {
+              "memory_file": "slug1.md",
+              "memory_path": "/abs/path/to/slug1.md",
+              "anchor": "the-anchor-string",
+              "auth_doc_hits": [
+                {"path": "CLAUDE.md", "line": 42, "text": "...line text..."}
+              ]
+            }
+        Deduplicate: if the same (memory_file, auth_doc) pair co-mentions multiple
+        anchors, merge into one pair record with an "anchors" array (multiple anchors
+        sharing the same pair). This prevents the judge stage from reviewing the same
+        (memory, doc) pair multiple times — it reviews the pair once with all shared
+        anchors.
+        Write {workspace}/outputs/candidate-pairs.json as a JSON array of pair records.
+        Write {workspace}/outputs/scan-summary.json:
+          {
+            "status": "ok",
+            "memory_files_scanned": N,
+            "candidate_pairs": N,
+            "anchors_extracted": N
+          }
+        Write {workspace}/outputs/scan-result.json (this file is also written on
+        the early-exit path above with status "no-store" — write it here too so
+        it exists on every path and downstream stages can rely on it unconditionally):
+          {"status": "ok", "slug": "<slug>"}
+    agent:
+      role: researcher
+      tools: [Read, Bash, Write, Grep, Glob]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/scan-result.json
+      - outputs/memory-files.json
+      - outputs/auth-doc-paths.json
+      - outputs/memory-anchors.json
+      - outputs/candidate-pairs.json
+      - outputs/scan-summary.json
+
+  # ============================================================================
+  # Group 2: LLM judgment — classify each candidate pair
+  # ============================================================================
+
+  - name: judge-pairs
+    kind: gather
+    depends_on: [scan-anchors]
+    reads_from: [scan-anchors]
+    description: >
+      Classify each candidate co-mention pair as contradiction, redundant,
+      compatible, or checked-in-doc-is-stale using LLM judgment (Sonnet).
+
+      CRITICAL POLICY — CLAUDE.md WINS BY DEFAULT:
+        This repo's explicit policy is that CLAUDE.md and other checked-in
+        instructions ALWAYS win over memory in any real conflict. The judge stage
+        MUST apply a strong default bias: "the memory is stale or wrong, fix the
+        memory." The checked-in-doc-is-stale classification is a rare, high-scrutiny
+        escape hatch — NOT a symmetric 50/50 alternative. Use it only when the
+        memory claim is demonstrably still correct, the checked-in doc has clearly
+        drifted (e.g., references a tool/pattern that no longer exists), and there is
+        strong evidence the memory was authored more recently than the doc's last
+        update on the relevant section. When in doubt, classify as contradiction and
+        propose a memory-side fix — do not classify as checked-in-doc-is-stale out
+        of false balance.
+
+      Step 1 — load inputs:
+        Read {workspace}/outputs/candidate-pairs.json.
+        Read {workspace}/outputs/auth-doc-paths.json.
+        If candidate-pairs.json is empty ([]), write:
+          {workspace}/outputs/classified-pairs.json: []
+          {workspace}/outputs/judge-summary.json:
+            {"status": "ok", "pairs_classified": 0, "message": "No candidate pairs found."}
+        and exit 0.
+
+      Step 2 — for each candidate pair, load full context:
+        a. Read the full memory file body (skip frontmatter) from memory_path.
+           Extract the 10-line window around each anchor occurrence in the body —
+           this is the "memory excerpt."
+        b. For each auth_doc hit in auth_doc_hits, read the full authoritative doc
+           and extract the 15-line window around the hit line — this is the
+           "auth-doc excerpt."
+
+      Step 3 — classify each pair:
+        Apply the following classification criteria (in order — stop at first match):
+
+        CONTRADICTION: The memory body makes a specific claim (a rule, flag, command
+          pattern, behavior assertion) about the anchor, AND the authoritative doc makes
+          a different or opposite claim about the same anchor. Examples:
+            - Memory says "always use X" while CLAUDE.md says "never use X"
+            - Memory says flag --foo is required; CLAUDE.md says flag --foo was removed
+            - Memory encodes a rule for tool T that .llm/ doc explicitly contradicts
+          Fix direction: update or delete the memory. NEVER edit CLAUDE.md/concerns.
+
+        REDUNDANT: The memory just restates what the authoritative doc already says,
+          word-for-word or in near-identical substance, with no additional context or
+          project-specific elaboration beyond what the doc already covers.
+          Fix direction: delete the memory entry (or the redundant section) — it
+          adds no value and risks drift.
+
+        COMPATIBLE: The anchor appears in both places but the claims are not in
+          conflict — e.g., the memory adds project-specific context, a concrete
+          example, or a case-specific nuance that complements rather than contradicts
+          the doc. No action needed.
+
+        CHECKED-IN-DOC-IS-STALE (rare, high-scrutiny escape hatch):
+          The memory claim appears to be correct and the authoritative doc section
+          appears to be outdated. Use this ONLY when there is clear evidence (e.g.,
+          the doc references a tool, command, or pattern that was superseded, and the
+          memory was clearly authored after that change). Flagged for human review
+          with heightened scrutiny — the fix direction in this case may involve editing
+          a checked-in doc, which has higher blast radius and requires a second explicit
+          human confirmation in the apply stage.
+          NOTE: If uncertain between CONTRADICTION and CHECKED-IN-DOC-IS-STALE,
+          always choose CONTRADICTION and propose a memory-side fix.
+
+      Step 4 — write classified pairs:
+        Write {workspace}/outputs/classified-pairs.json:
+          [
+            {
+              "id": "pair-001",
+              "memory_file": "slug1.md",
+              "memory_path": "/abs/path/to/slug1.md",
+              "auth_doc_path": "CLAUDE.md",
+              "anchors": ["--foo", "`git add -A`"],
+              "classification": "contradiction",
+              "confidence": "high | medium | low",
+              "memory_excerpt": "...the relevant 10-line window from the memory body...",
+              "auth_doc_excerpt": "...the relevant 15-line window from CLAUDE.md...",
+              "reasoning": "one or two sentences explaining the classification decision",
+              "proposed_action": null   # filled by propose-fixes stage
+            },
+            ...
+          ]
+
+        Write {workspace}/outputs/judge-summary.json:
+          {
+            "status": "ok",
+            "pairs_classified": N,
+            "by_classification": {
+              "contradiction": N,
+              "redundant": N,
+              "compatible": N,
+              "checked-in-doc-is-stale": N
+            }
+          }
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write, Glob]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/classified-pairs.json
+      - outputs/judge-summary.json
+
+  # ============================================================================
+  # Group 3: Draft fixes for actionable pairs
+  # ============================================================================
+
+  - name: propose-fixes
+    kind: execute
+    depends_on: [judge-pairs]
+    reads_from: [judge-pairs]
+    description: >
+      For each classified pair that is "contradiction" or "redundant", draft the
+      specific fix. For "compatible" pairs, skip. For "checked-in-doc-is-stale"
+      pairs, draft a flag note (no auto-fix drafted — human decides the direction).
+
+      Step 1 — load inputs:
+        Read {workspace}/outputs/classified-pairs.json.
+        If empty or all pairs are "compatible", write:
+          {workspace}/outputs/proposed-fixes.json: []
+          {workspace}/outputs/fix-report.md:
+            "# Fix Report\n\nNo actionable pairs found. All co-mention pairs are
+             compatible — memory files are consistent with checked-in docs."
+        and exit 0.
+
+      Step 2 — draft fixes for "contradiction" pairs:
+        For each contradiction pair:
+          Read the full memory file body (from memory_path).
+          Draft the minimal surgical edit to bring the memory into alignment with
+          the authoritative doc. Prefer in-place edits over deletion when the memory
+          entry has unique value beyond the contradicting claim. If the memory entry
+          is entirely superseded by the doc, propose deletion instead.
+
+          Proposed fix format:
+            - If edit: provide the old_text and new_text for a surgical replacement
+              (enough context to be unique in the file — at least 3 lines of context).
+            - If delete: indicate the full file should be removed, or specify the
+              exact section to remove if the memory has other valid content.
+
+          Policy reminder: fix direction is ALWAYS memory-side (edit/delete the
+          memory file), never editing CLAUDE.md or concerns unless the pair was
+          classified as checked-in-doc-is-stale (handled separately below).
+
+      Step 3 — draft fixes for "redundant" pairs:
+        For each redundant pair:
+          If the entire memory file is redundant with the authoritative doc, propose
+          deletion of the memory file.
+          If only one section of the memory is redundant (the file has other unique
+          content), draft a surgical removal of the redundant section only.
+
+      Step 4 — note "checked-in-doc-is-stale" pairs (no auto-fix):
+        For each checked-in-doc-is-stale pair:
+          Write a human-scrutiny note:
+            "FLAGGED FOR HUMAN REVIEW: This memory may be more current than the
+             checked-in doc. If confirmed, the fix direction would be to update
+             <auth_doc_path>. This requires a second explicit confirmation in the
+             apply stage due to the higher blast radius of editing an authoritative doc."
+          Do NOT draft an auto-fix edit for these pairs.
+
+      Step 5 — write outputs:
+        Update {workspace}/outputs/classified-pairs.json in-place, filling the
+        "proposed_action" field for each actionable pair:
+          {
+            "proposed_action": {
+              "type": "edit | delete | flag-for-human",
+              "target": "/abs/path/to/memory-file.md",
+              "old_text": "...",    # for edit type; null for delete/flag
+              "new_text": "...",    # for edit type; null for delete/flag
+              "rationale": "one sentence explaining why this fix aligns the memory with the doc"
+            }
+          }
+
+        Write {workspace}/outputs/proposed-fixes.json as a filtered view:
+          Only entries where proposed_action is non-null and type != "flag-for-human".
+          Same shape as classified-pairs.json entries.
+
+        Write {workspace}/outputs/fix-report.md — a human-readable summary with
+        one section per actionable pair:
+          ## pair-NNN: <memory_file> x <auth_doc>
+          **Classification**: contradiction | redundant | checked-in-doc-is-stale
+          **Anchor(s)**: `--foo`, `` `git add -A` ``
+          **Memory excerpt**: (quoted block)
+          **Doc excerpt**: (quoted block)
+          **Reasoning**: (from judge-pairs)
+          **Proposed fix**: (description of edit/delete, or FLAGGED note for stale-doc pairs)
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/proposed-fixes.json
+      - outputs/fix-report.md
+
+  # ============================================================================
+  # Group 4: Human approval gate
+  # ============================================================================
+
+  - name: human-gate
+    kind: propose
+    depends_on: [propose-fixes]
+    reads_from: [propose-fixes, judge-pairs]
+    description: >
+      Present all classified pairs and proposed fixes for human review. Nothing
+      is applied until explicit approval is given here.
+
+      Step 1 — load and display the report:
+        Read {workspace}/outputs/fix-report.md and display it in full.
+        Read {workspace}/outputs/judge-summary.json and display the counts:
+          "Scan complete: N pairs classified
+           - contradiction: N (memory fixes proposed)
+           - redundant: N (deletion or removal proposed)
+           - compatible: N (no action needed)
+           - checked-in-doc-is-stale: N (flagged for human scrutiny — NOT auto-resolved)"
+
+      Step 2 — ask for approval:
+        Ask the user:
+          "Review each proposed fix above. The default fix direction is always
+           to update or delete the memory file (CLAUDE.md wins over memory in any
+           conflict). For pairs flagged as 'checked-in-doc-is-stale', a second
+           confirmation will be required in the apply stage if you approve them here.
+
+           Options:
+             - 'all'     — approve all proposed fixes
+             - '1,3,5'   — approve by pair ID (1-indexed order in the report)
+             - 'none'    — reject all; exit without changes
+             - specify edits: paste revised fix text for any pair before approving
+
+           Which pairs should be applied?"
+
+      Step 3 — write approval record:
+        Write {workspace}/outputs/approved-pairs.json:
+          A JSON array of pair IDs (e.g. ["pair-001", "pair-003"]) approved by the user.
+          If user selects "none" or provides no approvals, write [].
+        Also note any user-provided edits to proposed fix text in a
+        {workspace}/outputs/approval-notes.md for the apply stage.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    human_gate: true
+    required: true
+    writes_to:
+      - outputs/approved-pairs.json
+      - outputs/approval-notes.md
+
+  # ============================================================================
+  # Group 5: Apply approved fixes
+  # ============================================================================
+
+  - name: apply-fixes
+    kind: execute
+    depends_on: [human-gate]
+    reads_from: [human-gate, propose-fixes]
+    when: '"{apply}" contains "true"'
+    description: >
+      Apply approved fixes to memory files (and, for confirmed stale-doc pairs,
+      to authoritative docs — with a second explicit confirmation).
+
+      This stage is gated by `when: '"{apply}" contains "true"'` at the DAG
+      level — the engine skips it entirely (writing its own skip sentinel to
+      apply-result.json) when apply is "false", so no in-body check is needed.
+
+      Step 1 — load inputs:
+        Read {workspace}/outputs/approved-pairs.json.
+        Read {workspace}/outputs/classified-pairs.json.
+        Read {workspace}/outputs/approval-notes.md (if present — may be empty).
+        If approved-pairs.json is empty ([]), write:
+          {workspace}/outputs/apply-result.json:
+            {"status": "ok", "message": "No pairs approved — no changes applied."}
+        and exit 0.
+
+      Step 2 — apply memory-side fixes (contradiction and redundant pairs):
+        For each approved pair where classification is "contradiction" or "redundant":
+          Load the proposed_action from classified-pairs.json.
+          If the user provided an edited fix in approval-notes.md, use that instead.
+
+          For "edit" type:
+            Read the memory file at target path.
+            Verify old_text appears exactly once in the file — if not, write a
+            warning to apply-result.json and skip this pair (do not partially apply).
+            Replace old_text with new_text using a surgical edit (Write the full
+            updated content back).
+            Never use `git add -A` — stage the specific file by name only.
+
+          For "delete" type:
+            Confirm the target path is under ~/.claude/projects/ (safety check — this
+            workflow is only permitted to delete memory files, never source/config).
+            Delete the file: `rm -- "<target_path>"`.
+
+          Record each applied fix in the apply log.
+
+      Step 3 — handle "checked-in-doc-is-stale" pairs (second confirmation required):
+        For each approved pair where classification is "checked-in-doc-is-stale":
+          STOP and ask the user a second, explicit confirmation:
+            "SECOND CONFIRMATION REQUIRED: Pair <id> proposes editing <auth_doc_path>,
+             which is an authoritative checked-in doc (CLAUDE.md/concerns). This has
+             higher blast radius than a memory-side fix. Are you certain this doc is
+             stale and should be updated? (yes/no)"
+          Only proceed if the user explicitly types "yes". If "no" or any other
+          response, skip this pair and note it in the apply log.
+
+          If confirmed:
+            Apply the edit to the authoritative doc (same surgical edit approach as
+            memory-side fixes above). Stage the specific file by name — never `git add -A`.
+
+      Step 4 — write apply result:
+        Write {workspace}/outputs/apply-result.json:
+          {
+            "status": "ok",
+            "applied": [
+              {
+                "pair_id": "pair-001",
+                "target": "/abs/path/to/file",
+                "action": "edit | delete | skipped",
+                "note": "optional note on why skipped"
+              }
+            ],
+            "total_applied": N,
+            "total_skipped": N
+          }
+
+        Print a final summary to stdout:
+          "Applied N fix(es): <list of pair IDs and targets>
+           Skipped N pair(s): <list with reasons>"
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/apply-result.json

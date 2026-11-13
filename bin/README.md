@@ -4,7 +4,7 @@ Thin wrappers around Python package CLIs. Regenerate generated wrappers with `ma
 
 ## Generated Python wrappers (`bin/_wrappers.yaml`)
 
-**Primary entry points** (20):
+**Primary entry points** (21):
 
 | Wrapper | Module |
 |---------|--------|
@@ -28,6 +28,7 @@ Thin wrappers around Python package CLIs. Regenerate generated wrappers with `ma
 | `workflow` | `workflow.cli` |
 | `qlty-assistant` | `qlty` |
 | `github` | `github_assistant` |
+| `memory` | `memory` |
 | `monitor-poll` | `monitor_poll` |
 
 

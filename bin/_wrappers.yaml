@@ -38,6 +38,7 @@ python:
   # colliding binary on PATH to worry about.
   monitor-poll: {module: monitor_poll, doc: "Poll a condition (command, file, URL, GitHub PR/run) until it resolves or times out."}
   github: {module: github_assistant, doc: "GitHub porcelain over core.github: review threads, PR view/edit/checks."}
+  memory: {module: memory, doc: "Claude auto-memory CLI — list, validate, consolidate, export/import, backup."}
 
   # Metals utilities
 

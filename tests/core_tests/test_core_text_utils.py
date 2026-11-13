@@ -2,7 +2,7 @@
 
 import unittest
 
-from core.text_utils import strip_css_boilerplate
+from core.text_utils import slugify, strip_css_boilerplate
 
 
 class TestStripCssBoilerplate(unittest.TestCase):
@@ -76,6 +76,24 @@ class TestStripCssBoilerplate(unittest.TestCase):
         body = "Store hours: { Mon-Fri 9-5 }"
         self.assertEqual(strip_css_boilerplate(body), body)
 
+
+
+class TestSlugify(unittest.TestCase):
+    def test_lowercases_and_joins_with_underscore(self):
+        self.assertEqual(slugify("Run It, Do Not Just Read It"), "run_it_do_not_just_read_it")
+
+    def test_folds_dashes_and_collapses_runs(self):
+        self.assertEqual(slugify("feedback--no  facades"), "feedback_no_facades")
+
+    def test_custom_separator(self):
+        self.assertEqual(slugify("A b_C", sep="-"), "a-b-c")
+
+    def test_strips_edge_separators(self):
+        self.assertEqual(slugify("  --x--  "), "x")
+
+    def test_no_alphanumerics_returns_empty(self):
+        self.assertEqual(slugify("!!! ---"), "")
+        self.assertEqual(slugify(""), "")
 
 if __name__ == "__main__":
     unittest.main()

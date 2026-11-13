@@ -1,0 +1,637 @@
+# Graduate high-signal feedback memories into enforceable artifacts.
+#
+# A "feedback" memory encodes a lesson learned from a mistake — e.g.
+# feedback-workflow-isolation-worktree says "never set agent.isolation: work-dir
+# on code-writer/tester stages — commits are silently lost." That lesson currently
+# lives ONLY in prose (memory file + a CLAUDE.md line). This workflow scores every
+# feedback memory against a set of mechanical signals, dispatches each candidate
+# to the right downstream sink (linter check, CLI guide, concern entry, SKILL.md,
+# or CLAUDE.md), and presents ranked candidates for human approval before anything
+# is written.
+#
+# Precondition: ./bin/memory must be installed. The precondition-check stage fails
+# fast with a clear error if the binary is absent. This workflow uses
+# ./bin/memory list for enumeration only. ./bin/memory graduate also exists, but
+# this workflow performs its own graduation steps rather than calling it.
+#
+# IMPORTANT: This workflow uses executor: inline stages. It must be run via the
+# /workflow skill (Skill(skill="workflow", ...)) — NOT via ./bin/workflow run.
+# The Python CLI dispatcher raises NotImplementedError for inline stages.
+#
+# DAG:
+#   precondition-check
+#         |
+#   enumerate-memories
+#         |
+#   score-candidates
+#         |
+#   propose-candidates
+#         |
+#   human-gate
+
+name: graduate-memories
+version: "1.0"
+description: >
+  Scores all feedback-type auto-memories against mechanical signals (anchor
+  reuse in workflows, skills, CLI guides, absence from concern library,
+  imperative language, how-to-apply section, inbound wikilinks) and produces
+  a ranked list of graduation candidates — each with a suggested sink
+  (linter check, CLI preferences guide, concern entry, SKILL.md, or CLAUDE.md).
+  Stops at proposing candidates and does NOT auto-author the sink file;
+  downstream authoring is a human or follow-on workflow job.
+
+  Precondition: ./bin/memory must be installed. The precondition-check stage
+  fails fast with a clear error if the binary is absent.
+  Scoring is entirely mechanical — no LLM scoring call. The score-candidates
+  stage uses a researcher agent only to enumerate files and run the CLI; the
+  actual scoring algorithm is deterministic Python executed inline.
+
+  Companion to workflows/code/update-review-concerns.yaml (which authors
+  concern entries). When graduate-memories identifies a candidate whose
+  suggested_sink is concerns/<domain>.md, hand it to update-review-concerns
+  for the actual concern authoring — do NOT re-implement copilot-instructions.md
+  or rules.md writing here.
+
+metadata:
+  author: dancing-bear
+  created: "2026-08-04"
+
+trigger:
+  source: manual
+  params:
+    min_score: "5"       # minimum total score to include in candidate report
+    max_candidates: "20" # cap on reported candidates (highest-scoring first)
+    memory_type: "feedback"  # which memory type to score (default: feedback)
+  param_rules:
+    memory_type: 'feedback|project|reference|user|all'
+
+workspace_dir: "{work_dir}/graduate-memories"
+
+stages:
+
+  # ============================================================================
+  # Precondition: verify ./bin/memory is installed
+  # ============================================================================
+
+  - name: precondition-check
+    kind: gather
+    executor: inline
+    description: |
+      Verify that the binary at `./bin/memory` is present and executable
+      before any downstream stage runs. If absent, fail with a clear error.
+
+      {workspace} must NOT be spliced into shell text (not even single-quoted
+      — an embedded apostrophe would still break out) — and this applies to
+      the mkdir/cat commands used to stage the handoff file itself, not just
+      the Python body: a raw {workspace} value containing a shell
+      metacharacter would execute the instant `mkdir -p {workspace}/scratch`
+      or `cat {workspace}/scratch/...` is parsed by bash, before any handoff
+      file is ever written or read (see
+      workflows/code/load-concerns.yaml's select-guides stage for the
+      established precedent). Use a bare, non-templated relative path
+      (scratch/, gitignored at the repo root) for the handoff directory and
+      an mktemp-generated filename (shell-generated, never a
+      compiler-substituted template token) for the handoff file. Using your
+      Bash and Write tools:
+
+        STEP 1 (Bash tool) — clean stale handoff files from prior runs first:
+            rm -f scratch/.precondition-check-workspace.*
+          Then create the scratch dir and generate a fresh handoff path:
+            mkdir -p scratch && mktemp scratch/.precondition-check-workspace.XXXXXX
+          Capture the mktemp line's stdout as the RELATIVE path (e.g.
+          scratch/.precondition-check-workspace.AbCdEf). Keep it as a relative
+          path for all Bash uses — relative paths contain no checkout-directory
+          content, so they can never embed shell metacharacters from the
+          environment. The Write tool (STEP 2) requires an absolute path: run
+          a second command to compute one, e.g.:
+            ABS_HANDOFF_PATH="$(cd scratch && pwd)/$(basename "$HANDOFF_PATH")"
+          This absolute value is used ONLY as the Write tool's file_path
+          argument, never written into any Bash command text.
+        STEP 2 (Write tool) — write the EXACT value of {workspace}, verbatim
+          with no shell quoting, to the absolute path (ABS_HANDOFF_PATH) from
+          STEP 1, using the Write tool. The Write tool places bytes directly,
+          so any characters are inert data. NO BASH FALLBACK: never write this
+          value via a Bash command (echo/printf/cat > file, heredoc, etc.)
+          under any circumstance, including recovery from a Write tool failure
+          — doing so reintroduces the exact shell-splice vulnerability this
+          handoff pattern exists to prevent. If the Write tool fails, stop and
+          report the failure rather than falling back to Bash.
+        STEP 3 (Bash tool) — shell variables from STEP 1 do NOT persist into
+          this separate Bash tool call. Re-derive HANDOFF_PATH from a glob
+          matching this call site's unique mktemp template, in THIS SAME
+          Bash call, then reference it via a shell variable (never re-typed
+          as literal text):
+            HANDOFF_PATH="$(ls -1 scratch/.precondition-check-workspace.* 2>/dev/null | head -1)"
+            python3 -I -S - "$(cat "$HANDOFF_PATH")" << 'PYEOF'
+      import os, sys, pathlib
+      ws = sys.argv[1]
+      if not ws:
+          sys.exit("FAIL: empty workspace argv — handoff file was empty or missing (Write tool step may have silently no-opped); refusing to proceed rather than operate against filesystem root")
+
+      pathlib.Path(f"{ws}/outputs").mkdir(parents=True, exist_ok=True)
+      pathlib.Path(f"{ws}/validation").mkdir(parents=True, exist_ok=True)
+
+      memory_bin = pathlib.Path("bin/memory")
+      if not memory_bin.exists():
+          print(
+              "FAIL: bin/memory not found.\n"
+              "This workflow requires ./bin/memory. Install it and re-run graduate-memories.",
+              file=sys.stderr
+          )
+          sys.exit(1)
+      if not os.access(memory_bin, os.X_OK):
+          print(
+              "FAIL: bin/memory exists but is not executable.\n"
+              "Run: chmod +x bin/memory",
+              file=sys.stderr
+          )
+          sys.exit(1)
+
+      import json
+      result = {"bin_memory": str(memory_bin.resolve()), "executable": True}
+      pathlib.Path(f"{ws}/outputs/precondition.json").write_text(
+          json.dumps(result, indent=2)
+      )
+      print("OK: bin/memory is installed and executable.")
+      PYEOF
+
+        STEP 4 (Bash tool) — re-derive the same way (this is also a new,
+        separate Bash call) and remove, even if STEP 3 failed:
+          HANDOFF_PATH="$(ls -1 scratch/.precondition-check-workspace.* 2>/dev/null | head -1)"
+          [ -n "$HANDOFF_PATH" ] && rm -f "$HANDOFF_PATH"
+    required: true
+    writes_to:
+      - outputs/precondition.json
+
+  # ============================================================================
+  # Stage 1: Enumerate feedback memories
+  # ============================================================================
+
+  - name: enumerate-memories
+    kind: gather
+    depends_on: [precondition-check]
+    description: >
+      Enumerate the selected memories and load their full content for scoring.
+
+      Step 1 — list memories of type {memory_type} (when it is "all", omit
+      --type; the CLI has no "all" choice):
+        ./bin/memory list --type {memory_type} --format json
+
+      Step 2 — for each memory in the list, call:
+        ./bin/memory show <slug> --format json
+
+      Collect each memory's full body, frontmatter (slug, type, mtime, path),
+      wikilinks (outbound — from the show output), and description.
+
+      Step 3 — load the existing concern library to determine which anchors
+      are already covered. Read these files directly:
+        concerns/correctness.md
+        concerns/security.md
+        concerns/tests.md
+        concerns/patterns.md
+        concerns/workflow.md
+        concerns/workflow-stages.md
+        concerns/workflow-fanout.md
+        concerns/workflow-fragments.md
+        concerns/docs.md
+      Extract every concern anchor (the ### <id> headings under ## Concerns).
+      Write the set to {workspace}/outputs/known-concern-anchors.json as a JSON array.
+
+      Step 4 — build the inbound wikilink map: for each memory's slug, count how
+      many OTHER memories reference it via [[<slug>]] in their body. This is the
+      inbound wikilink signal (inbound-only, not the memory's own outbound links).
+      Write the map to {workspace}/outputs/inbound-wikilinks.json:
+        { "<slug>": <inbound_count>, ... }
+
+      Step 5 — write the full memory list with body content to
+      {workspace}/outputs/memories-raw.json:
+        [
+          {
+            "slug": "feedback-workflow-isolation-worktree",
+            "type": "feedback",
+            "path": "...",
+            "description": "...",
+            "body": "...",
+            "wikilinks_outbound": ["other_memory_slug", ...],
+            "mtime": "..."
+          },
+          ...
+        ]
+
+      If ./bin/memory list returns an empty list, write ALL THREE declared
+      writes_to outputs so downstream stages have files to read:
+        {workspace}/outputs/memories-raw.json: []
+        {workspace}/outputs/known-concern-anchors.json: []
+        {workspace}/outputs/inbound-wikilinks.json: {}
+      and exit 0 (nothing to score).
+    agent:
+      role: researcher
+      tools: [Bash, Read, Write, Grep, Glob]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/memories-raw.json
+      - outputs/known-concern-anchors.json
+      - outputs/inbound-wikilinks.json
+
+  # ============================================================================
+  # Stage 2: Score all candidates (deterministic inline Python)
+  # ============================================================================
+
+  - name: score-candidates
+    kind: gather
+    executor: inline
+    depends_on: [enumerate-memories]
+    reads_from: [enumerate-memories]
+    description: |
+      Score each feedback memory against seven mechanical signals and dispatch
+      each to a suggested sink. No LLM judgment — purely deterministic.
+
+      {workspace}, {min_score}, and {max_candidates} must NOT be spliced into
+      shell text (not even single-quoted — an embedded apostrophe would still
+      break out) — see the precondition-check stage above for the full
+      rationale, including why this applies to the mkdir/cat commands used
+      to stage the handoff files themselves, not just the Python body. Use a
+      bare, non-templated relative path (scratch/, gitignored at the repo
+      root) for the handoff directory and mktemp-generated filenames
+      (shell-generated, never a compiler-substituted template token) for the
+      handoff files. Using your Bash and Write tools:
+
+        STEP 1 (Bash tool) — clean stale handoff files from prior runs first:
+            rm -f scratch/.score-candidates-workspace.*
+            rm -f scratch/.score-candidates-min-score.*
+            rm -f scratch/.score-candidates-max-candidates.*
+          Then create the scratch dir and run mktemp for each of
+          the three values (scratch/.score-candidates-workspace.XXXXXX,
+          scratch/.score-candidates-min-score.XXXXXX,
+          scratch/.score-candidates-max-candidates.XXXXXX), capturing each
+          line's stdout as HANDOFF_WORKSPACE, HANDOFF_MIN_SCORE, and
+          HANDOFF_MAX_CANDIDATES respectively. Keep each as the relative path
+          emitted by mktemp — relative paths contain no checkout-directory
+          content, so they can never embed shell metacharacters from the
+          environment. The Write tool (STEP 2) requires an absolute path: for
+          each handoff file, run a second command, e.g.
+            ABS_HANDOFF_WORKSPACE="$(cd scratch && pwd)/$(basename "$HANDOFF_WORKSPACE")"
+          and use that ABS_ value ONLY as the Write tool's file_path argument
+          — never in any Bash command text.
+        STEP 2 (Write tool) — write the EXACT value of each, verbatim with no
+          shell quoting, to its absolute handoff path from STEP 1, using the
+          Write tool:
+            {workspace}        → HANDOFF_WORKSPACE
+            {min_score}        → HANDOFF_MIN_SCORE
+            {max_candidates}   → HANDOFF_MAX_CANDIDATES
+          (bytes placed directly by the Write tool — any characters are
+          inert). NO BASH FALLBACK: never write any of these values via a
+          Bash command (echo/printf/cat > file, heredoc, etc.) under any
+          circumstance, including recovery from a Write tool failure — doing
+          so reintroduces the exact shell-splice vulnerability this handoff
+          pattern exists to prevent. If the Write tool fails, stop and report
+          the failure rather than falling back to Bash.
+        STEP 3 (Bash tool) — shell variables from STEP 1 do NOT persist into
+          this separate Bash tool call. Re-derive all three HANDOFF_* variables
+          from globs matching each call site's unique mktemp template, in THIS
+          SAME Bash call, then reference them via shell variables (never
+          re-typed as literal text):
+            HANDOFF_WORKSPACE="$(ls -1 scratch/.score-candidates-workspace.* 2>/dev/null | head -1)"
+            HANDOFF_MIN_SCORE="$(ls -1 scratch/.score-candidates-min-score.* 2>/dev/null | head -1)"
+            HANDOFF_MAX_CANDIDATES="$(ls -1 scratch/.score-candidates-max-candidates.* 2>/dev/null | head -1)"
+            python3 -I -S - "$(cat "$HANDOFF_WORKSPACE")" "$(cat "$HANDOFF_MIN_SCORE")" "$(cat "$HANDOFF_MAX_CANDIDATES")" << 'PYEOF'
+      import json, re, pathlib, glob as globmod, os, sys
+
+      ws = sys.argv[1]
+      if not ws:
+          sys.exit("FAIL: empty workspace argv — handoff file was empty or missing (Write tool step may have silently no-opped); refusing to proceed rather than operate against filesystem root")
+      min_score = int(sys.argv[2])
+      max_candidates = int(sys.argv[3])
+
+      memories = json.load(open(f"{ws}/outputs/memories-raw.json"))
+      known_concerns = set(json.load(open(f"{ws}/outputs/known-concern-anchors.json")))
+      inbound_map = json.load(open(f"{ws}/outputs/inbound-wikilinks.json"))
+
+      if not memories:
+          pathlib.Path(f"{ws}/outputs/candidates.json").write_text("[]")
+          print("No memories to score.")
+          import sys; sys.exit(0)
+
+      # ── Anchor extraction (backticked identifiers and quoted flags) ──
+      def extract_anchors(body):
+          backtick = re.findall(r"`([^`\s]+)`", body)
+          quoted_flags = re.findall(r'"(--[a-z][a-z0-9_-]*)"', body)
+          return list(set(backtick + quoted_flags))
+
+      # ── File sets for signal checks ──
+      workflow_files = globmod.glob("workflows/**/*.yaml", recursive=True)
+      workflow_text = " ".join(
+          pathlib.Path(f).read_text(errors="ignore") for f in workflow_files
+      )
+
+      skill_files = globmod.glob(".claude/skills/*/SKILL.md")
+      skill_text = " ".join(
+          pathlib.Path(f).read_text(errors="ignore") for f in skill_files
+      )
+
+      llm_md_files = globmod.glob(".llm/*.md") + ["CLAUDE.md"]
+      llm_text = " ".join(
+          pathlib.Path(f).read_text(errors="ignore")
+          for f in llm_md_files
+          if pathlib.Path(f).exists()
+      )
+
+      concern_files = globmod.glob("concerns/*.md")
+      concern_text = " ".join(
+          pathlib.Path(f).read_text(errors="ignore") for f in concern_files
+      )
+
+      # ── Sink dispatch table ──
+      def suggest_sink(slug, anchors, body):
+          # Check anchors against workflows + workflow YAML keys
+          workflow_yaml_keys = {
+              "agent.isolation", "fan_out", "executor", "kind",
+              "reads_from", "writes_to", "depends_on", "human_gate",
+              "mode: generate", "mode: template",
+          }
+          workflow_anchor_hit = any(
+              a in workflow_text for a in anchors
+          )
+          yaml_key_hit = any(
+              any(key in a for key in workflow_yaml_keys) for a in anchors
+          )
+          if workflow_anchor_hit and yaml_key_hit:
+              return "src/workflow/linter.py"
+
+          # Check if anchors match CLI bin/ tools or flags
+          bin_files = set(p.name for p in pathlib.Path("bin").iterdir() if p.is_file())
+          cli_anchor_hit = any(
+              a in bin_files or a.startswith("--") for a in anchors
+          )
+          if cli_anchor_hit:
+              return ".llm/CLI_PREFERENCES.md"
+
+          # Check if concern topics overlap but no entry exists yet
+          concern_anchor_hit = any(a in concern_text for a in anchors)
+          concern_absent = not any(a in known_concerns for a in anchors)
+          if concern_anchor_hit and concern_absent:
+              # Infer domain from body keywords
+              if any(w in body.lower() for w in ["workflow", "stage", "fan_out", "yaml"]):
+                  domain = "workflow"
+              elif any(w in body.lower() for w in ["test", "fixture", "coverage"]):
+                  domain = "tests"
+              elif any(w in body.lower() for w in ["security", "secret", "credential", "token"]):
+                  domain = "security"
+              elif any(w in body.lower() for w in ["cli", "bin/", "argparse", "emit_rows"]):
+                  domain = "patterns"
+              else:
+                  domain = "correctness"
+              return f"concerns/{domain}.md"
+
+          # Check if anchors appear in skills
+          skill_anchor_hit = any(a in skill_text for a in anchors)
+          if skill_anchor_hit:
+              return ".claude/skills/<matching>/SKILL.md"
+
+          # Default: imperative body -> CLAUDE.md
+          return "CLAUDE.md"
+
+      # ── Scoring ──
+      IMPERATIVE_RE = re.compile(
+          r"\b(never|always|must|do not|do not use|never use|never set|must not|must use|always use)\b",
+          re.IGNORECASE
+      )
+
+      results = []
+      for m in memories:
+          slug = m["slug"]
+          body = m.get("body", "")
+          anchors = extract_anchors(body)
+
+          score = 0
+          signals = {}
+
+          # +3: anchor appears in workflows/**/*.yaml
+          if any(a in workflow_text for a in anchors):
+              score += 3
+              signals["anchor_in_workflows"] = True
+
+          # +2: anchor appears in .claude/skills/*/SKILL.md
+          if any(a in skill_text for a in anchors):
+              score += 2
+              signals["anchor_in_skills"] = True
+
+          # +2: anchor appears in .llm/*.md or CLAUDE.md
+          if any(a in llm_text for a in anchors):
+              score += 2
+              signals["anchor_in_llm_docs"] = True
+
+          # +3: anchor ABSENT from all concerns/*.md
+          if not any(a in concern_text for a in anchors):
+              score += 3
+              signals["absent_from_concerns"] = True
+
+          # +2: body contains imperative language
+          if IMPERATIVE_RE.search(body):
+              score += 2
+              signals["has_imperative_language"] = True
+
+          # +1: body has a "**How to apply:**" section
+          if "**How to apply:**" in body or "**How to Apply:**" in body:
+              score += 1
+              signals["has_how_to_apply"] = True
+
+          # +1: memory referenced by at least one inbound wikilink
+          inbound = inbound_map.get(slug, 0)
+          if inbound >= 1:
+              score += 1
+              signals["has_inbound_wikilink"] = True
+
+          suggested_sink = suggest_sink(slug, anchors, body)
+
+          results.append({
+              "slug": slug,
+              "score": score,
+              "signals": signals,
+              "anchors": anchors,
+              "suggested_sink": suggested_sink,
+              "description": m.get("description", ""),
+              "body_excerpt": body[:300].replace("\n", " "),
+          })
+
+      # Sort descending by score, apply min_score filter, cap at max_candidates
+      results.sort(key=lambda x: x["score"], reverse=True)
+      candidates = [r for r in results if r["score"] >= min_score][:max_candidates]
+      below_threshold = [r for r in results if r["score"] < min_score]
+
+      output = {
+          "total_scored": len(results),
+          "candidates": candidates,
+          "below_threshold_count": len(below_threshold),
+          "min_score_used": min_score,
+      }
+      pathlib.Path(f"{ws}/outputs/candidates.json").write_text(
+          json.dumps(output, indent=2)
+      )
+      print("Scored " + str(len(results)) + " memories. " + str(len(candidates)) + " candidates meet min_score=" + str(min_score) + ".")
+      PYEOF
+
+        STEP 4 (Bash tool) — re-derive all three the same way (this is also a
+        new, separate Bash call) and remove, even if STEP 3 failed:
+          HANDOFF_WORKSPACE="$(ls -1 scratch/.score-candidates-workspace.* 2>/dev/null | head -1)"
+          HANDOFF_MIN_SCORE="$(ls -1 scratch/.score-candidates-min-score.* 2>/dev/null | head -1)"
+          HANDOFF_MAX_CANDIDATES="$(ls -1 scratch/.score-candidates-max-candidates.* 2>/dev/null | head -1)"
+          [ -n "$HANDOFF_WORKSPACE" ] && rm -f "$HANDOFF_WORKSPACE"
+          [ -n "$HANDOFF_MIN_SCORE" ] && rm -f "$HANDOFF_MIN_SCORE"
+          [ -n "$HANDOFF_MAX_CANDIDATES" ] && rm -f "$HANDOFF_MAX_CANDIDATES"
+    required: true
+    writes_to:
+      - outputs/candidates.json
+
+  # ============================================================================
+  # Stage 3: Propose candidates as a human-readable report
+  # ============================================================================
+
+  - name: propose-candidates
+    kind: propose
+    depends_on: [score-candidates]
+    reads_from: [score-candidates]
+    description: >
+      Read {workspace}/outputs/candidates.json and produce a human-readable
+      graduation report.
+
+      Step 1 — load inputs:
+        Read {workspace}/outputs/candidates.json.
+        If the candidates array is empty, write an empty report noting "No feedback
+        memories met the score threshold of {min_score}." and exit 0.
+
+      Step 2 — draft the report {workspace}/outputs/graduation-report.md:
+
+        # Feedback Memory Graduation Candidates
+
+        **Run date:** <today's date>
+        **Total memories scored:** N
+        **Candidates meeting threshold (score >= {min_score}):** M
+        **Scoring signals:** +3 anchor in workflows/**/*.yaml, +2 anchor in
+        .claude/skills/*/SKILL.md, +2 anchor in .llm/*.md or CLAUDE.md, +3 anchor
+        absent from concerns/*.md, +2 imperative language (never/always/must/do not),
+        +1 has **How to apply:** section, +1 referenced by >=1 inbound wikilink.
+
+        ## Candidates (ranked by score)
+
+        For each candidate, one section:
+
+        ### N. <slug>  [score: S]
+
+        **Description:** <description from memory>
+        **Suggested sink:** `<suggested_sink>`
+        **Signals fired:** <comma-separated list of signal keys>
+        **Anchors detected:** `<anchor1>`, `<anchor2>`, ...
+        **Body excerpt:** <first 300 chars of body>
+
+        **Next step:** [one of the following, matching suggested_sink]
+          - If `src/workflow/linter.py`: add a mechanical lint check that
+            flags this pattern. The lesson is too precise to rely on prose alone.
+          - If `.llm/CLI_PREFERENCES.md`: add a preference entry for the flagged
+            CLI pattern or flag. See .llm/CLI_PREFERENCES.md conventions.
+          - If `concerns/<domain>.md`: do NOT author the concern entry here.
+            update-review-concerns.yaml's `pr_number` param scopes to a PR
+            number, not a memory slug — there is no direct handoff path from a
+            graduation candidate into that workflow's trigger params. Instead,
+            manually add the concern entry to `concerns/<domain>.md` using this
+            memory's content as source material, then run
+            `workflows/code/update-review-concerns.yaml` (or its
+            `update-review-rules` skill) to sync the new entry into
+            `.github/copilot-instructions.md` and `rules.md`.
+          - If `.claude/skills/<matching>/SKILL.md`: add a pitfall or caution note
+            to the relevant SKILL.md.
+          - If `CLAUDE.md`: add a rule or table entry to the appropriate section.
+            This workflow does NOT write CLAUDE.md directly — human authors it.
+
+        ---
+
+        ## Below Threshold
+
+        N memories scored below {min_score} — not listed. Re-run with a lower
+        min_score to see them.
+
+        ## What This Workflow Does NOT Do
+
+        This workflow stops at proposing candidates. It does NOT:
+        - Write to src/workflow/linter.py
+        - Write to concerns/*.md or trigger update-review-concerns.yaml automatically
+        - Write to CLAUDE.md or .github/copilot-instructions.md
+        - Write to .llm/CLI_PREFERENCES.md
+
+        All authoring is a human or follow-on workflow decision.
+
+      Step 3 — write a machine-readable approved-candidates starter file at
+      {workspace}/outputs/approved-slugs.json as an empty array [] so the
+      human-gate stage has a file to update.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/graduation-report.md
+      - outputs/approved-slugs.json
+
+  # ============================================================================
+  # Stage 4: Human approval gate
+  # ============================================================================
+
+  - name: human-gate
+    kind: propose
+    depends_on: [propose-candidates]
+    reads_from: [propose-candidates, score-candidates]
+    human_gate: true
+    description: >
+      Present the graduation report for human review and collect which candidates
+      to act on. This is the terminal stage — no code is written downstream.
+
+      Step 1 — display the graduation report:
+        Read {workspace}/outputs/graduation-report.md and display it in full.
+
+      Step 2 — ask the user:
+        "Review the graduation candidates above.
+
+         For each candidate you want to act on, note:
+           - The slug
+           - Which sink to target (the suggested_sink is a recommendation, not
+             a mandate — you may override it)
+           - Any edits to the suggested next step
+
+         Options:
+           - 'all'       — accept all candidates and their suggested sinks
+           - '1,3,5'     — accept by rank number (1-indexed)
+           - 'none'      — dismiss all; exit without changes
+           - Override: paste a revised sink for a specific slug
+
+         Which candidates should be graduated, and to which sinks?"
+
+      Step 3 — write the user's selection to
+      {workspace}/outputs/approved-slugs.json:
+        [
+          {
+            "slug": "feedback-workflow-isolation-worktree",
+            "approved_sink": "src/workflow/linter.py",
+            "notes": "optional free-text from user"
+          },
+          ...
+        ]
+
+      Step 4 — print a final summary:
+        "N candidates approved for graduation. Approved sinks: <list>.
+         Next step: author each sink manually or via the appropriate workflow.
+         No files were written by this workflow."
+
+      NOTE: This workflow does NOT write to src/workflow/linter.py,
+      concerns/*.md, CLAUDE.md, or any other target file. The
+      approved-slugs.json is a record of intent for the human or a follow-on
+      workflow to act on.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/approved-slugs.json

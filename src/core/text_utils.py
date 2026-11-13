@@ -16,6 +16,7 @@ __all__ = [
     "extract_time_ranges",
     "extract_email_address",
     "truncate_text",
+    "slugify",
 ]
 
 # CSS comment blocks: /* ... */ (non-greedy, spans newlines)
@@ -275,3 +276,13 @@ def truncate_text(s: str, max_len: int, suffix: str = "…", **_kwargs: object) 
     if cut <= 0:
         return s[:max_len]
     return s[:cut] + suffix
+
+
+def slugify(text: str, *, sep: str = "_") -> str:
+    """Lowercase ``text`` and collapse every non-``[0-9a-z]`` run into ``sep``.
+
+    Leading and trailing separators are stripped, so a string with no
+    alphanumerics returns ``""`` — callers decide what an empty slug means.
+    """
+    s = re.sub(r"[^0-9a-z]+", sep, (text or "").lower())
+    return s.strip(sep)
