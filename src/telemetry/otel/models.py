@@ -11,7 +11,53 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from telemetry.otel.otlp_walk import (
+    RECORD_EXCEPTIONS,
+    attr_key,
+    iter_dicts,
+    metric_series,
+    parse_unix_nano,
+    require_unix_nano,
+    select_datapoint_value,
+)
 from telemetry.timeutil import nano_to_datetime
+
+
+def _first_scope(
+    d: dict[str, Any], wrapper_key: str, scope_key: str
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Return ``(resource_dict, first_scope_dict)`` for an OTLP or simplified record.
+
+    Handles both OTLP format (``wrapper_key`` such as ``resourceMetrics``
+    wrapping ``resource``/``scope_key``) and simplified format (those keys at
+    top level). The wrapper is checked for presence, not truthiness, so an
+    empty ``resourceX: []`` is still OTLP shape (an empty record). Null or
+    wrongly-typed values at any level yield ``{}`` instead of raising.
+    """
+    wrapper = d.get(wrapper_key)
+    container = next(iter_dicts(wrapper), {}) if wrapper is not None else d
+    resource_raw = container.get("resource")
+    resource_dict = resource_raw if isinstance(resource_raw, dict) else {}
+    return resource_dict, next(iter_dicts(container.get(scope_key)), {})
+
+
+def _dict_or_empty(value: object) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _safe_from_dicts(cls: Any, items: object) -> list[Any]:
+    """Return ``cls.from_dict(item)`` for each dict in *items*, skipping any that raise.
+
+    One malformed sibling (e.g. a logRecord with an unusable timestamp) must
+    not drop the whole envelope.
+    """
+    result = []
+    for item in iter_dicts(items):
+        try:
+            result.append(cls.from_dict(item))
+        except RECORD_EXCEPTIONS:
+            continue
+    return result
 
 
 @dataclass(frozen=True)
@@ -70,9 +116,15 @@ class OTLPAttribute:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> OTLPAttribute:
-        """Parse an OTLPAttribute from a dict."""
-        value_dict = d.get("value", {})
-        return cls(key=d.get("key", ""), value=OTLPValue.from_dict(value_dict))
+        """Parse an OTLPAttribute from a dict.
+
+        A non-string key (``[]``, ``null``) becomes ``""`` so a lookup by key
+        cannot raise ``TypeError`` and drop the surrounding record.
+        """
+        return cls(
+            key=attr_key(d.get("key")) or "",
+            value=OTLPValue.from_dict(_dict_or_empty(d.get("value"))),
+        )
 
 
 def _find_attr_str(attrs: list[OTLPAttribute], key: str) -> str | None:
@@ -132,8 +184,7 @@ class OTLPResource:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> OTLPResource:
         """Parse an OTLPResource from a dict."""
-        attributes = d.get("attributes", [])
-        raw_attrs = [OTLPAttribute.from_dict(attr) for attr in attributes]
+        raw_attrs = [OTLPAttribute.from_dict(attr) for attr in iter_dicts(d.get("attributes"))]
         extracted = _extract_resource_attributes(raw_attrs)
 
         return cls(
@@ -179,13 +230,16 @@ class MetricDataPoint:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> MetricDataPoint:
-        """Parse a MetricDataPoint from a dict."""
-        attributes = d.get("attributes", [])
+        """Parse a MetricDataPoint from a dict.
+
+        The value is ``asDouble``, else ``asInt`` (integer points carry only
+        that). An unusable ``timeUnixNano`` raises ``ValueError``.
+        """
         return cls(
-            start_time_unix_nano=int(d.get("startTimeUnixNano", 0)),
-            time_unix_nano=int(d.get("timeUnixNano", 0)),
-            value=float(d.get("asDouble", 0.0)),
-            attributes=[OTLPAttribute.from_dict(attr) for attr in attributes],
+            start_time_unix_nano=parse_unix_nano(d.get("startTimeUnixNano")) or 0,
+            time_unix_nano=require_unix_nano(d.get("timeUnixNano", 0)),
+            value=select_datapoint_value(d),
+            attributes=[OTLPAttribute.from_dict(attr) for attr in iter_dicts(d.get("attributes"))],
         )
 
 
@@ -209,27 +263,18 @@ class OTLPMetric:
         """Parse an OTLPMetric from a dict.
 
         Real Claude Code metrics are exported as OTLP "sum" points (with
-        aggregationTemporality/isMonotonic), not "gauge" points. Prefer
-        sum.dataPoints when the "sum" shape is present at all — even with
-        an empty dataPoints list — falling back to gauge.dataPoints only
-        when there is no "sum" key. Using ``or`` here would wrongly fall
-        back to gauge for a valid-but-empty sum metric, since ``[]`` is
-        falsy.
+        aggregationTemporality/isMonotonic), not "gauge" points; see
+        ``otlp_walk.metric_series`` for the selection rule. A data point that
+        fails to parse is skipped, not the whole metric.
         """
-        sum_data = d.get("sum")
-        gauge = d.get("gauge", {})
-        if sum_data is not None:
-            data_points = sum_data.get("dataPoints", [])
-        else:
-            sum_data = {}
-            data_points = gauge.get("dataPoints", [])
-        agg_tempo = sum_data.get("aggregationTemporality", 1)
-        is_mono = sum_data.get("isMonotonic", True)
+        shape, data_points = metric_series(d)
+        agg_tempo = shape.get("aggregationTemporality", 1)
+        is_mono = shape.get("isMonotonic", True)
         return cls(
             name=d.get("name", ""),
             description=d.get("description", ""),
             unit=d.get("unit", ""),
-            data_points=[MetricDataPoint.from_dict(dp) for dp in data_points],
+            data_points=_safe_from_dicts(MetricDataPoint, data_points),
             aggregation_temporality=agg_tempo,
             is_monotonic=is_mono,
         )
@@ -253,29 +298,17 @@ class OTLPMetricsRecord:
         presence (``is not None``), not truthiness, so an empty
         ``resourceMetrics: []`` wrapper is still treated as OTLP shape
         (yielding an empty record) rather than falling through to the
-        simplified-format field names. The inner ``scopeMetrics`` list is
-        guarded the same way (``or [{}]``) so an empty-but-present list
-        yields an empty scope instead of an IndexError.
+        simplified-format field names. Malformed nesting yields an empty
+        scope, and a metric that fails to parse is skipped.
         """
-        resource_metrics = d.get("resourceMetrics")
-        if resource_metrics is not None:
-            resource_metric = resource_metrics[0] if resource_metrics else {}
-            resource_dict = resource_metric.get("resource", {})
-            scope_metrics = resource_metric.get("scopeMetrics") or [{}]
-            scope = scope_metrics[0]
-        else:
-            resource_dict = d.get("resource", {})
-            scope_metrics = d.get("scopeMetrics") or [{}]
-            scope = scope_metrics[0]
-
-        scope_attrs = scope.get("scope", {})
-        metrics_list = scope.get("metrics", [])
+        resource_dict, scope = _first_scope(d, "resourceMetrics", "scopeMetrics")
+        scope_attrs = _dict_or_empty(scope.get("scope"))
 
         return cls(
             resource=OTLPResource.from_dict(resource_dict),
             scope_name=scope_attrs.get("name", ""),
             scope_version=scope_attrs.get("version", ""),
-            metrics=[OTLPMetric.from_dict(m) for m in metrics_list],
+            metrics=_safe_from_dicts(OTLPMetric, scope.get("metrics")),
         )
 
     def metrics_by_name(self, pattern: str) -> list[OTLPMetric]:  # noqa - called via src/telemetry/otel/cli/query.py:80
@@ -314,16 +347,15 @@ class OTLPEvent:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> OTLPEvent:
-        """Parse an OTLPEvent from a dict."""
-        attributes = d.get("attributes", [])
+        """Parse an OTLPEvent from a dict; an unusable ``timeUnixNano`` raises ``ValueError``."""
         body_value = d.get("body", "")
         if isinstance(body_value, dict):
             body_value = body_value.get("stringValue", "")
         return cls(
-            time_unix_nano=int(d.get("timeUnixNano", 0)),
-            observed_time_unix_nano=int(d.get("observedTimeUnixNano", 0)),
+            time_unix_nano=require_unix_nano(d.get("timeUnixNano", 0)),
+            observed_time_unix_nano=parse_unix_nano(d.get("observedTimeUnixNano")) or 0,
             body=body_value,
-            attributes=[OTLPAttribute.from_dict(attr) for attr in attributes],
+            attributes=[OTLPAttribute.from_dict(attr) for attr in iter_dicts(d.get("attributes"))],
         )
 
 
@@ -340,26 +372,16 @@ class OTLPEventsRecord:
         """Parse an OTLPEventsRecord from a dict.
 
         Handles both OTLP format (with resourceLogs wrapper) and simplified
-        format (direct resource/scopeLogs). The inner ``scopeLogs`` list is
-        guarded with ``or [{}]`` so an empty-but-present list yields an empty
-        scope instead of an IndexError.
+        format (direct resource/scopeLogs). Malformed nesting yields an empty
+        scope, and a log record that fails to parse is skipped.
         """
-        resource_logs = d.get("resourceLogs")
-        if resource_logs is not None:
-            resource_log = resource_logs[0] if resource_logs else {}
-            resource_dict = resource_log.get("resource", {})
-            scope_logs = (resource_log.get("scopeLogs") or [{}])[0]
-        else:
-            resource_dict = d.get("resource", {})
-            scope_logs = (d.get("scopeLogs") or [{}])[0]
-
-        scope_attrs = scope_logs.get("scope", {})
-        log_records = scope_logs.get("logRecords", [])
+        resource_dict, scope_logs = _first_scope(d, "resourceLogs", "scopeLogs")
+        scope_attrs = _dict_or_empty(scope_logs.get("scope"))
 
         return cls(
             resource=OTLPResource.from_dict(resource_dict),
             scope_name=scope_attrs.get("name", ""),
-            log_records=[OTLPEvent.from_dict(event) for event in log_records],
+            log_records=_safe_from_dicts(OTLPEvent, scope_logs.get("logRecords")),
         )
 
 
@@ -390,15 +412,14 @@ class OTLPSpan:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> OTLPSpan:
-        """Parse an OTLPSpan from a dict."""
-        attributes = d.get("attributes", [])
+        """Parse an OTLPSpan from a dict; an unusable timestamp raises ``ValueError``."""
         return cls(
             trace_id=d.get("traceId", ""),
             span_id=d.get("spanId", ""),
             name=d.get("name", ""),
-            start_time_unix_nano=int(d.get("startTimeUnixNano", 0)),
-            end_time_unix_nano=int(d.get("endTimeUnixNano", 0)),
-            attributes=[OTLPAttribute.from_dict(attr) for attr in attributes],
+            start_time_unix_nano=require_unix_nano(d.get("startTimeUnixNano", 0)),
+            end_time_unix_nano=require_unix_nano(d.get("endTimeUnixNano", 0)),
+            attributes=[OTLPAttribute.from_dict(attr) for attr in iter_dicts(d.get("attributes"))],
         )
 
 
@@ -417,24 +438,14 @@ class OTLPSpansRecord:
         format (direct resource/scopeSpans). Checks for key presence
         (``is not None``), not truthiness, so an empty ``resourceSpans: []``
         wrapper is still treated as OTLP shape (yielding an empty record)
-        rather than falling through to the simplified-format field names.
+        rather than falling through to the simplified-format field names. A
+        span that fails to parse is skipped.
         """
-        resource_spans = d.get("resourceSpans")
-        if resource_spans is not None:
-            resource_span = resource_spans[0] if resource_spans else {}
-            resource_dict = resource_span.get("resource", {})
-            scope_spans_list = resource_span.get("scopeSpans") or [{}]
-            scope_spans = scope_spans_list[0]
-        else:
-            resource_dict = d.get("resource", {})
-            scope_spans_list = d.get("scopeSpans") or [{}]
-            scope_spans = scope_spans_list[0]
-
-        spans_list = scope_spans.get("spans", [])
+        resource_dict, scope_spans = _first_scope(d, "resourceSpans", "scopeSpans")
 
         return cls(
             resource=OTLPResource.from_dict(resource_dict),
-            spans=[OTLPSpan.from_dict(span) for span in spans_list],
+            spans=_safe_from_dicts(OTLPSpan, scope_spans.get("spans")),
         )
 
 

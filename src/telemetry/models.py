@@ -32,6 +32,14 @@ class SessionEvent:
     output_tokens: int | None = None
     cache_read_tokens: int | None = None
     cache_creation_tokens: int | None = None
+    # The 1-hour-TTL part of cache_creation_tokens (priced at 2.0x, not 1.25x).
+    cache_creation_1h_tokens: int = 0
+    # Identity of the billed API call (message.id, requestId). Claude Code
+    # writes one record per content block and repeats the usage on each, and a
+    # resumed session copies earlier records into a new file, so the same call
+    # can appear many times; aggregations bill it once.
+    message_id: str | None = None
+    request_id: str | None = None
 
     # Classification (populated by ClassifyEngine and BlameEngine)
     classification: str | None = None

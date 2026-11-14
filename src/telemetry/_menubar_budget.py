@@ -15,7 +15,7 @@ def _safe_float(value: object, default: float) -> float:
         return default
     try:
         return float(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return default
 
 
@@ -25,7 +25,7 @@ def _safe_int(value: object, default: int) -> int:
         return default
     try:
         return int(float(value))  # type: ignore[arg-type]
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return default
 
 
@@ -46,5 +46,5 @@ def _to_int(v: object) -> int:
         return int(v)               # tolerant: handles 123.0 -> 123
     try:
         return int(float(str(v)))   # strings: handles "123.0" and "456"
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return 0

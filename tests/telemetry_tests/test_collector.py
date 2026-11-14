@@ -189,6 +189,12 @@ class TestParseOtlpEvent(unittest.TestCase):
     def test_invalid_json_returns_none(self):
         self.assertIsNone(collector._parse_otlp_event("not valid json {{{"))
 
+    def test_unconvertible_timestamp_returns_none(self):
+        # 10**30 ns overflows datetime.fromtimestamp; negatives are not valid times.
+        for ts in (10**30, -5, "1e999"):
+            with self.subTest(ts=ts):
+                self.assertIsNone(collector._parse_otlp_event(_make_record(time_unix_nano=ts)))
+
     def test_zero_time_unix_nano_returns_none(self):
         self.assertIsNone(collector._parse_otlp_event(_make_record(time_unix_nano=0)))
 
