@@ -108,9 +108,12 @@ def run_check(tool: str, repo_root: str, paths: list[str]) -> CheckResult:
     exit_code = 0
     timed_out = False
     chunks: list[str] = []
+    missing_evidence = False
     for cmd in commands:
         run = run_binary(cmd, cwd=repo_root, timeout=_TIMEOUTS_SECONDS[tool], env=env, errors="replace")
         chunks.append(run.stdout + run.stderr)
+        if run.returncode == 0 and not run.timed_out and not parse_tests_run(chunks[-1]):
+            missing_evidence = True
         timed_out = timed_out or run.timed_out
         if run.returncode != 0 and exit_code == 0:
             exit_code = run.returncode
@@ -120,7 +123,7 @@ def run_check(tool: str, repo_root: str, paths: list[str]) -> CheckResult:
     tests_run = parse_tests_run(full_output) if tool == "test" else None
     passed = exit_code == 0 and not timed_out
     problem: str | None = "timed out" if timed_out else None
-    if tool == "test" and passed and not tests_run:
+    if tool == "test" and passed and (not tests_run or missing_evidence):
         passed, problem = False, _NO_EVIDENCE
     return CheckResult(
         tool=tool,

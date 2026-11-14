@@ -57,6 +57,12 @@ class TestCheckout(GitRepoCase):
         self.assertIn("uncommitted", result.output)
         self.assertEqual(self._head(), "main")
 
+    def test_untracked_file_does_not_block_checkout(self):
+        write(self.repo, "scratch.txt", "new\n")
+        result = git_ops.op_checkout(self.repo, "topic", fetch=False)
+        self.assertEqual(result.status, "ok", result.output)
+        self.assertEqual(self._head(), "topic")
+
     def test_branch_required_and_option_like_rejected(self):
         self.assertIn("required", git_ops.op_checkout(self.repo, None, False).output)
         self.assertIn("must not start", git_ops.op_checkout(self.repo, "--force", False).output)

@@ -141,18 +141,55 @@ def parse_all_names(tree: ast.Module) -> list[str] | None:
     return names if found else None
 
 
+def _target_names(target: ast.expr) -> set[str]:
+    """Names bound by an assignment target, including tuple/list unpacking and ``*rest``."""
+    if isinstance(target, ast.Name):
+        return {target.id}
+    if isinstance(target, ast.Starred):
+        return _target_names(target.value)
+    if isinstance(target, (ast.Tuple, ast.List)):
+        return set().union(*(_target_names(e) for e in target.elts))
+    return set()
+
+
+def _nested_blocks(node: ast.stmt) -> list[list[ast.stmt]]:
+    """Statement lists of an if/try/with node that still execute at module level."""
+    if isinstance(node, ast.If):
+        return [node.body, node.orelse]
+    if isinstance(node, (ast.Try, ast.TryStar)):
+        return [node.body, *(h.body for h in node.handlers), node.orelse, node.finalbody]
+    if isinstance(node, (ast.With, ast.AsyncWith)):
+        return [node.body]
+    return []
+
+
+def _bound_names(node: ast.stmt) -> set[str]:
+    """Names bound directly by one statement (not by its nested blocks)."""
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        return {node.name}
+    if isinstance(node, ast.Assign):
+        return set().union(*(_target_names(t) for t in node.targets))
+    if isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+        return _target_names(node.target)
+    if isinstance(node, (ast.Import, ast.ImportFrom)):
+        return {(a.asname or a.name).split(".")[0] for a in node.names}
+    return set()
+
+
+def _collect_names(body: list[ast.stmt], defined: set[str]) -> None:
+    for node in body:
+        defined.update(_bound_names(node))
+        for block in _nested_blocks(node):
+            _collect_names(block, defined)
+
+
 def _defined_names(tree: ast.Module) -> set[str]:
-    """Names bound at module top level (defs, classes, assignments, imports)."""
+    """Names bound at module level, including inside top-level if/try/with blocks.
+
+    Function and class bodies are not searched.
+    """
     defined: set[str] = set()
-    for node in ast.iter_child_nodes(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            defined.add(node.name)
-        elif isinstance(node, ast.Assign):
-            defined.update(t.id for t in node.targets if isinstance(t, ast.Name))
-        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-            defined.add(node.target.id)
-        elif isinstance(node, (ast.Import, ast.ImportFrom)):
-            defined.update((a.asname or a.name).split(".")[0] for a in node.names)
+    _collect_names(tree.body, defined)
     return defined
 
 
