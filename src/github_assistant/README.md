@@ -50,8 +50,12 @@ most subcommands print JSON, but `repo` defaults to plain `owner/name` text
 - `copilot cycle` replies to and resolves only unresolved threads Copilot opened
   (typed bot + Copilot login) where every comment is by a bot. Threads where a
   human has replied are skipped (not closed) and listed in `skipped_human_reply`.
-  Resolves each only after its own reply verified. Requests a re-review only when
-  every selected thread succeeded and at least one was processed. Exit 1 on any
+  With `--run-id`, threads whose only non-bot comments are the viewer's own
+  marked replies are re-admitted (retry after a failed resolve). Resolves each
+  only after its own reply verified. Requests a re-review only when every
+  selected thread succeeded and at least one was processed. When
+  `--no-request` is not set but no threads were found, a warning is emitted
+  (use `github copilot request --pr N` to re-request manually). Exit 1 on any
   failure. `--dry-run` reports `re_review_planned` instead of `re_review_requested`.
 - `DANCING_BEAR_COPILOT_REVIEW=0|false|no|off` turns re-review requests into a
   reported no-op (e.g. during a Copilot outage).

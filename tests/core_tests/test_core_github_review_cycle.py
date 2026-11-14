@@ -298,6 +298,30 @@ class TestRunReviewCycle(unittest.TestCase):
         self.assertFalse(result.re_review_requested)
         self.assertEqual(_requests(fake), [])
 
+    def test_no_threads_with_request_true_adds_warning(self):
+        """With request=True and zero threads, result.warnings contains the no-threads hint."""
+        result, fake = self._run(Scripted([]))
+        self.assertEqual(result.re_review_skip_reason, review_cycle.SKIP_NO_THREADS)
+        self.assertFalse(result.re_review_requested)
+        self.assertEqual(_requests(fake), [])
+        # Warning must name the manual fallback command for this PR.
+        self.assertIn("github copilot request --pr 7", " ".join(result.warnings))
+        # Non-match: warning text must NOT appear when request=False.
+        result_no_req, _ = self._run(Scripted([]), request=False)
+        self.assertFalse(
+            any("copilot request" in w for w in result_no_req.warnings),
+            "warning must not appear when request=False",
+        )
+
+    def test_no_threads_with_request_false_no_warning(self):
+        """With request=False and zero threads, no warning is added."""
+        result, _ = self._run(Scripted([]), request=False)
+        self.assertEqual(result.re_review_skip_reason, review_cycle.SKIP_NOT_ASKED)
+        self.assertFalse(
+            any("copilot request" in w for w in result.warnings),
+            "request=False must not add the no-threads warning",
+        )
+
     def test_request_failure_is_recorded_not_raised(self):
         script = Scripted([_copilot_thread("CP1")])
         script.request_rc = 1

@@ -2,11 +2,17 @@
 
 Sequence:
 
-1. Fetch every review thread (paginated, count-checked) and select the
-   unresolved ones Copilot opened.
-2. Reply to each with the caller's body, then resolve it — per thread, and only
-   after that thread's reply verifiably landed.
+1. Fetch every review thread (paginated, count-checked) and select unresolved
+   Copilot-opened threads whose every comment is by a bot. Threads where any
+   comment is by a human are skipped and listed in ``skipped_human_reply``.
+   With ``--run-id``, threads whose only non-bot comments are the viewer's own
+   replies carrying this run's marker are re-admitted (retry after a failed
+   resolve).
+2. Reply to each selected thread with the caller's body, then resolve it — per
+   thread, and only after that thread's reply verifiably landed.
 3. Request a fresh Copilot review, only when every thread above succeeded.
+   When ``request=True`` but no threads were selected, a warning is appended
+   to ``result.warnings`` (see ``WARN_NO_THREADS_ON_REQUEST``).
 
 Human-opened threads are never touched. Resolving a thread without its reply
 is a silent closure, so a thread whose reply failed stays open, and any failure
@@ -30,6 +36,11 @@ SKIP_DISABLED = "copilot review disabled"
 SKIP_NOT_ASKED = "not requested"
 SKIP_NO_THREADS = "no copilot threads"
 SKIP_REQUEST_FAILED = "request failed"
+
+WARN_NO_THREADS_ON_REQUEST = (
+    "no unresolved Copilot threads found; if a previous run's re-review request "
+    "failed, run: github copilot request --pr {pr}"
+)
 
 
 @dataclass
@@ -147,6 +158,7 @@ def _maybe_request(gh: GhCLI, owner: str, repo: str, result: ReviewCycleResult, 
         result.re_review_skip_reason = SKIP_ERRORS
         return
     if not result.threads:
+        result.warnings.append(WARN_NO_THREADS_ON_REQUEST.format(pr=result.pr))
         result.re_review_skip_reason = SKIP_NO_THREADS
         return
     switch = copilot_review_switch()
@@ -168,7 +180,15 @@ def _maybe_request(gh: GhCLI, owner: str, repo: str, result: ReviewCycleResult, 
 
 
 def run_review_cycle(gh: GhCLI, owner: str, repo: str, pr: int, opts: CycleOptions) -> ReviewCycleResult:
-    """Reply to and resolve every unresolved Copilot thread, then re-request review.
+    """Reply to and resolve unresolved Copilot-opened threads, then re-request review.
+
+    Selects unresolved threads Copilot opened where every comment is by a bot.
+    Threads with any human comment are skipped and listed in
+    ``result.skipped_human_reply``. With ``opts.run_id``, threads whose only
+    non-bot comments are the viewer's own replies carrying this run's marker
+    are re-admitted (retry after a failed resolve). When ``opts.request=True``
+    but no threads were selected, ``result.warnings`` receives
+    ``WARN_NO_THREADS_ON_REQUEST``.
 
     Raises ``GhError`` only before any mutation (empty body, incomplete thread
     fetch, unknown actor); later failures are recorded in the result.

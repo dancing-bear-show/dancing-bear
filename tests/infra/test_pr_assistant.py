@@ -220,7 +220,7 @@ class TestPaginatedCopilotSelection(unittest.TestCase):
         fake.responses["api"] = [_proc(stdout="[[]]"), _proc(stdout="[[]]")]
 
         gh = _new_gh(fake)
-        threads = PRA.fetch_copilot_threads(gh, "owner", "repo", 42)
+        threads, _skipped = PRA.fetch_copilot_threads(gh, "owner", "repo", 42)
 
         self.assertEqual(
             [t["id"] for t in threads],
@@ -248,7 +248,7 @@ class TestPaginatedCopilotSelection(unittest.TestCase):
         fake.responses["api"] = [_proc(stdout="[[]]"), _proc(stdout="[[]]")]
 
         gh = _new_gh(fake)
-        threads = PRA.fetch_copilot_threads(gh, "owner", "repo", 42)
+        threads, _skipped = PRA.fetch_copilot_threads(gh, "owner", "repo", 42)
 
         self.assertEqual(threads, [], "no Copilot thread was present in the fixture")
 
@@ -283,7 +283,8 @@ class TestCopilotAuthorIdentification(unittest.TestCase):
         fake = FakeGhTransport()
         fake.graphql_query(_threads_page([node], has_next=False, end_cursor=None))
         fake.responses["api"] = [_proc(stdout="[[]]"), _proc(stdout="[[]]")]
-        return PRA.fetch_copilot_threads(_new_gh(fake), "owner", "repo", 42)
+        threads, _skipped = PRA.fetch_copilot_threads(_new_gh(fake), "owner", "repo", 42)
+        return threads
 
     def test_copilot_bot_suffix_login_selected(self) -> None:
         node = _thread_node(
@@ -353,7 +354,7 @@ class TestDryRunPerformsNoMutation(unittest.TestCase):
         # Now simulate the mutation entry points as if a PR existed. Each must
         # perform no gh mutation under dry-run.
         PRA._resolve_copilot_threads(gh, [{"id": "T1", "path": "p", "line": 1, "body": "x"}], args)
-        PRA._post_summary_comment(gh, 42, [], None, [], args)
+        PRA._post_summary_comment(gh, 42, [], 0, None, [], args)
         PRA._update_pr_metadata(gh, 42, args)
 
         mutating = {"resolveReviewThread"}
@@ -435,6 +436,120 @@ class TestResolveFailureIsReported(unittest.TestCase):
             PRA._resolve_copilot_threads(
                 gh, [{"id": "T1", "path": "p", "line": 1, "body": "x"}], args,
             )
+
+
+class TestHumanRepliedCopilotThreadsSurfaced(unittest.TestCase):
+    """Copilot threads with a human reply are not resolved and are surfaced in both
+    the console output and the posted summary comment.
+    """
+
+    def _make_fixture(self, *, with_human_reply: bool) -> FakeGhTransport:
+        """Build a FakeGhTransport with one Copilot thread and optionally a human-replied one."""
+        fake = FakeGhTransport()
+        copilot_node = _thread_node(
+            "COPILOT_CLEAN",
+            author_login="copilot-pull-request-reviewer",
+            typename="Bot",
+            body="address this issue",
+        )
+        nodes = [copilot_node]
+        if with_human_reply:
+            # A Copilot-opened thread that also has a human comment.
+            human_replied = {
+                "id": "COPILOT_HUMAN_REPLIED",
+                "isResolved": False,
+                "isOutdated": False,
+                "isCollapsed": False,
+                "path": "src/bar.py",
+                "line": 5,
+                "startLine": None,
+                "diffSide": "RIGHT",
+                "comments": {
+                    "totalCount": 2,
+                    "pageInfo": {"hasNextPage": False, "endCursor": None},
+                    "nodes": [
+                        {
+                            "databaseId": 10,
+                            "author": {
+                                "login": "copilot-pull-request-reviewer",
+                                "__typename": "Bot",
+                            },
+                            "body": "copilot comment",
+                            "createdAt": "2026-01-01T00:00:00Z",
+                            "url": "https://example/comment/10",
+                        },
+                        {
+                            "databaseId": 11,
+                            "author": {"login": "alice", "__typename": "User"},
+                            "body": "I disagree",
+                            "createdAt": "2026-01-02T00:00:00Z",
+                            "url": "https://example/comment/11",
+                        },
+                    ],
+                },
+            }
+            nodes.append(human_replied)
+        total = len(nodes)
+        fake.graphql_query(_threads_page(nodes, has_next=False, end_cursor=None, total=total))
+        fake.responses["api"] = [_proc(stdout="[[]]"), _proc(stdout="[[]]")]
+        return fake
+
+    def test_human_replied_thread_is_not_in_selected_list(self) -> None:
+        fake = self._make_fixture(with_human_reply=True)
+        gh = _new_gh(fake)
+        threads, skipped_count = PRA.fetch_copilot_threads(gh, "owner", "repo", 42)
+        ids = [t["id"] for t in threads]
+        self.assertNotIn("COPILOT_HUMAN_REPLIED", ids, "human-replied thread must not be auto-resolved")
+        self.assertIn("COPILOT_CLEAN", ids)
+        self.assertEqual(skipped_count, 1)
+
+    def test_skipped_count_zero_when_no_human_replies(self) -> None:
+        fake = self._make_fixture(with_human_reply=False)
+        gh = _new_gh(fake)
+        _threads, skipped_count = PRA.fetch_copilot_threads(gh, "owner", "repo", 42)
+        self.assertEqual(skipped_count, 0)
+
+    def test_skipped_count_shown_in_console_output(self) -> None:
+        """_display_summary must mention human-replied threads when count > 0."""
+        import io
+        from unittest.mock import patch as _patch
+
+        threads = [{"id": "T1", "path": "src/a.py", "line": 1, "body": "fix this"}]
+        skipped_count = 2
+        buf = io.StringIO()
+        with _patch("sys.stdout", buf):
+            PRA._display_summary(threads, skipped_count, None, [])
+        output = buf.getvalue()
+        self.assertIn("2", output, "skipped count must appear in console output")
+        self.assertIn("human replies", output, "must mention human replies")
+        # Non-match: zero count produces no such line.
+        buf2 = io.StringIO()
+        with _patch("sys.stdout", buf2):
+            PRA._display_summary(threads, 0, None, [])
+        self.assertNotIn("human replies", buf2.getvalue(),
+                         "zero skipped count must add no human-reply line")
+
+    def test_skipped_count_shown_in_summary_comment(self) -> None:
+        """build_summary_comment must mention human-replied threads when count > 0."""
+        threads = [{"id": "T1", "path": "src/a.py", "line": 1, "body": "fix this"}]
+        comment = PRA.build_summary_comment(threads, 3, None, [])
+        self.assertIn("3", comment, "skipped count must appear in summary comment")
+        self.assertIn("human replies", comment, "must mention human replies in comment")
+        # Non-match: zero count produces no such line.
+        comment_zero = PRA.build_summary_comment(threads, 0, None, [])
+        self.assertNotIn("human replies", comment_zero,
+                         "zero skipped count must add no human-reply line to comment")
+
+    def test_human_replied_thread_is_not_resolved(self) -> None:
+        """End-to-end: the human-replied thread must never be passed to resolve_thread."""
+        fake = self._make_fixture(with_human_reply=True)
+        gh = _new_gh(fake)
+        threads, skipped_count = PRA.fetch_copilot_threads(gh, "owner", "repo", 42)
+        # Only the clean thread is in the resolve list.
+        ids_to_resolve = [t["id"] for t in threads]
+        self.assertNotIn("COPILOT_HUMAN_REPLIED", ids_to_resolve)
+        self.assertIn("COPILOT_CLEAN", ids_to_resolve)
+        self.assertEqual(skipped_count, 1)
 
 
 class TestArgparseSurfaceUnchanged(unittest.TestCase):
