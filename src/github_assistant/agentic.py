@@ -35,6 +35,10 @@ def build_agentic_capsule() -> str:
         "get PR field: ./bin/github pr view --pr 123 --value headRefOid",
         "watch PR checks: ./bin/github pr checks --pr 123 --watch",
         "inline review comment: ./bin/github pr review-comment --pr 123 --path a.py --line 10 --body-file c.md",
+        "summarize a PR: ./bin/github pr summary --pr 123",
+        "my activity: ./bin/github activity --owner ORG",
+        "re-request Copilot: ./bin/github copilot request --pr 123",
+        "Copilot round-trip: ./bin/github copilot cycle --pr 123 --body-file reply.md --run-id RUN",
     ]
     notes_body = "\n".join(
         [
@@ -53,6 +57,14 @@ def build_agentic_capsule() -> str:
             "- `pr checks` exits 0 while still pending/failing: read `bucket` in the JSON.",
             "- `threads fetch` exits 1 when a reported count does not match what came back;",
             "  it still writes the file (`truncated: true`) for inspection. Do not act on it.",
+            "- `copilot cycle` touches only unresolved Copilot-opened threads (bot type +",
+            "  login) where every comment is by a bot; threads with any human reply are",
+            "  skipped and listed in `skipped_human_reply`; with `--run-id`, threads whose",
+            "  only non-bot comments are the viewer's own marked replies are re-admitted.",
+            "  Resolves each only after its reply verified; skips re-review on failure and",
+            "  exits 1; emits a warning when request was asked but no threads were found.",
+            "  `--dry-run` posts nothing; a would-be re-review shows as `re_review_planned`.",
+            "- `DANCING_BEAR_COPILOT_REVIEW=0` disables Copilot re-review requests.",
             "- `client()` scrubs `GITHUB_TOKEN` from the child env so a stale token cannot",
             "  silently override gh's keyring credentials.",
         ]
@@ -69,10 +81,11 @@ def build_domain_map() -> str:
     return _core_build_domain_map(
         "Top-Level\n"
         "- bin/github — CLI wrapper (routed through _router.py)\n"
-        "- github_assistant/cli.py — argparse entry (threads, pr, run groups)\n"
+        "- github_assistant/cli.py — argparse entry (threads, pr, copilot, run groups; activity)\n"
         "- github_assistant/meta.py — AppMeta for the agentic surface\n"
         "- github_assistant/agentic.py — capsule + domain map\n"
-        "- core/github/ — the tested access layer (client, threads, mutations, pulls, repo)\n"
+        "- core/github/ — the tested access layer (client, threads, mutations, pulls, repo,\n"
+        "  copilot, review_cycle, summary, activity)\n"
         "- core/gh_cli.py — GhCLI/GhError; the single subprocess choke point",
         _cli_tree(),
         None,

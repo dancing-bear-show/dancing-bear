@@ -64,10 +64,10 @@ from core.github import (  # noqa: E402
     GhError,
     client,
     fetch_review_threads,
-    normalize_login,
     resolve_owner_repo,
     resolve_thread,
 )
+from core.github.copilot import copilot_threads  # noqa: E402
 from core.github.pulls import (  # noqa: E402
     pr_checks,
     pr_comment,
@@ -126,42 +126,32 @@ def create_pr(gh, base, title, body, dry_run):
 # Copilot review threads
 # ---------------------------------------------------------------------------
 
-COPILOT_BOT = "copilot-pull-request-reviewer"
-
-
 def fetch_copilot_threads(gh, owner, repo, pr_number):
-    """Return list of unresolved Copilot review threads.
+    """Return (selected_threads, skipped_count).
 
-    A thread qualifies when its ``source`` is ``graphql-thread`` (REST review
-    bodies and issue comments carry no thread_id and cannot be resolved),
-    ``is_resolved`` is false, and its opening author normalises to the Copilot
-    login. Now paginated through the full ``reviewThreads`` connection, so
-    threads beyond the first 50 are included; the previous first(50) query
-    silently dropped them.
+    ``selected_threads`` is a list of unresolved Copilot-opened threads whose
+    every comment is by a bot. Selection uses
+    ``core.github.copilot.copilot_threads``: a resolvable GraphQL thread,
+    unresolved, whose opening comment carries the Copilot login and bot
+    ``__typename``. The fetch is fully paginated; a truncated fetch raises
+    rather than resolving from a partial list.
+
+    ``skipped_count`` is the number of unresolved Copilot-opened threads that
+    contain at least one non-bot comment. These are left unresolved and
+    surfaced for manual review; they are never auto-resolved.
     """
     doc, _raw = fetch_review_threads(gh, owner, repo, pr_number)
-    if doc.get("truncated"):
-        # A count GitHub reported did not match what came back. Resolving from
-        # a partial list and then posting "N unresolved" would present an
-        # incomplete run as complete, so stop instead.
-        raise GhError("review-thread fetch incomplete (reported counts did not match); rerun")
-    out = []
-    for entry in doc.get("threads") or []:
-        if entry.get("source") != "graphql-thread":
-            continue
-        if entry.get("is_resolved"):
-            continue
-        opening = (entry.get("comments") or [{}])[0]
-        opener = opening.get("author", "")
-        if normalize_login(opener) != COPILOT_BOT:
-            continue
-        out.append({
+    selected, skipped = copilot_threads(doc)
+    threads = [
+        {
             "id": entry.get("thread_id"),
             "path": entry.get("path") or "",
             "line": entry.get("line") if entry.get("line") is not None else "",
             "body": entry.get("opening_body") or "",
-        })
-    return out
+        }
+        for entry in selected
+    ]
+    return threads, len(skipped)
 
 
 # ---------------------------------------------------------------------------
@@ -282,7 +272,7 @@ def format_check_status(check):
 # Summary comment
 # ---------------------------------------------------------------------------
 
-def build_summary_comment(threads, qlty_issues, checks):
+def build_summary_comment(threads, skipped_count, qlty_issues, checks):
     """Build markdown summary comment text."""
     lines = ["## PR Assistant Summary\n"]
 
@@ -292,6 +282,10 @@ def build_summary_comment(threads, qlty_issues, checks):
         for t in threads:
             snippet = (t["body"][:100] + "...") if len(t["body"]) > 100 else t["body"]
             lines.append(f"- `{t['path']}:{t['line']}` — {snippet}")
+        if skipped_count:
+            lines.append(
+                f"{skipped_count} Copilot conversation(s) with human replies left for manual review"
+            )
         lines.append("")
 
     # Qlty
@@ -368,13 +362,15 @@ def _collect_qlty(gh, args):
     return {"high": [], "medium": [], "low": []}
 
 
-def _display_summary(threads, qlty_issues, checks):
+def _display_summary(threads, skipped_count, qlty_issues, checks):
     """Print human-readable summary of threads, qlty issues, and CI checks."""
     print(f"Copilot: {len(threads)} unresolved conversations")
     for t in threads:
         snippet = (t["body"][:100] + "...") if len(t["body"]) > 100 else t["body"]
         loc = f"{t['path']}:{t['line']}" if t["line"] else t["path"]
         print(f"  {loc} -- {snippet}")
+    if skipped_count:
+        print(f"  {skipped_count} Copilot conversation(s) with human replies left for manual review")
 
     print()
     if qlty_issues is None:
@@ -415,11 +411,11 @@ def _resolve_copilot_threads(gh, threads, args):
     print("some failed" if any_failed else "done")
 
 
-def _post_summary_comment(gh, pr_number, threads, qlty_issues, checks, args):
+def _post_summary_comment(gh, pr_number, threads, skipped_count, qlty_issues, checks, args):
     """Post or preview a summary comment on the PR."""
     if not args.update_summary:
         return
-    comment = build_summary_comment(threads, qlty_issues, checks)
+    comment = build_summary_comment(threads, skipped_count, qlty_issues, checks)
     print("Adding summary comment...", end=" ", flush=True)
     if args.dry_run:
         print()
@@ -474,13 +470,13 @@ def _run(args):
     print(pr["url"])
     print()
 
-    threads = fetch_copilot_threads(gh, owner, repo, pr_number)
+    threads, skipped_count = fetch_copilot_threads(gh, owner, repo, pr_number)
     qlty_issues = _collect_qlty(gh, args)
     checks = get_ci_checks(gh, pr_number) if args.check_ci else []
 
-    _display_summary(threads, qlty_issues, checks)
+    _display_summary(threads, skipped_count, qlty_issues, checks)
     _resolve_copilot_threads(gh, threads, args)
-    _post_summary_comment(gh, pr_number, threads, qlty_issues, checks, args)
+    _post_summary_comment(gh, pr_number, threads, skipped_count, qlty_issues, checks, args)
     _update_pr_metadata(gh, pr_number, args)
 
     print(f"\n{pr['url']}")
