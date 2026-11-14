@@ -28,6 +28,7 @@ Thin wrappers around Python package CLIs. Regenerate generated wrappers with `ma
 | `workflow` | `workflow.cli` |
 | `qlty-assistant` | `qlty` |
 | `github` | `github_assistant` |
+| `agent-helpers` | `agent_helpers` |
 | `monitor-poll` | `monitor_poll` |
 
 
