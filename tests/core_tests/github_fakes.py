@@ -116,11 +116,11 @@ def paged(items: list[Any], size: int, after: str | None, prefix: str) -> tuple[
     return chunk, {"hasNextPage": end < len(items), "endCursor": f"{prefix}{end}" if chunk else None}
 
 
-def comment_node(i: int, login: str = "rev", typename: str = "User") -> dict[str, Any]:
+def comment_node(i: int, login: str = "rev", typename: str = "User", body: str | None = None) -> dict[str, Any]:
     return {
         "databaseId": 1000 + i,
         "author": {"login": login, "__typename": typename},
-        "body": f"comment {i}",
+        "body": body if body is not None else f"comment {i}",
         "createdAt": f"2026-09-23T00:{i // 60:02d}:{i % 60:02d}Z",
         "url": f"https://example.invalid/c{i}",
     }

@@ -304,6 +304,15 @@ class TestCopilotAuthorIdentification(unittest.TestCase):
         threads = self._run_selection(node)
         self.assertEqual(threads, [], "a human-opened thread must not be treated as Copilot")
 
+    def test_user_typed_author_with_copilot_login_not_selected(self) -> None:
+        # The login alone never identifies Copilot: the typed field decides.
+        node = _thread_node(
+            "IMPOSTOR",
+            author_login="copilot-pull-request-reviewer",
+            typename="User",
+        )
+        self.assertEqual(self._run_selection(node), [])
+
     def test_resolved_copilot_thread_not_selected(self) -> None:
         node = _thread_node(
             "COPILOT_RESOLVED",

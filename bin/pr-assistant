@@ -64,10 +64,10 @@ from core.github import (  # noqa: E402
     GhError,
     client,
     fetch_review_threads,
-    normalize_login,
     resolve_owner_repo,
     resolve_thread,
 )
+from core.github.copilot import copilot_threads  # noqa: E402
 from core.github.pulls import (  # noqa: E402
     pr_checks,
     pr_comment,
@@ -126,42 +126,25 @@ def create_pr(gh, base, title, body, dry_run):
 # Copilot review threads
 # ---------------------------------------------------------------------------
 
-COPILOT_BOT = "copilot-pull-request-reviewer"
-
-
 def fetch_copilot_threads(gh, owner, repo, pr_number):
     """Return list of unresolved Copilot review threads.
 
-    A thread qualifies when its ``source`` is ``graphql-thread`` (REST review
-    bodies and issue comments carry no thread_id and cannot be resolved),
-    ``is_resolved`` is false, and its opening author normalises to the Copilot
-    login. Now paginated through the full ``reviewThreads`` connection, so
-    threads beyond the first 50 are included; the previous first(50) query
-    silently dropped them.
+    Selection is ``core.github.copilot.copilot_threads``: a resolvable GraphQL
+    thread, unresolved, whose opening comment is a bot (``__typename``) with
+    the Copilot login. The fetch is fully paginated, and a truncated fetch
+    raises rather than resolving from a partial list.
     """
     doc, _raw = fetch_review_threads(gh, owner, repo, pr_number)
-    if doc.get("truncated"):
-        # A count GitHub reported did not match what came back. Resolving from
-        # a partial list and then posting "N unresolved" would present an
-        # incomplete run as complete, so stop instead.
-        raise GhError("review-thread fetch incomplete (reported counts did not match); rerun")
-    out = []
-    for entry in doc.get("threads") or []:
-        if entry.get("source") != "graphql-thread":
-            continue
-        if entry.get("is_resolved"):
-            continue
-        opening = (entry.get("comments") or [{}])[0]
-        opener = opening.get("author", "")
-        if normalize_login(opener) != COPILOT_BOT:
-            continue
-        out.append({
+    selected, _skipped = copilot_threads(doc)
+    return [
+        {
             "id": entry.get("thread_id"),
             "path": entry.get("path") or "",
             "line": entry.get("line") if entry.get("line") is not None else "",
             "body": entry.get("opening_body") or "",
-        })
-    return out
+        }
+        for entry in selected
+    ]
 
 
 # ---------------------------------------------------------------------------
