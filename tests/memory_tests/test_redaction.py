@@ -8,11 +8,21 @@ from memory.redaction import REDACTION_RULES, has_blocking, scan, scrub
 from tests.memory_tests.fixtures import dirty_memory_text
 
 
+# Samples for rules the shared dirty fixture does not cover; credentials are
+# assembled by concatenation so secret scanners do not flag this source.
+_EXTRA_RULE_SAMPLES = "\n".join(
+    [
+        "key: sk-" + "ant-api03-" + "x" * 40,  # anthropic-key
+        "slug: -home-alice-code-myproject",  # abs-home-path-slug-form-linux
+    ]
+)
+
+
 class TestEveryRuleFires(unittest.TestCase):
     """Each rule in REDACTION_RULES fires on the dirty fixture."""
 
     def test_every_rule_fires(self) -> None:
-        text = dirty_memory_text()
+        text = dirty_memory_text() + "\n" + _EXTRA_RULE_SAMPLES
         for rule in REDACTION_RULES:
             with self.subTest(rule_id=rule.rule_id):
                 if rule.requires_anonymize:
@@ -181,3 +191,84 @@ class TestScrub(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _ids(text: str) -> set[str]:
+    return {r.rule_id for r in scan(text)}
+
+
+class TestHardenedBlockRules(unittest.TestCase):
+    """Credential shapes previously missed must block; near-misses must not."""
+
+    def test_positive_shapes_block(self) -> None:
+        aws = "AKI" + "A" + "ABCDEFGHIJKLMNOP"
+        asia = "ASI" + "A" + "ABCDEFGHIJKLMNOP"
+        pat = "github" + "_pat_" + "A" * 82
+        ant = "sk-" + "ant-api03-" + "x" * 40
+        admin = "sk-" + "ant-admin01-" + "Ab_-" * 10
+        begin = "-----BEGIN "
+        end = " PRIVATE KEY-----"
+        cases = [
+            ("aws-access-key", "AWS_ACCESS_KEY_ID=" + aws),
+            ("aws-access-key", '"' + aws + '"'),
+            ("aws-access-key", "x: " + asia + ","),
+            ("aws-access-key", aws),
+            ("private-key-block", begin + "OPENSSH" + end),
+            ("private-key-block", begin + "EC" + end),
+            ("private-key-block", begin + "DSA" + end),
+            ("private-key-block", begin + "ENCRYPTED" + end),
+            ("private-key-block", begin + "RSA" + end),
+            ("private-key-block", begin + "PRIVATE KEY-----"),
+            ("github-token", "token=" + pat),
+            ("github-token", "github" + "_pat_" + "a" * 22),
+            ("anthropic-key", "ANTHROPIC_API_KEY=" + ant),
+            ("anthropic-key", '"' + admin + '"'),
+        ]
+        for rule_id, text in cases:
+            with self.subTest(rule_id=rule_id, text=text[:30]):
+                reds = scan(text)
+                self.assertIn(rule_id, {r.rule_id for r in reds})
+                self.assertTrue(has_blocking(reds))
+
+    def test_negative_shapes_do_not_match(self) -> None:
+        cases = [
+            ("aws-access-key", "AKI" + "A" + "ABCDEFGHIJKLMNO"),  # 15 chars
+            ("aws-access-key", "X" + "AKI" + "A" + "ABCDEFGHIJKLMNOP"),
+            ("aws-access-key", "AKI" + "A" + "ABCDEFGHIJKLMNOP" + "Q"),
+            ("private-key-block", "-----BEGIN " + "PUBLIC KEY-----"),
+            ("private-key-block", "-----BEGIN " + "CERTIFICATE-----"),
+            ("github-token", "github" + "_pat_" + "A" * 10),
+            ("github-token", "github" + "_pat"),
+            ("anthropic-key", "sk-" + "ant"),
+            ("anthropic-key", "sk-" + "ant-api03-short"),
+            ("anthropic-key", "ask-" + "ant-api03-" + "x" * 40),
+        ]
+        for rule_id, text in cases:
+            with self.subTest(rule_id=rule_id, text=text[:30]):
+                self.assertNotIn(rule_id, _ids(text))
+
+
+class TestHomePathHardening(unittest.TestCase):
+    """/home and -home- forms scrub with their own replacements."""
+
+    def test_home_path_scrubbed_to_tilde(self) -> None:
+        out, reds = scrub("at /home/alice/code/x")
+        self.assertEqual(out, "at ~/code/x")
+        self.assertIn("abs-home-path", {r.rule_id for r in reds})
+
+    def test_home_slug_scrubbed_without_users_form(self) -> None:
+        out, reds = scrub("slug: -home-alice-code-x")
+        self.assertEqual(out, "slug: -home-<home>-x")  # greedy name, as for -Users-
+        self.assertNotIn("Users", out)
+        self.assertIn("abs-home-path-slug-form-linux", {r.rule_id for r in reds})
+
+    def test_users_forms_unchanged(self) -> None:
+        self.assertEqual(scrub("/Users/bob/x")[0], "~/x")
+        self.assertEqual(scrub("-Users-bob-x")[0], "-Users-<home>-x")
+
+    def test_negative_home_shapes(self) -> None:
+        for text in ("/home", "/home/", "go /home now", "my-home-page-header", "a/home/"):
+            with self.subTest(text=text):
+                reds = _ids(text)
+                self.assertNotIn("abs-home-path", reds)
+                self.assertNotIn("abs-home-path-slug-form-linux", reds)

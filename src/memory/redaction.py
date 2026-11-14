@@ -51,7 +51,7 @@ REDACTION_RULES: tuple[RedactionRule, ...] = (
     RedactionRule(
         rule_id="aws-access-key",
         severity=SEVERITY_BLOCK,
-        pattern=re.compile(r"(?:^|\s)(AKIA|ASIA)[0-9A-Z]{16}(?:\s|$)", re.MULTILINE),
+        pattern=re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b", re.ASCII),
         replacement="[REDACTED_AWS_KEY]",
         description="AWS access key (AKIA/ASIA prefix)",
     ),
@@ -59,10 +59,10 @@ REDACTION_RULES: tuple[RedactionRule, ...] = (
         rule_id="private-key-block",
         severity=SEVERITY_BLOCK,
         pattern=re.compile(
-            r"-----BEGIN\s++(?:RSA\s++)?PRIVATE\s++KEY(?:\s++[^\n]*)?-----"
+            r"-----BEGIN[ \t]++(?:[A-Z0-9]++[ \t]++)*PRIVATE[ \t]++KEY(?:[ \t][^\n]*)?-----"
         ),
         replacement="[REDACTED_PRIVATE_KEY]",
-        description="PEM private key block header",
+        description="PEM private key block header (RSA/EC/DSA/OPENSSH/ENCRYPTED or bare)",
     ),
     RedactionRule(
         rule_id="bearer-token",
@@ -77,9 +77,19 @@ REDACTION_RULES: tuple[RedactionRule, ...] = (
     RedactionRule(
         rule_id="github-token",
         severity=SEVERITY_BLOCK,
-        pattern=re.compile(r"(?:ghp|gho|ghu|ghs|ghr)_\w{36,255}", re.ASCII),
+        pattern=re.compile(
+            r"(?:(?:ghp|gho|ghu|ghs|ghr)_\w{36,255}|github_pat_\w{22,255})",
+            re.ASCII,
+        ),
         replacement="[REDACTED_GITHUB_TOKEN]",
-        description="GitHub personal access token (ghp_/gho_/ghu_/ghs_/ghr_ prefix)",
+        description="GitHub token (ghp_/gho_/ghu_/ghs_/ghr_ or fine-grained github_pat_ prefix)",
+    ),
+    RedactionRule(
+        rule_id="anthropic-key",
+        severity=SEVERITY_BLOCK,
+        pattern=re.compile(r"\bsk-ant-[A-Za-z0-9]+-[A-Za-z0-9_\-]{20,}", re.ASCII),
+        replacement="[REDACTED_ANTHROPIC_KEY]",
+        description="Anthropic API key (sk-ant-<kind>- prefix, e.g. api03/admin01)",
     ),
     RedactionRule(
         rule_id="slack-token",
@@ -102,9 +112,9 @@ REDACTION_RULES: tuple[RedactionRule, ...] = (
     RedactionRule(
         rule_id="abs-home-path",
         severity=SEVERITY_SCRUB,
-        pattern=re.compile(r"/Users/([A-Za-z0-9._\-]+)/"),
+        pattern=re.compile(r"/(?:Users|home)/([A-Za-z0-9._\-]+)/"),
         replacement="~/",
-        description="Absolute home path (/Users/<name>/...)",
+        description="Absolute home path (/Users/<name>/ or /home/<name>/)",
     ),
     RedactionRule(
         rule_id="abs-home-path-slug-form",
@@ -112,6 +122,13 @@ REDACTION_RULES: tuple[RedactionRule, ...] = (
         pattern=re.compile(r"-Users-([A-Za-z0-9._\-]+)-"),
         replacement="-Users-<home>-",
         description="Home path slug encoding (-Users-<name>-...)",
+    ),
+    RedactionRule(
+        rule_id="abs-home-path-slug-form-linux",
+        severity=SEVERITY_SCRUB,
+        pattern=re.compile(r"(?<![A-Za-z0-9])-home-([A-Za-z0-9._\-]+)-"),
+        replacement="-home-<home>-",
+        description="Linux home path slug encoding (-home-<name>-...)",
     ),
     RedactionRule(
         rule_id="origin-session-id",

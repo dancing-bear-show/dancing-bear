@@ -71,7 +71,9 @@ def _private_key_rule() -> re.Pattern[str]:
 class TestPrivateKeyRegex(unittest.TestCase):
     def test_private_key_pattern_equivalent(self) -> None:
         old = r"-----BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY(?:\s+.*)?-----"
-        tokens = ["-----BEGIN", " ", "RSA", "PRIVATE", "KEY", "-----", "\n", "x", "\t"]
+        # No "\n" token: the hardened pattern deliberately limits header
+        # whitespace to space/tab; a newline inside a PEM header is not valid.
+        tokens = ["-----BEGIN", " ", "RSA", "PRIVATE", "KEY", "-----", "x", "\t"]
         assert_same_matches(old, _private_key_rule(), tokens, seed=4)
 
     def test_private_key_pattern_pathological_is_linear(self) -> None:
