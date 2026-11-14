@@ -7,7 +7,7 @@ from typing import Any
 
 ArgSpec = tuple[tuple[str, ...], dict[str, Any]]
 
-STORE_ARG: ArgSpec = (("--store",), {"metavar": "SLUG", "default": None, "help": "Project slug of one store"})
+STORE_ARG: ArgSpec = (("--store",), {"metavar": "SLUG", "default": None, "help": "Project slug of one store; write --store=SLUG (slugs start with -)"})
 ALL_STORES_ARG: ArgSpec = (("--all-stores",), {"action": "store_true", "help": "Use every discovered store"})
 DRY_RUN_ARG: ArgSpec = (("--dry-run",), {"action": "store_true", "help": "Preview without writing"})
 YES_ARG: ArgSpec = (("--yes",), {"action": "store_true", "help": "Skip confirmation"})

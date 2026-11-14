@@ -8,6 +8,7 @@ import io
 import os
 import unittest
 from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import patch
 
 from tests.memory_tests.fixtures import (
@@ -437,3 +438,21 @@ class TestEncodedCwdResolution(MemoryTestCase):
 
         with patch("memory.discovery.os.getcwd", return_value="/home/alice/src/proj"):
             self.assertIsNone(resolve_current_store((store,), strict=True))
+
+    def test_strict_never_claims_home_store_for_project_without_one(self):
+        # A store for $HOME itself exists once Claude is launched from ~; a
+        # strict (write) lookup from a project with no store must not land in it.
+        home = Path.home()
+        home_store = _make_store(encode_path_slug(str(home)), inferred_repo=None)
+        project = str(home / "code" / "storeless")
+
+        with patch("memory.discovery.os.getcwd", return_value=project):
+            self.assertIsNone(resolve_current_store((home_store,), strict=True))
+            self.assertIs(resolve_current_store((home_store,)), home_store)
+
+    def test_strict_still_matches_store_below_home(self):
+        home = Path.home()
+        proj_store = _make_store(encode_path_slug(str(home / "code" / "p")), inferred_repo=None)
+
+        with patch("memory.discovery.os.getcwd", return_value=str(home / "code" / "p" / "pkg")):
+            self.assertIs(resolve_current_store((proj_store,), strict=True), proj_store)

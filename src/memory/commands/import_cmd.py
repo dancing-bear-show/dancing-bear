@@ -228,29 +228,29 @@ def _scan_fields(em: ExportedMemory) -> tuple[Redaction, ...]:
     return tuple(r for text in texts for r in scan(text))
 
 
-def _select_store(store_slug: str | None) -> MemoryStore | None:
+def _select_store(store_slug: str | None) -> MemoryStore | int:
     """Pick the write target: --store exactly, else a strict cwd match.
 
-    Prints the reason to stderr and returns None when no target can be chosen;
-    never guesses a store for a write.
+    Returns an exit code (after printing the reason to stderr) when no target
+    can be chosen; never guesses a store for a write.
     """
     if store_slug:
         try:
             return load_store(store_slug)
         except Exception as exc:  # NOSONAR - CLI boundary: surface as a validation error, never a raw traceback
-            validation_error("--store", str(exc))
-            return None
+            return validation_error("--store", str(exc))
     all_stores = discover_stores()
     if not all_stores:
         print("No memory stores found.", file=sys.stderr)
-        return None
+        return 1
     store = resolve_current_store(all_stores, strict=True)
     if store is None:
         print(
-            "[memory] No store matches the current directory; pass --store SLUG "
+            "[memory] No store matches the current directory; pass --store=SLUG "
             "(see `memory stores`).",
             file=sys.stderr,
         )
+        return 1
     return store
 
 
@@ -271,8 +271,8 @@ def run(args: argparse.Namespace) -> int:
         return validation_error("bundle", "contains blocking redaction issues and cannot be imported")
 
     store = _select_store(args.store)
-    if store is None:
-        return 1
+    if isinstance(store, int):
+        return store
 
     dispositions: list[dict] = []
     for counter, em in enumerate(bundle.memories, start=1):

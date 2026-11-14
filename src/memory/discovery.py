@@ -211,14 +211,22 @@ def encode_path_slug(path: str) -> str:
 
 
 def _match_by_encoded_cwd(
-    stores: tuple[MemoryStore, ...], cwd: str
+    stores: tuple[MemoryStore, ...], cwd: str, *, below_home: bool = False
 ) -> MemoryStore | None:
-    """Return the store whose slug encodes cwd or its most specific ancestor."""
+    """Return the store whose slug encodes cwd or its most specific ancestor.
+
+    below_home=True stops the walk before $HOME: a store for the home
+    directory itself (Claude once launched from ~) would otherwise claim
+    every project under it that has no store of its own.
+    """
     by_slug = {s.project_slug: s for s in stores}
     current = Path(cwd)
+    home = Path.home()
     for candidate in (current, *current.parents):
         if candidate == candidate.parent:
             break  # filesystem root: its slug ('-') is never a project
+        if below_home and (candidate == home or candidate in home.parents):
+            break
         store = by_slug.get(encode_path_slug(str(candidate)))
         if store is not None:
             return store
@@ -236,7 +244,7 @@ def resolve_current_store(
     which returns None so write paths never guess a target.
     """
     cwd = os.getcwd()
-    matched = _match_by_encoded_cwd(stores, cwd)
+    matched = _match_by_encoded_cwd(stores, cwd, below_home=strict)
     if matched is not None:
         return matched
     for store in stores:
