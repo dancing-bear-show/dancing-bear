@@ -5,8 +5,8 @@ The transcript provider (``pricing.compute_cost``) and OTel analytics
 model was priced differently depending on which command reported it.
 
 Parity is asserted for the cost helpers only (``compute_cost`` vs the
-``compute_raw_cost`` path behind ``_build_model_costs``); the legacy formulas in
-``get_model_performance`` and prompt metrics are not covered.
+``compute_raw_cost`` path behind ``_build_model_costs``); the legacy formula in
+prompt metrics is not covered.
 """
 
 import unittest
@@ -129,7 +129,8 @@ class TestPricingKeyVariants(unittest.TestCase):
         cases = {
             "claude-opus-4-10": "claude-opus",
             "claude-opus-4-1m": "claude-opus-4-7-1m",
-            "claude-opus-5[1m]": "claude-opus-4-7-1m",
+            "claude-opus-5[1m]": "claude-opus-5",
+            "claude-opus-5-6": "claude-opus",
             "claude-opus-5-5[1m]": "claude-opus-5-5",
             "some-sonnet-1m-extended-context": "claude-sonnet-4-8-1m",
             "completely-unrecognized-model-xyz": "claude-haiku-4-5",

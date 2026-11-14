@@ -66,8 +66,17 @@ class TestSafeFloat(unittest.TestCase):
     def test_zero_float(self) -> None:
         self.assertEqual(_safe_float(0.0, 99.0), 0.0)
 
+    def test_oversized_int_returns_default(self) -> None:
+        # float() of a JSON integer beyond the double range raises OverflowError.
+        self.assertEqual(_safe_float(10**400, 0.0), 0.0)
+
 
 class TestSafeInt(unittest.TestCase):
+    def test_overflow_returns_default(self) -> None:
+        # int(float("1e400")) is int(inf), which raises OverflowError.
+        self.assertEqual(_safe_int("1e400", 0), 0)
+        self.assertEqual(_safe_int(10**400, 0), 0)
+
     def test_int_passthrough(self) -> None:
         self.assertEqual(_safe_int(42, 0), 42)
 

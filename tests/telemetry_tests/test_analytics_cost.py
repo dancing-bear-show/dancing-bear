@@ -306,6 +306,55 @@ class TestGetModelPricing(unittest.TestCase):
         self.assertEqual(result, MODEL_PRICING["claude-sonnet-5"])
 
 
+class TestCurrentModelIdPricing(unittest.TestCase):
+    """Current-generation ids, Claude Code's bare aliases, and version boundaries."""
+
+    def test_current_generation_ids(self):
+        cases = {
+            "claude-opus-5-5": (4.0, 20.0),
+            "claude-opus-5": (5.0, 25.0),
+            "claude-sonnet-5-5": (2.0, 10.0),
+            "claude-haiku-5-5": (0.10, 0.50),
+            "claude-fable-5-1": (10.0, 50.0),
+        }
+        for model, expected in cases.items():
+            with self.subTest(model=model):
+                self.assertEqual(get_model_pricing(model), expected)
+
+    def test_haiku_5_5_variants_do_not_fall_back_to_haiku_4_5(self):
+        for model in ("claude-haiku-5-5-20261101", "anthropic.claude-haiku-5-5", "claude-haiku-5.5"):
+            with self.subTest(model=model):
+                self.assertEqual(get_model_pricing(model), (0.10, 0.50))
+
+    def test_bare_aliases_track_current_models(self):
+        cases = {
+            "opus": (4.0, 20.0),
+            "Opus": (4.0, 20.0),
+            "sonnet": (2.0, 10.0),
+            "sonnet[1m]": (2.0, 10.0),
+            "haiku": (0.10, 0.50),
+        }
+        for model, expected in cases.items():
+            with self.subTest(model=model):
+                self.assertEqual(get_model_pricing(model), expected)
+
+    def test_bare_opus_alias_inherits_opus_5_5_cache_read_rate(self):
+        self.assertEqual(get_cache_read_multiplier("opus"), 0.05)
+
+    def test_dotted_version_matches_hyphenated(self):
+        self.assertEqual(get_model_pricing("claude-opus-5.5"), (4.0, 20.0))
+        self.assertEqual(get_model_pricing("claude-sonnet-5.5"), (2.0, 10.0))
+
+    def test_unlisted_newer_minor_is_not_priced_as_older_minor(self):
+        # "sonnet-5" must not match "sonnet-5-6"; "opus-5-5" must not match "opus-5-50".
+        self.assertEqual(get_model_pricing("claude-sonnet-5-6"), MODEL_PRICING["claude-sonnet"])
+        self.assertEqual(get_model_pricing("claude-opus-5-50"), MODEL_PRICING["claude-opus"])
+
+    def test_date_and_context_suffixes_still_match(self):
+        self.assertEqual(get_model_pricing("claude-opus-5-5-20261001"), (4.0, 20.0))
+        self.assertEqual(get_model_pricing("claude-sonnet-5-5[1m]"), (2.0, 10.0))
+
+
 # ---------------------------------------------------------------------------
 # _aggregate_requests_by_key
 # ---------------------------------------------------------------------------
@@ -1072,22 +1121,22 @@ class TestGetModelPerformance(unittest.TestCase):
         self.assertAlmostEqual(perf.p95_latency_ms, 500.0, places=1)
 
     @mock.patch("telemetry.otel.analytics.cost.OTLPReader")
-    def test_cost_formula_omits_cache_read(self, mock_reader_cls):
-        # get_model_performance cost = input + output + cache_creation*1 (NOT 1.25)
-        # and does NOT include cache_read term at all
+    def test_cost_prices_cache_writes_and_reads(self, mock_reader_cls):
+        # Same formula as get_all_costs: cache writes at 1.25x input, cache
+        # reads at 0.1x input. It once billed writes at 1x and dropped reads.
         record = _make_events_record([
             _make_api_request_event(
                 "s1", model="claude-haiku-4-5",
                 input_tokens=1_000_000, output_tokens=1_000_000,
-                cache_creation_tokens=1_000_000, cache_read_tokens=999_999,
+                cache_creation_tokens=1_000_000, cache_read_tokens=1_000_000,
             ),
         ])
         mock_reader_cls.return_value.read_events.return_value = [record]
         from telemetry.otel.reader import OTLPDataDir
         result = get_model_performance(data_dir=OTLPDataDir.default())
         perf = result[0]
-        # haiku: $1 input + $5 output + $1 cache_creation (1.0x not 1.25x)
-        expected_cost = 1.0 + 5.0 + 1.0
+        # haiku-4-5: $1 input + $5 output + $1.25 cache writes + $0.10 cache reads
+        expected_cost = 1.0 + 5.0 + 1.25 + 0.1
         self.assertAlmostEqual(perf.cost, expected_cost, places=4)
 
     @mock.patch("telemetry.otel.analytics.cost.OTLPReader")

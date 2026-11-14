@@ -45,6 +45,40 @@ class TestParseSession(unittest.TestCase):
                 f.write(json.dumps(rec) + "\n")
         return path
 
+    def test_content_block_copies_of_one_call_counted_once(self):
+        # One turn written as three records (thinking, text, tool_use) sharing
+        # message.id/requestId; output_tokens climbs to its final value.
+        def block(out: int) -> dict:
+            return {
+                "type": "assistant",
+                "requestId": "req-1",
+                "timestamp": "2026-04-16T10:00:00Z",
+                "message": {
+                    "id": "msg-1",
+                    "model": "claude-opus-4-6",
+                    "usage": {
+                        "input_tokens": 2,
+                        "output_tokens": out,
+                        "cache_read_input_tokens": 700,
+                        "cache_creation_input_tokens": 30,
+                    },
+                },
+            }
+
+        stats = parse_session(self._write_jsonl([block(3), block(3), block(161)]))
+        self.assertEqual(stats.input_tokens, 2)
+        self.assertEqual(stats.output_tokens, 161)
+        self.assertEqual(stats.cache_read_tokens, 700)
+        self.assertEqual(stats.cache_create_tokens, 30)
+
+    def test_null_usage_does_not_raise(self):
+        path = self._write_jsonl([
+            {"type": "assistant", "message": {"model": "claude-opus-4-6", "usage": None}},
+            {"type": "user", "toolUseResult": {"agentId": "a", "usage": None}},
+        ])
+        stats = parse_session(path)
+        self.assertEqual(stats.total_tokens, 0)
+
     def test_assistant_usage(self):
         path = self._write_jsonl([
             {
@@ -265,6 +299,23 @@ class TestPricing(unittest.TestCase):
     def test_compute_cost_other_opus_1m_unaffected(self, _mult):
         cost = compute_cost(TokenMetrics(1_000_000, 0, 0, 0), "claude-opus-5[1m]")
         self.assertAlmostEqual(cost, 5.0, places=2)
+
+    @mock.patch("telemetry.pricing._cost_multiplier", return_value=1.0)
+    def test_compute_cost_one_hour_cache_writes_price_at_2x(self, _mult):
+        # 1M cache writes on sonnet-4-6 ($3/M): 5m TTL = 1.25x, 1h TTL = 2.0x.
+        all_5m = compute_cost(TokenMetrics(0, 0, 0, 1_000_000), "claude-sonnet-4-6")
+        all_1h = compute_cost(TokenMetrics(0, 0, 0, 1_000_000, 1_000_000), "claude-sonnet-4-6")
+        mixed = compute_cost(TokenMetrics(0, 0, 0, 1_000_000, 400_000), "claude-sonnet-4-6")
+        self.assertAlmostEqual(all_5m, 3.75, places=6)
+        self.assertAlmostEqual(all_1h, 6.0, places=6)
+        self.assertAlmostEqual(mixed, 0.6 * 3.75 + 0.4 * 6.0, places=6)
+
+    @mock.patch("telemetry.pricing._cost_multiplier", return_value=1.0)
+    def test_compute_cost_one_hour_share_is_capped_at_total_writes(self, _mult):
+        # An inconsistent record (1h count above the total) never prices more
+        # tokens than were written.
+        cost = compute_cost(TokenMetrics(0, 0, 0, 100, 500), "claude-sonnet-4-6")
+        self.assertAlmostEqual(cost, 100 * 3.0 * 2.0 / 1_000_000, places=9)
 
     def test_zero_tokens(self):
         cost = compute_cost(TokenMetrics(0, 0, 0, 0), "claude-opus-4-6")
