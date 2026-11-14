@@ -365,6 +365,16 @@ class TestImportHelpers(MemoryTestCase):
 
         self.assertTrue(import_cmd._is_native_file(missing))
 
+    def test_is_native_file_true_when_marker_word_only_in_body(self) -> None:
+        native = self.tmp / "mentions.md"
+        native.write_text(
+            f"---\nname: native\ndescription: about {IMPORT_MARKER_KEY}\n---\n\n"
+            f"discusses {IMPORT_MARKER_KEY} in prose\n",
+            encoding="utf-8",
+        )
+
+        self.assertTrue(import_cmd._is_native_file(native))
+
 
 # ---------------------------------------------------------------------------
 # import_cmd — CLI coverage
@@ -377,6 +387,15 @@ class TestImportMainCli(MemoryTestCase):
     def setUp(self) -> None:
         super().setUp()
         self.projects_root = make_projects_root(self.tmp)
+        # These tests exercise dispositions, not store targeting: pin the
+        # strict cwd resolver to the single patched store (targeting is
+        # covered by TestImportStoreTargeting).
+        patcher = patch(
+            "memory.commands.import_cmd.resolve_current_store",
+            side_effect=lambda stores, strict=False: stores[0] if stores else None,
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_bad_bundle_path_returns_validation_error(self) -> None:
         rc, _, _ = _run_import([str(self.tmp / "does-not-exist.yaml")])
@@ -703,7 +722,10 @@ class TestExportImportRoundTrip(MemoryTestCase):
         import_memory_dir.mkdir(parents=True)
         import_store = load_store(import_slug, projects_root=import_projects_dir)
 
-        with patch("memory.commands.import_cmd.discover_stores", return_value=(import_store,)):
+        with (
+            patch("memory.commands.import_cmd.discover_stores", return_value=(import_store,)),
+            patch("memory.commands.import_cmd.resolve_current_store", return_value=import_store),
+        ):
             import_rc, out, _ = _run_import([str(out_path), "--format", "json"])
 
         self.assertEqual(import_rc, 0)
@@ -714,3 +736,123 @@ class TestExportImportRoundTrip(MemoryTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------------------
+# import_cmd — store targeting and field scanning
+# ---------------------------------------------------------------------------
+
+_LINUX_CWD = "/home/alice/src/proj"
+_LINUX_SLUG = "-home-alice-src-proj"
+_OTHER_SLUG = "-home-alice-src-other"
+
+
+class TestImportStoreTargeting(MemoryTestCase):
+    """import must write only to a matched or explicitly named store."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.projects = self.home / ".claude" / "projects"
+        self.projects.mkdir(parents=True)
+        self.proj_mem = self._make_store(_LINUX_SLUG, mtime=1_000_000)
+        # The unrelated store is NEWER, so elect_canonical would pick it.
+        self.other_mem = self._make_store(_OTHER_SLUG, mtime=2_000_000)
+        self.bundle_path = _write_bundle_file(self.tmp, sample_bundle())
+
+    def _make_store(self, slug: str, *, mtime: int) -> Path:
+        memory_dir = self.projects / slug / "memory"
+        memory_dir.mkdir(parents=True)
+        seed = memory_dir / "seed.md"
+        seed.write_text("---\nname: seed\ndescription: d\n---\n\nbody\n", encoding="utf-8")
+        os.utime(seed, (mtime, mtime))
+        return memory_dir
+
+    def _files(self, memory_dir: Path) -> set[str]:
+        return {p.name for p in memory_dir.glob("*.md")}
+
+    def test_linux_cwd_resolves_to_encoded_store(self) -> None:
+        with patch("memory.discovery.os.getcwd", return_value=_LINUX_CWD + "/pkg"):
+            rc, _, _ = _run_import([str(self.bundle_path)])
+
+        self.assertEqual(rc, 0)
+        self.assertIn("imported_test_memory.md", self._files(self.proj_mem))
+        self.assertNotIn("imported_test_memory.md", self._files(self.other_mem))
+
+    def test_unmatched_cwd_exits_1_and_writes_nothing(self) -> None:
+        with patch("memory.discovery.os.getcwd", return_value="/srv/unrelated"):
+            rc, _, err = _run_import([str(self.bundle_path), "--reindex"])
+
+        self.assertEqual(rc, 1)
+        self.assertIn("--store", err)
+        self.assertEqual(self._files(self.proj_mem), {"seed.md"})
+        self.assertEqual(self._files(self.other_mem), {"seed.md"})
+
+    def test_store_flag_writes_into_named_store(self) -> None:
+        with patch("memory.discovery.os.getcwd", return_value="/srv/unrelated"):
+            rc, _, _ = _run_import([str(self.bundle_path), f"--store={_OTHER_SLUG}"])
+
+        self.assertEqual(rc, 0)
+        self.assertIn("imported_test_memory.md", self._files(self.other_mem))
+        self.assertNotIn("imported_test_memory.md", self._files(self.proj_mem))
+
+    def test_store_flag_rejects_escaping_slug(self) -> None:
+        rc, _, err = _run_import([str(self.bundle_path), "--store", "../../etc"])
+
+        self.assertEqual(rc, 1)
+        self.assertIn("--store", err)
+
+    def _bundle_with(self, **changes: object) -> Path:
+        import dataclasses
+
+        bundle = sample_bundle()
+        em = bundle.memories[0]
+        fm = dataclasses.replace(em.frontmatter, **changes)
+        dirty = dataclasses.replace(em, frontmatter=fm)
+        return _write_bundle_file(
+            self.tmp,
+            MemoryBundle(
+                bundle_version=bundle.bundle_version,
+                created_at=bundle.created_at,
+                memories=(dirty,),
+                notes=bundle.notes,
+            ),
+        )
+
+    def test_blocking_secret_in_description_rejected(self) -> None:
+        path = self._bundle_with(description="token " + "gh" + "p_" + "A" * 36)
+
+        rc, _, err = _run_import([str(path), f"--store={_LINUX_SLUG}"])
+
+        self.assertEqual(rc, 1)
+        self.assertIn("blocking", err)
+        self.assertEqual(self._files(self.proj_mem), {"seed.md"})
+
+    def test_blocking_secret_in_name_rejected(self) -> None:
+        path = self._bundle_with(name="gh" + "p_" + "A" * 36)
+
+        rc, _, _ = _run_import([str(path), f"--store={_LINUX_SLUG}"])
+
+        self.assertEqual(rc, 1)
+
+    def test_blocking_secret_in_unknown_keys_rejected(self) -> None:
+        path = self._bundle_with(unknown_keys={"note": "gh" + "p_" + "A" * 36})
+
+        rc, _, _ = _run_import([str(path), f"--store={_LINUX_SLUG}"])
+
+        self.assertEqual(rc, 1)
+
+    def test_native_memory_mentioning_marker_not_overwritten(self) -> None:
+        target = self.proj_mem / "imported_test_memory.md"
+        native = (
+            f"---\nname: native\ndescription: about {IMPORT_MARKER_KEY}\n---\n\n"
+            f"prose mentioning {IMPORT_MARKER_KEY}\n"
+        )
+        target.write_text(native, encoding="utf-8")
+
+        rc, out, _ = _run_import(
+            [str(self.bundle_path), f"--store={_LINUX_SLUG}", "--on-conflict", "overwrite", "--format", "json"]
+        )
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(json.loads(out)[0]["action"], "error")
+        self.assertEqual(target.read_text(encoding="utf-8"), native)

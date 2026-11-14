@@ -23,6 +23,7 @@ from memory.discovery import (
     elect_canonical,
     is_worktree_slug,
     load_store,
+    encode_path_slug,
     resolve_current_store,
 )
 from memory.models import MemoryStore
@@ -396,3 +397,43 @@ class TestResolveCurrentStore(MemoryTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestEncodedCwdResolution(MemoryTestCase):
+    def test_encode_path_slug_replaces_slash_and_dot(self):
+        self.assertEqual(encode_path_slug("/home/a/src/p"), "-home-a-src-p")
+        self.assertEqual(
+            encode_path_slug("/Users/a/code/r/.claude/worktrees/w"),
+            "-Users-a-code-r--claude-worktrees-w",
+        )
+
+    def test_linux_slug_matches_cwd_without_inferred_repo(self):
+        mine = _make_store("-home-alice-src-proj", inferred_repo=None)
+        other = _make_store("-home-alice-src-other", inferred_repo=None)
+
+        with patch("memory.discovery.os.getcwd", return_value="/home/alice/src/proj"):
+            result = resolve_current_store((other, mine), strict=True)
+
+        self.assertIs(result, mine)
+
+    def test_most_specific_ancestor_wins(self):
+        outer = _make_store("-home-alice-src", inferred_repo=None)
+        inner = _make_store("-home-alice-src-proj", inferred_repo=None)
+
+        with patch("memory.discovery.os.getcwd", return_value="/home/alice/src/proj/pkg"):
+            result = resolve_current_store((outer, inner), strict=True)
+
+        self.assertIs(result, inner)
+
+    def test_strict_returns_none_when_nothing_matches(self):
+        store = _make_store("-home-alice-src-other", inferred_repo=None)
+
+        with patch("memory.discovery.os.getcwd", return_value="/srv/elsewhere"):
+            self.assertIsNone(resolve_current_store((store,), strict=True))
+            self.assertIs(resolve_current_store((store,)), store)
+
+    def test_sibling_with_shared_prefix_does_not_match(self):
+        store = _make_store("-home-alice-src-proj-extra", inferred_repo=None)
+
+        with patch("memory.discovery.os.getcwd", return_value="/home/alice/src/proj"):
+            self.assertIsNone(resolve_current_store((store,), strict=True))

@@ -1,4 +1,4 @@
-"""CLI subcommand: import a MemoryBundle into the current store.
+"""CLI subcommand: import a MemoryBundle into the current (or --store) store.
 
 Re-scans every body for block-severity redactions on ingest regardless of
 what the bundle reports. Renders as nested-dialect markdown with namespaced
@@ -17,11 +17,12 @@ from pathlib import Path
 from core.cli_output import emit_rows
 from core.fileutil import atomic_write_text
 from core.text_utils import slugify
-from memory.commands._common import DRY_RUN_ARG, ArgSpec, format_arg, validation_error
+from memory.commands._common import DRY_RUN_ARG, STORE_ARG, ArgSpec, format_arg, validation_error
 from memory.bundle import IMPORT_MARKER_KEY, load_bundle, render_imported_memory
-from memory.discovery import discover_stores, resolve_current_store
+from memory.discovery import discover_stores, load_store, resolve_current_store
 from memory.index import append_entry
-from memory.models import ExportedMemory, MemoryStore
+from memory.models import ExportedMemory, MemoryStore, Redaction
+from memory.parser import parse_frontmatter
 from memory.redaction import has_blocking, scan
 
 _IMPORT_HEADERS = ["slug", "action", "target", "reason"]
@@ -73,12 +74,17 @@ def _derive_slug(em: ExportedMemory, counter: int) -> str:
 
 
 def _is_native_file(path: Path) -> bool:
-    """Return True if the file lacks the import provenance marker."""
+    """Return True unless the frontmatter carries metadata.<import marker>.
+
+    The marker is checked in parsed frontmatter, never by substring: a native
+    memory whose body or description merely mentions the word must stay native.
+    """
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
-        return _NATIVE_GUARD_MARKER not in text
-    except OSError:
-        return True  # Treat unreadable as native to be safe
+        frontmatter = parse_frontmatter(text)
+    except (OSError, ValueError, TypeError):
+        return True  # Treat unreadable/unparseable as native to be safe
+    return f"metadata.{_NATIVE_GUARD_MARKER}" not in frontmatter.unknown_keys
 
 
 def _write_atomic(content: str, dest: Path) -> None:
@@ -194,12 +200,58 @@ def _process_memory(
 
 ARGUMENTS: list[ArgSpec] = [
     (("bundle_path",), {"help": "Bundle file (YAML or JSON)"}),
+    STORE_ARG,
     (("--on-conflict",), {"choices": ["skip", "rename", "overwrite"], "default": "skip", "help": "Existing-file policy"}),
     (("--reindex",), {"action": "store_true", "help": "Append imports to MEMORY.md"}),
     (("--prefix",), {"default": "imported_", "help": "Filename prefix for imports"}),
     format_arg(["json", "table", "csv"], "json"),
     DRY_RUN_ARG,
 ]
+
+
+def _string_values(value: object) -> list[str]:
+    """Collect every string inside a (possibly nested) frontmatter value."""
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        return [v for item in value.values() for v in _string_values(item)]
+    if isinstance(value, (list, tuple)):
+        return [v for item in value for v in _string_values(item)]
+    return []
+
+
+def _scan_fields(em: ExportedMemory) -> tuple[Redaction, ...]:
+    """Scan body, name, description, and unknown_keys values (all rendered)."""
+    fm = em.frontmatter
+    texts = [em.body, fm.name or "", fm.description or ""]
+    texts.extend(_string_values(fm.unknown_keys))
+    return tuple(r for text in texts for r in scan(text))
+
+
+def _select_store(store_slug: str | None) -> MemoryStore | None:
+    """Pick the write target: --store exactly, else a strict cwd match.
+
+    Prints the reason to stderr and returns None when no target can be chosen;
+    never guesses a store for a write.
+    """
+    if store_slug:
+        try:
+            return load_store(store_slug)
+        except Exception as exc:  # NOSONAR - CLI boundary: surface as a validation error, never a raw traceback
+            validation_error("--store", str(exc))
+            return None
+    all_stores = discover_stores()
+    if not all_stores:
+        print("No memory stores found.", file=sys.stderr)
+        return None
+    store = resolve_current_store(all_stores, strict=True)
+    if store is None:
+        print(
+            "[memory] No store matches the current directory; pass --store SLUG "
+            "(see `memory stores`).",
+            file=sys.stderr,
+        )
+    return store
 
 
 def run(args: argparse.Namespace) -> int:
@@ -213,15 +265,13 @@ def run(args: argparse.Namespace) -> int:
     except Exception as exc:  # NOSONAR - CLI boundary: surface as a validation error, never a raw traceback
         return validation_error("bundle_path", f"could not load bundle: {exc}")
 
-    # Re-scan every body — never trust the bundle's self-reported cleanliness
-    combined_redactions = tuple(r for em in bundle.memories for r in scan(em.body))
+    # Re-scan every rendered field — never trust the bundle's self-reported cleanliness
+    combined_redactions = tuple(r for em in bundle.memories for r in _scan_fields(em))
     if has_blocking(combined_redactions):
         return validation_error("bundle", "contains blocking redaction issues and cannot be imported")
 
-    all_stores = discover_stores()
-    store = resolve_current_store(all_stores)
+    store = _select_store(args.store)
     if store is None:
-        print("No memory stores found.", file=sys.stderr)
         return 1
 
     dispositions: list[dict] = []

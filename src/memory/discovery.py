@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -14,6 +15,7 @@ __all__ = [
     "decode_project_slug",
     "discover_stores",
     "elect_canonical",
+    "encode_path_slug",
     "is_worktree_slug",
     "load_store",
     "resolve_current_store",
@@ -197,16 +199,49 @@ def elect_canonical(stores: tuple[MemoryStore, ...]) -> MemoryStore | None:
     return max(candidates, key=lambda s: (_newest_mtime(s), s.project_slug))
 
 
-def resolve_current_store(stores: tuple[MemoryStore, ...]) -> MemoryStore | None:
+def encode_path_slug(path: str) -> str:
+    """Encode a filesystem path the way Claude Code names its project dirs.
+
+    Every character outside [A-Za-z0-9] (notably '/' and '.') becomes '-', so
+    '/home/a/src/p' -> '-home-a-src-p' and '/r/.claude/worktrees/w' ->
+    '-r--claude-worktrees-w'. Unlike decode_project_slug this direction is
+    exact, so it works for any home layout and any repo location.
+    """
+    return re.sub(r"[^A-Za-z0-9]", "-", path)
+
+
+def _match_by_encoded_cwd(
+    stores: tuple[MemoryStore, ...], cwd: str
+) -> MemoryStore | None:
+    """Return the store whose slug encodes cwd or its most specific ancestor."""
+    by_slug = {s.project_slug: s for s in stores}
+    current = Path(cwd)
+    for candidate in (current, *current.parents):
+        if candidate == candidate.parent:
+            break  # filesystem root: its slug ('-') is never a project
+        store = by_slug.get(encode_path_slug(str(candidate)))
+        if store is not None:
+            return store
+    return None
+
+
+def resolve_current_store(
+    stores: tuple[MemoryStore, ...], *, strict: bool = False
+) -> MemoryStore | None:
     """Pick the store most relevant to the current working directory.
 
-    Prefers a store whose inferred_repo is a path prefix of cwd. Falls back
-    to elect_canonical when no repo prefix matches.
+    Prefers a store whose slug equals the encoded cwd (or the encoded form of
+    the nearest ancestor), then one whose inferred_repo is a path prefix of
+    cwd. When nothing matches, falls back to elect_canonical — unless strict,
+    which returns None so write paths never guess a target.
     """
     cwd = os.getcwd()
+    matched = _match_by_encoded_cwd(stores, cwd)
+    if matched is not None:
+        return matched
     for store in stores:
         if store.inferred_repo and (
             cwd == store.inferred_repo or cwd.startswith(store.inferred_repo + "/")
         ):
             return store
-    return elect_canonical(stores)
+    return None if strict else elect_canonical(stores)
