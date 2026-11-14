@@ -421,7 +421,7 @@ stages:
       Run from the repo root (strip the common 8-space indent from the body):
 
         python3 -I -S - "{workspace}" "{source_root}" "{test_path}" <<'PYEOF'
-        import json, os, sys
+        import json, os, re, sys
 
         ws = sys.argv[1]
         source_root = sys.argv[2]
@@ -441,6 +441,8 @@ stages:
                 bad_paths.append(p + ": absolute path not allowed")
             elif ".." in parts:
                 bad_paths.append(p + ": '..' component not allowed")
+            elif not re.fullmatch(r"[A-Za-z0-9_./-]+", p):
+                bad_paths.append(repr(p) + ": only [A-Za-z0-9_./-] characters allowed")
             elif not (p.startswith(source_root + "/") or p.startswith(test_path + "/")):
                 bad_paths.append(p + ": must start with " + source_root + "/ or " + test_path + "/")
         if bad_paths:
@@ -823,8 +825,8 @@ stages:
             cov_run = run(["python3", "-m", "coverage", "run", "--include=" + include] + scoped)
             cov_out = run(["python3", "-m", "coverage", "json", "--include=" + include, "-o", cov_json])
         else:
-            cov_run = dict(exit_code=0, output="(no source files)")
-            cov_out = dict(exit_code=0, output="(no source files)")
+            cov_run = dict(exit_code=1, output="(no source files)")
+            cov_out = dict(exit_code=1, output="(no source files)")
 
         pct = 0.0
         uncovered = []
@@ -841,7 +843,9 @@ stages:
         except (FileNotFoundError, json.JSONDecodeError):  # nosec B110 - missing report leaves pct at 0.0 and fails the gate below
             if not cov_note:
                 cov_note = "coverage.json missing or invalid -- no data reported"
-        coverage_passed = (not source_files) or (cov_run["exit_code"] == 0 and cov_out["exit_code"] == 0 and pct >= coverage_threshold)
+        coverage_passed = bool(source_files) and cov_run["exit_code"] == 0 and cov_out["exit_code"] == 0 and pct >= coverage_threshold
+        if not source_files:
+            cov_note = "no source files under " + source_root + "/ in scaffold-spec.json; the plan must produce at least one"
 
         results = dict(
             lint=lint_result,
@@ -934,7 +938,8 @@ stages:
   # -- Re-verify after corrections -----------------------------------------------
   # code-correct edits source files; nothing downstream re-runs the gate, so a
   # bad or incomplete fix would ship unverified. Re-run the same hard gate that
-  # run-tests applied, but only when corrections were actually made.
+  # run-tests applied, unconditionally: code-correct is optional and can edit
+  # files then fail before recording corrections-applied.json.
 
   - name: verify-corrections
     kind: gather
@@ -942,15 +947,17 @@ stages:
     depends_on: [code-correct]
     reads_from: [code-correct, run-tests]
     description: |
-      If validation/corrections-applied.json is absent or contains an empty
-      array, skip: the run-tests gate already passed and source is unchanged.
-      Write outputs/verify-corrections.json with {"skipped": true} and finish.
+      Always run every gate; never skip. code-correct is optional and may fail
+      after editing files but before writing validation/corrections-applied.json,
+      so that file is not trusted as evidence that source is unchanged.
 
-      Otherwise run each gate command below via the Bash tool from the repo root.
+      Run each gate command below via the Bash tool from the repo root.
 
       Step 1 — load scaffolded file list from outputs/scaffold-spec.json files[*].path.
         Filter to source_files only: paths that start with {source_root}/ and NOT
         with {test_path}/. Use this filtered list (not all spec files) for Steps 2 and 5.
+        If the filtered list is empty, fail the stage with "no source files under
+        {source_root}/" -- an empty coverage scope must not pass vacuously.
 
       Step 2 — lint (same gate as run-tests):
         ~/.qlty/bin/qlty check <file1> <file2> ...
@@ -996,7 +1003,7 @@ stages:
       Run from the repo root (strip the common 8-space indent from the body):
 
         python3 -I -S - "{workspace}" <<'PYEOF'
-        import json, os, subprocess, sys
+        import json, os, re, subprocess, sys
 
         ws = sys.argv[1]
         if not ws:
@@ -1004,6 +1011,8 @@ stages:
         with open(os.path.join(ws, "outputs", "scaffold-spec.json"), encoding="utf-8") as fh:
             spec = json.load(fh)
         paths = [entry["path"] for entry in spec["files"]]
+
+        stub_comment = re.compile(r"[ \t]*#[ \t]*SONNET-REVIEW: stub[^\r\n]*")
 
         cleared = 0
         for path in paths:
@@ -1014,8 +1023,15 @@ stages:
             kept = []
             file_cleared = 0
             for i, line in enumerate(lines):
+                # Keep: no stub marker, or the line still raises (marker is a trailing comment on the raise).
                 if "SONNET-REVIEW: stub" not in line or "raise NotImplementedError" in line:
                     kept.append(line)
+                    continue
+                if not line.lstrip().startswith("#"):
+                    # Promoted code with a trailing marker comment: keep the code, strip only the comment.
+                    eol = line[len(line.rstrip("\r\n")):]
+                    kept.append(stub_comment.sub("", line.rstrip("\r\n"), count=1) + eol)
+                    file_cleared += 1
                     continue
                 # Marker-only comment line: keep it only if the next non-blank line still raises.
                 j = i + 1

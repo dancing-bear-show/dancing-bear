@@ -46,7 +46,7 @@ stages:
         {validation_criteria}
 
       For each criterion, check it against the source files in {workspace}/outputs/.
-      Use the Glob tool (not Bash) to verify file existence — Glob: /absolute/path/to/file or Glob: /absolute/path/to/dir/*. Use Write only to emit findings. Do NOT use Bash for file checks.
+      Use the Glob tool (not Bash) to verify file existence — Glob: /absolute/path/to/file or Glob: /absolute/path/to/dir/*. Bash is permitted only for read-only CLI probes and targeted checks the criteria require (e.g. `./bin/<tool> --help` or `--agentic`); never use it to write or modify files. Use Write only to emit findings.
 
       Write findings to {workspace}/validation/vtr-findings.json using the standard
       findings array format:

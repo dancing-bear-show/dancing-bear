@@ -38,13 +38,13 @@ existed on disk.) Trust
 only a path the orchestrator explicitly states as already-created and
 verified.
 
-Write your output file to `<cwd>/outputs/<filename>` — an **absolute** path
+Write your output file to `<cwd>/outputs/scaffold-{index}.py` (`{index}` is the zero-padded item index from your spec, e.g. `scaffold-003.py`) — an **absolute** path
 built from that cwd. This resolves inside your own isolated worktree, which is
 always writable without a permission prompt **because** the path is absolute
 and inside your own worktree. The orchestrator copies it into place
 (`spec.path`) afterward.
 
-Do **NOT** write to a bare relative path (e.g. `outputs/<filename>`). A bare
+Do **NOT** write to a bare relative path (e.g. `outputs/scaffold-{index}.py`). A bare
 relative path does not resolve against your worktree cwd — it resolves against
 the orchestrator session's original CWD (the shared repo worktree), so a
 relative write **leaks into the shared repo tree** instead of landing in your
@@ -71,7 +71,7 @@ Given a `FileScaffoldSpec` at `<cwd>/inputs/spec-{index}.json` (always read
 from that absolute path using the cwd the orchestrator stated; never from an
 absolute `{workspace}/...` or `item.spec_file` path, which would prompt):
 
-1. Write the file to `<cwd>/outputs/<filename>` — the **absolute output path** under
+1. Write the file to `<cwd>/outputs/scaffold-{index}.py` — the **absolute output path** under
    your own worktree cwd (its final repo location is `spec.path`; the orchestrator
    copies it to `{workspace}/outputs/scaffold-{index}.py`, then the `place-scaffolds`
    inline stage moves it to `spec.path`)
@@ -101,7 +101,7 @@ absolute `{workspace}/...` or `item.spec_file` path, which would prompt):
 
 Signal completion by calling `SendMessage` to `main`. The message names the file you
 staged, its status, and your `cwd` so the orchestrator can find the file at
-`<cwd>/outputs/<filename>` (absolute),
+`<cwd>/outputs/scaffold-{index}.py` (absolute),
 as a JSON-encoded string (not an object; objects fail schema validation), e.g. `message='{"type": "scaffold_complete", "index": 8, "cwd": "<absolute worktree path>", "note": "wrote _compare_branches.py"}'`
 or a one-line description of any error.
 

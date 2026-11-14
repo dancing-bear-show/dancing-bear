@@ -218,7 +218,9 @@ stages:
       by review-findings). Corrections are applied by the human outside this
       workflow before the gate is continued; this stage re-checks the unit files
       as they currently exist on disk -- it does not apply any changes itself.
-      Skip entirely if outputs/corrections-needed.json is an empty array.
+      If outputs/corrections-needed.json is an empty array, skip the re-check but
+      still write validation/revalidation-findings.json containing `[]` so the
+      completion check sees the declared output.
 
       Read outputs/corrections-needed.json from review-findings to get the list
       of units to re-check; read outputs/manifest.json from discover-units for
