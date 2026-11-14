@@ -464,3 +464,80 @@ changes — new functions, modified logic, CLI `run()` methods, and datetime han
   if isinstance(content, TableSlide) and not content.headers:
       raise ValueError(f"Table slide {content.title!r} has rows but no headers")
   ```
+
+### subprocess-no-timeout
+- **severity**: major
+- **check**: Verify that every subprocess call to an external CLI or network-backed
+  command is bounded so that a hung child cannot block indefinitely.
+  - `subprocess.run(...)`, `subprocess.check_output(...)`, `subprocess.call(...)`:
+    require an explicit `timeout=` keyword argument. Catching `subprocess.TimeoutExpired`
+    is not required at the call site — it may be handled locally or left to propagate
+    to an appropriate boundary (CLI error handler, worker task failure path).
+  - `subprocess.Popen(...)`: `Popen.__init__` does **not** accept `timeout=` (adding it
+    raises `TypeError`). Instead, require a bounded `communicate(timeout=...)` or
+    `wait(timeout=...)` call when process completion matters; on `TimeoutExpired`, kill
+    the child and call `wait()` to reap it (`proc.kill(); proc.wait()`). Do NOT flag
+    `Popen` callers that already bound their waits or that intentionally detach a daemon
+    process (fire-and-forget, long-lived background jobs).
+- **triggers**: `subprocess.run(`, `subprocess.check_output(`, `subprocess.call(`
+  call sites with no `timeout=` keyword argument; `subprocess.Popen(` sites where the
+  caller then does an unbounded `communicate()` or `wait()` with no `timeout=`;
+  one-level-wrapped helpers that shell out to `gh` or project `./bin/` CLIs without
+  forwarding a timeout; especially where the invoked command depends on network, auth,
+  or another CLI that can itself hang (credential refresh, API calls, `gh` subcommands);
+  the same call sites in test files and test helpers; `_run(`/`_git(` style wrappers
+  that call `subprocess.run` without a `timeout=` of their own. A timeout must map to
+  the documented failure exit code, not an uncaught traceback.
+- **example**:
+  ```python
+  import logging
+
+  # bad — no timeout; a hung network call or expired auth prompt blocks indefinitely
+  result = subprocess.run(["./bin/mail", "labels", "list"], capture_output=True, text=True)
+
+  # good — bounded wait; TimeoutExpired can be caught here or left to propagate to a
+  # boundary that already handles failures (e.g. a CLI's top-level error handler)
+  try:
+      result = subprocess.run(
+          ["./bin/mail", "labels", "list"], capture_output=True, text=True, timeout=30
+      )
+  except subprocess.TimeoutExpired:
+      logging.warning("mail labels list timed out after 30s")
+      return None
+
+  # bad — Popen with unbounded communicate(); Popen.__init__ has no timeout= param
+  proc = subprocess.Popen(["./bin/calendar", "outlook", "list", "--"], stdout=subprocess.PIPE)
+  out, _ = proc.communicate()  # hangs forever if the calendar CLI hangs
+
+  # good — bounded communicate(); kill and reap on timeout
+  proc = subprocess.Popen(["./bin/calendar", "outlook", "list", "--"], stdout=subprocess.PIPE)
+  try:
+      out, _ = proc.communicate(timeout=30)
+  except subprocess.TimeoutExpired:
+      proc.kill()
+      proc.wait()
+      logging.warning("calendar list timed out after 30s")
+      return None
+  ```
+  A script or workflow stage that shells out without a bound can hang the entire run
+  rather than failing fast and surfacing a diagnosable error.
+
+### check-then-act-snapshot-race
+- **severity**: major
+- **check**: When code verifies a state/ID set/snapshot and later mutates or publishes,
+  the mutation must act on exactly the verified set — not re-read live state (an index,
+  HEAD, an unresolved-thread list, a branch name, or a shared `/tmp` path). Any actor
+  that can change the shared state between the check and the act turns the verification
+  into a non-binding assertion.
+- **triggers**: Code that reads a list (e.g. open threads, staged files, a branch name)
+  to verify it, then uses a fresh live read of the same source as input to the mutation;
+  `git push <branch-name>` issued after a branch-state check where the branch could have
+  moved; a `--resolve-all`-style operation that re-fetches live items after an ID
+  comparison rather than acting on the previously fetched set; a snapshot written to or
+  read from a shared `/tmp` path where multiple runs could collide.
+- **example**: A workflow step verifies that staged files match expectations and then
+  commits — but the commit reads the shared index rather than the verified snapshot. A
+  concurrent actor modifying the index between the check and the commit causes the commit
+  to include unverified content. Fix: capture the verified set once and pass it
+  explicitly to the mutation step, or use a private copy (e.g. `GIT_INDEX_FILE` pointing
+  at a per-invocation temp file seeded from the verified HEAD SHA).

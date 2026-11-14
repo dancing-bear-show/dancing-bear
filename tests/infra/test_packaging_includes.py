@@ -73,6 +73,10 @@ class TestPackagingIncludeCoversAllSrcPackages(unittest.TestCase):
         include = _packaging_include_list()
         self.assertIn("github_assistant*", include)
 
+    def test_monitor_poll_is_included(self):
+        include = _packaging_include_list()
+        self.assertIn("monitor_poll*", include)
+
 
 if __name__ == "__main__":
     unittest.main()

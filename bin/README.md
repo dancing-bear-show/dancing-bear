@@ -29,6 +29,7 @@ Thin wrappers around Python package CLIs. Regenerate generated wrappers with `ma
 | `qlty-assistant` | `qlty` |
 | `github` | `github_assistant` |
 | `agent-helpers` | `agent_helpers` |
+| `monitor-poll` | `monitor_poll` |
 
 
 **Legacy `-assistant` aliases** (5, retained for compatibility): `mail-assistant`, `phone-assistant`, `calendar-assistant`, `schedule-assistant`, `wifi-assistant`

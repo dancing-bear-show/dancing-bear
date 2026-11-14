@@ -325,3 +325,131 @@ source files introduce new `sys.exit()` paths, HTTP clients, or mock boundaries.
   mixin. This concern is about class-level setup/teardown duplication only.
 - **see also**: `conftest-helper-duplication` in reuse.md covers duplicated
   helper *functions*; this concern covers duplicated setup *machinery*.
+
+### mock-patches-inert-symbol
+- **severity**: major
+- **check**: Verify that a mocked/patched symbol is actually consulted by the code
+  path the test claims to exercise — patching the right name is not sufficient if
+  the real failure the test simulates happens at a different layer (a C extension's
+  internal limit, a module-level constant baked in at import time, a value read once
+  at process start) that never reads the patched Python-level symbol at runtime. See
+  also `test-passes-without-the-guard`.
+- **triggers**: `mock.patch("sys.<builtin_getter>", ...)` or similar patches of a
+  Python-level introspection function (`sys.getrecursionlimit`, `sys.getsizeof`)
+  used to simulate a resource-limit failure in code that actually fails inside a
+  C-implemented function (`json.dumps`, `re.compile`, `pickle.dumps`) — most C
+  implementations enforce their own internal limit and do not call back into the
+  patched Python getter; any regression test added for a resource-exhaustion or
+  recursion-limit bug that does not independently verify the unpatched code
+  actually reproduces the same failure.
+- **example**: A regression test for a `RecursionError` fallback does
+  `mock.patch("sys.getrecursionlimit", return_value=50)` then builds a
+  10,000-deep nested dict and asserts the fallback fires. The test passes — but
+  `json.dumps()`'s C-level recursion check never calls `sys.getrecursionlimit()`
+  at all; deleting the mock line entirely, the same 10,000-deep structure still
+  raises `RecursionError` against the real default limit (1000). The test was
+  never exercising the mocked condition. Fix: mock the actual failing call directly
+  (`mock.patch("json.dumps", side_effect=RecursionError)`), scoped narrowly enough
+  to avoid breaking unrelated code that shares the same module-level function.
+- **see also**: `test-passes-without-the-guard`
+
+### sad-path-indistinguishable-from-skip
+- **severity**: minor
+- **check**: Verify that sad-path tests (error conditions, missing data, empty
+  results) assert something that could only be true if the sad-path code ran.
+  Apply this concern only when **all three** conditions hold: (1) the test patches
+  or mocks a dependency (so an uninvoked path also returns the default value),
+  (2) the asserted return value equals what an uninvoked or bypassed path would
+  return (e.g. `[]`, `{}`, `None`, `0`), and (3) there is no assertion on the
+  interaction with the mock (call count, call args) and no assertion on a
+  diagnostic that only the intended failure path produces (e.g. a logged warning,
+  an error key in the result dict, a raised exception). Do **not** flag pure-function
+  tests that call the real function with no mocks — a direct call to the real
+  function fails if it returns the wrong value. Do **not** flag
+  `assert_not_called()` alone as sufficient: it cannot distinguish a correct
+  rejection from skipping the whole operation; it must be paired with an assertion
+  on a diagnostic or on the correct return value for the specific error path.
+- **triggers**: Test functions whose name indicates an error, skip, or empty-result
+  scenario where the dependency is mocked AND the assertion is `== []`, `== {}`,
+  `is None`, or `== 0` on the return value with no mock-call assertion and no
+  error-key assertion; mocked sad-path tests that assert only `assert_not_called()`
+  with no further assertion on what the calling code returned or logged.
+- **example**: `assert result == []` in `test_returns_empty_on_missing_profile`
+  when `mock_client.list` is patched passes whether the function correctly detected
+  the missing profile and returned `[]`, or whether the mock was never called and
+  the default `[]` fell through. Fix: assert on an error diagnostic that only the
+  sad path produces (`assert result["error"] == "profile_not_found"`, or a logged
+  warning on the expected key).
+- **see also**: `weak-assertion`, `mock-setup-no-assertion`
+
+### test-passes-without-the-guard
+- **severity**: major
+- **check**: Mentally delete the fix; the test must then fail. Assert specific
+  diagnostics, request URLs, quoted operands, and every mocked boundary — not just
+  the final return value.
+- **triggers**: Canned responses with no URL assertions; mocked paths that do not
+  exist in the code under test; assertions matching text already present in a
+  message prefix before the fix applies; stubs wired to nothing (e.g. a helper
+  returning empty when the stub is never reached by the code path being tested).
+- **example**: A test for an error-fallback path patches `fetch_data` to raise
+  and asserts `result == []`. The same assertion passes whether the patch fires
+  or is bypassed, because the uninvoked path also returns `[]`. Fix: assert on
+  something only the error path produces — a log call, a specific error key, or
+  a mock call count — so the test fails when the guard is absent.
+- **see also**: `weak-assertion`, `mock-setup-no-assertion`, `test-calls-mock-not-entry-point`
+
+### test-env-isolation-restores-incoming
+- **severity**: major
+- **check**: Fixtures and teardown must restore the incoming environment value, not
+  delete or `setdefault` over it. `setUp`/`addCleanup` teardown that uses
+  `os.environ.pop` or `del os.environ[key]` to restore a value that was present
+  before the test started leaves subsequent tests without that variable. Subprocess
+  test helpers must also strip every redirecting variable (`GIT_INDEX_FILE`,
+  `GIT_DIR`, `GIT_WORK_TREE`) before invoking git in a subprocess, or the parent
+  environment bleeds into the child.
+- **triggers**: `os.environ.pop(key)` or `del os.environ[key]` in teardown/cleanup
+  when the original value was not `None`; `os.environ.setdefault(key, val)` used for
+  isolation without a matching restore; subprocess calls in tests that inherit the
+  full parent environment including `GIT_*` variables the test runner may have set;
+  module-scoped or class-scoped `setUp` that sets environment variables that a
+  function-scoped cleanup later deletes rather than restores.
+- **example**: A test sets `os.environ["DANCING_BEAR_PROFILE"] = "test"` in
+  `setUp` and calls `os.environ.pop("DANCING_BEAR_PROFILE")` in `tearDown`. When
+  the original value was `"real-profile"`, teardown leaves the variable unset
+  instead of restoring it, polluting subsequent tests. Fix: capture the original
+  value first (`original = os.environ.get(key)`), and restore it in `addCleanup`:
+  `addCleanup(lambda: os.environ.update({key: original}) if original else
+  os.environ.pop(key, None))`. Prefer `mock.patch.dict(os.environ, {...})` for
+  automatic exception-safe cleanup.
+
+### mock-not-bound-to-real-interface
+- **severity**: major
+- **check**: Mocks of clients and consumers should use `unittest.mock.create_autospec`
+  or `spec_set=` so that calls to nonexistent methods raise `AttributeError`
+  immediately rather than silently succeeding. Feed realistic producer output shapes
+  into test fixtures, not hand-built records that differ from real API responses.
+- **triggers**: Bare `MagicMock()` standing in for a client or consumer class that has
+  a defined interface; hand-built fixture dicts for another CLI's output that differ
+  in field names or nesting from the real `--format json` output; mocks wired to
+  method names that do not exist on the real class.
+- **example**: `mock_client = MagicMock()` with `mock_client.fetch_budgets.return_value
+  = [...]` — if the real client exposes `get_budgets()` (not `fetch_budgets`), the
+  mock silently accepts the wrong method name and production code that calls
+  `get_budgets()` is never exercised. Fix: `mock_client =
+  create_autospec(RealClient)` so the mock rejects attribute names the real class
+  does not define.
+- **see also**: `test-passes-without-the-guard`
+
+### coverage-threshold
+- **severity**: major
+- **check**: Verify the PR does not drop overall project coverage by running
+  `make cov` and reviewing the report for uncovered lines in newly added or
+  modified source files. A drop in coverage after adding new source lines
+  indicates the new code paths lack tests.
+- **triggers**: Any `.py` source file added or modified in `src/`; new CLI
+  handlers, public methods, or classes introduced in the diff without corresponding
+  test additions.
+- **example**: `make cov` shows new functions in `src/mail/filters/processors_plan.py` at 0%
+  coverage — the PR added 80 lines of source with no corresponding tests. Add
+  unit tests for the new paths until coverage is restored to at least the
+  pre-PR level.

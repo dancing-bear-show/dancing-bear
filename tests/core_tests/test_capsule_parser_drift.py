@@ -56,6 +56,7 @@ APPS = {
     "agent-helpers": [["./bin/agent-helpers"]],
     "mail": [["./bin/mail"], ["./bin/mail-assistant"]],
     "maker": [["./bin/maker"]],
+    "monitor-poll": [["./bin/monitor-poll"]],
     "phone": [["./bin/phone"], ["./bin/phone-assistant"]],
     "qlty-assistant": [["./bin/qlty-assistant"]],
     "resume": [["./bin/assistant", "resume"]],

@@ -1,7 +1,7 @@
 ---
 name: ci-fixer
 description: CI failure diagnosis and fix specialist. Use when CI pipelines fail. Diagnose test failures, fix broken tests, get CI green.
-model: claude-sonnet-4-6
+model: claude-sonnet-5-5
 skills:
   - dancing-bear-rules
 ---

@@ -1,7 +1,7 @@
 ---
 name: workflow-author
 description: Workflow YAML authoring specialist for dancing-bear. Use for writing new workflows, editing existing workflow DAGs, and validating workflow correctness. Knows all stage kinds, agent roles, and common authoring pitfalls.
-model: claude-sonnet-4-6
+model: claude-sonnet-5-5
 skills:
   - dancing-bear-rules
 ---

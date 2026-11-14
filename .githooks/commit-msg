@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Conventional Commits message validator.
+# Source of truth for allowed types: .github/COMMIT_CONVENTION.md
+# Allows: Merge commits, Revert commits, fixup!/squash!/amend! prefixes, empty messages.
+# Validates first non-comment line matches: type[(scope[,scope2])]...[!]: subject
+set -euo pipefail
+
+msg_file="$1"
+
+# Extract first non-empty, non-comment line.
+# Use p;q (not 1p) so lines skipped by d do not consume the address.
+first_line=$(sed -n "/^[#;]/d; /^[[:space:]]*$/d; p; q" "$msg_file" | tr -d '\r')
+
+# Allow empty messages (e.g., template-only file)
+if [[ -z "${first_line}" ]]; then
+  exit 0
+fi
+
+# Bypass for git-generated prefixes
+if [[ "${first_line}" =~ ^Merge\  ]] || \
+   [[ "${first_line}" =~ ^Revert\  ]] || \
+   [[ "${first_line}" =~ ^(fixup\!|squash\!|amend\!) ]]; then
+  exit 0
+fi
+
+# Types from .github/COMMIT_CONVENTION.md
+# Multiple scopes are allowed (e.g. dependabot's chore(deps)(deps-dev): ...).
+# Breaking change marker ! is optional after the last scope.
+regex='^(feat|fix|docs|refactor|test|chore|perf|ci|style|revert)(\([a-z0-9.,_-]+\))*!?: .+'
+
+if [[ ! "${first_line}" =~ ${regex} ]]; then
+  cat 1>&2 <<ERR
+ERROR: Commit message does not follow Conventional Commits.
+
+Found:  ${first_line}
+
+Expected: type[(scope)]: subject
+  Types: feat, fix, docs, refactor, test, chore, perf, ci, style, revert
+  Scope: optional; comma-separated or multiple scopes (e.g. refactor(core,workflow): ..., chore(deps)(deps-dev): ...)
+  Breaking change: add ! before the colon (e.g. feat(mail)!: ...)
+
+Examples:
+  feat(mail): add auto-labeling pipeline
+  fix(core): handle missing token gracefully
+  chore(deps)(deps): bump pyyaml to 6.0.1
+  docs: update AGENTS.md with pipeline patterns
+  feat(mail)!: change filter config format
+
+See .github/COMMIT_CONVENTION.md for the full convention.
+ERR
+  exit 1
+fi
+
+exit 0

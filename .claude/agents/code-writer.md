@@ -1,7 +1,7 @@
 ---
 name: code-writer
 description: Code implementation agent for dancing-bear. Use for feature development, bug fixes, refactoring, and domain-specific work. Has full read/write access and follows all project conventions.
-model: claude-sonnet-4-6
+model: claude-sonnet-5-5
 skills:
   - dancing-bear-rules
 ---
