@@ -171,6 +171,12 @@ _NEGATIVE_COMMIT_RE = re.compile(
 _REQUIRED_PARAM_SAMPLES: dict[tuple[str, str], str] = {
     ("workflows/code/review-fix-threads.yaml", "pr_number"): "391",
     ("workflows/code/optimize-code.yaml", "domain_slug"): "src-mail",
+    ("workflows/code/scaffold-impl.yaml", "task"): "add a widget module",
+    ("workflows/code/scaffold-impl.yaml", "source_root"): "src/widget",
+    ("workflows/code/scaffold-impl.yaml", "test_path"): "tests/widget_tests",
+    ("workflows/telemetry/find-session.yaml", "query"): "telemetry chart",
+    ("workflows/workflow-dev/adversarial-validation.yaml", "mode"): "code_change",
+    ("workflows/workflow-dev/skill-to-workflow.yaml", "skill_name"): "ci-debug",
 }
 
 
