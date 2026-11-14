@@ -1,0 +1,652 @@
+name: skill-to-workflow
+version: "1.0"
+description: >
+  Migrates an existing .claude/skills/{skill_name}/SKILL.md from a monolithic
+  prompt body into a declarative workflow YAML plus a thin delegate skill.
+
+  The skill's frontmatter (name, description, trigger patterns, allowed-tools)
+  is preserved unchanged. Only the body is replaced with a thin
+  Skill(skill="workflow", ...) delegate call. The extracted stages are authored as
+  workflows/{workflow_dir}/{skill_name}.yaml following all project conventions.
+
+  Stage dependency graph:
+
+    analyze-skill (G0)
+        |
+    design-workflow (G1)
+        |
+    pc-validate -> pc-critic -> pc-validate-critique -> pc-consolidate
+        -> pc-human-gate -> pc-revise   (plan-critic fragment)
+        |
+    clarify-intent (G2 -- human gate: confirm stage boundaries before authoring)
+        |
+    author-workflow (G3)
+        |
+    validate-workflow (G4 -- hard gate, fix in-loop)
+        |
+    update-skill (G5)
+        |
+    review-conventions (G6)
+        |
+    open-pr (G7)
+
+  Trigger params: skill_name (the directory name under .claude/skills/) and
+  workflow_dir (the workflows/ subdirectory the new file is written to).
+
+metadata:
+  author: dancing-bear
+  created: "2026-11-11"
+
+trigger:
+  source: manual
+  params:
+    skill_name: ""     # Directory name under .claude/skills/, e.g. "ci-debug"
+    workflow_dir: "code"  # Subdirectory of workflows/ for the new file, e.g. "code"
+    open_pr: "false"   # Set to "true" to open a PR after review-conventions passes
+    plan_file: "outputs/design/workflow-design.md"  # fixed: design-workflow writes_to cannot use {param}
+    critic_focus: "DAG correctness, missing fragment reuse, model/access discipline violations"
+  required: [skill_name]
+  param_rules:
+    skill_name: '[a-z0-9][a-z0-9-]{0,63}'
+    workflow_dir: '[a-z][a-z0-9-]{0,31}'
+    open_pr: 'true|false'
+    plan_file: 'outputs/design/workflow-design\.md'  # pinned: must match design-workflow writes_to
+
+workspace_dir: "{work_dir}/skill-to-workflow/{skill_name}"
+
+stages:
+
+  # ===========================================================================
+  # Group 0: Analyze the skill -- extract implicit structure
+  #
+  # Done first and alone because every subsequent stage depends on this
+  # analysis. A researcher agent is used because no writes to the skill or
+  # workflow files happen here -- only reading and summarising.
+  # ===========================================================================
+
+  - name: analyze-skill
+    kind: gather
+    description: >
+      Read .claude/skills/{skill_name}/SKILL.md and extract all structure
+      that is implicit in the skill body.
+
+      Step 1 -- read the skill file:
+        Read .claude/skills/{skill_name}/SKILL.md in full.
+        Note the frontmatter: name, description, allowed-tools, skills list.
+
+      Step 2 -- identify implicit stages:
+        Walk the skill body section by section. For each logical phase of work
+        the skill describes, record:
+          - Proposed stage name (kebab-case)
+          - Kind: gather | execute | validate | publish
+          - Agent role implied by the work (researcher, code-writer, reviewer, etc.)
+          - External CLI commands the stage runs (exact ./bin/<cli> <sub> calls)
+          - Files or data the stage reads (inputs)
+          - Files or data the stage produces (outputs, workspace paths)
+          - Whether human approval is implied before proceeding
+
+      Step 3 -- identify external systems:
+        List every external system touched: GitHub, qlty, Gmail, Outlook,
+        OpenTelemetry, etc. Note which CLIs are used for each: gh, ./bin/mail,
+        ./bin/calendar, ./bin/telemetry, ~/.qlty/bin/qlty, etc.
+
+      Step 4 -- classify trigger params:
+        Identify all inputs the skill currently accepts (from its "When to Use"
+        or "How to Run" sections). These become trigger.params in the workflow.
+        Distinguish required params from optional ones with defaults.
+
+      Step 5 -- identify human gates:
+        Note any point in the skill where the human must approve or provide
+        input before the next phase. These become human_gate: true stages.
+        Skills that show a summary and ask for confirmation always need a gate.
+
+      Step 6 -- check shared fragment applicability:
+        Use Glob workflows/shared/*.yaml to list fragments, then read each fragment's header comment.
+        If the skill opens PRs and monitors CI -> pr-open-and-wait-ci.yaml applies.
+        If the skill produces fact-checkable prose -> validate-and-correct.yaml applies.
+        Note which fragments apply and what params they need.
+
+      Write a structured YAML analysis to {workspace}/outputs/skill-analysis.yaml:
+        skill_name: <skill_name>
+        frontmatter:
+          name: ...
+          description: ...
+          allowed_tools: [...]
+          skills: [...]
+        trigger_params:
+          - name: ...
+            required: true|false
+            default: "..."
+            description: ...
+        stages:
+          - proposed_name: ...
+            kind: gather|execute|validate|publish
+            agent_role: ...
+            cli_commands: [...]
+            reads: [...]
+            writes: [...]
+            human_gate: true|false
+            notes: ...
+        external_systems: [...]
+        shared_fragments: [...]
+        human_gates_count: N
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Read, Glob, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/skill-analysis.yaml
+
+  # ===========================================================================
+  # Group 1: Design the workflow DAG
+  #
+  # Plan agent is appropriate here: pure design reasoning, no file writes to
+  # the target skill or workflow. Reads the analysis and produces a concrete
+  # proposal that the human gate can review without ambiguity.
+  # ===========================================================================
+
+  - name: design-workflow
+    kind: gather
+    depends_on: [analyze-skill]
+    reads_from: [analyze-skill]
+    description: >
+      Read {workspace}/outputs/skill-analysis.yaml and design the complete workflow DAG
+      for workflows/{workflow_dir}/{skill_name}.yaml.
+
+      Step 1 -- read reference materials:
+        Read {workspace}/outputs/skill-analysis.yaml (produced by analyze-skill).
+        Read docs/workflow-engine.md and .claude/skills/write-workflow/SKILL.md
+        for valid fields, stage kinds and authoring conventions.
+        List the available fragments:
+          Glob workflows/shared/*.yaml
+        Read any applicable shared fragment YAMLs noted in skill-analysis.yaml.
+
+      Step 2 -- design the DAG:
+        Produce {workspace}/{plan_file} covering:
+
+          ## Workflow: <skill_name>
+
+          ### Trigger Params
+          Table: param name | default | description
+          Every param that appears in stage descriptions as a <param_name>
+          placeholder must be declared here.
+
+          ### Stage Groups
+          For each group (G0, G1, ...):
+            **G<N>: <stage-names>**
+            - Stage name: <name>
+              Kind: gather | execute | validate | publish
+              Agent role: researcher | Plan | code-writer | reviewer | ...
+              Access: read-only | read-write
+              Reads from: [prior stage names]
+              Writes to: [workspace-relative paths]
+              Human gate: true | false
+              CLI commands the agent will run (exact ./bin/<cli> syntax)
+              Purpose: what this stage decides or produces
+
+          ### Shared Fragments
+          Which fragments apply, what params they need, and which stage they
+          follow (depends_on target).
+
+          ### Conventions Checklist
+            [ ] Every role is in KNOWN_ROLES (src/workflow/dispatch.py)
+            [ ] model: set on every stage (never null -- null inherits the orchestrator, which may be Opus)
+            [ ] researcher/Plan/reviewer have access: read-only unless Write/Edit in tools (then read-write)
+            [ ] code-writer/doc-writer have access: read-write
+            [ ] No more than one human_gate in the authored workflow (fragments may add their own)
+            [ ] depends_on forms a valid acyclic graph
+            [ ] reads_from is a subset of the transitive depends_on closure
+            [ ] writes_to covers every file each stage creates; no <param> inside writes_to
+            [ ] Every param spliced into shell text has a trigger.param_rules entry
+
+      Write the design to {workspace}/{plan_file}.
+    agent:
+      role: Plan
+      model: sonnet
+      tools: [Read, Glob, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/design/workflow-design.md
+
+  # ===========================================================================
+  # Group 2: Clarify intent -- human gate before authoring
+  #
+  # Stage boundaries extracted from a skill body are often ambiguous. The human
+  # who wrote the skill knows whether two adjacent sections should be one stage
+  # or two, and whether a summary step implies a required human gate. Catching
+  # this before author-workflow is cheap; catching it after requires rewriting
+  # the YAML and re-running validate.
+  # ===========================================================================
+
+  - name: clarify-intent
+    kind: propose
+    depends_on: [pc-revise]
+    reads_from: [analyze-skill, design-workflow, pc-revise]
+    human_gate: true
+    description: >
+      Present the proposed DAG to the human and confirm stage boundaries,
+      human gate placement, and trigger params before any YAML is authored.
+
+      Read {workspace}/{plan_file} and synthesise a clear brief:
+
+        ## Skill Being Migrated
+        .claude/skills/{skill_name}/SKILL.md
+
+        ## Proposed Stage Groups
+        Show the G0 / G1 / ... table from workflow-design.md, listing stage
+        names, kinds, agent roles, and whether a human gate is proposed.
+
+        ## Proposed Trigger Params
+        Table of param name, default, and description.
+
+        ## Shared Fragments
+        Which shared fragments will be included and why.
+
+        ## Open Questions
+        List any ambiguous boundaries or decisions that require the human's
+        input. Number the questions so they can be answered directly. Examples:
+          1. Steps X and Y look like one stage -- should they be split?
+          2. The skill shows a summary before proceeding -- is this a human gate?
+          3. Is param Z optional or required?
+
+        Then ask:
+          "Does this match your intent for {skill_name}?
+           Answer the open questions above and confirm, or describe what to change."
+
+      Record the human's response in {workspace}/outputs/design/intent-confirmed.md.
+      Do not proceed to author-workflow until confirmed.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/design/intent-confirmed.md
+
+  # ===========================================================================
+  # Group 3: Author the workflow YAML
+  #
+  # code-writer is used rather than doc-writer because the output is a
+  # structured YAML file with exact field constraints, not free-form prose.
+  # The agent must self-check for null models before finishing.
+  # ===========================================================================
+
+  - name: author-workflow
+    kind: execute
+    depends_on: [clarify-intent]
+    reads_from: [design-workflow, clarify-intent, analyze-skill]
+    description: >
+      Write workflows/{workflow_dir}/{skill_name}.yaml implementing the design
+      confirmed in {workspace}/outputs/design/intent-confirmed.md and
+      {workspace}/{plan_file}.
+
+      Step 1 -- read all inputs:
+        Read {workspace}/{plan_file}
+        Read {workspace}/outputs/design/intent-confirmed.md  (any human corrections)
+        Read {workspace}/outputs/skill-analysis.yaml          (trigger params, CLI commands)
+        Read docs/workflow-engine.md and one comparable workflow under
+        workflows/ (field reference)
+
+      Step 2 -- write the YAML:
+        Header fields (all required):
+          name: <skill_name>
+          version: "1.0"
+          description: > (multi-line; describe purpose, trigger params, DAG shape)
+          metadata.author: dancing-bear
+          metadata.created: today's date (YYYY-MM-DD)
+          trigger.source: manual
+          trigger.params: one entry per param from the design; "" default; inline comment
+          trigger.param_rules: a full-match regex for every param spliced into shell text
+          workspace_dir: the work_dir variable in curly braces, then "/<skill_name>"
+            (optionally "-<primary_param>" with that param in curly braces); copy an existing workflow
+
+        Stage fields (all required for every stage):
+          - name: kebab-case
+          - kind: gather | execute | validate | publish
+          - depends_on: [] (empty only for G0)
+          - reads_from: [] (subset of transitive deps; omit if empty)
+          - description: > (multi-line; "Step N --" structure for multi-step stages;
+                            exact ./bin/<cli> <sub> <flags> commands;
+                            {workspace}/ prefix for workspace paths;
+                            <param_name> substitution for trigger params)
+          - agent:
+              role: <role in KNOWN_ROLES>
+              model: sonnet    # never null; haiku only for light lookup/validation stages
+              tools: [...]
+              access: read-only | read-write
+          - required: true | false
+          - writes_to: [...] (workspace-relative paths only, no <param> placeholders)
+
+        kind: validate renders only the validation criteria; its description is
+        dropped. Put instructions that must reach the agent in a kind: execute
+        stage, and keep validate stages to self-contained criteria:
+          validation:
+            strategy: unit
+            criteria: [binary pass/fail items]
+            max_revisions: N
+
+        Human gate stages also need:
+          human_gate: true
+
+        Shared fragment includes (after stages:, at top level):
+          include:
+            - path: workflows/shared/<fragment>.yaml
+              prefix: <prefix>
+              depends_on: [last-stage-before-fragment]
+              reads_from: [...]
+
+      Step 3 -- self-check (mandatory before finishing):
+        grep "model: null" workflows/{workflow_dir}/{skill_name}.yaml
+        If any match: fix immediately -- model: null is a hard failure.
+
+      Step 4 -- record the result:
+        Write the path of the authored file to {workspace}/outputs/authored-path.txt.
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/authored-path.txt
+
+  # ===========================================================================
+  # Group 4: Validate -- lint and compile (hard gate, fix in-loop)
+  #
+  # The code-writer role is intentional here: the agent must edit the workflow
+  # file to fix errors, not just report them. A reviewer would be read-only and
+  # could not close the fix loop.
+  # ===========================================================================
+
+  - name: validate-workflow
+    kind: execute
+    depends_on: [author-workflow]
+    reads_from: [author-workflow, design-workflow]
+    description: >
+      Run the workflow linter and compiler on
+      workflows/{workflow_dir}/{skill_name}.yaml. Fix all errors before
+      proceeding. This is a hard gate; allow up to three lint/fix cycles
+      before reporting the stage failed.
+
+      Step 1 -- structural lint with command probing:
+        ./bin/workflow lint workflows/{workflow_dir}/{skill_name}.yaml --check-commands
+
+        If errors: read each error message, fix the YAML at the flagged location,
+        re-run. Repeat until zero errors.
+
+      Step 2 -- strict lint (warnings become errors):
+        ./bin/workflow lint workflows/{workflow_dir}/{skill_name}.yaml --strict
+
+        Fix every warning: undeclared <param> references, missing stage fields,
+        unvalidated params spliced into shell text, and so on.
+
+      Step 3 -- compile (DAG validation):
+        ./bin/workflow compile workflows/{workflow_dir}/{skill_name}.yaml
+
+        Verify compiled output matches {workspace}/{plan_file}:
+          - Stage count matches the design
+          - Group count matches the design
+          - No stage appears in an unexpected group
+          - No depends_on references a non-existent stage name
+
+        If compile fails: inspect the depends_on chains for cycles or typos,
+        fix, and re-run.
+
+      Step 4 -- model discipline check:
+        grep "model: null" workflows/{workflow_dir}/{skill_name}.yaml
+        Any match is a hard failure -- fix immediately.
+
+      Pass criteria:
+        - lint --check-commands exits 0 with zero errors
+        - lint --strict exits 0
+        - compile exits 0
+        - No stage has model: null
+        - All other stages use model: sonnet, haiku or opus
+        - Compiled stage count matches the design in workflow-design.md
+
+      Write a summary to {workspace}/validation/lint-results.md:
+        | Check         | Result | Notes |
+        |---------------|--------|-------|
+        | lint          | PASS   |       |
+        | lint --strict | PASS   |       |
+        | compile       | PASS   | N stages, M groups |
+        | model check   | PASS   | no null models |
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Edit, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - validation/lint-results.md
+
+  # ===========================================================================
+  # Group 5: Update the skill -- replace body with thin delegate
+  #
+  # Only the skill body changes. The frontmatter (name, description,
+  # allowed-tools, skills list, trigger patterns) is preserved verbatim.
+  # The delegate call uses Skill(skill="workflow", args="--workflow ... --params ...")
+  # for every trigger param declared in the workflow.
+  # ===========================================================================
+
+  - name: update-skill
+    kind: execute
+    depends_on: [validate-workflow]
+    reads_from: [validate-workflow, analyze-skill]
+    description: >
+      Replace the body of .claude/skills/{skill_name}/SKILL.md with a thin
+      Skill(skill="workflow", ...) delegate call. Preserve the frontmatter exactly.
+
+      Step 1 -- read the current skill file:
+        Read .claude/skills/{skill_name}/SKILL.md
+        Extract the frontmatter block (everything between the first --- and
+        the second ---). This block must not change.
+
+      Step 2 -- read the workflow trigger params:
+        Read workflows/{workflow_dir}/{skill_name}.yaml
+        Extract trigger.params keys so the delegate call references them all.
+
+      Step 3 -- compose the new skill body:
+        The body after the frontmatter should follow this exact pattern
+        (adapt param names to match the actual trigger.params):
+
+          # <Skill Title>
+
+          Delegates to `workflows/{workflow_dir}/{skill_name}.yaml`.
+
+          ## When to Use
+
+          <copy the When to Use section from the original skill, unchanged>
+
+          ## How to Run
+
+          **IMPORTANT**: Use the `/workflow` skill — do NOT call `./bin/workflow run --execute`
+          directly. It stubs agent stages as success and raises NotImplementedError for inline stages.
+
+          ```python
+          Skill(skill="workflow", args="--workflow workflows/{workflow_dir}/{skill_name}.yaml --params <param1>=<VALUE> --params <param2>=<VALUE>")
+          ```
+
+          ## Workflow Params
+
+          | Param | Default | Description |
+          |-------|---------|-------------|
+          <one row per trigger.param from the workflow YAML>
+
+          ## Workflow Stages
+
+          <numbered list of stage names and one-line purpose, from workflow-design.md>
+
+        Do not add any new sections beyond those shown. The delegate skill
+        body is intentionally minimal -- all substantive logic lives in the
+        workflow YAML.
+
+      Step 4 -- write the updated skill:
+        Write the combined frontmatter + new body to
+        .claude/skills/{skill_name}/SKILL.md.
+
+      Step 5 -- verify:
+        Read the file back and confirm:
+          - Frontmatter is identical to the original (no field added or removed)
+          - Body contains exactly one Skill(skill="workflow", ...) call
+          - All trigger.params appear as --params arguments
+
+      Step 6 -- record the result:
+        Write "updated" and the skill path to {workspace}/outputs/skill-updated.md.
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/skill-updated.md
+
+  # ===========================================================================
+  # Group 6: Convention review -- final quality check
+  #
+  # A reviewer reports findings but does not fix them. Critical findings
+  # (model: null, broken DAG, inlined PR tail, changed frontmatter) block
+  # merge. The agent surfaces them so the human can decide whether to loop
+  # back to author-workflow or proceed.
+  # ===========================================================================
+
+  - name: review-conventions
+    kind: execute
+    depends_on: [update-skill]
+    reads_from: [author-workflow, validate-workflow, update-skill]
+    description: >
+      Review workflows/{workflow_dir}/{skill_name}.yaml and
+      .claude/skills/{skill_name}/SKILL.md against all authoring and delegation
+      conventions. Read both files fresh -- do not rely on memory of what was
+      written. Do not edit either file.
+
+      Check each item and record pass/fail:
+
+        Model and role discipline (workflows/{workflow_dir}/{skill_name}.yaml):
+          [ ] No stage has model: null
+          [ ] Every role is in KNOWN_ROLES (src/workflow/dispatch.py)
+          [ ] researcher, Plan, reviewer, unit-validator -> access: read-only unless Write/Edit in tools (then read-write)
+          [ ] code-writer, tester, doc-writer -> access: read-write
+
+        Description quality:
+          [ ] Every stage description includes concrete ./bin/<cli> commands
+              with real flag syntax (not "run the tool" or "use the CLI")
+          [ ] Multi-step descriptions use "Step N --" structure
+          [ ] Workspace paths use {workspace}/ prefix consistently
+          [ ] <param_name> substitutions match trigger.params keys exactly
+          [ ] No <param> placeholder inside writes_to; no instructions hidden in a kind: validate description
+
+        DAG correctness:
+          [ ] reads_from only references stages in the dependency chain
+          [ ] No depends_on cycle
+          [ ] human_gate: true appears at most once outside included fragments
+
+        Fragment reuse:
+          [ ] If the workflow opens a PR: pr-open-and-wait-ci.yaml is included, not inlined
+          [ ] No PR open/wait-for-CI/qlty tail block inlined
+
+        Delegate correctness (.claude/skills/{skill_name}/SKILL.md):
+          [ ] Frontmatter is identical to the pre-migration original (compare with git diff)
+          [ ] Body contains exactly one Skill(skill="workflow", ...) call
+          [ ] Skill() --workflow path matches workflows/{workflow_dir}/{skill_name}.yaml
+          [ ] All trigger.params appear as --params arguments in the Skill() call
+          [ ] --params keys use underscores, not hyphens
+
+        Lint gate confirmation:
+          [ ] ./bin/workflow lint workflows/{workflow_dir}/{skill_name}.yaml --check-commands exits 0
+          [ ] ./bin/workflow compile workflows/{workflow_dir}/{skill_name}.yaml exits 0
+
+      Run the lint commands to confirm they still pass after update-skill:
+        ./bin/workflow lint workflows/{workflow_dir}/{skill_name}.yaml --check-commands
+        ./bin/workflow compile workflows/{workflow_dir}/{skill_name}.yaml
+
+      Write structured findings to {workspace}/validation/convention-findings.json:
+        { "critical": [...], "minor": [...], "passed": [...] }
+
+      Critical = blocks merge (model: null on any stage, unknown role, inlined
+      PR tail, broken DAG, changed frontmatter, missing --params, lint failure).
+      Minor = style issues (short description, missing writes_to entry).
+      Report the stage failed if any critical finding exists.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Bash, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - validation/convention-findings.json
+
+  # ===========================================================================
+  # Group 7: Open PR
+  #
+  # Only runs when open_pr=true. Sub-agents cannot invoke skills, so the
+  # pre-PR checks are spelled out as commands here.
+  # ===========================================================================
+
+  - name: open-pr
+    kind: publish
+    depends_on: [review-conventions]
+    reads_from: [review-conventions, validate-workflow, update-skill]
+    description: >
+      Open a pull request for the migrated skill and new workflow YAML.
+      Only runs when {open_pr} == "true". Skip this stage if open_pr is false
+      -- the workflow is complete after review-conventions.
+
+      Step 1 -- check precondition:
+        If {open_pr} != "true": write {"skipped": true} to
+        {workspace}/validation/pr.json, print "open_pr=false -- skipping PR
+        creation" and finish. Do not error.
+
+      Step 2 -- verify both files are ready:
+        Read workflows/{workflow_dir}/{skill_name}.yaml -- confirm it exists and is lint-clean.
+        Read .claude/skills/{skill_name}/SKILL.md -- confirm the delegate body
+        is in place.
+
+      Step 3 -- pre-PR checks (stop and report on any failure):
+        Confirm `git branch --show-current` is not main.
+        make test > {workspace}/validation/make-test.log 2>&1; then confirm the log
+        contains a "Ran N tests" line and OK (exit code 0 alone is not proof).
+        Write the changed paths to a file with the Write tool and run
+        ~/.qlty/bin/qlty check on those paths, passed explicitly.
+
+      Step 4 -- commit and open:
+        Stage the two files by name (never git add -A or git add .), commit
+        with the message "feat(workflow): extract {skill_name} skill to workflow",
+        then `git push -u origin HEAD` and `gh pr create` with a body that
+        summarises:
+          - What skill was migrated and why
+          - The stage breakdown (from {workspace}/{plan_file})
+          - Lint and compile pass confirmation (from {workspace}/validation/lint-results.md)
+          - Convention findings (from {workspace}/validation/convention-findings.json)
+
+      Step 5 -- watch CI:
+        gh pr checks --watch
+        If a check fails: gh run view --log-failed, and report the failure.
+
+      Step 6 -- record the PR:
+        Write the PR number and URL to {workspace}/validation/pr.json:
+          { "pr_number": <N>, "url": "<url>" }
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Write, Bash, Edit]
+      access: read-write
+    when: '"{open_pr}" contains "true"'
+    required: true
+    writes_to:
+      - validation/pr.json
+
+include:
+  # Adversarial critique of design/workflow-design.md before YAML is authored.
+  # Stages: pc-validate -> pc-critic -> pc-validate-critique -> pc-consolidate
+  #         -> pc-human-gate -> pc-revise
+  # clarify-intent depends on pc-revise so the human confirms the revised design.
+  - path: workflows/shared/plan-critic.yaml
+    prefix: pc
+    depends_on: [design-workflow]
+    reads_from: [design-workflow]

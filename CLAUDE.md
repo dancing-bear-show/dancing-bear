@@ -552,15 +552,15 @@ resolution order. This is the same diagnostic
 ## Check for an Existing Workflow First
 
 **Before starting any multi-step task, check whether a workflow already does it.**
-`./bin/workflow list` is the authoritative catalog and shows 56 workflows (as of
-2026-09-23; the count grows, so trust the command over this number). Counting the
-files instead overstates it: of 76 YAML files under `workflows/`, 19 are
+`./bin/workflow list` is the authoritative catalog and shows 63 workflows (as of
+2026-11-11; the count grows, so trust the command over this number). Counting the
+files instead overstates it: of 85 YAML files under `workflows/`, 21 are
 `fragment: true` includes that cannot run on their own.
 
-56 is the *listable* count, not quite the runnable one — `workflow list` skips
+63 is the *listable* count, not quite the runnable one — `workflow list` skips
 everything under `workflows/shared/`, and one file there
 (`workflows/shared/critique.yaml`) is a non-fragment workflow that can be invoked
-directly. So 57 are runnable and 56 are listed.
+directly. So 64 are runnable and 63 are listed.
 
 Reinventing a workflow wastes the work already invested in it and produces a
 second, diverging implementation of the same process.
@@ -741,6 +741,7 @@ Never use a bare `sleep` loop in a Bash tool call to wait for a condition.
 | `ci-fixer` | Sonnet | CI failure diagnosis and fix |
 | `code-writer-opus` | Opus | Escalate from code-writer when Sonnet is stuck or producing incorrect code after retries |
 | `tester-opus` | Opus | Escalate from tester when Sonnet fails to produce passing tests after iteration |
+| `code-writer-haiku-scaffold` | Haiku | One-file scaffold writer for scaffold-impl's swarm stage; Read + Write only, no Bash |
 | `ci-fixer-opus` | Opus | Escalate from ci-fixer when failure involves entangled cross-domain regressions or deep test-infrastructure reasoning |
 | `critic` | Opus | Adversarial critique of plans, workflow designs, architecture decisions |
 | `workflow-debugger` | Sonnet | Diagnose failed or stuck workflow runs — daemon, fan_out, DAG, and worker_queue issues |

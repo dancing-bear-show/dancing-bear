@@ -1,0 +1,244 @@
+# Adversarial validation pipeline for multi-artifact deliverables.
+# Discovers units, runs per-unit validation, runs cross-unit consistency
+# checks, presents findings for review, and optionally re-validates
+# corrected units.
+#
+# Standalone, human-gated variant. To embed discover/validate/cross-check in
+# another workflow, include workflows/shared/adversarial-validate.yaml instead.
+
+name: adversarial-validation
+version: "1.0"
+description: >
+  Three-pass adversarial validation for any multi-artifact LLM deliverable.
+  Pass 1 discovers units and validates each. Pass 2 checks cross-unit
+  consistency. Pass 3 conditionally re-validates corrected units after human
+  review.
+
+metadata:
+  author: dancing-bear
+  created: "2026-11-11"
+
+trigger:
+  source: manual
+  params:
+    mode: ""             # code_change | local_files | migration
+    target: ""           # directory (local_files) or migration name (migration)
+    files: ""            # optional comma-separated file list (local_files)
+    base_ref: "origin/main"  # git merge-base ref for code_change diff
+  param_rules:
+    mode: '(code_change|local_files|migration)?'
+    target: '((?!.*\.\.)[A-Za-z0-9_][A-Za-z0-9_./-]*)?'
+    files: '((?!.*\.\.)[A-Za-z0-9_][A-Za-z0-9_./,-]*)?'
+    base_ref: '(?!.*\.\.)[A-Za-z0-9][A-Za-z0-9_./-]*'
+  required: [mode]
+
+workspace_dir: "{work_dir}/adversarial-validation-{mode}-{target}"
+
+stages:
+  # =========================================================================
+  # Group 0: Discover units to validate
+  # =========================================================================
+
+  - name: discover-units
+    kind: gather
+    description: >
+      Discover validation units based on {mode}. The agent selects the
+      appropriate discovery method:
+
+      - code_change: run `git diff {base_ref}...HEAD --name-only` to list changed files
+      - local_files: list files in the {target} directory (or parse the {files} param)
+      - migration: list migration artifacts by name from {target}
+
+      Write a JSON array of units to {workspace}/outputs/manifest.json, each entry with
+      fields: path, unit_type, source.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-write
+    outputs:
+      - name: unit-manifest
+        mode: generate
+        description: >
+          JSON manifest of units to validate. Each entry has path (file path),
+          unit_type (code, doc, config, migration), and source (how it was
+          discovered). The agent picks the discovery method based on the mode
+          trigger param.
+    required: true
+    writes_to:
+      - outputs/manifest.json
+
+  # =========================================================================
+  # Group 1: Per-unit validation (depends on discover-units)
+  # =========================================================================
+
+  - name: validate-units
+    kind: execute
+    depends_on:
+      - discover-units
+    reads_from:
+      - discover-units
+    description: >
+      Per-unit validation. Read the manifest from discover-units (at
+      outputs/manifest.json) to know which units to validate. Check each unit against four criteria, producing a
+      finding per unit per criterion.
+
+      Criteria:
+        - Accuracy: verify numbers, calculations, and data references against source.
+          Numeric values and data references must be verifiable against their
+          declared source; hallucinated or unattributed numbers fail (critical).
+        - Consistency: internal logic holds, no contradictions between sections,
+          comments, or code paths within the unit (critical).
+        - Correctness: code is structurally correct -- imports resolve, types
+          align, API calls match signatures, no undefined references (critical).
+        - Style: follows project conventions -- dataclasses over dicts, PEP
+          585/604 type hints, emit_rows/emit_one for CLI output (minor).
+
+      Write validation/unit-findings.json as an array of
+      {"id": "F-001", "unit": "<path>", "criterion": "accuracy|consistency|correctness|style",
+       "status": "pass|fail", "severity": "critical|minor|info", "detail": "..."}.
+    agent:
+      role: unit-validator
+      model: haiku
+      tools: [Read, Grep, Bash, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - validation/unit-findings.json
+
+  # =========================================================================
+  # Group 2: Cross-unit consistency (depends on validate-units)
+  # =========================================================================
+
+  - name: cross-unit-check
+    kind: validate
+    description: >
+      Cross-unit consistency validation. A single cross-unit-validator agent
+      reads all per-unit findings and the original units to verify consistency
+      across the entire deliverable.
+    agent:
+      role: cross-unit-validator
+      model: haiku
+      tools: [Read, Grep, Write]
+      access: read-write
+    depends_on:
+      - validate-units
+    reads_from:
+      - discover-units
+      - validate-units
+    validation:
+      strategy: cross_unit
+      criteria:
+        - Read outputs/manifest.json (from discover-units) and validation/unit-findings.json (from validate-units) before evaluating each criterion
+        - Shared data points (constants, config values, thresholds) match across all units
+        - Interface contracts are consistent between producer and consumer modules
+        - Naming and terminology are uniform across all units
+        - No stale references to values updated in some units but not others
+        - Import paths and module references resolve correctly across units
+        - Shared type definitions are used consistently (no parallel dict structures)
+      domain_rules:
+        - id: av-xref-001
+          description: >
+            Shared numeric values (thresholds, timeouts, limits) must be
+            identical across all units that reference them. Mismatches
+            indicate a stale update.
+          severity: critical
+          category: cross_reference
+        - id: av-contract-001
+          description: >
+            API signatures and types must be consistent across producer
+            and consumer. A function's return type must match the caller's
+            expected input type.
+          severity: critical
+          category: consistency
+        - id: av-naming-001
+          description: >
+            Terminology and naming must be uniform. The same concept must
+            use the same name everywhere -- no synonyms or abbreviation
+            inconsistencies across units.
+          severity: minor
+          category: consistency
+      max_revisions: 1
+    required: true
+    writes_to:
+      - validation/cross-unit-findings.json
+
+  # =========================================================================
+  # Group 3: Human review gate (depends on cross-unit-check)
+  # =========================================================================
+
+  - name: review-findings
+    kind: propose
+    description: >
+      Present all validation findings (per-unit and cross-unit) to the user.
+      Summarize by severity: critical findings first, then minor, then info.
+
+      To approve without corrections: continue. To trigger re-validation: list
+      the unit paths that need re-checking, then PAUSE. The user must apply
+      corrections directly to the listed unit files outside this workflow (by
+      editing them on disk) before continuing the gate. This workflow does not
+      apply corrections itself -- the revalidate stage re-checks the files as
+      they exist on disk after the human edits.
+
+      Always write outputs/corrections-needed.json as a JSON array of unit paths
+      needing correction; write an empty array [] if the user approves without
+      requesting corrections. This sentinel ensures revalidate can skip
+      deterministically.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    depends_on:
+      - cross-unit-check
+    reads_from:
+      - validate-units
+      - cross-unit-check
+    human_gate: true
+    outputs:
+      - name: findings-summary
+        mode: generate
+        description: >
+          Formatted summary of all findings grouped by severity, with
+          recommended actions. Includes a list of units needing correction
+          if any critical or minor findings exist.
+    required: true
+    writes_to:
+      - validation/findings-summary.json
+      - outputs/corrections-needed.json
+
+  # =========================================================================
+  # Group 4: Re-validate corrected units (conditional, depends on review)
+  # =========================================================================
+
+  - name: revalidate
+    kind: execute
+    description: >
+      Re-validate only units listed in outputs/corrections-needed.json (written
+      by review-findings). Corrections are applied by the human outside this
+      workflow before the gate is continued; this stage re-checks the unit files
+      as they currently exist on disk -- it does not apply any changes itself.
+      Skip entirely if outputs/corrections-needed.json is an empty array.
+
+      Read outputs/corrections-needed.json from review-findings to get the list
+      of units to re-check; read outputs/manifest.json from discover-units for
+      unit metadata. Apply the same per-unit criteria as validate-units,
+      and confirm that:
+        - Previously failing claims now pass in the current on-disk files
+        - Corrections did not introduce new factual errors or inconsistencies
+        - Cross-reference values were updated consistently with the correction
+
+      Write validation/revalidation-findings.json in the validate-units format.
+    agent:
+      role: unit-validator
+      model: haiku
+      tools: [Read, Grep, Bash, Write]
+      access: read-write
+    depends_on:
+      - review-findings
+    reads_from:
+      - discover-units
+      - review-findings
+    required: false
+    writes_to:
+      - validation/revalidation-findings.json

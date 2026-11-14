@@ -1,0 +1,371 @@
+# find-session workflow
+#
+# Locates a past Claude Code session transcript matching a free-text query
+# and an optional time window, without the naive-grep trial-and-error that
+# burns turns on false positives (commit hashes, base64 blobs, boilerplate)
+# or macOS/BSD-vs-GNU tool footguns (e.g. `xargs -a` silently no-ops on
+# macOS's default BSD xargs, producing false "zero matches").
+#
+# Session transcripts live at ~/.claude/projects/*/*.jsonl -- one directory
+# per project/worktree path, one file per session. Each line is a JSON object
+# with message.role and message.content (a string, or a list of blocks:
+# text / tool_use / tool_result). The content the user actually cares about
+# (scripts written, commands run) usually lives inside tool_use.input fields,
+# not top-level text, so a structure-aware scorer beats plain grep.
+#
+# For cost/token questions about sessions already indexed by dancing-bear,
+# prefer `./bin/telemetry sessions --since 7d`; this workflow is for locating
+# a transcript by what was said or done in it.
+#
+# Stage dependency graph:
+#
+#   enumerate-candidates -> search-candidates (worker_queue job)
+#                        -> rank-results -> validate-results
+#
+# Param handling: the engine never substitutes caller params into worker
+# scripts, and {query} is free text. So {query} is written to a file with the
+# Write tool (never through a shell), {since}/{until}/{top_n} are held to
+# strict patterns by trigger.param_rules, and the worker script reads the
+# query from that file.
+
+name: find-session
+version: "1.0"
+description: >
+  Find a past Claude Code session transcript matching a free-text query and
+  optional time window. Time-filters session JSONL files by mtime, runs
+  a structure-aware content scorer across the candidates (scoring
+  user-turn text higher than tool_use noise), and reports the top-ranked
+  sessions with file path, project/worktree name, timestamp, and a quoted
+  excerpt. Use for "find the session where I did X" lookups instead of
+  manual grep/xargs trial and error.
+
+metadata:
+  author: dancing-bear
+  created: "2026-11-11"
+
+trigger:
+  source: manual
+  params:
+    query: ""            # free-text description of what to find, e.g. "daily cost by 3h chunks chart"
+    since: ""            # optional lower bound, e.g. "2026-06-29" or "7d" (days ago). Empty = no lower bound.
+    until: ""            # optional upper bound, e.g. "2026-07-04". Empty = now.
+    top_n: "5"           # number of ranked candidates to report
+  param_rules:
+    since: '([0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{1,4}d)?'
+    until: '([0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{1,4}d)?'
+    top_n: '[1-9][0-9]?'
+  required: [query]
+
+workspace_dir: "{work_dir}/find-session"
+
+stages:
+  # ===========================================================================
+  # Phase 1 -- record the query + enumerate and time-filter candidate files
+  # ===========================================================================
+
+  - name: enumerate-candidates
+    kind: gather
+    depends_on: []
+    description: >
+      Step 1 -- record the query. If {query} is empty or whitespace, stop and
+      report the stage failed: refusing to score every session in the window.
+      Otherwise write the exact text of {query} to {workspace}/outputs/query.txt
+      with the Write tool. NEVER write it through a Bash command (echo, printf,
+      heredoc): free text can carry shell metacharacters.
+
+      Step 2 -- enumerate. Resolve {since}/{until} (each an absolute date like
+      "2026-07-03" or a relative "Nd" form like "7d" meaning N days ago; empty
+      means no bound on that side) to an mtime window and list every
+      ~/.claude/projects/*/*.jsonl file in range, skipping zero-byte files.
+      Run from the repo root (strip the common 8-space indent from the body):
+
+        python3 -I -S - "{workspace}" "{since}" "{until}" <<'PYEOF'
+        import glob, hashlib, json, os, re, sys
+        from datetime import datetime, timedelta, timezone
+
+        workspace, since_raw, until_raw = sys.argv[1], sys.argv[2].strip(), sys.argv[3].strip()
+        if not workspace:
+            sys.exit("FAIL: empty workspace argv")
+
+        def parse_bound(raw):
+            if not raw:
+                return None, False
+            m = re.fullmatch(r"([0-9]+)d", raw)
+            if m:
+                return datetime.now(timezone.utc) - timedelta(days=int(m.group(1))), True
+            return datetime.strptime(raw, "%Y-%m-%d").replace(tzinfo=timezone.utc), False
+
+        since_dt, _ = parse_bound(since_raw)
+        until_dt, until_is_relative = parse_bound(until_raw)
+        if until_dt is not None and not until_is_relative:
+            # An absolute date includes the whole day; a relative "Nd" bound is
+            # already an exact instant, so shifting it would narrow the window.
+            until_dt = until_dt + timedelta(days=1)
+
+        root = os.path.expanduser("~/.claude/projects")
+        candidates = []
+        for path in sorted(glob.glob(os.path.join(root, "*", "*.jsonl"))):
+            try:
+                mtime = datetime.fromtimestamp(os.path.getmtime(path), tz=timezone.utc)
+                size = os.path.getsize(path)
+            except OSError:  # nosec B112 - file vanished between glob and stat; skip it
+                continue
+            if size == 0 or (since_dt is not None and mtime < since_dt):
+                continue
+            if until_dt is not None and mtime >= until_dt:
+                continue
+            candidates.append(dict(
+                session_id=hashlib.sha1(path.encode()).hexdigest()[:16],
+                session_file=path,
+                project_dir=os.path.basename(os.path.dirname(path)),
+                mtime=mtime.isoformat(),
+                size_bytes=size,
+            ))
+        candidates.sort(key=lambda c: c["mtime"], reverse=True)
+
+        out_dir = os.path.join(workspace, "outputs")
+        os.makedirs(out_dir, exist_ok=True)
+        with open(os.path.join(out_dir, "candidates.json"), "w", encoding="utf-8") as fh:
+            json.dump(dict(items=candidates, total=len(candidates)), fh)
+        print("%d candidate session files in range" % len(candidates))
+        PYEOF
+
+      outputs/candidates.json is a wrapped dict (search-candidates reads the
+      "items" key): items[] entries carry
+      session_id (sha1 of session_file, first 16 hex chars), session_file,
+      project_dir, mtime, size_bytes; plus "total". session_id is a filesystem-safe
+      hash because session_file is an absolute path containing "/". Sorted by mtime descending.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/query.txt
+      - outputs/candidates.json
+
+  # ===========================================================================
+  # Phase 2 -- worker-queue job: structure-aware content search
+  #
+  # Parses JSONL lines directly (never shells out to grep/xargs -- avoids the
+  # macOS BSD-vs-GNU footguns that cause false "zero match" results),
+  # separates user-turn text from tool_use input (Write file content, Bash
+  # commands) so a match in the user's own words scores higher than a match
+  # buried in tool noise, and writes a per-session score plus excerpt. Pure
+  # text scoring, so this is a worker_queue job, not an agent. The worker runs
+  # with cwd set to the workspace directory.
+  # ===========================================================================
+
+  - name: search-candidates
+    kind: execute
+    depends_on: [enumerate-candidates]
+    reads_from: [enumerate-candidates]
+    executor: worker_queue
+    script: |-
+      python3 -I -S - <<'PYEOF'
+      import json, os, re
+
+      workspace = os.getcwd()
+      with open(os.path.join(workspace, "outputs", "query.txt"), encoding="utf-8") as fh:
+          query = fh.read()
+      with open(os.path.join(workspace, "outputs", "candidates.json"), encoding="utf-8") as fh:
+          candidates = json.load(fh)["items"]
+
+      _STOPWORDS = {"and", "are", "but", "for", "not", "the"}
+      keywords = [w for w in re.findall(r"[a-z0-9]+", query.lower()) if len(w) > 2 and w not in _STOPWORDS]
+
+      def redact(text):
+          """Replace obvious secret-shaped values in excerpt text with [REDACTED]."""
+          text = re.sub(r'(?i)Bearer\s+[A-Za-z0-9._\-/+]{20,}', 'Bearer [REDACTED]', text)
+          text = re.sub(r'sk-[A-Za-z0-9_\-]{20,}', 'sk-[REDACTED]', text)
+          text = re.sub(r'ghp_[A-Za-z0-9]{30,}', 'ghp_[REDACTED]', text)
+          text = re.sub(r'AKIA[A-Z0-9]{16}', 'AKIA[REDACTED]', text)
+          text = re.sub(r'(?i)(password|token)=[^\s"\'&]{8,}', r'\1=[REDACTED]', text)
+          return text
+
+      def _make_excerpt(text, kws, window=300):
+          """Return ~window chars centred on the first keyword hit."""
+          flat = text.strip().replace(chr(10), " ")
+          low = flat.lower()
+          hit = None
+          for k in kws:
+              pos = low.find(k)
+              if pos >= 0 and (hit is None or pos < hit):
+                  hit = pos
+          if hit is None:
+              return flat[:window]
+          half = window // 2
+          start = max(0, hit - half)
+          end = min(len(flat), start + window)
+          start = max(0, end - window)
+          return flat[start:end]
+
+      def score_text(text, weight):
+          if not text or not keywords:
+              return 0.0, None
+          low = text.lower()
+          hits = sum(low.count(k) for k in keywords)
+          if hits == 0:
+              return 0.0, None
+          distinct = sum(1 for k in keywords if k in low)
+          bonus = 2.0 if distinct == len(keywords) else 1.0
+          return hits * weight * bonus, redact(_make_excerpt(text, keywords))
+
+      def blocks(role, content):
+          """Yield (weight, source, text, excerptable) per scorable string.
+          tool_use input fields are scored for relevance but not used as excerpts."""
+          user_src = "user_turn" if role == "user" else "tool_content"
+          weight = 3.0 if role == "user" else 1.0
+          if isinstance(content, str):
+              yield weight, user_src, content, True
+          elif isinstance(content, list):
+              for block in content:
+                  if not isinstance(block, dict):
+                      continue
+                  if block.get("type") == "text" and isinstance(block.get("text"), str):
+                      yield weight, user_src, block["text"], True
+                  elif block.get("type") == "tool_use" and isinstance(block.get("input"), dict):
+                      for key in ("content", "command", "file_path", "prompt"):
+                          val = block["input"].get(key)
+                          if isinstance(val, str):
+                              yield 1.0, "tool_content", val, False
+
+      def score_file(session_file):
+          best = dict(score=0.0, excerpt=None, excerpt_source=None, user_turns=0)
+          best_excerpt_score = 0.0
+          try:
+              with open(session_file, encoding="utf-8", errors="replace") as fh:
+                  for line in fh:
+                      try:
+                          obj = json.loads(line)
+                      except json.JSONDecodeError:  # nosec B112 - skip malformed transcript lines
+                          continue
+                      msg = obj.get("message", obj) if isinstance(obj, dict) else None
+                      if not isinstance(msg, dict):
+                          continue
+                      role = msg.get("role")
+                      if role == "user":
+                          best["user_turns"] += 1
+                      for weight, source, text, excerptable in blocks(role, msg.get("content")):
+                          s, snip = score_text(text, weight)
+                          if s > best["score"]:
+                              best["score"] = s
+                          if excerptable and snip and s > best_excerpt_score:
+                              best_excerpt_score = s
+                              best.update(excerpt=snip, excerpt_source=source)
+          except OSError as exc:
+              best.update(score=0.0, excerpt="error reading file: " + str(exc), excerpt_source="error")
+          return best
+
+      out_dir = os.path.join(workspace, "outputs", "scores")
+      os.makedirs(out_dir, exist_ok=True)
+      for cand in candidates:
+          result = dict(session_id=cand["session_id"], session_file=cand["session_file"])
+          result.update(score_file(cand["session_file"]))
+          with open(os.path.join(out_dir, cand["session_id"] + ".json"), "w", encoding="utf-8") as fh:
+              json.dump(result, fh)
+      print("scored %d sessions" % len(candidates))
+      PYEOF
+    description: >
+      HEADLESS WORKER-QUEUE STAGE. One Python job scores every candidate session
+      file listed in outputs/candidates.json. It is a single job, not a
+      per-candidate fan-out: a fan-out key is substituted into the worker script
+      text before bash parses it, so the key cannot be passed as data, and the
+      scoring is cheap file I/O. Reads the query from outputs/query.txt and
+      splits it into lowercase alphanumeric keywords (len > 2, common English
+      stopwords removed: and/are/but/for/not/the). For each JSONL
+      line, parses message.role and message.content: content may be a plain
+      string or a list of blocks. Text and plain-string content is "user_turn"
+      (weight 3x) when role == user, else "tool_content" (weight 1x, covers
+      assistant prose). tool_use blocks additionally contribute their
+      input.content / command / file_path / prompt string fields as
+      tool_content (weight 1x) -- this is where real scripts and shell commands
+      live. A hit on every distinct keyword in one block doubles that block's
+      score. Excerpts come only from user_turn and assistant text blocks (not
+      tool_use inputs, which may contain credentials); the overall session score
+      reflects all blocks. Excerpts are ~300 chars centred on the first keyword
+      hit (not truncated from the start of the block), redacted for obvious
+      secret patterns (Bearer tokens, sk-/ghp_/AKIA prefixes, password=/token=
+      values) before storing; newlines are flattened.
+
+      Never invokes grep/xargs as a subprocess -- all matching is Python string
+      parsing, so there is no macOS BSD-vs-GNU flag risk.
+
+      Writes outputs/scores/<session_id>.json per file with session_id,
+      session_file, score, excerpt, excerpt_source ("user_turn", "tool_content",
+      "error" or null) and user_turns. Score 0 (no keyword hit) is still written
+      so rank-results can confirm every candidate was actually checked.
+    agent:
+      role: inline   # required by the parser but unused -- worker_queue never spawns an agent
+    required: true
+
+  # ===========================================================================
+  # Phase 3 -- rank and report
+  # ===========================================================================
+
+  - name: rank-results
+    kind: execute
+    depends_on: [search-candidates]
+    reads_from: [enumerate-candidates]
+    description: >
+      Read every file under {workspace}/outputs/scores/ (use Glob to list them
+      and Read to load each, not Bash cat loops) and outputs/candidates.json.
+      Join each score record back to its candidate's project_dir and mtime by
+      session_file path. The scoring job runs on the background worker; if the
+      scores directory is empty or has fewer files than candidates.json "total",
+      run `./bin/worker list`, report which jobs are still pending, and stop
+      rather than ranking a partial set.
+
+      Drop records with score == 0. Sort remaining records by score
+      descending, take the top {top_n}.
+
+      If zero records have score > 0, report clearly that no session matched
+      {query} in the given window and suggest widening {since}/{until} or
+      trying different keywords -- do not fabricate a match.
+
+      Write outputs/ranked-results.md as a short report:
+
+        ## find-session results for: "{query}"
+
+        Window: {since} to {until} | Candidates searched: <total from
+        candidates.json> | Matches found: <N with score > 0>
+
+        ### 1. <project_dir> -- <mtime>
+        `<session_file>`
+        Match source: user_turn | tool_content
+        > <excerpt>
+
+        ### 2. ...
+
+      Keep it terse -- this is a lookup result, not a narrative report. No
+      speculation beyond what the excerpt actually shows.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Glob, Bash, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/ranked-results.md
+
+  - name: validate-results
+    kind: validate
+    depends_on: [rank-results]
+    reads_from: [rank-results]
+    description: >
+      Check outputs/ranked-results.md against the criteria below.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Glob]
+      access: read-write
+    validation:
+      strategy: unit
+      criteria:
+        - Read outputs/ranked-results.md (written by rank-results) before evaluating
+        - Every reported result includes session_file, project_dir, mtime, and excerpt
+        - Results are sorted by score descending
+        - Reports "no match" honestly if no candidate scored above 0, instead of inventing a result
+      max_revisions: 1
+    required: true

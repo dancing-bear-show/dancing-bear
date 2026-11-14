@@ -351,6 +351,7 @@ agent failure rather than a missing table row.
 | `researcher` | `researcher` |
 | `code-writer` | `code-writer` |
 | `code-writer-opus` | `code-writer-opus` |
+| `code-writer-haiku-scaffold` | `code-writer-haiku-scaffold` |
 | `doc-writer` | `doc-writer` |
 | `reviewer` | `reviewer` |
 | `tester` | `tester` |
@@ -362,6 +363,8 @@ agent failure rather than a missing table row.
 | `Plan` | `Plan` |
 | `Explore` | `Explore` |
 | `ci-fixer` | `ci-fixer` |
+| `ci-fixer-opus` | `ci-fixer-opus` |
+| `workflow-debugger` | `workflow-debugger` |
 | `haiku-reviewer` | `haiku-reviewer` |
 | `thread-fixer` | `thread-fixer` |
 | `workflow-author` | `workflow-author` |
