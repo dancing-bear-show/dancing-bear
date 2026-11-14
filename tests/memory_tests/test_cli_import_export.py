@@ -17,6 +17,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 from memory.bundle import IMPORT_MARKER_KEY, serialize_bundle
@@ -801,7 +802,7 @@ class TestImportStoreTargeting(MemoryTestCase):
         self.assertEqual(rc, 1)
         self.assertIn("--store", err)
 
-    def _bundle_with(self, **changes: object) -> Path:
+    def _bundle_with(self, **changes: Any) -> Path:
         import dataclasses
 
         bundle = sample_bundle()

@@ -6,7 +6,9 @@ import contextlib
 import io
 import os
 import unittest
+from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 from unittest.mock import patch
 
 import memory.cli as memory_cli
@@ -134,13 +136,27 @@ class TestRefDeadPathMissingRepo(MemoryTestCase):
         self.assertEqual(_check_ref_dead_path(store, ctx), ())
 
 
+def _returning(value: object) -> Callable[[int], dict]:
+    """A github_caller that returns ``value`` verbatim, typed as the real caller.
+
+    The cast is the point: the test feeds non-dict JSON through a callable
+    whose declared return is dict, exactly as a misbehaving CLI would.
+    """
+
+    def caller(_pr_number: int) -> dict:
+        return cast(dict, value)
+
+    return caller
+
+
 class TestStaleSupersededPrRobustness(MemoryTestCase):
     def test_non_dict_response_is_skipped(self) -> None:
         store = _store(self.tmp, (_project_memory(self.tmp, "See PR #7."),))
         ctx = _CheckContext(repo=None, claude_md_paths=(), fix=False)
-        for payload in ([], "x", None, 5):
+        payloads: tuple[object, ...] = ([], "x", None, 5)
+        for payload in payloads:
             with self.subTest(payload=payload):
-                results = _check_stale_superseded_pr(store, ctx, github_caller=lambda _n, p=payload: p)
+                results = _check_stale_superseded_pr(store, ctx, github_caller=_returning(payload))
                 self.assertEqual(results, ())
 
     def test_default_caller_resolved_against_repo_root_with_timeout(self) -> None:
