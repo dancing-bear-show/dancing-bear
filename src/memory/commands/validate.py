@@ -11,8 +11,17 @@ from __future__ import annotations
 import argparse
 
 from core.cli_output import emit_rows
-from memory.commands._common import STORE_ARG, ArgSpec, format_arg, validation_error
+from memory.commands._common import (
+    ALL_STORES_ARG,
+    DRY_RUN_ARG,
+    STORE_ARG,
+    ArgSpec,
+    exclusive_store_scope,
+    format_arg,
+    validation_error,
+)
 from memory.discovery import discover_stores, load_store
+from memory.models import MemoryStore
 from memory.validation import CHECK_REGISTRY, CheckResult, run_checks
 
 _VALIDATE_HEADERS = ["check_id", "severity", "target", "message", "fixable"]
@@ -45,12 +54,36 @@ def _findings_to_rows(findings: list[CheckResult]) -> list[dict[str, str]]:
 
 ARGUMENTS: list[ArgSpec] = [
     STORE_ARG,
+    ALL_STORES_ARG,
     (("--check",), {"action": "append", "dest": "checks", "metavar": "ID", "choices": sorted(CHECK_REGISTRY), "help": "Check ID to run (repeatable; default: all offline checks)"}),
     format_arg(["json", "table"], "json"),
-    (("--fix",), {"action": "store_true", "help": "Repair fixable findings (.bak backups first)"}),
+    (("--fix",), {"action": "store_true", "help": "Repair fixable findings (.bak backups first; needs --store or --all-stores)"}),
+    DRY_RUN_ARG,
     (("--claude-md",), {"action": "append", "dest": "claude_md_paths", "default": [], "help": "Extra CLAUDE.md path for overlap checks (repeatable)"}),
     (("--repo",), {"default": None, "help": "Repo root for path/CLI reference checks"}),
 ]
+
+
+def _scope_error(args: argparse.Namespace) -> int | None:
+    """Reject invalid store/fix/dry-run combinations; None when valid."""
+    scope_error = exclusive_store_scope(args.store, args.all_stores)
+    if scope_error is not None:
+        return scope_error
+    if args.fix and not (args.store or args.all_stores):
+        return validation_error("--fix", "requires --store SLUG or --all-stores")
+    if args.dry_run and not args.fix:
+        return validation_error("--dry-run", "requires --fix")
+    return None
+
+
+def _load_stores(args: argparse.Namespace) -> list[MemoryStore] | int:
+    """Stores to validate, or an exit code when ``--store`` fails to load."""
+    if not args.store:
+        return list(discover_stores())
+    try:
+        return [load_store(args.store)]
+    except Exception as exc:  # NOSONAR - CLI boundary: surface as a validation error, never a raw traceback
+        return validation_error("--store", str(exc))
 
 
 def run(args: argparse.Namespace) -> int:
@@ -67,14 +100,13 @@ def run(args: argparse.Namespace) -> int:
         if unknown:
             return validation_error("--check", f"unknown check ID(s): {', '.join(sorted(unknown))}")
 
-    # Load stores
-    if args.store:
-        try:
-            stores = [load_store(args.store)]
-        except Exception as exc:  # NOSONAR - CLI boundary: surface as a validation error, never a raw traceback
-            return validation_error("--store", str(exc))
-    else:
-        stores = list(discover_stores())
+    scope_error = _scope_error(args)
+    if scope_error is not None:
+        return scope_error
+
+    stores = _load_stores(args)
+    if isinstance(stores, int):
+        return stores
 
     all_findings: list[CheckResult] = []
     for store in stores:
@@ -84,6 +116,10 @@ def run(args: argparse.Namespace) -> int:
             fix=args.fix,
             repo=args.repo,
             claude_md=tuple(args.claude_md_paths) if args.claude_md_paths else (),
+            dry_run=args.dry_run,
+            # A multi-store scan must not measure other projects' memories
+            # against the current directory's CLAUDE.md files.
+            cwd_default=bool(args.store),
         )
         all_findings.extend(findings)
 

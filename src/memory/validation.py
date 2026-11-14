@@ -12,6 +12,7 @@ import re
 import shutil
 import subprocess
 from collections.abc import Callable
+from functools import partial
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -403,7 +404,9 @@ _CLI_MENTION_RE = re.compile(r"\./bin/([A-Za-z0-9_-]+)")
 def _check_ref_dead_path(
     store: MemoryStore, ctx: _CheckContext
 ) -> tuple[CheckResult, ...]:
-    if ctx.repo is None:
+    # A repo that does not exist (deleted project, worktree slug decoded to a
+    # garbled path) cannot tell us which paths are dead; skip rather than flag all.
+    if ctx.repo is None or not ctx.repo.is_dir():
         return ()
     results = []
     for m in store.memories:
@@ -423,33 +426,46 @@ def _check_ref_dead_path(
     return tuple(results)
 
 
+def _git_toplevel() -> Path | None:
+    """Git toplevel of the current directory, or None outside a checkout."""
+    try:
+        out = subprocess.check_output(  # nosec B603 B607 - fixed git argv, no shell
+            ["git", "rev-parse", "--show-toplevel"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=5,
+        ).strip()
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+        # Not in a git checkout (or git missing): callers skip their check
+        # rather than flagging every mention as dead.
+        return None
+    return Path(out) if out else None
+
+
+def _resolve_repo_root(repo: Path | None, marker: str) -> Path | None:
+    """Repo root containing ``marker``: ``repo`` itself, else the git toplevel.
+
+    ``repo`` for worktree slugs decodes to a non-existent garbled path (e.g.
+    /Users/name/code/repo--claude-worktrees-<name>), so fall back to the git
+    toplevel rather than Path.cwd(), which only works from the repo root.
+    """
+    if repo is not None and (repo / marker).exists():
+        return repo
+    top = _git_toplevel()
+    if top is not None and (top / marker).exists():
+        return top
+    return None
+
+
 def _check_ref_dead_cli(
     store: MemoryStore, ctx: _CheckContext
 ) -> tuple[CheckResult, ...]:
     if ctx.repo is None:
         return ()
-    # ctx.repo for worktree slugs decodes to a non-existent garbled path (e.g.
-    # /Users/name/code/repo--claude-worktrees-<name>). Fall back to git toplevel
-    # so CLI existence checks resolve against the actual checkout being validated.
-    # Use git rather than Path.cwd(), which only works when invoked from the
-    # repo root.
-    bin_dir = ctx.repo / "bin"
-    if not bin_dir.is_dir():
-        try:
-            toplevel = subprocess.check_output(  # nosec B603 B607 - fixed git argv, no shell
-                ["git", "rev-parse", "--show-toplevel"],
-                stderr=subprocess.DEVNULL,
-                text=True,
-                timeout=5,
-            ).strip()
-            bin_dir = Path(toplevel) / "bin"
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
-            # Not in a git checkout (or git missing): keep the decoded bin_dir,
-            # and the is_dir() guard below skips the check rather than
-            # flagging every CLI mention as dead.
-            pass
-    if not bin_dir.is_dir():
+    root = _resolve_repo_root(ctx.repo, "bin")
+    if root is None:
         return ()
+    bin_dir = root / "bin"
     results = []
     for m in store.memories:
         for cli_name in _CLI_MENTION_RE.findall(m.body):
@@ -470,32 +486,51 @@ def _check_ref_dead_cli(
 _PR_NUMBER_RE = re.compile(r"(?:PR\s*#|pull/)(\d+)")
 
 
-def _default_github_caller(pr_number: int) -> dict:
-    """Call ./bin/github pr view for a single PR number; return parsed JSON."""
+_GITHUB_CALL_TIMEOUT_SECONDS = 30
+
+
+def _default_github_caller(github_bin: Path, pr_number: int) -> dict:
+    """Call ``github_bin pr view`` for one PR number; return parsed JSON."""
     result = subprocess.run(  # nosec B603 - fixed argv, no shell; pr_number is an int
-        ["./bin/github", "pr", "view", "--pr", str(pr_number), "--fields", "state"],
+        [str(github_bin), "pr", "view", "--pr", str(pr_number), "--fields", "state"],
         capture_output=True,
         text=True,
         check=False,
+        cwd=github_bin.parent.parent,
+        timeout=_GITHUB_CALL_TIMEOUT_SECONDS,
     )
     return json.loads(result.stdout)
 
 
+def _pr_state(caller: Callable[[int], dict], pr_num: int) -> str:
+    """Upper-cased PR state, or "" when the lookup fails or returns a non-object."""
+    try:
+        data = caller(pr_num)
+    except Exception:  # nosec B110 - network failure must not abort the other PR lookups
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    return str(data.get("state") or "").upper()
+
+
 def _check_stale_superseded_pr(
     store: MemoryStore,
-    ctx: _CheckContext,  # NOSONAR - required by Check callable interface
+    ctx: _CheckContext,
     *,
     github_caller: Callable[[int], dict] | None = None,
 ) -> tuple[CheckResult, ...]:
     """Scan project memories for PR references and flag closed/merged PRs.
 
-    Skips silently if ./bin/github is not on PATH or the call fails — network
-    may be unavailable in offline contexts. Only runs on PROJECT memories.
+    Skips silently if bin/github cannot be found under the repo root (or git
+    toplevel), or the call fails or returns a non-object — network may be
+    unavailable in offline contexts. Only runs on PROJECT memories.
     """
-    caller = github_caller or _default_github_caller
-
-    if github_caller is None and not shutil.which("./bin/github"):
-        return ()
+    caller = github_caller
+    if caller is None:
+        root = _resolve_repo_root(ctx.repo, "bin/github")
+        if root is None:
+            return ()
+        caller = partial(_default_github_caller, root / "bin" / "github")
 
     results = []
     for m in store.memories:
@@ -503,11 +538,7 @@ def _check_stale_superseded_pr(
             continue
         pr_numbers = {int(n) for n in _PR_NUMBER_RE.findall(m.body)}
         for pr_num in sorted(pr_numbers):
-            try:
-                data = caller(pr_num)
-            except Exception:  # nosec B112 - network failure must not abort the other PR lookups
-                continue
-            state = data.get("state", "").upper()
+            state = _pr_state(caller, pr_num)
             if state in ("CLOSED", "MERGED"):
                 results.append(
                     CheckResult(
@@ -547,7 +578,9 @@ _NETWORK_CHECKS = frozenset({"stale-superseded-pr"})
 DEFAULT_CHECKS: tuple[str, ...] = tuple(c for c in CHECK_REGISTRY if c not in _NETWORK_CHECKS)
 
 
-def _default_claude_md_paths(repo: Path | None) -> tuple[Path, ...]:
+def _default_claude_md_paths(repo: Path | None, *, cwd_default: bool = True) -> tuple[Path, ...]:
+    if repo is None and not cwd_default:
+        return ()
     base = repo or Path.cwd()
     paths: list[Path] = []
     for pattern in _DEFAULT_CLAUDE_MD_GLOBS:
@@ -667,6 +700,13 @@ _FIXERS: dict[str, Callable[[MemoryStore, tuple[CheckResult, ...]], None]] = {
 }
 
 
+def _resolve_repo_path(store: MemoryStore, repo: str | Path | None) -> Path | None:
+    """Explicit repo wins; else the store's own inferred repo; else None."""
+    if repo is not None:
+        return Path(repo)
+    return Path(store.inferred_repo) if store.inferred_repo else None
+
+
 def run_checks(
     store: MemoryStore,
     *,
@@ -674,6 +714,8 @@ def run_checks(
     repo: str | Path | None = None,
     claude_md: tuple[str, ...] = (),
     fix: bool = False,
+    dry_run: bool = False,
+    cwd_default: bool = True,
 ) -> tuple[CheckResult, ...]:
     """Dispatch each selected check from CHECK_REGISTRY and return flattened findings.
 
@@ -686,22 +728,21 @@ def run_checks(
     Returns an empty tuple for a clean store, never None; a check that
     raises surfaces as an error-severity CheckResult rather than silently
     reducing the finding count.
+
+    dry_run=True with fix=True reports findings (fixable ones are flagged) but
+    writes nothing. cwd_default=False stops a store with no known repo from
+    inheriting the current directory's CLAUDE.md files (multi-store scans).
     """
     selected = checks if checks is not None else DEFAULT_CHECKS
     unknown = set(selected) - set(CHECK_REGISTRY.keys())
     if unknown:
         raise ValueError(f"unknown check id(s): {', '.join(sorted(unknown))}")
 
-    if repo is not None:
-        repo_path = Path(repo)
-    elif store.inferred_repo:
-        repo_path = Path(store.inferred_repo)
-    else:
-        repo_path = None
+    repo_path = _resolve_repo_path(store, repo)
     claude_md_paths = (
         tuple(Path(p) for p in claude_md)
         if claude_md
-        else _default_claude_md_paths(repo_path)
+        else _default_claude_md_paths(repo_path, cwd_default=cwd_default)
     )
     ctx = _CheckContext(repo=repo_path, claude_md_paths=claude_md_paths, fix=fix)
 
@@ -721,7 +762,7 @@ def run_checks(
                 )
             )
 
-    if fix:
+    if fix and not dry_run:
         results_tuple = tuple(findings)
         for check_id, fixer in _FIXERS.items():
             if check_id in selected:

@@ -292,7 +292,7 @@ class TestMainFixArgForwarded(MemoryTestCase):
                 "memory.commands.validate.run_checks", return_value=()
             ) as mock_run,
         ):
-            _run_validate("--fix")
+            _run_validate("--fix", "--all-stores")
         _, kwargs = mock_run.call_args
         self.assertTrue(kwargs.get("fix"))
 
