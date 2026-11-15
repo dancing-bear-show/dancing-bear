@@ -1,0 +1,876 @@
+name: suggest-memory-doc-updates
+version: "1.0"
+description: >
+  Staleness and dead-reference scanner for both Claude Code auto-memory files
+  and checked-in documentation. Detects three categories of drift:
+
+  1. MEMORY staleness — project memories citing merged/closed PRs, memory bodies
+     referencing repo paths or ./bin/<x> CLIs that no longer exist, and memories
+     that are old relative to type-aware thresholds (project: 45 days; feedback:
+     365 days; reference/user: no threshold).
+
+  2. DOC staleness — documentation files (.llm/*.md, CLAUDE.md, README.md,
+     docs/**/*.md recursively — see doc_globs param) citing ./bin/<x> CLIs,
+     repo paths, workflow YAMLs, or .claude/skills/<name> entries that no
+     longer exist on disk.
+
+  This workflow is REPORT-ONLY. It never writes to memory files, documentation
+  files, or any other source file. The final propose stage presents findings grouped
+  by confidence (high / medium / low) and by target type (memory vs doc). Apply
+  suggested corrections by hand or in a follow-up conversational session.
+
+  This workflow is distinct from:
+  - graduate-memories.yaml    — "is this memory rule-worthy enough to promote?"
+  - fix-memory-contradictions.yaml — "does this memory contradict a checked-in doc?"
+  - doc-audit.yaml            — "does source code have doc coverage?" (feature gaps,
+                                not dead references)
+  THIS workflow asks: "has the codebase moved out from under this memory or doc?"
+
+  IMPORTANT: Contains executor: inline stages. Run via the /workflow skill
+  (Skill(skill="workflow", ...)) — NOT via ./bin/workflow run.
+
+  DAG:
+    enumerate-targets
+          |
+    check-memory-refs   (parallel with check-doc-refs)
+    check-doc-refs
+          |
+    check-pr-status     (optional — skipped when pr_check == "false")
+          |
+    consolidate-findings
+          |
+    propose-report
+
+metadata:
+  author: dancing-bear
+  created: "2026-08-04"
+
+trigger:
+  source: manual
+  params:
+    store: ""            # project-slug memory store to scan; default: current repo's store
+                         # (slug derived from cwd git remote). Leave blank to auto-detect.
+    doc_globs: ".llm/*.md,CLAUDE.md,README.md,docs/**/*.md"
+    pr_check: "true"   # set to "false" to skip the only network-dependent stage
+
+workspace_dir: "{work_dir}/suggest-memory-doc-updates"
+
+stages:
+
+  # ============================================================================
+  # Stage 1: Enumerate all targets — memory files + doc files
+  # ============================================================================
+
+  - name: enumerate-targets
+    kind: gather
+    executor: inline
+    description: |
+      Discover all memory files and documentation files that will be scanned.
+
+      If {store} is blank, auto-detect: run `git rev-parse --show-toplevel` to
+      get the repo root, then derive the project slug from the canonical path
+      encoding (same convention as fix-memory-contradictions.yaml's scan-anchors
+      stage): slug = repo_root.replace("/", "-").lstrip("-")
+      Memory store root: ~/.claude/projects/<slug>/memory/
+
+      {workspace}, {store}, and {doc_globs} must NOT be spliced into shell
+      text (not even single-quoted — an embedded apostrophe would still
+      break out) — and this applies to the mkdir/cat commands used to stage
+      the handoff files themselves, not just the Python body: a raw
+      {workspace} value containing a shell metacharacter would execute the
+      instant `mkdir -p {workspace}/scratch` or `cat {workspace}/scratch/...`
+      is parsed by bash, before any handoff file is ever written or read
+      (see workflows/code/load-concerns.yaml's select-guides stage for the
+      established precedent). Use a bare, non-templated relative path
+      (scratch/, gitignored at the repo root) for the handoff directory and
+      mktemp-generated filenames (shell-generated, never a
+      compiler-substituted template token) for the handoff files. Using your
+      Bash and Write tools:
+
+        STEP 1 (Bash tool) — clean stale handoff files from prior runs first:
+            rm -f scratch/.enumerate-targets-workspace.*
+            rm -f scratch/.enumerate-targets-store.*
+            rm -f scratch/.enumerate-targets-doc-globs.*
+          Then create the scratch dir and run mktemp for each of
+          the three values (scratch/.enumerate-targets-workspace.XXXXXX,
+          scratch/.enumerate-targets-store.XXXXXX,
+          scratch/.enumerate-targets-doc-globs.XXXXXX), capturing each
+          line's stdout as HANDOFF_WORKSPACE, HANDOFF_STORE, and
+          HANDOFF_DOC_GLOBS respectively. Keep each as the RELATIVE path
+          emitted by mktemp — relative paths contain no checkout-directory
+          content, so they can never embed shell metacharacters. The Write
+          tool (STEP 2) requires an absolute path: for each handoff file,
+          run a second command, e.g.
+            ABS_HANDOFF_WORKSPACE="$(cd scratch && pwd)/$(basename "$HANDOFF_WORKSPACE")"
+          and use that ABS_ value ONLY as the Write tool's file_path argument
+          — never in any Bash command text.
+        STEP 2 (Write tool) — write the EXACT value of each, verbatim with
+          no shell quoting, to its absolute handoff path (ABS_HANDOFF_WORKSPACE
+          etc.) from STEP 1, using the Write tool:
+            {workspace}    → ABS_HANDOFF_WORKSPACE
+            {store}        → ABS_HANDOFF_STORE
+            {doc_globs}    → ABS_HANDOFF_DOC_GLOBS
+          (bytes placed directly by the Write tool — any characters are
+          inert). NO BASH FALLBACK: never write any of these values via a
+          Bash command (echo/printf/cat > file, heredoc, etc.) under any
+          circumstance, including recovery from a Write tool failure — doing
+          so reintroduces the exact shell-splice vulnerability this handoff
+          pattern exists to prevent. If the Write tool fails, stop and report
+          the failure rather than falling back to Bash.
+        STEP 3 (Bash tool) — shell variables from STEP 1 do NOT persist into
+          this separate Bash tool call. Re-derive all three HANDOFF_* variables
+          from globs matching each call site's unique mktemp template, in THIS
+          SAME Bash call, then reference them via shell variables (never
+          re-typed as literal text):
+            HANDOFF_WORKSPACE="$(ls -1 scratch/.enumerate-targets-workspace.* 2>/dev/null | head -1)"
+            HANDOFF_STORE="$(ls -1 scratch/.enumerate-targets-store.* 2>/dev/null | head -1)"
+            HANDOFF_DOC_GLOBS="$(ls -1 scratch/.enumerate-targets-doc-globs.* 2>/dev/null | head -1)"
+            python3 -I -S - "$(cat "$HANDOFF_WORKSPACE")" "$(cat "$HANDOFF_STORE")" "$(cat "$HANDOFF_DOC_GLOBS")" << 'PYEOF'
+      import json, pathlib, glob as globmod, os, subprocess, datetime, sys
+
+      ws = sys.argv[1]
+      if not ws:
+          sys.exit("FAIL: empty workspace argv — handoff file was empty or missing (Write tool step may have silently no-opped); refusing to proceed rather than operate against filesystem root")
+      store = sys.argv[2]
+      doc_globs_str = sys.argv[3]
+
+      pathlib.Path(f"{ws}/outputs").mkdir(parents=True, exist_ok=True)
+      pathlib.Path(f"{ws}/stages").mkdir(parents=True, exist_ok=True)
+
+      # ── Resolve the memory store: explicit store param, or auto-detect ──
+      if not store:
+          repo_root = subprocess.run(
+              ["git", "rev-parse", "--show-toplevel"],
+              capture_output=True, text=True, check=True
+          ).stdout.strip()
+          slug = repo_root.replace("/", "-").lstrip("-")
+          store = str(pathlib.Path("~/.claude/projects").expanduser() / slug / "memory")
+
+      # ── Enumerate memory files ──────────────────────────────────────────
+      store_path = pathlib.Path(store).expanduser()
+      memory_files = []
+      if store_path.is_dir():
+          for mf in sorted(store_path.glob("*.md")):
+              if mf.name == "MEMORY.md":
+                  continue
+              stat = mf.stat()
+              mtime_ts = stat.st_mtime
+              mtime_dt = datetime.datetime.fromtimestamp(mtime_ts)
+              # Infer type from filename prefix (supports both _ and - separators)
+              slug = mf.stem
+              if slug.startswith(("feedback_", "feedback-")):
+                  mem_type = "feedback"
+              elif slug.startswith(("project_", "project-")):
+                  mem_type = "project"
+              elif slug.startswith(("reference_", "reference-")):
+                  mem_type = "reference"
+              else:
+                  mem_type = "user"
+              memory_files.append({
+                  "slug": slug,
+                  "path": str(mf),
+                  "type": mem_type,
+                  "mtime_iso": mtime_dt.isoformat(),
+                  "mtime_ts": mtime_ts,
+                  "body": mf.read_text(errors="replace"),
+              })
+
+      # ── Enumerate documentation files ───────────────────────────────────
+      # recursive=True so a "**" pattern in doc_globs (if a caller overrides
+      # the default) actually expands — glob.glob() ignores "**" without it.
+      doc_files = []
+      for pattern in doc_globs_str.split(","):
+          pattern = pattern.strip()
+          for df in sorted(globmod.glob(pattern, recursive=True)):
+              dp = pathlib.Path(df)
+              if not dp.is_file():
+                  continue
+              doc_files.append({
+                  "path": str(dp),
+                  "body": dp.read_text(errors="replace"),
+              })
+
+      result = {
+          "memory_count": len(memory_files),
+          "doc_count": len(doc_files),
+          "memory_files": memory_files,
+          "doc_files": doc_files,
+      }
+      pathlib.Path(f"{ws}/outputs/targets.json").write_text(
+          json.dumps(result, indent=2)
+      )
+      print(f"Enumerated {len(memory_files)} memory files, {len(doc_files)} doc files.")
+      PYEOF
+
+        STEP 4 (Bash tool) — re-derive all three the same way (this is also a
+        new, separate Bash call) and remove, even if STEP 3 failed:
+          HANDOFF_WORKSPACE="$(ls -1 scratch/.enumerate-targets-workspace.* 2>/dev/null | head -1)"
+          HANDOFF_STORE="$(ls -1 scratch/.enumerate-targets-store.* 2>/dev/null | head -1)"
+          HANDOFF_DOC_GLOBS="$(ls -1 scratch/.enumerate-targets-doc-globs.* 2>/dev/null | head -1)"
+          [ -n "$HANDOFF_WORKSPACE" ] && rm -f "$HANDOFF_WORKSPACE"
+          [ -n "$HANDOFF_STORE" ] && rm -f "$HANDOFF_STORE"
+          [ -n "$HANDOFF_DOC_GLOBS" ] && rm -f "$HANDOFF_DOC_GLOBS"
+    required: true
+    writes_to:
+      - outputs/targets.json
+
+  # ============================================================================
+  # Stage 2a: Check memory files for dead references (parallel with 2b)
+  # ============================================================================
+
+  - name: check-memory-refs
+    kind: gather
+    executor: inline
+    depends_on: [enumerate-targets]
+    reads_from: [enumerate-targets]
+    description: |
+      Scan every memory file for dead references and mtime-based staleness signals.
+      No network calls — all checks are offline.
+
+      Checks performed per memory file:
+        ref-dead-path   — body cites a repo path under src/, .llm/,
+                          workflows/, concerns/, templates/, .claude/ that no
+                          longer exists in the current checkout.
+        ref-dead-cli    — body references ./bin/<x> where bin/<x> doesn't exist.
+        stale-mtime     — memory mtime is old relative to type-aware thresholds:
+                            project:  warn if older than 45 days
+                            feedback: warn if older than 365 days
+                            reference/user: no threshold (skip)
+          NOTE: mtime staleness is a weaker signal than ref-dead-path/ref-dead-cli.
+          It means "worth a look", not "definitely stale".
+        pr-candidate    — body contains a PR number pattern (#\d+ or PR #\d+).
+                          Emit the PR number(s) as candidates for the pr-check stage.
+                          Do NOT resolve PR status here — that requires network access.
+
+      {workspace} must NOT be spliced into shell text (not even single-quoted
+      — an embedded apostrophe would still break out) — and this applies to
+      the mkdir/cat commands used to stage the handoff file itself, not just
+      the Python body — see the enumerate-targets stage above for the full
+      rationale. Use a bare, non-templated relative path (scratch/,
+      gitignored at the repo root) for the handoff directory and an
+      mktemp-generated filename (shell-generated, never a
+      compiler-substituted template token) for the handoff file. Using your
+      Bash and Write tools:
+
+        STEP 1 (Bash tool) — clean stale handoff files from prior runs first:
+            rm -f scratch/.check-memory-refs-workspace.*
+          Then create the scratch dir and generate a fresh handoff path:
+            mkdir -p scratch && mktemp scratch/.check-memory-refs-workspace.XXXXXX
+          Capture the mktemp line's stdout as the RELATIVE path in HANDOFF_PATH.
+          Keep it relative for all Bash uses. The Write tool (STEP 2) requires
+          an absolute path: compute it separately, e.g.
+            ABS_HANDOFF_PATH="$(cd scratch && pwd)/$(basename "$HANDOFF_PATH")"
+          and pass that only to the Write tool's file_path — never in Bash text.
+        STEP 2 (Write tool) — write the EXACT value of {workspace}, verbatim
+          with no shell quoting, to the absolute path (ABS_HANDOFF_PATH),
+          using the Write tool. NO BASH FALLBACK: never write this value via a
+          Bash command (echo/printf/cat > file, heredoc, etc.) under any
+          circumstance, including recovery from a Write tool failure — doing
+          so reintroduces the exact shell-splice vulnerability this handoff
+          pattern exists to prevent. If the Write tool fails, stop and report
+          the failure rather than falling back to Bash.
+        STEP 3 (Bash tool) — shell variables from STEP 1 do NOT persist into
+          this separate Bash tool call. Re-derive HANDOFF_PATH from a glob
+          matching this call site's unique mktemp template, in THIS SAME
+          Bash call, then reference it via a shell variable (never re-typed
+          as literal text):
+            HANDOFF_PATH="$(ls -1 scratch/.check-memory-refs-workspace.* 2>/dev/null | head -1)"
+            python3 -I -S - "$(cat "$HANDOFF_PATH")" << 'PYEOF'
+      import json, re, pathlib, datetime, os, sys
+
+      ws = sys.argv[1]
+      if not ws:
+          sys.exit("FAIL: empty workspace argv — handoff file was empty or missing (Write tool step may have silently no-opped); refusing to proceed rather than operate against filesystem root")
+      targets = json.load(open(f"{ws}/outputs/targets.json"))
+      memory_files = targets["memory_files"]
+
+      now = datetime.datetime.now().timestamp()
+      THRESHOLDS = {"project": 45, "feedback": 365}
+      PR_RE = re.compile(r"(?:PR\s+)?#(\d+)")
+
+      # Repo path patterns to look for in memory bodies
+      REPO_PATH_RE = re.compile(
+          r"(?:src/|\.llm/|workflows/|concerns/|templates/|\.claude/|bin/)"
+          r"[\w./\-]+"
+      )
+
+      # Bin CLI reference pattern: ./bin/<name>
+      BIN_CLI_RE = re.compile(r"\./bin/([\w\-]+)")
+
+      findings = []
+      pr_candidates = []
+
+      for mf in memory_files:
+          slug = mf["slug"]
+          body = mf["body"]
+          mem_type = mf["type"]
+          mtime_ts = mf["mtime_ts"]
+
+          file_findings = []
+
+          # ── ref-dead-path ─────────────────────────────────────────────
+          for match in REPO_PATH_RE.finditer(body):
+              raw_path = match.group(0).rstrip(".,;:)")
+              p = pathlib.Path(raw_path)
+              if not p.exists():
+                  file_findings.append({
+                      "check": "ref-dead-path",
+                      "confidence": "high",
+                      "detail": f"path '{raw_path}' cited in body does not exist",
+                      "excerpt": body[max(0, match.start()-40):match.end()+40].replace("\n", " "),
+                  })
+
+          # ── ref-dead-cli ──────────────────────────────────────────────
+          for match in BIN_CLI_RE.finditer(body):
+              cli_name = match.group(1)
+              if not pathlib.Path(f"bin/{cli_name}").exists():
+                  file_findings.append({
+                      "check": "ref-dead-cli",
+                      "confidence": "high",
+                      "detail": f"./bin/{cli_name} referenced in body does not exist",
+                      "excerpt": body[max(0, match.start()-40):match.end()+40].replace("\n", " "),
+                  })
+
+          # ── stale-mtime ───────────────────────────────────────────────
+          threshold_days = THRESHOLDS.get(mem_type)
+          if threshold_days is not None:
+              age_days = (now - mtime_ts) / 86400
+              if age_days > threshold_days:
+                  file_findings.append({
+                      "check": "stale-mtime",
+                      "confidence": "low",
+                      "detail": (
+                          f"type={mem_type}, age={int(age_days)}d "
+                          f"(threshold={threshold_days}d) — worth reviewing for accuracy"
+                      ),
+                      "excerpt": "",
+                  })
+
+          # ── pr-candidate ──────────────────────────────────────────────
+          for match in PR_RE.finditer(body):
+              pr_num = int(match.group(1))
+              if pr_num > 100:  # filter out false positives like "#3" dates
+                  pr_candidates.append({
+                      "slug": slug,
+                      "pr_number": pr_num,
+                      "excerpt": body[max(0, match.start()-60):match.end()+60].replace("\n", " "),
+                  })
+
+          if file_findings:
+              findings.append({
+                  "slug": slug,
+                  "type": mem_type,
+                  "path": mf["path"],
+                  "findings": file_findings,
+              })
+
+      output = {
+          "memory_findings": findings,
+          "pr_candidates": pr_candidates,
+          "stats": {
+              "total_memories": len(memory_files),
+              "memories_with_findings": len(findings),
+              "pr_candidates": len(pr_candidates),
+          },
+      }
+      pathlib.Path(f"{ws}/outputs/memory-refs.json").write_text(
+          json.dumps(output, indent=2)
+      )
+      print(
+          f"Memory ref check: {len(findings)} memories with findings, "
+          f"{len(pr_candidates)} PR candidates."
+      )
+      PYEOF
+
+        STEP 4 (Bash tool) — re-derive the same way (this is also a new,
+        separate Bash call) and remove, even if STEP 3 failed:
+          HANDOFF_PATH="$(ls -1 scratch/.check-memory-refs-workspace.* 2>/dev/null | head -1)"
+          [ -n "$HANDOFF_PATH" ] && rm -f "$HANDOFF_PATH"
+    required: true
+    writes_to:
+      - outputs/memory-refs.json
+
+  # ============================================================================
+  # Stage 2b: Check doc files for dead references (parallel with 2a)
+  # ============================================================================
+
+  - name: check-doc-refs
+    kind: gather
+    executor: inline
+    depends_on: [enumerate-targets]
+    reads_from: [enumerate-targets]
+    description: |
+      Scan every documentation file for dead references. All checks are offline.
+
+      Checks performed per doc file:
+        ref-dead-cli      — ./bin/<x> where bin/<x> doesn't exist.
+        ref-dead-path     — repo path under src/, .llm/, workflows/,
+                            concerns/, templates/, .claude/ that doesn't exist.
+        ref-dead-workflow — workflows/**/*.yaml path referenced that doesn't exist.
+        ref-dead-skill    — .claude/skills/<name> (or skills/<name>) referenced
+                            that doesn't exist on disk.
+
+      {workspace} must NOT be spliced into shell text (not even single-quoted
+      — an embedded apostrophe would still break out) — and this applies to
+      the mkdir/cat commands used to stage the handoff file itself, not just
+      the Python body — see the enumerate-targets stage above for the full
+      rationale. Use a bare, non-templated relative path (scratch/,
+      gitignored at the repo root) for the handoff directory and an
+      mktemp-generated filename (shell-generated, never a
+      compiler-substituted template token) for the handoff file. Using your
+      Bash and Write tools:
+
+        STEP 1 (Bash tool) — clean stale handoff files from prior runs first:
+            rm -f scratch/.check-doc-refs-workspace.*
+          Then create the scratch dir and generate a fresh handoff path:
+            mkdir -p scratch && mktemp scratch/.check-doc-refs-workspace.XXXXXX
+          Capture the mktemp line's stdout as the RELATIVE path in HANDOFF_PATH.
+          Keep it relative for all Bash uses. The Write tool (STEP 2) requires
+          an absolute path: compute it separately, e.g.
+            ABS_HANDOFF_PATH="$(cd scratch && pwd)/$(basename "$HANDOFF_PATH")"
+          and pass that only to the Write tool's file_path — never in Bash text.
+        STEP 2 (Write tool) — write the EXACT value of {workspace}, verbatim
+          with no shell quoting, to the absolute path (ABS_HANDOFF_PATH),
+          using the Write tool. NO BASH FALLBACK: never write this value via a
+          Bash command (echo/printf/cat > file, heredoc, etc.) under any
+          circumstance, including recovery from a Write tool failure — doing
+          so reintroduces the exact shell-splice vulnerability this handoff
+          pattern exists to prevent. If the Write tool fails, stop and report
+          the failure rather than falling back to Bash.
+        STEP 3 (Bash tool) — shell variables from STEP 1 do NOT persist into
+          this separate Bash tool call. Re-derive HANDOFF_PATH from a glob
+          matching this call site's unique mktemp template, in THIS SAME
+          Bash call, then reference it via a shell variable (never re-typed
+          as literal text):
+            HANDOFF_PATH="$(ls -1 scratch/.check-doc-refs-workspace.* 2>/dev/null | head -1)"
+            python3 -I -S - "$(cat "$HANDOFF_PATH")" << 'PYEOF'
+      import json, re, pathlib, glob as globmod, os, sys
+
+      ws = sys.argv[1]
+      if not ws:
+          sys.exit("FAIL: empty workspace argv — handoff file was empty or missing (Write tool step may have silently no-opped); refusing to proceed rather than operate against filesystem root")
+      targets = json.load(open(f"{ws}/outputs/targets.json"))
+      doc_files = targets["doc_files"]
+
+      # Repo path pattern
+      REPO_PATH_RE = re.compile(
+          r"(?:src/|\.llm/|workflows/|concerns/|templates/|\.claude/|bin/)"
+          r"[\w./\-]+"
+      )
+
+      # Bin CLI reference
+      BIN_CLI_RE = re.compile(r"\./bin/([\w\-]+)")
+
+      # Workflow YAML reference (relative path)
+      WORKFLOW_RE = re.compile(r"workflows/[\w./\-]+\.yaml")
+
+      # Skill reference: .claude/skills/<name> or skills/<name>
+      SKILL_RE = re.compile(r"(?:\.claude/)?skills/([\w\-]+)")
+
+      findings = []
+
+      for df in doc_files:
+          doc_path = df["path"]
+          body = df["body"]
+          file_findings = []
+
+          # ── ref-dead-cli ──────────────────────────────────────────────
+          for match in BIN_CLI_RE.finditer(body):
+              cli_name = match.group(1)
+              if not pathlib.Path(f"bin/{cli_name}").exists():
+                  file_findings.append({
+                      "check": "ref-dead-cli",
+                      "confidence": "high",
+                      "detail": f"./bin/{cli_name} does not exist",
+                      "excerpt": body[max(0, match.start()-40):match.end()+40].replace("\n", " "),
+                  })
+
+          # ── ref-dead-path (non-workflow repo paths) ───────────────────
+          for match in REPO_PATH_RE.finditer(body):
+              raw_path = match.group(0).rstrip(".,;:)")
+              # Skip paths that also match the workflow pattern — handled below
+              if raw_path.startswith("workflows/") and raw_path.endswith(".yaml"):
+                  continue
+              p = pathlib.Path(raw_path)
+              if not p.exists():
+                  file_findings.append({
+                      "check": "ref-dead-path",
+                      "confidence": "high",
+                      "detail": f"path '{raw_path}' does not exist",
+                      "excerpt": body[max(0, match.start()-40):match.end()+40].replace("\n", " "),
+                  })
+
+          # ── ref-dead-workflow ─────────────────────────────────────────
+          for match in WORKFLOW_RE.finditer(body):
+              wf_path = match.group(0)
+              if not pathlib.Path(wf_path).exists():
+                  file_findings.append({
+                      "check": "ref-dead-workflow",
+                      "confidence": "high",
+                      "detail": f"workflow '{wf_path}' does not exist",
+                      "excerpt": body[max(0, match.start()-40):match.end()+40].replace("\n", " "),
+                  })
+
+          # ── ref-dead-skill ────────────────────────────────────────────
+          for match in SKILL_RE.finditer(body):
+              skill_name = match.group(1)
+              skill_dir = pathlib.Path(f".claude/skills/{skill_name}")
+              if not skill_dir.exists():
+                  file_findings.append({
+                      "check": "ref-dead-skill",
+                      "confidence": "high",
+                      "detail": f"skill '{skill_name}' not found at .claude/skills/{skill_name}/",
+                      "excerpt": body[max(0, match.start()-40):match.end()+40].replace("\n", " "),
+                  })
+
+          # Deduplicate by (check, detail)
+          seen = set()
+          deduped = []
+          for f in file_findings:
+              key = (f["check"], f["detail"])
+              if key not in seen:
+                  seen.add(key)
+                  deduped.append(f)
+
+          if deduped:
+              findings.append({
+                  "path": doc_path,
+                  "findings": deduped,
+              })
+
+      output = {
+          "doc_findings": findings,
+          "stats": {
+              "total_docs": len(doc_files),
+              "docs_with_findings": len(findings),
+          },
+      }
+      pathlib.Path(f"{ws}/outputs/doc-refs.json").write_text(
+          json.dumps(output, indent=2)
+      )
+      print(f"Doc ref check: {len(findings)} docs with findings.")
+      PYEOF
+
+        STEP 4 (Bash tool) — re-derive the same way (this is also a new,
+        separate Bash call) and remove, even if STEP 3 failed:
+          HANDOFF_PATH="$(ls -1 scratch/.check-doc-refs-workspace.* 2>/dev/null | head -1)"
+          [ -n "$HANDOFF_PATH" ] && rm -f "$HANDOFF_PATH"
+    required: true
+    writes_to:
+      - outputs/doc-refs.json
+
+  # ============================================================================
+  # Stage 3: Check PR status for memory PR candidates (network — optional)
+  # ============================================================================
+
+  - name: check-pr-status
+    kind: gather
+    depends_on: [check-memory-refs, check-doc-refs]
+    reads_from: [check-memory-refs]
+    description: >
+      For each PR number found in project-type memory bodies, check whether the
+      PR is now merged or closed using `./bin/github pr view`. A merged/closed PR
+      cited in a project memory is a MEDIUM-confidence staleness signal: the memory
+      may be describing in-progress work that has since shipped, making the context
+      stale.
+
+      This stage is skipped when pr_check == "false" (trigger param). When skipped,
+      write an empty result file so downstream stages have a file to read.
+
+      Step 1: read {workspace}/outputs/memory-refs.json.
+      Step 2: if pr_check is "false" OR pr_candidates is empty, write empty result
+              and exit 0.
+      Step 3: for each unique PR number in pr_candidates:
+                ./bin/github pr view --pr <N> --fields state,mergedAt,title
+                Extract: state (open/closed/merged), mergedAt, title.
+                Classify as stale if state indicates closed or merged.
+      Step 4: write {workspace}/outputs/pr-status.json:
+        {
+          "skipped": false,
+          "pr_check_param": "{pr_check}",
+          "results": [
+            {
+              "pr_number": 42,
+              "state": "merged",
+              "merged_at": "2026-07-15T...",
+              "title": "feat: some merged feature",
+              "citing_slugs": ["project-some-feature"],
+              "confidence": "medium",
+              "detail": "PR #42 is merged — project memory citing it may describe completed/stale work"
+            }
+          ]
+        }
+
+      Only include PRs whose state indicates closed or merged in results — open PRs
+      are not stale candidates.
+
+      If `./bin/github pr view` fails for a PR number (not found, auth error, etc.),
+      skip that PR and log a warning — do not fail the stage.
+    agent:
+      role: researcher
+      tools: [Read, Write, Bash, Glob]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/pr-status.json
+
+  # ============================================================================
+  # Stage 4: Consolidate all findings into a single structured report
+  # ============================================================================
+
+  - name: consolidate-findings
+    kind: gather
+    executor: inline
+    depends_on: [check-pr-status]
+    reads_from: [check-memory-refs, check-doc-refs, check-pr-status]
+    description: |
+      Merge memory-refs.json, doc-refs.json, and pr-status.json into a single
+      structured findings file, categorized by confidence and target type.
+
+      {workspace} must NOT be spliced into shell text (not even single-quoted
+      — an embedded apostrophe would still break out) — and this applies to
+      the mkdir/cat commands used to stage the handoff file itself, not just
+      the Python body — see the enumerate-targets stage above for the full
+      rationale. Use a bare, non-templated relative path (scratch/,
+      gitignored at the repo root) for the handoff directory and an
+      mktemp-generated filename (shell-generated, never a
+      compiler-substituted template token) for the handoff file. Using your
+      Bash and Write tools:
+
+        STEP 1 (Bash tool) — clean stale handoff files from prior runs first:
+            rm -f scratch/.consolidate-findings-workspace.*
+          Then create the scratch dir and generate a fresh handoff path:
+            mkdir -p scratch && mktemp scratch/.consolidate-findings-workspace.XXXXXX
+          Capture the mktemp line's stdout as the RELATIVE path in HANDOFF_PATH.
+          Keep it relative for all Bash uses. The Write tool (STEP 2) requires
+          an absolute path: compute it separately, e.g.
+            ABS_HANDOFF_PATH="$(cd scratch && pwd)/$(basename "$HANDOFF_PATH")"
+          and pass that only to the Write tool's file_path — never in Bash text.
+        STEP 2 (Write tool) — write the EXACT value of {workspace}, verbatim
+          with no shell quoting, to the absolute path (ABS_HANDOFF_PATH),
+          using the Write tool. NO BASH FALLBACK: never write this value via a
+          Bash command (echo/printf/cat > file, heredoc, etc.) under any
+          circumstance, including recovery from a Write tool failure — doing
+          so reintroduces the exact shell-splice vulnerability this handoff
+          pattern exists to prevent. If the Write tool fails, stop and report
+          the failure rather than falling back to Bash.
+        STEP 3 (Bash tool) — shell variables from STEP 1 do NOT persist into
+          this separate Bash tool call. Re-derive HANDOFF_PATH from a glob
+          matching this call site's unique mktemp template, in THIS SAME
+          Bash call, then reference it via a shell variable (never re-typed
+          as literal text):
+            HANDOFF_PATH="$(ls -1 scratch/.consolidate-findings-workspace.* 2>/dev/null | head -1)"
+            python3 -I -S - "$(cat "$HANDOFF_PATH")" << 'PYEOF'
+      import json, pathlib, os, sys
+
+      ws = sys.argv[1]
+      if not ws:
+          sys.exit("FAIL: empty workspace argv — handoff file was empty or missing (Write tool step may have silently no-opped); refusing to proceed rather than operate against filesystem root")
+
+      memory_refs = json.load(open(f"{ws}/outputs/memory-refs.json"))
+      doc_refs = json.load(open(f"{ws}/outputs/doc-refs.json"))
+      pr_status_raw = json.load(open(f"{ws}/outputs/pr-status.json"))
+
+      pr_results = pr_status_raw.get("results", [])
+
+      # Build a map: slug -> list of PR findings (medium confidence)
+      pr_by_slug = {}
+      for pr in pr_results:
+          for slug in pr.get("citing_slugs", []):
+              pr_by_slug.setdefault(slug, []).append({
+                  "check": "stale-merged-pr",
+                  "confidence": "medium",
+                  "detail": pr["detail"],
+                  "excerpt": f"PR #{pr['pr_number']}: {pr.get('title','')[:80]}",
+              })
+
+      # ── Memory findings: merge ref checks + PR checks ─────────────────
+      all_memory = {}
+      for mf in memory_refs["memory_findings"]:
+          slug = mf["slug"]
+          all_memory[slug] = {
+              "slug": slug,
+              "type": mf["type"],
+              "path": mf["path"],
+              "findings": list(mf["findings"]),
+          }
+
+      # Inject PR-status findings into matching memory entries
+      for slug, pr_finds in pr_by_slug.items():
+          if slug not in all_memory:
+              # Memory had a PR ref but no other findings — create a new entry
+              # Look up path from original targets (may not be available here;
+              # emit slug-only entry)
+              all_memory[slug] = {
+                  "slug": slug,
+                  "type": "unknown",
+                  "path": "",
+                  "findings": [],
+              }
+          all_memory[slug]["findings"].extend(pr_finds)
+
+      # ── Group by confidence ───────────────────────────────────────────
+      def group_by_confidence(finding_list):
+          high, medium, low = [], [], []
+          for item in finding_list:
+              for f in item.get("findings", []):
+                  c = f.get("confidence", "low")
+                  if c == "high":
+                      high.append({**f, "_target": item.get("slug") or item.get("path")})
+                  elif c == "medium":
+                      medium.append({**f, "_target": item.get("slug") or item.get("path")})
+                  else:
+                      low.append({**f, "_target": item.get("slug") or item.get("path")})
+          return high, medium, low
+
+      mem_list = list(all_memory.values())
+      doc_list = doc_refs["doc_findings"]
+
+      mem_high, mem_medium, mem_low = group_by_confidence(mem_list)
+      doc_high, doc_medium, doc_low = group_by_confidence(doc_list)
+
+      output = {
+          "summary": {
+              "memory": {
+                  "total_scanned": memory_refs["stats"]["total_memories"],
+                  "with_findings": len(mem_list),
+                  "high": len(mem_high),
+                  "medium": len(mem_medium),
+                  "low": len(mem_low),
+              },
+              "docs": {
+                  "total_scanned": doc_refs["stats"]["total_docs"],
+                  "with_findings": len(doc_list),
+                  "high": len(doc_high),
+                  "medium": len(doc_medium),
+                  "low": len(doc_low),
+              },
+              "pr_check_ran": not pr_status_raw.get("skipped", True),
+          },
+          "memory_findings": mem_list,
+          "doc_findings": doc_list,
+          "confidence_groups": {
+              "memory": {"high": mem_high, "medium": mem_medium, "low": mem_low},
+              "docs": {"high": doc_high, "medium": doc_medium, "low": doc_low},
+          },
+      }
+      pathlib.Path(f"{ws}/outputs/findings.json").write_text(
+          json.dumps(output, indent=2)
+      )
+      print(
+          f"Consolidated: memory high={len(mem_high)} medium={len(mem_medium)} low={len(mem_low)}, "
+          f"docs high={len(doc_high)} medium={len(doc_medium)} low={len(doc_low)}"
+      )
+      PYEOF
+
+        STEP 4 (Bash tool) — re-derive the same way (this is also a new,
+        separate Bash call) and remove, even if STEP 3 failed:
+          HANDOFF_PATH="$(ls -1 scratch/.consolidate-findings-workspace.* 2>/dev/null | head -1)"
+          [ -n "$HANDOFF_PATH" ] && rm -f "$HANDOFF_PATH"
+    required: true
+    writes_to:
+      - outputs/findings.json
+
+  # ============================================================================
+  # Stage 5: Propose findings as a human-readable report (terminal stage)
+  # ============================================================================
+
+  - name: propose-report
+    kind: propose
+    depends_on: [consolidate-findings]
+    reads_from: [consolidate-findings]
+    description: >
+      Read {workspace}/outputs/findings.json and render a clear, actionable
+      staleness report for human review. This is the terminal stage — nothing
+      follows it. No file is modified by this workflow.
+
+      Step 1 — load findings:
+        Read {workspace}/outputs/findings.json.
+
+      Step 2 — write {workspace}/outputs/staleness-report.md with this structure:
+
+        # Memory & Doc Staleness Report
+
+        **Run date:** <today's date>
+        **Scope:** memory store {store}, docs {doc_globs}
+        **PR status check:** <ran / skipped (pr_check=false)>
+
+        ## Summary
+
+        | Category | Scanned | With findings | High | Medium | Low |
+        |----------|---------|---------------|------|--------|-----|
+        | Memory files | N | M | H | Med | L |
+        | Doc files    | N | M | H | Med | L |
+
+        ---
+
+        ## Memory — High Confidence (dead paths / dead CLI references)
+
+        These citations are mechanically confirmed to not exist in the current
+        checkout. High likelihood they need to be removed or updated.
+
+        For each memory with high-confidence findings:
+        ### <slug>   [type: <type>]
+        - **check:** <check_name>
+        - **detail:** <detail>
+        - **excerpt:** `<excerpt>`
+
+        ---
+
+        ## Memory — Medium Confidence (merged/closed PR references)
+
+        Project memories citing PRs that are now merged or closed. The memory
+        may describe in-progress work that has since shipped — context may be stale.
+
+        For each memory with medium findings:
+        ### <slug>
+        - **check:** stale-merged-pr
+        - **detail:** <detail>
+        - **PR excerpt:** <excerpt>
+
+        ---
+
+        ## Memory — Low Confidence (old by mtime only)
+
+        These memories are old relative to type-aware thresholds. Mtime alone is
+        a weak signal — a memory can be old and still accurate. Review at your
+        discretion.
+
+        List as a table: | slug | type | age | threshold |
+
+        ---
+
+        ## Docs — High Confidence (dead paths / dead CLI / dead workflow / dead skill)
+
+        For each doc with high-confidence findings:
+        ### <file path>
+        - **check:** <check_name>
+        - **detail:** <detail>
+        - **excerpt:** `<excerpt>`
+
+        ---
+
+        ## What to Do Next
+
+        This workflow does not modify any file. To apply corrections:
+        - Remove or update dead path/CLI/workflow/skill references by editing the
+          file directly or opening a conversational session with Claude.
+        - For merged-PR project memories: decide if the memory is still useful
+          as historical context, or can be deleted/archived.
+        - For mtime-old memories: read the memory body and verify it still
+          describes current reality before acting.
+
+        ---
+
+        *This workflow does not modify any file. Apply suggested corrections by
+        hand or in a follow-up conversational session.*
+
+      Step 3 — print the report to stdout so the orchestrator can display it.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/staleness-report.md

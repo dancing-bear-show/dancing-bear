@@ -60,6 +60,7 @@ CLI help:
 | Workflow | `./bin/workflow` | YAML DAG workflow engine |
 | Qlty | `./bin/qlty-assistant` | Scan, triage, and rank qlty findings by remediation tier |
 | GitHub | `./bin/github` | GitHub porcelain over `core.github` |
+| Memory | `./bin/memory` | Inspect, validate, consolidate, and back up Claude auto-memory stores |
 | Agent Helpers | `./bin/agent-helpers` | Run tests/lint/typecheck, validate imports/AST/JSON, analyze patches |
 
 Legacy `-assistant` suffixed binaries still work (e.g., `./bin/mail-assistant`).
@@ -94,6 +95,7 @@ flowchart TB
         slides[slides/]
         qlty[qlty/]
         github_assistant[github_assistant/]
+        memory[memory/]
         agent_helpers[agent_helpers/]
     end
 
@@ -426,6 +428,7 @@ src/
   sheets/       styled .xlsx generation from YAML
   qlty/         qlty scan/triage wrapper
   github_assistant/  GitHub porcelain over core.github
+  memory/       Claude auto-memory list/validate/consolidate/export/backup
   agent_helpers/  agent-facing checks (tests, validators, patch analysis)
   monitor_poll/  poll a condition (command, file, URL, GitHub PR/run) until it resolves or times out
   workflow/     YAML DAG engine (27 subcommands; see docs/workflow-engine.md)

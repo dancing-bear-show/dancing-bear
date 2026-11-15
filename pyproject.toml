@@ -327,4 +327,5 @@ include = [
   "agent_helpers*",
   "monitor_poll*",
   "qlty*",
+  "memory*",
 ]

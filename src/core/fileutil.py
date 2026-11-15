@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
+import hashlib
 import json
 import os
+import stat
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
@@ -13,7 +16,12 @@ from core.cli_errors import CLIError, ExitCode
 from core.pathguard import require_path
 
 __all__ = [
+    "atomic_copy",
+    "atomic_write_bytes",
     "atomic_write_json",
+    "atomic_write_text",
+    "SymlinkDestinationError",
+    "file_sha256",
     "find_rotated_files",
     "iter_jsonl_file",
     "iter_rotated_jsonl",
@@ -50,6 +58,89 @@ def atomic_write_json(
         except OSError:  # nosec B110 - cleanup failure is non-fatal; original exception re-raised below
             pass
         raise
+
+
+class SymlinkDestinationError(OSError):
+    """Raised when a write is asked to refuse a symlink and the target is one."""
+
+
+def _current_umask() -> int:
+    mask = os.umask(0)
+    os.umask(mask)
+    return mask
+
+
+def _existing_file_mode(path: Path, *, refuse_symlink: bool) -> int | None:
+    """Permission bits of a regular file at ``path``; None when absent or replaceable."""
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        return None
+    if stat.S_ISLNK(st.st_mode):
+        if refuse_symlink:
+            raise SymlinkDestinationError(f"refusing to write through symlink: {path}")
+        return None
+    if not stat.S_ISREG(st.st_mode):
+        raise IsADirectoryError(f"destination is not a regular file: {path}")
+    return stat.S_IMODE(st.st_mode)
+
+
+def atomic_write_bytes(
+    path: str | Path,
+    data: bytes,
+    *,
+    refuse_symlink: bool = False,
+    new_file_mode: int = 0o666,
+) -> None:
+    """Write ``data`` atomically via a uniquely named temp file + rename.
+
+    Overwriting a regular file keeps its permission bits; a new file gets
+    ``new_file_mode & ~umask``. A symlink at ``path`` is replaced by a regular
+    file, never written through — or refused with ``SymlinkDestinationError``
+    when ``refuse_symlink`` is set. On failure the temp file is removed and
+    the previous content of ``path`` is left untouched.
+    """
+    path = require_path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    mode = _existing_file_mode(path, refuse_symlink=refuse_symlink)
+    if mode is None:
+        mode = new_file_mode & ~_current_umask()
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            os.fchmod(fh.fileno(), mode)
+            fh.write(data)
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+
+
+def atomic_write_text(
+    path: str | Path,
+    text: str,
+    *,
+    refuse_symlink: bool = False,
+    new_file_mode: int = 0o666,
+) -> None:
+    """Write ``text`` (UTF-8) atomically; see ``atomic_write_bytes`` for semantics."""
+    atomic_write_bytes(
+        path,
+        text.encode("utf-8"),
+        refuse_symlink=refuse_symlink,
+        new_file_mode=new_file_mode,
+    )
+
+
+def atomic_copy(src: str | Path, dest: str | Path) -> None:
+    """Copy ``src`` bytes to ``dest`` atomically; ``dest`` keeps its existing mode."""
+    atomic_write_bytes(dest, Path(src).read_bytes())
+
+
+def file_sha256(path: str | Path) -> str:
+    """Hex SHA-256 of the file's bytes."""
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
 def write_once(path: str | Path, data: str | bytes) -> None:

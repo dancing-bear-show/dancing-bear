@@ -50,6 +50,7 @@ slides/            PowerPoint deck generation from YAML
 sheets/            styled .xlsx generation from YAML
 qlty/              qlty scan/triage wrapper
 github_assistant/  GitHub porcelain over core.github
+memory/            Claude auto-memory list/validate/consolidate/export
 agent_helpers/     agent-facing checks (tests, validators, patch analysis)
 monitor_poll/      poll a condition until it resolves or times out
 workflow/          YAML DAG engine (27 subcommands)

@@ -3,12 +3,24 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 from core.cli_errors import CLIError
-from core.fileutil import atomic_write_json, load_json_or_exit, safe_load_json, write_once
+from core.fileutil import (
+    SymlinkDestinationError,
+    atomic_copy,
+    atomic_write_bytes,
+    atomic_write_json,
+    file_sha256,
+    atomic_write_text,
+    load_json_or_exit,
+    safe_load_json,
+    write_once,
+)
 
 
 class TestAtomicWriteJson(unittest.TestCase):
@@ -139,6 +151,118 @@ class TestLoadJsonOrExit(unittest.TestCase):
         with self.assertRaises(CLIError) as cm:
             load_json_or_exit("/no/such/file.json")
         self.assertIn("file.json", str(cm.exception))
+
+
+
+class TestAtomicWriteText(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.dir = Path(tmp.name)
+
+    def _leftovers(self):
+        return [p.name for p in self.dir.iterdir() if p.name.endswith(".tmp")]
+
+    def test_creates_parent_dirs_and_writes_utf8(self):
+        target = self.dir / "a" / "b.txt"
+        atomic_write_text(target, "caf\u00e9\n")
+        self.assertEqual(target.read_text(encoding="utf-8"), "caf\u00e9\n")
+
+    def test_new_file_mode_respects_requested_bits(self):
+        target = self.dir / "secret.md"
+        atomic_write_text(target, "x", new_file_mode=0o600)
+        self.assertEqual(target.stat().st_mode & 0o777, 0o600)
+
+    def test_overwrite_preserves_existing_mode(self):
+        target = self.dir / "keep.txt"
+        target.write_text("old")
+        target.chmod(0o640)
+        atomic_write_text(target, "new", new_file_mode=0o600)
+        self.assertEqual(target.read_text(), "new")
+        self.assertEqual(target.stat().st_mode & 0o777, 0o640)
+
+    def test_symlink_replaced_not_written_through(self):
+        real = self.dir / "real.txt"
+        real.write_text("untouched")
+        link = self.dir / "link.txt"
+        link.symlink_to(real)
+        atomic_write_text(link, "replaced")
+        self.assertFalse(link.is_symlink())
+        self.assertEqual(link.read_text(), "replaced")
+        self.assertEqual(real.read_text(), "untouched")
+
+    def test_symlink_refused_when_requested(self):
+        real = self.dir / "real.txt"
+        real.write_text("untouched")
+        link = self.dir / "link.txt"
+        link.symlink_to(real)
+        with self.assertRaises(SymlinkDestinationError):
+            atomic_write_text(link, "nope", refuse_symlink=True)
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(real.read_text(), "untouched")
+
+    def test_directory_destination_rejected(self):
+        target = self.dir / "adir"
+        target.mkdir()
+        with self.assertRaises(IsADirectoryError):
+            atomic_write_text(target, "x")
+        self.assertEqual(self._leftovers(), [])
+
+    def test_failed_write_removes_temp_and_keeps_old_content(self):
+        target = self.dir / "t.txt"
+        target.write_text("old")
+        with self.assertRaises(UnicodeEncodeError):
+            atomic_write_text(target, "\ud800")  # lone surrogate cannot encode
+        self.assertEqual(target.read_text(), "old")
+        self.assertEqual(self._leftovers(), [])
+
+
+class TestAtomicBytesAndCopy(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.dir = Path(tmp.name)
+
+    def test_write_bytes_roundtrip(self):
+        target = self.dir / "sub" / "b.bin"
+        atomic_write_bytes(target, b"\x00\xff")
+        self.assertEqual(target.read_bytes(), b"\x00\xff")
+
+    def test_copy_preserves_destination_mode(self):
+        src = self.dir / "src.md"
+        src.write_text("new")
+        dest = self.dir / "dest.md"
+        dest.write_text("old")
+        dest.chmod(0o644)
+        atomic_copy(src, dest)
+        self.assertEqual(dest.read_text(), "new")
+        self.assertEqual(dest.stat().st_mode & 0o777, 0o644)
+
+    def test_copy_new_file_is_not_0600(self):
+        src = self.dir / "src.md"
+        src.write_text("x")
+        dest = self.dir / "dest.md"
+        atomic_copy(src, dest)
+        mask = os.umask(0)
+        os.umask(mask)
+        self.assertEqual(dest.stat().st_mode & 0o777, 0o666 & ~mask)
+
+    def test_copy_failure_removes_temp_file(self):
+        src = self.dir / "src.md"
+        src.write_text("x")
+        dest = self.dir / "dest.md"
+        with unittest.mock.patch("core.fileutil.os.replace", side_effect=OSError("boom")):
+            with self.assertRaises(OSError):
+                atomic_copy(src, dest)
+        self.assertEqual([p.name for p in self.dir.iterdir()], ["src.md"])
+
+    def test_file_sha256(self):
+        f = self.dir / "f"
+        f.write_bytes(b"abc")
+        self.assertEqual(
+            file_sha256(f),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+        )
 
 
 if __name__ == "__main__":
