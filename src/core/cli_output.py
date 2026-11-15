@@ -324,7 +324,9 @@ def emit_one(data: object, fmt: str = "json") -> int:
     """Emit a single object to stdout. Returns 0.
 
     ``json`` (default) and ``jsonl`` print the object itself; ``yaml`` prints it
-    as a YAML mapping; ``table``/``csv`` render a dict as a one-row table.
+    as a YAML mapping; ``table``/``csv`` render a dict as a one-row table. A
+    non-dict under ``table``/``csv`` has no columns to render and falls back to
+    indented JSON.
     """
     if fmt == "jsonl":
         print(json.dumps(data, separators=(",", ":"), ensure_ascii=False, default=str))

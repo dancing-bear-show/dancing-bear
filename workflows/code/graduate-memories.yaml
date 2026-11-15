@@ -365,7 +365,7 @@ stages:
               a in bin_files or a.startswith("--") for a in anchors
           )
           if cli_anchor_hit:
-              return ".llm/CLI_PREFERENCES.md"
+              return ".llm/COMMANDS.md"
 
           # Check if concern topics overlap but no entry exists yet
           concern_anchor_hit = any(a in concern_text for a in anchors)
@@ -528,8 +528,9 @@ stages:
         **Next step:** [one of the following, matching suggested_sink]
           - If `src/workflow/linter.py`: add a mechanical lint check that
             flags this pattern. The lesson is too precise to rely on prose alone.
-          - If `.llm/CLI_PREFERENCES.md`: add a preference entry for the flagged
-            CLI pattern or flag. See .llm/CLI_PREFERENCES.md conventions.
+          - If `.llm/COMMANDS.md`: add or correct the command example for the
+            flagged CLI pattern or flag, under that file's existing section for
+            the relevant CLI.
           - If `concerns/<domain>.md`: do NOT author the concern entry here.
             update-review-concerns.yaml's `pr_number` param scopes to a PR
             number, not a memory slug — there is no direct handoff path from a
@@ -557,7 +558,7 @@ stages:
         - Write to src/workflow/linter.py
         - Write to concerns/*.md or trigger update-review-concerns.yaml automatically
         - Write to CLAUDE.md or .github/copilot-instructions.md
-        - Write to .llm/CLI_PREFERENCES.md
+        - Write to .llm/COMMANDS.md
 
         All authoring is a human or follow-on workflow decision.
 
