@@ -21,6 +21,7 @@ triage stages consume it.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -111,6 +112,46 @@ def dig(data: Any, *keys: str, what: str) -> Any:
     return cur
 
 
+def paginate_connection(
+    gh: GhCLI,
+    query: str,
+    variables: dict[str, Any],
+    path: tuple[str, ...],
+    *,
+    what: str,
+    after: str | None = None,
+    parent_what: str | None = None,
+    on_page: Callable[[Any], None] | None = None,
+) -> tuple[list[dict[str, Any]], Any]:
+    """Page one GraphQL connection to exhaustion; return (nodes, raw totalCount).
+
+    ``variables`` gets an ``after`` cursor per request. ``path`` walks from the
+    response to the connection; ``what`` names it in errors. When ``on_page`` is
+    given, ``path[:-1]`` is walked first (errors name ``parent_what``) and that
+    parent object is handed to ``on_page`` for every page. ``totalCount`` comes
+    back exactly as the last page reported it: callers own coercion and
+    whether a count mismatch truncates or raises. Raises GhError on a missing
+    path, a stalled cursor, or more than ``MAX_PAGES`` pages.
+    """
+    nodes: list[dict[str, Any]] = []
+    total: Any = None
+    cursor = after
+    for _ in range(MAX_PAGES):
+        data = gh.graphql_checked(query, {**variables, "after": cursor})
+        if on_page is None:
+            conn = dig(data, *path, what=what)
+        else:
+            parent = dig(data, *path[:-1], what=parent_what or what)
+            on_page(parent)
+            conn = dig(parent, path[-1], what=what)
+        nodes.extend(conn.get("nodes") or [])
+        total = conn.get("totalCount")
+        cursor = next_cursor(conn.get("pageInfo"), cursor, what)
+        if cursor is None:
+            return nodes, total
+    raise GhError(f"{what}: exceeded {MAX_PAGES} pages")
+
+
 def _page_thread_comments(gh: GhCLI, thread_id: str, after: str | None) -> tuple[list[dict[str, Any]], int | None]:
     """Fetch the comments of one thread starting after ``after``.
 
@@ -118,19 +159,11 @@ def _page_thread_comments(gh: GhCLI, thread_id: str, after: str | None) -> tuple
     response omitted it — callers must not treat that as "reported 0"; a
     missing count on an otherwise-empty page must not read as confirmed empty.
     """
-    nodes: list[dict[str, Any]] = []
-    total: int | None = None
-    cursor = after
-    for _ in range(MAX_PAGES):
-        data = gh.graphql_checked(THREAD_COMMENTS_QUERY, {"id": thread_id, "after": cursor})
-        conn = dig(data, "node", "comments", what=f"thread {thread_id} comments")
-        nodes.extend(conn.get("nodes") or [])
-        raw_total = conn.get("totalCount")
-        total = int(raw_total) if raw_total is not None else None
-        cursor = next_cursor(conn.get("pageInfo"), cursor, f"thread {thread_id} comments")
-        if cursor is None:
-            return nodes, total
-    raise GhError(f"thread {thread_id} comments: exceeded {MAX_PAGES} pages")
+    nodes, raw_total = paginate_connection(
+        gh, THREAD_COMMENTS_QUERY, {"id": thread_id}, ("node", "comments"),
+        what=f"thread {thread_id} comments", after=after,
+    )
+    return nodes, int(raw_total) if raw_total is not None else None
 
 
 def fetch_thread_comments(gh: GhCLI, thread_id: str) -> list[dict[str, Any]]:
@@ -157,21 +190,10 @@ def fetch_raw_threads(gh: GhCLI, owner: str, repo: str, pr: int) -> tuple[list[d
     first ``COMMENT_PAGE``. Returns (nodes, truncated) where truncated means a
     count GitHub reported did not match what was collected.
     """
-    threads: list[dict[str, Any]] = []
-    cursor: str | None = None
-    reported_total: Any = None
-    for _ in range(MAX_PAGES):
-        data = gh.graphql_checked(
-            THREADS_QUERY, {"owner": owner, "name": repo, "pr": int(pr), "after": cursor},
-        )
-        conn = dig(data, "repository", "pullRequest", "reviewThreads", what=f"PR #{pr} threads")
-        threads.extend(conn.get("nodes") or [])
-        reported_total = conn.get("totalCount")
-        cursor = next_cursor(conn.get("pageInfo"), cursor, f"PR #{pr} threads")
-        if cursor is None:
-            break
-    else:
-        raise GhError(f"PR #{pr} threads: exceeded {MAX_PAGES} pages")
+    threads, reported_total = paginate_connection(
+        gh, THREADS_QUERY, {"owner": owner, "name": repo, "pr": int(pr)},
+        ("repository", "pullRequest", "reviewThreads"), what=f"PR #{pr} threads",
+    )
 
     truncated = _count_disagrees(len(threads), reported_total)
     for node in threads:
@@ -223,24 +245,12 @@ def fetch_thread_states(gh: GhCLI, owner: str, repo: str, pr: int) -> tuple[list
     resolution state — ``threads state``'s post-mutation verification — get an
     O(pages-of-threads) fetch instead of an O(threads) one.
     """
-    threads: list[dict[str, Any]] = []
     truncated = False
-    cursor: str | None = None
-    reported_total: int | None = None
-    for _ in range(MAX_PAGES):
-        data = gh.graphql_checked(
-            THREAD_STATE_QUERY, {"owner": owner, "name": repo, "pr": int(pr), "after": cursor},
-        )
-        conn = dig(data, "repository", "pullRequest", "reviewThreads", what=f"PR #{pr} thread states")
-        threads.extend(conn.get("nodes") or [])
-        raw_total = conn.get("totalCount")
-        reported_total = int(raw_total) if raw_total is not None else None
-        cursor = next_cursor(conn.get("pageInfo"), cursor, f"PR #{pr} thread states")
-        if cursor is None:
-            break
-    else:
-        raise GhError(f"PR #{pr} thread states: exceeded {MAX_PAGES} pages")
-
+    threads, raw_total = paginate_connection(
+        gh, THREAD_STATE_QUERY, {"owner": owner, "name": repo, "pr": int(pr)},
+        ("repository", "pullRequest", "reviewThreads"), what=f"PR #{pr} thread states",
+    )
+    reported_total = int(raw_total) if raw_total is not None else None
     if reported_total is None or len(threads) != reported_total:
         truncated = True
     return threads, truncated
@@ -429,29 +439,21 @@ def fetch_pr_reviews(
     Raises on API failure. Count-checks the reviews connection: ``truncated``
     is True when GitHub reports more reviews than were fetched.
     """
-    nodes: list[dict[str, Any]] = []
-    cursor: str | None = None
-    reported_total: Any = None
     pr_title = ""
     commit_count: int | None = None
-    for _ in range(MAX_PAGES):
-        data = gh.graphql_checked(
-            PR_REVIEWS_QUERY,
-            {"owner": owner, "name": repo, "pr": int(pr), "after": cursor},
-        )
-        pull = dig(data, "repository", "pullRequest", what=f"PR #{pr}")
-        conn = dig(pull, "reviews", what=f"PR #{pr} reviews")
+
+    def _note_pull(pull: Any) -> None:
+        nonlocal pr_title, commit_count
         pr_title = pr_title or (pull.get("title") or "")
         commits = pull.get("commits")
         if commit_count is None and isinstance(commits, dict) and isinstance(commits.get("totalCount"), int):
             commit_count = commits["totalCount"]
-        nodes.extend(conn.get("nodes") or [])
-        reported_total = conn.get("totalCount")
-        cursor = next_cursor(conn.get("pageInfo"), cursor, f"PR #{pr} reviews")
-        if cursor is None:
-            break
-    else:
-        raise GhError(f"PR #{pr} reviews: exceeded {MAX_PAGES} pages")
+
+    nodes, reported_total = paginate_connection(
+        gh, PR_REVIEWS_QUERY, {"owner": owner, "name": repo, "pr": int(pr)},
+        ("repository", "pullRequest", "reviews"), what=f"PR #{pr} reviews",
+        parent_what=f"PR #{pr}", on_page=_note_pull,
+    )
 
     return PRReviews(
         nodes=nodes,
@@ -479,6 +481,27 @@ def fetch_review_threads(gh: GhCLI, owner: str, repo: str, pr: int) -> tuple[dic
     return doc, raw
 
 
+def _thread_state(t: dict[str, Any]) -> str:
+    """State label for one summary row: resolved/open, or the source for non-thread entries."""
+    if not t.get("thread_id"):
+        state = t.get("source", "")
+    elif t.get("is_resolved"):
+        state = "resolved"
+    else:
+        state = "open"
+    if t.get("is_outdated"):
+        state += ",outdated"
+    return state
+
+
+def _thread_loc(t: dict[str, Any]) -> str:
+    """``path`` or ``path:line`` for one summary row; ``(PR)`` when there is no path."""
+    loc = t.get("path") or "(PR)"
+    if t.get("line") is not None:
+        loc = f"{loc}:{t['line']}"
+    return loc
+
+
 def render_summary(doc: dict[str, Any]) -> str:
     """One line per entry: short id, author kind, state, location, opening text."""
     c = doc.get("counts") or {}
@@ -493,17 +516,6 @@ def render_summary(doc: dict[str, Any]) -> str:
     ]
     for t in doc.get("threads") or []:
         tid = (t.get("thread_id") or "-")[-8:]
-        if not t.get("thread_id"):
-            state = t.get("source", "")
-        elif t.get("is_resolved"):
-            state = "resolved"
-        else:
-            state = "open"
-        if t.get("is_outdated"):
-            state += ",outdated"
-        loc = t.get("path") or "(PR)"
-        if t.get("line") is not None:
-            loc = f"{loc}:{t['line']}"
         text = " ".join((t.get("opening_body") or "").split())[:100]
-        lines.append(f"- `{tid}` {t.get('author_kind')} {state} {loc} — {text}")
+        lines.append(f"- `{tid}` {t.get('author_kind')} {_thread_state(t)} {_thread_loc(t)} — {text}")
     return "\n".join(lines) + "\n"
