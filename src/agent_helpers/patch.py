@@ -117,7 +117,7 @@ _EXTRACTORS = {
 }
 
 
-def analyze_patch(patch: str, extract: str) -> dict:
+def analyze_patch(patch: str, extract: str) -> dict[str, object]:
     """Read ``patch`` and run the named extractor; read errors land in ``error``."""
     try:
         text = Path(patch).read_text(encoding="utf-8")

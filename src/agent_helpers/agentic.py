@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from argparse import ArgumentParser
+
 from core.agentic import (
     build_capsule as _build_capsule,
     build_cli_tree as _core_build_cli_tree,
@@ -15,7 +17,7 @@ from .meta import META as _META
 _PURPOSE = _META.purpose
 
 
-def _load_parser():
+def _load_parser() -> ArgumentParser:
     # Import inside the function so a broken parser cannot poison module import;
     # the shared contract tests assert the capsule is substantial.
     from .cli import app
