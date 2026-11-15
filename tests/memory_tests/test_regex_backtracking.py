@@ -97,3 +97,58 @@ class TestSlackTokenRegex(unittest.TestCase):
     def test_realistic_length_token_matches(self) -> None:
         token = "xo" + "xb-" + "1" * 12 + "-" + "2" * 13 + "-" + "aB3" * 8
         self.assertIsNotNone(self._pattern().search(token))
+
+
+_NEW_RULE_IDS = (
+    "openai-key",
+    "google-api-key",
+    "jwt",
+    "stripe-key",
+    "npm-token",
+    "url-credentials",
+    "aws-secret-key",
+)
+
+
+def _rule_pattern(rule_id: str) -> re.Pattern[str]:
+    (rule,) = [r for r in REDACTION_RULES if r.rule_id == rule_id]
+    return rule.pattern
+
+
+def _pathological_inputs() -> list[str]:
+    ejwt = "ey" + "J"
+    return [
+        "sk-" + "proj-" + "A" * BIG,
+        ("sk-" + "proj-") * (BIG // 8),
+        "AI" + "za" + "A" * BIG,
+        ("AI" + "za") * (BIG // 4),
+        ejwt * (BIG // 3),
+        (ejwt + "aaaaaaaaaa.") * (BIG // 14),
+        ejwt + "a" * BIG + "." + "a" * BIG,
+        "sk" + "_live_" + "a" * BIG,
+        ("sk" + "_live_") * (BIG // 8),
+        "npm" + "_" + "a" * BIG,
+        ("npm" + "_") * (BIG // 4),
+        "x://" + "u" * BIG,
+        "x://u:" + "p" * BIG,
+        "x://u:" * (BIG // 6),
+        "a://" * (BIG // 4),
+        ("x://u:" + "p" * 50) * (BIG // 56),
+        "aws_secret_access_key" + " " * BIG,
+        "aws_secret_access_key=" + "a" * BIG,
+        "aws_secret_access_key=" * (BIG // 22),
+    ]
+
+
+class TestNewCredentialRulesAreLinear(unittest.TestCase):
+    def test_pathological_inputs_are_linear(self) -> None:
+        for rule_id in _NEW_RULE_IDS:
+            pattern = _rule_pattern(rule_id)
+            for i, text in enumerate(_pathological_inputs()):
+                with self.subTest(rule_id=rule_id, case=i):
+                    assert_fast(lambda t=text, p=pattern: p.search(t))
+
+    def test_new_rules_registered_as_block(self) -> None:
+        for rule_id in _NEW_RULE_IDS:
+            severities = [r.severity for r in REDACTION_RULES if r.rule_id == rule_id]
+            self.assertEqual(severities, ["block"], rule_id)

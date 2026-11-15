@@ -98,6 +98,75 @@ REDACTION_RULES: tuple[RedactionRule, ...] = (
         replacement="[REDACTED_SLACK_TOKEN]",
         description="Slack token (xox prefix)",
     ),
+    # The lookbehinds below anchor each match at a token boundary so a long run
+    # of token characters is scanned once, not once per start offset (linear time).
+    RedactionRule(
+        rule_id="openai-key",
+        severity=SEVERITY_BLOCK,
+        pattern=re.compile(
+            r"(?<![A-Za-z0-9_\-])sk-(?:proj|svcacct|admin)-[A-Za-z0-9_\-]{40,}",
+            re.ASCII,
+        ),
+        replacement="[REDACTED_OPENAI_KEY]",
+        description="OpenAI API key (sk-proj-/sk-svcacct-/sk-admin- prefix)",
+    ),
+    RedactionRule(
+        rule_id="google-api-key",
+        severity=SEVERITY_BLOCK,
+        pattern=re.compile(
+            r"(?<![A-Za-z0-9_\-])AIza[0-9A-Za-z_\-]{30,}",
+            re.ASCII,
+        ),
+        replacement="[REDACTED_GOOGLE_KEY]",
+        description="Google API key (AIza prefix; real keys are 39 chars, matched from 34)",
+    ),
+    RedactionRule(
+        rule_id="jwt",
+        severity=SEVERITY_BLOCK,
+        pattern=re.compile(
+            r"(?<![A-Za-z0-9_\-])eyJ[A-Za-z0-9_\-]{5,}\.[A-Za-z0-9_\-]{5,}\.[A-Za-z0-9_\-]{5,}",
+            re.ASCII,
+        ),
+        replacement="[REDACTED_JWT]",
+        description="JSON Web Token (three base64url segments, header starts eyJ)",
+    ),
+    RedactionRule(
+        rule_id="stripe-key",
+        severity=SEVERITY_BLOCK,
+        pattern=re.compile(
+            r"(?<!\w)[sr]k_live_[0-9A-Za-z]{24,}", re.ASCII
+        ),
+        replacement="[REDACTED_STRIPE_KEY]",
+        description="Stripe live secret/restricted key (sk_live_/rk_live_ prefix)",
+    ),
+    RedactionRule(
+        rule_id="npm-token",
+        severity=SEVERITY_BLOCK,
+        pattern=re.compile(
+            r"(?<!\w)npm_[A-Za-z0-9]{36}(?![A-Za-z0-9])", re.ASCII
+        ),
+        replacement="[REDACTED_NPM_TOKEN]",
+        description="npm access token (npm_ prefix, 36 alphanumerics)",
+    ),
+    RedactionRule(
+        rule_id="url-credentials",
+        severity=SEVERITY_BLOCK,
+        pattern=re.compile(
+            r"(?<![A-Za-z0-9+.\-])[A-Za-z][A-Za-z0-9+.\-]{1,20}://[^\s/:@]+:[^\s/@]+@[^\s/@]"
+        ),
+        replacement="[REDACTED_URL_CREDENTIALS]",
+        description="URL with embedded credentials (scheme://user:pass@host)",
+    ),
+    RedactionRule(
+        rule_id="aws-secret-key",
+        severity=SEVERITY_BLOCK,
+        pattern=re.compile(
+            r"aws_secret_access_key[ \t]*[=:][ \t]*[\"']?[a-z0-9/+=]{40}(?![a-z0-9/+=])",
+            re.IGNORECASE,
+        ),
+        replacement="[REDACTED_AWS_SECRET]",
+        description="AWS secret access key assignment (aws_secret_access_key = <40 chars>)",
+    ),
     RedactionRule(
         rule_id="credentials-ini-content",
         severity=SEVERITY_BLOCK,
