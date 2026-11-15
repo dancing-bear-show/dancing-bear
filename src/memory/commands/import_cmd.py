@@ -17,9 +17,8 @@ from pathlib import Path
 from core.cli_output import emit_rows
 from core.fileutil import atomic_write_text
 from core.text_utils import slugify
-from memory.commands._common import DRY_RUN_ARG, STORE_ARG, ArgSpec, format_arg, validation_error
+from memory.commands._common import ArgSpec, DRY_RUN_ARG, STORE_ARG, format_arg, select_single_store, validation_error
 from memory.bundle import IMPORT_MARKER_KEY, load_bundle, render_imported_memory, string_values
-from memory.discovery import discover_stores, load_store, resolve_current_store
 from memory.index import append_entry
 from memory.models import ExportedMemory, MemoryStore, Redaction
 from memory.parser import parse_frontmatter
@@ -228,31 +227,6 @@ def _scan_fields(em: ExportedMemory) -> tuple[Redaction, ...]:
     return tuple(r for text in texts for r in scan(text))
 
 
-def _select_store(store_slug: str | None) -> MemoryStore | int:
-    """Pick the write target: --store exactly, else a strict cwd match.
-
-    Returns an exit code (after printing the reason to stderr) when no target
-    can be chosen; never guesses a store for a write.
-    """
-    if store_slug:
-        try:
-            return load_store(store_slug)
-        except Exception as exc:  # NOSONAR - CLI boundary: surface as a validation error, never a raw traceback
-            return validation_error("--store", str(exc))
-    all_stores = discover_stores()
-    if not all_stores:
-        print("No memory stores found.", file=sys.stderr)
-        return 1
-    store = resolve_current_store(all_stores, strict=True)
-    if store is None:
-        print(
-            "[memory] No store matches the current directory; pass --store=SLUG "
-            "(see `memory stores`).",
-            file=sys.stderr,
-        )
-        return 1
-    return store
-
 
 def run(args: argparse.Namespace) -> int:
     """Import a memory bundle into the current repo's store."""
@@ -270,7 +244,7 @@ def run(args: argparse.Namespace) -> int:
     if has_blocking(combined_redactions):
         return validation_error("bundle", "contains blocking redaction issues and cannot be imported")
 
-    store = _select_store(args.store)
+    store = select_single_store(args.store)
     if isinstance(store, int):
         return store
 
