@@ -143,8 +143,7 @@ def cmd_analyze_patch(args: argparse.Namespace) -> int:
 def cmd_git_ops(args: argparse.Namespace) -> int:
     repo_root, error = resolve_repo_root()
     if error:
-        from dataclasses import asdict as _asdict
-        emit_one(_asdict(_git_ops.GitOpResult(
+        emit_one(asdict(_git_ops.GitOpResult(
             op=args.op, branch=args.branch, path=args.path,
             status="error", output=error,
         )))
@@ -165,6 +164,8 @@ def cmd_git_ops(args: argparse.Namespace) -> int:
 @app.argument("--paths", nargs="*", default=[], help="test only: dirs/files to run via unittest discover")
 @app.argument("--tool", choices=TOOL_CHOICES, default="test", help="Gate to run (default: test)")
 def cmd_run_tests(args: argparse.Namespace) -> int:
+    if args.paths and args.tool != "test":
+        return _usage_error("--paths applies only to --tool test")
     repo_root, error = resolve_repo_root()
     if error:
         emit_one(asdict(CheckResult(
@@ -176,8 +177,6 @@ def cmd_run_tests(args: argparse.Namespace) -> int:
             error=error,
         )))
         return ExitCode.SUCCESS
-    if args.paths and args.tool != "test":
-        return _usage_error("--paths applies only to --tool test")
     emit_one(asdict(run_check(args.tool, repo_root, list(args.paths))))
     return ExitCode.SUCCESS
 

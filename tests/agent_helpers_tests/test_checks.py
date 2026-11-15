@@ -50,6 +50,15 @@ class TestRunCheckVerdict(unittest.TestCase):
         self.assertIsNone(result.tests_run)
         self.assertIn("Ran N tests", result.error or "")
 
+    def test_multi_path_command_without_ran_line_is_not_masked(self):
+        runs = [_run(stderr="Ran 4 tests in 0.1s\n\nOK\n"), _run(stdout="silent\n")]
+        with unittest.mock.patch.object(checks, "run_binary", side_effect=runs), \
+                unittest.mock.patch.object(checks, "build_commands", return_value=([["a"], ["b"]], None)):
+            result = run_check("test", "/repo", ["x", "y"])
+        self.assertFalse(result.passed)
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("Ran N tests", result.error or "")
+
     def test_zero_tests_ran_is_failure(self):
         result, _ = self._check("test", _run(stderr="Ran 0 tests in 0.000s\n\nNO TESTS RAN\n"))
         self.assertFalse(result.passed)
@@ -239,6 +248,12 @@ class TestRunTestsCli(unittest.TestCase):
 
     def test_paths_with_lint_is_usage_error(self):
         with unittest.mock.patch("agent_helpers.cli.resolve_repo_root", return_value=("/repo", None)):
+            rc, out, err = run_main(["run-tests", "--tool", "lint", "--paths", "tests"])
+        self.assertEqual((rc, out), (2, ""))
+        self.assertIn("--paths", err)
+
+    def test_paths_with_lint_is_usage_error_outside_repo(self):
+        with unittest.mock.patch("agent_helpers.cli.resolve_repo_root", return_value=("", "not inside a git repository")):
             rc, out, err = run_main(["run-tests", "--tool", "lint", "--paths", "tests"])
         self.assertEqual((rc, out), (2, ""))
         self.assertIn("--paths", err)

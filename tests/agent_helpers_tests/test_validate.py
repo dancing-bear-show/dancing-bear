@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
+import ast
 import os
+import tempfile
 import unittest
 from textwrap import dedent
 
-from agent_helpers.validate import parse_all_names
+from agent_helpers.validate import _overall, parse_all_names
 from tests.agent_helpers_tests.helpers import run_json, run_main, write
 from tests.fixtures import TempDirMixin
-
-import ast
 
 
 class TestValidateImports(unittest.TestCase):
@@ -44,7 +44,6 @@ class TestValidateImports(unittest.TestCase):
         # sanity: non-empty succeeds
         self.assertEqual(result["overall"], "PASS")
         # Directly test _overall with empty list via the library
-        from agent_helpers.validate import _overall
         self.assertEqual(_overall([]), "FAIL")
 
     def test_import_order_blank_value_is_usage_error(self):
@@ -94,7 +93,6 @@ class TestParseAllNames(unittest.TestCase):
 
     def test_validate_ast_and_analyze_patch_agree_on_list(self):
         """Both commands must yield the same names for a simple list assignment."""
-        import tempfile
         source = '__all__ = ["a", "b"]\ndef a(): ...\ndef b(): ...\n'
         # validate-ast --all-exported
         with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as f:
@@ -140,6 +138,119 @@ class TestValidateAst(TempDirMixin, unittest.TestCase):
         result = run_json(["validate-ast", "--file", path, "--all-exported"])
         self.assertEqual(result["status"], "FAIL")
         self.assertEqual(result["undefined"], ["ghost"])
+
+    def test_all_exported_counts_unpacking_augmented_and_nested_bindings(self):
+        path = write(
+            self.tmpdir,
+            "nested.py",
+            dedent(
+                """\
+                import sys
+                __all__ = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"]
+                a, (b, *c) = 1, (2, 3)
+                d = 0
+                d += 1
+                try:
+                    import json as e
+                except ImportError:
+                    e = None
+                else:
+                    f = 1
+                finally:
+                    g = 2
+                if sys.platform:
+                    def h(): ...
+                else:
+                    class i: ...
+                with open(__file__) as fh:
+                    j = 1
+                """
+            ),
+        )
+        result = run_json(["validate-ast", "--file", path, "--all-exported"])
+        self.assertEqual(result["undefined"], [])
+        self.assertEqual(result["status"], "PASS")
+
+    def _undefined(self, source: str, names: list[str]) -> list[str]:
+        path = write(self.tmpdir, "forms.py", f"__all__ = {names!r}\n" + dedent(source))
+        return run_json(["validate-ast", "--file", path, "--all-exported"])["undefined"]
+
+    def test_all_exported_counts_loop_and_while_bindings(self):
+        source = """\
+            for a, b in []:
+                c = 1
+            else:
+                d = 1
+            while False:
+                e = 1
+            else:
+                f = 1
+            async def _run():
+                async for g in []:
+                    pass
+            """
+        self.assertEqual(self._undefined(source, ["a", "b", "c", "d", "e", "f"]), [])
+        self.assertEqual(self._undefined(source, ["g"]), ["g"])  # inside a def: not module level
+
+    def test_all_exported_counts_with_as_targets(self):
+        source = """\
+            with open(__file__) as a, open(__file__) as (b):
+                pass
+            """
+        self.assertEqual(self._undefined(source, ["a", "b"]), [])
+
+    def test_all_exported_counts_except_handler_names(self):
+        source = """\
+            try:
+                pass
+            except ValueError as err:
+                pass
+            """
+        self.assertEqual(self._undefined(source, ["err"]), [])
+
+    def test_all_exported_counts_match_bodies_and_capture_names(self):
+        source = """\
+            match 1:
+                case [first, *rest]:
+                    a = 1
+                case {"k": v, **extra}:
+                    b = 1
+                case int() as num:
+                    pass
+                case _:
+                    c = 1
+            """
+        names = ["first", "rest", "v", "extra", "num", "a", "b", "c"]
+        self.assertEqual(self._undefined(source, names), [])
+
+    def test_all_exported_counts_module_level_walrus(self):
+        source = """\
+            if (a := 1):
+                pass
+            print(b := 2)
+            while (c := 0):
+                pass
+            """
+        self.assertEqual(self._undefined(source, ["a", "b", "c"]), [])
+
+    def test_all_exported_ignores_walrus_in_scopes_and_function_bound_names(self):
+        source = """\
+            def f():
+                if (inner := 1):
+                    pass
+                for loop_var in []:
+                    pass
+            fn = lambda: (lam := 1)
+            comp = [(item := x) for x in []]
+            """
+        names = ["inner", "loop_var", "lam", "item"]
+        self.assertEqual(self._undefined(source, names), names)
+
+    def test_all_exported_ignores_names_bound_inside_functions(self):
+        path = write(self.tmpdir, "fn.py", '__all__ = ["inner"]\ndef f():\n    inner = 1\n')
+        result = run_json(["validate-ast", "--file", path, "--all-exported"])
+        self.assertEqual(result["undefined"], ["inner"])
+        self.assertEqual(result["status"], "FAIL")
 
     def test_all_exported_without_all_fails(self):
         path = write(self.tmpdir, "none.py", "x = 1\n")

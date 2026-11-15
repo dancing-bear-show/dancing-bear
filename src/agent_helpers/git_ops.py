@@ -10,8 +10,6 @@ from dataclasses import dataclass
 
 from core.process import CompletedRun, run_binary
 
-OP_CHOICES = ("checkout", "worktree-add", "worktree-remove", "worktree-list")
-
 _GIT_TIMEOUT_SECONDS = 60.0
 _FETCH_TIMEOUT_SECONDS = 180.0
 _DIRTY_MESSAGE = "working tree has uncommitted changes; commit them before switching branches"
@@ -20,11 +18,13 @@ _DIRTY_MESSAGE = "working tree has uncommitted changes; commit them before switc
 _STATUS_OK = "ok"
 _STATUS_ERROR = "error"
 
-# Op-name constants (must match OP_CHOICES)
+# Op-name constants
 _OP_CHECKOUT = "checkout"
 _OP_WORKTREE_ADD = "worktree-add"
 _OP_WORKTREE_REMOVE = "worktree-remove"
 _OP_WORKTREE_LIST = "worktree-list"
+
+OP_CHOICES = (_OP_CHECKOUT, _OP_WORKTREE_ADD, _OP_WORKTREE_REMOVE, _OP_WORKTREE_LIST)
 
 
 @dataclass(frozen=True)
@@ -57,8 +57,12 @@ def _status(run: CompletedRun) -> str:
 
 
 def _is_dirty(cwd: str) -> bool:
-    """True when the working tree has uncommitted changes (or status could not be read)."""
-    run = _git(["status", "--porcelain"], cwd)
+    """True when tracked files have uncommitted changes (or status could not be read).
+
+    Untracked files are ignored here.  If one would be overwritten by the target
+    branch, git's own checkout aborts and that surfaces as an error result.
+    """
+    run = _git(["status", "--porcelain", "--untracked-files=no"], cwd)
     return not run.ok or bool(run.stdout.strip())
 
 
