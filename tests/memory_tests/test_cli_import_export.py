@@ -16,6 +16,7 @@ import ntpath
 import os
 import tempfile
 import unittest
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -76,6 +77,16 @@ def _store_with_index(tmp_path: Path, slug: str = "-Users-alice-code-indexed-pro
     memory_dir.mkdir(parents=True)
     (memory_dir / "MEMORY.md").write_text("# Memory Index\n", encoding="utf-8")
     return load_store(slug, projects_root=projects_dir)
+
+
+@contextlib.contextmanager
+def _export_store(store: MemoryStore) -> Iterator[None]:
+    """Make export resolve ``store`` as the strict cwd match."""
+    with (
+        patch("memory.commands.export_cmd.discover_stores", return_value=(store,)),
+        patch("memory.commands.export_cmd.resolve_current_store", return_value=store),
+    ):
+        yield
 
 
 def _run_export(argv: list[str]) -> tuple[int, str, str]:
@@ -181,7 +192,7 @@ class TestExportMainCli(MemoryTestCase):
     def test_no_memories_matched_returns_0_with_message(self) -> None:
         store = _store_from_slug(self.projects_root)
 
-        with patch("memory.commands.export_cmd.discover_stores", return_value=(store,)):
+        with _export_store(store):
             rc, _, err = _run_export(["--slug", "does-not-exist"])
 
         self.assertEqual(rc, 0)
@@ -201,7 +212,7 @@ class TestExportMainCli(MemoryTestCase):
         )
         store = load_store(slug, projects_root=projects_dir)
 
-        with patch("memory.commands.export_cmd.discover_stores", return_value=(store,)):
+        with _export_store(store):
             rc, _, err = _run_export(["--all", "--yes"])
 
         self.assertEqual(rc, 1)
@@ -210,7 +221,7 @@ class TestExportMainCli(MemoryTestCase):
     def test_dry_run_prints_would_export_count_and_returns_0(self) -> None:
         store = _store_from_slug(self.projects_root)
 
-        with patch("memory.commands.export_cmd.discover_stores", return_value=(store,)):
+        with _export_store(store):
             rc, _, err = _run_export(["--all", "--dry-run"])
 
         self.assertEqual(rc, 0)
@@ -220,7 +231,7 @@ class TestExportMainCli(MemoryTestCase):
         store = _store_from_slug(self.projects_root)
 
         with (
-            patch("memory.commands.export_cmd.discover_stores", return_value=(store,)),
+            _export_store(store),
             patch("builtins.input", return_value="n"),
         ):
             rc, _, err = _run_export(["--all"])
@@ -235,7 +246,7 @@ class TestExportMainCli(MemoryTestCase):
             raise EOFError
 
         with (
-            patch("memory.commands.export_cmd.discover_stores", return_value=(store,)),
+            _export_store(store),
             patch("builtins.input", side_effect=_raise_eof),
         ):
             rc, _, err = _run_export(["--all"])
@@ -246,7 +257,7 @@ class TestExportMainCli(MemoryTestCase):
     def test_yes_flag_skips_confirmation_and_prints_to_stdout(self) -> None:
         store = _store_from_slug(self.projects_root)
 
-        with patch("memory.commands.export_cmd.discover_stores", return_value=(store,)):
+        with _export_store(store):
             rc, out, _ = _run_export(["--all", "--yes", "--format", "json"])
 
         self.assertEqual(rc, 0)
@@ -257,7 +268,7 @@ class TestExportMainCli(MemoryTestCase):
         store = _store_from_slug(self.projects_root)
         out_path = self.tmp / "out" / "bundle.yaml"
 
-        with patch("memory.commands.export_cmd.discover_stores", return_value=(store,)):
+        with _export_store(store):
             rc, _, err = _run_export(["--all", "--yes", "--output", str(out_path)])
 
         self.assertEqual(rc, 0)
@@ -269,7 +280,7 @@ class TestExportMainCli(MemoryTestCase):
         out_path = self.tmp / "out" / "bundle.yaml"
 
         with (
-            patch("memory.commands.export_cmd.discover_stores", return_value=(store,)),
+            _export_store(store),
             patch(
                 "memory.commands.export_cmd.atomic_write_text",
                 side_effect=OSError("disk full"),
@@ -289,7 +300,7 @@ class TestExportMainCli(MemoryTestCase):
         out_path = self.tmp / "bundle.yaml"
         out_path.symlink_to(victim)
 
-        with patch("memory.commands.export_cmd.discover_stores", return_value=(store,)):
+        with _export_store(store):
             rc, _, err = _run_export(["--all", "--yes", "--output", str(out_path)])
 
         self.assertEqual(rc, 1)
@@ -311,7 +322,7 @@ class TestExportMainCli(MemoryTestCase):
         )
         store = load_store(slug, projects_root=projects_dir)
 
-        with patch("memory.commands.export_cmd.discover_stores", return_value=(store,)):
+        with _export_store(store):
             rc, _, _ = _run_export(["--all", "--yes", "--allow-warn"])
 
         self.assertEqual(rc, 1)
@@ -711,7 +722,7 @@ class TestExportImportRoundTrip(MemoryTestCase):
         export_store = _store_from_slug(projects_root)
         out_path = self.tmp / "roundtrip.yaml"
 
-        with patch("memory.commands.export_cmd.discover_stores", return_value=(export_store,)):
+        with _export_store(export_store):
             export_rc, _, _ = _run_export(["--all", "--yes", "--output", str(out_path)])
         self.assertEqual(export_rc, 0)
         self.assertTrue(out_path.exists())
@@ -733,10 +744,6 @@ class TestExportImportRoundTrip(MemoryTestCase):
         rows = json.loads(out)
         self.assertEqual(len(rows), len(export_store.memories))
         self.assertTrue(all(row["action"] == "imported" for row in rows))
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 # ---------------------------------------------------------------------------
@@ -857,3 +864,88 @@ class TestImportStoreTargeting(MemoryTestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(json.loads(out)[0]["action"], "error")
         self.assertEqual(target.read_text(encoding="utf-8"), native)
+
+
+class TestImportScansProvenance(MemoryTestCase):
+    """Provenance strings reach the rendered file, so they must be scanned."""
+
+    def _bundle_with_provenance(self, **overrides: Any) -> Path:
+        import dataclasses
+
+        bundle = sample_bundle()
+        em = bundle.memories[0]
+        prov = dataclasses.replace(em.provenance, **overrides)
+        em = dataclasses.replace(em, provenance=prov)
+        bundle = dataclasses.replace(bundle, memories=(em,))
+        return _write_bundle_file(self.tmp, bundle)
+
+    def test_blocking_secret_in_each_provenance_field_refuses_import(self) -> None:
+        secret = "gh" + "p_" + "A" * 36
+        fields = (
+            "origin_project_slug", "origin_repo", "origin_user", "origin_host",
+            "exported_by_version", "source_sha256",
+        )
+        for field in fields:
+            with self.subTest(field=field):
+                path = self._bundle_with_provenance(**{field: secret})
+                store = _store_with_index(self.tmp, slug=f"-Users-alice-code-prov-{field.replace('_', '-')}")
+
+                with patch("memory.commands.import_cmd._select_store", return_value=store):
+                    rc, _, err = _run_import([str(path)])
+
+                self.assertEqual(rc, 1)
+                self.assertIn("blocking", err)
+                self.assertFalse(list((Path(store.root) / "memory").glob("imported_*")))
+
+
+class TestExportStoreSelection(MemoryTestCase):
+    """export must not fall back to another project's store."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.projects_root = make_projects_root(self.tmp)
+
+    def test_no_cwd_match_without_store_refuses(self) -> None:
+        store = _store_from_slug(self.projects_root)
+
+        with patch("memory.commands.export_cmd.discover_stores", return_value=(store,)):
+            rc, out, err = _run_export(["--all", "--yes"])
+
+        self.assertEqual(rc, 1)
+        self.assertIn("--store=SLUG", err)
+        self.assertEqual(out, "")
+
+    def test_explicit_store_flag_exports_that_store(self) -> None:
+        store = _store_from_slug(self.projects_root)
+
+        with patch("memory.commands.export_cmd.load_store", return_value=store) as mock_load:
+            rc, out, _ = _run_export([f"--store={SLUG_MAIN}", "--all", "--yes", "--format", "json"])
+
+        self.assertEqual(rc, 0)
+        mock_load.assert_called_once_with(SLUG_MAIN)
+        self.assertEqual(len(json.loads(out)["memories"]), len(store.memories))
+
+
+class TestExportBlocksNestedSecret(MemoryTestCase):
+    def test_nested_frontmatter_secret_blocks_export(self) -> None:
+        slug = "-Users-alice-code-nested-project"
+        projects_dir = self.tmp / "projects"
+        memory_dir = projects_dir / slug / "memory"
+        memory_dir.mkdir(parents=True)
+        (memory_dir / "n.md").write_text(
+            "---\nname: n\ndescription: d\nmetadata:\n  type: feedback\n  node_type: memory\n"
+            "  deep:\n    - " + "gh" + "p_" + "A" * 36 + "\n---\n\nclean body\n",
+            encoding="utf-8",
+        )
+        store = load_store(slug, projects_root=projects_dir)
+
+        with _export_store(store):
+            rc, out, err = _run_export(["--all", "--yes"])
+
+        self.assertEqual(rc, 1)
+        self.assertIn("Export blocked", err)
+        self.assertEqual(out, "")
+
+
+if __name__ == "__main__":
+    unittest.main()

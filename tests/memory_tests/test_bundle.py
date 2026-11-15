@@ -421,3 +421,111 @@ class TestSerializeBundleInvalidFormat(MemoryTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------------------
+# Review fixes: nested scrubbing, key round-trip, unquoted timestamps
+# ---------------------------------------------------------------------------
+
+_FAKE_GH_TOKEN = "gh" + "p_" + "A" * 36
+
+
+def _memory_from_text(base: Path, text: str, name: str = "m.md"):
+    from memory.parser import parse_memory_file
+
+    f = base / name
+    f.write_text(text, encoding="utf-8")
+    return parse_memory_file(f, project_slug="test-slug")
+
+
+class TestNestedUnknownKeyScrubbing(MemoryTestCase):
+    def test_nested_dict_and_list_secrets_are_redacted_and_reported(self):
+        from memory.redaction import has_blocking
+
+        text = (
+            "---\nname: n\ndescription: d\nmetadata:\n  type: feedback\n  node_type: memory\n"
+            f"  deep:\n    inner:\n      token: {_FAKE_GH_TOKEN}\n"
+            f"  items:\n    - ok\n    - {_FAKE_GH_TOKEN}\n  paths:\n    - /Users/alice/secret-dir\n---\n\nBody.\n"
+        )
+        memory = _memory_from_text(self.tmp, text)
+
+        bundle = build_bundle((memory,))
+
+        em = bundle.memories[0]
+        self.assertTrue(has_blocking(em.redactions))
+        deep = em.frontmatter.unknown_keys["metadata.deep"]
+        self.assertIsInstance(deep, dict)
+        self.assertNotIn("/Users/alice", repr(em.frontmatter.unknown_keys["metadata.paths"]))
+        items = em.frontmatter.unknown_keys["metadata.items"]
+        self.assertIsInstance(items, list)
+        self.assertEqual(items[0], "ok")
+
+
+class TestRenderKeyRoundTrip(MemoryTestCase):
+    NESTED = (
+        "---\nname: n\ndescription: d\nmetadata:\n  type: feedback\n  node_type: memory\n"
+        "  custom: v\n  group:\n    a: 1\ntop_extra: t\n---\n\nBody.\n"
+    )
+    FLAT = "---\nname: n\ndescription: d\ntype: feedback\nflat_extra: x\n---\n\nBody.\n"
+
+    def _round_trip(self, text: str) -> tuple[dict, dict, str]:
+        from memory.parser import parse_frontmatter
+
+        original = _memory_from_text(self.tmp, text)
+        em = build_bundle((original,)).memories[0]
+        reparsed = parse_frontmatter(render_imported_memory(em))
+        again = render_imported_memory(
+            ExportedMemory(
+                frontmatter=reparsed,
+                body=em.body,
+                provenance=em.provenance,
+                redactions=(),
+            )
+        )
+        return original.frontmatter.unknown_keys, reparsed.unknown_keys, again
+
+    def _strip_marker(self, keys: dict) -> dict:
+        return {k: v for k, v in keys.items() if k != f"metadata.{IMPORT_MARKER_KEY}"}
+
+    def test_nested_dialect_round_trip_preserves_unknown_keys(self):
+        before, after, again = self._round_trip(self.NESTED)
+
+        self.assertEqual(self._strip_marker(after), before)
+        self.assertNotIn("metadata.metadata.", again)
+
+    def test_flat_dialect_keys_stay_top_level(self):
+        before, after, again = self._round_trip(self.FLAT)
+
+        self.assertEqual(self._strip_marker(after), before)
+        self.assertNotIn("metadata.flat_extra", after)
+        self.assertNotIn("metadata.metadata.", again)
+
+    def test_prefixed_reserved_keys_are_filtered(self):
+        fm = MemoryFrontmatter(
+            name="n", description="d", type=MemoryType.FEEDBACK, node_type="memory",
+            origin_session_id=None, modified=None, shape=SchemaShape.NESTED,
+            unknown_keys={"metadata.bundle_import": "forged", "metadata.type": "user"},
+        )
+        prov = ExportProvenance("s", None, "u", None, None, datetime(2026, 1, 1, tzinfo=UTC), "1", "x")
+        em = ExportedMemory(frontmatter=fm, body="b", provenance=prov, redactions=())
+
+        rendered = render_imported_memory(em)
+
+        self.assertNotIn("forged", rendered)
+        self.assertNotIn("type: user", rendered)
+
+
+class TestLoadBundleUnquotedTimestamps(MemoryTestCase):
+    def test_unquoted_exported_at_and_created_at_load(self):
+        f = self.tmp / "hand.yaml"
+        f.write_text(
+            "bundle_version: 1\ncreated_at: 2026-08-01T10:00:00+00:00\nmemories:\n"
+            "  - frontmatter: {name: n}\n    body: b\n"
+            "    provenance:\n      exported_at: 2026-08-01T10:00:00+00:00\n",
+            encoding="utf-8",
+        )
+
+        bundle = load_bundle(f)
+
+        self.assertEqual(bundle.memories[0].provenance.exported_at.year, 2026)
+        self.assertEqual(bundle.created_at.year, 2026)

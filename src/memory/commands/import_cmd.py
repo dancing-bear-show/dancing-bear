@@ -18,7 +18,7 @@ from core.cli_output import emit_rows
 from core.fileutil import atomic_write_text
 from core.text_utils import slugify
 from memory.commands._common import DRY_RUN_ARG, STORE_ARG, ArgSpec, format_arg, validation_error
-from memory.bundle import IMPORT_MARKER_KEY, load_bundle, render_imported_memory
+from memory.bundle import IMPORT_MARKER_KEY, load_bundle, render_imported_memory, string_values
 from memory.discovery import discover_stores, load_store, resolve_current_store
 from memory.index import append_entry
 from memory.models import ExportedMemory, MemoryStore, Redaction
@@ -209,22 +209,22 @@ ARGUMENTS: list[ArgSpec] = [
 ]
 
 
-def _string_values(value: object) -> list[str]:
-    """Collect every string inside a (possibly nested) frontmatter value."""
-    if isinstance(value, str):
-        return [value]
-    if isinstance(value, dict):
-        return [v for item in value.values() for v in _string_values(item)]
-    if isinstance(value, (list, tuple)):
-        return [v for item in value for v in _string_values(item)]
-    return []
-
-
 def _scan_fields(em: ExportedMemory) -> tuple[Redaction, ...]:
-    """Scan body, name, description, and unknown_keys values (all rendered)."""
+    """Scan every bundle-supplied string that render_imported_memory writes."""
     fm = em.frontmatter
-    texts = [em.body, fm.name or "", fm.description or ""]
-    texts.extend(_string_values(fm.unknown_keys))
+    prov = em.provenance
+    texts = [
+        em.body,
+        fm.name or "",
+        fm.description or "",
+        prov.origin_project_slug,
+        prov.origin_repo or "",
+        prov.origin_user,
+        prov.origin_host or "",
+        prov.exported_by_version,
+        prov.source_sha256,
+    ]
+    texts.extend(string_values(fm.unknown_keys))
     return tuple(r for text in texts for r in scan(text))
 
 

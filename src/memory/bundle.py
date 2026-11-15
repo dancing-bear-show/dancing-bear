@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import getpass
 import json
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
@@ -19,28 +19,60 @@ from memory.models import (
 )
 from memory.redaction import scrub
 
-__all__ = ["build_bundle", "load_bundle", "render_imported_memory", "serialize_bundle"]
+__all__ = ["build_bundle", "load_bundle", "render_imported_memory", "serialize_bundle", "string_values"]
 
 _SUPPORTED_FORMATS = ("yaml", "json")
 
 # Namespaced metadata subkey carrying import provenance. Also the marker
 # `import --on-conflict overwrite` requires before replacing a file.
 IMPORT_MARKER_KEY = "bundle_import"
+_METADATA_PREFIX = "metadata."
+
+
+def string_values(value: object) -> list[str]:
+    """Collect every string inside a (possibly nested) frontmatter value."""
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        return [v for item in value.values() for v in string_values(item)]
+    if isinstance(value, (list, tuple)):
+        return [v for item in value for v in string_values(item)]
+    return []
+
+
+def _scrub_value(value: object, *, anonymize: bool, found: list[Redaction]) -> object:
+    """Scrub every string at any depth, preserving dict/list structure."""
+    if isinstance(value, str):
+        scrubbed, redactions = scrub(value, anonymize=anonymize)
+        found.extend(redactions)
+        return scrubbed
+    if isinstance(value, dict):
+        return {k: _scrub_value(v, anonymize=anonymize, found=found) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_scrub_value(v, anonymize=anonymize, found=found) for v in value]
+    if isinstance(value, tuple):
+        return tuple(_scrub_value(v, anonymize=anonymize, found=found) for v in value)
+    return value
 
 
 def _scrub_unknown_keys(
     unknown_keys: dict[str, object], *, anonymize: bool
 ) -> tuple[dict[str, object], list[Redaction]]:
-    scrubbed: dict[str, object] = {}
     redactions: list[Redaction] = []
-    for key, value in unknown_keys.items():
-        if isinstance(value, str):
-            scrubbed_value, found = scrub(value, anonymize=anonymize)
-            scrubbed[key] = scrubbed_value
-            redactions.extend(found)
-        else:
-            scrubbed[key] = value
+    scrubbed: dict[str, object] = {
+        key: _scrub_value(value, anonymize=anonymize, found=redactions)
+        for key, value in unknown_keys.items()
+    }
     return scrubbed, redactions
+
+
+def _parse_timestamp(raw: object) -> datetime:
+    """Accept an ISO string or a YAML-parsed datetime/date (unquoted timestamp)."""
+    if isinstance(raw, datetime):
+        return raw
+    if isinstance(raw, date):
+        return datetime.combine(raw, time(), tzinfo=UTC)
+    return datetime.fromisoformat(str(raw))
 
 
 def build_bundle(
@@ -265,7 +297,7 @@ def load_bundle(path: str | Path) -> MemoryBundle:
             origin_user=provenance_data.get("origin_user", ""),
             origin_host=provenance_data.get("origin_host"),
             origin_session_id=None,
-            exported_at=datetime.fromisoformat(provenance_data["exported_at"])
+            exported_at=_parse_timestamp(provenance_data["exported_at"])
             if provenance_data.get("exported_at")
             else datetime.now(UTC),
             exported_by_version=provenance_data.get("exported_by_version", ""),
@@ -293,7 +325,7 @@ def load_bundle(path: str | Path) -> MemoryBundle:
 
     created_at_raw = data.get("created_at")
     created_at = (
-        datetime.fromisoformat(created_at_raw) if created_at_raw else datetime.now(UTC)
+        _parse_timestamp(created_at_raw) if created_at_raw else datetime.now(UTC)
     )
 
     return MemoryBundle(
@@ -320,13 +352,20 @@ def render_imported_memory(
     """
     fm = em.frontmatter
     reserved_keys = {"node_type", "type", IMPORT_MARKER_KEY}
-    safe_unknown_keys = {
-        k: v for k, v in fm.unknown_keys.items() if k not in reserved_keys
-    }
+    top_level_reserved = {"metadata", "name", "description"}
     metadata: dict[str, Any] = {"node_type": "memory"}
     if fm.type:
         metadata["type"] = fm.type.value
-    metadata.update(safe_unknown_keys)
+    top_level_extra: dict[str, object] = {}
+    for key, value in fm.unknown_keys.items():
+        # The parser stores nested keys as "metadata.<k>"; strip it so a
+        # round-trip does not grow a prefix. Unprefixed keys were top-level.
+        if key.startswith(_METADATA_PREFIX):
+            bare = key[len(_METADATA_PREFIX):]
+            if bare and bare not in reserved_keys:
+                metadata[bare] = value
+        elif key not in top_level_reserved:
+            top_level_extra[key] = value
     metadata[IMPORT_MARKER_KEY] = {
         "origin_project_slug": em.provenance.origin_project_slug,
         "origin_repo": em.provenance.origin_repo,
@@ -338,6 +377,7 @@ def render_imported_memory(
     }
 
     frontmatter_dict: dict[str, Any] = {"metadata": metadata}
+    frontmatter_dict.update(top_level_extra)
     if fm.name:
         frontmatter_dict["name"] = fm.name
     if fm.description:

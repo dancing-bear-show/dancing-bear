@@ -12,9 +12,9 @@ import sys
 from pathlib import Path
 
 from core.fileutil import atomic_write_text
-from memory.commands._common import DRY_RUN_ARG, YES_ARG, ArgSpec, format_arg, validation_error
+from memory.commands._common import DRY_RUN_ARG, STORE_ARG, YES_ARG, ArgSpec, format_arg, validation_error
 from memory.bundle import build_bundle, serialize_bundle
-from memory.discovery import discover_stores, resolve_current_store
+from memory.discovery import discover_stores, load_store, resolve_current_store
 from memory.models import Memory, MemoryStore
 from memory.redaction import SEVERITY_WARN, Redaction, has_blocking
 
@@ -80,7 +80,34 @@ def _write_bundle_output(content: str, output: str | None) -> int:
         return 1
 
 
+def _select_store(store_slug: str | None) -> MemoryStore | int:
+    """Pick the export source: --store exactly, else a strict cwd match.
+
+    Returns an exit code (after printing the reason to stderr) when no store
+    can be chosen; never falls back to another project's store.
+    """
+    if store_slug:
+        try:
+            return load_store(store_slug)
+        except Exception as exc:  # NOSONAR - CLI boundary: surface as a validation error, never a raw traceback
+            return validation_error("--store", str(exc))
+    all_stores = discover_stores()
+    if not all_stores:
+        print("No memory stores found.", file=sys.stderr)
+        return 1
+    store = resolve_current_store(all_stores, strict=True)
+    if store is None:
+        print(
+            "[memory] No store matches the current directory; pass --store=SLUG "
+            "(see `memory stores`).",
+            file=sys.stderr,
+        )
+        return 1
+    return store
+
+
 ARGUMENTS: list[ArgSpec] = [
+    STORE_ARG,
     (("--slug",), {"action": "append", "dest": "slugs", "help": "Include this slug (repeatable)"}),
     (("--type",), {"action": "append", "dest": "types", "help": "Include this type (repeatable)"}),
     (("--all",), {"action": "store_true", "help": "Export every memory"}),
@@ -99,11 +126,9 @@ def run(args: argparse.Namespace) -> int:
     if not has_selector:
         return validation_error("selector", "export requires at least one selector: --slug, --type, or --all")
 
-    all_stores = discover_stores()
-    store = resolve_current_store(all_stores)
-    if store is None:
-        print("No memory stores found.", file=sys.stderr)
-        return 1
+    store = _select_store(args.store)
+    if isinstance(store, int):
+        return store
 
     selected = _select_memories(
         store,
