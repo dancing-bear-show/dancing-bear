@@ -21,10 +21,6 @@ from pptx.dml.color import RGBColor
 from pptx.enum.dml import MSO_THEME_COLOR
 
 from slides.constants import (
-    # The module's own __dir__ hook, aliased so it does not shadow this test
-    # module's __dir__. Imported via the same from-import style as everything
-    # else here, so slides.constants is not imported two different ways.
-    __dir__ as constants_dir,
     # Bullet characters
     BULLET_CHARS,
     BULLET_LEVEL_0,
@@ -95,6 +91,12 @@ from slides.constants import (
     YAML_TITLE,
     # YAML url field
     YAML_URL,
+)
+from slides.constants import (
+    # The module's own __dir__ hook, aliased so it does not shadow this test
+    # module's __dir__. Imported via the same from-import style as everything
+    # else here, so slides.constants is not imported two different ways.
+    __dir__ as constants_dir,
 )
 
 
@@ -467,6 +469,7 @@ class TestTableColorConstants(unittest.TestCase):
             - Header brightness differs from row brightness (visual distinction)
             - Header is lighter than rows (stands out in dark theme)
         """
+
         # Calculate simple brightness as sum of RGB components
         def brightness(color):
             return color[0] + color[1] + color[2]
@@ -477,10 +480,7 @@ class TestTableColorConstants(unittest.TestCase):
 
         # Header should be lighter than rows (stands out in dark theme)
         # Higher brightness value = lighter color
-        self.assertGreater(
-            header_brightness,
-            max(even_brightness, odd_brightness)
-        )
+        self.assertGreater(header_brightness, max(even_brightness, odd_brightness))
 
     def test_alternating_row_colors_different(self):
         """Test that even and odd row colors are different.
@@ -532,10 +532,16 @@ class TestThemeColorMap(unittest.TestCase):
             - All LIGHT, DARK, and ACCENT colors are present
         """
         expected_keys = [
-            "LIGHT_1", "LIGHT_2",
-            "DARK_1", "DARK_2",
-            "ACCENT_1", "ACCENT_2", "ACCENT_3",
-            "ACCENT_4", "ACCENT_5", "ACCENT_6",
+            "LIGHT_1",
+            "LIGHT_2",
+            "DARK_1",
+            "DARK_2",
+            "ACCENT_1",
+            "ACCENT_2",
+            "ACCENT_3",
+            "ACCENT_4",
+            "ACCENT_5",
+            "ACCENT_6",
         ]
         for key in expected_keys:
             with self.subTest(key=key):
@@ -848,6 +854,7 @@ class TestDefaultValues(unittest.TestCase):
             - VERTICAL_ANCHOR_MIDDLE is the MSO_ANCHOR.MIDDLE enum value
         """
         from pptx.enum.text import MSO_ANCHOR
+
         self.assertEqual(VERTICAL_ANCHOR_MIDDLE, MSO_ANCHOR.MIDDLE)
 
     def test_link_blue_is_rgb(self):
@@ -864,6 +871,7 @@ class TestDefaultValues(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # __dir__: includes lazily-resolved constant names (line 274)
 # ---------------------------------------------------------------------------
+
 
 class TestConstantsDir(unittest.TestCase):
     """Tests for the __dir__ hook that exposes lazy constant names."""

@@ -1,4 +1,5 @@
 """Tests for Outlook calendar base helpers: unique tests not covered by test_core_outlook_calendar.py."""
+
 from __future__ import annotations
 
 import unittest
@@ -12,7 +13,9 @@ class TestApplyReminder(unittest.TestCase):
     def test_apply_reminder_non_numeric_minutes_raises_value_error(self):
         payload = {}
         with self.assertRaises(ValueError):
-            OutlookCalendarMixin._apply_reminder(payload, no_reminder=False, reminder_minutes="soon")
+            OutlookCalendarMixin._apply_reminder(
+                payload, no_reminder=False, reminder_minutes="soon"
+            )
 
 
 class TestBuildRecurrenceRange(unittest.TestCase):

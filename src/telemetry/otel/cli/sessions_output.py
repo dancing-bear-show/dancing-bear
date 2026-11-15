@@ -12,7 +12,11 @@ from telemetry.otel.analytics.cost import CostMetrics
 from telemetry.otel.analytics.health_score import calculate_health_score
 from telemetry.otel.cli._format_helpers import (
     format_duration as _format_duration,
+)
+from telemetry.otel.cli._format_helpers import (
     format_timestamp as _format_timestamp,
+)
+from telemetry.otel.cli._format_helpers import (
     sort_sessions as _sort_sessions,
 )
 from telemetry.otel.cost_models import SessionCost, SessionPerf
@@ -89,10 +93,7 @@ def _print_error_codes_standalone(
         return
     if not perf or not perf.error_status_codes:
         return
-    codes = " ".join(
-        f"{code}:{count}"
-        for code, count in sorted(perf.error_status_codes.items())
-    )
+    codes = " ".join(f"{code}:{count}" for code, count in sorted(perf.error_status_codes.items()))
     print(f"    error codes: {codes}")
 
 
@@ -104,17 +105,14 @@ def _print_perf_summary(perf: SessionPerf, api_calls: int) -> None:
         parts.append(f"avg {_format_latency(perf.avg_api_latency_ms)}/call")
 
     if perf.error_count > 0:
-        parts.append(
-            f"{perf.error_count} errors ({perf.error_rate:.1%})"
-        )
+        parts.append(f"{perf.error_count} errors ({perf.error_rate:.1%})")
 
     if perf.tool_failures > 0:
         parts.append(f"{perf.tool_failures} tool failures")
 
     if perf.prompt_count > 0:
         parts.append(
-            f"{perf.prompt_count} prompts → "
-            f"{api_calls} calls ({perf.autonomy_ratio:.1f}x)"
+            f"{perf.prompt_count} prompts → {api_calls} calls ({perf.autonomy_ratio:.1f}x)"
         )
 
     if parts:
@@ -134,15 +132,12 @@ def _print_perf_details(perf: SessionPerf) -> None:
 
     if perf.error_status_codes:
         codes = " ".join(
-            f"{code}:{count}"
-            for code, count in sorted(perf.error_status_codes.items())
+            f"{code}:{count}" for code, count in sorted(perf.error_status_codes.items())
         )
         details.append(f"    error codes: {codes}")
 
     if perf.tool_usage:
-        top_tools = sorted(
-            perf.tool_usage.items(), key=lambda x: x[1], reverse=True
-        )[:5]
+        top_tools = sorted(perf.tool_usage.items(), key=lambda x: x[1], reverse=True)[:5]
         tools_str = " ".join(f"{name}:{count}" for name, count in top_tools)
         details.append(f"    tools: {tools_str}")
 
@@ -202,15 +197,17 @@ def _output_table(
     print("─" * 72)
     for session in sessions:
         _print_session(
-            session, total_cost, opts.show_perf, opts.show_error_codes, opts.show_health,
+            session,
+            total_cost,
+            opts.show_perf,
+            opts.show_error_codes,
+            opts.show_health,
         )
     print("─" * 72)
     total_billable = metrics.total_billable_tokens
     total_all = total_billable + metrics.total_cache_read_tokens
     print(
-        f"Total: ${total_cost:.2f}  |  "
-        f"{total_billable:,} billable  |  "
-        f"{total_all:,} total tokens"
+        f"Total: ${total_cost:.2f}  |  {total_billable:,} billable  |  {total_all:,} total tokens"
     )
 
 
@@ -225,9 +222,7 @@ def _session_to_json(
         "first_seen": s.first_seen.isoformat() if s.first_seen else None,
         "last_seen": s.last_seen.isoformat() if s.last_seen else None,
         "duration_minutes": (
-            round(s.duration_minutes, 1)
-            if s.duration_minutes is not None
-            else None
+            round(s.duration_minutes, 1) if s.duration_minutes is not None else None
         ),
         "api_calls": s.api_calls,
         "cost": round(s.cost, 4),
@@ -287,8 +282,7 @@ def _output_json(
         "total_cost": round(metrics.total_cost, 4),
         "total_billable_tokens": metrics.total_billable_tokens,
         "sessions": [
-            _session_to_json(s, opts.show_error_codes, opts.show_health)
-            for s in sessions
+            _session_to_json(s, opts.show_error_codes, opts.show_health) for s in sessions
         ],
     }
     emit_one(output, "json")

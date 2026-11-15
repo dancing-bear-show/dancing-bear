@@ -4,6 +4,7 @@ Covers the N+1 removal (one ``search_inbox_message_dicts`` call instead of a
 ``get_message`` per ID) and the Graph -> MessageCandidate field mapping,
 including the deliberate ``has_attachment`` provider asymmetry.
 """
+
 from __future__ import annotations
 
 import json
@@ -12,9 +13,9 @@ from unittest.mock import MagicMock
 
 from mail.messages_cli.pipeline import (
     MessageCandidate,
+    MessagesSearchProducer,
     MessagesSearchRequest,
     MessagesSearchResult,
-    MessagesSearchProducer,
     OutlookMessagesSearchProcessor,
     _outlook_msg_to_candidate,
 )
@@ -102,10 +103,12 @@ class TestOutlookCandidateMapping(unittest.TestCase):
         self.assertIn("me@example.com", cand.to_header)
 
     def test_joins_multiple_recipients(self):
-        msg = graph_message(toRecipients=[
-            {"emailAddress": {"address": "a@x.com"}},
-            {"emailAddress": {"address": "b@x.com"}},
-        ])
+        msg = graph_message(
+            toRecipients=[
+                {"emailAddress": {"address": "a@x.com"}},
+                {"emailAddress": {"address": "b@x.com"}},
+            ]
+        )
         cand = _outlook_msg_to_candidate("m1", msg)
 
         self.assertIn("a@x.com", cand.to_header)
@@ -156,8 +159,9 @@ class TestHasAttachmentProviderAsymmetry(unittest.TestCase):
 
     def _json_for(self, candidate) -> dict:
         producer = MessagesSearchProducer(output_json=True)
-        import io
         import contextlib
+        import io
+
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             producer._produce_success(MessagesSearchResult(candidates=[candidate]), None)

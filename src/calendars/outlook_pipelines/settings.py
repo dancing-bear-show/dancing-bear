@@ -3,26 +3,26 @@
 from __future__ import annotations
 
 from ._base import (
-    Any,
-    Path,
-    dataclass,
-    re,
-    BaseProducer,
-    DateWindowResolver,
-    RequestConsumer,
-    SafeProcessor,
-    check_service_required,
-    _load_yaml,
     LOG_DRY_RUN,
     MSG_PREVIEW_COMPLETE,
+    Any,
+    BaseProducer,
+    DateWindowResolver,
+    Path,
+    RequestConsumer,
+    SafeProcessor,
+    _load_yaml,
+    check_service_required,
+    dataclass,
+    re,
 )
 
 __all__ = [
+    "OutlookSettingsProcessor",
+    "OutlookSettingsProducer",
     "OutlookSettingsRequest",
     "OutlookSettingsRequestConsumer",
     "OutlookSettingsResult",
-    "OutlookSettingsProcessor",
-    "OutlookSettingsProducer",
 ]
 
 
@@ -75,7 +75,9 @@ class OutlookSettingsProcessor(SafeProcessor[OutlookSettingsRequest, OutlookSett
         return defaults, rules
 
     def _process_single_event(
-        self, ctx: _SettingsProcessingContext, event: dict[str, Any],
+        self,
+        ctx: _SettingsProcessingContext,
+        event: dict[str, Any],
     ) -> tuple[int, int, list[str]]:
         """Process one event: evaluate config, build patch, apply. Returns (selected, changed, logs)."""
         eid = event.get("id")
@@ -101,15 +103,21 @@ class OutlookSettingsProcessor(SafeProcessor[OutlookSettingsRequest, OutlookSett
 
         start_iso, end_iso = self._window.resolve(payload.from_date, payload.to_date)
         from calendars.outlook_service import ListEventsRequest
-        events = svc.list_events_in_range(ListEventsRequest(
-            start_iso=start_iso,
-            end_iso=end_iso,
-            calendar_name=payload.calendar,
-        ))
+
+        events = svc.list_events_in_range(
+            ListEventsRequest(
+                start_iso=start_iso,
+                end_iso=end_iso,
+                calendar_name=payload.calendar,
+            )
+        )
 
         ctx = _SettingsProcessingContext(
-            svc=svc, defaults=defaults, rules=rules,
-            calendar=payload.calendar, dry_run=payload.dry_run,
+            svc=svc,
+            defaults=defaults,
+            rules=rules,
+            calendar=payload.calendar,
+            dry_run=payload.dry_run,
         )
         logs: list[str] = []
         selected = 0
@@ -121,7 +129,9 @@ class OutlookSettingsProcessor(SafeProcessor[OutlookSettingsRequest, OutlookSett
             changed += chg
             logs.extend(ev_logs)
 
-        return OutlookSettingsResult(logs=logs, selected=selected, changed=changed, dry_run=payload.dry_run)
+        return OutlookSettingsResult(
+            logs=logs, selected=selected, changed=changed, dry_run=payload.dry_run
+        )
 
     def _evaluate_config(self, defaults, rules, event: dict[str, Any]) -> dict | None:
         subject = (event.get("subject") or "").strip()
@@ -131,7 +141,7 @@ class OutlookSettingsProcessor(SafeProcessor[OutlookSettingsRequest, OutlookSett
             if not isinstance(rule, dict):
                 continue
             if self._match_rule(rule, subject, location):
-                apply_set = (rule.get("set") or {})
+                apply_set = rule.get("set") or {}
                 break
         if apply_set is None and not defaults:
             return None
@@ -199,15 +209,18 @@ class OutlookSettingsProcessor(SafeProcessor[OutlookSettingsRequest, OutlookSett
         """Apply settings patch to an event. Returns (success, error_message)."""
         try:
             from calendars.outlook_service import EventSettingsPatch
-            svc.update_event_settings(EventSettingsPatch(
-                event_id=eid,
-                calendar_name=calendar,
-                categories=patch.get("categories"),
-                show_as=patch.get("show_as"),
-                sensitivity=patch.get("sensitivity"),
-                is_reminder_on=patch.get("is_reminder_on"),
-                reminder_minutes=patch.get("reminder_minutes"),
-            ))
+
+            svc.update_event_settings(
+                EventSettingsPatch(
+                    event_id=eid,
+                    calendar_name=calendar,
+                    categories=patch.get("categories"),
+                    show_as=patch.get("show_as"),
+                    sensitivity=patch.get("sensitivity"),
+                    is_reminder_on=patch.get("is_reminder_on"),
+                    reminder_minutes=patch.get("reminder_minutes"),
+                )
+            )
             return True, None
         except Exception as exc:
             return False, f"Failed to update {eid}: {exc}"
@@ -233,7 +246,9 @@ class OutlookSettingsProcessor(SafeProcessor[OutlookSettingsRequest, OutlookSett
 
 
 class OutlookSettingsProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookSettingsResult, diagnostics: dict[str, Any] | None) -> None:
+    def _produce_success(
+        self, payload: OutlookSettingsResult, diagnostics: dict[str, Any] | None
+    ) -> None:
         self.print_logs(payload.logs)
         if payload.dry_run:
             print(f"{MSG_PREVIEW_COMPLETE} {payload.selected} item(s) matched.")

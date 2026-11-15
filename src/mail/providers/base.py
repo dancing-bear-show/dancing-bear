@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from core.cache import ConfigCacheMixin
+
 from ..cache import MailCache
 
 
@@ -29,66 +30,55 @@ class BaseProvider(ABC, CacheMixin):
     # Subclasses should override this to set their provider name for caching
     _provider_name: str = "mail"
 
-    def __init__(self, *, credentials_path: str, token_path: str, cache_dir: str | None = None) -> None:
+    def __init__(
+        self, *, credentials_path: str, token_path: str, cache_dir: str | None = None
+    ) -> None:
         CacheMixin.__init__(self, cache_dir, self._provider_name)
         self.credentials_path = credentials_path
         self.token_path = token_path
 
     # ---- lifecycle / info ----
     @abstractmethod
-    def authenticate(self) -> None:
-        ...
+    def authenticate(self) -> None: ...
 
     @abstractmethod
-    def get_profile(self) -> dict[str, Any]:
-        ...
+    def get_profile(self) -> dict[str, Any]: ...
 
     # ---- labels ----
     @abstractmethod
-    def list_labels(self, use_cache: bool = False, ttl: int = 300) -> list[dict[str, Any]]:
-        ...
+    def list_labels(self, use_cache: bool = False, ttl: int = 300) -> list[dict[str, Any]]: ...
 
     @abstractmethod
-    def get_label_id_map(self) -> dict[str, str]:
-        ...
+    def get_label_id_map(self) -> dict[str, str]: ...
 
     @abstractmethod
-    def create_label(self, **body: Any) -> dict[str, Any]:
-        ...
+    def create_label(self, **body: Any) -> dict[str, Any]: ...
 
     @abstractmethod
-    def update_label(self, label_id: str, body: dict[str, Any]) -> dict[str, Any]:
-        ...
+    def update_label(self, label_id: str, body: dict[str, Any]) -> dict[str, Any]: ...
 
     @abstractmethod
-    def ensure_label(self, name: str, **kwargs: Any) -> str:
-        ...
+    def ensure_label(self, name: str, **kwargs: Any) -> str: ...
 
     @abstractmethod
-    def delete_label(self, label_id: str) -> None:
-        ...
+    def delete_label(self, label_id: str) -> None: ...
 
     # ---- filters ----
     @abstractmethod
-    def list_filters(self, use_cache: bool = False, ttl: int = 300) -> list[dict[str, Any]]:
-        ...
+    def list_filters(self, use_cache: bool = False, ttl: int = 300) -> list[dict[str, Any]]: ...
 
     @abstractmethod
-    def create_filter(self, criteria: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
-        ...
+    def create_filter(self, criteria: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]: ...
 
     @abstractmethod
-    def delete_filter(self, filter_id: str) -> None:
-        ...
+    def delete_filter(self, filter_id: str) -> None: ...
 
     # ---- forwarding ----
     @abstractmethod
-    def list_forwarding_addresses_info(self) -> list[dict[str, Any]]:
-        ...
+    def list_forwarding_addresses_info(self) -> list[dict[str, Any]]: ...
 
     @abstractmethod
-    def get_verified_forwarding_addresses(self) -> list[str]:
-        ...
+    def get_verified_forwarding_addresses(self) -> list[str]: ...
 
     # ---- sweeping / messages ----
     @abstractmethod
@@ -98,8 +88,7 @@ class BaseProvider(ABC, CacheMixin):
         label_ids: list[str] | None = None,
         max_pages: int = 1,
         page_size: int = 500,
-    ) -> list[str]:
-        ...
+    ) -> list[str]: ...
 
     @abstractmethod
     def batch_modify_messages(
@@ -107,17 +96,14 @@ class BaseProvider(ABC, CacheMixin):
         ids: list[str],
         add_label_ids: list[str] | None = None,
         remove_label_ids: list[str] | None = None,
-    ) -> None:
-        ...
+    ) -> None: ...
 
     # ---- signatures ----
     @abstractmethod
-    def list_signatures(self) -> list[dict[str, Any]]:
-        ...
+    def list_signatures(self) -> list[dict[str, Any]]: ...
 
     @abstractmethod
-    def update_signature(self, send_as_email: str, signature_html: str) -> dict[str, Any]:
-        ...
+    def update_signature(self, send_as_email: str, signature_html: str) -> dict[str, Any]: ...
 
     # ---- threads ----
     # Deliberately NOT @abstractmethod: OutlookProvider subclasses BaseProvider and

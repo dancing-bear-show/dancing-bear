@@ -12,19 +12,17 @@ from telemetry.otel.analytics.clustering import (
     _run_kmeans,
 )
 from telemetry.otel.cost_models import SessionCluster
-
 from tests.telemetry_tests.otel_analytics._shared_helpers import (
     _make_cost_metrics,
     _make_session_cost,
 )
 
-
 # ---------------------------------------------------------------------------
 # _normalize_features
 # ---------------------------------------------------------------------------
 
-class TestNormalizeFeatures(unittest.TestCase):
 
+class TestNormalizeFeatures(unittest.TestCase):
     def test_all_same_cost_normalizes_to_zero(self):
         features = [("s1", 5.0, 100.0), ("s2", 5.0, 200.0), ("s3", 5.0, 300.0)]
         result = _normalize_features(features)
@@ -82,8 +80,8 @@ class TestNormalizeFeatures(unittest.TestCase):
 # _assign_to_nearest
 # ---------------------------------------------------------------------------
 
-class TestAssignToNearest(unittest.TestCase):
 
+class TestAssignToNearest(unittest.TestCase):
     def test_single_point_assigned_to_nearest_center(self):
         points = [(0.1, 0.1)]
         centers = [(0.0, 0.0), (1.0, 1.0)]
@@ -109,9 +107,9 @@ class TestAssignToNearest(unittest.TestCase):
         centers = [(0.0, 0.0), (0.5, 0.5), (1.0, 1.0)]
         points = [(0.1, 0.1), (0.45, 0.45), (0.9, 0.9)]
         result = _assign_to_nearest(points, centers)
-        self.assertEqual(result[0], 0)   # closest to first center
-        self.assertEqual(result[1], 1)   # closest to second center
-        self.assertEqual(result[2], 2)   # closest to third center
+        self.assertEqual(result[0], 0)  # closest to first center
+        self.assertEqual(result[1], 1)  # closest to second center
+        self.assertEqual(result[2], 2)  # closest to third center
 
     def test_returns_list_of_same_length(self):
         points = [(float(i) / 10, float(i) / 10) for i in range(10)]
@@ -124,8 +122,8 @@ class TestAssignToNearest(unittest.TestCase):
 # _recompute_centers
 # ---------------------------------------------------------------------------
 
-class TestRecomputeCenters(unittest.TestCase):
 
+class TestRecomputeCenters(unittest.TestCase):
     def test_single_cluster_center_is_mean(self):
         centers = [(0.5, 0.5)]
         normalized = [(0.0, 0.0), (1.0, 1.0)]
@@ -156,8 +154,8 @@ class TestRecomputeCenters(unittest.TestCase):
 # _assign_cluster_labels
 # ---------------------------------------------------------------------------
 
-class TestAssignClusterLabels(unittest.TestCase):
 
+class TestAssignClusterLabels(unittest.TestCase):
     def test_3_clusters_get_low_medium_high(self):
         # centers sorted by cost: 0.0, 0.5, 1.0 → low, medium, high
         centers = [(0.0, 0.0), (0.5, 0.5), (1.0, 1.0)]
@@ -203,8 +201,8 @@ class TestAssignClusterLabels(unittest.TestCase):
 # _run_kmeans
 # ---------------------------------------------------------------------------
 
-class TestRunKmeans(unittest.TestCase):
 
+class TestRunKmeans(unittest.TestCase):
     def test_returns_centers_and_assignments_same_length(self):
         normalized = [(float(i) / 10, float(i) / 10) for i in range(10)]
         centers, assignments = _run_kmeans(normalized, n_clusters=3)
@@ -226,6 +224,7 @@ class TestRunKmeans(unittest.TestCase):
     def test_runs_to_max_iterations_without_convergence(self):
         """Force the loop to exhaust all iterations without breaking early."""
         import telemetry.otel.analytics.clustering as mod
+
         original_max = mod._MAX_ITERATIONS
         mod._MAX_ITERATIONS = 1  # single pass, won't converge for most inputs
         try:
@@ -249,16 +248,16 @@ class TestRunKmeans(unittest.TestCase):
             self.assertIn(a, [0, 1, 2])
         # Points in the same group still cluster consistently — all 3 copies of
         # each value should map to the same assignment (k-means is deterministic).
-        self.assertEqual(len(set(assignments[:3])), 1)   # group at 0.0
-        self.assertEqual(len(set(assignments[6:])), 1)   # group at 1.0
+        self.assertEqual(len(set(assignments[:3])), 1)  # group at 0.0
+        self.assertEqual(len(set(assignments[6:])), 1)  # group at 1.0
 
 
 # ---------------------------------------------------------------------------
 # _cluster_from_metrics
 # ---------------------------------------------------------------------------
 
-class TestClusterFromMetrics(unittest.TestCase):
 
+class TestClusterFromMetrics(unittest.TestCase):
     def test_empty_sessions_returns_empty(self):
         metrics = _make_cost_metrics([])
         result = _cluster_from_metrics(metrics, n_clusters=3)
@@ -344,12 +343,13 @@ class TestClusterFromMetrics(unittest.TestCase):
 # cluster_sessions — integration via mock
 # ---------------------------------------------------------------------------
 
-class TestClusterSessionsIntegration(unittest.TestCase):
 
+class TestClusterSessionsIntegration(unittest.TestCase):
     @mock.patch("telemetry.otel.analytics.clustering.get_all_costs")
     def test_calls_get_all_costs(self, mock_get_all_costs):
         from telemetry.otel.analytics.clustering import cluster_sessions
         from telemetry.otel.reader import OTLPDataDir
+
         mock_get_all_costs.return_value = _make_cost_metrics([])
         data_dir = OTLPDataDir.default()
         cluster_sessions(data_dir=data_dir, n_clusters=3)
@@ -358,6 +358,7 @@ class TestClusterSessionsIntegration(unittest.TestCase):
     @mock.patch("telemetry.otel.analytics.clustering.get_all_costs")
     def test_empty_sessions_returns_empty(self, mock_get_all_costs):
         from telemetry.otel.analytics.clustering import cluster_sessions
+
         mock_get_all_costs.return_value = _make_cost_metrics([])
         result = cluster_sessions()
         self.assertEqual(result, [])
@@ -365,6 +366,7 @@ class TestClusterSessionsIntegration(unittest.TestCase):
     @mock.patch("telemetry.otel.analytics.clustering.get_all_costs")
     def test_10_sessions_returns_10_clusters(self, mock_get_all_costs):
         from telemetry.otel.analytics.clustering import cluster_sessions
+
         sessions = [_make_session_cost(f"s{i}", cost=float(i)) for i in range(10)]
         mock_get_all_costs.return_value = _make_cost_metrics(sessions)
         result = cluster_sessions(n_clusters=3)

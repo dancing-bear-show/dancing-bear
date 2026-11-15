@@ -186,9 +186,7 @@ class TestHookMatcher(unittest.TestCase):
         commands outright would stop the installer recognising its own entry —
         and it would then append a duplicate on every single run.
         """
-        canonical = (
-            "python3 -I -S ~/.claude/hooks/tmux-session-namer.py 2>/dev/null || true"
-        )
+        canonical = "python3 -I -S ~/.claude/hooks/tmux-session-namer.py 2>/dev/null || true"
         self.assertTrue(
             self.is_managed(canonical),
             "the installer no longer recognises the command it writes; it would "
@@ -236,8 +234,7 @@ class TestHookMatcher(unittest.TestCase):
             with self.subTest(cmd=cmd):
                 self.assertFalse(
                     self.is_managed(cmd),
-                    "rewriting this would silently delete the user's chained "
-                    f"command: {cmd!r}",
+                    f"rewriting this would silently delete the user's chained command: {cmd!r}",
                 )
 
     def test_rejects_the_path_as_another_options_operand(self) -> None:
@@ -344,9 +341,7 @@ class TestSettingsPatch(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         data = json.loads(settings.read_text(encoding="utf-8"))
         commands = [
-            h["command"]
-            for entry in data["hooks"]["UserPromptSubmit"]
-            for h in entry["hooks"]
+            h["command"] for entry in data["hooks"]["UserPromptSubmit"] for h in entry["hooks"]
         ]
         self.assertTrue(any("tmux-session-namer.py" in c for c in commands))
         self.assertTrue(all("-I" in c.split() and "-S" in c.split() for c in commands))
@@ -368,9 +363,7 @@ class TestSettingsPatch(unittest.TestCase):
         self.assertEqual(data["permissions"], {"allow": ["Bash(ls:*)"]})
         self.assertEqual(data["hooks"]["SessionStart"], session_start)
         commands = [
-            h["command"]
-            for entry in data["hooks"]["UserPromptSubmit"]
-            for h in entry["hooks"]
+            h["command"] for entry in data["hooks"]["UserPromptSubmit"] for h in entry["hooks"]
         ]
         self.assertIn("echo unrelated", commands)
 
@@ -406,9 +399,13 @@ class TestSettingsPatch(unittest.TestCase):
     def test_upgrades_a_legacy_unisolated_entry_in_place(self) -> None:
         legacy = "python3 ~/.claude/hooks/tmux-session-namer.py 2>/dev/null || true"
         result, settings = self._run(
-            json.dumps({"hooks": {"UserPromptSubmit": [
-                {"hooks": [{"type": "command", "command": legacy}]}
-            ]}})
+            json.dumps(
+                {
+                    "hooks": {
+                        "UserPromptSubmit": [{"hooks": [{"type": "command", "command": legacy}]}]
+                    }
+                }
+            )
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         data = json.loads(settings.read_text(encoding="utf-8"))
@@ -536,7 +533,9 @@ class TestHookCadence(unittest.TestCase):
             for i in range(1, self.HISTORY_CAP + 25):
                 self._run_hook(env, f"prompt {i}")
             history = Path(env["XDG_CACHE_HOME"]) / "claude" / "prompts-test-session.txt"
-            self.assertEqual(len(history.read_text(encoding="utf-8").splitlines()), self.HISTORY_CAP)
+            self.assertEqual(
+                len(history.read_text(encoding="utf-8").splitlines()), self.HISTORY_CAP
+            )
             self.assertEqual(history.stat().st_mode & 0o777, 0o600)
 
     def test_tightens_a_pre_existing_loose_history_file(self) -> None:

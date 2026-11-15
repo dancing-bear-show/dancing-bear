@@ -51,9 +51,7 @@ def get_tool_summaries(
     return _build_tool_summaries(tools)
 
 
-def _accumulate_tool_events(
-    events: list, since: datetime | None
-) -> dict[str, _ToolAccumulator]:
+def _accumulate_tool_events(events: list, since: datetime | None) -> dict[str, _ToolAccumulator]:
     """Walk events and accumulate per-tool statistics."""
     tools: dict[str, _ToolAccumulator] = defaultdict(_ToolAccumulator)
 
@@ -68,16 +66,10 @@ def _accumulate_tool_events(
     return tools
 
 
-def _process_tool_event(
-    event: OTLPEvent, tools: dict[str, _ToolAccumulator]
-) -> None:
+def _process_tool_event(event: OTLPEvent, tools: dict[str, _ToolAccumulator]) -> None:
     """Process a single tool_result event into accumulators."""
     tool_name = event.get_attr("tool_name") or "unknown"
-    session_id = (
-        event.get_attr("session.id")
-        or event.get_attr("session_id")
-        or "unknown"
-    )
+    session_id = event.get_attr("session.id") or event.get_attr("session_id") or "unknown"
 
     acc = tools[tool_name]
     acc.total_calls += 1

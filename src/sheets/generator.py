@@ -164,7 +164,11 @@ class SheetGenerator:
 
     def _create_header_fill(self, header_style: HeaderStyle | None) -> PatternFill:
         """Return a solid PatternFill for the header row."""
-        bg = self._normalize_color(header_style.bg_color) if header_style else ("FF" + DEFAULT_HEADER_BG_COLOR)
+        bg = (
+            self._normalize_color(header_style.bg_color)
+            if header_style
+            else ("FF" + DEFAULT_HEADER_BG_COLOR)
+        )
         return PatternFill(start_color=bg, end_color=bg, fill_type="solid")
 
     def _create_header_font(self, header_style: HeaderStyle | None) -> Font:
@@ -325,6 +329,7 @@ class SheetGenerator:
 
         if self.template_path:
             from openpyxl import load_workbook as _load_workbook
+
             wb = _load_workbook(self.template_path)
         else:
             wb = Workbook()

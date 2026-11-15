@@ -1,11 +1,12 @@
 """Tests for telemetry/tips.py — TipsEngine."""
+
 from __future__ import annotations
 
 import unittest
 
-from tests.telemetry_tests.shared_fixtures import _evt, reset_seq
 from telemetry.models import BlameTarget, SessionEvent, Tip
 from telemetry.tips import TipsEngine
+from tests.telemetry_tests.shared_fixtures import _evt, reset_seq
 
 
 def _avoidable_evt(waste_reason: str = "bash-as-grep", cost: float = 0.05) -> SessionEvent:
@@ -180,46 +181,54 @@ class TestTipsEngineFilters(unittest.TestCase):
         reset_seq()
 
     def test_exclude_blame_pattern_filters_tip(self):
-        engine = TipsEngine(rules={
-            "tip_filters": {
-                "exclude_blame_patterns": ["superpowers:*"],
-                "min_cost_impact": 0.0,
+        engine = TipsEngine(
+            rules={
+                "tip_filters": {
+                    "exclude_blame_patterns": ["superpowers:*"],
+                    "min_cost_impact": 0.0,
+                }
             }
-        })
+        )
         evt = _avoidable_evt(waste_reason="bash-as-grep", cost=0.10)
         evt.blame_target = BlameTarget(level="skill", name="superpowers:onboarding", fix_hint="x")
         tips = engine.generate([evt])
         self.assertEqual(tips, [])
 
     def test_exclude_pattern_does_not_filter_non_matching(self):
-        engine = TipsEngine(rules={
-            "tip_filters": {
-                "exclude_blame_patterns": ["superpowers:*"],
-                "min_cost_impact": 0.0,
+        engine = TipsEngine(
+            rules={
+                "tip_filters": {
+                    "exclude_blame_patterns": ["superpowers:*"],
+                    "min_cost_impact": 0.0,
+                }
             }
-        })
+        )
         evt = _avoidable_evt(waste_reason="bash-as-grep", cost=0.10)
         tips = engine.generate([evt])
         self.assertEqual(len(tips), 1)
 
     def test_min_cost_impact_filters_low_cost_tips(self):
-        engine = TipsEngine(rules={
-            "tip_filters": {
-                "exclude_blame_patterns": [],
-                "min_cost_impact": 0.05,
+        engine = TipsEngine(
+            rules={
+                "tip_filters": {
+                    "exclude_blame_patterns": [],
+                    "min_cost_impact": 0.05,
+                }
             }
-        })
+        )
         evt = _avoidable_evt(waste_reason="bash-as-grep", cost=0.01)
         tips = engine.generate([evt])
         self.assertEqual(tips, [])
 
     def test_min_cost_impact_passes_above_threshold(self):
-        engine = TipsEngine(rules={
-            "tip_filters": {
-                "exclude_blame_patterns": [],
-                "min_cost_impact": 0.05,
+        engine = TipsEngine(
+            rules={
+                "tip_filters": {
+                    "exclude_blame_patterns": [],
+                    "min_cost_impact": 0.05,
+                }
             }
-        })
+        )
         evt = _avoidable_evt(waste_reason="bash-as-grep", cost=0.10)
         tips = engine.generate([evt])
         self.assertEqual(len(tips), 1)
@@ -238,12 +247,14 @@ class TestTipsEngineFilters(unittest.TestCase):
         self.assertIsInstance(tips, list)
 
     def test_multiple_exclude_patterns(self):
-        engine = TipsEngine(rules={
-            "tip_filters": {
-                "exclude_blame_patterns": ["superpowers:*", "internal:*"],
-                "min_cost_impact": 0.0,
+        engine = TipsEngine(
+            rules={
+                "tip_filters": {
+                    "exclude_blame_patterns": ["superpowers:*", "internal:*"],
+                    "min_cost_impact": 0.0,
+                }
             }
-        })
+        )
         e1 = _avoidable_evt(waste_reason="bash-as-grep", cost=0.10)
         e1.blame_target = BlameTarget(level="skill", name="internal:flow", fix_hint="x")
         e2 = _avoidable_evt(waste_reason="redundant-read", cost=0.10)

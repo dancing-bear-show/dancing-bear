@@ -1,8 +1,9 @@
 """Subprocess command execution infrastructure for wifi diagnostics."""
+
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 from core.process import run_binary
 
@@ -17,7 +18,7 @@ class CommandResult:
 class CommandRunner:
     """Simple abstraction to allow faking subprocess calls in tests."""
 
-    def run(self, cmd: Sequence[str], timeout: float | None = None) -> CommandResult:  # pragma: no cover - interface
+    def run(self, cmd: Sequence[str], timeout: float | None = None) -> CommandResult:  # pragma: no cover - interface  # fmt: skip
         raise NotImplementedError
 
 

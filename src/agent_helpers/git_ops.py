@@ -38,7 +38,9 @@ class GitOpResult:
     output: str
 
 
-def _result(op: str, status: str, output: str, *, branch: str | None = None, path: str | None = None) -> GitOpResult:
+def _result(
+    op: str, status: str, output: str, *, branch: str | None = None, path: str | None = None
+) -> GitOpResult:
     return GitOpResult(op=op, branch=branch, path=path, status=status, output=output)
 
 
@@ -73,9 +75,13 @@ def _bad_ref(value: str | None) -> bool:
 
 def op_checkout(repo_root: str, branch: str | None, fetch: bool) -> GitOpResult:
     if not branch:
-        return _result(_OP_CHECKOUT, _STATUS_ERROR, "--branch is required for checkout", branch=branch)
+        return _result(
+            _OP_CHECKOUT, _STATUS_ERROR, "--branch is required for checkout", branch=branch
+        )
     if _bad_ref(branch):
-        return _result(_OP_CHECKOUT, _STATUS_ERROR, "--branch must not start with '-'", branch=branch)
+        return _result(
+            _OP_CHECKOUT, _STATUS_ERROR, "--branch must not start with '-'", branch=branch
+        )
     if _is_dirty(repo_root):
         return _result(_OP_CHECKOUT, _STATUS_ERROR, _DIRTY_MESSAGE, branch=branch)
     if fetch:
@@ -88,11 +94,21 @@ def op_checkout(repo_root: str, branch: str | None, fetch: bool) -> GitOpResult:
 
 def op_worktree_add(repo_root: str, path: str | None, branch: str | None) -> GitOpResult:
     if not path or not branch:
-        return _result(_OP_WORKTREE_ADD, _STATUS_ERROR, "--path and --branch are required for worktree-add",
-                       branch=branch, path=path)
+        return _result(
+            _OP_WORKTREE_ADD,
+            _STATUS_ERROR,
+            "--path and --branch are required for worktree-add",
+            branch=branch,
+            path=path,
+        )
     if _bad_ref(path) or _bad_ref(branch):
-        return _result(_OP_WORKTREE_ADD, _STATUS_ERROR, "--path and --branch must not start with '-'",
-                       branch=branch, path=path)
+        return _result(
+            _OP_WORKTREE_ADD,
+            _STATUS_ERROR,
+            "--path and --branch must not start with '-'",
+            branch=branch,
+            path=path,
+        )
     run = _git(["worktree", "add", path, branch], repo_root)
     return _result(_OP_WORKTREE_ADD, _status(run), _merged(run), branch=branch, path=path)
 
@@ -101,17 +117,29 @@ def op_worktree_remove(repo_root: str, path: str | None, then_checkout: str | No
     if not path:
         return _result(_OP_WORKTREE_REMOVE, _STATUS_ERROR, "--path is required for worktree-remove")
     if _bad_ref(path) or _bad_ref(then_checkout):
-        return _result(_OP_WORKTREE_REMOVE, _STATUS_ERROR, "--path and --then-checkout must not start with '-'", path=path)
+        return _result(
+            _OP_WORKTREE_REMOVE,
+            _STATUS_ERROR,
+            "--path and --then-checkout must not start with '-'",
+            path=path,
+        )
     removed = _git(["worktree", "remove", path], repo_root)
     if not removed.ok:
         return _result(_OP_WORKTREE_REMOVE, _STATUS_ERROR, _merged(removed), path=path)
     if not then_checkout:
         return _result(_OP_WORKTREE_REMOVE, _STATUS_OK, _merged(removed), path=path)
     if _is_dirty(repo_root):
-        return _result(_OP_WORKTREE_REMOVE, _STATUS_ERROR, _DIRTY_MESSAGE, branch=then_checkout, path=path)
+        return _result(
+            _OP_WORKTREE_REMOVE, _STATUS_ERROR, _DIRTY_MESSAGE, branch=then_checkout, path=path
+        )
     switched = _git(["checkout", then_checkout], repo_root)
-    return _result(_OP_WORKTREE_REMOVE, _status(switched), _merged(removed) + _merged(switched),
-                   branch=then_checkout, path=path)
+    return _result(
+        _OP_WORKTREE_REMOVE,
+        _status(switched),
+        _merged(removed) + _merged(switched),
+        branch=then_checkout,
+        path=path,
+    )
 
 
 def op_worktree_list(repo_root: str) -> GitOpResult:

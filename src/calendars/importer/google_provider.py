@@ -25,6 +25,7 @@ Unsupported:
   Multiple RRULEs on one event
   RDATE lines
 """
+
 from __future__ import annotations
 
 import datetime as _dt
@@ -33,7 +34,6 @@ from dataclasses import dataclass, field, replace
 from typing import Any, cast
 
 from calendars.gmail_types import CalendarEvent
-
 
 # ---------------------------------------------------------------------------
 # RRULE parser helpers
@@ -212,10 +212,12 @@ def _parse_until_or_count(params: dict[str, str], start: str) -> _UntilCountResu
         try:
             return _UntilCountResult(count=int(params["COUNT"]))
         except ValueError:
-            return _UntilCountResult(skip={
-                "reason": "malformed_count",
-                "value": str(params["COUNT"]),
-            })
+            return _UntilCountResult(
+                skip={
+                    "reason": "malformed_count",
+                    "value": str(params["COUNT"]),
+                }
+            )
     return _UntilCountResult()
 
 
@@ -370,15 +372,17 @@ class GoogleCalendarProvider:
             )
 
         # Parse recurrence lines
-        return self._parse_recurring_event(_RecurrenceParseCtx(
-            ev_id=ev_id,
-            subject=subject,
-            start=start,
-            end=end,
-            tz=tz,
-            location=location,
-            recurrence=recurrence,
-        ))
+        return self._parse_recurring_event(
+            _RecurrenceParseCtx(
+                ev_id=ev_id,
+                subject=subject,
+                start=start,
+                end=end,
+                tz=tz,
+                location=location,
+                recurrence=recurrence,
+            )
+        )
 
     def _parse_recurring_event(self, ctx: _RecurrenceParseCtx) -> CalendarEvent | None:
         """Parse recurrence lines into a CalendarEvent, skipping unrepresentable forms."""
@@ -427,12 +431,14 @@ class GoogleCalendarProvider:
         try:
             interval = _parse_positive_int(interval_raw)
         except ValueError:
-            self.skipped.append({
-                "id": ctx.ev_id,
-                "subject": ctx.subject,
-                "reason": "malformed_interval",
-                "value": str(interval_raw),
-            })
+            self.skipped.append(
+                {
+                    "id": ctx.ev_id,
+                    "subject": ctx.subject,
+                    "reason": "malformed_interval",
+                    "value": str(interval_raw),
+                }
+            )
             return None
 
         # UNTIL / COUNT

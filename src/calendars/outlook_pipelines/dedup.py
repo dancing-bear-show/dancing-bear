@@ -2,26 +2,27 @@
 
 from __future__ import annotations
 
+from calendars.selection import extract_hhmm, iso_weekday_code
+
 from ._base import (
     Any,
-    dataclass,
-    defaultdict,
     BaseProducer,
     DateWindowResolver,
     RequestConsumer,
     SafeProcessor,
     check_service_required,
+    dataclass,
+    defaultdict,
 )
 from ._context import DedupSelectionContext
-from calendars.selection import extract_hhmm, iso_weekday_code
 
 __all__ = [
-    "OutlookDedupRequest",
-    "OutlookDedupRequestConsumer",
     "OutlookDedupDuplicate",
-    "OutlookDedupResult",
     "OutlookDedupProcessor",
     "OutlookDedupProducer",
+    "OutlookDedupRequest",
+    "OutlookDedupRequestConsumer",
+    "OutlookDedupResult",
 ]
 
 
@@ -62,7 +63,9 @@ class OutlookDedupProcessor(SafeProcessor[OutlookDedupRequest, OutlookDedupResul
     def __init__(self, today_factory=None) -> None:
         self._window = DateWindowResolver(today_factory)
 
-    def _delete_duplicates(self, svc, duplicates: list["OutlookDedupDuplicate"]) -> tuple[int, list[str]]:
+    def _delete_duplicates(
+        self, svc, duplicates: list[OutlookDedupDuplicate]
+    ) -> tuple[int, list[str]]:
         """Delete all flagged duplicate series IDs. Returns (deleted_count, logs)."""
         logs: list[str] = []
         deleted = 0
@@ -85,11 +88,14 @@ class OutlookDedupProcessor(SafeProcessor[OutlookDedupRequest, OutlookDedupResul
         start_iso, end_iso = self._window.resolve(payload.from_date, payload.to_date)
         cal_id = svc.find_calendar_id(payload.calendar) if payload.calendar else None
         from calendars.outlook_service import ListCalendarViewRequest
-        occ = svc.list_calendar_view(ListCalendarViewRequest(
-            start_iso=start_iso,
-            end_iso=end_iso,
-            calendar_id=cal_id,
-        ))
+
+        occ = svc.list_calendar_view(
+            ListCalendarViewRequest(
+                start_iso=start_iso,
+                end_iso=end_iso,
+                calendar_id=cal_id,
+            )
+        )
 
         duplicates = self._find_duplicates(occ or [], payload)
         deleted: int = 0
@@ -97,14 +103,18 @@ class OutlookDedupProcessor(SafeProcessor[OutlookDedupRequest, OutlookDedupResul
         if payload.apply and duplicates:
             deleted, logs = self._delete_duplicates(svc, duplicates)
 
-        return OutlookDedupResult(duplicates=duplicates, apply=payload.apply, deleted=deleted, logs=logs)
+        return OutlookDedupResult(
+            duplicates=duplicates, apply=payload.apply, deleted=deleted, logs=logs
+        )
 
     def _find_duplicates(
         self,
         occ: list[dict[str, Any]],
         payload: OutlookDedupRequest,
     ) -> list[OutlookDedupDuplicate]:
-        groups: dict[tuple[str, str, str, str], dict[str, list[dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
+        groups: dict[tuple[str, str, str, str], dict[str, list[dict[str, Any]]]] = defaultdict(
+            lambda: defaultdict(list)
+        )
         for event in occ:
             sid = event.get("seriesMasterId")
             if not sid:
@@ -137,8 +147,8 @@ class OutlookDedupProcessor(SafeProcessor[OutlookDedupRequest, OutlookDedupResul
 
     def _key_for_event(self, event: dict[str, Any]) -> tuple[str, str, str, str]:
         subject = (event.get("subject") or "").strip().lower()
-        start = ((event.get("start") or {}).get("dateTime") or "")
-        end = ((event.get("end") or {}).get("dateTime") or "")
+        start = (event.get("start") or {}).get("dateTime") or ""
+        end = (event.get("end") or {}).get("dateTime") or ""
         return subject, iso_weekday_code(start), extract_hhmm(start), extract_hhmm(end)
 
     def _select_series(
@@ -162,7 +172,9 @@ class OutlookDedupProcessor(SafeProcessor[OutlookDedupRequest, OutlookDedupResul
         return keep, delete
 
     def _created_at(self, sid: str, masters: dict[str, list[dict[str, Any]]]) -> str:
-        vals = [o.get("createdDateTime") or "" for o in masters.get(sid, []) if o.get("createdDateTime")]
+        vals = [
+            o.get("createdDateTime") or "" for o in masters.get(sid, []) if o.get("createdDateTime")
+        ]
         return min(vals) if vals else ""
 
     def _is_standardized(self, sid: str, masters: dict[str, list[dict[str, Any]]]) -> bool:
@@ -195,7 +207,9 @@ class OutlookDedupProcessor(SafeProcessor[OutlookDedupRequest, OutlookDedupResul
 
 
 class OutlookDedupProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookDedupResult, diagnostics: dict[str, Any] | None) -> None:
+    def _produce_success(
+        self, payload: OutlookDedupResult, diagnostics: dict[str, Any] | None
+    ) -> None:
         duplicates = payload.duplicates
         if not duplicates:
             print("No duplicate series detected in window.")
@@ -204,7 +218,9 @@ class OutlookDedupProducer(BaseProducer):
         print(f"Found {len(duplicates)} duplicate groups. (subject,day,time)-> keep + delete list")
         for dup in duplicates:
             deletes = ", ".join(dup.delete)
-            print(f"- {dup.subject} {dup.weekday} {dup.start_time}-{dup.end_time}: keep {dup.keep} delete {deletes}")
+            print(
+                f"- {dup.subject} {dup.weekday} {dup.start_time}-{dup.end_time}: keep {dup.keep} delete {deletes}"
+            )
 
         if not payload.apply:
             print("Dry plan only. Re-run with --apply to delete duplicates (keep oldest).")

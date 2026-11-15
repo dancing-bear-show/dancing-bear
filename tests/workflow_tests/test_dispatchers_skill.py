@@ -9,18 +9,16 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from workflow.dispatchers import (
-    CompositeDispatcher,
-    SkillDispatcher,
-)
-from workflow.models import OutputMode
-
 from tests.workflow_tests.helpers.factories import (
     make_output_spec,
     make_resolved_stage,
     make_stage_spec,
 )
-
+from workflow.dispatchers import (
+    CompositeDispatcher,
+    SkillDispatcher,
+)
+from workflow.models import OutputMode
 
 # ---------------------------------------------------------------------------
 # SkillDispatcher
@@ -132,7 +130,9 @@ class TestCompositeDispatcherPropagatesSkillDispatchFailure(unittest.TestCase):
             dispatcher = CompositeDispatcher("test-workflow")
 
             with patch.object(
-                dispatcher._skill, "dispatch", side_effect=OSError("disk full"),
+                dispatcher._skill,
+                "dispatch",
+                side_effect=OSError("disk full"),
             ):
                 with self.assertRaisesRegex(OSError, "disk full"):
                     dispatcher.dispatch(stage, tmp_path)
@@ -150,7 +150,9 @@ class TestCompositeDispatcherPropagatesLocalDispatchFailure(unittest.TestCase):
             dispatcher = CompositeDispatcher("test-workflow")
 
             with patch.object(
-                dispatcher._local, "dispatch", side_effect=RuntimeError("boom"),
+                dispatcher._local,
+                "dispatch",
+                side_effect=RuntimeError("boom"),
             ):
                 with self.assertRaisesRegex(RuntimeError, "boom"):
                     dispatcher.dispatch(stage, tmp_path)
@@ -165,7 +167,9 @@ class TestCompositeDispatcherDispatchGroupPropagatesFailure(unittest.TestCase):
             good_output = make_output_spec(name="data", mode=OutputMode.invoke)
             good_spec = make_stage_spec(name="good-stage", outputs=(good_output,))
             good_stage = make_resolved_stage(
-                spec=good_spec, index=0, cli_commands=("echo hi",),
+                spec=good_spec,
+                index=0,
+                cli_commands=("echo hi",),
             )
 
             inline_spec = make_stage_spec(name="inline-stage", executor="inline")
@@ -176,7 +180,10 @@ class TestCompositeDispatcherDispatchGroupPropagatesFailure(unittest.TestCase):
             with patch(
                 "workflow.dispatchers.subprocess.run",
                 return_value=subprocess.CompletedProcess(
-                    args=[], returncode=0, stdout="hi", stderr="",
+                    args=[],
+                    returncode=0,
+                    stdout="hi",
+                    stderr="",
                 ),
             ):
                 with self.assertRaises(NotImplementedError):

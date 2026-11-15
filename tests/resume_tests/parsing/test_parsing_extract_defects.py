@@ -51,9 +51,7 @@ class TestHyphenatedCompanyNames(unittest.TestCase):
 
     def test_em_dash_location_still_parses(self):
         """The real separator must keep working."""
-        r = _parse_experience_entry(
-            "Staff SRE at Confluent — [Toronto, CA] — (May 2025 – Present)"
-        )
+        r = _parse_experience_entry("Staff SRE at Confluent — [Toronto, CA] — (May 2025 – Present)")
         self.assertEqual(r["company"], "Confluent")
         self.assertEqual(r["location"], "Toronto, CA")
 
@@ -64,7 +62,7 @@ class TestHyphenatedCompanyNames(unittest.TestCase):
         self.assertEqual(r["location"], "Toronto, CA")
 
     def test_invalid_pattern1_falls_through_to_comma_form(self):
-        """"Title at Company, dates" must not half-match the dashed pattern.
+        """ "Title at Company, dates" must not half-match the dashed pattern.
 
         It previously yielded company "Acme, 2020" / location "2023"; pattern 1
         now requires a real date range so the comma form reaches pattern 2.
@@ -84,9 +82,7 @@ class TestLocationExtraction(unittest.TestCase):
         The pattern required a two-letter state code, so anything outside the
         US "City, ST" form was silently dropped and `location` came back empty.
         """
-        m = _PAT_LOCATION.search(
-            "jane@example.com | (555) 010-0202 | Springfield, Ontario, Canada"
-        )
+        m = _PAT_LOCATION.search("jane@example.com | (555) 010-0202 | Springfield, Ontario, Canada")
         self.assertIsNotNone(m)
         self.assertEqual(m.group(0), "Springfield, Ontario, Canada")
 
@@ -127,9 +123,7 @@ class TestBulletGlyphStripping(unittest.TestCase):
 
     def test_rejects_stripping_interior_glyph(self):
         """Only a LEADING marker is formatting; an interior one is content."""
-        self.assertEqual(
-            strip_bullet_glyph("Python • Go • Rust"), "Python • Go • Rust"
-        )
+        self.assertEqual(strip_bullet_glyph("Python • Go • Rust"), "Python • Go • Rust")
 
 
 class TestSkillsParsing(unittest.TestCase):
@@ -163,9 +157,7 @@ class TestSkillsParsing(unittest.TestCase):
 
     def test_flat_comma_list_still_splits(self):
         """A non-bulleted inventory line is still split on separators."""
-        self.assertEqual(
-            _parse_skills(["Python, Go, AWS"]), ["Python", "Go", "AWS"]
-        )
+        self.assertEqual(_parse_skills(["Python, Go, AWS"]), ["Python", "Go", "AWS"])
 
     def test_invalid_section_without_bullets_yields_no_groups(self):
         """No heading/bullet shape means no groups — callers fall back to flat."""
@@ -182,9 +174,7 @@ class TestSkillsParsing(unittest.TestCase):
         and, worse, keep an otherwise-empty group alive past the non-empty
         filter.
         """
-        groups = parse_skill_groups(
-            ["Platform", "•", "• AWS: operate workloads", "   •   "]
-        )
+        groups = parse_skill_groups(["Platform", "•", "• AWS: operate workloads", "   •   "])
         self.assertEqual(len(groups), 1)
         self.assertEqual(groups[0]["items"], ["AWS: operate workloads"])
 

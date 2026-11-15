@@ -5,20 +5,25 @@ from datetime import datetime
 from unittest import mock
 
 from telemetry.otel.analytics.tools import (
-    _ToolAccumulator,
     _accumulate_tool_events,
     _build_tool_summaries,
     _process_tool_event,
+    _ToolAccumulator,
 )
 from telemetry.otel.cost_models import ToolErrorSummary
-from telemetry.otel.models import OTLPAttribute, OTLPEvent, OTLPEventsRecord, OTLPResource, OTLPValue
-
+from telemetry.otel.models import (
+    OTLPAttribute,
+    OTLPEvent,
+    OTLPEventsRecord,
+    OTLPResource,
+    OTLPValue,
+)
 from tests.telemetry_tests.otel_analytics._shared_helpers import _utc
-
 
 # ---------------------------------------------------------------------------
 # Fixture helpers
 # ---------------------------------------------------------------------------
+
 
 def _nano(dt: datetime) -> int:
     return int(dt.timestamp() * 1_000_000_000)
@@ -79,11 +84,12 @@ def _make_record(events: list[OTLPEvent]) -> OTLPEventsRecord:
 # _process_tool_event
 # ---------------------------------------------------------------------------
 
-class TestProcessToolEvent(unittest.TestCase):
 
+class TestProcessToolEvent(unittest.TestCase):
     def test_increments_total_calls(self):
         tools: dict = {}
         from collections import defaultdict
+
         tools = defaultdict(_ToolAccumulator)
         event = _make_tool_event(tool_name="Read")
         _process_tool_event(event, tools)
@@ -91,6 +97,7 @@ class TestProcessToolEvent(unittest.TestCase):
 
     def test_multiple_events_accumulate_calls(self):
         from collections import defaultdict
+
         tools = defaultdict(_ToolAccumulator)
         _process_tool_event(_make_tool_event(tool_name="Bash"), tools)
         _process_tool_event(_make_tool_event(tool_name="Bash"), tools)
@@ -98,6 +105,7 @@ class TestProcessToolEvent(unittest.TestCase):
 
     def test_different_tools_tracked_separately(self):
         from collections import defaultdict
+
         tools = defaultdict(_ToolAccumulator)
         _process_tool_event(_make_tool_event(tool_name="Read"), tools)
         _process_tool_event(_make_tool_event(tool_name="Bash"), tools)
@@ -106,6 +114,7 @@ class TestProcessToolEvent(unittest.TestCase):
 
     def test_missing_tool_name_falls_back_to_unknown(self):
         from collections import defaultdict
+
         tools = defaultdict(_ToolAccumulator)
         event = _make_tool_event(tool_name=None)
         _process_tool_event(event, tools)
@@ -113,6 +122,7 @@ class TestProcessToolEvent(unittest.TestCase):
 
     def test_session_id_added_to_sessions_set(self):
         from collections import defaultdict
+
         tools = defaultdict(_ToolAccumulator)
         event = _make_tool_event(tool_name="Bash", session_id="sess-abc")
         _process_tool_event(event, tools)
@@ -120,6 +130,7 @@ class TestProcessToolEvent(unittest.TestCase):
 
     def test_multiple_sessions_tracked_in_set(self):
         from collections import defaultdict
+
         tools = defaultdict(_ToolAccumulator)
         _process_tool_event(_make_tool_event("Bash", session_id="s1"), tools)
         _process_tool_event(_make_tool_event("Bash", session_id="s2"), tools)
@@ -128,42 +139,49 @@ class TestProcessToolEvent(unittest.TestCase):
 
     def test_success_false_string_counted_as_failure(self):
         from collections import defaultdict
+
         tools = defaultdict(_ToolAccumulator)
         _process_tool_event(_make_tool_event(success="false"), tools)
         self.assertEqual(tools["Bash"].failures, 1)
 
     def test_success_capitalized_False_string_counted_as_failure(self):
         from collections import defaultdict
+
         tools = defaultdict(_ToolAccumulator)
         _process_tool_event(_make_tool_event(success="False"), tools)
         self.assertEqual(tools["Bash"].failures, 1)
 
     def test_success_false_bool_counted_as_failure(self):
         from collections import defaultdict
+
         tools = defaultdict(_ToolAccumulator)
         _process_tool_event(_make_tool_event(success=False), tools)
         self.assertEqual(tools["Bash"].failures, 1)
 
     def test_success_true_string_not_counted_as_failure(self):
         from collections import defaultdict
+
         tools = defaultdict(_ToolAccumulator)
         _process_tool_event(_make_tool_event(success="true"), tools)
         self.assertEqual(tools["Bash"].failures, 0)
 
     def test_positive_duration_appended_to_durations(self):
         from collections import defaultdict
+
         tools = defaultdict(_ToolAccumulator)
         _process_tool_event(_make_tool_event(duration_ms=250.0), tools)
         self.assertEqual(tools["Bash"].durations, [250.0])
 
     def test_zero_duration_not_appended(self):
         from collections import defaultdict
+
         tools = defaultdict(_ToolAccumulator)
         _process_tool_event(_make_tool_event(duration_ms=0.0), tools)
         self.assertEqual(tools["Bash"].durations, [])
 
     def test_no_duration_not_appended(self):
         from collections import defaultdict
+
         tools = defaultdict(_ToolAccumulator)
         _process_tool_event(_make_tool_event(duration_ms=None), tools)
         self.assertEqual(tools["Bash"].durations, [])
@@ -173,8 +191,8 @@ class TestProcessToolEvent(unittest.TestCase):
 # _accumulate_tool_events
 # ---------------------------------------------------------------------------
 
-class TestAccumulateToolEvents(unittest.TestCase):
 
+class TestAccumulateToolEvents(unittest.TestCase):
     def test_empty_records_returns_empty(self):
         result = _accumulate_tool_events([], since=None)
         self.assertEqual(dict(result), {})
@@ -235,14 +253,15 @@ class TestAccumulateToolEvents(unittest.TestCase):
 # _build_tool_summaries
 # ---------------------------------------------------------------------------
 
-class TestBuildToolSummaries(unittest.TestCase):
 
+class TestBuildToolSummaries(unittest.TestCase):
     def test_empty_input_returns_empty(self):
         result = _build_tool_summaries({})
         self.assertEqual(result, [])
 
     def test_single_tool_summary_correct(self):
         from collections import defaultdict
+
         tools = defaultdict(_ToolAccumulator)
         acc = tools["Bash"]
         acc.total_calls = 5
@@ -262,6 +281,7 @@ class TestBuildToolSummaries(unittest.TestCase):
 
     def test_failure_rate_zero_when_no_failures(self):
         from collections import defaultdict
+
         tools = defaultdict(_ToolAccumulator)
         acc = tools["Read"]
         acc.total_calls = 10
@@ -271,6 +291,7 @@ class TestBuildToolSummaries(unittest.TestCase):
 
     def test_failure_rate_zero_when_no_total_calls(self):
         from collections import defaultdict
+
         tools = defaultdict(_ToolAccumulator)
         acc = tools["Edit"]
         acc.total_calls = 0
@@ -280,6 +301,7 @@ class TestBuildToolSummaries(unittest.TestCase):
 
     def test_avg_duration_zero_when_no_durations(self):
         from collections import defaultdict
+
         tools = defaultdict(_ToolAccumulator)
         acc = tools["Bash"]
         acc.total_calls = 3
@@ -289,6 +311,7 @@ class TestBuildToolSummaries(unittest.TestCase):
 
     def test_sorted_by_tool_name(self):
         from collections import defaultdict
+
         tools = defaultdict(_ToolAccumulator)
         tools["Zebra"].total_calls = 1
         tools["Apple"].total_calls = 1
@@ -299,6 +322,7 @@ class TestBuildToolSummaries(unittest.TestCase):
 
     def test_result_is_tool_error_summary_instances(self):
         from collections import defaultdict
+
         tools = defaultdict(_ToolAccumulator)
         tools["Bash"].total_calls = 1
         result = _build_tool_summaries(tools)
@@ -307,6 +331,7 @@ class TestBuildToolSummaries(unittest.TestCase):
 
     def test_multiple_tools_returned(self):
         from collections import defaultdict
+
         tools = defaultdict(_ToolAccumulator)
         for name in ["Bash", "Read", "Write", "Edit"]:
             tools[name].total_calls = 1
@@ -318,12 +343,13 @@ class TestBuildToolSummaries(unittest.TestCase):
 # get_tool_summaries — integration via mock
 # ---------------------------------------------------------------------------
 
-class TestGetToolSummaries(unittest.TestCase):
 
+class TestGetToolSummaries(unittest.TestCase):
     @mock.patch("telemetry.otel.analytics.tools.OTLPReader")
     @mock.patch("telemetry.otel.analytics.tools.OTLPDataDir")
     def test_no_data_dir_uses_from_env(self, mock_data_dir_cls, mock_reader_cls):
         from telemetry.otel.analytics.tools import get_tool_summaries
+
         mock_data_dir_cls.from_env.return_value = mock.MagicMock()
         mock_reader_cls.return_value.read_events.return_value = []
         get_tool_summaries()
@@ -333,6 +359,7 @@ class TestGetToolSummaries(unittest.TestCase):
     def test_explicit_data_dir_passed_to_reader(self, mock_reader_cls):
         from telemetry.otel.analytics.tools import get_tool_summaries
         from telemetry.otel.reader import OTLPDataDir
+
         mock_reader_cls.return_value.read_events.return_value = []
         data_dir = OTLPDataDir.default()
         get_tool_summaries(data_dir=data_dir)
@@ -342,6 +369,7 @@ class TestGetToolSummaries(unittest.TestCase):
     def test_empty_events_returns_empty_list(self, mock_reader_cls):
         from telemetry.otel.analytics.tools import get_tool_summaries
         from telemetry.otel.reader import OTLPDataDir
+
         mock_reader_cls.return_value.read_events.return_value = []
         result = get_tool_summaries(data_dir=OTLPDataDir.default())
         self.assertEqual(result, [])
@@ -350,6 +378,7 @@ class TestGetToolSummaries(unittest.TestCase):
     def test_returns_tool_error_summary_for_tool_events(self, mock_reader_cls):
         from telemetry.otel.analytics.tools import get_tool_summaries
         from telemetry.otel.reader import OTLPDataDir
+
         event = _make_tool_event("Bash", success="true", duration_ms=100.0)
         record = _make_record([event])
         mock_reader_cls.return_value.read_events.return_value = [record]
@@ -364,6 +393,7 @@ class TestGetToolSummaries(unittest.TestCase):
     def test_since_filter_applied(self, mock_reader_cls):
         from telemetry.otel.analytics.tools import get_tool_summaries
         from telemetry.otel.reader import OTLPDataDir
+
         old_event = _make_tool_event("Bash", time_nano=_nano(_utc(2026, 1, 1)))
         new_event = _make_tool_event("Read", time_nano=_nano(_utc(2026, 7, 15)))
         record = _make_record([old_event, new_event])

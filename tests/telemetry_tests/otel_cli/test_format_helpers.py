@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import io
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 from telemetry.otel.cli._format_helpers import (
@@ -20,7 +20,6 @@ from telemetry.otel.cli._format_helpers import (
     sort_sessions,
     truncate_sid,
 )
-
 
 # ---------------------------------------------------------------------------
 # format_validation_error
@@ -127,7 +126,9 @@ class TestResolveDataDir(unittest.TestCase):
     def test_falls_back_to_from_env_when_no_data_dir(self):
         args = argparse.Namespace(data_dir=None)
         mock_dir = MagicMock()
-        with patch("telemetry.otel.cli._format_helpers.OTLPDataDir.from_env", return_value=mock_dir):
+        with patch(
+            "telemetry.otel.cli._format_helpers.OTLPDataDir.from_env", return_value=mock_dir
+        ):
             result = resolve_data_dir(args, allow_none=False)
         self.assertIs(result, mock_dir)
 
@@ -167,7 +168,7 @@ class TestFormatTimestamp(unittest.TestCase):
         self.assertEqual(format_timestamp(None), "unknown")
 
     def test_datetime_formatted(self):
-        dt = datetime(2026, 4, 16, 10, 30, 0, tzinfo=timezone.utc)
+        dt = datetime(2026, 4, 16, 10, 30, 0, tzinfo=UTC)
         result = format_timestamp(dt)
         self.assertIn("2026-04-16", result)
         self.assertIn("10:30", result)
@@ -242,8 +243,8 @@ class TestSortSessions(unittest.TestCase):
         self.assertEqual(result[0].perf.error_count, 5)
 
     def test_sort_by_time_default(self):
-        dt1 = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
-        dt2 = datetime(2026, 1, 2, 12, 0, tzinfo=timezone.utc)
+        dt1 = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+        dt2 = datetime(2026, 1, 2, 12, 0, tzinfo=UTC)
         sessions = [
             self._make_session(last_seen=dt1),
             self._make_session(last_seen=dt2),

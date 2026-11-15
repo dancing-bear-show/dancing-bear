@@ -1,19 +1,20 @@
 """Outlook Remove Pipeline - delete calendar events based on config."""
 
+from calendars.selection import extract_hhmm, iso_weekday_code
+from core.constants import DAY_END_TIME, DAY_START_TIME
+
 from ._base import (
-    dataclass,
-    Path,
     Any,
-    Sequence,
-    EventIterationProcessor,
     BaseProducer,
+    EventIterationProcessor,
+    Path,
     RequestConsumer,
+    Sequence,
     check_service_required,
+    dataclass,
     load_events_config,
 )
 from ._context import EventMatchingCriteria
-from calendars.selection import extract_hhmm, iso_weekday_code
-from core.constants import DAY_START_TIME, DAY_END_TIME
 
 
 @dataclass
@@ -82,7 +83,11 @@ class OutlookRemoveProcessor(EventIterationProcessor):
         return _RemoveAccumulator(apply=payload.apply, plan=[], logs=[], deleted_total=0)
 
     def _handle_event(
-        self, payload: OutlookRemoveRequest, idx: int, nev: dict[str, Any], accumulator: _RemoveAccumulator
+        self,
+        payload: OutlookRemoveRequest,
+        idx: int,
+        nev: dict[str, Any],
+        accumulator: _RemoveAccumulator,
     ) -> None:
         subj = (nev.get("subject") or "").strip()
         window = self._resolve_window(nev)
@@ -93,12 +98,15 @@ class OutlookRemoveProcessor(EventIterationProcessor):
         svc = payload.service
         try:
             from calendars.outlook_service import ListEventsRequest
-            occ = svc.list_events_in_range(ListEventsRequest(
-                start_iso=start_iso,
-                end_iso=end_iso,
-                calendar_name=cal_name,
-                subject_filter=subj,
-            ))
+
+            occ = svc.list_events_in_range(
+                ListEventsRequest(
+                    start_iso=start_iso,
+                    end_iso=end_iso,
+                    calendar_name=cal_name,
+                    subject_filter=subj,
+                )
+            )
         except Exception as exc:
             accumulator.logs.append(f"[{idx}] list error: {exc}")
             return
@@ -135,8 +143,8 @@ class OutlookRemoveProcessor(EventIterationProcessor):
 
     def _extract_occurrence_times(self, ex: dict[str, Any]) -> tuple[str, str]:
         """Extract start and end datetime from occurrence."""
-        st = ((ex.get("start") or {}).get("dateTime") or "")
-        en = ((ex.get("end") or {}).get("dateTime") or "")
+        st = (ex.get("start") or {}).get("dateTime") or ""
+        en = (ex.get("end") or {}).get("dateTime") or ""
         return st, en
 
     def _matches_single_event(self, st: str, en: str, ctx: EventMatchingCriteria) -> bool:
@@ -179,7 +187,9 @@ class OutlookRemoveProcessor(EventIterationProcessor):
 
         return True
 
-    def _match_events(self, occ: Sequence[dict[str, Any]], event: dict[str, Any], subject_only: bool):
+    def _match_events(
+        self, occ: Sequence[dict[str, Any]], event: dict[str, Any], subject_only: bool
+    ):
         """Match occurrences against event criteria."""
         single_start = (event.get("start") or "").strip()
         single_end = (event.get("end") or "").strip()
@@ -249,7 +259,9 @@ class OutlookRemoveProcessor(EventIterationProcessor):
 
 
 class OutlookRemoveProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookRemoveResult, diagnostics: dict[str, Any] | None) -> None:
+    def _produce_success(
+        self, payload: OutlookRemoveResult, diagnostics: dict[str, Any] | None
+    ) -> None:
         if not payload.apply:
             self._writer.print("Planned deletions:")
             for entry in payload.plan:
@@ -264,11 +276,11 @@ class OutlookRemoveProducer(BaseProducer):
 
 
 __all__ = [
-    "OutlookRemoveRequest",
-    "OutlookRemoveRequestConsumer",
-    "OutlookRemovePlanEntry",
-    "OutlookRemoveResult",
     "DeleteOneRequest",
+    "OutlookRemovePlanEntry",
     "OutlookRemoveProcessor",
     "OutlookRemoveProducer",
+    "OutlookRemoveRequest",
+    "OutlookRemoveRequestConsumer",
+    "OutlookRemoveResult",
 ]

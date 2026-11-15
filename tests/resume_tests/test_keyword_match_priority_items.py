@@ -31,9 +31,7 @@ from resume.keyword_normalize import item_match_text, item_text
 
 def _matcher(*skills: str) -> KeywordMatcher:
     m = KeywordMatcher()
-    m.add_keywords_from_spec(
-        {"required": [{"skill": s, "weight": 3} for s in skills]}
-    )
+    m.add_keywords_from_spec({"required": [{"skill": s, "weight": 3} for s in skills]})
     return m
 
 
@@ -68,9 +66,7 @@ class TestItemMatchText(unittest.TestCase):
 
     def test_joins_name_and_desc(self):
         """Skills keep their substance in desc; matching needs both."""
-        out = item_match_text(
-            {"name": "Kubernetes", "desc": "cluster ops", "priority": 0.9}
-        )
+        out = item_match_text({"name": "Kubernetes", "desc": "cluster ops", "priority": 0.9})
         self.assertIn("Kubernetes", out)
         self.assertIn("cluster ops", out)
 
@@ -95,16 +91,12 @@ class TestMatchingPriorityShapedBullets(unittest.TestCase):
     """collect_matches_from_candidate must see prose, not reprs."""
 
     CANDIDATE = {
-        "summary": [
-            {"text": "Build reliability on Kubernetes at scale", "priority": 1.0}
-        ],
+        "summary": [{"text": "Build reliability on Kubernetes at scale", "priority": 1.0}],
         "experience": [
             {
                 "title": "SRE",
                 "company": "Acme",
-                "bullets": [
-                    {"text": "Cut p99 latency by resharding Kafka", "priority": 0.9}
-                ],
+                "bullets": [{"text": "Cut p99 latency by resharding Kafka", "priority": 0.9}],
             }
         ],
     }
@@ -135,23 +127,13 @@ class TestMatchingPriorityShapedBullets(unittest.TestCase):
         its own str(skill) call that the first fix missed.
         """
         candidate = dict(self.CANDIDATE)
-        candidate["skills"] = [
-            {"name": "Kubernetes", "desc": "cluster ops", "priority": 0.9}
-        ]
-        res = _matcher(
-            "priority", "text", "desc", "name"
-        ).collect_matches_from_candidate(candidate)
-        self.assertEqual(
-            sorted(res.keys()), [], f"repr artefacts matched: {sorted(res)}"
-        )
+        candidate["skills"] = [{"name": "Kubernetes", "desc": "cluster ops", "priority": 0.9}]
+        res = _matcher("priority", "text", "desc", "name").collect_matches_from_candidate(candidate)
+        self.assertEqual(sorted(res.keys()), [], f"repr artefacts matched: {sorted(res)}")
 
     def test_matches_keyword_in_priority_shaped_skill_name(self):
         """Regression: skills had their own str(skill) coercion."""
-        candidate = {
-            "skills": [
-                {"name": "Kubernetes", "desc": "cluster ops", "priority": 0.9}
-            ]
-        }
+        candidate = {"skills": [{"name": "Kubernetes", "desc": "cluster ops", "priority": 0.9}]}
         res = _matcher("Kubernetes").collect_matches_from_candidate(candidate)
         self.assertIn("Kubernetes", res)
 
@@ -176,18 +158,14 @@ class TestMatchingPriorityShapedBullets(unittest.TestCase):
 
     def test_plain_string_skills_still_match(self):
         """The flat skills list must keep working."""
-        res = _matcher("Kafka").collect_matches_from_candidate(
-            {"skills": ["Kafka", "Terraform"]}
-        )
+        res = _matcher("Kafka").collect_matches_from_candidate({"skills": ["Kafka", "Terraform"]})
         self.assertIn("Kafka", res)
 
     def test_plain_string_bullets_still_match(self):
         """The older flat shape must keep working — both are valid input."""
         candidate = {
             "summary": "Build reliability on Kubernetes",
-            "experience": [
-                {"title": "SRE", "company": "Acme", "bullets": ["Ran Kafka"]}
-            ],
+            "experience": [{"title": "SRE", "company": "Acme", "bullets": ["Ran Kafka"]}],
         }
         res = _matcher("Kafka", "Kubernetes").collect_matches_from_candidate(candidate)
         self.assertEqual(sorted(res.keys()), ["Kafka", "Kubernetes"])

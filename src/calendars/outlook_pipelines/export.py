@@ -4,17 +4,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ._base import (
-    Path,
-    Any,
-    SafeProcessor,
-    BaseProducer,
-    DateWindowResolver,
-    RequestConsumer,
-    check_service_required,
-)
 from calendars.selection import extract_hhmm, is_one_off_event
 from core.date_utils import DAY_MAP
+
+from ._base import (
+    Any,
+    BaseProducer,
+    DateWindowResolver,
+    Path,
+    RequestConsumer,
+    SafeProcessor,
+    check_service_required,
+)
 
 # Graph recurrence pattern types we can reverse
 _SUPPORTED_PATTERNS = {"daily", "weekly", "absolutemonthly"}
@@ -85,11 +86,13 @@ def _record_event(acc: _ExportAccumulator, plan_ev: dict[str, Any]) -> None:
     """
     source = plan_ev.pop(_TZ_SOURCE_KEY, None)
     if source:
-        acc.tz_inferred.append({
-            "subject": plan_ev.get("subject", ""),
-            "tz": plan_ev.get("tz", ""),
-            "source": source,
-        })
+        acc.tz_inferred.append(
+            {
+                "subject": plan_ev.get("subject", ""),
+                "tz": plan_ev.get("tz", ""),
+                "source": source,
+            }
+        )
     acc.events.append(plan_ev)
 
 
@@ -330,7 +333,7 @@ def _partition_events(
     """
     one_offs: list[dict[str, Any]] = []
     by_master: dict[str, list[dict[str, Any]]] = {}
-    for ev in (all_events or []):
+    for ev in all_events or []:
         if is_one_off(ev):
             one_offs.append(ev)
             continue
@@ -389,7 +392,7 @@ def _collect_exdates(occurrences: list[dict[str, Any]]) -> list[str]:
     for occ in occurrences:
         if not (occ.get("isCancelled") or (occ.get("type") or "").lower() == "exceptionoccurrence"):
             continue
-        st = (occ.get("originalStart") or (occ.get("start") or {}).get("dateTime") or "")
+        st = occ.get("originalStart") or (occ.get("start") or {}).get("dateTime") or ""
         date_only = st.split("T", 1)[0] if "T" in st else st
         if date_only:
             exdates.append(date_only)
@@ -400,7 +403,7 @@ def _process_recurring_series(
     master_id: str,
     occurrences: list[dict[str, Any]],
     svc: Any,
-    acc: "_ExportAccumulator",
+    acc: _ExportAccumulator,
 ) -> None:
     """Reverse one recurring series into a plan event, or record why it was skipped."""
     rep = occurrences[0] if occurrences else {}
@@ -415,11 +418,13 @@ def _process_recurring_series(
     try:
         plan_ev = _reverse_recurrence(master, svc)
     except ValueError as exc:
-        acc.skipped.append({
-            "seriesMasterId": master_id,
-            "subject": subject,
-            "reason": str(exc),
-        })
+        acc.skipped.append(
+            {
+                "seriesMasterId": master_id,
+                "subject": subject,
+                "reason": str(exc),
+            }
+        )
         return
 
     if plan_ev is None:
@@ -430,12 +435,14 @@ def _process_recurring_series(
         # None to acc.events and silently corrupting the plan. A skipped series
         # is recoverable; a malformed one is not.
         pattern_type = ((master or {}).get("recurrence") or {}).get("pattern", {}).get("type") or ""
-        acc.skipped.append({
-            "seriesMasterId": master_id,
-            "subject": subject,
-            "pattern_type": pattern_type,
-            "reason": "unsupported_pattern",
-        })
+        acc.skipped.append(
+            {
+                "seriesMasterId": master_id,
+                "subject": subject,
+                "pattern_type": pattern_type,
+                "reason": "unsupported_pattern",
+            }
+        )
         return
 
     exdates = _collect_exdates(occurrences)
@@ -455,11 +462,14 @@ class OutlookExportProcessor(SafeProcessor[OutlookExportRequest, OutlookExportRe
         start_iso, end_iso = self._window.resolve(payload.from_date, payload.to_date)
 
         from calendars.outlook_service import ListEventsRequest
-        all_events = svc.list_events_in_range(ListEventsRequest(
-            start_iso=start_iso,
-            end_iso=end_iso,
-            calendar_name=payload.calendar,
-        ))
+
+        all_events = svc.list_events_in_range(
+            ListEventsRequest(
+                start_iso=start_iso,
+                end_iso=end_iso,
+                calendar_name=payload.calendar,
+            )
+        )
 
         acc = _ExportAccumulator()
         one_offs, by_master = _partition_events(all_events, is_one_off_event)
@@ -484,7 +494,9 @@ class OutlookExportProcessor(SafeProcessor[OutlookExportRequest, OutlookExportRe
 
 
 class OutlookExportProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookExportResult, diagnostics: dict[str, Any] | None) -> None:
+    def _produce_success(
+        self, payload: OutlookExportResult, diagnostics: dict[str, Any] | None
+    ) -> None:
         n = payload.event_count
         m = len(payload.skipped)
         print(f"Exported {n} events; skipped {m} (see --verbose for details)")
@@ -518,15 +530,16 @@ class OutlookExportProducer(BaseProducer):
 
         if payload.out_path:
             from core.yamlio import dump_config
+
             payload.out_path.parent.mkdir(parents=True, exist_ok=True)
             dump_config(str(payload.out_path), {"events": payload.events})
             print(f"Wrote plan to {payload.out_path}")
 
 
 __all__ = [
+    "OutlookExportProcessor",
+    "OutlookExportProducer",
     "OutlookExportRequest",
     "OutlookExportRequestConsumer",
     "OutlookExportResult",
-    "OutlookExportProcessor",
-    "OutlookExportProducer",
 ]

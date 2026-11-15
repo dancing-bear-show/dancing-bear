@@ -88,9 +88,7 @@ class TestQueryAndListIdsDelegation(unittest.TestCase):
     def test_empty_result_is_returned_as_is(self):
         """A provider returning no ids is passed through, not coerced."""
         svc = GmailService(provider=_RecordingProvider(ids=[]))
-        self.assertEqual(
-            svc.query_and_list_ids(QueryParams(days=1), max_pages=1, page_size=10), []
-        )
+        self.assertEqual(svc.query_and_list_ids(QueryParams(days=1), max_pages=1, page_size=10), [])
 
 
 if __name__ == "__main__":

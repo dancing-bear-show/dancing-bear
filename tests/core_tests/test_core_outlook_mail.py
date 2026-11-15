@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from tests.fixtures import test_path
+import unittest
+from unittest.mock import patch
+
 from tests.core_tests.outlook_helpers import (
     FakeMailClient,
     OutlookMailTestBase,
     make_mock_response,
 )
-import unittest
-from unittest.mock import patch
-
+from tests.fixtures import test_path
 
 # -------------------- Fixtures --------------------
 
@@ -46,6 +46,7 @@ FOLDERS_LIST = [FOLDER_INBOX, FOLDER_ARCHIVE]
 
 
 # -------------------- Label (Category) Tests --------------------
+
 
 class TestListLabels(OutlookMailTestBase):
     """Tests for list_labels method."""
@@ -103,7 +104,9 @@ class TestCreateLabel(OutlookMailTestBase):
     @patch("core.outlook._mail_labels._requests")
     def test_create_label_basic(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
-        mock_requests.post.return_value = make_mock_response({"id": "new-cat", "displayName": "NewLabel"})
+        mock_requests.post.return_value = make_mock_response(
+            {"id": "new-cat", "displayName": "NewLabel"}
+        )
 
         result = FakeMailClient().create_label("NewLabel")
 
@@ -114,7 +117,9 @@ class TestCreateLabel(OutlookMailTestBase):
     @patch("core.outlook._mail_labels._requests")
     def test_create_label_with_color(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
-        mock_requests.post.return_value = make_mock_response({"id": "new-cat", "displayName": "ColorLabel"})
+        mock_requests.post.return_value = make_mock_response(
+            {"id": "new-cat", "displayName": "ColorLabel"}
+        )
 
         FakeMailClient().create_label("ColorLabel", color={"name": "preset5"})
 
@@ -125,7 +130,9 @@ class TestCreateLabel(OutlookMailTestBase):
     @patch("core.outlook._mail_labels._requests")
     def test_create_label_without_color(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
-        mock_requests.post.return_value = make_mock_response({"id": "new-cat", "displayName": "NoColor"})
+        mock_requests.post.return_value = make_mock_response(
+            {"id": "new-cat", "displayName": "NoColor"}
+        )
 
         FakeMailClient().create_label("NoColor")
 
@@ -139,7 +146,9 @@ class TestUpdateLabel(OutlookMailTestBase):
     @patch("core.outlook._mail_labels._requests")
     def test_update_label_name(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
-        mock_requests.patch.return_value = make_mock_response({"id": "cat-1"}, text='{"id": "cat-1"}')
+        mock_requests.patch.return_value = make_mock_response(
+            {"id": "cat-1"}, text='{"id": "cat-1"}'
+        )
 
         result = FakeMailClient().update_label("cat-1", {"name": "Updated"})
 
@@ -150,7 +159,9 @@ class TestUpdateLabel(OutlookMailTestBase):
     @patch("core.outlook._mail_labels._requests")
     def test_update_label_color(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
-        mock_requests.patch.return_value = make_mock_response({"id": "cat-1"}, text='{"id": "cat-1"}')
+        mock_requests.patch.return_value = make_mock_response(
+            {"id": "cat-1"}, text='{"id": "cat-1"}'
+        )
 
         FakeMailClient().update_label("cat-1", {"color": {"name": "preset3"}})
 
@@ -230,7 +241,9 @@ class TestEnsureLabel(OutlookMailTestBase):
     def test_ensure_label_creates_new(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.return_value = make_mock_response({"value": []})
-        mock_requests.post.return_value = make_mock_response({"id": "new-id", "displayName": "NewLabel"})
+        mock_requests.post.return_value = make_mock_response(
+            {"id": "new-id", "displayName": "NewLabel"}
+        )
 
         result = FakeMailClient().ensure_label("NewLabel")
 
@@ -239,6 +252,7 @@ class TestEnsureLabel(OutlookMailTestBase):
 
 
 # -------------------- Filter (Rule) Tests --------------------
+
 
 class TestListFilters(OutlookMailTestBase):
     """Tests for list_filters method."""
@@ -316,8 +330,7 @@ class TestCreateFilter(OutlookMailTestBase):
         mock_requests.post.return_value = make_mock_response({"id": "new-rule"})
 
         result = FakeMailClient().create_filter(
-            criteria={"from": "sender@example.com"},
-            action={"addLabelIds": ["Work"]}
+            criteria={"from": "sender@example.com"}, action={"addLabelIds": ["Work"]}
         )
 
         self.assertEqual(result["id"], "new-rule")
@@ -330,10 +343,7 @@ class TestCreateFilter(OutlookMailTestBase):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.post.return_value = make_mock_response({"id": "new-rule"})
 
-        FakeMailClient().create_filter(
-            criteria={"from": "a@test.com OR b@test.com"},
-            action={}
-        )
+        FakeMailClient().create_filter(criteria={"from": "a@test.com OR b@test.com"}, action={})
 
         call_json = mock_requests.post.call_args.kwargs["json"]
         self.assertEqual(call_json["conditions"]["senderContains"], ["a@test.com", "b@test.com"])
@@ -344,8 +354,7 @@ class TestCreateFilter(OutlookMailTestBase):
         mock_requests.post.return_value = make_mock_response({"id": "new-rule"})
 
         FakeMailClient().create_filter(
-            criteria={"subject": "urgent"},
-            action={"forward": "a@test.com, b@test.com"}
+            criteria={"subject": "urgent"}, action={"forward": "a@test.com, b@test.com"}
         )
 
         call_json = mock_requests.post.call_args.kwargs["json"]
@@ -358,8 +367,7 @@ class TestCreateFilter(OutlookMailTestBase):
         mock_requests.post.return_value = make_mock_response({"id": "new-rule"})
 
         FakeMailClient().create_filter(
-            criteria={"to": "me@test.com"},
-            action={"moveToFolderId": "folder-123"}
+            criteria={"to": "me@test.com"}, action={"moveToFolderId": "folder-123"}
         )
 
         call_json = mock_requests.post.call_args.kwargs["json"]
@@ -396,12 +404,14 @@ class TestDeleteFilter(OutlookMailTestBase):
 
 # -------------------- Message Tests --------------------
 
+
 class TestSearchInboxMessages(OutlookMailTestBase):
     """Tests for search_inbox_messages method."""
 
     @patch("core.outlook.mail._requests")
     def test_search_inbox_basic(self, mock_requests_fn):
         from core.outlook.models import SearchParams
+
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.return_value = make_mock_response({"value": MESSAGE_LIST})
 
@@ -419,19 +429,22 @@ class TestSearchInboxMessages(OutlookMailTestBase):
         tests/core_tests/test_outlook_mail_search_query.py.
         """
         import datetime as _dt
+
         from core.outlook.models import SearchParams
 
         def _days_ago(days: int) -> str:
-            stamp = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=days)
+            stamp = _dt.datetime.now(_dt.UTC) - _dt.timedelta(days=days)
             return stamp.strftime("%Y-%m-%dT%H:%M:%SZ")
 
         mock_requests = self._setup_mock_requests(mock_requests_fn)
-        mock_requests.get.return_value = make_mock_response({
-            "value": [
-                {"id": "in-window", "receivedDateTime": _days_ago(1)},
-                {"id": "out-of-window", "receivedDateTime": _days_ago(90)},
-            ]
-        })
+        mock_requests.get.return_value = make_mock_response(
+            {
+                "value": [
+                    {"id": "in-window", "receivedDateTime": _days_ago(1)},
+                    {"id": "out-of-window", "receivedDateTime": _days_ago(90)},
+                ]
+            }
+        )
 
         result = FakeMailClient().search_inbox_messages(
             SearchParams(search_query="test", days=7, use_cache=False)
@@ -447,6 +460,7 @@ class TestSearchInboxMessages(OutlookMailTestBase):
     @patch("core.outlook.mail._requests")
     def test_search_inbox_pagination(self, mock_requests_fn):
         from core.outlook.models import SearchParams
+
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.side_effect = [
             make_mock_response({"value": [{"id": "msg-1"}], "@odata.nextLink": "http://next"}),
@@ -463,13 +477,12 @@ class TestSearchInboxMessages(OutlookMailTestBase):
     @patch("core.outlook.mail._requests")
     def test_search_inbox_with_cache(self, mock_requests_fn):
         from core.outlook.models import SearchParams
+
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.return_value = make_mock_response({"value": MESSAGE_LIST})
 
         client = FakeMailClient(cache_dir=test_path("test"))  # nosec B108 - test fixture
-        result = client.search_inbox_messages(
-            SearchParams(search_query="test", use_cache=True)
-        )
+        result = client.search_inbox_messages(SearchParams(search_query="test", use_cache=True))
 
         self.assertEqual(len(result), 2)
 
@@ -552,6 +565,7 @@ class TestGetMessage(OutlookMailTestBase):
 
 
 # -------------------- Folder Tests --------------------
+
 
 class TestListFolders(OutlookMailTestBase):
     """Tests for list_folders method."""
@@ -766,6 +780,7 @@ class TestEnsureFolderPath(OutlookMailTestBase):
 
 
 # -------------------- Signature Tests --------------------
+
 
 class TestSignatures(unittest.TestCase):
     """Tests for signature methods (NotImplementedError expected)."""

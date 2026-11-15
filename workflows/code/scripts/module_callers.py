@@ -66,8 +66,14 @@ import sys
 from collections.abc import Iterator
 
 SKIP_DIRS = {
-    ".git", ".venv", ".claude", "__pycache__", "node_modules", ".cache",
-    "personal_assistants.egg-info", ".facade-work",
+    ".git",
+    ".venv",
+    ".claude",
+    "__pycache__",
+    "node_modules",
+    ".cache",
+    "personal_assistants.egg-info",
+    ".facade-work",
 }
 
 
@@ -79,6 +85,7 @@ def _walk_py(root: str, unscannable: list[str] | None) -> Iterator[str]:
     file-level error list stays empty and the scan reports complete while a
     whole subtree went unread.
     """
+
     def _on_error(err: OSError) -> None:
         if unscannable is not None:
             unscannable.append(getattr(err, "filename", None) or str(err))
@@ -192,9 +199,7 @@ def _is_module(dotted: str, src_root: str) -> bool:
     """
     rel = os.path.join(*dotted.split("."))
     base = os.path.join(src_root, rel)
-    return os.path.isfile(base + ".py") or os.path.isfile(
-        os.path.join(base, "__init__.py")
-    )
+    return os.path.isfile(base + ".py") or os.path.isfile(os.path.join(base, "__init__.py"))
 
 
 def _from_targets(node: ast.ImportFrom, pkg: str, src_root: str = "src") -> set[str]:
@@ -214,8 +219,7 @@ def _from_targets(node: ast.ImportFrom, pkg: str, src_root: str = "src") -> set[
     return found
 
 
-def _targets_in(path: str, src_root: str,
-                unscannable: list[str] | None = None) -> set[str]:
+def _targets_in(path: str, src_root: str, unscannable: list[str] | None = None) -> set[str]:
     """Every module this file imports, absolute, including lazy imports.
 
     Files that cannot be parsed are appended to *unscannable* by ``_parse``;
@@ -248,8 +252,7 @@ def _targets_in(path: str, src_root: str,
     return found
 
 
-def callers_of(target: str, roots: list[str],
-               src_root: str = "src") -> tuple[list[str], list[str]]:
+def callers_of(target: str, roots: list[str], src_root: str = "src") -> tuple[list[str], list[str]]:
     """Files under *roots* that import *target*, resolved via AST.
 
     Returns ``(callers, unscannable)``. A non-empty *unscannable* makes the
@@ -258,7 +261,8 @@ def callers_of(target: str, roots: list[str],
     """
     unscannable: list[str] = []
     callers = sorted(
-        path for path in iter_py(roots, unscannable)
+        path
+        for path in iter_py(roots, unscannable)
         if target in _targets_in(path, src_root, unscannable)
     )
     return callers, sorted(set(unscannable))
@@ -307,9 +311,17 @@ def main(argv: list[str] | None = None) -> int:
     found, unscannable = callers_of(args.module, args.roots, args.src_root)
 
     if args.format == "json":
-        json.dump({"module": args.module, "callers": found, "count": len(found),
-                   "unscannable": unscannable, "complete": not unscannable},
-                  sys.stdout, indent=1)
+        json.dump(
+            {
+                "module": args.module,
+                "callers": found,
+                "count": len(found),
+                "unscannable": unscannable,
+                "complete": not unscannable,
+            },
+            sys.stdout,
+            indent=1,
+        )
         print()
     else:
         for path in found:

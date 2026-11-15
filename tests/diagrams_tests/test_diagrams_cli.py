@@ -2,10 +2,9 @@
 
 import unittest
 
-from diagrams.cli import _render_cost_pie, _render_token_pie, _render_timeline
+from diagrams.cli import _render_cost_pie, _render_timeline, _render_token_pie
 from diagrams.mermaid import SequenceDiagramBuilder
 from telemetry.pricing import compute_cost, model_tier
-
 from tests.diagrams_tests.fixtures import make_session
 
 
@@ -71,6 +70,7 @@ class TestRenderTimeline(unittest.TestCase):
         result = _render_timeline(sessions, 7, compute_cost, model_tier)
         # ID should not contain hyphens
         import re
+
         ids = re.findall(r":t(\w+),", result)
         for tid in ids:
             self.assertRegex(tid, r"^[A-Za-z0-9_]+$")

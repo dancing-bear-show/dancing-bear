@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from tests.fixtures import test_path
 import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-from tests.fixtures import bin_path, repo_root, run, temp_yaml_file
+from tests.fixtures import bin_path, repo_root, run, temp_yaml_file, test_path
 
 
 class TestResumeCLIHelp(unittest.TestCase):
@@ -163,8 +162,9 @@ class TestResumeCLIResolveOut(unittest.TestCase):
 
     def test_resolve_out_with_explicit_path(self):
         """Test _resolve_out returns explicit --out path."""
-        from resume.cli.helpers import _resolve_out
         import argparse
+
+        from resume.cli.helpers import _resolve_out
 
         args = argparse.Namespace(out=test_path("test.json"), profile=None, out_dir="out")
         result = _resolve_out(args, ".json", "data")
@@ -172,8 +172,9 @@ class TestResumeCLIResolveOut(unittest.TestCase):
 
     def test_resolve_out_with_profile(self):
         """Test _resolve_out builds nested path with profile."""
-        from resume.cli.helpers import _resolve_out
         import argparse
+
+        from resume.cli.helpers import _resolve_out
 
         args = argparse.Namespace(out=None, profile="testprofile", out_dir="out")
         result = _resolve_out(args, ".json", "data")
@@ -182,8 +183,9 @@ class TestResumeCLIResolveOut(unittest.TestCase):
 
     def test_resolve_out_uses_default_profile(self):
         """Test _resolve_out uses DEFAULT_PROFILE when profile is None."""
-        from resume.cli.helpers import _resolve_out, DEFAULT_PROFILE
         import argparse
+
+        from resume.cli.helpers import DEFAULT_PROFILE, _resolve_out
 
         args = argparse.Namespace(out=None, profile=None, out_dir="out")
         result = _resolve_out(args, ".json", "data")
@@ -269,6 +271,7 @@ class TestResumeCLIHelpers(unittest.TestCase):
             profile_dir.mkdir(parents=True)
             struct_path = profile_dir / "structure.json"
             import json
+
             struct_path.write_text(json.dumps(structure_data))
 
             out_dirs = [Path(tmpdir)]
@@ -285,6 +288,7 @@ class TestResumeCLIHelpers(unittest.TestCase):
             # Create legacy structure: tmpdir/testprofile.structure.json
             struct_path = Path(tmpdir) / "testprofile.structure.json"
             import json
+
             struct_path.write_text(json.dumps(structure_data))
 
             out_dirs = [Path(tmpdir)]
@@ -294,14 +298,17 @@ class TestResumeCLIHelpers(unittest.TestCase):
 
     def test_find_structure_in_dirs_prefers_nested_over_legacy(self):
         """Test _find_structure_in_dirs prefers the nested layout when both exist."""
-        from resume.cli.cmd_render import _find_structure_in_dirs
         import json
+
+        from resume.cli.cmd_render import _find_structure_in_dirs
 
         with tempfile.TemporaryDirectory() as tmpdir:
             profile_dir = Path(tmpdir) / "testprofile"
             profile_dir.mkdir(parents=True)
             (profile_dir / "structure.json").write_text(json.dumps({"source": "nested"}))
-            (Path(tmpdir) / "testprofile.structure.json").write_text(json.dumps({"source": "legacy"}))
+            (Path(tmpdir) / "testprofile.structure.json").write_text(
+                json.dumps({"source": "legacy"})
+            )
 
             result = _find_structure_in_dirs("testprofile", [Path(tmpdir)])
             self.assertEqual(result, {"source": "nested"})
@@ -320,8 +327,9 @@ class TestResumeCLIHelpers(unittest.TestCase):
 
     def test_find_structure_in_dirs_searches_multiple_dirs(self):
         """Test _find_structure_in_dirs searches later dirs when earlier ones miss."""
-        from resume.cli.cmd_render import _find_structure_in_dirs
         import json
+
+        from resume.cli.cmd_render import _find_structure_in_dirs
 
         with tempfile.TemporaryDirectory() as tmpdir:
             first_dir = Path(tmpdir) / "first"
@@ -332,6 +340,7 @@ class TestResumeCLIHelpers(unittest.TestCase):
 
             result = _find_structure_in_dirs("testprofile", [first_dir, second_dir])
             self.assertEqual(result, {"found": True})
+
 
 class TestResumeCLIFindStructureInConfig(unittest.TestCase):
     """Test _find_structure_in_config helper function."""
@@ -349,8 +358,9 @@ class TestResumeCLILoadStructure(unittest.TestCase):
 
     def test_load_structure_explicit_json(self):
         """Test _load_structure with explicit JSON path."""
-        from resume.cli.cmd_render import _load_structure
         import argparse
+
+        from resume.cli.cmd_render import _load_structure
 
         structure_data = {"sections": [{"key": "summary"}]}
         with temp_yaml_file(structure_data) as struct_path:
@@ -365,8 +375,9 @@ class TestResumeCLILoadStructure(unittest.TestCase):
 
     def test_load_structure_no_profile_no_explicit(self):
         """Test _load_structure returns None with no profile and no explicit path."""
-        from resume.cli.cmd_render import _load_structure
         import argparse
+
+        from resume.cli.cmd_render import _load_structure
 
         args = argparse.Namespace(
             structure_from=None,
@@ -387,12 +398,17 @@ class TestResumeCLIMainErrorHandling(unittest.TestCase):
         # Trigger an error by providing invalid data file
         with tempfile.TemporaryDirectory() as tmpdir:
             out_path = os.path.join(tmpdir, "alignment.json")
-            result = main([
-                "align",
-                "--data", "/nonexistent/data.json",
-                "--job", "/nonexistent/job.json",
-                "--out", out_path,
-            ])
+            result = main(
+                [
+                    "align",
+                    "--data",
+                    "/nonexistent/data.json",
+                    "--job",
+                    "/nonexistent/job.json",
+                    "--out",
+                    out_path,
+                ]
+            )
             self.assertEqual(result, 1)
 
     def test_main_with_invalid_subcommand(self):

@@ -43,8 +43,10 @@ class TestGmailProviderInit(unittest.TestCase):
     def test_client_created_with_cache_dir(self):
         from mail.providers.gmail import GmailProvider
 
-        with patch("mail.providers.gmail.GmailClient") as mock_cls, \
-             patch("mail.providers.base.MailCache"):
+        with (
+            patch("mail.providers.gmail.GmailClient") as mock_cls,
+            patch("mail.providers.base.MailCache"),
+        ):
             mock_cls.return_value = MagicMock()
             GmailProvider(
                 credentials_path="/creds.json",  # nosec B106
@@ -221,7 +223,9 @@ class TestGmailProviderMessages(unittest.TestCase):
     def test_list_message_ids_with_query(self):
         provider, client = _make_provider()
         client.list_message_ids.return_value = ["id3"]
-        provider.list_message_ids(query="is:unread", label_ids=["INBOX"], max_pages=2, page_size=100)
+        provider.list_message_ids(
+            query="is:unread", label_ids=["INBOX"], max_pages=2, page_size=100
+        )
         client.list_message_ids.assert_called_once_with(
             query="is:unread", label_ids=["INBOX"], max_pages=2, page_size=100
         )
@@ -322,7 +326,10 @@ class TestGmailProviderSignatures(unittest.TestCase):
 
     def test_update_signature_delegates(self):
         provider, client = _make_provider()
-        client.update_signature.return_value = {"sendAsEmail": "me@example.com", "signature": "<b>Hi</b>"}
+        client.update_signature.return_value = {
+            "sendAsEmail": "me@example.com",
+            "signature": "<b>Hi</b>",
+        }
         result = provider.update_signature("me@example.com", "<b>Hi</b>")
         client.update_signature.assert_called_once_with("me@example.com", "<b>Hi</b>")
         self.assertEqual(result["signature"], "<b>Hi</b>")
@@ -375,8 +382,10 @@ class TestGmailProviderInitSad(unittest.TestCase):
     def test_init_propagates_cache_dir_makedirs_error(self):
         from mail.providers.gmail import GmailProvider
 
-        with patch("mail.providers.gmail.GmailClient") as mock_cls, \
-             patch("mail.providers.base.MailCache") as mock_cache_cls:
+        with (
+            patch("mail.providers.gmail.GmailClient") as mock_cls,
+            patch("mail.providers.base.MailCache") as mock_cache_cls,
+        ):
             mock_cls.return_value = MagicMock()
             mock_cache_cls.side_effect = PermissionError("cannot create cache dir")
             with self.assertRaises(PermissionError):
@@ -431,7 +440,9 @@ class TestGmailProviderResourceSad(unittest.TestCase):
         for case in self.RESOURCE_CASES:
             with self.subTest(resource=case["resource"]):
                 provider, client = _make_provider()
-                getattr(client, case["delete_attr"]).side_effect = RuntimeError(case["not_found_message"])
+                getattr(client, case["delete_attr"]).side_effect = RuntimeError(
+                    case["not_found_message"]
+                )
                 with self.assertRaisesRegex(RuntimeError, case["not_found_message"]):
                     getattr(provider, case["delete_attr"])(case["missing_id"])
 

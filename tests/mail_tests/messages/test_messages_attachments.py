@@ -1,4 +1,5 @@
 """Tests for messages list-attachments and download-attachment commands."""
+
 from __future__ import annotations
 
 import os
@@ -6,15 +7,15 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from tests.fixtures import capture_stdout
-from tests.mail_tests.fixtures import FakeGmailClient, make_args
 from mail.messages_cli.commands_attachments import (
     AttachmentInfo,
-    list_message_attachments,
     _sanitize_filename,
-    run_messages_list_attachments,
+    list_message_attachments,
     run_messages_download_attachment,
+    run_messages_list_attachments,
 )
+from tests.fixtures import capture_stdout
+from tests.mail_tests.fixtures import FakeGmailClient, make_args
 
 
 def _make_attachment_msg(msg_id: str = "MSG1") -> dict:
@@ -73,8 +74,20 @@ def _make_multi_attachment_msg(msg_id: str = "MSG2") -> dict:
         msg_id,
         "T2",
         [
-            {"mimeType": "application/pdf", "filename": "doc1.pdf", "attachmentId": "ATT_A", "size": 100, "content": b"pdf-content"},
-            {"mimeType": "image/png", "filename": "image.png", "attachmentId": "ATT_B", "size": 200, "content": b"png-content"},
+            {
+                "mimeType": "application/pdf",
+                "filename": "doc1.pdf",
+                "attachmentId": "ATT_A",
+                "size": 100,
+                "content": b"pdf-content",
+            },
+            {
+                "mimeType": "image/png",
+                "filename": "image.png",
+                "attachmentId": "ATT_B",
+                "size": 200,
+                "content": b"png-content",
+            },
         ],
     )
 
@@ -120,8 +133,20 @@ def _make_duplicate_name_msg(msg_id: str = "MSG4") -> dict:
         msg_id,
         "T4",
         [
-            {"mimeType": "application/pdf", "filename": "scan.pdf", "attachmentId": "ATT_DUP1", "size": 10, "content": b"first"},
-            {"mimeType": "application/pdf", "filename": "scan.pdf", "attachmentId": "ATT_DUP2", "size": 20, "content": b"second"},
+            {
+                "mimeType": "application/pdf",
+                "filename": "scan.pdf",
+                "attachmentId": "ATT_DUP1",
+                "size": 10,
+                "content": b"first",
+            },
+            {
+                "mimeType": "application/pdf",
+                "filename": "scan.pdf",
+                "attachmentId": "ATT_DUP2",
+                "size": 20,
+                "content": b"second",
+            },
         ],
     )
 
@@ -213,6 +238,7 @@ class TestRunMessagesListAttachments(unittest.TestCase):
 
     def test_json_output(self):
         import json
+
         client = self._client_with_msg()
         with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
             args = make_args(id="MSG1", json=True)
@@ -235,15 +261,17 @@ class TestRunMessagesListAttachments(unittest.TestCase):
         self.assertEqual(rc, 1)
 
     def test_no_attachments_exits_0(self):
-        client = FakeGmailClient(messages={
-            "MSG_EMPTY": {
-                "id": "MSG_EMPTY",
-                "payload": {
-                    "mimeType": "text/plain",
-                    "parts": [],
-                },
+        client = FakeGmailClient(
+            messages={
+                "MSG_EMPTY": {
+                    "id": "MSG_EMPTY",
+                    "payload": {
+                        "mimeType": "text/plain",
+                        "parts": [],
+                    },
+                }
             }
-        })
+        )
         with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
             args = make_args(id="MSG_EMPTY", json=False)
             with capture_stdout() as buf:
@@ -419,9 +447,7 @@ class TestRunMessagesDownloadAttachment(unittest.TestCase):
                     out=None,
                     out_dir=td,
                 )
-                with patch.object(
-                    client, "get_attachment", side_effect=RuntimeError("boom")
-                ):
+                with patch.object(client, "get_attachment", side_effect=RuntimeError("boom")):
                     rc = run_messages_download_attachment(args)
                 self.assertEqual(rc, 1)
                 self.assertEqual(os.listdir(td), [])
@@ -438,9 +464,7 @@ class TestRunMessagesDownloadAttachment(unittest.TestCase):
                     out=None,
                     out_dir=td,
                 )
-                with patch(
-                    "pathlib.Path.write_bytes", side_effect=OSError("disk full")
-                ):
+                with patch("pathlib.Path.write_bytes", side_effect=OSError("disk full")):
                     rc = run_messages_download_attachment(args)
                 self.assertEqual(rc, 1)
 
@@ -455,9 +479,7 @@ class TestRunMessagesDownloadAttachment(unittest.TestCase):
                     out=None,
                     out_dir=td,
                 )
-                with patch.object(
-                    client, "get_message", side_effect=RuntimeError("api down")
-                ):
+                with patch.object(client, "get_message", side_effect=RuntimeError("api down")):
                     rc = run_messages_download_attachment(args)
                 self.assertEqual(rc, 1)
 

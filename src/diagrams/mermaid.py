@@ -187,7 +187,9 @@ class SequenceDiagramBuilder:
         self._autonumber = enabled
         return self
 
-    def participant(self, name: str, alias: str = "", actor: bool = False) -> SequenceDiagramBuilder:
+    def participant(
+        self, name: str, alias: str = "", actor: bool = False
+    ) -> SequenceDiagramBuilder:
         """Add a participant or actor. alias is the display label."""
         keyword = "actor" if actor else "participant"
         if alias:

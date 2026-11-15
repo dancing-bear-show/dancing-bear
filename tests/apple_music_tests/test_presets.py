@@ -60,19 +60,14 @@ class TestFrenchPresets(unittest.TestCase):
         """Era/genre splits overlap with the broad french-pop set, but not with each other."""
         for i, left in enumerate(self.FRENCH_KEYS):
             for right in self.FRENCH_KEYS[i + 1 :]:
-                left_seeds = {
-                    (t.casefold(), a.casefold()) for t, a in PRESETS[left]["seeds"]
-                }
-                right_seeds = {
-                    (t.casefold(), a.casefold()) for t, a in PRESETS[right]["seeds"]
-                }
+                left_seeds = {(t.casefold(), a.casefold()) for t, a in PRESETS[left]["seeds"]}
+                right_seeds = {(t.casefold(), a.casefold()) for t, a in PRESETS[right]["seeds"]}
                 with self.subTest(left=left, right=right):
                     self.assertEqual(
                         left_seeds & right_seeds,
                         set(),
                         f"'{left}' and '{right}' share seeds",
                     )
-
 
 
 class TestArtistOverlap(unittest.TestCase):
@@ -113,9 +108,11 @@ class TestPickMatchingSong(unittest.TestCase):
 
     def test_null_attributes_do_not_raise(self):
         """Apple can return "attributes": null; that must not crash the matcher."""
-        results = [{"id": "1", "attributes": None}, {"id": "2", "attributes": {"artistName": "M83"}}]
+        results = [
+            {"id": "1", "attributes": None},
+            {"id": "2", "attributes": {"artistName": "M83"}},
+        ]
         self.assertIsNotNone(_pick_matching_song(results, "M83"))
-
 
 
 class TestDeleteDuplicatePlaylists(unittest.TestCase):

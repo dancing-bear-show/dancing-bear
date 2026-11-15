@@ -7,8 +7,8 @@ from unittest.mock import patch
 
 import requests
 
-from core.outlook.calendar import OutlookCalendarMixin
 from core.outlook._location import _normalize_days, _parse_location
+from core.outlook.calendar import OutlookCalendarMixin
 from core.outlook.models import (
     EventCreationParams,
     RecurringEventCreationParams,
@@ -19,7 +19,6 @@ from tests.core_tests.outlook_helpers import (
     OutlookCalendarTestBase,
     make_mock_response,
 )
-
 
 # -------------------- Fixtures --------------------
 
@@ -38,7 +37,11 @@ EVENTS_LIST = [
 
 PERMISSION_READ = {"id": "p1", "role": "read"}
 PERMISSION_WRITE = {"id": "p2", "role": "write"}
-PERMISSION_WITH_EMAIL = {"id": "p1", "emailAddress": {"address": "user@example.com"}, "role": "write"}
+PERMISSION_WITH_EMAIL = {
+    "id": "p1",
+    "emailAddress": {"address": "user@example.com"},
+    "role": "write",
+}
 
 
 class TestParseLocation(unittest.TestCase):
@@ -193,7 +196,9 @@ class TestEventEndpoint(unittest.TestCase):
 
     def test_with_both_ids(self):
         result = OutlookCalendarMixin._event_endpoint("cal-123", "event-456")
-        self.assertEqual(result, "https://graph.microsoft.com/v1.0/me/calendars/cal-123/events/event-456")
+        self.assertEqual(
+            result, "https://graph.microsoft.com/v1.0/me/calendars/cal-123/events/event-456"
+        )
 
 
 class TestApplyReminder(unittest.TestCase):
@@ -314,8 +319,12 @@ class TestPaginatedGet(OutlookCalendarTestBase):
     def test_multiple_pages(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.side_effect = [
-            make_mock_response({"value": [{"id": "1"}], "@odata.nextLink": "https://example.com/page2"}),
-            make_mock_response({"value": [{"id": "2"}], "@odata.nextLink": "https://example.com/page3"}),
+            make_mock_response(
+                {"value": [{"id": "1"}], "@odata.nextLink": "https://example.com/page2"}
+            ),
+            make_mock_response(
+                {"value": [{"id": "2"}], "@odata.nextLink": "https://example.com/page3"}
+            ),
             make_mock_response({"value": [{"id": "3"}]}),
         ]
 
@@ -413,7 +422,9 @@ class TestOutlookCalendarMixin(OutlookCalendarTestBase):
     @patch("core.outlook.calendar._requests")
     def test_create_calendar(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
-        mock_requests.post.return_value = make_mock_response({"id": "new-cal", "name": "New Calendar"})
+        mock_requests.post.return_value = make_mock_response(
+            {"id": "new-cal", "name": "New Calendar"}
+        )
 
         result = OutlookCalendarMixin.create_calendar(FakeClient(), "New Calendar")
 
@@ -450,10 +461,14 @@ class TestOutlookCalendarMixin(OutlookCalendarTestBase):
         self.assertIsNone(FakeClient(calendars=CALENDARS_DEFAULT).get_calendar_id_by_name(""))
 
     def test_get_calendar_id_by_name_found(self):
-        self.assertEqual(FakeClient(calendars=CALENDARS_DEFAULT).get_calendar_id_by_name("Work"), "cal1")
+        self.assertEqual(
+            FakeClient(calendars=CALENDARS_DEFAULT).get_calendar_id_by_name("Work"), "cal1"
+        )
 
     def test_get_calendar_id_by_name_not_found(self):
-        self.assertIsNone(FakeClient(calendars=CALENDARS_DEFAULT).get_calendar_id_by_name("Personal"))
+        self.assertIsNone(
+            FakeClient(calendars=CALENDARS_DEFAULT).get_calendar_id_by_name("Personal")
+        )
 
     def test_get_calendar_id_by_name_case_insensitive(self):
         client = FakeClient(calendars=[{"id": "cal1", "name": "Work Calendar"}])
@@ -466,7 +481,9 @@ class TestCalendarPermissions(OutlookCalendarTestBase):
     @patch("core.outlook.calendar._requests")
     def test_list_calendar_permissions(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
-        mock_requests.get.return_value = make_mock_response({"value": [PERMISSION_READ, PERMISSION_WRITE]})
+        mock_requests.get.return_value = make_mock_response(
+            {"value": [PERMISSION_READ, PERMISSION_WRITE]}
+        )
 
         result = OutlookCalendarMixin.list_calendar_permissions(FakeClient(), "cal-id")
 
@@ -517,7 +534,9 @@ class TestEventOperations(OutlookCalendarTestBase):
     """Tests for event creation and management."""
 
     def test_resolve_tz_with_provided_tz(self):
-        result = OutlookCalendarMixin._resolve_tz(FakeClient(timezone="America/New_York"), "Europe/London")
+        result = OutlookCalendarMixin._resolve_tz(
+            FakeClient(timezone="America/New_York"), "Europe/London"
+        )
         self.assertEqual(result, "Europe/London")
 
     def test_resolve_tz_from_mailbox(self):
@@ -535,7 +554,9 @@ class TestEventOperations(OutlookCalendarTestBase):
 
         result = OutlookCalendarMixin.create_event(
             FakeClient(timezone="America/Toronto"),
-            EventCreationParams(subject="Meeting", start_iso="2025-01-15T10:00:00", end_iso="2025-01-15T11:00:00"),
+            EventCreationParams(
+                subject="Meeting", start_iso="2025-01-15T10:00:00", end_iso="2025-01-15T11:00:00"
+            ),
         )
 
         self.assertEqual(result["subject"], "Meeting")
@@ -549,8 +570,11 @@ class TestEventOperations(OutlookCalendarTestBase):
         OutlookCalendarMixin.create_event(
             FakeClient(timezone="America/Toronto"),
             EventCreationParams(
-                subject="Meeting", start_iso="2025-01-15T10:00:00", end_iso="2025-01-15T11:00:00",
-                calendar_id="cal1", location="Conference Room A",
+                subject="Meeting",
+                start_iso="2025-01-15T10:00:00",
+                end_iso="2025-01-15T11:00:00",
+                calendar_id="cal1",
+                location="Conference Room A",
             ),
         )
 
@@ -563,7 +587,9 @@ class TestEventOperations(OutlookCalendarTestBase):
 
         OutlookCalendarMixin.create_event(
             FakeClient(timezone="America/Toronto"),
-            EventCreationParams(subject="Holiday", start_iso="2025-01-15", end_iso="2025-01-16", all_day=True),
+            EventCreationParams(
+                subject="Holiday", start_iso="2025-01-15", end_iso="2025-01-16", all_day=True
+            ),
         )
 
         self.assertTrue(mock_requests.post.call_args.kwargs["json"].get("isAllDay"))
@@ -576,7 +602,9 @@ class TestEventOperations(OutlookCalendarTestBase):
         OutlookCalendarMixin.create_event(
             FakeClient(timezone="America/Toronto"),
             EventCreationParams(
-                subject="Silent Meeting", start_iso="2025-01-15T10:00:00", end_iso="2025-01-15T11:00:00",
+                subject="Silent Meeting",
+                start_iso="2025-01-15T10:00:00",
+                end_iso="2025-01-15T11:00:00",
                 no_reminder=True,
             ),
         )
@@ -591,7 +619,9 @@ class TestEventOperations(OutlookCalendarTestBase):
         OutlookCalendarMixin.create_event(
             FakeClient(timezone="America/Toronto"),
             EventCreationParams(
-                subject="Reminded Meeting", start_iso="2025-01-15T10:00:00", end_iso="2025-01-15T11:00:00",
+                subject="Reminded Meeting",
+                start_iso="2025-01-15T10:00:00",
+                end_iso="2025-01-15T11:00:00",
                 reminder_minutes=30,
             ),
         )
@@ -613,7 +643,9 @@ class TestEventOperations(OutlookCalendarTestBase):
             OutlookCalendarMixin.create_event(
                 FakeClient(timezone="America/Toronto"),
                 EventCreationParams(
-                    subject="Meeting", start_iso="2025-01-15T10:00:00", end_iso="2025-01-15T11:00:00",
+                    subject="Meeting",
+                    start_iso="2025-01-15T10:00:00",
+                    end_iso="2025-01-15T11:00:00",
                 ),
             )
 
@@ -629,13 +661,19 @@ class TestRecurringEvents(OutlookCalendarTestBase):
         result = OutlookCalendarMixin.create_recurring_event(
             FakeClient(timezone="America/Toronto"),
             RecurringEventCreationParams(
-                subject="Daily Standup", start_time="09:00:00", end_time="09:15:00",
-                repeat="daily", range_start_date="2025-01-15", range_until="2025-03-15",
+                subject="Daily Standup",
+                start_time="09:00:00",
+                end_time="09:15:00",
+                repeat="daily",
+                range_start_date="2025-01-15",
+                range_until="2025-03-15",
             ),
         )
 
         self.assertEqual(result["id"], "series-1")
-        self.assertEqual(mock_requests.post.call_args.kwargs["json"]["recurrence"]["pattern"]["type"], "daily")
+        self.assertEqual(
+            mock_requests.post.call_args.kwargs["json"]["recurrence"]["pattern"]["type"], "daily"
+        )
 
     @patch("core.outlook.calendar._requests")
     def test_create_recurring_event_weekly(self, mock_requests_fn):
@@ -645,8 +683,13 @@ class TestRecurringEvents(OutlookCalendarTestBase):
         OutlookCalendarMixin.create_recurring_event(
             FakeClient(timezone="America/Toronto"),
             RecurringEventCreationParams(
-                subject="Weekly Review", start_time="14:00:00", end_time="15:00:00",
-                repeat="weekly", byday=["MO", "WE", "FR"], range_start_date="2025-01-15", count=10,
+                subject="Weekly Review",
+                start_time="14:00:00",
+                end_time="15:00:00",
+                repeat="weekly",
+                byday=["MO", "WE", "FR"],
+                range_start_date="2025-01-15",
+                count=10,
             ),
         )
 
@@ -662,14 +705,17 @@ class TestRecurringEvents(OutlookCalendarTestBase):
         OutlookCalendarMixin.create_recurring_event(
             FakeClient(timezone="America/Toronto"),
             RecurringEventCreationParams(
-                subject="Monthly Review", start_time="10:00:00", end_time="11:00:00",
-                repeat="monthly", range_start_date="2025-01-15",
+                subject="Monthly Review",
+                start_time="10:00:00",
+                end_time="11:00:00",
+                repeat="monthly",
+                range_start_date="2025-01-15",
             ),
         )
 
         self.assertEqual(
             mock_requests.post.call_args.kwargs["json"]["recurrence"]["pattern"]["type"],
-            "absoluteMonthly"
+            "absoluteMonthly",
         )
 
     def test_create_recurring_event_invalid_repeat(self):
@@ -677,8 +723,11 @@ class TestRecurringEvents(OutlookCalendarTestBase):
             OutlookCalendarMixin.create_recurring_event(
                 FakeClient(timezone="America/Toronto"),
                 RecurringEventCreationParams(
-                    subject="Invalid", start_time="10:00:00", end_time="11:00:00",
-                    repeat="yearly", range_start_date="2025-01-15",
+                    subject="Invalid",
+                    start_time="10:00:00",
+                    end_time="11:00:00",
+                    repeat="yearly",
+                    range_start_date="2025-01-15",
                 ),
             )
         self.assertIn("Unsupported repeat", str(ctx.exception))
@@ -693,7 +742,8 @@ class TestEventUpdates(OutlookCalendarTestBase):
         mock_requests.patch.return_value = make_mock_response({"id": "e1"}, text='{"id": "e1"}')
 
         OutlookCalendarMixin.update_event_location(
-            FakeClient(), UpdateEventLocationRequest(event_id="event-1", location_str="New Location")
+            FakeClient(),
+            UpdateEventLocationRequest(event_id="event-1", location_str="New Location"),
         )
 
         mock_requests.patch.assert_called_once()
@@ -710,7 +760,11 @@ class TestEventUpdates(OutlookCalendarTestBase):
         mock_requests.patch.return_value = make_mock_response({"id": "e1"}, text='{"id": "e1"}')
 
         from core.outlook.models import UpdateEventReminderRequest
-        OutlookCalendarMixin.update_event_reminder(FakeClient(), UpdateEventReminderRequest(event_id="event-1", is_on=True, minutes_before_start=15))
+
+        OutlookCalendarMixin.update_event_reminder(
+            FakeClient(),
+            UpdateEventReminderRequest(event_id="event-1", is_on=True, minutes_before_start=15),
+        )
 
         payload = mock_requests.patch.call_args.kwargs["json"]
         self.assertTrue(payload["isReminderOn"])
@@ -726,9 +780,13 @@ class TestEventUpdates(OutlookCalendarTestBase):
         mock_requests.patch.return_value = error_response
 
         from core.outlook.models import UpdateEventReminderRequest
+
         with self.assertRaises(requests.exceptions.HTTPError):
             OutlookCalendarMixin.update_event_reminder(
-                FakeClient(), UpdateEventReminderRequest(event_id="missing-event", is_on=True, minutes_before_start=15)
+                FakeClient(),
+                UpdateEventReminderRequest(
+                    event_id="missing-event", is_on=True, minutes_before_start=15
+                ),
             )
 
     @patch("core.outlook.calendar._requests")
@@ -737,8 +795,15 @@ class TestEventUpdates(OutlookCalendarTestBase):
         mock_requests.patch.return_value = make_mock_response({"id": "e1"}, text='{"id": "e1"}')
 
         from core.outlook.models import EventSettingsPatch
+
         OutlookCalendarMixin.update_event_settings(
-            FakeClient(), EventSettingsPatch(event_id="event-1", categories=["Work", "Important"], show_as="busy", sensitivity="private"),
+            FakeClient(),
+            EventSettingsPatch(
+                event_id="event-1",
+                categories=["Work", "Important"],
+                show_as="busy",
+                sensitivity="private",
+            ),
         )
 
         payload = mock_requests.patch.call_args.kwargs["json"]
@@ -751,7 +816,10 @@ class TestEventUpdates(OutlookCalendarTestBase):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
 
         from core.outlook.models import EventSettingsPatch
-        result = OutlookCalendarMixin.update_event_settings(FakeClient(), EventSettingsPatch(event_id="event-1"))
+
+        result = OutlookCalendarMixin.update_event_settings(
+            FakeClient(), EventSettingsPatch(event_id="event-1")
+        )
 
         self.assertEqual(result, {})
         mock_requests.patch.assert_not_called()
@@ -839,8 +907,10 @@ class TestListEvents(OutlookCalendarTestBase):
         mock_requests.get.return_value = make_mock_response({"value": EVENTS_LIST[:2]})
 
         from core.outlook.models import ListEventsRequest
+
         result = OutlookCalendarMixin.list_events_in_range(
-            FakeClient(), ListEventsRequest(start_iso="2025-01-01T00:00:00", end_iso="2025-01-31T23:59:59"),
+            FakeClient(),
+            ListEventsRequest(start_iso="2025-01-01T00:00:00", end_iso="2025-01-31T23:59:59"),
         )
 
         self.assertEqual(len(result), 2)
@@ -851,8 +921,14 @@ class TestListEvents(OutlookCalendarTestBase):
         mock_requests.get.return_value = make_mock_response({"value": EVENTS_LIST})
 
         from core.outlook.models import ListEventsRequest
+
         result = OutlookCalendarMixin.list_events_in_range(
-            FakeClient(), ListEventsRequest(start_iso="2025-01-01T00:00:00", end_iso="2025-01-31T23:59:59", subject_filter="Team"),
+            FakeClient(),
+            ListEventsRequest(
+                start_iso="2025-01-01T00:00:00",
+                end_iso="2025-01-31T23:59:59",
+                subject_filter="Team",
+            ),
         )
 
         self.assertEqual(len(result), 2)
@@ -871,9 +947,11 @@ class TestListEvents(OutlookCalendarTestBase):
         mock_requests.get.return_value = error_response
 
         from core.outlook.models import ListEventsRequest
+
         with self.assertRaises(requests.exceptions.HTTPError):
             OutlookCalendarMixin.list_events_in_range(
-                FakeClient(), ListEventsRequest(start_iso="2025-01-01T00:00:00", end_iso="2025-01-31T23:59:59"),
+                FakeClient(),
+                ListEventsRequest(start_iso="2025-01-01T00:00:00", end_iso="2025-01-31T23:59:59"),
             )
 
     @patch("core.outlook.calendar._requests")
@@ -882,8 +960,10 @@ class TestListEvents(OutlookCalendarTestBase):
         mock_requests.get.return_value = make_mock_response({"value": [{"id": "e1"}, {"id": "e2"}]})
 
         from core.outlook.models import ListCalendarViewRequest
+
         result = OutlookCalendarMixin.list_calendar_view(
-            FakeClient(), ListCalendarViewRequest(start_iso="2025-01-01T00:00:00", end_iso="2025-01-31T23:59:59"),
+            FakeClient(),
+            ListCalendarViewRequest(start_iso="2025-01-01T00:00:00", end_iso="2025-01-31T23:59:59"),
         )
 
         self.assertEqual(len(result), 2)
@@ -894,8 +974,14 @@ class TestListEvents(OutlookCalendarTestBase):
         mock_requests.get.return_value = make_mock_response({"value": []})
 
         from core.outlook.models import ListCalendarViewRequest
+
         OutlookCalendarMixin.list_calendar_view(
-            FakeClient(), ListCalendarViewRequest(calendar_id="cal-123", start_iso="2025-01-01T00:00:00", end_iso="2025-01-31T23:59:59"),
+            FakeClient(),
+            ListCalendarViewRequest(
+                calendar_id="cal-123",
+                start_iso="2025-01-01T00:00:00",
+                end_iso="2025-01-31T23:59:59",
+            ),
         )
 
         self.assertIn("cal-123", mock_requests.get.call_args[0][0])
@@ -910,9 +996,13 @@ class TestListEvents(OutlookCalendarTestBase):
         mock_requests.get.return_value = error_response
 
         from core.outlook.models import ListCalendarViewRequest
+
         with self.assertRaises(requests.exceptions.HTTPError):
             OutlookCalendarMixin.list_calendar_view(
-                FakeClient(), ListCalendarViewRequest(start_iso="2025-01-01T00:00:00", end_iso="2025-01-31T23:59:59"),
+                FakeClient(),
+                ListCalendarViewRequest(
+                    start_iso="2025-01-01T00:00:00", end_iso="2025-01-31T23:59:59"
+                ),
             )
 
 

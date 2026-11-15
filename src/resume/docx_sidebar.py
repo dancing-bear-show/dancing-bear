@@ -6,6 +6,7 @@ This module is a re-export shim. Implementation lives in:
   - docx_sidebar_cells: cell-level formatting primitives
   - docx_sidebar_sections: section-level rendering and SidebarResumeWriter
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -16,7 +17,6 @@ from .docx_sidebar_cells import (  # noqa: F401
     _render_sidebar_section,
     _set_cell_shading,
 )
-from .schema import Resume
 from .docx_sidebar_sections import (  # noqa: F401
     SidebarResumeWriter,
     _render_exp_entry,
@@ -26,6 +26,7 @@ from .docx_sidebar_sections import (  # noqa: F401
     _render_main_teaching,
     _render_pres_entry,
 )
+from .schema import Resume
 
 
 # Backward-compatible function defined here so that

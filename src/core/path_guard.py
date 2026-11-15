@@ -26,6 +26,7 @@ Usage::
 
     check_path_safe("/repo/root", "src/mail/cli.py")  # returns None; raises on refusal
 """
+
 from __future__ import annotations
 
 import os
@@ -68,9 +69,7 @@ def check_path_safe(repo_root: str, candidate: str) -> None:
 
     in_repo = real_target == real_repo or real_target.startswith(real_repo + os.sep)
     if not in_repo:
-        raise PathGuardError(
-            f"path escapes repo root after symlink resolution: {candidate}"
-        )
+        raise PathGuardError(f"path escapes repo root after symlink resolution: {candidate}")
 
     in_git = real_target == git_dir or real_target.startswith(git_dir + os.sep)
     if in_git:

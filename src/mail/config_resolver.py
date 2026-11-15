@@ -5,8 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import overload
 
-from core.constants import credential_ini_paths, read_credential_ini_merged, _config_roots
-
+from core.constants import _config_roots, credential_ini_paths, read_credential_ini_merged
 
 # Use shared credential paths from core.constants
 _INI_PATHS = credential_ini_paths()
@@ -153,7 +152,9 @@ def resolve_paths_profile(
     return resolve_paths(arg_credentials=arg_credentials, arg_token=arg_token)
 
 
-def persist_if_provided(*, arg_credentials: str | None, arg_token: str | None, profile: str | None = None) -> None:
+def persist_if_provided(
+    *, arg_credentials: str | None, arg_token: str | None, profile: str | None = None
+) -> None:
     # Persist only when caller explicitly provided values (so we don't overwrite
     # ini with defaults).
     if arg_credentials or arg_token:

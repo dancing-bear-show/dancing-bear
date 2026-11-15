@@ -179,9 +179,7 @@ class TestCmdProfileBuildLayoutPath(unittest.TestCase):
     @patch("phone.cli.cmd_profile.build_mobileconfig", return_value={"payload": "data"})
     @patch("phone.cli.cmd_profile._build_all_apps_folder_config", return_value=None)
     @patch("phone.cli.cmd_profile.read_yaml")
-    def test_no_signing_when_sign_p12_not_set(
-        self, mock_read, mock_folder, mock_build, mock_write
-    ):
+    def test_no_signing_when_sign_p12_not_set(self, mock_read, mock_folder, mock_build, mock_write):
         """Happy path: no signing occurs when sign_p12 is None (branch 279 not taken)."""
         from phone.cli.cmd_profile import cmd_profile_build
 
@@ -256,9 +254,7 @@ class TestCmdProfileBuildSigning(unittest.TestCase):
     @patch("phone.cli.cmd_profile.build_mobileconfig", return_value={"payload": "data"})
     @patch("phone.cli.cmd_profile._build_all_apps_folder_config", return_value=None)
     @patch("phone.cli.cmd_profile.read_yaml")
-    def test_signing_failure_raises_cli_error(
-        self, mock_read, mock_folder, mock_build, mock_write
-    ):
+    def test_signing_failure_raises_cli_error(self, mock_read, mock_folder, mock_build, mock_write):
         """Lines 285-286: CLIError raised on CalledProcessError during signing."""
         from core.cli_errors import CLIError
         from phone.cli.cmd_profile import cmd_profile_build

@@ -15,7 +15,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from telemetry.timeutil import parse_iso_utc
 from telemetry.models import AgentTokenRow
 from telemetry.pricing import TokenMetrics, compute_cost
 from telemetry.providers.transcript_parse import (
@@ -25,6 +24,7 @@ from telemetry.providers.transcript_parse import (
     is_billable_usage,
     message_key,
 )
+from telemetry.timeutil import parse_iso_utc
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +72,7 @@ def build_agent_row(
     Single pass: collect per-model token totals, then compute cost once per model.
     """
     per_model: dict[str, list[int]] = {}  # model -> [in, out, cr, cw, cw_1h]
-    for (n, m) in accs.input:
+    for n, m in accs.input:
         if n != agent_name:
             continue
         if m not in per_model:

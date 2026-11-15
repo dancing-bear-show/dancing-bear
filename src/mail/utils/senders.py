@@ -30,11 +30,7 @@ def matches_protected_pattern(email: str, domain: str, pattern: str) -> bool:
 def is_protected_email(email: str, protected_patterns: list[str]) -> bool:
     """Return True if an already-extracted address matches any protected pattern."""
     domain = extract_domain(email)
-    return any(
-        matches_protected_pattern(email, domain, p)
-        for p in protected_patterns
-        if p
-    )
+    return any(matches_protected_pattern(email, domain, p) for p in protected_patterns if p)
 
 
 def is_protected_sender(from_val: str, protected_patterns: list[str]) -> bool:

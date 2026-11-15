@@ -21,6 +21,7 @@ class TestHeadersToDict(unittest.TestCase):
 
     def _call(self, msg):
         from mail.gmail_api import GmailClient
+
         return GmailClient.headers_to_dict(msg)
 
     def test_empty_message(self):
@@ -57,10 +58,14 @@ class TestHeadersToDict(unittest.TestCase):
 
     def test_duplicate_header_last_wins(self):
         """Documents a real lossy behaviour: repeated headers collapse."""
-        msg = {"payload": {"headers": [
-            {"name": "To", "value": "first@example.com"},
-            {"name": "To", "value": "second@example.com"},
-        ]}}
+        msg = {
+            "payload": {
+                "headers": [
+                    {"name": "To", "value": "first@example.com"},
+                    {"name": "To", "value": "second@example.com"},
+                ]
+            }
+        }
         self.assertEqual(self._call(msg), {"to": "second@example.com"})
 
 
@@ -69,6 +74,7 @@ class TestDecodeMessageData(unittest.TestCase):
 
     def _call(self, data):
         from mail.gmail_api import GmailClient
+
         return GmailClient._decode_message_data(data)
 
     def test_valid_base64_round_trips(self):
@@ -78,7 +84,9 @@ class TestDecodeMessageData(unittest.TestCase):
     def test_urlsafe_alphabet_is_used(self):
         """'-' and '_' must decode; standard-alphabet decoding would differ."""
         raw = b"\xfb\xff\xfe"
-        self.assertEqual(self._call(base64.urlsafe_b64encode(raw).decode()), raw.decode("utf-8", "replace"))
+        self.assertEqual(
+            self._call(base64.urlsafe_b64encode(raw).decode()), raw.decode("utf-8", "replace")
+        )
 
     def test_invalid_base64_returns_empty(self):
         self.assertEqual(self._call("!!!notbase64!!!"), "")
@@ -100,6 +108,7 @@ class TestGraphDatetimeToIso(unittest.TestCase):
 
     def _call(self, value):
         from mail.messages_cli.pipeline import _graph_datetime_to_iso
+
         return _graph_datetime_to_iso(value)
 
     def test_z_suffix_passthrough(self):
@@ -133,6 +142,7 @@ class TestGraphDatetimeToIso(unittest.TestCase):
     def test_matches_gmail_side_format(self):
         """Both providers must agree, or mixed listings sort inconsistently."""
         from mail.messages import _internal_date_to_iso
+
         gmail = _internal_date_to_iso(1786543200000)
         graph = self._call("2026-08-12T10:00:00Z")
         self.assertRegex(gmail, r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")

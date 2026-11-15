@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from .io_utils import safe_import
 from .docx_writer import _match_section_key
+from .io_utils import safe_import
 
 
 def infer_structure_from_docx(path: str) -> dict[str, Any]:
@@ -35,4 +35,3 @@ def infer_structure_from_docx(path: str) -> dict[str, Any]:
             "education": "Education",
         }
     return {"order": order, "titles": titles}
-

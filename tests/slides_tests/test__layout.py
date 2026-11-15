@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 from pptx.enum.dml import MSO_THEME_COLOR
 
-from slides._layout import LayoutMixin, _LAYOUT_NAME_MAP
+from slides._layout import _LAYOUT_NAME_MAP, LayoutMixin
 from slides.constants import (
     DEFAULT_LAYOUT_KEY,
     DEFAULT_THEME_COLOR,
@@ -197,9 +197,7 @@ class TestPrepareLegacyMode(unittest.TestCase):
         deck.metadata.template_slide_index = 0
         theme = MSO_THEME_COLOR.LIGHT_2
 
-        result_prs, _, _, result_theme = self.mixin._prepare_legacy_mode(
-            prs, deck, theme
-        )
+        result_prs, _, _, result_theme = self.mixin._prepare_legacy_mode(prs, deck, theme)
         self.assertIs(result_prs, prs)
         self.assertEqual(result_theme, theme)
 
@@ -288,12 +286,14 @@ class TestLayoutNameMap(unittest.TestCase):
 # (partial branch 55->53)
 # ---------------------------------------------------------------------------
 
+
 class TestBuildMasterLayoutsDuplicate(unittest.TestCase):
     """Cover the branch where a semantic name is already present in master_layouts."""
 
     def test_first_occurrence_kept_when_duplicate_semantic(self):
         """When two slide layouts share the same semantic name, the first one wins."""
         from slides._layout import _build_master_layouts
+
         # Two masters each with an OBJECT layout; the second OBJECT should be ignored
         first_layout = _make_layout("OBJECT")
         second_layout = _make_layout("OBJECT")
@@ -309,6 +309,7 @@ class TestBuildMasterLayoutsDuplicate(unittest.TestCase):
     def test_duplicate_semantic_within_single_master(self):
         """Two layouts with the same pptx name in one master: first wins."""
         from slides._layout import _build_master_layouts
+
         first_layout = _make_layout("OBJECT")
         second_layout = _make_layout("OBJECT")
         master = MagicMock()
@@ -323,6 +324,7 @@ class TestBuildMasterLayoutsDuplicate(unittest.TestCase):
 # _prepare_layout_map_mode: None layout_map raises ValueError (line 174)
 # and fallback key already present skips _pick_fallback_layout (line 179)
 # ---------------------------------------------------------------------------
+
 
 class TestPrepareLayoutMapMode(unittest.TestCase):
     """Cover partial branches in _prepare_layout_map_mode."""
@@ -346,16 +348,20 @@ class TestPrepareLayoutMapMode(unittest.TestCase):
     def test_fallback_key_already_present_skips_pick(self):
         """When RESERVED_LAYOUT_KEY is already in the resolved layouts, _pick_fallback is not called (line 179->183)."""
         from slides._layout import _FALLBACK_LAYOUT_KEY
+
         prs = _make_prs(master_layout_names=["OBJECT"])
         deck = self._make_deck({LAYOUT_BULLET: 0, _FALLBACK_LAYOUT_KEY: 0})
 
         # Patch _resolve_layouts_from_master to return a dict that already has the key
         sentinel_layout = MagicMock()
         pre_built = {LAYOUT_BULLET: sentinel_layout, _FALLBACK_LAYOUT_KEY: sentinel_layout}
-        with unittest.mock.patch.object(
-            _Concrete, "_resolve_layouts_from_master", return_value=pre_built
-        ), unittest.mock.patch.object(
-            _Concrete, "_delete_all_slides"
+        with (
+            unittest.mock.patch.object(
+                _Concrete, "_resolve_layouts_from_master", return_value=pre_built
+            ),
+            unittest.mock.patch.object(_Concrete, "_delete_all_slides"),
         ):
-            _, _, layouts, _ = self.mixin._prepare_layout_map_mode(prs, deck, MSO_THEME_COLOR.LIGHT_2)
+            _, _, layouts, _ = self.mixin._prepare_layout_map_mode(
+                prs, deck, MSO_THEME_COLOR.LIGHT_2
+            )
         self.assertIs(layouts[_FALLBACK_LAYOUT_KEY], sentinel_layout)

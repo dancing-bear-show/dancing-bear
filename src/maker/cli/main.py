@@ -12,9 +12,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from core.assistant import BaseAssistant
-from ..meta import META
 from core.cli_framework import CLIApp
 
+from ..meta import META
 from ..pipeline import (
     ToolCatalogProcessor,
     ToolCatalogProducer,
@@ -22,8 +22,8 @@ from ..pipeline import (
     ToolCatalogRequestConsumer,
     ToolRequest,
     ToolRequestConsumer,
-    ToolRunnerProcessor,
     ToolResultProducer,
+    ToolRunnerProcessor,
 )
 
 assistant = BaseAssistant(META.app_id, META.agentic_fallback)

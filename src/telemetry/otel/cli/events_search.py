@@ -40,11 +40,15 @@ def main(argv: list[str] | None = None) -> int:
             "timestamp": m["timestamp"],
             "session_id": truncate_sid(m["session_id"]),
             "event_type": m["event_type"],
-            "matching_text": m["matching_text"][:60] if args.format == "table" else m["matching_text"],
+            "matching_text": m["matching_text"][:60]
+            if args.format == "table"
+            else m["matching_text"],
         }
         for m in matches
     ]
-    return emit_rows(display_rows, args.format, headers=headers, empty_msg="No matching events found.")
+    return emit_rows(
+        display_rows, args.format, headers=headers, empty_msg="No matching events found."
+    )
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -109,11 +113,7 @@ def _search_events(
 
 def _get_session_id(event: OTLPEvent) -> str:
     """Extract session ID from an event."""
-    return (
-        event.get_attr("session.id")
-        or event.get_attr("session_id")
-        or "unknown"
-    )
+    return event.get_attr("session.id") or event.get_attr("session_id") or "unknown"
 
 
 def _check_event(

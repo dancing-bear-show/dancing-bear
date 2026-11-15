@@ -34,7 +34,9 @@ def _load_data(path: str) -> dict:
     return load_json_or_exit(path) or {}
 
 
-def _do_move(src: str, dest: str, dry_run: bool = False, writer: OutputWriter | None = None) -> None:
+def _do_move(
+    src: str, dest: str, dry_run: bool = False, writer: OutputWriter | None = None
+) -> None:
     writer = writer or OutputWriter()
     dest_dir = os.path.dirname(dest)
     if dry_run:

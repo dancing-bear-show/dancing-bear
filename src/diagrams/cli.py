@@ -3,14 +3,11 @@
 from __future__ import annotations
 
 import sys
-
 from functools import lru_cache
 
 from core.assistant import BaseAssistant
 from core.cli_framework import CLIApp
 from core.cli_output import OutputWriter
-
-from .meta import META
 
 from .cli_telemetry import (  # noqa: F401
     _format_tokens,
@@ -26,6 +23,7 @@ from .cli_yaml import (  # noqa: F401
     _convert_yaml_spec,
     _load_yaml,
 )
+from .meta import META
 
 DAYS_HELP = "Lookback days (default: 7)"
 NO_SESSIONS = "No sessions found."
@@ -127,7 +125,12 @@ def cmd_telemetry(args) -> int:
 @app.command("render", help="Render .mmd to PNG/SVG/PDF via mmdc")
 @app.argument("--input", "-i", type=str, help="Input .mmd file (stdin if omitted)")
 @app.argument("--output", "-o", type=str, required=True, help="Output file (.svg, .png, or .pdf)")
-@app.argument("--format", "-f", choices=["svg", "png", "pdf"], help="Output format (inferred from path if omitted)")
+@app.argument(
+    "--format",
+    "-f",
+    choices=["svg", "png", "pdf"],
+    help="Output format (inferred from path if omitted)",
+)
 @app.argument("--timeout", type=int, default=60, help="Timeout in seconds")
 @app.argument("--theme", choices=["default", "forest", "dark", "neutral"], help="Mermaid theme")
 @app.argument("--background", "-b", type=str, help="Background color (e.g. 'white', 'transparent')")
@@ -175,6 +178,7 @@ def cmd_validate(args) -> int:
 
     with tempfile.TemporaryDirectory() as tmpdir:
         import os
+
         tmp_out = os.path.join(tmpdir, "validate_out.svg")
         request = RenderRequest(
             source=mermaid_text,
@@ -216,6 +220,7 @@ def cmd_embed(args) -> int:
         mermaid_text = content
 
     from .renderers import TextRenderer
+
     renderer = TextRenderer()
     embedded = renderer.render_embedded(mermaid_text)
 
@@ -233,6 +238,7 @@ def cmd_health(args) -> int:
     # Check builder
     try:
         from .mermaid import FlowchartBuilder
+
         diagram = FlowchartBuilder().node("A", "Start").node("B", "End").edge("A", "B").render()
         if "flowchart" not in diagram:
             raise RuntimeError("Builder produced invalid output")
@@ -245,6 +251,7 @@ def cmd_health(args) -> int:
     try:
         from .mermaid import FlowchartBuilder
         from .renderers import TextRenderer
+
         builder = FlowchartBuilder().node("A", "Test")
         text = TextRenderer().render(builder)
         if not text:
@@ -261,6 +268,7 @@ def cmd_health(args) -> int:
     # Check local renderer
     try:
         from .renderers import LocalRenderer, LocalRendererError, RenderOptions
+
         if not LocalRenderer.is_available():
             raise LocalRendererError(
                 "mmdc not installed. Run: npm install -g @mermaid-js/mermaid-cli"

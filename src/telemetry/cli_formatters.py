@@ -1,4 +1,5 @@
 """Pure formatting/parsing helpers extracted from telemetry/cli.py."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -46,6 +47,7 @@ def _parse_since_cli(since: str) -> datetime:
 
 def _fmt_duration(s: object) -> str:
     from telemetry.models import SessionSummary
+
     if not isinstance(s, SessionSummary) or s.start_time is None or s.end_time is None:
         return "—"
     secs = int((s.end_time - s.start_time).total_seconds())
@@ -54,9 +56,9 @@ def _fmt_duration(s: object) -> str:
     return f"{h}h{m:02d}m" if h else f"{m}m"
 
 
-
 def _session_to_dict(s: object) -> dict[str, object]:
     from telemetry.models import SessionSummary
+
     if not isinstance(s, SessionSummary):
         return {}
     dur = None
@@ -93,7 +95,7 @@ def _session_to_dict(s: object) -> dict[str, object]:
     }
 
 
-def _sessions_json_payload(all_sessions: list["SessionSummary"]) -> dict[str, object]:
+def _sessions_json_payload(all_sessions: list[SessionSummary]) -> dict[str, object]:
     total_cost = sum(s.total_cost for s in all_sessions)
     return {
         "session_count": len(all_sessions),
@@ -102,7 +104,7 @@ def _sessions_json_payload(all_sessions: list["SessionSummary"]) -> dict[str, ob
     }
 
 
-def _build_sessions_table(all_sessions: list["SessionSummary"], since_label: str) -> Table:
+def _build_sessions_table(all_sessions: list[SessionSummary], since_label: str) -> Table:
     table = Table(show_header=True, header_style="bold", title=f"Sessions ({since_label})")
     table.add_column("Session ID", style="cyan", no_wrap=True)
     table.add_column("Project", no_wrap=True)
@@ -134,6 +136,7 @@ def _build_sessions_table(all_sessions: list["SessionSummary"], since_label: str
 
 def _agent_row_to_dict(r: object) -> dict[str, object]:
     from telemetry.models import AgentTokenRow
+
     if not isinstance(r, AgentTokenRow):
         return {}
     return {
@@ -148,7 +151,9 @@ def _agent_row_to_dict(r: object) -> dict[str, object]:
     }
 
 
-def _print_agents_json(all_rows: list["AgentTokenRow"], rows: list["AgentTokenRow"], since: str) -> None:
+def _print_agents_json(
+    all_rows: list[AgentTokenRow], rows: list[AgentTokenRow], since: str
+) -> None:
     emit_one(
         {
             "agent_count": len(all_rows),
@@ -161,36 +166,66 @@ def _print_agents_json(all_rows: list["AgentTokenRow"], rows: list["AgentTokenRo
     )
 
 
-def _print_agents_csv(rows: list["AgentTokenRow"]) -> None:
+def _print_agents_csv(rows: list[AgentTokenRow]) -> None:
     import csv as csv_mod
     import io
 
     buf = io.StringIO()
     writer = csv_mod.writer(buf)
-    writer.writerow([
-        "agent", "calls", "input_tokens", "output_tokens",
-        "cache_read_tokens", "cache_write_tokens", "models", "est_cost",
-    ])
+    writer.writerow(
+        [
+            "agent",
+            "calls",
+            "input_tokens",
+            "output_tokens",
+            "cache_read_tokens",
+            "cache_write_tokens",
+            "models",
+            "est_cost",
+        ]
+    )
     for r in rows:
-        writer.writerow([
-            r.agent, r.calls, r.input_tokens, r.output_tokens,
-            r.cache_read_tokens, r.cache_write_tokens,
-            ";".join(r.models), round(r.est_cost, 6),
-        ])
+        writer.writerow(
+            [
+                r.agent,
+                r.calls,
+                r.input_tokens,
+                r.output_tokens,
+                r.cache_read_tokens,
+                r.cache_write_tokens,
+                ";".join(r.models),
+                round(r.est_cost, 6),
+            ]
+        )
     from rich.console import Console
+
     Console().print(buf.getvalue(), end="")
 
 
-def _build_agents_table(all_rows: list["AgentTokenRow"], rows: list["AgentTokenRow"], since: str) -> Table:
-    table = Table(show_header=True, header_style="bold", title=f"Agent usage ({since})", show_footer=True)
+def _build_agents_table(
+    all_rows: list[AgentTokenRow], rows: list[AgentTokenRow], since: str
+) -> Table:
+    table = Table(
+        show_header=True, header_style="bold", title=f"Agent usage ({since})", show_footer=True
+    )
     table.add_column("Agent", style="cyan", no_wrap=True, footer="TOTAL")
     table.add_column("Calls", justify="right", footer=str(sum(r.calls for r in all_rows)))
-    table.add_column("In", justify="right", footer=_fmt_tokens(sum(r.input_tokens for r in all_rows)))
-    table.add_column("Out", justify="right", footer=_fmt_tokens(sum(r.output_tokens for r in all_rows)))
-    table.add_column("Cache R", justify="right", footer=_fmt_tokens(sum(r.cache_read_tokens for r in all_rows)))
-    table.add_column("Cache W", justify="right", footer=_fmt_tokens(sum(r.cache_write_tokens for r in all_rows)))
+    table.add_column(
+        "In", justify="right", footer=_fmt_tokens(sum(r.input_tokens for r in all_rows))
+    )
+    table.add_column(
+        "Out", justify="right", footer=_fmt_tokens(sum(r.output_tokens for r in all_rows))
+    )
+    table.add_column(
+        "Cache R", justify="right", footer=_fmt_tokens(sum(r.cache_read_tokens for r in all_rows))
+    )
+    table.add_column(
+        "Cache W", justify="right", footer=_fmt_tokens(sum(r.cache_write_tokens for r in all_rows))
+    )
     table.add_column("Models")
-    table.add_column(_COL_EST_COST, justify="right", footer=f"${sum(r.est_cost for r in all_rows):.4f}")
+    table.add_column(
+        _COL_EST_COST, justify="right", footer=f"${sum(r.est_cost for r in all_rows):.4f}"
+    )
     for r in rows:
         table.add_row(
             r.agent,
@@ -205,7 +240,7 @@ def _build_agents_table(all_rows: list["AgentTokenRow"], rows: list["AgentTokenR
     return table
 
 
-def _breakdown_by_agent(all_rows: list["AgentTokenRow"]) -> list[dict[str, object]]:
+def _breakdown_by_agent(all_rows: list[AgentTokenRow]) -> list[dict[str, object]]:
     rows = [
         {
             "agent": r.agent,
@@ -218,7 +253,7 @@ def _breakdown_by_agent(all_rows: list["AgentTokenRow"]) -> list[dict[str, objec
     return rows
 
 
-def _breakdown_by_day(sessions: list["SessionSummary"]) -> list[dict[str, object]]:
+def _breakdown_by_day(sessions: list[SessionSummary]) -> list[dict[str, object]]:
     import sys as _sys
     from collections import defaultdict
 
@@ -233,8 +268,7 @@ def _breakdown_by_day(sessions: list["SessionSummary"]) -> list[dict[str, object
         buckets[day_key] += session.total_cost
 
     rows: list[dict[str, object]] = [
-        {"day": day, "est_cost": round(cost, 6)}
-        for day, cost in buckets.items()
+        {"day": day, "est_cost": round(cost, 6)} for day, cost in buckets.items()
     ]
     rows.sort(key=lambda d: str(d["day"]), reverse=True)
     return rows
@@ -251,9 +285,7 @@ def _print_cost_csv(rows: list[dict[str, object]], _group_by: str) -> None:
     writer.writerows(rows)
 
 
-def _build_breakdown_table(
-    rows: list[dict[str, object]], group_by: str, since: str
-) -> Table:
+def _build_breakdown_table(rows: list[dict[str, object]], group_by: str, since: str) -> Table:
     title = f"Cost breakdown by {group_by} ({since})"
     table = Table(show_header=True, header_style="bold", title=title, show_footer=True)
 
@@ -261,7 +293,9 @@ def _build_breakdown_table(
 
     if group_by == "agent":
         table.add_column("Agent", style="cyan", no_wrap=True, footer="TOTAL")
-        table.add_column("Calls", justify="right", footer=str(sum(_safe_int(r["calls"], 0) for r in rows)))
+        table.add_column(
+            "Calls", justify="right", footer=str(sum(_safe_int(r["calls"], 0) for r in rows))
+        )
         table.add_column(_COL_EST_COST, justify="right", footer=f"${total_cost:.4f}")
         for r in rows:
             table.add_row(

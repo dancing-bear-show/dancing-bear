@@ -1,12 +1,14 @@
 """Wifi diagnostic probe execution: data classes and probe runners."""
+
 from __future__ import annotations
 
 import re
 import socket
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 from core.collections import dedupe
 
@@ -91,7 +93,7 @@ def _build_ping_targets(gateway: str | None, targets: list[str]) -> list[tuple[s
     return result
 
 
-def _select_trace_target(config: "DiagnoseConfig", ping_targets: list[tuple[str, str]]) -> str:
+def _select_trace_target(config: DiagnoseConfig, ping_targets: list[tuple[str, str]]) -> str:
     """Select target for traceroute."""
     if config.trace_target:
         return config.trace_target
@@ -103,11 +105,11 @@ def _select_trace_target(config: "DiagnoseConfig", ping_targets: list[tuple[str,
 
 
 def run_diagnosis(
-    config: "DiagnoseConfig",
+    config: DiagnoseConfig,
     runner: CommandRunner | None = None,
     resolver: Callable[[str], DnsResult] | None = None,
     http_probe_fn: Callable[[str], HttpResult] | None = None,
-) -> "Report":
+) -> Report:
     from .diagnostics_report import (  # noqa: PLC0415 - local import to avoid circular dependency
         DiagnoseResults,
         Report,
@@ -129,12 +131,20 @@ def run_diagnosis(
     if config.run_survey:
         survey_count = max(1, config.survey_count)
         survey_results = [
-            ping_target(f"survey-{label}", target, count=survey_count, runner=runner, timeout=min(config.ping_timeout, 6))
+            ping_target(
+                f"survey-{label}",
+                target,
+                count=survey_count,
+                runner=runner,
+                timeout=min(config.ping_timeout, 6),
+            )
             for label, target in ping_targets
         ]
 
     ping_results = [
-        ping_target(label, target, count=config.ping_count, runner=runner, timeout=config.ping_timeout)
+        ping_target(
+            label, target, count=config.ping_count, runner=runner, timeout=config.ping_timeout
+        )
         for label, target in ping_targets
     ]
 
@@ -151,14 +161,16 @@ def run_diagnosis(
 
     icmp_filtered = _detect_icmp_filtered(survey_results, trace_result)
 
-    findings = derive_findings(DiagnoseResults(
-        gateway=gateway,
-        ping_results=ping_results,
-        icmp_filtered=icmp_filtered,
-        dns=dns_result,
-        trace=trace_result,
-        http=http_result,
-    ))
+    findings = derive_findings(
+        DiagnoseResults(
+            gateway=gateway,
+            ping_results=ping_results,
+            icmp_filtered=icmp_filtered,
+            dns=dns_result,
+            trace=trace_result,
+            http=http_result,
+        )
+    )
 
     condition = compute_condition(
         ping_results=ping_results,
@@ -237,7 +249,16 @@ def _parse_airport(text: str) -> WifiInfo:
     noise = _safe_int(data.get("agrCtlNoise"))
     tx_rate = _safe_float(data.get("lastTxRate"))
     channel = data.get("channel")
-    return WifiInfo(ssid=ssid, bssid=bssid, rssi=rssi, noise=noise, tx_rate=tx_rate, channel=channel, source="airport", raw=text.strip())
+    return WifiInfo(
+        ssid=ssid,
+        bssid=bssid,
+        rssi=rssi,
+        noise=noise,
+        tx_rate=tx_rate,
+        channel=channel,
+        source="airport",
+        raw=text.strip(),
+    )
 
 
 def _parse_nmcli(text: str) -> WifiInfo | None:
@@ -274,18 +295,35 @@ def _parse_iwconfig(text: str) -> WifiInfo | None:
     level = _safe_int(level_str)
     rssi = -abs(level) if level is not None else None
     if ssid or bssid or rssi:
-        return WifiInfo(ssid=ssid, bssid=bssid, rssi=rssi, noise=None, tx_rate=None, channel=None, source="iwconfig", raw=text.strip())
+        return WifiInfo(
+            ssid=ssid,
+            bssid=bssid,
+            rssi=rssi,
+            noise=None,
+            tx_rate=None,
+            channel=None,
+            source="iwconfig",
+            raw=text.strip(),
+        )
     return None
 
 
 _WIFI_INFO_SOURCES: tuple[tuple[list[str], Callable[[str], WifiInfo | None]], ...] = (
-    (["/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport", "-I"], _parse_airport),
+    (
+        [
+            "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport",
+            "-I",
+        ],
+        _parse_airport,
+    ),
     (["nmcli", "-t", "-f", "ACTIVE,SSID,BSSID,SIGNAL,RATE", "dev", "wifi"], _parse_nmcli),
     (["iwconfig"], _parse_iwconfig),
 )
 
 
-def ping_target(label: str, target: str, *, count: int, runner: CommandRunner, timeout: float) -> PingResult:
+def ping_target(
+    label: str, target: str, *, count: int, runner: CommandRunner, timeout: float
+) -> PingResult:
     cmd = ["ping", "-c", str(count), target]
     res = runner.run(cmd, timeout=timeout)
     transmitted, received, loss_pct, min_ms, avg_ms, max_ms = _parse_ping(res.stdout)
@@ -306,7 +344,9 @@ def ping_target(label: str, target: str, *, count: int, runner: CommandRunner, t
     )
 
 
-def _parse_ping(text: str) -> tuple[int, int, float | None, float | None, float | None, float | None]:
+def _parse_ping(
+    text: str,
+) -> tuple[int, int, float | None, float | None, float | None, float | None]:
     if isinstance(text, (bytes, bytearray)):
         text = text.decode(errors="ignore")
     transmitted = received = 0
@@ -314,7 +354,10 @@ def _parse_ping(text: str) -> tuple[int, int, float | None, float | None, float 
     min_ms = avg_ms = max_ms = None
     for line in text.splitlines():
         if "packets transmitted" in line and "packet loss" in line:
-            m = re.search(r"(\d+) packets transmitted, (\d+) (?:packets )?received, ([0-9.]+)% packet loss", line)
+            m = re.search(
+                r"(\d+) packets transmitted, (\d+) (?:packets )?received, ([0-9.]+)% packet loss",
+                line,
+            )
             if m:
                 transmitted = int(m.group(1))
                 received = int(m.group(2))
@@ -332,16 +375,20 @@ def dns_lookup(host: str) -> DnsResult:
     start = time.perf_counter()
     try:
         infos = socket.getaddrinfo(host, None)
-        addresses = dedupe([
-            str(sockaddr[0])
-            for family, _type, _proto, _canon, sockaddr in infos
-            if family in (socket.AF_INET, socket.AF_INET6)
-        ])
+        addresses = dedupe(
+            [
+                str(sockaddr[0])
+                for family, _type, _proto, _canon, sockaddr in infos
+                if family in (socket.AF_INET, socket.AF_INET6)
+            ]
+        )
         elapsed_ms = (time.perf_counter() - start) * 1000
         return DnsResult(host=host, success=True, addresses=addresses, elapsed_ms=elapsed_ms)
     except Exception as exc:  # pragma: no cover - exercised indirectly
         elapsed_ms = (time.perf_counter() - start) * 1000
-        return DnsResult(host=host, success=False, addresses=[], elapsed_ms=elapsed_ms, error=str(exc))
+        return DnsResult(
+            host=host, success=False, addresses=[], elapsed_ms=elapsed_ms, error=str(exc)
+        )
 
 
 def trace_route(target: str, *, runner: CommandRunner, max_hops: int = 12) -> TraceResult:
@@ -361,17 +408,28 @@ def http_probe(url: str) -> HttpResult:
 
     start = time.perf_counter()
     try:
-        resp = HttpClient("", timeout=5.0, retries=1).get(
-            url, body=HttpRequestBody(stream=True)
-        )
+        resp = HttpClient("", timeout=5.0, retries=1).get(url, body=HttpRequestBody(stream=True))
         elapsed_ms = (time.perf_counter() - start) * 1000
         chunk = next(resp.iter_content(chunk_size=2048), b"")
         bytes_read = len(chunk)
         resp.close()
-        return HttpResult(url=url, success=True, status=resp.status_code, elapsed_ms=elapsed_ms, bytes_read=bytes_read)
+        return HttpResult(
+            url=url,
+            success=True,
+            status=resp.status_code,
+            elapsed_ms=elapsed_ms,
+            bytes_read=bytes_read,
+        )
     except Exception as exc:  # pragma: no cover - error path exercised indirectly
         elapsed_ms = (time.perf_counter() - start) * 1000
-        return HttpResult(url=url, success=False, status=None, elapsed_ms=elapsed_ms, bytes_read=None, error=str(exc))
+        return HttpResult(
+            url=url,
+            success=False,
+            status=None,
+            elapsed_ms=elapsed_ms,
+            bytes_read=None,
+            error=str(exc),
+        )
 
 
 def _safe_int(val: str | None) -> int | None:

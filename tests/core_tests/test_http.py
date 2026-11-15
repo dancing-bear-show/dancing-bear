@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import types
 import unittest
+from datetime import UTC
 from unittest.mock import MagicMock, patch
 
 
@@ -72,6 +73,7 @@ class TestHttpClientGet(unittest.TestCase):
         session = requests.Session()
         with patch.dict("sys.modules", {"requests": requests}, clear=False):
             import core.http as http_mod
+
             client = http_mod.HttpClient("https://example.com", session=session)
             resp = client.get("/path")
         self.assertEqual(resp.status_code, 200)
@@ -85,6 +87,7 @@ class TestHttpClientRetry(unittest.TestCase):
 
     def _run_with_responses(self, statuses: list[int]) -> tuple:
         import importlib
+
         requests = _make_requests_stub([])
         resps = [requests._Resp(s, b"body") for s in statuses]
         requests2 = _make_requests_stub(resps)
@@ -92,8 +95,11 @@ class TestHttpClientRetry(unittest.TestCase):
         with patch("time.sleep"):
             with patch.dict("sys.modules", {"requests": requests2}, clear=False):
                 import core.http as http_mod
+
                 importlib.reload(http_mod)
-                client = http_mod.HttpClient("https://example.com", retries=len(statuses), session=session)
+                client = http_mod.HttpClient(
+                    "https://example.com", retries=len(statuses), session=session
+                )
                 resp = client.get("/retry")
         return resp, session
 
@@ -118,12 +124,14 @@ class TestHttpClientRetryClamp(unittest.TestCase):
 
     def test_zero_retries_makes_one_attempt(self):
         import importlib
+
         requests = _make_requests_stub([])
         resp_obj = requests._Resp(200, b"ok")
         requests2 = _make_requests_stub([resp_obj])
         session = requests2.Session()
         with patch.dict("sys.modules", {"requests": requests2}, clear=False):
             import core.http as http_mod
+
             importlib.reload(http_mod)
             # retries=0 → clamped to 1
             client = http_mod.HttpClient("https://example.com", retries=0, session=session)
@@ -138,9 +146,11 @@ class TestParseRetryAfter(unittest.TestCase):
 
     def _client(self):
         import importlib
+
         requests = _make_requests_stub([])
         with patch.dict("sys.modules", {"requests": requests}, clear=False):
             import core.http as http_mod
+
             importlib.reload(http_mod)
             return http_mod.HttpClient("https://example.com")
 
@@ -155,8 +165,9 @@ class TestParseRetryAfter(unittest.TestCase):
         self.assertEqual(client._parse_retry_after(resp), 42)
 
     def test_http_date_string(self):
-        from datetime import datetime, timedelta, timezone
-        future = datetime.now(timezone.utc) + timedelta(seconds=30)
+        from datetime import datetime, timedelta
+
+        future = datetime.now(UTC) + timedelta(seconds=30)
         # Format as RFC 1123 HTTP-date
         http_date = future.strftime("%a, %d %b %Y %H:%M:%S GMT")
         client = self._client()
@@ -184,7 +195,9 @@ class TestUrlMaskingInLog(unittest.TestCase):
     def test_runtime_error_message_uses_mask_url(self):
         """Verify the RuntimeError format string passes the URL through mask_url."""
         import importlib
+
         import core.http as http_mod
+
         importlib.reload(http_mod)
         # Patch mask_url and directly inspect how request() formats the error.
         # We call request() on a client whose _attempt_request always returns None,
@@ -203,12 +216,14 @@ class TestUrlMaskingInLog(unittest.TestCase):
 
     def test_mask_url_called_in_debug_log(self):
         import importlib
+
         requests = _make_requests_stub([])
         resp_obj = requests._Resp(200, b"ok")
         requests2 = _make_requests_stub([resp_obj])
         session = requests2.Session()
         with patch.dict("sys.modules", {"requests": requests2}, clear=False):
             import core.http as http_mod
+
             importlib.reload(http_mod)
             client = http_mod.HttpClient("https://example.com", session=session)
             with patch.object(client.logger, "isEnabledFor", return_value=True):
@@ -222,9 +237,11 @@ class TestParseEnvFunctions(unittest.TestCase):
 
     def _reload_http(self):
         import importlib
+
         requests = _make_requests_stub([])
         with patch.dict("sys.modules", {"requests": requests}, clear=False):
             import core.http as http_mod
+
             importlib.reload(http_mod)
             return http_mod
 
@@ -258,9 +275,11 @@ class TestBuildUrlAbsolute(unittest.TestCase):
 
     def _client(self):
         import importlib
+
         requests = _make_requests_stub([])
         with patch.dict("sys.modules", {"requests": requests}, clear=False):
             import core.http as http_mod
+
             importlib.reload(http_mod)
             return http_mod.HttpClient("https://base.example.com")
 
@@ -294,14 +313,16 @@ class TestDebugLogging(unittest.TestCase):
     """_log_request and _log_response fire when DEBUG logging is enabled."""
 
     def test_log_request_fires_on_debug(self):
-        import logging
         import importlib
+        import logging
+
         requests = _make_requests_stub([])
         resp_obj = requests._Resp(200, b"ok")
         requests2 = _make_requests_stub([resp_obj])
         session = requests2.Session()
         with patch.dict("sys.modules", {"requests": requests2}, clear=False):
             import core.http as http_mod
+
             importlib.reload(http_mod)
             client = http_mod.HttpClient("https://example.com", session=session)
             client.logger.setLevel(logging.DEBUG)
@@ -310,14 +331,16 @@ class TestDebugLogging(unittest.TestCase):
         self.assertTrue(mock_debug.called)
 
     def test_log_response_fires_on_debug(self):
-        import logging
         import importlib
+        import logging
+
         requests = _make_requests_stub([])
         resp_obj = requests._Resp(200, b"response-body")
         requests2 = _make_requests_stub([resp_obj])
         session = requests2.Session()
         with patch.dict("sys.modules", {"requests": requests2}, clear=False):
             import core.http as http_mod
+
             importlib.reload(http_mod)
             client = http_mod.HttpClient("https://example.com", session=session)
             client.logger.setLevel(logging.DEBUG)
@@ -332,9 +355,11 @@ class TestLogTransient(unittest.TestCase):
 
     def _client(self):
         import importlib
+
         requests = _make_requests_stub([])
         with patch.dict("sys.modules", {"requests": requests}, clear=False):
             import core.http as http_mod
+
             importlib.reload(http_mod)
             return http_mod.HttpClient("https://example.com")
 
@@ -356,6 +381,7 @@ class TestLogTransient(unittest.TestCase):
 
     def test_non_429_transient_with_debug_enabled_logs_debug(self):
         import logging
+
         client = self._client()
         client.logger.setLevel(logging.DEBUG)
         with patch.object(client.logger, "isEnabledFor", return_value=True):
@@ -369,9 +395,11 @@ class TestHandleConnectionError(unittest.TestCase):
 
     def _client(self, retries=3):
         import importlib
+
         requests = _make_requests_stub([])
         with patch.dict("sys.modules", {"requests": requests}, clear=False):
             import core.http as http_mod
+
             importlib.reload(http_mod)
             return http_mod.HttpClient("https://example.com", retries=retries)
 
@@ -393,6 +421,7 @@ class TestHandleConnectionError(unittest.TestCase):
 
     def test_debug_log_fires_when_enabled(self):
         import logging
+
         client = self._client(retries=3)
         client.logger.setLevel(logging.DEBUG)
         exc = Exception("connection refused")
@@ -408,9 +437,11 @@ class TestHandleTimeoutError(unittest.TestCase):
 
     def _client(self, retries=3):
         import importlib
+
         requests = _make_requests_stub([])
         with patch.dict("sys.modules", {"requests": requests}, clear=False):
             import core.http as http_mod
+
             importlib.reload(http_mod)
             return http_mod.HttpClient("https://example.com", retries=retries)
 
@@ -430,6 +461,7 @@ class TestHandleTimeoutError(unittest.TestCase):
 
     def test_debug_log_fires_when_enabled(self):
         import logging
+
         client = self._client(retries=3)
         client.logger.setLevel(logging.DEBUG)
         with patch("time.sleep"):
@@ -446,7 +478,7 @@ def _make_requests_stub_with_errors(queue_factory) -> types.ModuleType:
     _attempt_request (which lazily imports the same stub) are the same class.
     """
     stub = _make_requests_stub([])  # creates exception classes
-    queue = queue_factory(stub)     # caller builds queue using stub's exceptions
+    queue = queue_factory(stub)  # caller builds queue using stub's exceptions
 
     class _SessionWithQueue:
         def __init__(self):
@@ -485,6 +517,7 @@ class TestConnectionErrorAndTimeoutInRequest(unittest.TestCase):
         with patch("time.sleep"):
             with patch.dict("sys.modules", {"requests": requests_stub}, clear=False):
                 import core.http as http_mod
+
                 importlib.reload(http_mod)
                 client = http_mod.HttpClient("https://example.com", retries=2, session=session)
                 resp = client.get("/path")
@@ -502,6 +535,7 @@ class TestConnectionErrorAndTimeoutInRequest(unittest.TestCase):
         with patch("time.sleep"):
             with patch.dict("sys.modules", {"requests": requests_stub}, clear=False):
                 import core.http as http_mod
+
                 importlib.reload(http_mod)
                 client = http_mod.HttpClient("https://example.com", retries=1, session=session)
                 with self.assertRaises(requests_stub.exceptions.ConnectionError):
@@ -518,6 +552,7 @@ class TestConnectionErrorAndTimeoutInRequest(unittest.TestCase):
         with patch("time.sleep"):
             with patch.dict("sys.modules", {"requests": requests_stub}, clear=False):
                 import core.http as http_mod
+
                 importlib.reload(http_mod)
                 client = http_mod.HttpClient("https://example.com", retries=2, session=session)
                 resp = client.get("/path")
@@ -535,6 +570,7 @@ class TestConnectionErrorAndTimeoutInRequest(unittest.TestCase):
         with patch("time.sleep"):
             with patch.dict("sys.modules", {"requests": requests_stub}, clear=False):
                 import core.http as http_mod
+
                 importlib.reload(http_mod)
                 client = http_mod.HttpClient("https://example.com", retries=1, session=session)
                 with self.assertRaises(requests_stub.exceptions.Timeout):
@@ -546,12 +582,14 @@ class TestConvenienceMethods(unittest.TestCase):
 
     def _run_method(self, method_name: str) -> tuple:
         import importlib
+
         requests = _make_requests_stub([])
         resp_obj = requests._Resp(200, b"ok")
         requests2 = _make_requests_stub([resp_obj])
         session = requests2.Session()
         with patch.dict("sys.modules", {"requests": requests2}, clear=False):
             import core.http as http_mod
+
             importlib.reload(http_mod)
             client = http_mod.HttpClient("https://example.com", session=session)
             method = getattr(client, method_name)
@@ -583,8 +621,9 @@ class TestStreamedResponse(unittest.TestCase):
     """Stream mode logs '<streamed>' instead of content length."""
 
     def test_stream_logs_streamed_not_length(self):
-        import logging
         import importlib
+        import logging
+
         requests = _make_requests_stub([])
         resp_obj = requests._Resp(200, b"chunk")
         requests2 = _make_requests_stub([resp_obj])
@@ -592,6 +631,7 @@ class TestStreamedResponse(unittest.TestCase):
         debug_calls = []
         with patch.dict("sys.modules", {"requests": requests2}, clear=False):
             import core.http as http_mod
+
             importlib.reload(http_mod)
             client = http_mod.HttpClient("https://example.com", session=session)
             client.logger.setLevel(logging.DEBUG)
@@ -618,11 +658,13 @@ class TestAdditionalBranchCoverage(unittest.TestCase):
 
     def test_log_response_debug_line_executed(self):
         """_log_response emits a debug log when the logger level is DEBUG."""
-        import logging
         import importlib
+        import logging
+
         requests = _make_requests_stub([])
         with patch.dict("sys.modules", {"requests": requests}, clear=False):
             import core.http as http_mod
+
             importlib.reload(http_mod)
             client = http_mod.HttpClient("https://example.com")
         client.logger.setLevel(logging.DEBUG)
@@ -632,11 +674,13 @@ class TestAdditionalBranchCoverage(unittest.TestCase):
 
     def test_log_transient_non_429_debug_disabled_no_debug_call(self):
         """_log_transient with non-429 status and debug disabled calls neither warning nor debug."""
-        import logging
         import importlib
+        import logging
+
         requests = _make_requests_stub([])
         with patch.dict("sys.modules", {"requests": requests}, clear=False):
             import core.http as http_mod
+
             importlib.reload(http_mod)
             client = http_mod.HttpClient("https://example.com")
         client.logger.setLevel(logging.WARNING)  # disable DEBUG
@@ -651,12 +695,14 @@ class TestAdditionalBranchCoverage(unittest.TestCase):
     def test_request_merges_extra_headers(self):
         """Extra headers passed to get() are merged into the request."""
         import importlib
+
         requests = _make_requests_stub([])
         resp_obj = requests._Resp(200, b"ok")
         requests2 = _make_requests_stub([resp_obj])
         session = requests2.Session()
         with patch.dict("sys.modules", {"requests": requests2}, clear=False):
             import core.http as http_mod
+
             importlib.reload(http_mod)
             client = http_mod.HttpClient(
                 "https://example.com",
@@ -674,9 +720,11 @@ class TestRetryAfterInSleepForRetry(unittest.TestCase):
 
     def _client(self):
         import importlib
+
         requests = _make_requests_stub([])
         with patch.dict("sys.modules", {"requests": requests}, clear=False):
             import core.http as http_mod
+
             importlib.reload(http_mod)
             return http_mod.HttpClient("https://example.com")
 

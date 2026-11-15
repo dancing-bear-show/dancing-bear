@@ -190,9 +190,7 @@ def _add_page_observations(pages_info: list[dict], observations: list[str]) -> N
         )
 
 
-def _add_folder_observations(
-    folder_details: list[dict], observations: list[str]
-) -> None:
+def _add_folder_observations(folder_details: list[dict], observations: list[str]) -> None:
     """Add folder-related observations."""
     tiny = [f for f in folder_details if f["app_count"] <= 2]
     large = [f for f in folder_details if f["app_count"] >= 10]
@@ -227,18 +225,14 @@ def _add_plan_observations(
         )
 
 
-def analyze_layout(
-    layout: NormalizedLayout, plan: dict[str, Any] | None = None
-) -> dict[str, Any]:
+def analyze_layout(layout: NormalizedLayout, plan: dict[str, Any] | None = None) -> dict[str, Any]:
     """Return summary metrics and observations about a Home Screen layout."""
     dock = list(layout.dock or [])
     pages_info, folder_details, total_root_apps = _analyze_pages(layout)
     unique_apps = list_all_apps(layout)
     counts = _count_app_occurrences(layout)
     duplicates = sorted([a for a, c in counts.items() if c > 1])
-    observations = _generate_observations(
-        dock, pages_info, folder_details, unique_apps, plan
-    )
+    observations = _generate_observations(dock, pages_info, folder_details, unique_apps, plan)
 
     return {
         "dock": dock,
@@ -278,9 +272,7 @@ def auto_folderize(
     from .classify import classify_app
 
     keep_set = set(keep or [])
-    folders: dict[str, list[str]] = {
-        k: list(v or []) for k, v in (seed_folders or {}).items()
-    }
+    folders: dict[str, list[str]] = {k: list(v or []) for k, v in (seed_folders or {}).items()}
 
     for app in list_all_apps(layout):
         if not app or app in keep_set:

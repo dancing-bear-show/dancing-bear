@@ -19,6 +19,7 @@ except Exception:  # pragma: no cover - optional dependency
 
 from core.cache import ConfigCacheMixin
 from core.text_utils import html_to_text, strip_css_boilerplate
+
 from .cache import MailCache
 
 SCOPES = [
@@ -47,7 +48,9 @@ def ensure_google_api() -> None:
 
 
 class GmailClient(ConfigCacheMixin):
-    def __init__(self, credentials_path: str, token_path: str, cache_dir: str | None = None) -> None:
+    def __init__(
+        self, credentials_path: str, token_path: str, cache_dir: str | None = None
+    ) -> None:
         ConfigCacheMixin.__init__(self, cache_dir, provider="gmail")
         self.credentials_path = os.path.expanduser(credentials_path)
         self.token_path = os.path.expanduser(token_path)
@@ -88,6 +91,7 @@ class GmailClient(ConfigCacheMixin):
         # comparing creds.scopes against SCOPES compares SCOPES with itself
         # and can never detect a missing scope.
         from core.fileutil import safe_load_json
+
         token_data = safe_load_json(self.token_path, {})
         token_scopes: set[str] = set((token_data or {}).get("scopes") or [])
         if token_scopes:
@@ -210,17 +214,25 @@ class GmailClient(ConfigCacheMixin):
     def list_signatures(self) -> list[dict[str, Any]]:
         out = []
         for sa in self.list_send_as():
-            out.append({
-                "sendAsEmail": sa.get("sendAsEmail"),
-                "isPrimary": sa.get("isPrimary", False),
-                "signature": sa.get("signature", ""),
-                "displayName": sa.get("displayName"),
-            })
+            out.append(
+                {
+                    "sendAsEmail": sa.get("sendAsEmail"),
+                    "isPrimary": sa.get("isPrimary", False),
+                    "signature": sa.get("signature", ""),
+                    "displayName": sa.get("displayName"),
+                }
+            )
         return out
 
     def update_signature(self, send_as_email: str, signature_html: str) -> dict[str, Any]:
         body = {"signature": signature_html}
-        return self.service.users().settings().sendAs().patch(userId="me", sendAsEmail=send_as_email, body=body).execute()
+        return (
+            self.service.users()
+            .settings()
+            .sendAs()
+            .patch(userId="me", sendAsEmail=send_as_email, body=body)
+            .execute()
+        )
 
     # --- Messages helpers for sweeping/merging ---
     def list_message_ids(
@@ -231,7 +243,7 @@ class GmailClient(ConfigCacheMixin):
         page_size: int = 500,
     ) -> list[str]:
         """List message IDs matching query/labels with efficient pagination."""
-        from .paging import paginate_gmail_messages, gather_pages
+        from .paging import gather_pages, paginate_gmail_messages
 
         pages = paginate_gmail_messages(
             self.service.users().messages(), query=query, label_ids=label_ids, page_size=page_size
@@ -251,7 +263,9 @@ class GmailClient(ConfigCacheMixin):
             body["addLabelIds"] = add_label_ids
         if remove_label_ids:
             body["removeLabelIds"] = remove_label_ids
-        self.service.users().messages().batchModify(userId="me", body={"ids": ids, **body}).execute()
+        self.service.users().messages().batchModify(
+            userId="me", body={"ids": ids, **body}
+        ).execute()
 
     def delete_label(self, label_id: str) -> None:
         self.service.users().labels().delete(userId="me", id=label_id).execute()
@@ -285,12 +299,22 @@ class GmailClient(ConfigCacheMixin):
 
     def get_verified_forwarding_addresses(self) -> list[str]:
         infos = self.list_forwarding_addresses_info()
-        return [str(i["forwardingEmail"]) for i in infos if i.get("verificationStatus") == "accepted" and i.get("forwardingEmail")]
+        return [
+            str(i["forwardingEmail"])
+            for i in infos
+            if i.get("verificationStatus") == "accepted" and i.get("forwardingEmail")
+        ]
 
     def create_forwarding_address(self, email: str) -> dict[str, Any]:
         body = {"forwardingEmail": email}
         # Note: This requires recipient verification outside of this tool.
-        return self.service.users().settings().forwardingAddresses().create(userId="me", body=body).execute()
+        return (
+            self.service.users()
+            .settings()
+            .forwardingAddresses()
+            .create(userId="me", body=body)
+            .execute()
+        )
 
     # --- Account-level auto-forwarding settings ---
     def get_auto_forwarding(self) -> dict[str, Any]:
@@ -316,7 +340,9 @@ class GmailClient(ConfigCacheMixin):
             body["emailAddress"] = str(email)
         if disposition:
             body["disposition"] = str(disposition)
-        return self.service.users().settings().updateAutoForwarding(userId="me", body=body).execute()
+        return (
+            self.service.users().settings().updateAutoForwarding(userId="me", body=body).execute()
+        )
 
     # --- Messages metadata helpers (with optional caching) ---
     def get_message_metadata(self, msg_id: str, use_cache: bool = True) -> dict[str, Any]:
@@ -324,20 +350,25 @@ class GmailClient(ConfigCacheMixin):
             m = self.cache.get_meta(msg_id)
             if isinstance(m, dict):
                 return m
-        msg = self.service.users().messages().get(
-            userId="me",
-            id=msg_id,
-            format="metadata",
-            metadataHeaders=[
-                "From",
-                "To",
-                "Subject",
-                "List-Unsubscribe",
-                "List-Id",
-                "Precedence",
-                "Auto-Submitted",
-            ],
-        ).execute()
+        msg = (
+            self.service.users()
+            .messages()
+            .get(
+                userId="me",
+                id=msg_id,
+                format="metadata",
+                metadataHeaders=[
+                    "From",
+                    "To",
+                    "Subject",
+                    "List-Unsubscribe",
+                    "List-Id",
+                    "Precedence",
+                    "Auto-Submitted",
+                ],
+            )
+            .execute()
+        )
         if use_cache and self.cache:
             try:
                 self.cache.put_meta(msg_id, msg)
@@ -358,7 +389,7 @@ class GmailClient(ConfigCacheMixin):
     def headers_to_dict(msg: dict[str, Any]) -> dict[str, str]:
         hdrs: dict[str, str] = {}
         try:
-            for h in ((msg.get("payload") or {}).get("headers") or []):
+            for h in (msg.get("payload") or {}).get("headers") or []:
                 name = h.get("name")
                 value = h.get("value")
                 if name and value is not None:
@@ -385,6 +416,7 @@ class GmailClient(ConfigCacheMixin):
     def _decode_message_data(data: str) -> str:
         """Decode base64-encoded message data."""
         import base64
+
         try:
             return base64.urlsafe_b64decode(data.encode("utf-8")).decode("utf-8", errors="replace")
         except Exception:  # nosec B110 - best-effort decoding
@@ -448,9 +480,14 @@ class GmailClient(ConfigCacheMixin):
     def get_attachment(self, msg_id: str, attachment_id: str) -> bytes:
         """Fetch and decode a message attachment, returning raw bytes."""
         import base64
-        resp = self.service.users().messages().attachments().get(
-            userId="me", messageId=msg_id, id=attachment_id
-        ).execute()
+
+        resp = (
+            self.service.users()
+            .messages()
+            .attachments()
+            .get(userId="me", messageId=msg_id, id=attachment_id)
+            .execute()
+        )
         data = resp.get("data") or ""
         # Gmail returns unpadded base64url; restore padding before decoding.
         padding = "=" * (-len(data) % 4)
@@ -459,6 +496,7 @@ class GmailClient(ConfigCacheMixin):
     # --- Sending and drafts ---
     def _encode_message_raw(self, raw_bytes: bytes) -> str:
         import base64
+
         return base64.urlsafe_b64encode(raw_bytes).decode("utf-8")
 
     def send_message_raw(self, raw_bytes: bytes, thread_id: str | None = None) -> dict[str, Any]:

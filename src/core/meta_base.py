@@ -41,11 +41,7 @@ class AppMeta:
         bin_name = self.bin_name or f"./bin/{self.app_id}"
         help_cmd = self.help_cmd or f"{bin_name} --help"
         return (
-            "meta:\n"
-            f"  name: {self.app_id}_familiarize\n"
-            "  version: 1\n"
-            "steps:\n"
-            f"  - run: {help_cmd}\n"
+            f"meta:\n  name: {self.app_id}_familiarize\n  version: 1\nsteps:\n  - run: {help_cmd}\n"
         )
 
     @property
@@ -53,11 +49,7 @@ class AppMeta:
         bin_name = self.bin_name or f"./bin/{self.app_id}"
         example = self.example_cmd or f"{bin_name} --help"
         return (
-            "meta:\n"
-            f"  name: {self.app_id}_familiarize\n"
-            "  version: 1\n"
-            "steps:\n"
-            f"  - run: {example}\n"
+            f"meta:\n  name: {self.app_id}_familiarize\n  version: 1\nsteps:\n  - run: {example}\n"
         )
 
     @property

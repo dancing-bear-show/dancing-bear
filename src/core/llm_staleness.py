@@ -9,9 +9,10 @@ from __future__ import annotations
 import json
 import os
 import time
-from datetime import datetime, timezone
+from collections.abc import Iterable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterable, cast
+from typing import cast
 
 DEFAULT_SKIP_DIRS = {
     "backups",
@@ -79,7 +80,9 @@ def _dir_is_candidate(name: str, include_set: set[str], excludes: set[str]) -> b
     return name not in excludes
 
 
-def _iter_candidate_dirs(root: Path, include: Iterable[str] | None = None) -> list[tuple[str, Path]]:
+def _iter_candidate_dirs(
+    root: Path, include: Iterable[str] | None = None
+) -> list[tuple[str, Path]]:
     include_set = {name.strip() for name in include or [] if name.strip()}
     excludes = _collect_excludes()
     entries: list[tuple[str, Path]] = []
@@ -99,7 +102,9 @@ def _latest_mtime(path: Path) -> float:
     return latest
 
 
-def _collect_stale_stats(root: Path, include: list[str] | None, limit: int) -> list[dict[str, object]]:
+def _collect_stale_stats(
+    root: Path, include: list[str] | None, limit: int
+) -> list[dict[str, object]]:
     now = time.time()
     stats: list[dict[str, object]] = []
     for name, path in _iter_candidate_dirs(root, include):
@@ -112,7 +117,7 @@ def _collect_stale_stats(root: Path, include: list[str] | None, limit: int) -> l
             {
                 "area": name,
                 "staleness_days": round(days, 2),
-                "latest_ts": datetime.fromtimestamp(latest, tz=timezone.utc).isoformat(timespec="seconds"),
+                "latest_ts": datetime.fromtimestamp(latest, tz=UTC).isoformat(timespec="seconds"),
             }
         )
     stats.sort(key=lambda entry: cast(float, entry["staleness_days"]), reverse=True)
@@ -183,7 +188,9 @@ def _aggregate_values(values: list, agg: str) -> float:
 
 def _stale_text_line(entry: dict, overrides: dict, with_status: bool, with_priority: bool) -> str:
     """Format a single stale entry as a text line."""
-    status = _status_for_area(entry["area"], entry["staleness_days"], overrides) if with_status else ""
+    status = (
+        _status_for_area(entry["area"], entry["staleness_days"], overrides) if with_status else ""
+    )
     priority = f"\tpriority={int(round(entry['staleness_days']))}" if with_priority else ""
     line = f"{entry['area']}\t{entry['staleness_days']}d"
     if status:
@@ -265,7 +272,9 @@ def _handle_check(args, _llm_dir: Path) -> int:
         return 0
 
     stats = _collect_stale_stats(Path(args.root), list(overrides.keys()), args.limit)
-    area_map: dict[str, object] = {cast(str, entry["area"]): entry["staleness_days"] for entry in stats}
+    area_map: dict[str, object] = {
+        cast(str, entry["area"]): entry["staleness_days"] for entry in stats
+    }
     root_limit = overrides.pop("Root", None)
 
     if _root_limit_exceeded(stats, root_limit, args.agg):

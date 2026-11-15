@@ -9,6 +9,7 @@ Covers:
     and external relationships appear in word/document.xml and
     word/_rels/document.xml.rels.
 """
+
 from __future__ import annotations
 
 import io
@@ -20,16 +21,17 @@ from unittest.mock import MagicMock, patch
 
 from resume.schema import Resume
 
-
 # ---------------------------------------------------------------------------
 # Unit tests for display_url — no docx dependency
 # ---------------------------------------------------------------------------
+
 
 class TestDisplayUrl(unittest.TestCase):
     """Tests for display_url."""
 
     def _fn(self, url: str) -> str:
         from resume.docx_links import display_url
+
         return display_url(url)
 
     def test_empty_returns_empty(self):
@@ -77,11 +79,13 @@ class TestDisplayUrl(unittest.TestCase):
 # Unit tests for normalize_link_url — no docx dependency
 # ---------------------------------------------------------------------------
 
+
 class TestNormalizeLinkUrl(unittest.TestCase):
     """Tests for normalize_link_url."""
 
     def _fn(self, text: str) -> str:
         from resume.docx_links import normalize_link_url
+
         return normalize_link_url(text)
 
     def test_empty_returns_empty(self):
@@ -148,6 +152,7 @@ class TestIsSafeLinkUrl(unittest.TestCase):
 
     def _fn(self, url: str) -> bool:
         from resume.docx_links import is_safe_link_url
+
         return is_safe_link_url(url)
 
     def test_empty_returns_false(self):
@@ -177,10 +182,10 @@ class TestIsSafeLinkUrl(unittest.TestCase):
         self.assertTrue(self._fn("user@example.com"))
 
 
-
 # ---------------------------------------------------------------------------
 # Unit tests for add_hyperlink — using mocked docx internals
 # ---------------------------------------------------------------------------
+
 
 class TestAddHyperlinkUnsafeUrl(unittest.TestCase):
     """add_hyperlink falls back to plain text for unsafe/empty URLs."""
@@ -188,6 +193,7 @@ class TestAddHyperlinkUnsafeUrl(unittest.TestCase):
     def test_empty_url_renders_plain_text_without_relationship(self):
         """An empty URL (e.g. from a rejected scheme) renders as plain text."""
         from resume.docx_links import add_hyperlink
+
         paragraph = MagicMock()
         add_hyperlink(paragraph, "", "file display")
         paragraph.add_run.assert_called_once_with("file display")
@@ -197,6 +203,7 @@ class TestAddHyperlinkUnsafeUrl(unittest.TestCase):
     def test_file_scheme_via_normalize_does_not_create_relationship(self):
         """file: URL normalized to '' means add_hyperlink renders plain text only."""
         from resume.docx_links import add_hyperlink, normalize_link_url
+
         url = normalize_link_url("file:///etc/passwd")
         self.assertEqual(url, "")  # confirm rejected
         paragraph = MagicMock()
@@ -207,6 +214,7 @@ class TestAddHyperlinkUnsafeUrl(unittest.TestCase):
     def test_javascript_scheme_via_normalize_does_not_create_relationship(self):
         """javascript: URL normalized to '' means add_hyperlink renders plain text."""
         from resume.docx_links import add_hyperlink, normalize_link_url
+
         url = normalize_link_url("javascript:alert(1)")
         self.assertEqual(url, "")
         paragraph = MagicMock()
@@ -238,11 +246,14 @@ class TestAddHyperlinkFallback(unittest.TestCase):
         paragraph._p.append.side_effect = RuntimeError("oxml failure")
         # add_run works fine (the MagicMock default)
 
-        with patch.dict("sys.modules", {
-            "docx.oxml": MagicMock(),
-            "docx.oxml.ns": MagicMock(),
-            "docx.opc.constants": MagicMock(),
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "docx.oxml": MagicMock(),
+                "docx.oxml.ns": MagicMock(),
+                "docx.opc.constants": MagicMock(),
+            },
+        ):
             add_hyperlink(paragraph, "https://example.com", "example.com")
 
         paragraph.add_run.assert_called_once_with("example.com")
@@ -266,14 +277,20 @@ class TestAddHyperlinkWithMockedDocx(unittest.TestCase):
         mock_oxml_ns = MagicMock()
         mock_oxml_ns.qn.side_effect = lambda x: x
         mock_opc_constants = MagicMock()
-        mock_opc_constants.RELATIONSHIP_TYPE.HYPERLINK = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink"
+        mock_opc_constants.RELATIONSHIP_TYPE.HYPERLINK = (
+            "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink"
+        )
 
-        with patch.dict("sys.modules", {
-            "docx.oxml": mock_oxml,
-            "docx.oxml.ns": mock_oxml_ns,
-            "docx.opc.constants": mock_opc_constants,
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "docx.oxml": mock_oxml,
+                "docx.oxml.ns": mock_oxml_ns,
+                "docx.opc.constants": mock_opc_constants,
+            },
+        ):
             from resume.docx_links import _add_hyperlink_impl
+
             para = self._make_mock_paragraph()
             _add_hyperlink_impl(para, "https://example.com", "example.com")
 
@@ -287,10 +304,12 @@ class TestAddHyperlinkWithMockedDocx(unittest.TestCase):
 # End-to-end rendering test — requires actual python-docx
 # ---------------------------------------------------------------------------
 
+
 def _docx_available() -> bool:
     """Check if python-docx is installed."""
     try:
         import docx  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -307,6 +326,7 @@ class TestHyperlinkEndToEnd(unittest.TestCase):
     def _render_resume(self, data: dict, template: dict) -> bytes:
         """Render a resume and return the raw DOCX bytes."""
         from resume.docx_base import create_resume_writer
+
         with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as f:
             path = f.name
         try:
@@ -508,13 +528,17 @@ class TestHyperlinkEndToEnd(unittest.TestCase):
         cases = [
             (
                 "file scheme",
-                "Helen Test", "Internal Slides", "file:///Users/helen/slides.pdf",
+                "Helen Test",
+                "Internal Slides",
+                "file:///Users/helen/slides.pdf",
                 ["file:///Users/helen/slides.pdf"],
                 True,
             ),
             (
                 "javascript scheme",
-                "Ivan Test", "XSS Demo", "javascript:alert(document.cookie)",
+                "Ivan Test",
+                "XSS Demo",
+                "javascript:alert(document.cookie)",
                 ["javascript:", "alert"],
                 False,
             ),

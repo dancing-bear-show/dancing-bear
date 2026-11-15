@@ -75,6 +75,17 @@ lint-fix:
 shellcheck:
 	@bin/shellcheck-all.sh
 
+# Formatter. CI enforces it through qlty's ruff "format" driver, so `fmt-check`
+# failing locally means `qlty check` will fail in CI too. The pre-commit hook in
+# .githooks/ runs both lint-fix and fmt on staged files (`make hooks`).
+.PHONY: fmt
+fmt:
+	@bin/ruff-resolve.sh format $(SRC) tests bin workflows
+
+.PHONY: fmt-check
+fmt-check:
+	@bin/ruff-resolve.sh format --check $(SRC) tests bin workflows
+
 # A test directory without __init__.py is skipped silently by `unittest discover`,
 # so its tests never run and the module it covers reports 0% as if untested. Same
 # outcome when the __init__.py is gitignored: it passes locally and never reaches
@@ -162,7 +173,7 @@ bin-wrappers-check:
 .PHONY: hooks
 hooks:
 	git config core.hooksPath .githooks
-	@echo "Git hooks directory set to .githooks/ (commit-msg and pre-push active)"
+	@echo "Git hooks directory set to .githooks/ (pre-commit, commit-msg and pre-push active)"
 
 # The .claude/hooks guard suites, for running them directly.
 #

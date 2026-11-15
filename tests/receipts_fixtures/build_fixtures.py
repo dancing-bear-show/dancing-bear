@@ -70,6 +70,7 @@ Which parser claims which fixture, given the order jane -> costco -> generic
 
 Run: python3 tests/receipts_fixtures/build_fixtures.py
 """
+
 from __future__ import annotations
 
 import pathlib
@@ -99,24 +100,27 @@ def _page(doc: fitz.Document, lines: list[str], fontsize: int = 10) -> None:
 
 def jane_clinic(path: pathlib.Path) -> None:
     doc = fitz.open()
-    _page(doc, [
-        "Northside Therapy Associates Inc.",
-        "100 Example Ave, Suite 4, Springfield, ON, X0X 0X0",
-        "Tel: 555 555 0100  Email: billing@example-clinic.test",
-        "",
-        PATIENT,
-        "1 Test Street, Springfield, ON, X0X 0X0",
-        "",
-        "Receipt",
-        "Items and Payments",
-        "",
-        "August 28, 2026 - 2:30pm, Psychological Services (1 hour)",
-        "A. Practitioner M.PSY, RP, License #000000",
-        "Invoice #8254-P01",
-        "$190.00",
-        "Payer Total",
-        "$190.00",
-    ])
+    _page(
+        doc,
+        [
+            "Northside Therapy Associates Inc.",
+            "100 Example Ave, Suite 4, Springfield, ON, X0X 0X0",
+            "Tel: 555 555 0100  Email: billing@example-clinic.test",
+            "",
+            PATIENT,
+            "1 Test Street, Springfield, ON, X0X 0X0",
+            "",
+            "Receipt",
+            "Items and Payments",
+            "",
+            "August 28, 2026 - 2:30pm, Psychological Services (1 hour)",
+            "A. Practitioner M.PSY, RP, License #000000",
+            "Invoice #8254-P01",
+            "$190.00",
+            "Payer Total",
+            "$190.00",
+        ],
+    )
     doc.save(path)
     doc.close()
 
@@ -124,22 +128,25 @@ def jane_clinic(path: pathlib.Path) -> None:
 def jane_zero(path: pathlib.Path) -> None:
     """Direct-billed: patient owes nothing. Must parse as 0.00, not None."""
     doc = fitz.open()
-    _page(doc, [
-        "Springfield Physiotherapy Clinic",
-        "200 Example Rd, Springfield, ON, X0X 0X0",
-        "",
-        PATIENT,
-        "Receipt",
-        "",
-        "June 23, 2026 - 4:15pm, Physiotherapy Follow-up (30 minutes)",
-        "B. Therapist Registered Physiotherapist, License #000000",
-        "Invoice #19887-P01",
-        "Insurer #0000000000 / 000000",
-        "1x 1.xx.12 - Therapy",
-        "-$96.00",
-        "Payer Total",
-        "$0.00",
-    ])
+    _page(
+        doc,
+        [
+            "Springfield Physiotherapy Clinic",
+            "200 Example Rd, Springfield, ON, X0X 0X0",
+            "",
+            PATIENT,
+            "Receipt",
+            "",
+            "June 23, 2026 - 4:15pm, Physiotherapy Follow-up (30 minutes)",
+            "B. Therapist Registered Physiotherapist, License #000000",
+            "Invoice #19887-P01",
+            "Insurer #0000000000 / 000000",
+            "1x 1.xx.12 - Therapy",
+            "-$96.00",
+            "Payer Total",
+            "$0.00",
+        ],
+    )
     doc.save(path)
     doc.close()
 
@@ -147,21 +154,24 @@ def jane_zero(path: pathlib.Path) -> None:
 def invoice_total(path: pathlib.Path) -> None:
     """No 'Payer Total' label -- only 'Total'. The $190 understatement case."""
     doc = fitz.open()
-    _page(doc, [
-        "Springfield Speech Services",
-        "300 Example Blvd, Springfield, ON, X0X 0X0",
-        "",
-        PATIENT,
-        "Invoice",
-        "",
-        "July 8, 2026 - 12:00pm, Speech-Language Pathology (60 minutes)",
-        "C. Pathologist MS, SLP, License #000000",
-        "Invoice #7037-P01",
-        "Subtotal",
-        SUBTOTAL,
-        "Total",
-        SUBTOTAL,
-    ])
+    _page(
+        doc,
+        [
+            "Springfield Speech Services",
+            "300 Example Blvd, Springfield, ON, X0X 0X0",
+            "",
+            PATIENT,
+            "Invoice",
+            "",
+            "July 8, 2026 - 12:00pm, Speech-Language Pathology (60 minutes)",
+            "C. Pathologist MS, SLP, License #000000",
+            "Invoice #7037-P01",
+            "Subtotal",
+            SUBTOTAL,
+            "Total",
+            SUBTOTAL,
+        ],
+    )
     doc.save(path)
     doc.close()
 
@@ -175,22 +185,25 @@ def subtotal_trap(path: pathlib.Path) -> None:
     matching yields 225.00.
     """
     doc = fitz.open()
-    _page(doc, [
-        "Springfield Speech Services",
-        "300 Example Blvd, Springfield, ON, X0X 0X0",
-        "",
-        PATIENT,
-        "Invoice",
-        "",
-        "July 15, 2026 - 12:00pm, Speech-Language Pathology (60 minutes)",
-        "Invoice #7099-P01",
-        "Subtotal",
-        SUBTOTAL,
-        "Courtesy credit",
-        "-$25.00",
-        "Total",
-        "$225.00",
-    ])
+    _page(
+        doc,
+        [
+            "Springfield Speech Services",
+            "300 Example Blvd, Springfield, ON, X0X 0X0",
+            "",
+            PATIENT,
+            "Invoice",
+            "",
+            "July 15, 2026 - 12:00pm, Speech-Language Pathology (60 minutes)",
+            "Invoice #7099-P01",
+            "Subtotal",
+            SUBTOTAL,
+            "Courtesy credit",
+            "-$25.00",
+            "Total",
+            "$225.00",
+        ],
+    )
     doc.save(path)
     doc.close()
 
@@ -198,18 +211,21 @@ def subtotal_trap(path: pathlib.Path) -> None:
 def speech_aim(path: pathlib.Path) -> None:
     """A third total spelling: 'Total Amount'."""
     doc = fitz.open()
-    _page(doc, [
-        "Example Speech Aim Centre",
-        "400 Example Way, Springfield, ON, X0X 0X0",
-        "",
-        PATIENT,
-        "Receipt",
-        "",
-        "August 17, 2026, Speech Therapy Session",
-        "Invoice #66803-P01",
-        "Total Amount",
-        "$150.00",
-    ])
+    _page(
+        doc,
+        [
+            "Example Speech Aim Centre",
+            "400 Example Way, Springfield, ON, X0X 0X0",
+            "",
+            PATIENT,
+            "Receipt",
+            "",
+            "August 17, 2026, Speech Therapy Session",
+            "Invoice #66803-P01",
+            "Total Amount",
+            "$150.00",
+        ],
+    )
     doc.save(path)
     doc.close()
 
@@ -222,27 +238,30 @@ def costco_pharmacy(path: pathlib.Path) -> None:
     which is the point.
     """
     doc = fitz.open()
-    _page(doc, [
-        # The vendor name is retained deliberately: CostcoParser.matches()
-        # keys on this literal, and a retailer name is not personal data.
-        # Everything identifying a PATIENT is invented.
-        "Costco Pharmacies (Ontario) Ltd.",
-        "35 Example Rd. Springfield",
-        "9os-1eo-21os",
-        "Rx:0000000",
-        f"D {PATIENT_SURNAME_FIRST}",
-        "Fri 14-Aug-2026",
-        "3 ML Example Drug (1x4mg) 1mg",
-        "DIN: 00000000",
-        "Refills: 0",
-        "Cost:",
-        "253. 70",
-        "Example Insurer Limited [EI] 169. 98",
-        # OCR garble around the amount is faithful to real scans: the stray
-        # "!" and "j", and no "$" sigil anywhere on the line.
-        "!Patient Pays: 88.21 j",
-        "OFFICIAL PRESCRIPTION RECEIPT",
-    ])
+    _page(
+        doc,
+        [
+            # The vendor name is retained deliberately: CostcoParser.matches()
+            # keys on this literal, and a retailer name is not personal data.
+            # Everything identifying a PATIENT is invented.
+            "Costco Pharmacies (Ontario) Ltd.",
+            "35 Example Rd. Springfield",
+            "9os-1eo-21os",
+            "Rx:0000000",
+            f"D {PATIENT_SURNAME_FIRST}",
+            "Fri 14-Aug-2026",
+            "3 ML Example Drug (1x4mg) 1mg",
+            "DIN: 00000000",
+            "Refills: 0",
+            "Cost:",
+            "253. 70",
+            "Example Insurer Limited [EI] 169. 98",
+            # OCR garble around the amount is faithful to real scans: the stray
+            # "!" and "j", and no "$" sigil anywhere on the line.
+            "!Patient Pays: 88.21 j",
+            "OFFICIAL PRESCRIPTION RECEIPT",
+        ],
+    )
     doc.save(path)
     doc.close()
 
@@ -254,20 +273,23 @@ def costco_optical(path: pathlib.Path) -> None:
     so neither a label parser nor OCR helps.
     """
     doc = fitz.open()
-    _page(doc, [
-        # "Costco" retained so this reaches CostcoParser: the fixture must be
-        # declined for having no extractable amount, not for failing to match.
-        "COSTCO OPTICAL DEPARTMENT",
-        "500 Example Pkwy, Springfield ON",
-        "MEMBER 000000000000",
-        "",
-        "FRAME     EXAMPLE MODEL 52-18",
-        "LENS      SINGLE VISION",
-        "COATING   ANTI-REFLECTIVE",
-        "",
-        "ORDER 0000000",
-        "PICKED UP 16-Aug-2026",
-    ])
+    _page(
+        doc,
+        [
+            # "Costco" retained so this reaches CostcoParser: the fixture must be
+            # declined for having no extractable amount, not for failing to match.
+            "COSTCO OPTICAL DEPARTMENT",
+            "500 Example Pkwy, Springfield ON",
+            "MEMBER 000000000000",
+            "",
+            "FRAME     EXAMPLE MODEL 52-18",
+            "LENS      SINGLE VISION",
+            "COATING   ANTI-REFLECTIVE",
+            "",
+            "ORDER 0000000",
+            "PICKED UP 16-Aug-2026",
+        ],
+    )
     doc.save(path)
     doc.close()
 

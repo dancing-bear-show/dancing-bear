@@ -6,6 +6,7 @@ from ``mail.gmail_api`` before constructing a client.
 
 This is an API seam — minimal surface, no business logic.
 """
+
 from __future__ import annotations
 
 from typing import Any

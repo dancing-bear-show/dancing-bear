@@ -2,6 +2,7 @@
 
 Split out of cli_framework.py to keep that module focused on CLIApp.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -89,7 +90,9 @@ class _HelpfulArgumentParser(argparse.ArgumentParser):
                 continue
             flag_suggestions = suggest_flags(token, all_flags)
             if flag_suggestions:
-                lines.append(f"Unknown flag '{token}'. Did you mean: {', '.join(flag_suggestions)}?")
+                lines.append(
+                    f"Unknown flag '{token}'. Did you mean: {', '.join(flag_suggestions)}?"
+                )
         return lines
 
     def error_output(self, msg: str) -> None:

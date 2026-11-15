@@ -87,6 +87,7 @@ class TestFreezePanes(unittest.TestCase):
 
     def test_no_freeze_when_both_zero(self):
         from openpyxl import Workbook
+
         wb = Workbook()
         ws = wb.active
         self.gen._apply_freeze_panes(ws, 0, 0)
@@ -94,6 +95,7 @@ class TestFreezePanes(unittest.TestCase):
 
     def test_freeze_one_row(self):
         from openpyxl import Workbook
+
         wb = Workbook()
         ws = wb.active
         self.gen._apply_freeze_panes(ws, 1, 0)
@@ -101,6 +103,7 @@ class TestFreezePanes(unittest.TestCase):
 
     def test_freeze_row_and_col(self):
         from openpyxl import Workbook
+
         wb = Workbook()
         ws = wb.active
         self.gen._apply_freeze_panes(ws, 2, 1)
@@ -120,11 +123,10 @@ class TestGenerateXlsx(unittest.TestCase):
 
     def test_generate_from_yaml_end_to_end(self):
         import yaml
+
         wb_def = {
             "title": "E2E",
-            "sheets": [
-                {"name": "Data", "headers": ["X", "Y"], "rows": [[1, 2]]}
-            ],
+            "sheets": [{"name": "Data", "headers": ["X", "Y"], "rows": [[1, 2]]}],
         }
         with tempfile.TemporaryDirectory() as tmpdir:
             yaml_path = str(Path(tmpdir) / "wb.yaml")
@@ -172,7 +174,9 @@ class TestGenerateXlsx(unittest.TestCase):
     def test_alternating_rows_applied(self):
         wb_def = SheetWorkbook(
             metadata=SheetMetadata(title="Zebra"),
-            sheets=[SheetTab(name="Z", headers=["A"], rows=[["x"], ["y"], ["z"]], alternating_rows=True)],
+            sheets=[
+                SheetTab(name="Z", headers=["A"], rows=[["x"], ["y"], ["z"]], alternating_rows=True)
+            ],
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             out = str(Path(tmpdir) / "zebra.xlsx")
@@ -206,9 +210,7 @@ class TestValidateWorkbook(unittest.TestCase):
     def test_every_forbidden_character_is_caught(self) -> None:
         for char in ["\\", "/", "*", "?", ":", "[", "]"]:
             with self.subTest(char=char):
-                wb = _make_workbook(
-                    [SheetTab(name=f"A{char}B", headers=["A"], rows=[[1]])]
-                )
+                wb = _make_workbook([SheetTab(name=f"A{char}B", headers=["A"], rows=[[1]])])
                 self.assertTrue(validate_workbook(wb), f"{char!r} not caught")
 
     def test_forbidden_character_actually_breaks_openpyxl(self) -> None:
@@ -235,27 +237,33 @@ class TestValidateWorkbook(unittest.TestCase):
         self.assertTrue(validate_workbook(wb))
 
     def test_duplicate_names_are_reported(self) -> None:
-        wb = _make_workbook([
-            SheetTab(name="Data", headers=["A"], rows=[[1]]),
-            SheetTab(name="Data", headers=["A"], rows=[[2]]),
-        ])
+        wb = _make_workbook(
+            [
+                SheetTab(name="Data", headers=["A"], rows=[[1]]),
+                SheetTab(name="Data", headers=["A"], rows=[[2]]),
+            ]
+        )
         problems = validate_workbook(wb)
         self.assertTrue(any("duplicate" in p for p in problems))
 
     def test_duplicate_names_differing_only_by_case_are_reported(self) -> None:
         # Excel compares sheet names case-insensitively.
-        wb = _make_workbook([
-            SheetTab(name="Data", headers=["A"], rows=[[1]]),
-            SheetTab(name="DATA", headers=["A"], rows=[[2]]),
-        ])
+        wb = _make_workbook(
+            [
+                SheetTab(name="Data", headers=["A"], rows=[[1]]),
+                SheetTab(name="DATA", headers=["A"], rows=[[2]]),
+            ]
+        )
         problems = validate_workbook(wb)
         self.assertTrue(any("duplicate" in p for p in problems))
 
     def test_multiple_problems_all_reported(self) -> None:
-        wb = _make_workbook([
-            SheetTab(name="A/B", headers=["A"], rows=[[1]]),
-            SheetTab(name="C" * 40, headers=["A"], rows=[[1]]),
-        ])
+        wb = _make_workbook(
+            [
+                SheetTab(name="A/B", headers=["A"], rows=[[1]]),
+                SheetTab(name="C" * 40, headers=["A"], rows=[[1]]),
+            ]
+        )
         self.assertEqual(len(validate_workbook(wb)), 2)
 
 
@@ -265,10 +273,14 @@ class TestUncoveredGeneratorPaths(unittest.TestCase):
     def test_alternating_rows_disabled_leaves_cells_unfilled(self) -> None:
         wb = SheetWorkbook(
             metadata=SheetMetadata(title="T"),
-            sheets=[SheetTab(
-                name="Plain", headers=["A"], rows=[[1], [2]],
-                alternating_rows=False,
-            )],
+            sheets=[
+                SheetTab(
+                    name="Plain",
+                    headers=["A"],
+                    rows=[[1], [2]],
+                    alternating_rows=False,
+                )
+            ],
         )
         with tempfile.TemporaryDirectory() as tmp:
             out = str(Path(tmp) / "plain.xlsx")
@@ -320,9 +332,7 @@ class TestPRFeedbackFixes(unittest.TestCase):
     def test_content_longer_than_minimum_still_gets_buffer(self) -> None:
         gen = SheetGenerator()
         value = "A" * (MIN_COLUMN_WIDTH + 5)
-        self.assertEqual(
-            gen._calculate_column_width([value]), len(value) + 2
-        )
+        self.assertEqual(gen._calculate_column_width([value]), len(value) + 2)
 
     def test_zero_freeze_clears_an_inherited_freeze(self) -> None:
         # A template workbook may arrive with panes already frozen; freeze_rows: 0

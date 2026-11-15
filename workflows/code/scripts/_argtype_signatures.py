@@ -79,9 +79,7 @@ def _collect_params(
     return result
 
 
-def _collect_class_sigs(
-    node: ast.ClassDef, path: str, mod: str, sigs: Sigs
-) -> None:
+def _collect_class_sigs(node: ast.ClassDef, path: str, mod: str, sigs: Sigs) -> None:
     """Collect signatures for all methods in a class body into ``sigs``."""
     for member in node.body:
         if not isinstance(member, (ast.FunctionDef, ast.AsyncFunctionDef)):

@@ -15,8 +15,8 @@ from core.fileutil import (
     atomic_copy,
     atomic_write_bytes,
     atomic_write_json,
-    file_sha256,
     atomic_write_text,
+    file_sha256,
     load_json_or_exit,
     safe_load_json,
     write_once,
@@ -151,7 +151,6 @@ class TestLoadJsonOrExit(unittest.TestCase):
         with self.assertRaises(CLIError) as cm:
             load_json_or_exit("/no/such/file.json")
         self.assertIn("file.json", str(cm.exception))
-
 
 
 class TestAtomicWriteText(unittest.TestCase):

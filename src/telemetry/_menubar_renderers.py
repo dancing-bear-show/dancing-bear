@@ -1,8 +1,9 @@
 """Icon rendering helpers extracted from _menubar_app.py."""
+
 from __future__ import annotations
 
-from telemetry._menubar_config import _IconTemplate
 from core.format_utils import format_tokens as _format_tokens
+from telemetry._menubar_config import _IconTemplate
 
 
 def _icon_substitutions(
@@ -23,7 +24,10 @@ def _icon_substitutions(
 
 
 def _render_icon_plain(
-    template: str, icon_ctx: dict[str, dict], mtd_cost: float, score: int,
+    template: str,
+    icon_ctx: dict[str, dict],
+    mtd_cost: float,
+    score: int,
     otel_cost_1d: float = 0.0,
 ) -> str:
     """Render template as plain text. Unknown $vars pass through literally."""
@@ -37,7 +41,7 @@ def _icon_token_stream(template: str) -> list[tuple[str, str]]:
     pos = 0
     for m in _IconTemplate.pattern.finditer(template):
         if m.start() > pos:
-            tokens.append(("lit", template[pos:m.start()]))
+            tokens.append(("lit", template[pos : m.start()]))
         if m.group("escaped") is not None:
             tokens.append(("lit", "$"))
         elif m.group("invalid") is not None:

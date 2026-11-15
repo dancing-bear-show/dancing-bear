@@ -13,18 +13,19 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.fixtures import repo_root
 from workflow.compiler import WorkflowCompileError, compile_workflow
 from workflow.harness_outputs import find_refused_outputs, is_refused
 from workflow.linter import lint_workflow
 from workflow.models import AgentSpec, StageKind, StageSpec
 from workflow.parser import parse_workflow
 
-from tests.fixtures import repo_root
-
 TELEMETRY_REVIEW = repo_root() / "workflows" / "telemetry" / "telemetry-review.yaml"
 
 
-def _stage(*, description: str = "d", writes_to: tuple[str, ...] = (), executor: str = "agent") -> StageSpec:
+def _stage(
+    *, description: str = "d", writes_to: tuple[str, ...] = (), executor: str = "agent"
+) -> StageSpec:
     return StageSpec(
         name="s",
         kind=StageKind.execute,
@@ -42,7 +43,13 @@ class IsRefusedTest(unittest.TestCase):
                 self.assertTrue(is_refused(path))
 
     def test_prefixed_and_other_extensions_are_accepted(self) -> None:
-        for path in ("run-report.md", "final-report.md", "report.json", "reports.md", "report.md.bak"):
+        for path in (
+            "run-report.md",
+            "final-report.md",
+            "report.json",
+            "reports.md",
+            "report.md.bak",
+        ):
             with self.subTest(path=path):
                 self.assertFalse(is_refused(path))
 
@@ -52,7 +59,9 @@ class FindRefusedOutputsTest(unittest.TestCase):
         """validate-then-render's shape: the output is a {param} absent from writes_to."""
         stage = _stage(description="write {workspace}/outputs/{report_artifact}")
         found = find_refused_outputs([stage], {"report_artifact": "report.md"})
-        self.assertEqual([(f.param, f.refused_name) for f in found], [("report_artifact", "report.md")])
+        self.assertEqual(
+            [(f.param, f.refused_name) for f in found], [("report_artifact", "report.md")]
+        )
         self.assertEqual(find_refused_outputs([stage], {"report_artifact": "run-report.md"}), [])
 
     def test_param_inside_writes_to_is_resolved(self) -> None:
@@ -68,8 +77,10 @@ class FindRefusedOutputsTest(unittest.TestCase):
 
     def test_uppercase_param_names_are_seen(self) -> None:
         """The compiler substitutes any [A-Za-z_]\\w* key, so the check must too."""
-        for stage in (_stage(description="write {ReportArtifact}"),
-                      _stage(writes_to=("outputs/{ReportArtifact}",))):
+        for stage in (
+            _stage(description="write {ReportArtifact}"),
+            _stage(writes_to=("outputs/{ReportArtifact}",)),
+        ):
             with self.subTest(stage=stage.description or stage.writes_to):
                 found = find_refused_outputs([stage], {"ReportArtifact": "report.md"})
                 self.assertEqual([f.param for f in found], ["ReportArtifact"])
@@ -143,7 +154,9 @@ class RealCallerTest(unittest.TestCase):
     def test_params_override_to_a_refused_name_fails_compile(self) -> None:
         defn = parse_workflow(TELEMETRY_REVIEW)
         with self.assertRaises(WorkflowCompileError) as ctx:
-            compile_workflow(defn, project_root=repo_root(), trigger_params={"report_artifact": "report.md"})
+            compile_workflow(
+                defn, project_root=repo_root(), trigger_params={"report_artifact": "report.md"}
+            )
         self.assertIn("report_artifact", str(ctx.exception))
         self.assertIn("vtr-render", str(ctx.exception))
 
@@ -157,7 +170,9 @@ class RealCallerTest(unittest.TestCase):
         # The probe lives in a temp dir, never under workflows/: the tree-wide lint
         # test globs that directory and would see it if the two ran concurrently.
         fragment = repo_root() / "workflows" / "shared" / "validate-then-render.yaml"
-        probe = text.replace(old, 'report_artifact: "report.md"').replace(include, f"path: {fragment}")
+        probe = text.replace(old, 'report_artifact: "report.md"').replace(
+            include, f"path: {fragment}"
+        )
         with tempfile.TemporaryDirectory() as tmp:
             wf = Path(tmp) / "probe.yaml"
             wf.write_text(probe, encoding="utf-8")

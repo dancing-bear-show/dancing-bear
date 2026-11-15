@@ -1,12 +1,13 @@
 """Tests for mail/cli/args.py wrapper functions."""
+
 from __future__ import annotations
 
 import argparse
 import unittest
 from unittest.mock import patch
 
-from mail.cli.args import add_gmail_common_args, add_outlook_common_args
 from core.cli_args import GmailAuthConfig, OutlookAuthConfig
+from mail.cli.args import add_gmail_common_args, add_outlook_common_args
 
 
 class TestAddCommonArgsDelegation(unittest.TestCase):
@@ -22,7 +23,12 @@ class TestAddCommonArgsDelegation(unittest.TestCase):
     def test_delegates_to_core_cli_args(self):
         cases = [
             ("gmail", add_gmail_common_args, "mail.cli.args._add_gmail_auth_args", GmailAuthConfig),
-            ("outlook", add_outlook_common_args, "mail.cli.args._add_outlook_auth_args", OutlookAuthConfig),
+            (
+                "outlook",
+                add_outlook_common_args,
+                "mail.cli.args._add_outlook_auth_args",
+                OutlookAuthConfig,
+            ),
         ]
         for provider, wrapper_fn, patch_target, config_cls in cases:
             with self.subTest(provider=provider):
@@ -44,7 +50,7 @@ class TestAddCommonArgsDelegation(unittest.TestCase):
 class TestAddGmailCommonArgs(unittest.TestCase):
     """Tests for add_gmail_common_args function."""
 
-    @patch('mail.cli.args._add_gmail_auth_args')
+    @patch("mail.cli.args._add_gmail_auth_args")
     def test_includes_cache_argument(self, mock_add_gmail):
         """add_gmail_common_args should include cache argument."""
         parser = argparse.ArgumentParser()
@@ -59,7 +65,7 @@ class TestAddGmailCommonArgs(unittest.TestCase):
 class TestAddOutlookCommonArgs(unittest.TestCase):
     """Tests for add_outlook_common_args function."""
 
-    @patch('mail.cli.args._add_outlook_auth_args')
+    @patch("mail.cli.args._add_outlook_auth_args")
     def test_sets_tenant_default_to_consumers(self, mock_add_outlook):
         """add_outlook_common_args should default tenant to 'consumers'."""
         parser = argparse.ArgumentParser()
@@ -70,5 +76,5 @@ class TestAddOutlookCommonArgs(unittest.TestCase):
         self.assertEqual(config.tenant_default, "consumers")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

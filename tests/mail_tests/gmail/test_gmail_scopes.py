@@ -13,9 +13,10 @@ class GmailScopesTests(unittest.TestCase):
             "https://www.googleapis.com/auth/gmail.compose",
             "https://www.googleapis.com/auth/gmail.send",
         }
-        self.assertTrue(required.issubset(set(SCOPES)), msg=f"Missing scopes: {required - set(SCOPES)}")
+        self.assertTrue(
+            required.issubset(set(SCOPES)), msg=f"Missing scopes: {required - set(SCOPES)}"
+        )
 
 
 if __name__ == "__main__":
     unittest.main()
-

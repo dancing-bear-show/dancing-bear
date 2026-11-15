@@ -12,8 +12,8 @@ from __future__ import annotations
 import json
 import logging
 import unittest
-from pathlib import Path
 import unittest.mock as mock
+from pathlib import Path
 
 from tests.worker_tests.qwen_fixtures import GREET_PATH, RUNNING_DIGEST, QwenHandlerCase
 

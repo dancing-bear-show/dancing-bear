@@ -13,14 +13,16 @@ from unittest.mock import patch
 
 from tests.charts_tests.conftest_helpers import _fake_ax, _make_series
 
-
 # ---------------------------------------------------------------------------
 # Shared factories
 # ---------------------------------------------------------------------------
 
-def _make_bar_spec(series, *, stacked=False, orientation="vertical",
-                   bar_width=0.8, date_format=None, x_field="ts"):
+
+def _make_bar_spec(
+    series, *, stacked=False, orientation="vertical", bar_width=0.8, date_format=None, x_field="ts"
+):
     from charts.types.bar import BarChartSpec
+
     kwargs: dict = dict(
         title="Test Bar",
         x_field=x_field,
@@ -36,6 +38,7 @@ def _make_bar_spec(series, *, stacked=False, orientation="vertical",
 
 def _dark_theme():
     from charts.theme import get_theme
+
     return get_theme("dark")
 
 
@@ -43,42 +46,50 @@ def _dark_theme():
 # _x_key
 # ---------------------------------------------------------------------------
 
+
 class TestXKey(unittest.TestCase):
     def test_datetime_returns_isoformat(self):
         from charts.renderer_bar import _x_key
+
         dt = datetime.datetime(2024, 1, 15, 10, 30, 0)
         result = _x_key(dt)
         self.assertEqual(result, dt.isoformat())
 
     def test_date_returns_datetime_isoformat(self):
         from charts.renderer_bar import _x_key
+
         d = datetime.date(2024, 1, 15)
         result = _x_key(d)
         self.assertIn("2024-01-15", result)
 
     def test_iso_string_parsed_to_datetime_iso(self):
         from charts.renderer_bar import _x_key
+
         result = _x_key("2024-01-15")
         self.assertIn("2024-01-15", result)
 
     def test_integer_float_returns_int_string(self):
         from charts.renderer_bar import _x_key
+
         # 5.0 → int representation
         result = _x_key(5.0)
         self.assertEqual(result, "5")
 
     def test_non_integer_float_returns_float_string(self):
         from charts.renderer_bar import _x_key
+
         result = _x_key(3.14)
         self.assertEqual(result, "3.14")
 
     def test_plain_string_returned_as_is(self):
         from charts.renderer_bar import _x_key
+
         result = _x_key("category_a")
         self.assertEqual(result, "category_a")
 
     def test_none_falls_through_to_str(self):
         from charts.renderer_bar import _x_key
+
         result = _x_key(None)
         self.assertEqual(result, "None")
 
@@ -87,13 +98,16 @@ class TestXKey(unittest.TestCase):
 # _render_stacked_bars
 # ---------------------------------------------------------------------------
 
+
 class TestRenderStackedBars(unittest.TestCase):
     def _x_indices(self, n):
         import numpy as np
+
         return np.arange(n, dtype=float)
 
     def test_happy_path_vertical_bar_called(self):
         from charts.renderer_bar import _render_stacked_bars
+
         ax = _fake_ax()
         s1 = _make_series("s1", ["a", "b"], [1.0, 2.0], x_field="x")
         s2 = _make_series("s2", ["a", "b"], [3.0, 4.0], x_field="x")
@@ -106,6 +120,7 @@ class TestRenderStackedBars(unittest.TestCase):
 
     def test_happy_path_horizontal_barh_called(self):
         from charts.renderer_bar import _render_stacked_bars
+
         ax = _fake_ax()
         s1 = _make_series("s1", ["a", "b"], [1.0, 2.0], x_field="x")
         s2 = _make_series("s2", ["a", "b"], [3.0, 4.0], x_field="x")
@@ -118,6 +133,7 @@ class TestRenderStackedBars(unittest.TestCase):
 
     def test_mismatched_x_values_raises(self):
         from charts.renderer_bar import _render_stacked_bars
+
         ax = _fake_ax()
         # s1 has "a","b" but s2 has "a","c" — mismatched
         s1 = _make_series("s1", ["a", "b"], [1.0, 2.0], x_field="x")
@@ -132,6 +148,7 @@ class TestRenderStackedBars(unittest.TestCase):
     def test_baseline_accumulates_across_series(self):
         """Two bar() calls are made (one per series) when stacking."""
         from charts.renderer_bar import _render_stacked_bars
+
         ax = _fake_ax()
         s1 = _make_series("s1", ["a"], [5.0], x_field="x")
         s2 = _make_series("s2", ["a"], [3.0], x_field="x")
@@ -147,6 +164,7 @@ class TestRenderStackedBars(unittest.TestCase):
 
     def test_single_series_one_bar_call(self):
         from charts.renderer_bar import _render_stacked_bars
+
         ax = _fake_ax()
         s1 = _make_series("s1", ["a", "b"], [1.0, 2.0], x_field="x")
         spec = _make_bar_spec([s1], stacked=True, x_field="x")
@@ -160,13 +178,16 @@ class TestRenderStackedBars(unittest.TestCase):
 # _render_grouped_bars
 # ---------------------------------------------------------------------------
 
+
 class TestRenderGroupedBars(unittest.TestCase):
     def _x_indices(self, n):
         import numpy as np
+
         return np.arange(n, dtype=float)
 
     def test_single_series_calls_bar_once(self):
         from charts.renderer_bar import _render_grouped_bars
+
         ax = _fake_ax()
         s = _make_series("s", ["a", "b"], [1.0, 2.0], x_field="x")
         spec = _make_bar_spec([s], x_field="x")
@@ -177,6 +198,7 @@ class TestRenderGroupedBars(unittest.TestCase):
 
     def test_two_series_calls_bar_twice(self):
         from charts.renderer_bar import _render_grouped_bars
+
         ax = _fake_ax()
         s1 = _make_series("s1", ["a", "b"], [1.0, 2.0], x_field="x")
         s2 = _make_series("s2", ["a", "b"], [3.0, 4.0], x_field="x")
@@ -188,6 +210,7 @@ class TestRenderGroupedBars(unittest.TestCase):
 
     def test_horizontal_orientation_calls_barh(self):
         from charts.renderer_bar import _render_grouped_bars
+
         ax = _fake_ax()
         s = _make_series("s", ["a", "b"], [1.0, 2.0], x_field="x")
         spec = _make_bar_spec([s], orientation="horizontal", x_field="x")
@@ -199,6 +222,7 @@ class TestRenderGroupedBars(unittest.TestCase):
 
     def test_custom_label_on_series_forwarded(self):
         from charts.renderer_bar import _render_grouped_bars
+
         ax = _fake_ax()
         s = _make_series("s", ["a"], [1.0], label="Custom Label", x_field="x")
         spec = _make_bar_spec([s], x_field="x")
@@ -214,9 +238,11 @@ class TestRenderGroupedBars(unittest.TestCase):
 # _render_bar (integration: calls _render_grouped_bars or _render_stacked_bars)
 # ---------------------------------------------------------------------------
 
+
 class TestRenderBar(unittest.TestCase):
     def test_grouped_vertical_sets_xticks(self):
         from charts.renderer_bar import _render_bar
+
         ax = _fake_ax()
         s = _make_series("s", ["a", "b", "c"], [1.0, 2.0, 3.0], x_field="x")
         spec = _make_bar_spec([s], x_field="x")
@@ -226,6 +252,7 @@ class TestRenderBar(unittest.TestCase):
 
     def test_grouped_horizontal_sets_yticks(self):
         from charts.renderer_bar import _render_bar
+
         ax = _fake_ax()
         s = _make_series("s", ["a", "b"], [1.0, 2.0], x_field="x")
         spec = _make_bar_spec([s], orientation="horizontal", x_field="x")
@@ -235,6 +262,7 @@ class TestRenderBar(unittest.TestCase):
 
     def test_stacked_dispatches_to_stacked_renderer(self):
         from charts.renderer_bar import _render_bar
+
         ax = _fake_ax()
         s1 = _make_series("s1", ["a", "b"], [1.0, 2.0], x_field="x")
         s2 = _make_series("s2", ["a", "b"], [3.0, 4.0], x_field="x")
@@ -245,6 +273,7 @@ class TestRenderBar(unittest.TestCase):
 
     def test_grouped_dispatches_to_grouped_renderer(self):
         from charts.renderer_bar import _render_bar
+
         ax = _fake_ax()
         s = _make_series("s", ["a", "b"], [1.0, 2.0], x_field="x")
         spec = _make_bar_spec([s], stacked=False, x_field="x")
@@ -254,6 +283,7 @@ class TestRenderBar(unittest.TestCase):
 
     def test_date_x_values_formatted_as_labels(self):
         from charts.renderer_bar import _render_bar
+
         ax = _fake_ax()
         # Use date strings so x_values are parsed as datetimes
         s = _make_series("s", ["2024-01-01", "2024-01-02"], [10.0, 20.0])
@@ -268,6 +298,7 @@ class TestRenderBar(unittest.TestCase):
 
     def test_string_x_values_use_x_key_as_labels(self):
         from charts.renderer_bar import _render_bar
+
         ax = _fake_ax()
         s = _make_series("s", ["alpha", "beta"], [1.0, 2.0], x_field="x")
         spec = _make_bar_spec([s], x_field="x")
@@ -281,6 +312,7 @@ class TestRenderBar(unittest.TestCase):
     def test_many_x_values_step_applied(self):
         """With 40+ x-values the step should reduce tick count."""
         from charts.renderer_bar import _render_bar
+
         ax = _fake_ax()
         # 40 x-values → step = max(1, 40 // 20) = 2
         x_values = [f"cat{i}" for i in range(40)]
@@ -298,9 +330,11 @@ class TestRenderBar(unittest.TestCase):
 # _render_bar — error path (stacked with mismatched x)
 # ---------------------------------------------------------------------------
 
+
 class TestRenderBarErrors(unittest.TestCase):
     def test_stacked_with_mismatched_x_raises(self):
         from charts.renderer_bar import _render_bar
+
         ax = _fake_ax()
         s1 = _make_series("s1", ["a", "b"], [1.0, 2.0], x_field="x")
         s2 = _make_series("s2", ["a", "c"], [3.0, 4.0], x_field="x")

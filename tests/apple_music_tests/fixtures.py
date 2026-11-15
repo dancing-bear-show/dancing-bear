@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from typing import Any
 
 from requests.exceptions import HTTPError
 
@@ -16,7 +17,7 @@ class FakeResponse:
         self._body = body
         self.text = json.dumps(body)
         self.content = self.text.encode()
-        self.headers: Dict[str, str] = {}
+        self.headers: dict[str, str] = {}
 
     def json(self) -> dict:
         return self._body
@@ -29,17 +30,17 @@ class FakeResponse:
 class FakeSession:
     """Fake HTTP session that returns queued responses."""
 
-    def __init__(self, responses: List[FakeResponse]):
+    def __init__(self, responses: list[FakeResponse]):
         self.responses = list(responses)
-        self.calls: List[Dict[str, Any]] = []
+        self.calls: list[dict[str, Any]] = []
 
-    def request(self, method: str, url: str, **kwargs) -> FakeResponse:  # NOSONAR - fake interface must match real signature
+    def request(self, method: str, url: str, **kwargs) -> FakeResponse:  # NOSONAR - fake interface must match real signature  # fmt: skip
         self.calls.append({"method": method, "url": url, "params": kwargs.get("params")})
         if not self.responses:
             raise AssertionError("No response queued")
         return self.responses.pop(0)
 
-    def get(self, url: str, headers=None, params=None, **kwargs) -> FakeResponse:  # NOSONAR - kept for backward compat
+    def get(self, url: str, headers=None, params=None, **kwargs) -> FakeResponse:  # NOSONAR - kept for backward compat  # fmt: skip
         return self.request("GET", url, params=params)
 
 
@@ -49,44 +50,48 @@ class FakeAppleMusicClient:
     def __init__(
         self,
         *,
-        playlists: Optional[List[dict]] = None,
-        tracks: Optional[List[dict]] = None,
+        playlists: list[dict] | None = None,
+        tracks: list[dict] | None = None,
         storefront: str = "us",
         **kwargs,
     ):
         """Optional kwargs: tracks_by_playlist, on_search, on_create, on_delete."""
         self.playlists = playlists or []
         self.tracks = tracks or []
-        self.tracks_by_playlist: Dict[str, List[dict]] = kwargs.get("tracks_by_playlist") or {}
+        self.tracks_by_playlist: dict[str, list[dict]] = kwargs.get("tracks_by_playlist") or {}
         self.storefront = storefront
-        self._on_search: Optional[Callable] = kwargs.get("on_search")
-        self._on_create: Optional[Callable] = kwargs.get("on_create")
-        self._on_delete: Optional[Callable] = kwargs.get("on_delete")
+        self._on_search: Callable | None = kwargs.get("on_search")
+        self._on_create: Callable | None = kwargs.get("on_create")
+        self._on_delete: Callable | None = kwargs.get("on_delete")
 
         # Track calls for assertions
-        self.search_calls: List[tuple] = []
-        self.created: Optional[dict] = None
-        self.deleted: List[str] = []
+        self.search_calls: list[tuple] = []
+        self.created: dict | None = None
+        self.deleted: list[str] = []
 
     def ping(self) -> dict:
         return {"data": [{"id": self.storefront}]}
 
-    def list_library_playlists(self, limit: Optional[int] = None) -> List[dict]:  # NOSONAR - fake interface must match real signature
+    def list_library_playlists(self, limit: int | None = None) -> list[dict]:  # NOSONAR - fake interface must match real signature  # fmt: skip
         return self.playlists
 
-    def list_playlist_tracks(self, playlist_id: str, limit: Optional[int] = None) -> List[dict]:  # NOSONAR - fake interface must match real signature
+    def list_playlist_tracks(self, playlist_id: str, limit: int | None = None) -> list[dict]:  # NOSONAR - fake interface must match real signature  # fmt: skip
         if self.tracks_by_playlist:
             return self.tracks_by_playlist.get(playlist_id, [])
         return self.tracks
 
-    def search_songs(self, term: str, storefront: str, limit: int = 1) -> List[dict]:
+    def search_songs(self, term: str, storefront: str, limit: int = 1) -> list[dict]:
         self.search_calls.append((term, storefront, limit))
         if self._on_search:
             return self._on_search(term, storefront, limit)
         # Default: return deterministic song from term
-        return [{"id": f"id-{term.replace(' ', '-')}", "type": "songs", "attributes": {"name": term}}]
+        return [
+            {"id": f"id-{term.replace(' ', '-')}", "type": "songs", "attributes": {"name": term}}
+        ]
 
-    def create_playlist(self, name: str, tracks: List[dict], description: Optional[str] = None) -> dict:
+    def create_playlist(
+        self, name: str, tracks: list[dict], description: str | None = None
+    ) -> dict:
         result = {"name": name, "tracks": tracks, "description": description}
         self.created = result
         if self._on_create:
@@ -100,7 +105,7 @@ class FakeAppleMusicClient:
         return {"id": playlist_id}
 
 
-def make_playlist(id: str, name: str, date_added: Optional[str] = None) -> dict:
+def make_playlist(id: str, name: str, date_added: str | None = None) -> dict:
     """Create a playlist dict for testing."""
     attrs = {"name": name}
     if date_added:

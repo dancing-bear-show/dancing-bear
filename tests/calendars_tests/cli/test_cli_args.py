@@ -1,18 +1,19 @@
 """Tests for calendars/cli/args.py — constants and helper functions."""
+
 import argparse
 import unittest
 
 from calendars.cli.args import (
-    HELP_START_DATE,
-    HELP_END_DATE,
     HELP_CALENDAR_DEFAULT,
     HELP_CONFIG_EVENTS,
-    HELP_DRY_RUN,
     HELP_DEFAULT_CALENDAR,
+    HELP_DRY_RUN,
+    HELP_END_DATE,
     HELP_INBOX_ONLY,
-    add_common_outlook_args,
+    HELP_START_DATE,
     add_common_gmail_auth_args,
     add_common_gmail_paging_args,
+    add_common_outlook_args,
 )
 
 
@@ -88,7 +89,9 @@ class TestAddCommonGmailPagingArgs(unittest.TestCase):
 
     def test_returns_parser(self):
         sp = argparse.ArgumentParser()
-        result = add_common_gmail_paging_args(sp, default_days=7, default_pages=1, default_page_size=10)
+        result = add_common_gmail_paging_args(
+            sp, default_days=7, default_pages=1, default_page_size=10
+        )
         self.assertIs(result, sp)
 
 

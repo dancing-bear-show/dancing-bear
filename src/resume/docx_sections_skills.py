@@ -5,6 +5,7 @@ Provides:
   - SkillsSectionRenderer: skills with groups or flat list
   - TechnologiesSectionRenderer: technologies (extends SkillsSectionRenderer)
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -13,7 +14,6 @@ from typing import Any
 from .docx_header import HeaderRenderer
 from .docx_list_sections import ListSectionRenderer, join_name_desc
 from .schema import PriorityItem, Resume, SkillGroup, SkillGroupItem
-
 
 #: Fallback separator printed between a skills/technologies item's name and its
 #: description when a template enables ``show_desc`` without setting
@@ -341,15 +341,11 @@ class SkillsSectionRenderer(ListSectionRenderer):
                 # separator. Render the description as a plain bullet.
                 self.bullets.add_bullet_line(it.desc, glyph=glyph)
             elif it.has_desc:
-                self.bullets.add_named_bullet(
-                    it.name, it.desc, sec=cfg, glyph=glyph, sep=it.sep
-                )
+                self.bullets.add_named_bullet(it.name, it.desc, sec=cfg, glyph=glyph, sep=it.sep)
             else:
                 self.bullets.add_named_bullet(it.name, "", sec=cfg, glyph=glyph, sep="")
 
-    def _render_inline_items(
-        self, title: str, items: list[LabeledItem], cfg: dict
-    ) -> None:
+    def _render_inline_items(self, title: str, items: list[LabeledItem], cfg: dict) -> None:
         """Render a skills group as a title line plus one paragraph per item.
 
         Despite the name this is the *non-bullet* branch -- the one taken when
@@ -438,9 +434,7 @@ class TechnologiesSectionRenderer(SkillsSectionRenderer):
         else:
             self.bullets.add_joined_paragraph([it.text for it in tech_items], sep)
 
-    def _collect_tech_items(
-        self, resume: Resume, sec: dict | None
-    ) -> list[LabeledItem]:
+    def _collect_tech_items(self, resume: Resume, sec: dict | None) -> list[LabeledItem]:
         """Collect technology items from data sources."""
         cfg = sec or {}
         desc_sep = _resolve_desc_separator(cfg)
@@ -459,9 +453,7 @@ class TechnologiesSectionRenderer(SkillsSectionRenderer):
 
         return tech_items
 
-    def _normalize_tech_item(
-        self, t: Any, show_desc: bool, desc_sep: str
-    ) -> LabeledItem | None:
+    def _normalize_tech_item(self, t: Any, show_desc: bool, desc_sep: str) -> LabeledItem | None:
         """Normalize a single technology item, keeping name and desc separable.
 
         A schema item that yields no text is dropped; a non-schema scalar is

@@ -1,4 +1,5 @@
 """Producers for labels pipelines."""
+
 from __future__ import annotations
 
 from core.cli_output import OutputWriter
@@ -8,13 +9,15 @@ from ..providers.base import BaseProvider
 from ..utils.plan import print_plan_summary
 from .processors import (
     LabelChange,
+    LabelsExportResult,
     LabelsPlanResult,
     LabelsSyncResult,
-    LabelsExportResult,
 )
 
 
-def _print_list_section(title: str, items: list, fmt_fn, writer: OutputWriter | None = None) -> None:
+def _print_list_section(
+    title: str, items: list, fmt_fn, writer: OutputWriter | None = None
+) -> None:
     """Print a plan section with up to 20 items and a 'more' trailer."""
     if not items:
         return
@@ -23,10 +26,10 @@ def _print_list_section(title: str, items: list, fmt_fn, writer: OutputWriter | 
     for item in items[:20]:
         w.print(f"  {fmt_fn(item)}")
     if len(items) > 20:
-        w.print(f"  … and {len(items)-20} more")
+        w.print(f"  … and {len(items) - 20} more")
 
 
-def _fmt_label_change(change: "LabelChange") -> str:
+def _fmt_label_change(change: LabelChange) -> str:
     parts = [f"{k}:{v['from']}→{v['to']}" for k, v in change.changes.items()]
     return f"{change.name} ({', '.join(parts)})"
 
@@ -43,7 +46,9 @@ class LabelsPlanProducer(BaseProducer):
             update=len(payload.to_update),
             delete=delete_count,
         )
-        _print_list_section("Would create", payload.to_create, lambda s: s.get("name"), self._writer)
+        _print_list_section(
+            "Would create", payload.to_create, lambda s: s.get("name"), self._writer
+        )
         _print_list_section("Would update", payload.to_update, _fmt_label_change, self._writer)
         _print_list_section("Would delete", payload.to_delete, lambda n: n, self._writer)
 
@@ -53,7 +58,9 @@ class LabelsSyncProducer(BaseProducer):
 
     failure_message = "Labels sync failed."
 
-    def __init__(self, client: BaseProvider, *, dry_run: bool = False, writer: OutputWriter | None = None):
+    def __init__(
+        self, client: BaseProvider, *, dry_run: bool = False, writer: OutputWriter | None = None
+    ):
         super().__init__(writer)
         self.client = client
         self.dry_run = dry_run
@@ -68,7 +75,9 @@ class LabelsSyncProducer(BaseProducer):
         remaining_to_delete = [name for name in plan.to_delete if name not in redirected]
         deleted = self._apply_deletes(remaining_to_delete)
 
-        self._writer.print(f"Sync complete. Created: {created}, Updated: {updated}, Deleted: {deleted}.")
+        self._writer.print(
+            f"Sync complete. Created: {created}, Updated: {updated}, Deleted: {deleted}."
+        )
 
     def _apply_creates(self, specs: list[dict]) -> int:
         count = 0
@@ -120,7 +129,9 @@ class LabelsSyncProducer(BaseProducer):
         from ..utils.batch import apply_in_chunks
 
         def _do_move(chunk: list[str]) -> None:
-            self.client.batch_modify_messages(chunk, add_label_ids=[new_id], remove_label_ids=[old_id])
+            self.client.batch_modify_messages(
+                chunk, add_label_ids=[new_id], remove_label_ids=[old_id]
+            )
 
         apply_in_chunks(_do_move, ids, 500)
 

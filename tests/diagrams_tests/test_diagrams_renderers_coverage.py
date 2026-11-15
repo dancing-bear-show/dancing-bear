@@ -21,14 +21,10 @@ from io import StringIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-
 # ---------------------------------------------------------------------------
 # Helpers shared across test classes
 # ---------------------------------------------------------------------------
-
-
 from tests.diagrams_tests._renderer_helpers import FAKE_MMDC, make_renderer
-
 
 # ---------------------------------------------------------------------------
 # LocalRenderer construction — explicit mmdc_path branches (lines 124-139)
@@ -38,7 +34,7 @@ from tests.diagrams_tests._renderer_helpers import FAKE_MMDC, make_renderer
 class TestLocalRendererConstruction(unittest.TestCase):
     def test_explicit_nonexistent_path_raises(self):
         """mmdc_path given but file missing raises LocalRendererError."""
-        from diagrams.renderers import LocalRendererError, LocalRenderer
+        from diagrams.renderers import LocalRenderer, LocalRendererError
 
         with self.assertRaises(LocalRendererError) as ctx:
             LocalRenderer(mmdc_path="/no/such/binary")
@@ -47,7 +43,7 @@ class TestLocalRendererConstruction(unittest.TestCase):
 
     def test_explicit_nonexecutable_path_raises(self):
         """mmdc_path exists but is not executable raises LocalRendererError."""
-        from diagrams.renderers import LocalRendererError, LocalRenderer
+        from diagrams.renderers import LocalRenderer, LocalRendererError
 
         with tempfile.NamedTemporaryFile(delete=False) as f:
             f.write(b"#!/bin/sh\n")
@@ -76,7 +72,7 @@ class TestLocalRendererConstruction(unittest.TestCase):
 
     def test_which_returns_none_raises(self):
         """shutil.which finds nothing raises LocalRendererError with install hint."""
-        from diagrams.renderers import LocalRendererError, LocalRenderer
+        from diagrams.renderers import LocalRenderer, LocalRendererError
 
         with patch("shutil.which", return_value=None):
             with self.assertRaises(LocalRendererError) as ctx:
@@ -151,13 +147,17 @@ class TestBuildCommand(unittest.TestCase):
         self.assertEqual(cmd, [FAKE_MMDC, "-i", "/in.mmd", "-o", "/out.svg"])
 
     def test_background_appended(self):
-        cmd = self.renderer._build_command("/in.mmd", "/out.svg", self.RenderOptions(background="white"))
+        cmd = self.renderer._build_command(
+            "/in.mmd", "/out.svg", self.RenderOptions(background="white")
+        )
         self.assertIn("-b", cmd)
         self.assertIn("white", cmd)
         self.assertEqual(cmd.index("-b") + 1, cmd.index("white"))
 
     def test_theme_appended(self):
-        cmd = self.renderer._build_command("/in.mmd", "/out.svg", self.RenderOptions(theme="forest"))
+        cmd = self.renderer._build_command(
+            "/in.mmd", "/out.svg", self.RenderOptions(theme="forest")
+        )
         self.assertIn("-t", cmd)
         self.assertIn("forest", cmd)
 
@@ -280,7 +280,9 @@ class TestLocalRendererRender(unittest.TestCase):
         from diagrams.renderers import RenderOptions
 
         with patch.object(self.renderer, "_run", side_effect=self._fake_run_write_file):
-            result = self.renderer.render("flowchart LR\n    A-->B", RenderOptions(output_format="svg"))
+            result = self.renderer.render(
+                "flowchart LR\n    A-->B", RenderOptions(output_format="svg")
+            )
         self.assertIsInstance(result, bytes)
         self.assertGreater(len(result), 0)
 
@@ -604,7 +606,9 @@ class TestCmdValidate(unittest.TestCase):
             ok_env = MagicMock()
             ok_env.ok.return_value = True
             with patch("shutil.which", return_value="/fake/mmdc"):
-                with patch("diagrams.renderers.RenderDiagramProcessor.process", return_value=ok_env):
+                with patch(
+                    "diagrams.renderers.RenderDiagramProcessor.process", return_value=ok_env
+                ):
                     err = StringIO()
                     with patch("sys.stderr", err):
                         rc = cmd_validate(self._make_args(input_path=tmp))
@@ -623,7 +627,9 @@ class TestCmdValidate(unittest.TestCase):
             fail_env.ok.return_value = False
             fail_env.diagnostics = {"message": "Parse error at line 3"}
             with patch("shutil.which", return_value="/fake/mmdc"):
-                with patch("diagrams.renderers.RenderDiagramProcessor.process", return_value=fail_env):
+                with patch(
+                    "diagrams.renderers.RenderDiagramProcessor.process", return_value=fail_env
+                ):
                     err = StringIO()
                     with patch("sys.stderr", err):
                         rc = cmd_validate(self._make_args(input_path=tmp))
@@ -642,7 +648,9 @@ class TestCmdValidate(unittest.TestCase):
             fail_env.ok.return_value = False
             fail_env.diagnostics = None
             with patch("shutil.which", return_value="/fake/mmdc"):
-                with patch("diagrams.renderers.RenderDiagramProcessor.process", return_value=fail_env):
+                with patch(
+                    "diagrams.renderers.RenderDiagramProcessor.process", return_value=fail_env
+                ):
                     err = StringIO()
                     with patch("sys.stderr", err):
                         rc = cmd_validate(self._make_args(input_path=tmp))

@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 class TestLocalRendererRunTimeout(unittest.TestCase):
     """LocalRenderer._run() raises LocalRendererError on TimeoutExpired."""
 
-    def _make_renderer(self) -> "LocalRenderer":
+    def _make_renderer(self) -> LocalRenderer:
         return make_renderer(timeout=5)
 
     def test_timeout_expired_raises_local_renderer_error(self):
@@ -60,7 +60,7 @@ class TestLocalRendererRunTimeout(unittest.TestCase):
 class TestLocalRendererRunNonZeroExit(unittest.TestCase):
     """LocalRenderer._run() raises LocalRendererError when mmdc exits non-zero."""
 
-    def _make_renderer(self) -> "LocalRenderer":
+    def _make_renderer(self) -> LocalRenderer:
         return make_renderer()
 
     def _make_failed_result(self, stderr: bytes = b"mmdc error output") -> MagicMock:
@@ -102,7 +102,7 @@ class TestLocalRendererRunNonZeroExit(unittest.TestCase):
 class TestRenderDiagramProcessorSadPaths(unittest.TestCase):
     """Each distinct raise site in _process_safe surfaces as a CLIError envelope."""
 
-    def _make_request(self, output: str = "/tmp/out.svg") -> "RenderRequest":  # nosec B108 - test string only
+    def _make_request(self, output: str = "/tmp/out.svg") -> RenderRequest:  # nosec B108 - test string only
         from diagrams.renderers import RenderRequest
 
         return RenderRequest(source="flowchart LR\n    A-->B", output=output)
@@ -111,7 +111,9 @@ class TestRenderDiagramProcessorSadPaths(unittest.TestCase):
         """LocalRendererError on construction → error ResultEnvelope."""
         from diagrams.renderers import LocalRendererError, RenderDiagramProcessor
 
-        with patch("diagrams.renderers.LocalRenderer", side_effect=LocalRendererError("mmdc not found")):
+        with patch(
+            "diagrams.renderers.LocalRenderer", side_effect=LocalRendererError("mmdc not found")
+        ):
             envelope = RenderDiagramProcessor().process(self._make_request())
 
         self.assertFalse(envelope.ok())
@@ -167,6 +169,7 @@ class TestRenderDiagramProcessorHappyPath(unittest.TestCase):
         self.assertEqual(envelope.payload.output_path, output_path)
         self.assertGreater(envelope.payload.size_bytes, 0)
         from diagrams.renderers import RenderOptions
+
         mock_renderer.render_to_file.assert_called_once_with(
             "flowchart LR\n    A-->B",
             output_path,
@@ -199,10 +202,13 @@ class TestRenderDiagramProcessorHappyPath(unittest.TestCase):
 
         self.assertTrue(envelope.ok())
         from diagrams.renderers import RenderOptions
+
         mock_renderer.render_to_file.assert_called_once_with(
             "flowchart LR\n    A-->B",
             output_path,
-            RenderOptions(output_format="png", background="white", theme="default", width=800, height=600),
+            RenderOptions(
+                output_format="png", background="white", theme="default", width=800, height=600
+            ),
         )
 
 
@@ -300,11 +306,18 @@ class TestRenderPipelineIntegration(unittest.TestCase):
 
     def test_run_pipeline_returns_nonzero_on_failure(self):
         from core.pipeline import run_pipeline
-        from diagrams.renderers import LocalRendererError, RenderDiagramProcessor, RenderDiagramProducer, RenderRequest
+        from diagrams.renderers import (
+            LocalRendererError,
+            RenderDiagramProcessor,
+            RenderDiagramProducer,
+            RenderRequest,
+        )
 
         request = RenderRequest(source="flowchart LR\n    A-->B", output="/tmp/out.svg")  # nosec B108 - test string only
 
-        with patch("diagrams.renderers.LocalRenderer", side_effect=LocalRendererError("mmdc missing")):
+        with patch(
+            "diagrams.renderers.LocalRenderer", side_effect=LocalRendererError("mmdc missing")
+        ):
             err_buf = StringIO()
             with patch("sys.stderr", err_buf):
                 rc = run_pipeline(request, RenderDiagramProcessor, RenderDiagramProducer)

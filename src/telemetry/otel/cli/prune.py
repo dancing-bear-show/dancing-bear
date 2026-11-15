@@ -79,18 +79,9 @@ def main(argv: list[str] | None = None) -> int:
 
     for result in results:
         print(f"\n{result.data_type.upper()}:")
-        print(
-            f"  Before: {result.records_before} records "
-            f"({result.bytes_before:,} bytes)"
-        )
-        print(
-            f"  After:  {result.records_after} records "
-            f"({result.bytes_after:,} bytes)"
-        )
-        print(
-            f"  Removed: {result.records_removed} records "
-            f"({result.bytes_removed:,} bytes)"
-        )
+        print(f"  Before: {result.records_before} records ({result.bytes_before:,} bytes)")
+        print(f"  After:  {result.records_after} records ({result.bytes_after:,} bytes)")
+        print(f"  Removed: {result.records_removed} records ({result.bytes_removed:,} bytes)")
         if result.dry_run:
             print("  (DRY RUN — no changes made)")
 

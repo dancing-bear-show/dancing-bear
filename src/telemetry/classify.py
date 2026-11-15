@@ -198,9 +198,9 @@ class ClassifyEngine:
     def _default_classification(self, evt: SessionEvent) -> str:
         """Return the default classification for an event."""
         tools_cfg = self.rules.get("tools", {})
-        productive_tools = set(tools_cfg.get(
-            "productive", ["Edit", "Write", "MultiEdit", "NotebookEdit"]
-        ))
+        productive_tools = set(
+            tools_cfg.get("productive", ["Edit", "Write", "MultiEdit", "NotebookEdit"])
+        )
         neutral_tools = set(tools_cfg.get("neutral", []))
 
         if evt.tool_name in productive_tools:
@@ -256,7 +256,8 @@ class ClassifyEngine:
         write_tools = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 
         tool_events = [
-            (i, e) for i, e in enumerate(events)
+            (i, e)
+            for i, e in enumerate(events)
             if e.event_type == "tool_use" and e.tool_name is not None
         ]
 
@@ -264,7 +265,7 @@ class ClassifyEngine:
         while i < len(tool_events):
             run = self._scan_search_run(tool_events, i, search_tools)
             if len(run) >= consecutive_reads:
-                self._mark_abandoned_run(run, tool_events[i + len(run):], write_tools)
+                self._mark_abandoned_run(run, tool_events[i + len(run) :], write_tools)
                 i += len(run)
             else:
                 i += 1
@@ -316,10 +317,20 @@ class ClassifyEngine:
             return
 
         # Agent types that are read-only by design — never fruitless
-        exempt_types = set(rule.get("exempt_agent_types", [
-            "reviewer", "researcher", "Explore", "fact-checker",
-            "unit-validator", "cross-unit-validator", "claude-code-guide",
-        ]))
+        exempt_types = set(
+            rule.get(
+                "exempt_agent_types",
+                [
+                    "reviewer",
+                    "researcher",
+                    "Explore",
+                    "fact-checker",
+                    "unit-validator",
+                    "cross-unit-validator",
+                    "claude-code-guide",
+                ],
+            )
+        )
         window = WindowConfig(
             window_seconds=rule.get("window_seconds", 300),
             lookforward_events=rule.get("lookforward_events", 10),

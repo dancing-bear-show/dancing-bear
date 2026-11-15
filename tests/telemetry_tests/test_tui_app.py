@@ -16,6 +16,7 @@ Textual's App.__init__ requires no running event loop, so instantiation is safe.
 The methods that call query_one() (which needs a mounted DOM) are tested via
 mocking query_one to return suitable DataTable/widget stubs.
 """
+
 from __future__ import annotations
 
 import unittest
@@ -23,7 +24,6 @@ from unittest.mock import MagicMock, patch
 
 from telemetry.tui._app import TelemetryTranscriptsApp
 from telemetry.tui._widgets import _DetailModal
-
 from tests.telemetry_tests.shared_fixtures import (
     _make_agent_summary_tui,
     _make_event,
@@ -32,15 +32,17 @@ from tests.telemetry_tests.shared_fixtures import (
     _make_tool_stats,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_app(session_id=None, refresh=2.0, rules_path=None) -> TelemetryTranscriptsApp:
     """Instantiate TelemetryTranscriptsApp with all external deps patched."""
-    with patch("telemetry.tui._app.TranscriptProvider"), \
-         patch("telemetry.tui._app.load_rules", return_value={}):
+    with (
+        patch("telemetry.tui._app.TranscriptProvider"),
+        patch("telemetry.tui._app.load_rules", return_value={}),
+    ):
         app = TelemetryTranscriptsApp(
             session_id=session_id,
             refresh=refresh,
@@ -52,6 +54,7 @@ def _make_app(session_id=None, refresh=2.0, rules_path=None) -> TelemetryTranscr
 # ---------------------------------------------------------------------------
 # Constructor state
 # ---------------------------------------------------------------------------
+
 
 class TestAppConstructorState(unittest.TestCase):
     def test_refresh_stored(self):
@@ -116,6 +119,7 @@ class TestAppConstructorState(unittest.TestCase):
 
     def test_css_class_attr(self):
         from telemetry.tui._widgets import APP_CSS
+
         self.assertEqual(TelemetryTranscriptsApp.CSS, APP_CSS)
 
     def test_title_class_attr(self):
@@ -133,6 +137,7 @@ class TestAppConstructorState(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _refresh_tools_table — key dedup logic
 # ---------------------------------------------------------------------------
+
 
 class TestRefreshToolsTableDedup(unittest.TestCase):
     def _make_stub_tbl(self):
@@ -233,6 +238,7 @@ class TestRefreshToolsTableDedup(unittest.TestCase):
 # _refresh_agents_table — key dedup logic
 # ---------------------------------------------------------------------------
 
+
 class TestRefreshAgentsTableDedup(unittest.TestCase):
     def _make_stub_tbl(self):
         tbl = MagicMock()
@@ -277,9 +283,7 @@ class TestRefreshAgentsTableDedup(unittest.TestCase):
     def test_description_truncated_to_25_chars(self):
         app = _make_app()
         agent = _make_agent_summary_tui()
-        agent = agent.__class__(
-            **{**agent.__dict__, "description": "A" * 40}
-        )
+        agent = agent.__class__(**{**agent.__dict__, "description": "A" * 40})
         app._last_agents_key = "stale"
 
         tbl = self._make_stub_tbl()
@@ -303,6 +307,7 @@ class TestRefreshAgentsTableDedup(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _refresh_tips_table — key dedup and display logic
 # ---------------------------------------------------------------------------
+
 
 class TestRefreshTipsTableDedup(unittest.TestCase):
     def _make_stubs(self):
@@ -330,7 +335,9 @@ class TestRefreshTipsTableDedup(unittest.TestCase):
         app._last_tips_key = expected_key
 
         tbl, empty_panel = self._make_stubs()
-        with patch.object(app, "query_one", side_effect=self._query_one_side_effect(tbl, empty_panel)):
+        with patch.object(
+            app, "query_one", side_effect=self._query_one_side_effect(tbl, empty_panel)
+        ):
             app._refresh_tips_table([tip])
         tbl.clear.assert_not_called()
 
@@ -339,7 +346,9 @@ class TestRefreshTipsTableDedup(unittest.TestCase):
         app._last_tips_key = "stale"
 
         tbl, empty_panel = self._make_stubs()
-        with patch.object(app, "query_one", side_effect=self._query_one_side_effect(tbl, empty_panel)):
+        with patch.object(
+            app, "query_one", side_effect=self._query_one_side_effect(tbl, empty_panel)
+        ):
             app._refresh_tips_table([])
         self.assertFalse(tbl.display)
         self.assertTrue(empty_panel.display)
@@ -351,7 +360,9 @@ class TestRefreshTipsTableDedup(unittest.TestCase):
         tip = _make_tip()
 
         tbl, empty_panel = self._make_stubs()
-        with patch.object(app, "query_one", side_effect=self._query_one_side_effect(tbl, empty_panel)):
+        with patch.object(
+            app, "query_one", side_effect=self._query_one_side_effect(tbl, empty_panel)
+        ):
             app._refresh_tips_table([tip])
         self.assertTrue(tbl.display)
         self.assertFalse(empty_panel.display)
@@ -362,7 +373,9 @@ class TestRefreshTipsTableDedup(unittest.TestCase):
         tips = [_make_tip(severity=s) for s in ("avoidable", "review")]
 
         tbl, empty_panel = self._make_stubs()
-        with patch.object(app, "query_one", side_effect=self._query_one_side_effect(tbl, empty_panel)):
+        with patch.object(
+            app, "query_one", side_effect=self._query_one_side_effect(tbl, empty_panel)
+        ):
             app._refresh_tips_table(tips)
         self.assertEqual(tbl.add_row.call_count, 2)
 
@@ -372,7 +385,9 @@ class TestRefreshTipsTableDedup(unittest.TestCase):
         tip = _make_tip(severity="avoidable")
 
         tbl, empty_panel = self._make_stubs()
-        with patch.object(app, "query_one", side_effect=self._query_one_side_effect(tbl, empty_panel)):
+        with patch.object(
+            app, "query_one", side_effect=self._query_one_side_effect(tbl, empty_panel)
+        ):
             app._refresh_tips_table([tip])
         sym = tbl.add_row.call_args[0][0]
         self.assertEqual(sym, "✗")
@@ -383,7 +398,9 @@ class TestRefreshTipsTableDedup(unittest.TestCase):
         tip = _make_tip(severity="review")
 
         tbl, empty_panel = self._make_stubs()
-        with patch.object(app, "query_one", side_effect=self._query_one_side_effect(tbl, empty_panel)):
+        with patch.object(
+            app, "query_one", side_effect=self._query_one_side_effect(tbl, empty_panel)
+        ):
             app._refresh_tips_table([tip])
         sym = tbl.add_row.call_args[0][0]
         self.assertEqual(sym, "⚠")
@@ -392,6 +409,7 @@ class TestRefreshTipsTableDedup(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _refresh_timeline — row content
 # ---------------------------------------------------------------------------
+
 
 class TestRefreshTimeline(unittest.TestCase):
     def test_adds_row_for_each_tool_event(self):
@@ -459,6 +477,7 @@ class TestRefreshTimeline(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Detail-router helpers (_show_*_detail)
 # ---------------------------------------------------------------------------
+
 
 class TestShowDetailMethods(unittest.TestCase):
     def test_show_timeline_detail_within_bounds(self):
@@ -539,9 +558,11 @@ class TestShowDetailMethods(unittest.TestCase):
 # on_data_table_row_selected dispatch
 # ---------------------------------------------------------------------------
 
+
 class TestOnDataTableRowSelected(unittest.TestCase):
     def _make_event_obj(self, table_id: str, cursor_row: int | None):
         from textual.widgets import DataTable
+
         event = MagicMock(spec=DataTable.RowSelected)
         event.data_table = MagicMock()
         event.data_table.id = table_id
@@ -600,6 +621,7 @@ class TestOnDataTableRowSelected(unittest.TestCase):
 # action_switch_session
 # ---------------------------------------------------------------------------
 
+
 class TestActionSwitchSession(unittest.TestCase):
     def test_notify_when_no_sessions(self):
         app = _make_app()
@@ -612,6 +634,7 @@ class TestActionSwitchSession(unittest.TestCase):
 
     def test_push_screen_with_session_picker_when_sessions_exist(self):
         from telemetry.tui._widgets import SessionPickerScreen
+
         app = _make_app()
         sessions = [_make_summary(session_id="s001")]
         app._transcript.get_sessions.return_value = sessions
@@ -681,6 +704,7 @@ class TestActionSwitchSession(unittest.TestCase):
 # mounted app and the widget/id wiring is directly assertable.
 # ---------------------------------------------------------------------------
 
+
 class TestAppCompose(unittest.TestCase):
     def _ids(self):
         return [getattr(w, "id", None) for w in _make_app().compose()]
@@ -688,8 +712,16 @@ class TestAppCompose(unittest.TestCase):
     def test_yields_expected_widget_ids_in_order(self):
         self.assertEqual(
             self._ids(),
-            ["header", "tools-table", "agents-table", "timeline",
-             "tips-table", "tips-empty", "footer-info", None],
+            [
+                "header",
+                "tools-table",
+                "agents-table",
+                "timeline",
+                "tips-table",
+                "tips-empty",
+                "footer-info",
+                None,
+            ],
         )
 
     def test_yields_four_data_tables(self):

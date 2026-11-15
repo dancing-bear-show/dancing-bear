@@ -9,10 +9,9 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from mail.filters.commands import (
-    run_filters_list,
     run_filters_delete,
+    run_filters_list,
 )
-
 from tests.mail_tests.fixtures import FakeGmailClient, make_args
 
 

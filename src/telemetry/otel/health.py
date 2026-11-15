@@ -24,8 +24,7 @@ def check_otel_infrastructure() -> bool:
         return False
 
     has_any_file = any(
-        (data_dir.path / f).exists()
-        for f in ("metrics.jsonl", "events.jsonl", "spans.jsonl")
+        (data_dir.path / f).exists() for f in ("metrics.jsonl", "events.jsonl", "spans.jsonl")
     )
 
     if not has_any_file:

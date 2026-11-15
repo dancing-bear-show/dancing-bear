@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 
 try:
     import rumps
+
     _HAS_RUMPS = True
     if not TYPE_CHECKING:
         _AppBase = rumps.App
@@ -21,12 +22,11 @@ except ImportError:
     if not TYPE_CHECKING:
         _AppBase = object
 
-from telemetry.otel.menubar_provider import OtelDisplayData, OtelMenubarProvider
-from telemetry.ccpulse_reader import read_current as _read_ccpulse
-from telemetry.models import SessionSummary
-from telemetry.providers.transcript import TranscriptProvider
+from core.date_utils import now_utc
 from core.format_utils import format_tokens as _format_tokens
-from telemetry.tui import format_cost as _format_cost
+from telemetry._menubar_app_actions import ActionsMixin
+from telemetry._menubar_app_insights import InsightsMixin
+from telemetry._menubar_app_otel import OtelSectionsMixin
 from telemetry._menubar_budget import _budget_score, _safe_float
 from telemetry._menubar_config import (
     _DEFAULT_ICON_TEMPLATE,
@@ -38,7 +38,6 @@ from telemetry._menubar_config import (
     _icon_template_vars,
     _load_config,
 )
-from core.date_utils import now_utc
 from telemetry._menubar_display import (
     _age_str,
     _model_short,
@@ -47,9 +46,11 @@ from telemetry._menubar_display import (
     _window_since_impl,
 )
 from telemetry._menubar_renderers import _render_icon_plain
-from telemetry._menubar_app_otel import OtelSectionsMixin
-from telemetry._menubar_app_insights import InsightsMixin
-from telemetry._menubar_app_actions import ActionsMixin
+from telemetry.ccpulse_reader import read_current as _read_ccpulse
+from telemetry.models import SessionSummary
+from telemetry.otel.menubar_provider import OtelDisplayData, OtelMenubarProvider
+from telemetry.providers.transcript import TranscriptProvider
+from telemetry.tui import format_cost as _format_cost
 
 _CLAUDE_DIR = Path.home() / ".claude"
 _PROJECTS_DIR = _CLAUDE_DIR / "projects"
@@ -123,15 +124,17 @@ def _project_short(s: SessionSummary) -> str:
     return parts[-1][:28] if parts else s.session_id[:8]
 
 
-class TelemetryMenubarApp(OtelSectionsMixin, InsightsMixin, ActionsMixin, _AppBase):  # pragma: no cover
-
+class TelemetryMenubarApp(OtelSectionsMixin, InsightsMixin, ActionsMixin, _AppBase):  # pragma: no cover  # fmt: skip
     menu: Any  # rumps.App.menu property — unannotated in rumps source; declared here to silence has-type
     _DETAIL_SESSIONS = 2
 
     def __init__(self) -> None:
         if not _HAS_RUMPS:
-            raise RuntimeError("ClaudeStats requires rumps — macOS only. Install with: pip install rumps")
+            raise RuntimeError(
+                "ClaudeStats requires rumps — macOS only. Install with: pip install rumps"
+            )
         import telemetry.menubar as _menubar_shim
+
         _menubar_shim._acquire_instance_lock()
         super().__init__(name="ClaudeStats", title="...", icon=None, quit_button=None)
 
@@ -142,7 +145,7 @@ class TelemetryMenubarApp(OtelSectionsMixin, InsightsMixin, ActionsMixin, _AppBa
         self._otel_data_available: bool = False
         self._otel_cost_1d: float = 0.0
         self._last_cfg: dict = {}
-        self._poll_timer: "rumps.Timer | None" = None
+        self._poll_timer: rumps.Timer | None = None
         self._refresh_running: bool = False
         self._refresh_count: int = 0
         self._cached_avg_hourly: float = 0.0
@@ -259,8 +262,12 @@ class TelemetryMenubarApp(OtelSectionsMixin, InsightsMixin, ActionsMixin, _AppBa
         self._info_version = rumps.MenuItem(f"  {_get_app_version()}")
         self._info_version.set_callback(None)
         self._btn_configure = rumps.MenuItem("  Configure…", callback=self._on_configure)
-        self._btn_clear = rumps.MenuItem("  Clear sessions older than 30d...", callback=self._on_clear)
-        self._btn_login_item = rumps.MenuItem("  Start at login", callback=self._on_toggle_login_item)
+        self._btn_clear = rumps.MenuItem(
+            "  Clear sessions older than 30d...", callback=self._on_clear
+        )
+        self._btn_login_item = rumps.MenuItem(
+            "  Start at login", callback=self._on_toggle_login_item
+        )
         self._btn_quit = rumps.MenuItem("Quit", callback=rumps.quit_application)
 
         initial_cfg = _load_config()
@@ -307,7 +314,7 @@ class TelemetryMenubarApp(OtelSectionsMixin, InsightsMixin, ActionsMixin, _AppBa
         ]
         items += [row for enabled, row in optional_rows if enabled]
 
-    def _rebuild_menu(self, cfg: dict) -> None:  # NOSONAR - menu section assembly; sequential structure is inherent
+    def _rebuild_menu(self, cfg: dict) -> None:  # NOSONAR - menu section assembly; sequential structure is inherent  # fmt: skip
         s = cfg["sections"]
         items: list = []
         self._append_otel_items(items, s)
@@ -317,15 +324,26 @@ class TelemetryMenubarApp(OtelSectionsMixin, InsightsMixin, ActionsMixin, _AppBa
         if s["active_sessions"]["enabled"]:
             items += [None, self._hdr_sessions, *self._session_rows, self._session_more]
         if s["insights"]["enabled"]:
-            items += [None, self._hdr_insights, self._info_insights_summary, *self._insights_tip_rows]
+            items += [
+                None,
+                self._hdr_insights,
+                self._info_insights_summary,
+                *self._insights_tip_rows,
+            ]
         items += [
-            None, self._info_refresh_stat, self._info_version,
-            self._btn_configure, self._btn_clear, self._btn_login_item,
-            None, self._btn_quit,
+            None,
+            self._info_refresh_stat,
+            self._info_version,
+            self._btn_configure,
+            self._btn_clear,
+            self._btn_login_item,
+            None,
+            self._btn_quit,
         ]
         self.menu.clear()
         self.menu = items
         from telemetry import login_item as _li
+
         self._btn_login_item.state = 1 if _li.is_enabled() else 0
 
     def _on_cycle_window(self, _sender: object) -> None:  # noqa: ARG002
@@ -376,7 +394,10 @@ class TelemetryMenubarApp(OtelSectionsMixin, InsightsMixin, ActionsMixin, _AppBa
             prev_otel_available = self._otel_data_available
             self._update_menu(
                 MenuRefreshData(window_totals, avg_hourly, mtd_cost),
-                recent, cfg, insights, icon_window_totals=icon_ctx,
+                recent,
+                cfg,
+                insights,
+                icon_window_totals=icon_ctx,
             )
             if cfg_changed or self._otel_data_available != prev_otel_available:
                 self._rebuild_menu(cfg)
@@ -397,14 +418,20 @@ class TelemetryMenubarApp(OtelSectionsMixin, InsightsMixin, ActionsMixin, _AppBa
         except Exception:  # nosec B110 - OTel unavailability is expected; icon falls back to 0.0
             self._otel_cost_1d = 0.0
 
-    def _fetch_icon_window_totals(self, template: str, window_totals: dict, cfg: dict | None = None) -> dict[str, dict]:
+    def _fetch_icon_window_totals(
+        self, template: str, window_totals: dict, cfg: dict | None = None
+    ) -> dict[str, dict]:
         refs = _icon_template_vars(template)
         out: dict[str, dict] = {}
         _, current_secs = _WINDOWS[self._window_idx]
         if "1h_spend" in refs or "tokens_1h" in refs:
-            out["1h"] = window_totals if current_secs == 3600 else self._load_window_totals_for(3600)
+            out["1h"] = (
+                window_totals if current_secs == 3600 else self._load_window_totals_for(3600)
+            )
         if "1d_spend" in refs:
-            out["1d"] = window_totals if current_secs is None else self._load_window_totals_for(None)
+            out["1d"] = (
+                window_totals if current_secs is None else self._load_window_totals_for(None)
+            )
         if "otel_1d" in refs and not _any_otel_sections_enabled(cfg or {}):
             self._refresh_otel_icon_cost()
         return out
@@ -421,9 +448,14 @@ class TelemetryMenubarApp(OtelSectionsMixin, InsightsMixin, ActionsMixin, _AppBa
             return self._transcript.get_windowed_totals(since=_window_since(secs))
         except Exception:  # nosec B110 - transcript read failures are non-fatal; show zeroes
             return {
-                "cost": 0.0, "input_tokens": 0, "output_tokens": 0,
-                "cache_read_tokens": 0, "sessions": 0,
-                "cost_is_estimated": False, "models": {}, "hourly_costs": [0.0] * 12,
+                "cost": 0.0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "cache_read_tokens": 0,
+                "sessions": 0,
+                "cost_is_estimated": False,
+                "models": {},
+                "hourly_costs": [0.0] * 12,
             }
 
     def _load_avg_hourly(self) -> float:
@@ -448,15 +480,20 @@ class TelemetryMenubarApp(OtelSectionsMixin, InsightsMixin, ActionsMixin, _AppBa
         except Exception:  # nosec B110 - transcript read failure returns empty list
             return []
 
-    def _set_icon(self, template: str, icon_ctx: dict[str, dict], mtd_cost: float, budget: float) -> None:
+    def _set_icon(
+        self, template: str, icon_ctx: dict[str, dict], mtd_cost: float, budget: float
+    ) -> None:
         score = _budget_score(mtd_cost, budget)
         otel_cost_1d = self._otel_cost_1d
         # Late import from menubar shim so tests can patch menubar._HAS_APPKIT and
         # menubar.NSColor / NSFont etc. via patch.multiple(menubar_module, ...).
         import telemetry.menubar as _mb
+
         if _mb._HAS_APPKIT:
             try:
-                attr = _mb._compose_icon_attributed(template, icon_ctx, mtd_cost, score, otel_cost_1d)
+                attr = _mb._compose_icon_attributed(
+                    template, icon_ctx, mtd_cost, score, otel_cost_1d
+                )
                 self._nsapp.nsstatusitem.setAttributedTitle_(attr)
                 return
             except Exception:  # nosec B110 - AppKit error falls back to plain text icon
@@ -470,8 +507,11 @@ class TelemetryMenubarApp(OtelSectionsMixin, InsightsMixin, ActionsMixin, _AppBa
             return {"cost": 0.0, "input_tokens": 0, "output_tokens": 0}
 
     def _update_menu(
-        self, data: MenuRefreshData, recent: list[SessionSummary],
-        cfg: dict, insights: dict | None = None,
+        self,
+        data: MenuRefreshData,
+        recent: list[SessionSummary],
+        cfg: dict,
+        insights: dict | None = None,
         icon_window_totals: dict | None = None,
     ) -> None:
         budget = float(cfg.get("monthly_budget") or _DEFAULT_MONTHLY_BUDGET)
@@ -484,8 +524,8 @@ class TelemetryMenubarApp(OtelSectionsMixin, InsightsMixin, ActionsMixin, _AppBa
         total_in = window_totals["input_tokens"]
         total_out = window_totals["output_tokens"]
         any_estimated = window_totals["cost_is_estimated"]
-        window_secs = secs if secs is not None else int(
-            (now_utc() - _window_since(None)).total_seconds()
+        window_secs = (
+            secs if secs is not None else int((now_utc() - _window_since(None)).total_seconds())
         )
         self._info_usage_cost.title = f"  Cost: {_format_cost(total_cost, any_estimated)}"
         self._info_usage_tokens.title = (
@@ -510,8 +550,12 @@ class TelemetryMenubarApp(OtelSectionsMixin, InsightsMixin, ActionsMixin, _AppBa
             self._otel_cost_1d = 0.0
 
     def _update_conditional_sections(
-        self, window_totals: dict, recent: list[SessionSummary],
-        cfg: dict, insights: dict | None, label: str,
+        self,
+        window_totals: dict,
+        recent: list[SessionSummary],
+        cfg: dict,
+        insights: dict | None,
+        label: str,
     ) -> None:
         s = cfg["sections"]
         if s["models"]["enabled"]:
@@ -551,7 +595,7 @@ class TelemetryMenubarApp(OtelSectionsMixin, InsightsMixin, ActionsMixin, _AppBa
 
     def _session_more_title(self, recent: list[SessionSummary], label: str) -> str:
         """Build the '...and N more' summary title, or a fallback when empty."""
-        rest = recent[self._DETAIL_SESSIONS:]
+        rest = recent[self._DETAIL_SESSIONS :]
         if rest:
             return f"  ...and {len(rest)} more  {_format_cost(sum(s.total_cost for s in rest))}"
         if recent:

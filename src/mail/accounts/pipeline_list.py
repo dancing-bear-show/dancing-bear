@@ -1,4 +1,5 @@
 """List, export, plan, and sync pipeline implementations for accounts commands."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -9,7 +10,6 @@ from .pipeline_auth import (
     AccountsResultProducer,
     SimpleConsumer,
 )
-
 
 _DEFAULT_ACCOUNT_NAME = "account"
 
@@ -67,7 +67,9 @@ class AccountsListProcessor(SafeProcessor[AccountsListRequest, AccountsListResul
 class AccountsListProducer(AccountsResultProducer[AccountsListResult]):
     def _produce_items(self, payload: AccountsListResult) -> None:
         for a in payload.accounts:
-            self._writer.print(f"{a.name}\tprovider={a.provider}\tcred={a.credentials}\ttoken={a.token}")
+            self._writer.print(
+                f"{a.name}\tprovider={a.provider}\tcred={a.credentials}\ttoken={a.token}"
+            )
 
 
 # -----------------------------------------------------------------------------

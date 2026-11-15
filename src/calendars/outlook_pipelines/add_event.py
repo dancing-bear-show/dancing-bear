@@ -1,23 +1,24 @@
 """Outlook Add Event Pipelines - create single and recurring events."""
 
+from ..outlook_service import EventCreationParams, RecurringEventCreationParams
 from ._base import (
-    dataclass,
     Any,
-    SafeProcessor,
     BaseProducer,
     RequestConsumer,
+    SafeProcessor,
     check_service_required,
+    dataclass,
 )
-from ..outlook_service import EventCreationParams, RecurringEventCreationParams
-
 
 # =============================================================================
 # Outlook Add Event Pipeline
 # =============================================================================
 
+
 @dataclass
 class OutlookAddEventRequest:
     """Request to create a one-time event. Composes EventCreationParams."""
+
     service: Any
     params: EventCreationParams
 
@@ -37,12 +38,16 @@ class OutlookAddEventProcessor(SafeProcessor[OutlookAddEventRequest, OutlookAddE
         svc = payload.service
         evt = svc.create_event(payload.params)
         evt_id = (evt or {}).get("id") or ""
-        result = OutlookAddEventResult(event_id=evt_id, subject=(evt or {}).get("subject") or payload.params.subject)
+        result = OutlookAddEventResult(
+            event_id=evt_id, subject=(evt or {}).get("subject") or payload.params.subject
+        )
         return result
 
 
 class OutlookAddEventProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookAddEventResult, diagnostics: dict[str, Any] | None) -> None:
+    def _produce_success(
+        self, payload: OutlookAddEventResult, diagnostics: dict[str, Any] | None
+    ) -> None:
         print(f"Created event: {payload.event_id} subject={payload.subject}")
 
 
@@ -50,9 +55,11 @@ class OutlookAddEventProducer(BaseProducer):
 # Outlook Add Recurring Pipeline
 # =============================================================================
 
+
 @dataclass
 class OutlookAddRecurringRequest:
     """Request to create a recurring event. Composes RecurringEventCreationParams."""
+
     service: Any
     params: RecurringEventCreationParams
 
@@ -66,7 +73,9 @@ class OutlookAddRecurringResult:
     subject: str
 
 
-class OutlookAddRecurringProcessor(SafeProcessor[OutlookAddRecurringRequest, OutlookAddRecurringResult]):
+class OutlookAddRecurringProcessor(
+    SafeProcessor[OutlookAddRecurringRequest, OutlookAddRecurringResult]
+):
     def _process_safe(self, payload: OutlookAddRecurringRequest) -> OutlookAddRecurringResult:
         check_service_required(payload.service)
         svc = payload.service
@@ -78,19 +87,21 @@ class OutlookAddRecurringProcessor(SafeProcessor[OutlookAddRecurringRequest, Out
 
 
 class OutlookAddRecurringProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookAddRecurringResult, diagnostics: dict[str, Any] | None) -> None:
+    def _produce_success(
+        self, payload: OutlookAddRecurringResult, diagnostics: dict[str, Any] | None
+    ) -> None:
         print(f"Created recurring series: {payload.event_id} subject={payload.subject}")
 
 
 __all__ = [
+    "OutlookAddEventProcessor",
+    "OutlookAddEventProducer",
     "OutlookAddEventRequest",
     "OutlookAddEventRequestConsumer",
     "OutlookAddEventResult",
-    "OutlookAddEventProcessor",
-    "OutlookAddEventProducer",
+    "OutlookAddRecurringProcessor",
+    "OutlookAddRecurringProducer",
     "OutlookAddRecurringRequest",
     "OutlookAddRecurringRequestConsumer",
     "OutlookAddRecurringResult",
-    "OutlookAddRecurringProcessor",
-    "OutlookAddRecurringProducer",
 ]

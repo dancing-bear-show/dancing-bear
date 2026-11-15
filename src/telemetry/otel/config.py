@@ -73,6 +73,7 @@ def load_retention_config(config_dir: str | None = None) -> RetentionConfig:
         yaml.YAMLError: If config file is invalid YAML.
     """
     import yaml  # lazy import — not always needed
+
     config_path = _resolve_config_path(config_dir)
 
     if not config_path.exists():

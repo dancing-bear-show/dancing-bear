@@ -3,24 +3,24 @@
 import os
 import unittest
 
-from tests.fixtures import TempDirMixin
 from mail.config_resolver import (
-    expand_path,
-    default_gmail_credentials_path,
-    default_gmail_token_path,
-    default_outlook_token_path,
-    default_outlook_flow_path,
+    ProfileSettings,
+    _get_ini_section,
     _read_ini,
     _write_ini,
-    ProfileSettings,
-    resolve_paths,
-    resolve_paths_profile,
-    persist_if_provided,
-    _get_ini_section,
+    default_gmail_credentials_path,
+    default_gmail_token_path,
+    default_outlook_flow_path,
+    default_outlook_token_path,
+    expand_path,
     get_outlook_client_id,
     get_outlook_tenant,
     get_outlook_token_path,
+    persist_if_provided,
+    resolve_paths,
+    resolve_paths_profile,
 )
+from tests.fixtures import TempDirMixin
 
 
 class ExpandPathTests(unittest.TestCase):
@@ -73,11 +73,13 @@ class _ConfigResolverTestBase(TempDirMixin, unittest.TestCase):
         super().setUp()
         self.ini_path = os.path.join(self.tmpdir, "credentials.ini")
         import mail.config_resolver as cr
+
         self._orig_ini_paths = cr._INI_PATHS
         cr._INI_PATHS = [self.ini_path]
 
     def tearDown(self):
         import mail.config_resolver as cr
+
         cr._INI_PATHS = self._orig_ini_paths
         super().tearDown()
 
@@ -88,10 +90,12 @@ class IniOperationsTests(_ConfigResolverTestBase):
         self.assertEqual(result, {})
 
     def test_write_and_read_ini(self):
-        _write_ini(ProfileSettings(
-            credentials="/path/to/creds.json",
-            token="/path/to/token.json",  # nosec B106
-        ))
+        _write_ini(
+            ProfileSettings(
+                credentials="/path/to/creds.json",
+                token="/path/to/token.json",  # nosec B106
+            )
+        )
         result = _read_ini()
 
         self.assertIn("mail", result)
@@ -99,22 +103,26 @@ class IniOperationsTests(_ConfigResolverTestBase):
         self.assertEqual(result["mail"]["token"], "/path/to/token.json")
 
     def test_write_with_profile(self):
-        _write_ini(ProfileSettings(
-            credentials="/path/to/creds.json",
-            token="/path/to/token.json",  # nosec B106
-            profile="personal",
-        ))
+        _write_ini(
+            ProfileSettings(
+                credentials="/path/to/creds.json",
+                token="/path/to/token.json",  # nosec B106
+                profile="personal",
+            )
+        )
         result = _read_ini()
 
         self.assertIn("mail.personal", result)
         self.assertEqual(result["mail.personal"]["credentials"], "/path/to/creds.json")
 
     def test_write_outlook_settings(self):
-        _write_ini(ProfileSettings(
-            outlook_client_id="client-123",
-            tenant="consumers",
-            outlook_token="/path/to/outlook.json",  # nosec B106 - test file path
-        ))
+        _write_ini(
+            ProfileSettings(
+                outlook_client_id="client-123",
+                tenant="consumers",
+                outlook_token="/path/to/outlook.json",  # nosec B106 - test file path
+            )
+        )
         result = _read_ini()
 
         self.assertEqual(result["mail"]["outlook_client_id"], "client-123")
@@ -123,6 +131,7 @@ class IniOperationsTests(_ConfigResolverTestBase):
 
     def test_write_creates_parent_dirs(self):
         import mail.config_resolver as cr
+
         nested_path = os.path.join(self.tmpdir, "nested", "dir", "creds.ini")
         cr._INI_PATHS = [nested_path]
 
@@ -168,9 +177,7 @@ class ResolvePathsTests(_ConfigResolverTestBase):
     def test_falls_back_to_alias_section(self):
         # No [mail] at all -- the legacy [mail_assistant] section must be used.
         self._write_raw_ini(
-            "[mail_assistant]\n"
-            "credentials = /alias/creds.json\n"
-            "token = /alias/token.json\n"  # nosec B105 - test fixture path
+            "[mail_assistant]\ncredentials = /alias/creds.json\ntoken = /alias/token.json\n"  # nosec B105 - test fixture path
         )
         creds, token = resolve_paths(arg_credentials=None, arg_token=None)
         self.assertEqual(creds, "/alias/creds.json")
@@ -210,7 +217,7 @@ class ResolvePathsTests(_ConfigResolverTestBase):
 
 class ResolvePathsProfileTests(_ConfigResolverTestBase):
     def test_with_profile(self):
-        _write_ini(ProfileSettings(credentials="/personal/creds.json", token="/personal/token.json", profile="personal"))  # nosec B106
+        _write_ini(ProfileSettings(credentials="/personal/creds.json", token="/personal/token.json", profile="personal"))  # nosec B106  # fmt: skip
         creds, _token = resolve_paths_profile(
             arg_credentials=None,
             arg_token=None,

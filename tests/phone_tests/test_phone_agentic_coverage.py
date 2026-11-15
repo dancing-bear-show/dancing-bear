@@ -14,7 +14,6 @@ import unittest
 from unittest.mock import patch
 
 from phone import agentic as _agentic_module
-
 from tests.agentic_builder_contract import AgenticBuilderContractMixin
 from tests.fixtures import make_path_mock
 
@@ -97,10 +96,15 @@ class TestFlowMapConditionalBranches(unittest.TestCase):
 
     def test_all_paths_true_includes_all_sections(self):
         all_paths = [
-            ["export-device"], ["iconmap"], ["plan"], ["checklist"],
-            ["auto-folders"], ["analyze"],
+            ["export-device"],
+            ["iconmap"],
+            ["plan"],
+            ["checklist"],
+            ["auto-folders"],
+            ["analyze"],
             ["profile", "build"],
-            ["manifest", "create"], ["manifest", "install"],
+            ["manifest", "create"],
+            ["manifest", "install"],
         ]
         result = self._flow_map_with(all_paths)
         self.assertIn("Layout workflow", result)

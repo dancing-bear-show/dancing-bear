@@ -39,8 +39,7 @@ def _cluster_from_metrics(metrics: CostMetrics, n_clusters: int) -> list[Session
         return []
 
     features: list[tuple[str, float, float]] = [
-        (s.session_id, s.cost, float(s.billable_tokens))
-        for s in sessions
+        (s.session_id, s.cost, float(s.billable_tokens)) for s in sessions
     ]
 
     if len(features) <= n_clusters:
@@ -80,10 +79,7 @@ def _normalize_features(features: list[tuple[str, float, float]]) -> list[tuple[
     cost_range = cost_max - cost_min if cost_max != cost_min else 1.0
     tok_range = tok_max - tok_min if tok_max != tok_min else 1.0
 
-    return [
-        ((c - cost_min) / cost_range, (t - tok_min) / tok_range)
-        for _, c, t in features
-    ]
+    return [((c - cost_min) / cost_range, (t - tok_min) / tok_range) for _, c, t in features]
 
 
 def _run_kmeans(
@@ -111,10 +107,7 @@ def _assign_to_nearest(
     """Assign each point to its nearest center."""
     assignments = []
     for nc, nt in points:
-        dists = [
-            math.sqrt((nc - cc) ** 2 + (nt - ct) ** 2)
-            for cc, ct in centers
-        ]
+        dists = [math.sqrt((nc - cc) ** 2 + (nt - ct) ** 2) for cc, ct in centers]
         assignments.append(dists.index(min(dists)))
     return assignments
 
@@ -135,9 +128,7 @@ def _recompute_centers(
             )
 
 
-def _assign_cluster_labels(
-    centers: list[tuple[float, float]], n_clusters: int
-) -> list[str]:
+def _assign_cluster_labels(centers: list[tuple[float, float]], n_clusters: int) -> list[str]:
     """Assign human-readable labels to clusters ranked by cost dimension."""
     center_costs = [(k, centers[k][0]) for k in range(n_clusters)]
     center_costs.sort(key=lambda x: x[1])

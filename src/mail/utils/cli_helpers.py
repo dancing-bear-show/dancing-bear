@@ -4,8 +4,12 @@ import argparse
 from collections.abc import Callable
 from typing import Any
 
+from ..config_resolver import (
+    get_outlook_client_id_for_profile,
+    persist_if_provided,
+    resolve_paths_profile,
+)
 from ..providers.gmail import GmailProvider
-from ..config_resolver import resolve_paths_profile, persist_if_provided, get_outlook_client_id_for_profile
 
 
 def gmail_provider_from_args(args: argparse.Namespace) -> GmailProvider:
@@ -15,9 +19,13 @@ def gmail_provider_from_args(args: argparse.Namespace) -> GmailProvider:
     """
     arg_creds = getattr(args, "credentials", None)
     arg_tok = getattr(args, "token", None)
-    creds_path, tok_path = resolve_paths_profile(arg_credentials=arg_creds, arg_token=arg_tok, profile=getattr(args, 'profile', None))
+    creds_path, tok_path = resolve_paths_profile(
+        arg_credentials=arg_creds, arg_token=arg_tok, profile=getattr(args, "profile", None)
+    )
     # Persist explicit inputs for future runs
-    persist_if_provided(arg_credentials=arg_creds, arg_token=arg_tok, profile=getattr(args, 'profile', None))
+    persist_if_provided(
+        arg_credentials=arg_creds, arg_token=arg_tok, profile=getattr(args, "profile", None)
+    )
     return GmailProvider(
         credentials_path=creds_path,
         token_path=tok_path,
@@ -43,6 +51,7 @@ def outlook_client_from_args(args: argparse.Namespace) -> Any:
     Raises RuntimeError with detail on failure.
     """
     from ..outlook.helpers import get_outlook_client
+
     client, err = get_outlook_client(args)
     if err or client is None:
         raise RuntimeError(f"Could not initialize Outlook client (error code: {err})")
@@ -54,11 +63,12 @@ def with_gmail_client(func: Callable[..., Any]) -> Callable[..., Any]:
 
     Attaches the client as `args._gmail_client` before invoking the function.
     """
+
     def wrapper(args, *a, **kw):
         client = gmail_provider_from_args(args)
         client.authenticate()
         try:
-            setattr(args, "_gmail_client", client)
+            args._gmail_client = client
         except Exception:  # nosec B110 - non-critical attribute set
             pass
         return func(args, *a, **kw)

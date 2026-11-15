@@ -1,4 +1,5 @@
 """Export and sync signatures pipeline implementations for accounts commands."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -9,9 +10,9 @@ from core.paths import output_dir
 from core.pipeline import SafeProcessor
 
 from .pipeline_auth import (
+    _LOG_PREFIX,
     AccountsResultProducer,
     SimpleConsumer,
-    _LOG_PREFIX,
 )
 
 
@@ -106,9 +107,13 @@ def _export_signatures_for_account(a: dict, out_dir: Path) -> ExportedSignatures
     )
 
 
-class AccountsExportSignaturesProcessor(SafeProcessor[AccountsExportSignaturesRequest, AccountsExportSignaturesResult]):
-    def _process_safe(self, payload: AccountsExportSignaturesRequest) -> AccountsExportSignaturesResult:
-        from .helpers import load_accounts, iter_accounts
+class AccountsExportSignaturesProcessor(
+    SafeProcessor[AccountsExportSignaturesRequest, AccountsExportSignaturesResult]
+):
+    def _process_safe(
+        self, payload: AccountsExportSignaturesRequest
+    ) -> AccountsExportSignaturesResult:
+        from .helpers import iter_accounts, load_accounts
 
         accts = load_accounts(payload.config_path)
         out_dir = Path(payload.out_dir)
@@ -161,9 +166,10 @@ class AccountsSyncSignaturesResult:
 AccountsSyncSignaturesRequestConsumer = SimpleConsumer[AccountsSyncSignaturesRequest]
 
 
-def _sync_signatures_gmail(a: dict, payload: "AccountsSyncSignaturesRequest") -> SyncedSignaturesInfo:
+def _sync_signatures_gmail(a: dict, payload: AccountsSyncSignaturesRequest) -> SyncedSignaturesInfo:
     """Delegate Gmail signature sync to run_signatures_sync."""
     import argparse
+
     from ..signatures.commands import run_signatures_sync
 
     ns = argparse.Namespace(
@@ -175,7 +181,9 @@ def _sync_signatures_gmail(a: dict, payload: "AccountsSyncSignaturesRequest") ->
         account_display_name=a.get("display_name"),
     )
     run_signatures_sync(ns)
-    return SyncedSignaturesInfo(account_name=a.get("name", "account"), provider="gmail", status="delegated")
+    return SyncedSignaturesInfo(
+        account_name=a.get("name", "account"), provider="gmail", status="delegated"
+    )
 
 
 def _sync_signatures_outlook(a: dict) -> SyncedSignaturesInfo:
@@ -187,12 +195,16 @@ def _sync_signatures_outlook(a: dict) -> SyncedSignaturesInfo:
         "Use ios_signature.html or paste HTML manually.",
         encoding="utf-8",
     )
-    return SyncedSignaturesInfo(account_name=a.get("name", "account"), provider="outlook", status="wrote_guidance")
+    return SyncedSignaturesInfo(
+        account_name=a.get("name", "account"), provider="outlook", status="wrote_guidance"
+    )
 
 
-class AccountsSyncSignaturesProcessor(SafeProcessor[AccountsSyncSignaturesRequest, AccountsSyncSignaturesResult]):
+class AccountsSyncSignaturesProcessor(
+    SafeProcessor[AccountsSyncSignaturesRequest, AccountsSyncSignaturesResult]
+):
     def _process_safe(self, payload: AccountsSyncSignaturesRequest) -> AccountsSyncSignaturesResult:
-        from .helpers import load_accounts, iter_accounts
+        from .helpers import iter_accounts, load_accounts
 
         accts = load_accounts(payload.config_path)
         synced: list[SyncedSignaturesInfo] = []
@@ -205,7 +217,13 @@ class AccountsSyncSignaturesProcessor(SafeProcessor[AccountsSyncSignaturesReques
             elif provider == "outlook":
                 synced.append(_sync_signatures_outlook(a))
             else:
-                synced.append(SyncedSignaturesInfo(account_name=a.get("name", "account"), provider=provider, status="unsupported"))
+                synced.append(
+                    SyncedSignaturesInfo(
+                        account_name=a.get("name", "account"),
+                        provider=provider,
+                        status="unsupported",
+                    )
+                )
 
         return AccountsSyncSignaturesResult(synced=synced)
 
@@ -214,9 +232,15 @@ class AccountsSyncSignaturesProducer(AccountsResultProducer[AccountsSyncSignatur
     def _produce_items(self, payload: AccountsSyncSignaturesResult) -> None:
         for info in payload.synced:
             if info.status == "delegated":
-                self._writer.print(f"{_LOG_PREFIX}{info.account_name} provider={info.provider} (delegated)")
+                self._writer.print(
+                    f"{_LOG_PREFIX}{info.account_name} provider={info.provider} (delegated)"
+                )
             elif info.status == "wrote_guidance":
                 assets_dir = output_dir("mail") / "signatures_assets"
-                self._writer.print(f"{_LOG_PREFIX}{info.account_name} provider={info.provider} wrote guidance to {assets_dir}")
+                self._writer.print(
+                    f"{_LOG_PREFIX}{info.account_name} provider={info.provider} wrote guidance to {assets_dir}"
+                )
             else:
-                self._writer.print(f"{_LOG_PREFIX}{info.account_name} provider={info.provider} status={info.status}")
+                self._writer.print(
+                    f"{_LOG_PREFIX}{info.account_name} provider={info.provider} status={info.status}"
+                )

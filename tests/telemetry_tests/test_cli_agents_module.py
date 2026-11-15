@@ -1,4 +1,5 @@
 """Tests for telemetry/_cli_agents.py — agent rendering helpers."""
+
 from __future__ import annotations
 
 import io
@@ -8,7 +9,6 @@ from unittest.mock import patch
 
 from rich.table import Table
 
-from tests.telemetry_tests.shared_fixtures import _make_agent_token_row
 from telemetry._cli_agents import (
     _COL_EST_COST,
     _agent_row_to_dict,
@@ -16,11 +16,12 @@ from telemetry._cli_agents import (
     _print_agents_csv,
     _print_agents_json,
 )
-
+from tests.telemetry_tests.shared_fixtures import _make_agent_token_row
 
 # ---------------------------------------------------------------------------
 # _agent_row_to_dict
 # ---------------------------------------------------------------------------
+
 
 class TestAgentRowToDict(unittest.TestCase):
     def test_returns_empty_dict_for_non_row(self):
@@ -41,8 +42,16 @@ class TestAgentRowToDict(unittest.TestCase):
     def test_all_fields_present(self):
         row = _make_agent_token_row()
         result = _agent_row_to_dict(row)
-        for key in ("agent", "calls", "input_tokens", "output_tokens",
-                    "cache_read_tokens", "cache_write_tokens", "models", "est_cost"):
+        for key in (
+            "agent",
+            "calls",
+            "input_tokens",
+            "output_tokens",
+            "cache_read_tokens",
+            "cache_write_tokens",
+            "models",
+            "est_cost",
+        ):
             self.assertIn(key, result)
 
     def test_models_is_list(self):
@@ -61,6 +70,7 @@ class TestAgentRowToDict(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _print_agents_json
 # ---------------------------------------------------------------------------
+
 
 class TestPrintAgentsJson(unittest.TestCase):
     def test_emits_json_with_expected_keys(self):
@@ -120,6 +130,7 @@ class TestPrintAgentsJson(unittest.TestCase):
 # _print_agents_csv
 # ---------------------------------------------------------------------------
 
+
 class TestPrintAgentsCsv(unittest.TestCase):
     def test_csv_has_header_row(self):
         rows = [_make_agent_token_row(agent="researcher")]
@@ -153,6 +164,7 @@ class TestPrintAgentsCsv(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _build_agents_table
 # ---------------------------------------------------------------------------
+
 
 class TestBuildAgentsTable(unittest.TestCase):
     def test_returns_rich_table(self):

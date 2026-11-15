@@ -205,19 +205,24 @@ class TestNormalizeIconstate(unittest.TestCase):
 
         self.assertEqual(layout.dock, ["com.dock.app"])
         self.assertEqual(len(layout.pages), 2)
-        self.assertEqual(layout.pages[0], [
-            make_app_item("com.page1.app1"),
-            make_app_item("com.page1.app2"),
-        ])
+        self.assertEqual(
+            layout.pages[0],
+            [
+                make_app_item("com.page1.app1"),
+                make_app_item("com.page1.app2"),
+            ],
+        )
         self.assertEqual(layout.pages[1], [make_app_item("com.page2.app1")])
 
     def test_iconstate_with_folders(self):
         data = {
             "buttonBar": [],
-            "iconLists": [[
-                make_iconstate_app("com.standalone"),
-                make_iconstate_folder("Work", ["com.work.app1"]),
-            ]],
+            "iconLists": [
+                [
+                    make_iconstate_app("com.standalone"),
+                    make_iconstate_folder("Work", ["com.work.app1"]),
+                ]
+            ],
         }
         layout = normalize_iconstate(data)
 
@@ -258,17 +263,19 @@ class TestToYamlExport(unittest.TestCase):
 
     def test_export_with_folders(self):
         layout = make_layout(
-            pages=[[
-                make_folder_item("Work", ["com.work1", "com.work2"]),
-                make_app_item("com.standalone"),
-            ]],
+            pages=[
+                [
+                    make_folder_item("Work", ["com.work1", "com.work2"]),
+                    make_app_item("com.standalone"),
+                ]
+            ],
         )
         export = to_yaml_export(layout)
 
         self.assertEqual(export["pages"][0]["apps"], ["com.standalone"])
-        self.assertEqual(export["pages"][0]["folders"], [
-            {"name": "Work", "apps": ["com.work1", "com.work2"]}
-        ])
+        self.assertEqual(
+            export["pages"][0]["folders"], [{"name": "Work", "apps": ["com.work1", "com.work2"]}]
+        )
 
 
 class TestNormalizedLayoutDataclass(unittest.TestCase):

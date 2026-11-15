@@ -19,8 +19,8 @@ error condition is NOT triggered.
 from __future__ import annotations
 
 import json
-import tempfile
 import os
+import tempfile
 import unittest
 
 
@@ -28,6 +28,7 @@ def _write_yaml(data: dict, suffix: str = ".yaml") -> str:
     """Write data to a temp YAML file, return path. Falls back to JSON."""
     try:
         import yaml
+
         content = yaml.safe_dump(data)
         with tempfile.NamedTemporaryFile(mode="w", suffix=suffix, delete=False) as f:
             f.write(content)
@@ -72,6 +73,7 @@ class TestLoadGridConfigNonMapping(unittest.TestCase):
         path = _write_raw_text('["item1", "item2"]\n')
         try:
             from charts.config import load_grid_config
+
             with self.assertRaises(ValueError) as ctx:
                 load_grid_config(path)
             self.assertIn("mapping", str(ctx.exception))
@@ -83,6 +85,7 @@ class TestLoadGridConfigNonMapping(unittest.TestCase):
         path = _write_yaml(raw)
         try:
             from charts.config import load_grid_config
+
             cfg = load_grid_config(path)
             self.assertEqual(cfg.title, "Test Grid")
         finally:
@@ -97,6 +100,7 @@ class TestLoadGridConfigChartsNotList(unittest.TestCase):
         path = _write_yaml(raw)
         try:
             from charts.config import load_grid_config
+
             with self.assertRaises(ValueError) as ctx:
                 load_grid_config(path)
             self.assertIn("list", str(ctx.exception))
@@ -108,6 +112,7 @@ class TestLoadGridConfigChartsNotList(unittest.TestCase):
         path = _write_yaml(raw)
         try:
             from charts.config import load_grid_config
+
             with self.assertRaises(ValueError) as ctx:
                 load_grid_config(path)
             self.assertIn("list", str(ctx.exception))
@@ -119,6 +124,7 @@ class TestLoadGridConfigChartsNotList(unittest.TestCase):
         path = _write_yaml(raw)
         try:
             from charts.config import load_grid_config
+
             cfg = load_grid_config(path)
             self.assertEqual(len(cfg.panels), 1)
         finally:
@@ -133,6 +139,7 @@ class TestLoadGridConfigPanelNotMapping(unittest.TestCase):
         path = _write_yaml(raw)
         try:
             from charts.config import load_grid_config
+
             with self.assertRaises(ValueError) as ctx:
                 load_grid_config(path)
             self.assertIn("mapping", str(ctx.exception))
@@ -144,6 +151,7 @@ class TestLoadGridConfigPanelNotMapping(unittest.TestCase):
         path = _write_yaml(raw)
         try:
             from charts.config import load_grid_config
+
             with self.assertRaises(ValueError) as ctx:
                 load_grid_config(path)
             self.assertIn("mapping", str(ctx.exception))
@@ -155,6 +163,7 @@ class TestLoadGridConfigPanelNotMapping(unittest.TestCase):
         path = _write_yaml(raw)
         try:
             from charts.config import load_grid_config
+
             cfg = load_grid_config(path)
             self.assertIsInstance(cfg.panels[0].input, str)
         finally:
@@ -169,6 +178,7 @@ class TestLoadGridConfigPanelMissingRequiredField(unittest.TestCase):
         path = _write_yaml(raw)
         try:
             from charts.config import load_grid_config
+
             with self.assertRaises(ValueError) as ctx:
                 load_grid_config(path)
             self.assertIn("input", str(ctx.exception))
@@ -180,6 +190,7 @@ class TestLoadGridConfigPanelMissingRequiredField(unittest.TestCase):
         path = _write_yaml(raw)
         try:
             from charts.config import load_grid_config
+
             with self.assertRaises(ValueError) as ctx:
                 load_grid_config(path)
             self.assertIn("row", str(ctx.exception))
@@ -191,6 +202,7 @@ class TestLoadGridConfigPanelMissingRequiredField(unittest.TestCase):
         path = _write_yaml(raw)
         try:
             from charts.config import load_grid_config
+
             with self.assertRaises(ValueError) as ctx:
                 load_grid_config(path)
             self.assertIn("col", str(ctx.exception))
@@ -202,6 +214,7 @@ class TestLoadGridConfigPanelMissingRequiredField(unittest.TestCase):
         path = _write_yaml(raw)
         try:
             from charts.config import load_grid_config
+
             cfg = load_grid_config(path)
             self.assertEqual(cfg.panels[0].input, "x.json")
         finally:
@@ -216,6 +229,7 @@ class TestLoadGridConfigNegativeRowCol(unittest.TestCase):
         path = _write_yaml(raw)
         try:
             from charts.config import load_grid_config
+
             with self.assertRaises(ValueError) as ctx:
                 load_grid_config(path)
             self.assertIn("non-negative", str(ctx.exception))
@@ -227,6 +241,7 @@ class TestLoadGridConfigNegativeRowCol(unittest.TestCase):
         path = _write_yaml(raw)
         try:
             from charts.config import load_grid_config
+
             with self.assertRaises(ValueError) as ctx:
                 load_grid_config(path)
             self.assertIn("non-negative", str(ctx.exception))
@@ -238,6 +253,7 @@ class TestLoadGridConfigNegativeRowCol(unittest.TestCase):
         path = _write_yaml(raw)
         try:
             from charts.config import load_grid_config
+
             cfg = load_grid_config(path)
             self.assertEqual(cfg.panels[0].row, 0)
             self.assertEqual(cfg.panels[0].col, 0)
@@ -253,6 +269,7 @@ class TestValidateGridDimensions(unittest.TestCase):
         path = _write_yaml(raw)
         try:
             from charts.config import load_grid_config
+
             with self.assertRaises(ValueError) as ctx:
                 load_grid_config(path)
             self.assertIn("rows", str(ctx.exception))
@@ -264,6 +281,7 @@ class TestValidateGridDimensions(unittest.TestCase):
         path = _write_yaml(raw)
         try:
             from charts.config import load_grid_config
+
             with self.assertRaises(ValueError) as ctx:
                 load_grid_config(path)
             self.assertIn("cols", str(ctx.exception))
@@ -275,6 +293,7 @@ class TestValidateGridDimensions(unittest.TestCase):
         path = _write_yaml(raw)
         try:
             from charts.config import load_grid_config
+
             cfg = load_grid_config(path)
             self.assertEqual(cfg.rows, 1)
             self.assertEqual(cfg.cols, 1)
@@ -286,6 +305,7 @@ class TestValidateGridDimensions(unittest.TestCase):
         path = _write_yaml(raw)
         try:
             from charts.config import load_grid_config
+
             with self.assertRaises(ValueError) as ctx:
                 load_grid_config(path)
             self.assertIn("dpi", str(ctx.exception))
@@ -297,6 +317,7 @@ class TestValidateGridDimensions(unittest.TestCase):
         path = _write_yaml(raw)
         try:
             from charts.config import load_grid_config
+
             cfg = load_grid_config(path)
             self.assertEqual(cfg.dpi, 72)
         finally:
@@ -307,6 +328,7 @@ class TestValidateGridDimensions(unittest.TestCase):
         path = _write_yaml(raw)
         try:
             from charts.config import load_grid_config
+
             with self.assertRaises(ValueError) as ctx:
                 load_grid_config(path)
             self.assertIn("width_px", str(ctx.exception))
@@ -318,6 +340,7 @@ class TestValidateGridDimensions(unittest.TestCase):
         path = _write_yaml(raw)
         try:
             from charts.config import load_grid_config
+
             cfg = load_grid_config(path)
             self.assertEqual(cfg.width_px, 800)
         finally:
@@ -328,6 +351,7 @@ class TestValidateGridDimensions(unittest.TestCase):
         path = _write_yaml(raw)
         try:
             from charts.config import load_grid_config
+
             with self.assertRaises(ValueError) as ctx:
                 load_grid_config(path)
             self.assertIn("height_px", str(ctx.exception))
@@ -339,6 +363,7 @@ class TestValidateGridDimensions(unittest.TestCase):
         path = _write_yaml(raw)
         try:
             from charts.config import load_grid_config
+
             cfg = load_grid_config(path)
             self.assertEqual(cfg.height_px, 600)
         finally:

@@ -68,7 +68,9 @@ def _make_slide(*shapes):
 class _Concrete(ContentMixin):
     """Concrete subclass with only the methods needed by ContentMixin."""
 
-    def _set_slide_title(self, slide, title_text, theme_color, subtitle=None, *, inherit_style=False):
+    def _set_slide_title(
+        self, slide, title_text, theme_color, subtitle=None, *, inherit_style=False
+    ):
         # Intentional no-op: ShapeUtilsMixin._set_slide_title mutates the title placeholder's
         # text, alignment, font runs, and position via python-pptx; these tests only assert
         # ContentMixin's call routing and body-paragraph formatting, not title rendering.
@@ -355,10 +357,12 @@ class TestSetSlideContentTemplateStyle(unittest.TestCase):
         mock_slide, mock_body = self._make_slide_with_body_placeholder()
         mock_para = mock_body.text_frame.paragraphs[0]
 
-        with patch.object(self.generator, "_set_slide_title"), \
-             patch.object(self.generator, "_add_text_to_paragraph"), \
-             patch.object(self.generator, "_apply_native_bullet"), \
-             patch.object(self.generator, "_is_section_header", return_value=False):
+        with (
+            patch.object(self.generator, "_set_slide_title"),
+            patch.object(self.generator, "_add_text_to_paragraph"),
+            patch.object(self.generator, "_apply_native_bullet"),
+            patch.object(self.generator, "_is_section_header", return_value=False),
+        ):
             self.generator._set_slide_content(
                 mock_slide,
                 "Title",
@@ -376,14 +380,18 @@ class TestSetSlideContentTemplateStyle(unittest.TestCase):
         captured_calls = []
 
         def capture_add_text(para, text, style):
-            captured_calls.append({
-                "theme": style.theme_color,
-                "font_size": style.font_size,
-            })
+            captured_calls.append(
+                {
+                    "theme": style.theme_color,
+                    "font_size": style.font_size,
+                }
+            )
 
-        with patch.object(self.generator, "_add_text_to_paragraph", side_effect=capture_add_text), \
-             patch.object(self.generator, "_apply_native_bullet"), \
-             patch.object(self.generator, "_is_section_header", return_value=False):
+        with (
+            patch.object(self.generator, "_add_text_to_paragraph", side_effect=capture_add_text),
+            patch.object(self.generator, "_apply_native_bullet"),
+            patch.object(self.generator, "_is_section_header", return_value=False),
+        ):
             self.generator._format_body_paragraph(
                 mock_paragraph,
                 BulletItem(text="some text"),
@@ -441,13 +449,9 @@ class TestPopulateTitleSlide(unittest.TestCase):
 
         content = SlideContent(title="Main Title", bullets=["Subtitle line"])
 
-        self.generator._populate_title_slide(
-            mock_slide, content, MSO_THEME_COLOR.LIGHT_2
-        )
+        self.generator._populate_title_slide(mock_slide, content, MSO_THEME_COLOR.LIGHT_2)
 
-        mock_subtitle._element.getparent().remove.assert_called_once_with(
-            mock_subtitle._element
-        )
+        mock_subtitle._element.getparent().remove.assert_called_once_with(mock_subtitle._element)
 
     def test_styles_title_runs(self) -> None:
         """Title runs are styled with Pt(36), theme color, and bold (line 700)."""
@@ -455,9 +459,7 @@ class TestPopulateTitleSlide(unittest.TestCase):
 
         content = SlideContent(title="Styled Title", bullets=[])
 
-        self.generator._populate_title_slide(
-            mock_slide, content, MSO_THEME_COLOR.ACCENT_1
-        )
+        self.generator._populate_title_slide(mock_slide, content, MSO_THEME_COLOR.ACCENT_1)
 
         # _style_run should set font size, color, and bold on the run
         mock_run.font.size = Pt(36)
@@ -470,9 +472,7 @@ class TestPopulateTitleSlide(unittest.TestCase):
         content = SlideContent(title="Check Style", bullets=[])
 
         with patch.object(self.generator, "_style_run") as mock_style:
-            self.generator._populate_title_slide(
-                mock_slide, content, MSO_THEME_COLOR.ACCENT_1
-            )
+            self.generator._populate_title_slide(mock_slide, content, MSO_THEME_COLOR.ACCENT_1)
 
             mock_style.assert_called_once_with(
                 mock_run,
@@ -520,6 +520,7 @@ class TestSetSlideTitleWithSubtitle(unittest.TestCase):
     def test_subtitle_repositions_shape(self) -> None:
         """When subtitle is provided, shape is repositioned for centering."""
         from pptx.util import Inches
+
         mock_slide, mock_shape = self._make_slide_with_title()
 
         self.generator._set_slide_title(
@@ -548,6 +549,7 @@ class TestSetSlideTitleWithSubtitle(unittest.TestCase):
     def test_no_subtitle_positions_title_below_branding(self) -> None:
         """Without subtitle, title is positioned below branding graphic."""
         from pptx.util import Inches
+
         mock_slide, mock_shape = self._make_slide_with_title()
 
         self.generator._set_slide_title(
@@ -575,8 +577,10 @@ class TestFormatBodyParagraphInheritStyle(unittest.TestCase):
 
         item = BulletItem(text="Link text", level=1, url="https://example.com")
 
-        with patch.object(self.generator, "_add_text_to_paragraph") as mock_add_text, \
-             patch.object(self.generator, "_apply_native_bullet"):
+        with (
+            patch.object(self.generator, "_add_text_to_paragraph") as mock_add_text,
+            patch.object(self.generator, "_apply_native_bullet"),
+        ):
             self.generator._format_body_paragraph(
                 paragraph, item, MSO_THEME_COLOR.LIGHT_2, inherit_style=True
             )
@@ -592,8 +596,10 @@ class TestFormatBodyParagraphInheritStyle(unittest.TestCase):
         """inherit_style=True works with plain string items too."""
         paragraph = MagicMock()
 
-        with patch.object(self.generator, "_add_text_to_paragraph") as mock_add_text, \
-             patch.object(self.generator, "_apply_native_bullet"):
+        with (
+            patch.object(self.generator, "_add_text_to_paragraph") as mock_add_text,
+            patch.object(self.generator, "_apply_native_bullet"),
+        ):
             self.generator._format_body_paragraph(
                 paragraph, "Plain string", MSO_THEME_COLOR.LIGHT_2, inherit_style=True
             )

@@ -7,8 +7,8 @@ import unittest
 from unittest.mock import patch
 
 from mail.gmail_api import (
-    GmailClient,
     SCOPES,
+    GmailClient,
     ensure_google_api,
 )
 
@@ -30,10 +30,12 @@ class TestEnsureGoogleApi(unittest.TestCase):
     """Tests for ensure_google_api function."""
 
     def test_raises_when_dependencies_missing(self):
-        with patch("mail.gmail_api.Credentials", None), \
-             patch("mail.gmail_api.InstalledAppFlow", None), \
-             patch("mail.gmail_api.build", None), \
-             patch("mail.gmail_api.Request", None):
+        with (
+            patch("mail.gmail_api.Credentials", None),
+            patch("mail.gmail_api.InstalledAppFlow", None),
+            patch("mail.gmail_api.build", None),
+            patch("mail.gmail_api.Request", None),
+        ):
             with self.assertRaises(RuntimeError) as ctx:
                 ensure_google_api()
             self.assertIn("Google API libraries not installed", str(ctx.exception))
@@ -43,7 +45,9 @@ class TestGmailClientInit(unittest.TestCase):
     """Tests for GmailClient initialization."""
 
     def test_init_expands_paths(self):
-        with patch.object(os.path, "expanduser", side_effect=lambda x: x.replace("~", "/home/user")):
+        with patch.object(
+            os.path, "expanduser", side_effect=lambda x: x.replace("~", "/home/user")
+        ):
             client = GmailClient("~/creds.json", "~/token.json")
             self.assertIn("/home/user", client.credentials_path)
             self.assertIn("/home/user", client.token_path)

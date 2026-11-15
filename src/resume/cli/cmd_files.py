@@ -41,12 +41,36 @@ def register_files_commands(app: CLIApp) -> object:
         [
             (("--dir",), {"default": "_data", "help": "Directory to tidy (default: _data)"}),
             (("--prefix",), {"help": "Only match files starting with this prefix"}),
-            (("--suffixes",), {"default": ".json,.docx", "help": "Comma-separated suffix list (e.g., .json,.docx)"}),
-            (("--keep",), {"type": int, "default": 2, "help": "Keep most-recent N matches (default: 2)"}),
-            (("--archive-dir",), {"help": "Archive destination directory (default: <dir>/archive)"}),
-            (("--delete",), {"action": "store_true", "help": "Delete old files instead of archiving"}),
-            (("--purge-temp",), {"action": "store_true", "help": "Remove temporary files (e.g., '~$*.docx', .DS_Store)"}),
-            (("--subfolder",), {"help": "Subfolder under archive for moved files (e.g., profile name)"}),
+            (
+                ("--suffixes",),
+                {
+                    "default": ".json,.docx",
+                    "help": "Comma-separated suffix list (e.g., .json,.docx)",
+                },
+            ),
+            (
+                ("--keep",),
+                {"type": int, "default": 2, "help": "Keep most-recent N matches (default: 2)"},
+            ),
+            (
+                ("--archive-dir",),
+                {"help": "Archive destination directory (default: <dir>/archive)"},
+            ),
+            (
+                ("--delete",),
+                {"action": "store_true", "help": "Delete old files instead of archiving"},
+            ),
+            (
+                ("--purge-temp",),
+                {
+                    "action": "store_true",
+                    "help": "Remove temporary files (e.g., '~$*.docx', .DS_Store)",
+                },
+            ),
+            (
+                ("--subfolder",),
+                {"help": "Subfolder under archive for moved files (e.g., profile name)"},
+            ),
         ],
     )
     return files_group

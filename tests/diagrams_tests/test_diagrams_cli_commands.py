@@ -14,7 +14,6 @@ from diagrams.cli import (
     main,
 )
 from telemetry.pricing import compute_cost, model_tier
-
 from tests.diagrams_tests.fixtures import make_session
 
 
@@ -148,7 +147,9 @@ class TestCmdTelemetry(unittest.TestCase):
 
     def test_cost_pie_returns_0(self):
         sessions = [make_session(model="claude-opus-4-6", input_tok=1_000_000)]
-        with patch("diagrams.cli._load_telemetry", return_value=(sessions, compute_cost, model_tier)):
+        with patch(
+            "diagrams.cli._load_telemetry", return_value=(sessions, compute_cost, model_tier)
+        ):
             buf = StringIO()
             with patch("sys.stdout", buf):
                 rc = cmd_telemetry(self._make_args(diagram_type="cost-pie"))
@@ -157,7 +158,9 @@ class TestCmdTelemetry(unittest.TestCase):
 
     def test_token_pie_returns_0(self):
         sessions = [make_session(model="claude-sonnet-4-6")]
-        with patch("diagrams.cli._load_telemetry", return_value=(sessions, compute_cost, model_tier)):
+        with patch(
+            "diagrams.cli._load_telemetry", return_value=(sessions, compute_cost, model_tier)
+        ):
             buf = StringIO()
             with patch("sys.stdout", buf):
                 rc = cmd_telemetry(self._make_args(diagram_type="token-pie"))
@@ -165,7 +168,9 @@ class TestCmdTelemetry(unittest.TestCase):
 
     def test_timeline_returns_0(self):
         sessions = [make_session()]
-        with patch("diagrams.cli._load_telemetry", return_value=(sessions, compute_cost, model_tier)):
+        with patch(
+            "diagrams.cli._load_telemetry", return_value=(sessions, compute_cost, model_tier)
+        ):
             buf = StringIO()
             with patch("sys.stdout", buf):
                 rc = cmd_telemetry(self._make_args(diagram_type="timeline"))
@@ -174,7 +179,9 @@ class TestCmdTelemetry(unittest.TestCase):
 
     def test_unknown_diagram_type_returns_1(self):
         sessions = [make_session()]
-        with patch("diagrams.cli._load_telemetry", return_value=(sessions, compute_cost, model_tier)):
+        with patch(
+            "diagrams.cli._load_telemetry", return_value=(sessions, compute_cost, model_tier)
+        ):
             err_buf = StringIO()
             with patch("sys.stderr", err_buf):
                 rc = cmd_telemetry(self._make_args(diagram_type="unknown-type"))
@@ -191,7 +198,9 @@ class TestDiagramsMain(unittest.TestCase):
 
     def test_telemetry_cost_pie_dispatched(self):
         sessions = [make_session(model="claude-opus-4-6", input_tok=500_000)]
-        with patch("diagrams.cli._load_telemetry", return_value=(sessions, compute_cost, model_tier)):
+        with patch(
+            "diagrams.cli._load_telemetry", return_value=(sessions, compute_cost, model_tier)
+        ):
             buf = StringIO()
             with patch("sys.stdout", buf):
                 rc = main(["telemetry", "cost-pie", "--days", "14"])
@@ -199,7 +208,9 @@ class TestDiagramsMain(unittest.TestCase):
 
     def test_telemetry_token_pie_dispatched(self):
         sessions = [make_session()]
-        with patch("diagrams.cli._load_telemetry", return_value=(sessions, compute_cost, model_tier)):
+        with patch(
+            "diagrams.cli._load_telemetry", return_value=(sessions, compute_cost, model_tier)
+        ):
             buf = StringIO()
             with patch("sys.stdout", buf):
                 rc = main(["telemetry", "token-pie"])
@@ -207,7 +218,9 @@ class TestDiagramsMain(unittest.TestCase):
 
     def test_telemetry_timeline_dispatched(self):
         sessions = [make_session()]
-        with patch("diagrams.cli._load_telemetry", return_value=(sessions, compute_cost, model_tier)):
+        with patch(
+            "diagrams.cli._load_telemetry", return_value=(sessions, compute_cost, model_tier)
+        ):
             buf = StringIO()
             with patch("sys.stdout", buf):
                 rc = main(["telemetry", "timeline"])
@@ -219,7 +232,9 @@ class TestDiagramsMain(unittest.TestCase):
         must dispatch identically. Regression test for CLIApp's optional-
         separator normalization."""
         sessions = [make_session()]
-        with patch("diagrams.cli._load_telemetry", return_value=(sessions, compute_cost, model_tier)):
+        with patch(
+            "diagrams.cli._load_telemetry", return_value=(sessions, compute_cost, model_tier)
+        ):
             buf_with_sep = StringIO()
             with patch("sys.stdout", buf_with_sep):
                 rc_with_sep = main(["telemetry", "--", "token-pie", "--days", "14"])

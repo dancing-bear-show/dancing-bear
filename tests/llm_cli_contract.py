@@ -65,16 +65,12 @@ class LLMCLIContractMixin:
     def test_derive_all_outputs_files(self):
         mod = self._mod()
         with tempfile.TemporaryDirectory() as td:
-            rc = mod.main(
-                ["derive-all", "--out-dir", td, "--include-generated", "--stdout"]
-            )
+            rc = mod.main(["derive-all", "--out-dir", td, "--include-generated", "--stdout"])
             self.assertEqual(rc, 0)
             agentic_file = Path(td) / f"AGENTIC_{self.DOC_SUFFIX}.md"
             domain_map_file = Path(td) / f"DOMAIN_MAP_{self.DOC_SUFFIX}.md"
             self.assertTrue(agentic_file.exists(), f"{agentic_file.name} not found")
-            self.assertTrue(
-                domain_map_file.exists(), f"{domain_map_file.name} not found"
-            )
+            self.assertTrue(domain_map_file.exists(), f"{domain_map_file.name} not found")
             self.assertIn(
                 f"agentic: {self.APP_ID}",
                 agentic_file.read_text(encoding="utf-8"),
@@ -120,9 +116,7 @@ class LLMCLIContractMixin:
                 with capture_stdout() as buf:
                     rc = mod.main([subcmd, "--stdout"])
                 self.assertEqual(rc, 0, f"{subcmd} --stdout returned non-zero")
-                self.assertIsNotNone(
-                    builder, f"{subcmd} builder is not wired on CONFIG"
-                )
+                self.assertIsNotNone(builder, f"{subcmd} builder is not wired on CONFIG")
                 self.assertEqual(
                     buf.getvalue(),
                     builder() + "\n",
@@ -167,15 +161,11 @@ class LLMCLIContractMixin:
 
     def test_config_agentic_filename(self):
         mod = self._mod()
-        self.assertEqual(
-            mod.CONFIG.agentic_filename, f"AGENTIC_{self.DOC_SUFFIX}.md"
-        )
+        self.assertEqual(mod.CONFIG.agentic_filename, f"AGENTIC_{self.DOC_SUFFIX}.md")
 
     def test_config_domain_map_filename(self):
         mod = self._mod()
-        self.assertEqual(
-            mod.CONFIG.domain_map_filename, f"DOMAIN_MAP_{self.DOC_SUFFIX}.md"
-        )
+        self.assertEqual(mod.CONFIG.domain_map_filename, f"DOMAIN_MAP_{self.DOC_SUFFIX}.md")
 
     def test_config_shared_filenames_are_none(self):
         """Domain configs must not set shared repo-level filenames."""

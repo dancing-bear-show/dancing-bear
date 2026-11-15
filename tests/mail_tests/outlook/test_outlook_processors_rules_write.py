@@ -7,6 +7,7 @@ Targets the following uncovered paths (as of 75.2% baseline):
             163->165, 241->242, 247->237, 302->303, 321->322, 327->328,
             331->332, 361->364, 365->366, 365->371
 """
+
 from __future__ import annotations
 
 import unittest
@@ -14,15 +15,10 @@ from pathlib import Path
 from typing import cast
 from unittest.mock import MagicMock, patch
 
-from mail.outlook.processors_rules_write import (
-    OutlookRulesSyncProcessor,
-    OutlookRulesSyncResult,
-    OutlookRulesSweepProcessor,
-    OutlookRulesSweepResult,
-)
-from mail.outlook.processors_rules_plan import (
-    OutlookRulesPlanProcessor,
-    OutlookRulesPlanResult,
+from mail.outlook.consumers import (
+    OutlookRulesPlanPayload,
+    OutlookRulesSweepPayload,
+    OutlookRulesSyncPayload,
 )
 from mail.outlook.processors_rules_helpers import (
     RuleContext,
@@ -32,16 +28,21 @@ from mail.outlook.processors_rules_helpers import (
     _create_rule_key,
     _format_plan_action,
 )
-from mail.outlook.consumers import (
-    OutlookRulesSyncPayload,
-    OutlookRulesPlanPayload,
-    OutlookRulesSweepPayload,
+from mail.outlook.processors_rules_plan import (
+    OutlookRulesPlanProcessor,
+    OutlookRulesPlanResult,
 )
-
+from mail.outlook.processors_rules_write import (
+    OutlookRulesSweepProcessor,
+    OutlookRulesSweepResult,
+    OutlookRulesSyncProcessor,
+    OutlookRulesSyncResult,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_client(**kwargs) -> MagicMock:
     """Return a MagicMock client pre-configured with sensible defaults."""
@@ -69,6 +70,7 @@ def _make_ctx(**kwargs) -> RuleContext:
 # ---------------------------------------------------------------------------
 # OutlookRulesSyncProcessor._create_rule_if_new
 # ---------------------------------------------------------------------------
+
 
 class TestCreateRuleIfNewNoCriteria(unittest.TestCase):
     """Line 121 / branch 120->121: empty criteria returns None."""
@@ -181,6 +183,7 @@ class TestCreateRuleIfNewApplyPath(unittest.TestCase):
 # OutlookRulesSyncProcessor._create_desired_rules
 # ---------------------------------------------------------------------------
 
+
 class TestCreateDesiredRulesSkipInvalid(unittest.TestCase):
     """Line 153 / branch 152->153: None result from _create_rule_if_new is skipped."""
 
@@ -190,8 +193,11 @@ class TestCreateDesiredRulesSkipInvalid(unittest.TestCase):
         """A spec with no valid criteria contributes 0 to created count."""
         mock_load.return_value = {"filters": []}
         mock_norm.return_value = [
-            {"match": {}, "action": {}},                             # invalid — no criteria
-            {"match": {"from": "valid@example.com"}, "action": {"forward": "x@example.com"}},  # valid
+            {"match": {}, "action": {}},  # invalid — no criteria
+            {
+                "match": {"from": "valid@example.com"},
+                "action": {"forward": "x@example.com"},
+            },  # valid
         ]
 
         client = _make_client(list_filters=[])
@@ -225,9 +231,7 @@ class TestCreateDesiredRulesSkipInvalid(unittest.TestCase):
         """Branch 156->150: was_created=False when key already exists does not increment created."""
         mock_load.return_value = {"filters": []}
         # One desired spec
-        mock_norm.return_value = [
-            {"match": {"from": "repeat@example.com"}, "action": {}}
-        ]
+        mock_norm.return_value = [{"match": {"from": "repeat@example.com"}, "action": {}}]
         # The same rule exists already; compute canonical key via a quick helper run
         # We pre-seed existing by running process() dry once, then using the rule dict
         existing_rule = {
@@ -246,6 +250,7 @@ class TestCreateDesiredRulesSkipInvalid(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # OutlookRulesSyncProcessor._delete_one_rule
 # ---------------------------------------------------------------------------
+
 
 class TestDeleteOneRule(unittest.TestCase):
     """Lines 163-169 / branches 163->164, 163->165."""
@@ -289,6 +294,7 @@ class TestDeleteOneRule(unittest.TestCase):
 # OutlookRulesSyncProcessor._delete_missing_rules
 # ---------------------------------------------------------------------------
 
+
 class TestDeleteMissingRules(unittest.TestCase):
     """Lines 184-185: the body of _delete_missing_rules."""
 
@@ -303,9 +309,7 @@ class TestDeleteMissingRules(unittest.TestCase):
         }
         desired_keys = {"key-keep"}
 
-        payload = OutlookRulesSyncPayload(
-            client=mock_client, config_path="/t.yaml", dry_run=False
-        )
+        payload = OutlookRulesSyncPayload(client=mock_client, config_path="/t.yaml", dry_run=False)
         proc = OutlookRulesSyncProcessor()
         deleted = proc._delete_missing_rules(existing, desired_keys, payload)
 
@@ -319,9 +323,7 @@ class TestDeleteMissingRules(unittest.TestCase):
             "key-a": {"id": "r-a"},
             "key-b": {"id": "r-b"},
         }
-        payload = OutlookRulesSyncPayload(
-            client=mock_client, config_path="/t.yaml", dry_run=True
-        )
+        payload = OutlookRulesSyncPayload(client=mock_client, config_path="/t.yaml", dry_run=True)
         proc = OutlookRulesSyncProcessor()
         deleted = proc._delete_missing_rules(existing, set(), payload)
 
@@ -332,9 +334,7 @@ class TestDeleteMissingRules(unittest.TestCase):
         """When every existing key is desired, nothing is deleted."""
         mock_client = MagicMock()
         existing = {"key-a": {"id": "r-a"}}
-        payload = OutlookRulesSyncPayload(
-            client=mock_client, config_path="/t.yaml", dry_run=False
-        )
+        payload = OutlookRulesSyncPayload(client=mock_client, config_path="/t.yaml", dry_run=False)
         proc = OutlookRulesSyncProcessor()
         deleted = proc._delete_missing_rules(existing, {"key-a"}, payload)
 
@@ -346,6 +346,7 @@ class TestDeleteMissingRules(unittest.TestCase):
 # Full sync with delete_missing=True
 # ---------------------------------------------------------------------------
 
+
 class TestSyncWithDeleteMissing(unittest.TestCase):
     """Exercise the delete_missing branch in process()."""
 
@@ -354,9 +355,7 @@ class TestSyncWithDeleteMissing(unittest.TestCase):
     def test_delete_missing_removes_stale_rules(self, mock_norm, mock_load):
         """delete_missing=True causes stale rules to be removed."""
         mock_load.return_value = {"filters": []}
-        mock_norm.return_value = [
-            {"match": {"from": "keep@example.com"}, "action": {}}
-        ]
+        mock_norm.return_value = [{"match": {"from": "keep@example.com"}, "action": {}}]
 
         # Stale rule has no corresponding desired spec
         stale_rule = {
@@ -384,6 +383,7 @@ class TestSyncWithDeleteMissing(unittest.TestCase):
 # OutlookRulesPlanProcessor._build_plan_items
 # ---------------------------------------------------------------------------
 
+
 class TestBuildPlanItemsSkipNoCriteria(unittest.TestCase):
     """Line 242 / branch 241->242: continue when criteria is empty."""
 
@@ -393,7 +393,7 @@ class TestBuildPlanItemsSkipNoCriteria(unittest.TestCase):
         """A spec with no valid match fields is skipped in plan output."""
         mock_load.return_value = {"filters": []}
         mock_norm.return_value = [
-            {"match": {}, "action": {}},                              # empty — skipped
+            {"match": {}, "action": {}},  # empty — skipped
             {"match": {"from": "ok@example.com"}, "action": {"forward": "x@example.com"}},  # valid
         ]
 
@@ -413,9 +413,7 @@ class TestBuildPlanItemsSkipExisting(unittest.TestCase):
     def test_existing_key_not_included_in_plan(self, mock_norm, mock_load):
         """A desired spec whose key matches an existing rule is not in plan items."""
         mock_load.return_value = {"filters": []}
-        mock_norm.return_value = [
-            {"match": {"from": "old@example.com"}, "action": {}}
-        ]
+        mock_norm.return_value = [{"match": {"from": "old@example.com"}, "action": {}}]
 
         # Existing rule with the same from address — keys will collide
         existing_rule = {
@@ -434,6 +432,7 @@ class TestBuildPlanItemsSkipExisting(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # OutlookRulesSweepProcessor.process — exception path
 # ---------------------------------------------------------------------------
+
 
 class TestSweepProcessorException(unittest.TestCase):
     """Lines 293-294: outer exception handler in sweep process()."""
@@ -455,6 +454,7 @@ class TestSweepProcessorException(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # OutlookRulesSweepProcessor._clear_cache_if_needed
 # ---------------------------------------------------------------------------
+
 
 class TestClearCacheIfNeeded(unittest.TestCase):
     """Lines 303-306 / branch 302->303."""
@@ -486,6 +486,7 @@ class TestClearCacheIfNeeded(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # OutlookRulesSweepProcessor._process_sweep_rules — skip branches
 # ---------------------------------------------------------------------------
+
 
 class TestProcessSweepRulesSkips(unittest.TestCase):
     """Lines 322, 328, 332 / branches 321->322, 327->328, 331->332."""
@@ -557,6 +558,7 @@ class TestProcessSweepRulesSkips(unittest.TestCase):
 # OutlookRulesSweepProcessor._move_messages
 # ---------------------------------------------------------------------------
 
+
 class TestMoveMessages(unittest.TestCase):
     """Lines 364-371 / branches 361->364, 365->366, 365->371."""
 
@@ -601,6 +603,7 @@ class TestMoveMessages(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Full sweep integration with clear_cache and non-dry-run
 # ---------------------------------------------------------------------------
+
 
 class TestSweepFullIntegration(unittest.TestCase):
     """Exercise clear_cache, actual message move, and count aggregation."""
@@ -695,9 +698,7 @@ class TestPlanProcessorHonoursNoMoveToFolder(unittest.TestCase):
             config_path="/t.yaml",
             move_to_folders=True,
         )
-        with patch(
-            "core.yamlio.load_config", return_value={"filters": filters}
-        ):
+        with patch("core.yamlio.load_config", return_value={"filters": filters}):
             envelope = OutlookRulesPlanProcessor().process(payload)
         self.assertEqual(envelope.status, "success")
         result = envelope.payload
@@ -710,7 +711,12 @@ class TestPlanProcessorHonoursNoMoveToFolder(unittest.TestCase):
     def test_keep_in_inbox_rule_plans_no_folder_move(self):
         """A derived noMoveToFolder rule must plan an action with no moveToFolderId."""
         items = self._plan(
-            [{"match": {"from": "grafana.com"}, "action": {"add": ["Tech/Grafana"], "noMoveToFolder": True}}]
+            [
+                {
+                    "match": {"from": "grafana.com"},
+                    "action": {"add": ["Tech/Grafana"], "noMoveToFolder": True},
+                }
+            ]
         )
         self.assertEqual(1, len(items))
         self.assertNotIn("moveToFolderId", items[0])
@@ -743,7 +749,12 @@ class TestPlanProcessorHonoursNoMoveToFolder(unittest.TestCase):
         `action={'moveToFolderId': 'Tech-Grafana', ...}`.
         """
         items = self._plan(
-            [{"match": {"from": "grafana.com"}, "action": {"add": ["Tech/Grafana"], "keepInInbox": True}}]
+            [
+                {
+                    "match": {"from": "grafana.com"},
+                    "action": {"add": ["Tech/Grafana"], "keepInInbox": True},
+                }
+            ]
         )
         self.assertEqual(1, len(items))
         self.assertNotIn("moveToFolderId", items[0])
@@ -762,10 +773,12 @@ class TestPlanProcessorHonoursNoMoveToFolder(unittest.TestCase):
         the plan is what you read before committing to the change.
         """
         items = self._plan(
-            [{
-                "match": {"from": "grafana.com"},
-                "action": {"moveToFolder": "Archive", "noMoveToFolder": True},
-            }]
+            [
+                {
+                    "match": {"from": "grafana.com"},
+                    "action": {"moveToFolder": "Archive", "noMoveToFolder": True},
+                }
+            ]
         )
         self.assertEqual(1, len(items))
         self.assertIn("moveToFolderId", items[0])
@@ -774,7 +787,10 @@ class TestPlanProcessorHonoursNoMoveToFolder(unittest.TestCase):
         """Both rule kinds in one config: only the marked one skips the move."""
         items = self._plan(
             [
-                {"match": {"from": "grafana.com"}, "action": {"add": ["Tech/Grafana"], "noMoveToFolder": True}},
+                {
+                    "match": {"from": "grafana.com"},
+                    "action": {"add": ["Tech/Grafana"], "noMoveToFolder": True},
+                },
                 {"match": {"from": "shop.example.com"}, "action": {"add": ["Lists/Commercial"]}},
             ]
         )
@@ -853,9 +869,7 @@ class TestPlanNestedExplicitDestination(unittest.TestCase):
         then diverged for every nested raw rule, not just explicit ones.
         """
         path_map = {"Lists/Commercial": "real-comm-id"}
-        plan_ctx = RuleContext.for_plan(
-            name_to_id={}, folder_map=path_map, move_to_folders=True
-        )
+        plan_ctx = RuleContext.for_plan(name_to_id={}, folder_map=path_map, move_to_folders=True)
         client = MagicMock()
         client.ensure_folder_path.return_value = "real-comm-id"
         sync_ctx = RuleContext(
@@ -869,9 +883,7 @@ class TestPlanNestedExplicitDestination(unittest.TestCase):
         self.assertEqual("real-comm-id", plan_action["moveToFolderId"])
         self.assertEqual(sync_action, plan_action)
         crit = _build_rule_criteria({"from": "shop.example.com"})
-        self.assertEqual(
-            _create_rule_key(crit, sync_action), _create_rule_key(crit, plan_action)
-        )
+        self.assertEqual(_create_rule_key(crit, sync_action), _create_rule_key(crit, plan_action))
 
     def test_explicit_destination_loads_path_map_under_categories_only(self):
         """`--categories-only` must still resolve an explicit destination.
@@ -886,10 +898,12 @@ class TestPlanNestedExplicitDestination(unittest.TestCase):
         payload = OutlookRulesPlanPayload(
             client=client, config_path="/t.yaml", move_to_folders=False
         )
-        filters = [{
-            "match": {"from": "sec.example.net"},
-            "action": {"add": ["Security/Alerts"], "moveToFolder": "Security/Alerts"},
-        }]
+        filters = [
+            {
+                "match": {"from": "sec.example.net"},
+                "action": {"add": ["Security/Alerts"], "moveToFolder": "Security/Alerts"},
+            }
+        ]
         with patch("core.yamlio.load_config", return_value={"filters": filters}):
             envelope = OutlookRulesPlanProcessor().process(payload)
 
@@ -911,10 +925,12 @@ class TestPlanNestedExplicitDestination(unittest.TestCase):
         payload = OutlookRulesPlanPayload(
             client=client, config_path="/t.yaml", move_to_folders=False
         )
-        filters = [{
-            "match": {"from": "a@example.com"},
-            "action": {"add": ["Tech/Grafana"], "noMoveToFolder": True},
-        }]
+        filters = [
+            {
+                "match": {"from": "a@example.com"},
+                "action": {"add": ["Tech/Grafana"], "noMoveToFolder": True},
+            }
+        ]
         with patch("core.yamlio.load_config", return_value={"filters": filters}):
             envelope = OutlookRulesPlanProcessor().process(payload)
 
@@ -956,10 +972,12 @@ class TestPlanNestedExplicitDestination(unittest.TestCase):
                     use_cache=use_cache,
                     cache_ttl=cache_ttl,
                 )
-                filters = [{
-                    "match": {"from": "sec.example.net"},
-                    "action": {"add": ["Security/Alerts"], "moveToFolder": "Security/Alerts"},
-                }]
+                filters = [
+                    {
+                        "match": {"from": "sec.example.net"},
+                        "action": {"add": ["Security/Alerts"], "moveToFolder": "Security/Alerts"},
+                    }
+                ]
                 with patch("core.yamlio.load_config", return_value={"filters": filters}):
                     envelope = OutlookRulesPlanProcessor().process(payload)
 
@@ -1186,10 +1204,12 @@ class TestSyncNeverCreatesAnActionlessRule(unittest.TestCase):
         payload = OutlookRulesSyncPayload(
             client=client, config_path="/t.yaml", dry_run=False, move_to_folders=True
         )
-        raw = [{
-            "match": {"from": "grafana.com"},
-            "action": {"keepInInbox": True, "remove": ["INBOX"]},
-        }]
+        raw = [
+            {
+                "match": {"from": "grafana.com"},
+                "action": {"keepInInbox": True, "remove": ["INBOX"]},
+            }
+        ]
         with patch("core.yamlio.load_config", return_value={"filters": raw}):
             envelope = OutlookRulesSyncProcessor().process(payload)
 
@@ -1225,7 +1245,9 @@ class TestSyncNeverCreatesAnActionlessRule(unittest.TestCase):
 
                 sync_client = _make_client()
                 sync_payload = OutlookRulesSyncPayload(
-                    client=sync_client, config_path="/t.yaml", dry_run=False,
+                    client=sync_client,
+                    config_path="/t.yaml",
+                    dry_run=False,
                     move_to_folders=True,
                 )
                 with patch("core.yamlio.load_config", return_value={"filters": filters}):
@@ -1269,14 +1291,18 @@ class TestSweepCategoriesOnlyExplicitDestination(unittest.TestCase):
     plan-then-apply discipline rests on the preview being honest.
     """
 
-    FILTERS = [{
-        "match": {"from": "sec.example.net"},
-        "action": {"add": ["Security/Alerts"], "moveToFolder": "Security/Alerts"},
-    }]
-    NO_DEST = [{
-        "match": {"from": "a@example.com"},
-        "action": {"add": ["Tech/Grafana"], "noMoveToFolder": True},
-    }]
+    FILTERS = [
+        {
+            "match": {"from": "sec.example.net"},
+            "action": {"add": ["Security/Alerts"], "moveToFolder": "Security/Alerts"},
+        }
+    ]
+    NO_DEST = [
+        {
+            "match": {"from": "a@example.com"},
+            "action": {"add": ["Tech/Grafana"], "noMoveToFolder": True},
+        }
+    ]
 
     def _sweep(self, filters: list[dict], dry_run: bool):
         client = MagicMock()
@@ -1325,10 +1351,12 @@ class TestSweepCategoriesOnlyExplicitDestination(unittest.TestCase):
         preview must not call `ensure_folder_path`, because previews must not
         create folders.
         """
-        filters = [{
-            "match": {"from": "sec.example.net"},
-            "action": {"add": ["Security/Alerts"], "moveToFolder": "Brand/New"},
-        }]
+        filters = [
+            {
+                "match": {"from": "sec.example.net"},
+                "action": {"add": ["Security/Alerts"], "moveToFolder": "Brand/New"},
+            }
+        ]
 
         def run(dry_run: bool):
             client = MagicMock()
@@ -1337,7 +1365,9 @@ class TestSweepCategoriesOnlyExplicitDestination(unittest.TestCase):
             client.ensure_folder_path.side_effect = lambda p: f"fresh:{p}"
             client.search_inbox_messages.return_value = ["m1", "m2"]
             payload = OutlookRulesSweepPayload(
-                client=client, config_path="/t.yaml", dry_run=dry_run,
+                client=client,
+                config_path="/t.yaml",
+                dry_run=dry_run,
                 move_to_folders=False,
             )
             with patch("core.yamlio.load_config", return_value={"filters": filters}):

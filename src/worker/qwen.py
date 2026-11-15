@@ -85,7 +85,12 @@ from core.process import run_binary
 from core.secrets import mask_text
 from worker._helpers import get_repo_root, get_worker_state_dir
 from worker.qwen_edits import EDIT_FORMAT_EXAMPLE, EditBlockError, edits_to_diff
-from worker.qwen_telemetry import describe_exception, export_in_background, export_job_metrics, export_job_span
+from worker.qwen_telemetry import (
+    describe_exception,
+    export_in_background,
+    export_job_metrics,
+    export_job_span,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -355,7 +360,9 @@ def _validate_payload(payload: dict[str, object]) -> tuple[list[str], str]:
     """
     files = payload.get("files")
     if isinstance(files, list) and len(files) > THRESHOLDS.max_input_files:
-        raise QwenGuardError(f"terminal-invalid-payload: files must list at most {THRESHOLDS.max_input_files} entries")
+        raise QwenGuardError(
+            f"terminal-invalid-payload: files must list at most {THRESHOLDS.max_input_files} entries"
+        )
     if not isinstance(files, list) or not files or not all(isinstance(f, str) for f in files):
         raise QwenGuardError("terminal-invalid-payload: files must be a non-empty list[str]")
     instruction = payload.get("instruction")
@@ -833,8 +840,8 @@ def _extended_header_targets(line: str) -> list[str]:
     """
     for prefix in _RENAME_COPY_PREFIXES:
         if line.startswith(prefix):
-            return [_header_name(line[len(prefix):].strip())]
-    left, right = _split_git_diff_header(line[len(_GIT_DIFF_HEADER):].strip())
+            return [_header_name(line[len(prefix) :].strip())]
+    left, right = _split_git_diff_header(line[len(_GIT_DIFF_HEADER) :].strip())
     return [_strip_patch_prefix(_header_name(left)), _strip_patch_prefix(_header_name(right))]
 
 
@@ -1113,7 +1120,9 @@ def _try_acquire_lock(lock_path: Path) -> _LockHolder | None:
 
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     holder = _LockHolder(pid=os.getpid(), started_at=time.time(), token=uuid.uuid4().hex)
-    payload = json.dumps({"pid": holder.pid, "started_at": holder.started_at, "token": holder.token})
+    payload = json.dumps(
+        {"pid": holder.pid, "started_at": holder.started_at, "token": holder.token}
+    )
     fd, tmp_name = tempfile.mkstemp(dir=str(lock_path.parent), prefix=".model.lock.")
     try:
         with os.fdopen(fd, "wb") as fh:
@@ -1196,7 +1205,10 @@ def _suspect_is_reclaimable(holder: _LockHolder) -> bool:
     the lock (fail safe)."""
     is_worker = _pid_is_worker(holder.pid)
     if is_worker is None:
-        _log.warning("qwen: cannot confirm whether lock holder pid %s is a worker; keeping its lock", holder.pid)
+        _log.warning(
+            "qwen: cannot confirm whether lock holder pid %s is a worker; keeping its lock",
+            holder.pid,
+        )
         return False
     return not is_worker or _lane_depth(JOB_TYPE) == 0
 
@@ -1216,7 +1228,9 @@ def _handle_existing_lock(lock_path: Path) -> _LockHolder | None:
     return None
 
 
-def _acquire_lock_with_wait(lock_path: Path, wait_ceiling_sec: float | None = None) -> _LockHolder | None:
+def _acquire_lock_with_wait(
+    lock_path: Path, wait_ceiling_sec: float | None = None
+) -> _LockHolder | None:
     """Poll for the lock up to wait_ceiling_sec. Returns the holder record on acquisition."""
     ceiling = THRESHOLDS.wait_ceiling_sec if wait_ceiling_sec is None else wait_ceiling_sec
     deadline = time.time() + ceiling
@@ -1356,7 +1370,10 @@ def _deferral_limit_verdict(job_id: str, count: int) -> str | None:
     state = _load_deferral_state(job_id)
     first_deferred_at = _as_float(state.get("first_deferred_at"), time.time())
     wallclock_min = (time.time() - first_deferred_at) / 60
-    if count >= THRESHOLDS.deferral_ceiling_count or wallclock_min >= THRESHOLDS.deferral_wallclock_ceiling_min:
+    if (
+        count >= THRESHOLDS.deferral_ceiling_count
+        or wallclock_min >= THRESHOLDS.deferral_wallclock_ceiling_min
+    ):
         reason = _dominant_deferral_reason(job_id)
         return f"terminal-deferral-limit: {reason}" if reason else "terminal-deferral-limit"
     return None
@@ -1382,7 +1399,9 @@ def _clear_deferral_state(job_id: str) -> None:
         pass
     except OSError as exc:
         _log.warning(
-            "qwen: could not delete deferral state for %s: %s", mask_text(job_id), describe_exception(exc)
+            "qwen: could not delete deferral state for %s: %s",
+            mask_text(job_id),
+            describe_exception(exc),
         )
 
 
@@ -1429,7 +1448,11 @@ def _load_recorded_digest(model: str) -> str | None:
     try:
         record = _read_pin_record(path)
     except ModelPinError:
-        _log.warning("qwen: unreadable model digest record at %s; treating %s as unpinned", path, mask_text(model))
+        _log.warning(
+            "qwen: unreadable model digest record at %s; treating %s as unpinned",
+            path,
+            mask_text(model),
+        )
         return None
     value = record.get(model)
     return value if isinstance(value, str) and value.strip() else None
@@ -1489,7 +1512,9 @@ def _check_model_pin(host: str, model: str) -> ModelPin:
         return ModelPin(None, None, "unverified", recorded)
     matches = _normalise_digest(running) == _normalise_digest(recorded)
     if not matches:
-        _log.warning("qwen: model digest drift for %s: recorded %s, running %s", shown, recorded, running)
+        _log.warning(
+            "qwen: model digest drift for %s: recorded %s, running %s", shown, recorded, running
+        )
     return ModelPin(running, matches, "match" if matches else "mismatch", recorded)
 
 
@@ -1522,7 +1547,9 @@ def _write_pin_record(path: Path, record: dict[str, object]) -> None:
         finally:
             os.close(dfd)
     except OSError as exc:
-        raise ModelPinError(f"cannot write digest record {path}: {describe_exception(exc)}") from exc
+        raise ModelPinError(
+            f"cannot write digest record {path}: {describe_exception(exc)}"
+        ) from exc
 
 
 def record_model_pin(model: str) -> PinRecordResult:
@@ -1551,14 +1578,20 @@ def record_model_pin(model: str) -> PinRecordResult:
     record = _read_pin_record(path)
     current = record.get(model)
     if isinstance(current, str) and _normalise_digest(current) == _normalise_digest(digest):
-        return PinRecordResult(model, digest, path, written=False, reason="already-current", readback_ok=True)
+        return PinRecordResult(
+            model, digest, path, written=False, reason="already-current", readback_ok=True
+        )
     record[model] = digest
     _write_pin_record(path, record)
     try:
         readback = _read_pin_record(path).get(model)
     except ModelPinError:
-        return PinRecordResult(model, digest, path, written=True, reason="written", readback_ok=False)
-    return PinRecordResult(model, digest, path, written=True, reason="written", readback_ok=readback == digest)
+        return PinRecordResult(
+            model, digest, path, written=True, reason="written", readback_ok=False
+        )
+    return PinRecordResult(
+        model, digest, path, written=True, reason="written", readback_ok=readback == digest
+    )
 
 
 @dataclass(frozen=True)
@@ -1649,7 +1682,9 @@ def _explain_report(prepared: _PreparedJob) -> dict[str, object]:
             "required_gb": memory.required_gb,
             # Floor to 2 decimal places so the displayed value stays on the same side
             # of the threshold as the guard's decision (round-to-nearest can flip it).
-            "available_gb": None if memory.available_bytes is None else memory.available_bytes * 100 // _GIB / 100,
+            "available_gb": None
+            if memory.available_bytes is None
+            else memory.available_bytes * 100 // _GIB / 100,
         },
     }
     return {mask_text(key): _masked(value) for key, value in report.items()}
@@ -2009,7 +2044,9 @@ def _expired_response_names(
     return expired
 
 
-def _prune_response_entries(dfd: int, cutoff: float, *, max_files: int | None = None, keep: str | None = None) -> int:
+def _prune_response_entries(
+    dfd: int, cutoff: float, *, max_files: int | None = None, keep: str | None = None
+) -> int:
     """Remove the responses _expired_response_names selects; return the count.
 
     Unlinks go through dfd; a failed unlink is logged and skipped. The
@@ -2021,7 +2058,9 @@ def _prune_response_entries(dfd: int, cutoff: float, *, max_files: int | None = 
         try:
             os.unlink(name, dir_fd=dfd)
         except OSError as exc:
-            _log.debug("qwen: could not prune response %s (non-fatal): %s", name, describe_exception(exc))
+            _log.debug(
+                "qwen: could not prune response %s (non-fatal): %s", name, describe_exception(exc)
+            )
         else:
             removed += 1
     return removed
@@ -2046,7 +2085,9 @@ def _responses_lock(dfd: int) -> Iterator[None]:
         fcntl.flock(dfd, fcntl.LOCK_UN)
 
 
-def prune_responses(older_than_sec: float, *, now: float | None = None, dry_run: bool = False) -> int:
+def prune_responses(
+    older_than_sec: float, *, now: float | None = None, dry_run: bool = False
+) -> int:
     """Remove saved responses older than older_than_sec; return the count.
 
     The scoped purge behind `worker purge --folders qwen-responses`: the
@@ -2102,7 +2143,9 @@ def _persist_response(job_id: str, response_text: str) -> None:
             head = response_text[: _MASK_INPUT_CHARS + _MASK_MARGIN_CHARS]
             capped = mask_text(head).encode("utf-8")[:MAX_PERSISTED_RESPONSE_BYTES]
             with _responses_lock(dfd):
-                _replace_file_at(dfd, final_name, capped.decode("utf-8", errors="ignore").encode("utf-8"))
+                _replace_file_at(
+                    dfd, final_name, capped.decode("utf-8", errors="ignore").encode("utf-8")
+                )
                 _prune_response_entries(
                     dfd,
                     time.time() - THRESHOLDS.response_retention_days * 86400,
@@ -2112,7 +2155,9 @@ def _persist_response(job_id: str, response_text: str) -> None:
         finally:
             os.close(dfd)
     except Exception as exc:  # nosec B110 - diagnostics are best-effort; the job's outcome is already decided
-        _log.debug("qwen: could not persist the model response (non-fatal): %s", describe_exception(exc))
+        _log.debug(
+            "qwen: could not persist the model response (non-fatal): %s", describe_exception(exc)
+        )
 
 
 def _check_output_complete(response: dict[str, object]) -> None:
@@ -2402,9 +2447,18 @@ class _TelemetryEvent:
 
 def _telemetry_event(run: _JobRun, outcome: str, end_ns: int) -> _TelemetryEvent:
     """The model call's own window when there was one, else the handler's run."""
-    start_ns, stop_ns = run.generation_ns if run.generation_ns is not None else (run.start_ns, end_ns)
+    start_ns, stop_ns = (
+        run.generation_ns if run.generation_ns is not None else (run.start_ns, end_ns)
+    )
     return _TelemetryEvent(
-        run.identity, outcome, run.patch_valid, start_ns, stop_ns, run.prompt_tokens, run.completion_tokens, run.pin
+        run.identity,
+        outcome,
+        run.patch_valid,
+        start_ns,
+        stop_ns,
+        run.prompt_tokens,
+        run.completion_tokens,
+        run.pin,
     )
 
 
@@ -2431,7 +2485,9 @@ def _telemetry_attrs(event: _TelemetryEvent) -> dict[str, object]:
         attrs["qwen.model_pin"] = event.pin.status
         attrs["qwen.model_digest"] = event.pin.running_digest
     attrs["qwen.generation_duration_ms"] = (event.end_ns - event.start_ns) // 1_000_000
-    return {key: mask_text(value) if isinstance(value, str) else value for key, value in attrs.items()}
+    return {
+        key: mask_text(value) if isinstance(value, str) else value for key, value in attrs.items()
+    }
 
 
 def _export_event(event: _TelemetryEvent, attrs: dict[str, object]) -> None:
@@ -2463,7 +2519,9 @@ def _emit_telemetry(event: _TelemetryEvent) -> None:
         attrs = _telemetry_attrs(event)
         export_in_background(lambda: _export_event(event, attrs))
     except Exception as exc:  # nosec B110 - contract.telemetry.failure_is_nonfatal: even failing to schedule the export must not affect the job
-        _log.debug("qwen: could not schedule telemetry export (non-fatal): %s", describe_exception(exc))
+        _log.debug(
+            "qwen: could not schedule telemetry export (non-fatal): %s", describe_exception(exc)
+        )
 
 
 def _deferral_outcome(job_id: str, reason: str, outcome: str) -> str:
@@ -2487,7 +2545,9 @@ def _int_or_none(value: object) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
-def _finalize_success(run: _JobRun, host: str, diff: str, response: dict[str, object]) -> tuple[bool, object]:
+def _finalize_success(
+    run: _JobRun, host: str, diff: str, response: dict[str, object]
+) -> tuple[bool, object]:
     """Write the patch, compute stats/pinning, record telemetry facts, and build the success result."""
     patch_path = _write_patch_file(run.identity.job_id, diff)
     paths_touched, lines_changed = diff_stats(diff)
@@ -2526,7 +2586,9 @@ def _run_generation(run: _JobRun, prepared: _PreparedJob, timeout: float) -> tup
 
     job_id = run.identity.job_id
     start_ns = time.time_ns()
-    outcome = _run_with_lock(_GenerationRequest(job_id, prepared.host, prompt, files, prepared.options, timeout))
+    outcome = _run_with_lock(
+        _GenerationRequest(job_id, prepared.host, prompt, files, prepared.options, timeout)
+    )
     run.generation_ns = (start_ns, time.time_ns())
 
     if isinstance(outcome, str):

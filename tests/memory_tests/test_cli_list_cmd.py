@@ -117,9 +117,7 @@ class TestFilterMemories(MemoryTestCase):
             _make_memory("b"),
             _make_memory("c"),
         )
-        result = _filter_memories(
-            mems, type_filter=None, unindexed_only=False, stale_days=None
-        )
+        result = _filter_memories(mems, type_filter=None, unindexed_only=False, stale_days=None)
         self.assertEqual(len(result), 3)
 
     def test_type_filter_keeps_matching_type(self) -> None:
@@ -168,9 +166,7 @@ class TestFilterMemories(MemoryTestCase):
     def test_stale_days_zero_includes_memories_from_today(self) -> None:
         now = datetime.now(UTC)
         today = _make_memory("today", mtime=now)
-        result = _filter_memories(
-            (today,), type_filter=None, unindexed_only=False, stale_days=0
-        )
+        result = _filter_memories((today,), type_filter=None, unindexed_only=False, stale_days=0)
         # mtime=now → (now - now).days == 0 → 0 >= 0 is True
         self.assertEqual(len(result), 1)
 
@@ -248,9 +244,7 @@ class TestMainNoCurrentStore(MemoryTestCase):
     def test_no_stores_found_returns_zero(self) -> None:
         with (
             patch("memory.commands.list_cmd.discover_stores", return_value=()),
-            patch(
-                "memory.commands.list_cmd.resolve_current_store", return_value=None
-            ),
+            patch("memory.commands.list_cmd.resolve_current_store", return_value=None),
         ):
             rc, _, _ = _run_list()
         self.assertEqual(rc, 0)
@@ -258,9 +252,7 @@ class TestMainNoCurrentStore(MemoryTestCase):
     def test_no_stores_prints_message_to_stderr(self) -> None:
         with (
             patch("memory.commands.list_cmd.discover_stores", return_value=()),
-            patch(
-                "memory.commands.list_cmd.resolve_current_store", return_value=None
-            ),
+            patch("memory.commands.list_cmd.resolve_current_store", return_value=None),
         ):
             _, _, err = _run_list()
         self.assertIn("No memory stores found", err)
@@ -300,12 +292,8 @@ class TestMainNonMemoryMode(MemoryTestCase):
     def test_non_memory_lists_non_memory_files(self) -> None:
         store = _make_store("slug-nm", non_memory_files=("notes.txt", "scratch.md"))
         with (
-            patch(
-                "memory.commands.list_cmd.discover_stores", return_value=(store,)
-            ),
-            patch(
-                "memory.commands.list_cmd.resolve_current_store", return_value=store
-            ),
+            patch("memory.commands.list_cmd.discover_stores", return_value=(store,)),
+            patch("memory.commands.list_cmd.resolve_current_store", return_value=store),
         ):
             _, out, _ = _run_list("--non-memory", "--format", "json")
 
@@ -317,12 +305,8 @@ class TestMainNonMemoryMode(MemoryTestCase):
     def test_non_memory_returns_int(self) -> None:
         store = _make_store("slug-nm2", non_memory_files=())
         with (
-            patch(
-                "memory.commands.list_cmd.discover_stores", return_value=(store,)
-            ),
-            patch(
-                "memory.commands.list_cmd.resolve_current_store", return_value=store
-            ),
+            patch("memory.commands.list_cmd.discover_stores", return_value=(store,)),
+            patch("memory.commands.list_cmd.resolve_current_store", return_value=store),
         ):
             rc, _, _ = _run_list("--non-memory")
         self.assertIsInstance(rc, int)
@@ -355,12 +339,8 @@ class TestMainFilters(MemoryTestCase):
         store = _make_store("filter-slug", memories=(feedback, project))
 
         with (
-            patch(
-                "memory.commands.list_cmd.discover_stores", return_value=(store,)
-            ),
-            patch(
-                "memory.commands.list_cmd.resolve_current_store", return_value=store
-            ),
+            patch("memory.commands.list_cmd.discover_stores", return_value=(store,)),
+            patch("memory.commands.list_cmd.resolve_current_store", return_value=store),
         ):
             _, out, _ = _run_list("--type", "feedback", "--format", "json")
 
@@ -374,12 +354,8 @@ class TestMainFilters(MemoryTestCase):
         store = _make_store("unindexed-slug", memories=(indexed_mem, unindexed_mem))
 
         with (
-            patch(
-                "memory.commands.list_cmd.discover_stores", return_value=(store,)
-            ),
-            patch(
-                "memory.commands.list_cmd.resolve_current_store", return_value=store
-            ),
+            patch("memory.commands.list_cmd.discover_stores", return_value=(store,)),
+            patch("memory.commands.list_cmd.resolve_current_store", return_value=store),
         ):
             _, out, _ = _run_list("--unindexed", "--format", "json")
 
@@ -394,12 +370,8 @@ class TestMainFilters(MemoryTestCase):
         store = _make_store("stale-slug", memories=(old, fresh))
 
         with (
-            patch(
-                "memory.commands.list_cmd.discover_stores", return_value=(store,)
-            ),
-            patch(
-                "memory.commands.list_cmd.resolve_current_store", return_value=store
-            ),
+            patch("memory.commands.list_cmd.discover_stores", return_value=(store,)),
+            patch("memory.commands.list_cmd.resolve_current_store", return_value=store),
         ):
             _, out, _ = _run_list("--stale-days", "10", "--format", "json")
 
@@ -499,9 +471,7 @@ class TestMainReturnType(MemoryTestCase):
     def test_always_returns_int_on_empty_stores(self) -> None:
         with (
             patch("memory.commands.list_cmd.discover_stores", return_value=()),
-            patch(
-                "memory.commands.list_cmd.resolve_current_store", return_value=None
-            ),
+            patch("memory.commands.list_cmd.resolve_current_store", return_value=None),
         ):
             rc, _, _ = _run_list()
         self.assertIsInstance(rc, int)
@@ -509,12 +479,8 @@ class TestMainReturnType(MemoryTestCase):
     def test_always_returns_int_with_stores(self) -> None:
         store = _make_store("int-test", memories=(_make_memory(),))
         with (
-            patch(
-                "memory.commands.list_cmd.discover_stores", return_value=(store,)
-            ),
-            patch(
-                "memory.commands.list_cmd.resolve_current_store", return_value=store
-            ),
+            patch("memory.commands.list_cmd.discover_stores", return_value=(store,)),
+            patch("memory.commands.list_cmd.resolve_current_store", return_value=store),
         ):
             rc, _, _ = _run_list()
         self.assertIsInstance(rc, int)

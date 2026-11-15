@@ -67,9 +67,7 @@ def _strip_trailing_slash(url: str) -> str:
     return url[:-1] if url.endswith("/") else url
 
 
-def _resolve_signal_endpoint(
-    *, signal_env: str, signal_protocol_env: str, path: str
-) -> str:
+def _resolve_signal_endpoint(*, signal_env: str, signal_protocol_env: str, path: str) -> str:
     """Resolve the OTLP HTTP endpoint for one signal (traces or metrics).
 
     Resolution order, per standard OTel semantics:
@@ -202,7 +200,9 @@ def _sum_metric(
     }
 
 
-def _gauge_metric(name: str, unit: str, value: float, attrs: dict[str, object], now_ns: int) -> dict[str, object]:
+def _gauge_metric(
+    name: str, unit: str, value: float, attrs: dict[str, object], now_ns: int
+) -> dict[str, object]:
     """A gauge metric with one data point: a single point-in-time measurement,
 
     not something that accumulates across jobs. Matches OTLPMetric.from_dict's
@@ -250,9 +250,13 @@ def build_job_metrics(
         )
     if completion_tokens is not None:
         metrics.append(
-            _sum_metric(METRIC_COMPLETION_TOKENS, completion_tokens, attrs, interval_start_ns, timestamp_ns)
+            _sum_metric(
+                METRIC_COMPLETION_TOKENS, completion_tokens, attrs, interval_start_ns, timestamp_ns
+            )
         )
-    metrics.append(_gauge_metric(METRIC_GENERATION_DURATION_MS, "ms", duration_ms, attrs, timestamp_ns))
+    metrics.append(
+        _gauge_metric(METRIC_GENERATION_DURATION_MS, "ms", duration_ms, attrs, timestamp_ns)
+    )
 
     return {
         "resourceMetrics": [
@@ -331,7 +335,9 @@ def _run_export_task(task: Callable[[], None]) -> None:
     try:
         task()
     except Exception as exc:  # nosec B110 - best-effort telemetry: an export failure must never surface anywhere
-        _log.debug("qwen: background telemetry export failed (non-fatal): %s", describe_exception(exc))
+        _log.debug(
+            "qwen: background telemetry export failed (non-fatal): %s", describe_exception(exc)
+        )
     finally:
         with _inflight_lock:
             _inflight.discard(threading.current_thread())
@@ -345,7 +351,9 @@ def export_in_background(task: Callable[[], None]) -> threading.Thread:
     simply dropped, which is acceptable for best-effort telemetry. The
     thread is returned for callers that want to observe it.
     """
-    thread = threading.Thread(target=_run_export_task, args=(task,), name="qwen-telemetry-export", daemon=True)
+    thread = threading.Thread(
+        target=_run_export_task, args=(task,), name="qwen-telemetry-export", daemon=True
+    )
     with _inflight_lock:
         _inflight.add(thread)
     thread.start()

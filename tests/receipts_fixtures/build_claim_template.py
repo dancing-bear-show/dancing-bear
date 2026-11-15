@@ -22,6 +22,7 @@ Covers the five size-mapped prefixes plus representative wide fields:
 
 Run: python3 tests/receipts_fixtures/build_claim_template.py
 """
+
 from __future__ import annotations
 
 import pathlib
@@ -61,10 +62,12 @@ FIELDS: list[tuple[str, str]] = [
 def build(path: pathlib.Path = OUT) -> None:
     doc = fitz.open()
     page = doc.new_page(width=612, height=792)
-    page.insert_text((54, 48), "SYNTHETIC CLAIM TEMPLATE -- TEST FIXTURE",
-                     fontsize=12, fontname="hebo")
-    page.insert_text((54, 64), "Not an insurer form. No personal data.",
-                     fontsize=8, fontname="helv")
+    page.insert_text(
+        (54, 48), "SYNTHETIC CLAIM TEMPLATE -- TEST FIXTURE", fontsize=12, fontname="hebo"
+    )
+    page.insert_text(
+        (54, 64), "Not an insurer form. No personal data.", fontsize=8, fontname="helv"
+    )
 
     y = 96
     for name, label in FIELDS:
@@ -97,5 +100,7 @@ if __name__ == "__main__":
     filled = [w.field_name for w in widgets if (w.field_value or "").strip()]
     text = " ".join(p.get_text() for p in doc)
     doc.close()
-    print(f"  {OUT.name}: {len(widgets)} widgets, {len(filled)} filled, "
-          f"{len(text)} chars of page text")
+    print(
+        f"  {OUT.name}: {len(widgets)} widgets, {len(filled)} filled, "
+        f"{len(text)} chars of page text"
+    )

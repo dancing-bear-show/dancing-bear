@@ -3,6 +3,7 @@
 Helpers to coerce loose, human-authored YAML/dicts into a canonical event
 shape used by Outlook operations. Keep dependency-light and focused.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -46,9 +47,8 @@ def _normalize_range(ev: dict[str, Any]) -> dict[str, str | None] | None:
     start_date = _coerce_str(r.get("start_date") or r.get("startDate")) or _coerce_str(
         ev.get("start_date") or ev.get("startDate")
     )
-    until = (
-        _coerce_str(r.get("until") or r.get("end_date") or r.get("endDate"))
-        or _coerce_str(ev.get("until") or ev.get("end_date") or ev.get("endDate"))
+    until = _coerce_str(r.get("until") or r.get("end_date") or r.get("endDate")) or _coerce_str(
+        ev.get("until") or ev.get("end_date") or ev.get("endDate")
     )
     if not (start_date or until):
         return None
@@ -134,7 +134,9 @@ def normalize_event(ev: dict[str, Any]) -> dict[str, Any]:
 
     rem_on_val = ev.get("is_reminder_on") or ev.get("isReminderOn") or ev.get("reminder")
     is_reminder_on = _normalize_reminder_on(rem_on_val)
-    reminder_minutes = _coerce_int(ev.get("reminder_minutes") or ev.get("reminderMinutes") or ev.get("reminder-minutes"))
+    reminder_minutes = _coerce_int(
+        ev.get("reminder_minutes") or ev.get("reminderMinutes") or ev.get("reminder-minutes")
+    )
 
     out: dict[str, Any] = {
         "subject": subject,

@@ -3,15 +3,14 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from tests.fixtures import capture_stdout
-from tests.mail_tests.fixtures import FakeGmailClient, make_args
 from mail.messages_cli.commands import (
+    run_messages_get,
     run_messages_search,
     run_messages_summarize,
-    run_messages_get,
 )
 from mail.messages_cli.commands_reply import run_messages_reply
-
+from tests.fixtures import capture_stdout
+from tests.mail_tests.fixtures import FakeGmailClient, make_args
 
 # Epoch ms for 2026-08-10T12:00:00Z, matching the Date header below. Keep the
 # two in sync: a mismatched pair silently produces a test that asserts the wrong
@@ -55,9 +54,10 @@ def _make_messages_client():
 class MessagesCLITests(unittest.TestCase):
     def test_messages_search_lists_candidates(self):
         client = _make_messages_client()
-        with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client), \
-             patch("mail.utils.cli_helpers.is_outlook_profile", return_value=False):
-
+        with (
+            patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client),
+            patch("mail.utils.cli_helpers.is_outlook_profile", return_value=False),
+        ):
             args = make_args(
                 query="from:sender@example.com",
                 days=None,
@@ -76,7 +76,6 @@ class MessagesCLITests(unittest.TestCase):
     def test_messages_summarize_writes_file(self):
         client = _make_messages_client()
         with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
-
             with tempfile.TemporaryDirectory() as td:
                 outp = os.path.join(td, "sum.txt")
                 args = make_args(
@@ -93,13 +92,12 @@ class MessagesCLITests(unittest.TestCase):
 
                 self.assertEqual(rc, 0)
                 self.assertTrue(os.path.exists(outp))
-                with open(outp, "r", encoding="utf-8") as fh:
+                with open(outp, encoding="utf-8") as fh:
                     self.assertIn("Summary", fh.read() or "")
 
     def test_messages_reply_dry_run_writes_eml(self):
         client = _make_messages_client()
         with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
-
             with tempfile.TemporaryDirectory() as td:
                 eml = os.path.join(td, "reply.eml")
                 args = make_args(
@@ -130,7 +128,6 @@ class MessagesCLITests(unittest.TestCase):
     def test_messages_reply_plan_only(self):
         client = _make_messages_client()
         with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
-
             args = make_args(
                 id="MSG1",
                 query=None,
@@ -164,7 +161,6 @@ class MessagesCLITests(unittest.TestCase):
     def test_messages_reply_create_draft(self):
         client = _make_messages_client()
         with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
-
             args = make_args(
                 id="MSG1",
                 query=None,
@@ -258,6 +254,7 @@ class MessagesGetCLITests(unittest.TestCase):
     def test_messages_get_format_json(self):
         """get with --format json emits a JSON object with required fields."""
         import json as _json
+
         client = self._make_client()
         with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
             args = make_args(id="MSG_GET_1", format="json")
@@ -337,17 +334,25 @@ class OutlookMessagesCLITests(unittest.TestCase):
         """Test Outlook message search via is_outlook_profile=True path."""
         # search_inbox_message_dicts returns fully-$selected rows, so the
         # processor builds candidates without any per-message get_message.
-        fake_client = type("FakeOutlookClient", (), {
-            "search_inbox_message_dicts": lambda self, params: [{
-                "id": "OLK1",
-                "subject": "Outlook Subject",
-                "from": {"emailAddress": {"name": "Alice", "address": "alice@outlook.com"}},
-                "bodyPreview": "Preview text",
-            }],
-        })()
+        fake_client = type(
+            "FakeOutlookClient",
+            (),
+            {
+                "search_inbox_message_dicts": lambda self, params: [
+                    {
+                        "id": "OLK1",
+                        "subject": "Outlook Subject",
+                        "from": {"emailAddress": {"name": "Alice", "address": "alice@outlook.com"}},
+                        "bodyPreview": "Preview text",
+                    }
+                ],
+            },
+        )()
 
-        with patch("mail.utils.cli_helpers.is_outlook_profile", return_value=True), \
-             patch("mail.utils.cli_helpers.outlook_client_from_args", return_value=fake_client):
+        with (
+            patch("mail.utils.cli_helpers.is_outlook_profile", return_value=True),
+            patch("mail.utils.cli_helpers.outlook_client_from_args", return_value=fake_client),
+        ):
             args = make_args(
                 query="swim class",
                 days=None,

@@ -5,11 +5,11 @@ from __future__ import annotations
 import unittest
 
 from resume.priority import (
-    _score,
-    _filter_items,
-    _filter_skills_groups,
     _filter_experience,
+    _filter_items,
     _filter_projects,
+    _filter_skills_groups,
+    _score,
     filter_by_min_priority,
 )
 

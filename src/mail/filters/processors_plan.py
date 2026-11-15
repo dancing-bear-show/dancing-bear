@@ -1,22 +1,23 @@
 """Processors for filters plan, sync, impact, and export pipelines."""
+
 from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
 from typing import Any, cast
 
-from core.pipeline import Processor, SafeProcessor, ResultEnvelope
+from core.pipeline import Processor, ResultEnvelope, SafeProcessor
 
 from ..utils.filters import (
     build_criteria_from_match,
-    expand_categories,
     build_gmail_query,
+    expand_categories,
 )
 from .consumers import (
+    FiltersExportPayload,
+    FiltersImpactPayload,
     FiltersPlanPayload,
     FiltersSyncPayload,
-    FiltersImpactPayload,
-    FiltersExportPayload,
 )
 
 
@@ -75,7 +76,9 @@ class FiltersSyncProcessor(Processor[FiltersSyncPayload, ResultEnvelope[FiltersS
 
     def process(self, payload: FiltersSyncPayload) -> ResultEnvelope[FiltersSyncResult]:
         if payload.require_forward_verified:
-            invalid = _find_unverified_forward(payload.desired_filters, payload.verified_forward_addresses)
+            invalid = _find_unverified_forward(
+                payload.desired_filters, payload.verified_forward_addresses
+            )
             if invalid:
                 return ResultEnvelope(
                     status="error",
@@ -209,8 +212,8 @@ def _canon_existing(filter_entry: dict) -> str:
         "subject": criteria.get("subject"),
         "query": criteria.get("query"),
         "negatedQuery": criteria.get("negatedQuery"),
-        "add": tuple(sorted((action.get("addLabelIds") or []))),
-        "remove": tuple(sorted((action.get("removeLabelIds") or []))),
+        "add": tuple(sorted(action.get("addLabelIds") or [])),
+        "remove": tuple(sorted(action.get("removeLabelIds") or [])),
         "forward": action.get("forward"),
     }
     return str(key)

@@ -37,9 +37,7 @@ def _ok_proc(**kwargs) -> MagicMock:
     return MagicMock(returncode=0, stdout="", stderr="", **kwargs)
 
 
-def _make_store_with_file(
-    tmp_path: Path, slug: str, filename: str, content: str
-) -> MemoryStore:
+def _make_store_with_file(tmp_path: Path, slug: str, filename: str, content: str) -> MemoryStore:
     """Create a MemoryStore with one real file on disk."""
     from memory.parser import parse_memory_file
 
@@ -113,7 +111,8 @@ class TestBackupStores(MemoryTestCase):
             self.assertEqual(cmd[add_idx + 1], "--", "git add must end option parsing")
             explicit_path = cmd[add_idx + 2]
             self.assertNotIn(
-                explicit_path, ("-A", "."),
+                explicit_path,
+                ("-A", "."),
                 f"git add path must be explicit, got {explicit_path!r}",
             )
 
@@ -234,9 +233,7 @@ class TestBackupStores(MemoryTestCase):
         dest = self.tmp / "bkp2"
 
         with patch("memory.backup.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0, stdout="[master abc] msg\n", stderr=""
-            )
+            mock_run.return_value = MagicMock(returncode=0, stdout="[master abc] msg\n", stderr="")
             backup_stores((store,), dest)
 
         git_push_calls = [c for c in mock_run.call_args_list if c.args[0][1] == "push"]
@@ -252,14 +249,10 @@ class TestBackupStores(MemoryTestCase):
         dest = self.tmp / "bkp3"
 
         with patch("memory.backup.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0, stdout="[master abc] msg\n", stderr=""
-            )
+            mock_run.return_value = MagicMock(returncode=0, stdout="[master abc] msg\n", stderr="")
             backup_stores((store,), dest)
 
-        git_remote_calls = [
-            c for c in mock_run.call_args_list if c.args[0][1] == "remote"
-        ]
+        git_remote_calls = [c for c in mock_run.call_args_list if c.args[0][1] == "remote"]
         self.assertEqual(len(git_remote_calls), 0, "git remote must never be called")
 
     def test_returns_backup_result(self) -> None:
@@ -286,9 +279,7 @@ class TestBackupStores(MemoryTestCase):
         dest = self.tmp / "empty_backup"
 
         with patch("memory.backup.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0, stdout="nothing to commit\n", stderr=""
-            )
+            mock_run.return_value = MagicMock(returncode=0, stdout="nothing to commit\n", stderr="")
             result = backup_stores((), dest)
 
         self.assertIsInstance(result, BackupResult)
@@ -299,9 +290,7 @@ class TestBackupStores(MemoryTestCase):
         dest = self.tmp / "ts_backup"
 
         with patch("memory.backup.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0, stdout="[master abc] msg\n", stderr=""
-            )
+            mock_run.return_value = MagicMock(returncode=0, stdout="[master abc] msg\n", stderr="")
             result = backup_stores((store,), dest)
 
         # message should be parseable as ISO datetime
@@ -338,7 +327,9 @@ class TestBackupStatus(MemoryTestCase):
         with patch("memory.backup.subprocess.run") as mock_run:
             result = backup_status(self.tmp / "no_git")
 
-        self.assertFalse(mock_run.called, "backup_status must not call subprocess.run when .git absent")
+        self.assertFalse(
+            mock_run.called, "backup_status must not call subprocess.run when .git absent"
+        )
         self.assertIsInstance(result, BackupStatus)
 
     def test_status_contains_expected_keys(self) -> None:
@@ -529,9 +520,7 @@ class TestGitSubprocessFailures(MemoryTestCase):
             if subcmd == "commit":
                 return MagicMock(returncode=0, stdout="[master abc1234]", stderr="")
             if subcmd == "rev-parse":
-                return MagicMock(
-                    returncode=1, stdout="", stderr="fatal: not a git repo"
-                )
+                return MagicMock(returncode=1, stdout="", stderr="fatal: not a git repo")
             return _ok_proc()
 
         with patch("memory.backup.subprocess.run", side_effect=side_effect):
@@ -563,9 +552,7 @@ class TestBackupStatusGitLogFailure(MemoryTestCase):
                 return _ok_proc()
             # Second call is git log -1
             if subcmd == "log":
-                return MagicMock(
-                    returncode=1, stdout="", stderr="fatal: bad default revision"
-                )
+                return MagicMock(returncode=1, stdout="", stderr="fatal: bad default revision")
             return _ok_proc()
 
         with patch("memory.backup.subprocess.run", side_effect=side_effect):

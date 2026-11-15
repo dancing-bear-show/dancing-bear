@@ -17,15 +17,21 @@ from workflow.concern_select import select_guides
 
 _GIT_ENV = {
     **{k: v for k, v in os.environ.items() if not k.startswith("GIT_")},
-    "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid",
-    "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid",
+    "GIT_AUTHOR_NAME": "t",
+    "GIT_AUTHOR_EMAIL": "t@example.invalid",
+    "GIT_COMMITTER_NAME": "t",
+    "GIT_COMMITTER_EMAIL": "t@example.invalid",
 }
 
 
 def _git(cwd: Path, *args: str) -> str:
     return subprocess.run(  # nosec B603 B607 - fixed argv
-        ["git", *args], cwd=str(cwd), env=_GIT_ENV, check=True,
-        capture_output=True, text=True,
+        ["git", *args],
+        cwd=str(cwd),
+        env=_GIT_ENV,
+        check=True,
+        capture_output=True,
+        text=True,
     ).stdout.strip()
 
 
@@ -55,9 +61,14 @@ def _make_repo(root: Path) -> tuple[Path, str]:
 CHANGED = ["src/workflow/sweep_record.py", "workflows/code/open-pr.yaml"]
 
 
-def _make_workspace(root: Path, guides: list[str], review: str | None = "consolidated.json",
-                    commit_id: str | None = None, changed: list[str] | None = None,
-                    merge_base: str | None = None) -> Path:
+def _make_workspace(
+    root: Path,
+    guides: list[str],
+    review: str | None = "consolidated.json",
+    commit_id: str | None = None,
+    changed: list[str] | None = None,
+    merge_base: str | None = None,
+) -> Path:
     """A swarm workspace; ``commit_id`` defaults to the repo's HEAD, the commit it swept.
 
     When *merge_base* is given it is stored in pr-context.json so the diff
@@ -65,7 +76,9 @@ def _make_workspace(root: Path, guides: list[str], review: str | None = "consoli
     """
     ws = root / "ws"
     (ws / "outputs").mkdir(parents=True)
-    (ws / "outputs" / "changed-files.txt").write_text("\n".join(CHANGED if changed is None else changed) + "\n")
+    (ws / "outputs" / "changed-files.txt").write_text(
+        "\n".join(CHANGED if changed is None else changed) + "\n"
+    )
     swept = commit_id if commit_id is not None else _git(root / "repo", "rev-parse", "HEAD")
     ctx: dict[str, object] = {"commit_id": swept, "head_sha": swept}
     if merge_base is not None:
@@ -145,7 +158,9 @@ class SweepRecordTests(unittest.TestCase):
 
     def test_record_is_visible_from_a_second_worktree(self) -> None:
         ws = _make_workspace(self.root, GUIDES, merge_base=self.merge_base)
-        self.assertEqual(_run(self.repo, "write", "--head", self.head, "--workspace", str(ws))[0], 0)
+        self.assertEqual(
+            _run(self.repo, "write", "--head", self.head, "--workspace", str(ws))[0], 0
+        )
         other = self.root / "wt2"
         _git(self.repo, "worktree", "add", "-q", "-b", "other", str(other))
         code, out, _ = _run(other, "check", "--head", self.head)
@@ -164,7 +179,9 @@ class SweepRecordTests(unittest.TestCase):
         self.assertFalse(self._record_file(old).exists())
 
     def test_write_refuses_a_workspace_that_swept_an_earlier_commit(self) -> None:
-        ws = _make_workspace(self.root, GUIDES, merge_base=self.merge_base)  # swept the first commit
+        ws = _make_workspace(
+            self.root, GUIDES, merge_base=self.merge_base
+        )  # swept the first commit
         (self.repo / "a.txt").write_text("b\n")
         _git(self.repo, "commit", "-q", "-am", "two")
         new = _git(self.repo, "rev-parse", "HEAD")
@@ -198,8 +215,11 @@ class SweepRecordTests(unittest.TestCase):
 
     def test_write_refuses_an_index_missing_a_guide_the_selector_picks(self) -> None:
         self.assertIn("collateral-damage.md", GUIDES)  # src/ and workflows/ changes select it
-        ws = _make_workspace(self.root, [g for g in GUIDES if g != "collateral-damage.md"],
-                             merge_base=self.merge_base)
+        ws = _make_workspace(
+            self.root,
+            [g for g in GUIDES if g != "collateral-damage.md"],
+            merge_base=self.merge_base,
+        )
         code, _, err = _run(self.repo, "write", "--head", self.head, "--workspace", str(ws))
         self.assertEqual(code, 2)
         self.assertIn("collateral-damage.md", err)
@@ -261,7 +281,9 @@ class SweepRecordTests(unittest.TestCase):
         ws = _make_workspace(self.root, GUIDES, merge_base=self.merge_base)
         index = ws / "outputs" / "concern-sweep-index.json"
         index.write_text("{not json")
-        self.assertEqual(_run(self.repo, "write", "--head", self.head, "--workspace", str(ws))[0], 2)
+        self.assertEqual(
+            _run(self.repo, "write", "--head", self.head, "--workspace", str(ws))[0], 2
+        )
         index.unlink()
         code, _, err = _run(self.repo, "write", "--head", self.head, "--workspace", str(ws))
         self.assertEqual(code, 2)
@@ -318,8 +340,9 @@ def _make_repo_with_diff(root: Path, paths: list[str]) -> tuple[Path, str, str]:
     return repo, merge_base, head_sha
 
 
-def _make_workspace_with_context(root: Path, guides: list[str], merge_base: str, head_sha: str,
-                                  changed: list[str]) -> Path:
+def _make_workspace_with_context(
+    root: Path, guides: list[str], merge_base: str, head_sha: str, changed: list[str]
+) -> Path:
     """A swarm workspace with full pr-context.json (merge_base + head_sha)."""
     ws = root / "ws"
     (ws / "outputs").mkdir(parents=True)

@@ -1,4 +1,5 @@
 """Tests for core.coerce."""
+
 from __future__ import annotations
 
 import unittest

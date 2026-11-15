@@ -29,7 +29,6 @@ from workflow.models import OutputCheck
 from workflow.output_checks import run_output_checks
 from workflow.persistence import read_stage_result
 
-
 # ---------------------------------------------------------------------------
 # core.textio.read_text(suppress=FileNotFoundError)  (missing → None)
 # ---------------------------------------------------------------------------
@@ -174,9 +173,7 @@ stages:
             frag = tmp_path / "frag.yaml"
             frag.write_text("fragment: true\nstages: []\n", encoding="utf-8")
             with patch.object(Path, "read_bytes", side_effect=OSError("disk error")):
-                result = _fragment_bytes(
-                    self._YAML_WITH_INCLUDE.encode(), tmp_path / "wf.yaml"
-                )
+                result = _fragment_bytes(self._YAML_WITH_INCLUDE.encode(), tmp_path / "wf.yaml")
         self.assertIsInstance(result, bytes)
         self.assertEqual(result, b"")
 
@@ -186,9 +183,7 @@ stages:
             tmp_path = Path(tmp_dir)
             frag = tmp_path / "frag.yaml"
             frag.write_text("fragment: true\nstages: []\n", encoding="utf-8")
-            result = _fragment_bytes(
-                self._YAML_WITH_INCLUDE.encode(), tmp_path / "wf.yaml"
-            )
+            result = _fragment_bytes(self._YAML_WITH_INCLUDE.encode(), tmp_path / "wf.yaml")
         self.assertIsInstance(result, bytes)
         self.assertGreater(len(result), 0)
 
@@ -249,9 +244,7 @@ class TestStageNamesFromPlanOSError(unittest.TestCase):
                     {"stages": ["propose", "validate"]},
                 ]
             }
-            (workspace / "plan.json").write_text(
-                json.dumps(plan), encoding="utf-8"
-            )
+            (workspace / "plan.json").write_text(json.dumps(plan), encoding="utf-8")
             result = _stage_names_from_plan(workspace)
         self.assertEqual(result, ["gather", "propose", "validate"])
 
@@ -287,9 +280,7 @@ class TestStageNamesFromManifestOSError(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             workspace = Path(tmp_dir)
             manifest = {"parallel_groups": [["gather"], ["propose"]]}
-            (workspace / "manifest.json").write_text(
-                json.dumps(manifest), encoding="utf-8"
-            )
+            (workspace / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
             result = _stage_names_from_manifest(workspace)
         self.assertEqual(result, ["gather", "propose"])
 

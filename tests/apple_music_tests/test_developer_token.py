@@ -6,8 +6,6 @@ import base64
 import json
 import unittest
 
-from core.cli_errors import ConfigError
-
 from apple_music.developer_token import (
     MAX_TTL_DAYS,
     MAX_TTL_SECONDS,
@@ -15,6 +13,7 @@ from apple_music.developer_token import (
     decode_claims,
     mint_developer_token,
 )
+from core.cli_errors import ConfigError
 
 TEAM_ID = "TEAMID1234"
 KEY_ID = "KEYID56789"
@@ -128,7 +127,6 @@ class TestDecodeClaims(unittest.TestCase):
             decode_claims("not-a-jwt")
 
 
-
 class TestMalformedClaims(unittest.TestCase):
     """A malformed token must raise ConfigError, not a TypeError from arithmetic."""
 
@@ -167,6 +165,7 @@ class TestMalformedClaims(unittest.TestCase):
         self.assertIsNone(claims.issued_at)
         self.assertIsNone(claims.seconds_remaining())
         self.assertFalse(claims.is_expired())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -14,7 +14,6 @@ import collections
 import time
 
 from core.date_utils import now_utc
-
 from telemetry.otel.menubar_dataclasses import (
     CodeImpact,
     HookHealth,
@@ -42,11 +41,11 @@ from telemetry.otel.menubar_parsers import (
     _parse_nano_ts,
     _process_tool_result_event,
     _read_rotated_jsonl,
-    parse_metric_points,
     _safe_float,
     _safe_int,
     _top_n,
     _trunc,
+    parse_metric_points,
 )
 from telemetry.otel.reader import EVENTS_FILE, METRICS_FILE, OTLPDataDir
 
@@ -167,14 +166,21 @@ class OtelMenubarProvider:
         metrics_24h: list[tuple[str, float, dict[str, object]]],
         metrics_7d: list[tuple[str, float, dict[str, object]]],
     ) -> OtelUsage:
-        token_counters: dict[str, int] = {"input": 0, "output": 0, "cacheRead": 0, "cacheCreation": 0}
+        token_counters: dict[str, int] = {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheCreation": 0,
+        }
         cost_holder = [0.0]
         active_secs_24h = 0.0
         model_cost: dict[str, float] = collections.defaultdict(float)
 
         for name, value, attrs in metrics_24h:
             if name == _METRIC_TOKEN_USAGE:
-                _accumulate_token_metric(str(attrs.get("type") or ""), _safe_int(value, 0), token_counters)
+                _accumulate_token_metric(
+                    str(attrs.get("type") or ""), _safe_int(value, 0), token_counters
+                )
             elif name == _METRIC_COST:
                 _accumulate_cost_metric(value, attrs, cost_holder, model_cost)
             elif name == "claude_code.active_time.total":
@@ -219,14 +225,18 @@ class OtelMenubarProvider:
             usage.cost_24h / usage.active_hours_24h if usage.active_hours_24h > 0 else 0.0
         )
         cost_per_loc_added = (
-            usage.cost_24h / code_impact.lines_added_today if code_impact.lines_added_today > 0 else 0.0
+            usage.cost_24h / code_impact.lines_added_today
+            if code_impact.lines_added_today > 0
+            else 0.0
         )
         cost_per_commit = (
             usage.cost_24h / code_impact.commits_today if code_impact.commits_today > 0 else 0.0
         )
         cache_denominator = usage.cache_read_tokens_24h + usage.cache_creation_tokens_24h
         cache_hit_rate_pct = (
-            100.0 * usage.cache_read_tokens_24h / cache_denominator if cache_denominator > 0 else 0.0
+            100.0 * usage.cache_read_tokens_24h / cache_denominator
+            if cache_denominator > 0
+            else 0.0
         )
         return MetaStats(
             cost_per_active_hour=cost_per_active_hour,
@@ -335,9 +345,7 @@ class OtelMenubarProvider:
             tokens_saved_by_compaction=_safe_int(counters["tokens_saved"], 0),
         )
 
-    def _compute_skills(
-        self, events_24h: list[tuple[str, float, dict[str, object]]]
-    ) -> Skills:
+    def _compute_skills(self, events_24h: list[tuple[str, float, dict[str, object]]]) -> Skills:
         skill_counts: dict[str, int] = collections.defaultdict(int)
         for event_type, _ts, attrs in events_24h:
             if event_type == "claude_code.skill_activated":

@@ -16,14 +16,14 @@ from pathlib import Path
 from types import FrameType
 
 from core.cli_errors import UsageError
-from core.date_utils import now_utc
 from core.cli_output import OutputWriter
+from core.date_utils import now_utc
 from core.pipeline import BaseProducer, RequestConsumer, ResultEnvelope, SafeProcessor
-from worker._helpers import (
-    log_perf_jsonl,
-    get_repo_root,
-)
 from worker import queue_ops as q
+from worker._helpers import (
+    get_repo_root,
+    log_perf_jsonl,
+)
 from worker.handlers import REGISTRY as HANDLERS
 
 logger = logging.getLogger(__name__)
@@ -45,17 +45,13 @@ _THREAD_DIED_REASON = "requeued-thread-died-unhandled"
 # ============================================================================
 
 
-def _finish_or_retry(
-    proc_path: Path, ctx: JobContext, config: WorkerConfig, reason: str
-) -> None:
+def _finish_or_retry(proc_path: Path, ctx: JobContext, config: WorkerConfig, reason: str) -> None:
     """Finish the job as errored if attempts are exhausted, else retry it."""
     attempts = ctx.attempts + 1
     if attempts >= ctx.max_attempts:
         q.finish(proc_path, success=False, error_msg=reason, claim_token=ctx.claim_token)
     else:
-        q.retry(
-            proc_path, delay_sec=config.backoff, reason=reason, claim_token=ctx.claim_token
-        )
+        q.retry(proc_path, delay_sec=config.backoff, reason=reason, claim_token=ctx.claim_token)
 
 
 def _write_shutdown_timeout_marker(job_id: str, claim_token: str | None, root: Path) -> None:
@@ -127,9 +123,7 @@ def _release_unrun_claim(stem: str, token: str | None, reason: str) -> bool:
         _mark_for_recovery(stem, token)
         return False
     if result is None:
-        logger.warning(
-            "unrun claim for job %s not requeued (already gone or reclaimed)", stem
-        )
+        logger.warning("unrun claim for job %s not requeued (already gone or reclaimed)", stem)
     return True
 
 
@@ -329,9 +323,7 @@ def _handle_outcome(outcome_ctx: OutcomeContext, success: bool, out: object) -> 
     token = ctx.claim_token
     if success:
         q.finish(proc_path, success=True, result=out, claim_token=token)
-        log_perf_jsonl(
-            "worker", duration, args=[command, ctx.job_type, "ok"], exit_code=0
-        )
+        log_perf_jsonl("worker", duration, args=[command, ctx.job_type, "ok"], exit_code=0)
     elif out_str.startswith("deferred-"):
         # Handler requested deferral — move back to pending without consuming
         # an attempt, inside the same transition as the move itself.
@@ -342,21 +334,15 @@ def _handle_outcome(outcome_ctx: OutcomeContext, success: bool, out: object) -> 
             claim_token=token,
             count_attempt=False,
         )
-        log_perf_jsonl(
-            "worker", duration, args=[command, ctx.job_type, "deferred"], exit_code=0
-        )
+        log_perf_jsonl("worker", duration, args=[command, ctx.job_type, "deferred"], exit_code=0)
     elif out_str.startswith("terminal-"):
         # Handler signalled an unrecoverable failure — skip retry loop entirely.
         q.finish(proc_path, success=False, error_msg=out_str, claim_token=token)
-        log_perf_jsonl(
-            "worker", duration, args=[command, ctx.job_type, "terminal"], exit_code=1
-        )
+        log_perf_jsonl("worker", duration, args=[command, ctx.job_type, "terminal"], exit_code=1)
     else:
         status = "error" if ctx.attempts + 1 >= ctx.max_attempts else "retry"
         _finish_or_retry(proc_path, ctx, config, out_str)
-        log_perf_jsonl(
-            "worker", duration, args=[command, ctx.job_type, status], exit_code=1
-        )
+        log_perf_jsonl("worker", duration, args=[command, ctx.job_type, status], exit_code=1)
 
 
 # ============================================================================
@@ -397,9 +383,7 @@ class JobResultProducer(BaseProducer):
         super().__init__(writer)
         self._outcome_ctx = outcome_ctx
 
-    def _produce_success(
-        self, payload: JobResult, diagnostics: dict[str, object] | None
-    ) -> None:
+    def _produce_success(self, payload: JobResult, diagnostics: dict[str, object] | None) -> None:
         """Dispatch outcome to queue operations based on the outcome string."""
         success = payload.outcome == "success"
         if not success:
@@ -640,9 +624,7 @@ class DaemonRunner:
         """
         with self._registry_lock:
             dead_stems = [
-                (s, tok)
-                for s, (t, tok) in self._live_threads.items()
-                if not t.is_alive()
+                (s, tok) for s, (t, tok) in self._live_threads.items() if not t.is_alive()
             ]
         for stem, token in dead_stems:
             try:

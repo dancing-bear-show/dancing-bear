@@ -12,11 +12,10 @@ from pathlib import Path
 from typing import Any
 
 from ._base import (
-    EventIterationProcessor,
     BaseProducer,
+    EventIterationProcessor,
     RequestConsumer,
 )
-
 
 # ---------------------------------------------------------------------------
 # Request / Result / Accumulator dataclasses
@@ -191,10 +190,7 @@ def _build_rrule(nev: dict[str, Any], *, date_valued: bool = False) -> str | Non
     if until:
         compact_until = _ical_date(until)
         # DATE-valued DTSTART -> DATE-valued UNTIL (no time, no Z).
-        parts.append(
-            f"UNTIL={compact_until}" if date_valued
-            else f"UNTIL={compact_until}T235959Z"
-        )
+        parts.append(f"UNTIL={compact_until}" if date_valued else f"UNTIL={compact_until}T235959Z")
 
     count = nev.get("count")
     if count and not until:
@@ -345,8 +341,8 @@ def _build_draft_raw_bytes(
     ics_text: str,
 ) -> bytes:
     """Build a raw RFC 2822 MIME message with an ICS attachment."""
-    import email.mime.multipart as _mp
     import email.mime.base as _mb
+    import email.mime.multipart as _mp
     import email.mime.text as _mt
     from email import encoders as _enc
 
@@ -459,15 +455,13 @@ class IcsDraftProducer(BaseProducer):
                 f"Draft created: id={payload.draft_id}  events={payload.event_count}"
             )
         else:
-            self._writer.print(
-                f"[dry-run] {payload.event_count} event(s) — draft not created"
-            )
+            self._writer.print(f"[dry-run] {payload.event_count} event(s) — draft not created")
 
 
 __all__ = [
+    "IcsDraftProcessor",
+    "IcsDraftProducer",
     "IcsDraftRequest",
     "IcsDraftRequestConsumer",
     "IcsDraftResult",
-    "IcsDraftProcessor",
-    "IcsDraftProducer",
 ]

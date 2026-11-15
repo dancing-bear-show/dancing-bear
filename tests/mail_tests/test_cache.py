@@ -6,7 +6,6 @@ import os
 import unittest
 
 from mail.cache import MailCache
-
 from tests.fixtures import TempDirMixin
 
 

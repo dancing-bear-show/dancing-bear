@@ -1,4 +1,5 @@
 """Helper and builder functions for Outlook rules processors."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -6,8 +7,8 @@ from typing import Any
 
 from .helpers import norm_label_name_outlook
 
-
 # Context dataclasses
+
 
 @dataclass
 class RuleContext:
@@ -21,6 +22,7 @@ class RuleContext:
     but the mailbox changed.  Defaults False so every existing construction keeps
     today's behaviour; the sync processor passes its own ``dry_run`` through.
     """
+
     client: Any
     name_to_id: dict[str, str]
     folder_map: dict[str, str]
@@ -34,7 +36,7 @@ class RuleContext:
         folder_map: dict[str, str],
         move_to_folders: bool,
         client: Any = None,
-    ) -> "RuleContext":
+    ) -> RuleContext:
         """Create context for plan operations.
 
         ``dry_run=True`` always: plan is read-only by definition, so folder
@@ -50,8 +52,11 @@ class RuleContext:
         still guarantees nothing is created.
         """
         return cls(
-            client=client, name_to_id=name_to_id, folder_map=folder_map,
-            move_to_folders=move_to_folders, dry_run=True,
+            client=client,
+            name_to_id=name_to_id,
+            folder_map=folder_map,
+            move_to_folders=move_to_folders,
+            dry_run=True,
         )
 
 
@@ -90,11 +95,13 @@ def _criteria_key(criteria: dict[str, Any]) -> str:
     action, which is incorrect for the default behaviour where an action change
     is treated as a new rule.
     """
-    return str({
-        "from": _norm_criteria_field(criteria.get("from")),
-        "to": _norm_criteria_field(criteria.get("to")),
-        "subject": _norm_criteria_field(criteria.get("subject")),
-    })
+    return str(
+        {
+            "from": _norm_criteria_field(criteria.get("from")),
+            "to": _norm_criteria_field(criteria.get("to")),
+            "subject": _norm_criteria_field(criteria.get("subject")),
+        }
+    )
 
 
 def _fetch_rules_with_provenance(
@@ -126,8 +133,8 @@ def _fetch_rules_with_provenance(
     try:
         return client.list_filters(use_cache=use_cache, ttl=cache_ttl), "live"
     except Exception as e:
-        resp = getattr(e, 'response', None)
-        status = getattr(resp, 'status_code', None) if resp else None
+        resp = getattr(e, "response", None)
+        status = getattr(resp, "status_code", None) if resp else None
         if status in (401, 403):
             raise
         try:
@@ -224,7 +231,10 @@ def _build_rule_action(action_spec: dict[str, Any], ctx: RuleContext) -> dict[st
         action["moveToFolderId"] = fid
     elif add_labs:
         # Categorise only: either noMoveToFolder (keepInInbox) or move_to_folders=False.
-        raw_ids = [ctx.name_to_id.get(x) or ctx.name_to_id.get(norm_label_name_outlook(x)) for x in add_labs]
+        raw_ids = [
+            ctx.name_to_id.get(x) or ctx.name_to_id.get(norm_label_name_outlook(x))
+            for x in add_labs
+        ]
         ids: list[str] = [x for x in raw_ids if x]
         if ids:
             action["addLabelIds"] = ids
@@ -253,14 +263,16 @@ def _create_rule_key(criteria: dict[str, Any], action: dict[str, Any]) -> str:
     Action fields (addLabelIds, moveToFolderId, forward) are Graph ids or email
     addresses and are kept as-is.
     """
-    return str({
-        "from": _norm_criteria_field(criteria.get("from")),
-        "to": _norm_criteria_field(criteria.get("to")),
-        "subject": _norm_criteria_field(criteria.get("subject")),
-        "add": tuple(sorted(action.get("addLabelIds", []) or [])),
-        "forward": action.get("forward"),
-        "move": action.get("moveToFolderId"),
-    })
+    return str(
+        {
+            "from": _norm_criteria_field(criteria.get("from")),
+            "to": _norm_criteria_field(criteria.get("to")),
+            "subject": _norm_criteria_field(criteria.get("subject")),
+            "add": tuple(sorted(action.get("addLabelIds", []) or [])),
+            "forward": action.get("forward"),
+            "move": action.get("moveToFolderId"),
+        }
+    )
 
 
 def _resolve_folder_id(path: str, folder_map: dict[str, str], client: Any = None) -> str:
@@ -352,7 +364,9 @@ def _build_plan_action(action_spec: dict[str, Any], ctx: RuleContext) -> dict[st
         action["moveToFolderId"] = _resolve_folder_id(str(adds[0]), ctx.folder_map, ctx.client)
     elif adds:
         # Categorise only: either noMoveToFolder (keepInInbox) or move_to_folders=False.
-        raw_adds_ids = [ctx.name_to_id.get(x) or ctx.name_to_id.get(norm_label_name_outlook(x)) for x in adds]
+        raw_adds_ids = [
+            ctx.name_to_id.get(x) or ctx.name_to_id.get(norm_label_name_outlook(x)) for x in adds
+        ]
         adds_ids: list[str] = [x for x in raw_adds_ids if x]
         if adds_ids:
             action["addLabelIds"] = adds_ids
@@ -379,8 +393,8 @@ def _build_search_query(match_spec: dict[str, Any]) -> str:
         qparts.append(f"from:{match_spec.get('from')}")
     if match_spec.get("subject"):
         subj = str(match_spec.get("subject"))
-        if ' ' in subj:
-            qparts.append(f"subject:\"{subj}\"")
+        if " " in subj:
+            qparts.append(f'subject:"{subj}"')
         else:
             qparts.append(f"subject:{subj}")
     return " ".join(qparts)

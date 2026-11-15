@@ -127,9 +127,7 @@ class TestResolveData(unittest.TestCase):
                     target = base / filename
                     target.write_text("name: Test\n")
                     with patch("resume.cli.helpers.config_home", return_value=Path(tmp)):
-                        self.assertEqual(
-                            _resolve_data(_args(profile="p")), str(target)
-                        )
+                        self.assertEqual(_resolve_data(_args(profile="p")), str(target))
 
     def test_prefers_json_over_yaml_when_both_exist(self):
         """Deterministic precedence, so the same command never flips sources."""
@@ -218,8 +216,7 @@ class TestEveryDataCommandUsesTheResolver(unittest.TestCase):
         self.assertEqual(
             offenders,
             [],
-            "read args.data directly instead of _resolve_data(args) at "
-            f"line(s) {offenders}",
+            f"read args.data directly instead of _resolve_data(args) at line(s) {offenders}",
         )
 
     def test_guard_detects_a_multiline_violation(self):
@@ -228,12 +225,7 @@ class TestEveryDataCommandUsesTheResolver(unittest.TestCase):
         Without this, a green guard proves nothing — the earlier version passed
         while being blind to exactly the shape a reformatter would produce.
         """
-        source = (
-            "def cmd(args):\n"
-            "    return read_yaml_or_json(\n"
-            "        args.data\n"
-            "    )\n"
-        )
+        source = "def cmd(args):\n    return read_yaml_or_json(\n        args.data\n    )\n"
         self.assertEqual(_direct_args_data_calls(source), [2])
 
     def test_guard_ignores_the_pattern_in_a_comment(self):
@@ -266,7 +258,8 @@ class TestEveryDataCommandUsesTheResolver(unittest.TestCase):
             with self.subTest(command=name):
                 sub = choices[name]
                 profile = next(
-                    a for a in sub._actions  # noqa: SLF001
+                    a
+                    for a in sub._actions  # noqa: SLF001
                     if "--profile" in getattr(a, "option_strings", [])
                 )
                 self.assertEqual(

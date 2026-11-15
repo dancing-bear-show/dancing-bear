@@ -61,9 +61,7 @@ def check_stage_name(name: str, known_stages: Sequence[str] = ()) -> None:
     ``resume``, so a typo is rejected instead of silently recorded.
     """
     if not _STAGE_NAME_RE.fullmatch(name):
-        raise SeedError(
-            f"invalid stage name {name!r}: must match {_STAGE_NAME_RE.pattern}"
-        )
+        raise SeedError(f"invalid stage name {name!r}: must match {_STAGE_NAME_RE.pattern}")
     if known_stages and name not in known_stages:
         raise SeedError(f"stage {name!r} is not in this run's plan")
 
@@ -119,9 +117,7 @@ def set_state(
     if request.stage_index is not None and request.stage_index < 0:
         raise SeedError(f"stage index must be >= 0, got {request.stage_index}")
     index = (
-        request.stage_index
-        if request.stage_index is not None
-        else next_stage_index(workspace_dir)
+        request.stage_index if request.stage_index is not None else next_stage_index(workspace_dir)
     )
     result = _seeded_result(
         stage_name, index, request.status, dict(request.data or {}), request.note

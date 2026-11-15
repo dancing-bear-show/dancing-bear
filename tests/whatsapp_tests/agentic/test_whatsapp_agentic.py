@@ -1,10 +1,10 @@
 """Tests for whatsapp agentic module."""
+
 from __future__ import annotations
 
 import unittest
 
 from tests.agentic_builder_contract import AgenticBuilderContractMixin
-
 from whatsapp import agentic
 
 

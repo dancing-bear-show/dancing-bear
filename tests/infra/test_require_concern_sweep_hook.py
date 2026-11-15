@@ -35,8 +35,10 @@ HOOK_COMMAND = 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/require-concern-sweep.sh
 
 _ENV = {
     **{k: v for k, v in os.environ.items() if not k.startswith("GIT_") and k != "PYTHONPATH"},
-    "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid",
-    "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid",
+    "GIT_AUTHOR_NAME": "t",
+    "GIT_AUTHOR_EMAIL": "t@example.invalid",
+    "GIT_COMMITTER_NAME": "t",
+    "GIT_COMMITTER_EMAIL": "t@example.invalid",
 }
 
 #: Commands that open a PR for HEAD of the payload cwd.
@@ -63,7 +65,7 @@ HEAD_CREATES = [
     "bash -c 'gh pr create'",
     "bash -O extglob -c 'gh pr create'",
     "bash -O extglob -O errexit -c 'gh pr create'",
-    "sh -lc \"git push && gh pr create\"",
+    'sh -lc "git push && gh pr create"',
     "./bin/github pr create --base main --body-file b.md",
     "bin/github pr create --base main --body-file b.md",
     "python3 -m github_assistant pr create --base main --body-file b.md",
@@ -211,7 +213,12 @@ UNVERIFIABLE = [
 
 def _git(cwd: Path, *args: str) -> str:
     return subprocess.run(  # nosec B603 B607 - fixed argv
-        ["git", *args], cwd=str(cwd), env=_ENV, check=True, capture_output=True, text=True,
+        ["git", *args],
+        cwd=str(cwd),
+        env=_ENV,
+        check=True,
+        capture_output=True,
+        text=True,
     ).stdout.strip()
 
 
@@ -226,8 +233,14 @@ def run_hook(command: str, cwd: Path, hook: Path = HOOK) -> subprocess.Completed
         "tool_input": {"command": command, "description": "d"},
     }
     return subprocess.run(  # nosec B603 B607 - fixed argv; the hook is a repo file
-        ["bash", str(hook)], input=json.dumps(payload), cwd=str(cwd), env=_ENV,
-        capture_output=True, text=True, timeout=60, check=False,
+        ["bash", str(hook)],
+        input=json.dumps(payload),
+        cwd=str(cwd),
+        env=_ENV,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
     )
 
 
@@ -253,7 +266,9 @@ class RequireConcernSweepHookTests(unittest.TestCase):
     def _record(self, sha: str) -> None:
         write_waived(self.repo, sha, "test")
 
-    def assertBlocked(self, proc: subprocess.CompletedProcess[str], needle: str = "Blocked") -> None:
+    def assertBlocked(
+        self, proc: subprocess.CompletedProcess[str], needle: str = "Blocked"
+    ) -> None:
         self.assertEqual(proc.returncode, 2, proc.stderr)
         self.assertIn(needle, proc.stderr)
 
@@ -295,7 +310,11 @@ class RequireConcernSweepHookTests(unittest.TestCase):
 
     def test_head_that_does_not_resolve_fails_closed(self) -> None:
         self._record(self.head)
-        for command in ("gh pr create --head no-such-branch", "gh pr create --head -x", "gh pr create --head"):
+        for command in (
+            "gh pr create --head no-such-branch",
+            "gh pr create --head -x",
+            "gh pr create --head",
+        ):
             with self.subTest(command=command):
                 self.assertBlocked(run_hook(command, self.repo), "cannot")
 
@@ -316,8 +335,12 @@ class RequireConcernSweepHookTests(unittest.TestCase):
         self.assertEqual(run_hook(f"cd {wt} && gh pr create", self.repo).returncode, 0)
         self.assertEqual(run_hook(f"cd {wt}; gh pr create", self.repo).returncode, 0)
         self.assertEqual(run_hook(f"(cd {wt} && gh pr create)", self.repo).returncode, 0)
-        for command in (f"cd {wt} & gh pr create", f"cd {wt} | gh pr create",
-                        f"(cd {wt}); gh pr create", f"( cd {wt} ) ; gh pr create"):
+        for command in (
+            f"cd {wt} & gh pr create",
+            f"cd {wt} | gh pr create",
+            f"(cd {wt}); gh pr create",
+            f"( cd {wt} ) ; gh pr create",
+        ):
             with self.subTest(command=command):
                 self.assertBlocked(run_hook(command, self.repo), self.head)
 
@@ -470,7 +493,7 @@ class RequireConcernSweepHookTests(unittest.TestCase):
         """The usual `--body "$(cat <<'EOF' ... EOF)"` form stays checkable: the body's
         apostrophes, punctuation and PR words are text, not commands."""
         command = (
-            "gh pr create --title \"fix: x\" --body \"$(cat <<'EOF'\n"
+            'gh pr create --title "fix: x" --body "$(cat <<\'EOF\'\n'
             "It's done; (see #1) & gh pr create --head other | x\nEOF\n)\""
         )
         self.assertBlocked(run_hook(command, self.repo), self.head)
@@ -508,11 +531,21 @@ class RequireConcernSweepHookTests(unittest.TestCase):
         self.assertBlocked(run_hook("gh \\u0070r create", self.repo, hook), "missing")
         # The pre-filter is load-bearing: a command it passes is never analysed, so
         # every way of spelling pr without the substring must still reach Python.
-        for command in ("gh p''r create", 'gh "p"r create', "gh p\\r create", "gh $'\\x70'r create",
-                        "gh p${X}r create", "gh p`true`r create", "gh p{r,} create", "gh p? create",
-                        "gh p[r] create", "hub pu''ll-request",
-                        # No PR word, yet the body can create one (PR #454 review).
-                        "gh api graphql --input query.json", "GH API graphql --input q"):
+        for command in (
+            "gh p''r create",
+            'gh "p"r create',
+            "gh p\\r create",
+            "gh $'\\x70'r create",
+            "gh p${X}r create",
+            "gh p`true`r create",
+            "gh p{r,} create",
+            "gh p? create",
+            "gh p[r] create",
+            "hub pu''ll-request",
+            # No PR word, yet the body can create one (PR #454 review).
+            "gh api graphql --input query.json",
+            "GH API graphql --input q",
+        ):
             with self.subTest(command=command):
                 self.assertBlocked(run_hook(command, self.repo, hook), "missing")
 
@@ -526,8 +559,13 @@ class RequireConcernSweepHookTests(unittest.TestCase):
 
     def test_malformed_payload_fails_closed(self) -> None:
         proc = subprocess.run(  # nosec B603 B607 - fixed argv
-            ["bash", str(HOOK)], input='{"tool_input": {"command": "gh pr create"', env=_ENV,
-            capture_output=True, text=True, timeout=60, check=False,
+            ["bash", str(HOOK)],
+            input='{"tool_input": {"command": "gh pr create"',
+            env=_ENV,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
         )
         self.assertBlocked(proc)
 
@@ -546,19 +584,35 @@ class RequireConcernSweepHookTests(unittest.TestCase):
         for text in (*commands, HOOK.read_text()):
             self.assertFalse(_launches_unisolated_python(text))
         launches = [
-            line for line in HOOK.read_text().splitlines()
-            if not line.lstrip().startswith("#") and "python3 " in line and not line.lstrip().startswith("echo")
+            line
+            for line in HOOK.read_text().splitlines()
+            if not line.lstrip().startswith("#")
+            and "python3 " in line
+            and not line.lstrip().startswith("echo")
         ]
         self.assertTrue(launches)
         for line in launches:
             self.assertIn("python3 -I -S ", line)
-        self.assertNotIn("bin/workflow", "\n".join(
-            line for line in HOOK.read_text().splitlines() if not line.lstrip().startswith("#")
-        ))
+        self.assertNotIn(
+            "bin/workflow",
+            "\n".join(
+                line for line in HOOK.read_text().splitlines() if not line.lstrip().startswith("#")
+            ),
+        )
 
     def test_helper_imports_only_the_standard_library(self) -> None:
-        allowed = {"__future__", "json", "os", "re", "shlex", "stat", "subprocess", "sys",
-                   "dataclasses", "pathlib"}
+        allowed = {
+            "__future__",
+            "json",
+            "os",
+            "re",
+            "shlex",
+            "stat",
+            "subprocess",
+            "sys",
+            "dataclasses",
+            "pathlib",
+        }
         tree = ast.parse(HELPER.read_text())
         imported: set[str] = set()
         for node in ast.walk(tree):

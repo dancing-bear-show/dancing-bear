@@ -42,8 +42,14 @@ from tests.core_tests.github_fakes import FakeGh, GhCall, comment_node, ok, page
 
 def _thread(i: int, comments: list[dict[str, Any]], **extra: Any) -> dict[str, Any]:
     node = {
-        "id": f"PRRT_{i}", "isResolved": False, "isOutdated": False, "isCollapsed": False,
-        "path": f"src/f{i}.py", "line": i, "startLine": None, "diffSide": "RIGHT",
+        "id": f"PRRT_{i}",
+        "isResolved": False,
+        "isOutdated": False,
+        "isCollapsed": False,
+        "path": f"src/f{i}.py",
+        "line": i,
+        "startLine": None,
+        "diffSide": "RIGHT",
         "_all_comments": comments,
     }
     node.update(extra)
@@ -53,8 +59,13 @@ def _thread(i: int, comments: list[dict[str, Any]], **extra: Any) -> dict[str, A
 class PagingGitHub:
     """Answers GraphQL thread queries and REST list endpoints with real paging."""
 
-    def __init__(self, threads: list[dict[str, Any]], reviews: list[dict[str, Any]] | None = None,
-                 issue_comments: list[dict[str, Any]] | None = None, rest_page: int = 30) -> None:
+    def __init__(
+        self,
+        threads: list[dict[str, Any]],
+        reviews: list[dict[str, Any]] | None = None,
+        issue_comments: list[dict[str, Any]] | None = None,
+        rest_page: int = 30,
+    ) -> None:
         self.threads = threads
         self.reviews = reviews or []
         self.issue_comments = issue_comments or []
@@ -65,7 +76,9 @@ class PagingGitHub:
         return {"totalCount": len(thread["_all_comments"]), "pageInfo": info, "nodes": nodes}
 
     def _rest(self, items: list[dict[str, Any]], argv: list[str]):
-        pages = [items[i:i + self.rest_page] for i in range(0, len(items), self.rest_page)] or [[]]
+        pages = [items[i : i + self.rest_page] for i in range(0, len(items), self.rest_page)] or [
+            []
+        ]
         if "--paginate" not in argv:
             # What gh does without --paginate: the first page only.
             pages = pages[:1]
@@ -86,7 +99,9 @@ class PagingGitHub:
             return ok({"data": {"repository": {"pullRequest": {"reviewThreads": conn}}}})
         if "graphql" in argv and "node(id:" in call.query:
             thread = next(t for t in self.threads if t["id"] == call.value("id"))
-            return ok({"data": {"node": {"comments": self._comments_conn(thread, call.value("after"))}}})
+            return ok(
+                {"data": {"node": {"comments": self._comments_conn(thread, call.value("after"))}}}
+            )
         if argv[:2] == ["gh", "api"] and any(a.endswith("/reviews") for a in argv):
             return self._rest(self.reviews, argv)
         if argv[:2] == ["gh", "api"] and any(a.endswith("/comments") for a in argv):
@@ -100,11 +115,16 @@ def _fetch(github: PagingGitHub):
     return doc, raw, fake
 
 
-def _review(i: int, login: str = "someone", user_type: str = "User", body: str | None = None) -> dict[str, Any]:
+def _review(
+    i: int, login: str = "someone", user_type: str = "User", body: str | None = None
+) -> dict[str, Any]:
     return {
-        "id": 5000 + i, "user": {"login": login, "type": user_type},
-        "body": body if body is not None else f"review {i}", "state": "COMMENTED",
-        "submitted_at": f"2026-09-{1 + i // 24:02d}T{i % 24:02d}:00:00Z", "html_url": f"https://x/r{i}",
+        "id": 5000 + i,
+        "user": {"login": login, "type": user_type},
+        "body": body if body is not None else f"review {i}",
+        "state": "COMMENTED",
+        "submitted_at": f"2026-09-{1 + i // 24:02d}T{i % 24:02d}:00:00Z",
+        "html_url": f"https://x/r{i}",
     }
 
 
@@ -131,10 +151,14 @@ class TestThreadPagination(unittest.TestCase):
         entry = doc["threads"][0]
         self.assertEqual(len(entry["comments"]), n)
         self.assertEqual(entry["comments"][-1]["body"], f"comment {n - 1}")
-        self.assertEqual([c["database_id"] for c in entry["comments"]], [1000 + i for i in range(n)])
+        self.assertEqual(
+            [c["database_id"] for c in entry["comments"]], [1000 + i for i in range(n)]
+        )
         # The follow-up pages start where the inline page ended.
         follow = fake.graphql_calls("node(id:")
-        self.assertEqual([c.value("after") for c in follow], [f"c{COMMENT_PAGE}", f"c{COMMENT_PAGE * 2}"])
+        self.assertEqual(
+            [c.value("after") for c in follow], [f"c{COMMENT_PAGE}", f"c{COMMENT_PAGE * 2}"]
+        )
         self.assertFalse(doc["truncated"])
 
     def test_more_than_thirty_reviews_returns_the_newest(self):
@@ -148,8 +172,13 @@ class TestThreadPagination(unittest.TestCase):
 
     def test_issue_comments_are_paginated_too(self):
         comments = [
-            {"id": i, "user": {"login": "h", "type": "User"}, "body": f"ic {i}",
-             "created_at": "2026-09-23T00:00:00Z", "html_url": "u"}
+            {
+                "id": i,
+                "user": {"login": "h", "type": "User"},
+                "body": f"ic {i}",
+                "created_at": "2026-09-23T00:00:00Z",
+                "html_url": "u",
+            }
             for i in range(65)
         ]
         doc, _, _ = _fetch(PagingGitHub([], issue_comments=comments))
@@ -158,27 +187,50 @@ class TestThreadPagination(unittest.TestCase):
 
     def test_stalled_cursor_raises_rather_than_looping_or_stopping_short(self):
         def handler(call: GhCall):
-            conn = {"totalCount": 200, "pageInfo": {"hasNextPage": True, "endCursor": "same"},
-                    "nodes": [{"id": "PRRT_x", "comments": {"totalCount": 0, "nodes": [], "pageInfo": {}}}]}
+            conn = {
+                "totalCount": 200,
+                "pageInfo": {"hasNextPage": True, "endCursor": "same"},
+                "nodes": [
+                    {"id": "PRRT_x", "comments": {"totalCount": 0, "nodes": [], "pageInfo": {}}}
+                ],
+            }
             return ok({"data": {"repository": {"pullRequest": {"reviewThreads": conn}}}})
+
         with self.assertRaisesRegex(GhError, "did not advance"):
             fetch_review_threads(GhCLI(run_func=FakeGh(handler)), "o", "r", 1)
 
     def test_missing_cursor_with_has_next_page_raises(self):
         def handler(call: GhCall):
-            conn = {"totalCount": 5, "pageInfo": {"hasNextPage": True, "endCursor": None}, "nodes": []}
+            conn = {
+                "totalCount": 5,
+                "pageInfo": {"hasNextPage": True, "endCursor": None},
+                "nodes": [],
+            }
             return ok({"data": {"repository": {"pullRequest": {"reviewThreads": conn}}}})
+
         with self.assertRaises(GhError):
             fetch_review_threads(GhCLI(run_func=FakeGh(handler)), "o", "r", 1)
 
     def test_count_mismatch_is_flagged_truncated_not_reported_clean(self):
         def handler(call: GhCall):
             if "reviewThreads" in call.query:
-                conn = {"totalCount": 3, "pageInfo": {"hasNextPage": False, "endCursor": None},
-                        "nodes": [{"id": "PRRT_1", "comments": {
-                            "totalCount": 1, "pageInfo": {"hasNextPage": False}, "nodes": [comment_node(1)]}}]}
+                conn = {
+                    "totalCount": 3,
+                    "pageInfo": {"hasNextPage": False, "endCursor": None},
+                    "nodes": [
+                        {
+                            "id": "PRRT_1",
+                            "comments": {
+                                "totalCount": 1,
+                                "pageInfo": {"hasNextPage": False},
+                                "nodes": [comment_node(1)],
+                            },
+                        }
+                    ],
+                }
                 return ok({"data": {"repository": {"pullRequest": {"reviewThreads": conn}}}})
             return ok([[]])
+
         doc, _ = fetch_review_threads(GhCLI(run_func=FakeGh(handler)), "o", "r", 1)
         self.assertTrue(doc["truncated"])
 
@@ -188,11 +240,23 @@ class TestThreadPagination(unittest.TestCase):
         # (len(nodes) != len(nodes) is always False). It must fail closed.
         def handler(call: GhCall):
             if "reviewThreads" in call.query:
-                conn = {"totalCount": 1, "pageInfo": {"hasNextPage": False, "endCursor": None},
-                        "nodes": [{"id": "PRRT_1", "comments": {
-                            "totalCount": 0, "pageInfo": {"hasNextPage": False}, "nodes": [comment_node(1)]}}]}
+                conn = {
+                    "totalCount": 1,
+                    "pageInfo": {"hasNextPage": False, "endCursor": None},
+                    "nodes": [
+                        {
+                            "id": "PRRT_1",
+                            "comments": {
+                                "totalCount": 0,
+                                "pageInfo": {"hasNextPage": False},
+                                "nodes": [comment_node(1)],
+                            },
+                        }
+                    ],
+                }
                 return ok({"data": {"repository": {"pullRequest": {"reviewThreads": conn}}}})
             return ok([[]])
+
         doc, _ = fetch_review_threads(GhCLI(run_func=FakeGh(handler)), "o", "r", 1)
         self.assertTrue(doc["truncated"])
 
@@ -201,11 +265,22 @@ class TestThreadPagination(unittest.TestCase):
         # GitHub did not fully describe, not "trust the nodes we got".
         def handler(call: GhCall):
             if "reviewThreads" in call.query:
-                conn = {"totalCount": 1, "pageInfo": {"hasNextPage": False, "endCursor": None},
-                        "nodes": [{"id": "PRRT_1", "comments": {
-                            "pageInfo": {"hasNextPage": False}, "nodes": [comment_node(1)]}}]}
+                conn = {
+                    "totalCount": 1,
+                    "pageInfo": {"hasNextPage": False, "endCursor": None},
+                    "nodes": [
+                        {
+                            "id": "PRRT_1",
+                            "comments": {
+                                "pageInfo": {"hasNextPage": False},
+                                "nodes": [comment_node(1)],
+                            },
+                        }
+                    ],
+                }
                 return ok({"data": {"repository": {"pullRequest": {"reviewThreads": conn}}}})
             return ok([[]])
+
         doc, _ = fetch_review_threads(GhCLI(run_func=FakeGh(handler)), "o", "r", 1)
         self.assertTrue(doc["truncated"])
 
@@ -215,6 +290,7 @@ class TestThreadPagination(unittest.TestCase):
                 conn = {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": []}
                 return ok({"data": {"repository": {"pullRequest": {"reviewThreads": conn}}}})
             return ok([[]])
+
         doc, _ = fetch_review_threads(GhCLI(run_func=FakeGh(handler)), "o", "r", 1)
         self.assertTrue(doc["truncated"])
         self.assertEqual(doc["threads"], [])
@@ -226,11 +302,23 @@ class TestThreadPagination(unittest.TestCase):
         def handler(call: GhCall):
             if "reviewThreads" in call.query:
                 bad = {**comment_node(1), "databaseId": None}
-                conn = {"totalCount": 1, "pageInfo": {"hasNextPage": False, "endCursor": None},
-                        "nodes": [{"id": "PRRT_1", "comments": {
-                            "totalCount": 1, "pageInfo": {"hasNextPage": False}, "nodes": [bad]}}]}
+                conn = {
+                    "totalCount": 1,
+                    "pageInfo": {"hasNextPage": False, "endCursor": None},
+                    "nodes": [
+                        {
+                            "id": "PRRT_1",
+                            "comments": {
+                                "totalCount": 1,
+                                "pageInfo": {"hasNextPage": False},
+                                "nodes": [bad],
+                            },
+                        }
+                    ],
+                }
                 return ok({"data": {"repository": {"pullRequest": {"reviewThreads": conn}}}})
             return ok([[]])
+
         with self.assertRaisesRegex(GhError, "no databaseId"):
             fetch_review_threads(GhCLI(run_func=FakeGh(handler)), "o", "r", 1)
 
@@ -239,6 +327,7 @@ class TestThreadPagination(unittest.TestCase):
         # read as "this PR has no threads".
         def handler(call: GhCall):
             return ok({"data": {"repository": {"pullRequest": None}}})
+
         with self.assertRaisesRegex(GhError, "no repository.pullRequest"):
             fetch_review_threads(GhCLI(run_func=FakeGh(handler)), "o", "r", 999)
 
@@ -252,9 +341,13 @@ class TestThreadPagination(unittest.TestCase):
         # An incomplete chain can hide this run's earlier reply, and the
         # caller would post a duplicate; a count mismatch must fail.
         def handler(call: GhCall):
-            conn = {"totalCount": 5, "pageInfo": {"hasNextPage": False, "endCursor": None},
-                    "nodes": [comment_node(0), comment_node(1)]}
+            conn = {
+                "totalCount": 5,
+                "pageInfo": {"hasNextPage": False, "endCursor": None},
+                "nodes": [comment_node(0), comment_node(1)],
+            }
             return ok({"data": {"node": {"comments": conn}}})
+
         with self.assertRaisesRegex(GhError, "fetched 2 of 5"):
             fetch_thread_comments(GhCLI(run_func=FakeGh(handler)), "PRRT_0")
 
@@ -264,14 +357,20 @@ class TestThreadPagination(unittest.TestCase):
         def handler(call: GhCall):
             conn = {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": []}
             return ok({"data": {"node": {"comments": conn}}})
+
         with self.assertRaisesRegex(GhError, "fetched 0 of None"):
             fetch_thread_comments(GhCLI(run_func=FakeGh(handler)), "PRRT_0")
 
     def test_fetch_thread_comments_refuses_a_null_database_id(self):
         def handler(call: GhCall):
             bad = {**comment_node(0), "databaseId": None}
-            conn = {"totalCount": 1, "pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [bad]}
+            conn = {
+                "totalCount": 1,
+                "pageInfo": {"hasNextPage": False, "endCursor": None},
+                "nodes": [bad],
+            }
             return ok({"data": {"node": {"comments": conn}}})
+
         with self.assertRaisesRegex(GhError, "no databaseId"):
             fetch_thread_comments(GhCLI(run_func=FakeGh(handler)), "PRRT_0")
 
@@ -306,9 +405,13 @@ class TestFetchThreadStates(unittest.TestCase):
 
     def test_count_mismatch_is_reported_truncated_with_no_partial_claim(self):
         def handler(call: GhCall):
-            conn = {"totalCount": 3, "pageInfo": {"hasNextPage": False, "endCursor": None},
-                    "nodes": [{"id": "PRRT_1", "isResolved": False}]}
+            conn = {
+                "totalCount": 3,
+                "pageInfo": {"hasNextPage": False, "endCursor": None},
+                "nodes": [{"id": "PRRT_1", "isResolved": False}],
+            }
             return ok({"data": {"repository": {"pullRequest": {"reviewThreads": conn}}}})
+
         nodes, truncated = fetch_thread_states(GhCLI(run_func=FakeGh(handler)), "o", "r", 1)
         self.assertTrue(truncated)
         # The mismatched fetch still returns what came back; callers (cmd_threads_state)
@@ -321,6 +424,7 @@ class TestFetchThreadStates(unittest.TestCase):
         def handler(call: GhCall):
             conn = {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": []}
             return ok({"data": {"repository": {"pullRequest": {"reviewThreads": conn}}}})
+
         nodes, truncated = fetch_thread_states(GhCLI(run_func=FakeGh(handler)), "o", "r", 1)
         self.assertTrue(truncated)
         self.assertEqual(nodes, [])
@@ -353,8 +457,10 @@ class TestClassifyAuthor(unittest.TestCase):
         self.assertEqual(classify_author("some-app[bot]"), "bot")
 
     def test_fetch_classifies_github_code_quality_threads_as_bot(self):
-        comments = [comment_node(0, login="github-code-quality", typename="Bot"),
-                    comment_node(1, login="alice", typename="User")]
+        comments = [
+            comment_node(0, login="github-code-quality", typename="Bot"),
+            comment_node(1, login="alice", typename="User"),
+        ]
         doc, _, _ = _fetch(PagingGitHub([_thread(0, comments)]))
         entry = doc["threads"][0]
         self.assertEqual(entry["author_kind"], "bot")
@@ -410,10 +516,23 @@ class TestIsCopilotReviewer(unittest.TestCase):
 class TestThreadsDoc(unittest.TestCase):
     def test_rest_entries_carry_no_thread_id_and_do_not_count_as_unresolved(self):
         doc = build_threads_doc(
-            owner="o", repo="r", pr=3,
-            raw_threads=[{"id": "PRRT_a", "isResolved": True, "isOutdated": True, "line": None,
-                          "path": "p", "comments": {"nodes": [comment_node(0)]}}],
-            reviews=[_review(0, "copilot-pull-request-reviewer[bot]", "Bot"), _review(1, body="  ")],
+            owner="o",
+            repo="r",
+            pr=3,
+            raw_threads=[
+                {
+                    "id": "PRRT_a",
+                    "isResolved": True,
+                    "isOutdated": True,
+                    "line": None,
+                    "path": "p",
+                    "comments": {"nodes": [comment_node(0)]},
+                }
+            ],
+            reviews=[
+                _review(0, "copilot-pull-request-reviewer[bot]", "Bot"),
+                _review(1, body="  "),
+            ],
             issue_comments=[{"id": 9, "user": {"login": "h", "type": "User"}, "body": "hi"}],
         )
         by_source = {t["source"]: t for t in doc["threads"]}
@@ -429,7 +548,10 @@ class TestThreadsDoc(unittest.TestCase):
 
     def test_every_rest_entry_carries_its_rest_id_as_database_id(self):
         doc = build_threads_doc(
-            owner="o", repo="r", pr=1, raw_threads=[],
+            owner="o",
+            repo="r",
+            pr=1,
+            raw_threads=[],
             reviews=[_review(0)],
             issue_comments=[{"id": 77, "user": {"login": "h", "type": "User"}, "body": "hi"}],
         )
@@ -439,29 +561,67 @@ class TestThreadsDoc(unittest.TestCase):
     def test_rest_item_without_id_fails_instead_of_emitting_a_null_identity(self):
         # review-fix-threads halts at dispatch on a null-id entry with no
         # database_id, so the fetch must refuse it up front.
-        for reviews, comments in (([{**_review(0), "id": None}], []),
-                                  ([], [{"user": {"login": "h"}, "body": "no id"}])):
+        for reviews, comments in (
+            ([{**_review(0), "id": None}], []),
+            ([], [{"user": {"login": "h"}, "body": "no id"}]),
+        ):
             with self.subTest(reviews=bool(reviews)), self.assertRaisesRegex(GhError, "has no id"):
-                build_threads_doc(owner="o", repo="r", pr=1, raw_threads=[],
-                                  reviews=reviews, issue_comments=comments)
+                build_threads_doc(
+                    owner="o",
+                    repo="r",
+                    pr=1,
+                    raw_threads=[],
+                    reviews=reviews,
+                    issue_comments=comments,
+                )
 
     def test_outdated_thread_keeps_null_line(self):
-        doc = build_threads_doc(owner="o", repo="r", pr=1, reviews=[], issue_comments=[],
-                                raw_threads=[{"id": "T", "isOutdated": True, "line": None,
-                                              "comments": {"nodes": [comment_node(0)]}}])
+        doc = build_threads_doc(
+            owner="o",
+            repo="r",
+            pr=1,
+            reviews=[],
+            issue_comments=[],
+            raw_threads=[
+                {
+                    "id": "T",
+                    "isOutdated": True,
+                    "line": None,
+                    "comments": {"nodes": [comment_node(0)]},
+                }
+            ],
+        )
         self.assertIsNone(doc["threads"][0]["line"])
         self.assertTrue(doc["threads"][0]["is_outdated"])
 
     def test_review_body_kept_verbatim(self):
         body = "<!-- ccr-overview-v2 -->\n  <details>​ x  </details>\n"
-        doc = build_threads_doc(owner="o", repo="r", pr=1, raw_threads=[], issue_comments=[],
-                                reviews=[_review(0, body=body)])
+        doc = build_threads_doc(
+            owner="o",
+            repo="r",
+            pr=1,
+            raw_threads=[],
+            issue_comments=[],
+            reviews=[_review(0, body=body)],
+        )
         self.assertEqual(doc["review_bodies"][0]["body"], body)
 
     def test_summary_lists_every_entry(self):
-        doc = build_threads_doc(owner="o", repo="r", pr=1, reviews=[_review(0)], issue_comments=[],
-                                raw_threads=[{"id": "PRRT_abcdefgh1234", "line": 4, "path": "a.py",
-                                              "comments": {"nodes": [comment_node(0)]}}])
+        doc = build_threads_doc(
+            owner="o",
+            repo="r",
+            pr=1,
+            reviews=[_review(0)],
+            issue_comments=[],
+            raw_threads=[
+                {
+                    "id": "PRRT_abcdefgh1234",
+                    "line": 4,
+                    "path": "a.py",
+                    "comments": {"nodes": [comment_node(0)]},
+                }
+            ],
+        )
         text = render_summary(doc)
         self.assertIn("`efgh1234`", text)
         self.assertIn("a.py:4", text)
@@ -480,19 +640,24 @@ def _mutation_gh(reply_payload: Any, resolve_payload: Any | None = None, reply_r
         if "resolveReviewThread" in call.query:
             return ok(resolve_payload)
         raise AssertionError(call.argv)
+
     fake = FakeGh(handler)
     return GhCLI(run_func=fake), fake
 
 
-_GOOD_REPLY = {"data": {"addPullRequestReviewThreadReply": {"comment": {"id": "PRRC_1", "url": "u"}}}}
+_GOOD_REPLY = {
+    "data": {"addPullRequestReviewThreadReply": {"comment": {"id": "PRRC_1", "url": "u"}}}
+}
 _GOOD_RESOLVE = {"data": {"resolveReviewThread": {"thread": {"id": "T", "isResolved": True}}}}
 
 
 class TestReplyAndResolve(unittest.TestCase):
     def test_http_200_with_errors_and_null_comment_is_failed_and_not_resolved(self):
         gh, fake = _mutation_gh(
-            {"data": {"addPullRequestReviewThreadReply": {"comment": None}},
-             "errors": [{"message": "Could not resolve to a node"}]},
+            {
+                "data": {"addPullRequestReviewThreadReply": {"comment": None}},
+                "errors": [{"message": "Could not resolve to a node"}],
+            },
             _GOOD_RESOLVE,
         )
         with self.assertRaisesRegex(GhError, "Could not resolve"):
@@ -500,14 +665,19 @@ class TestReplyAndResolve(unittest.TestCase):
         self.assertEqual(fake.graphql_calls("resolveReviewThread"), [])
 
     def test_errors_alone_fail_even_with_a_comment_id(self):
-        gh, _ = _mutation_gh({"data": {"addPullRequestReviewThreadReply": {"comment": {"id": "X"}}},
-                              "errors": [{"message": "partial"}]})
+        gh, _ = _mutation_gh(
+            {
+                "data": {"addPullRequestReviewThreadReply": {"comment": {"id": "X"}}},
+                "errors": [{"message": "partial"}],
+            }
+        )
         with self.assertRaises(GhError):
             reply_to_thread(gh, "T", "b")
 
     def test_null_comment_alone_fails_even_without_errors(self):
-        gh, fake = _mutation_gh({"data": {"addPullRequestReviewThreadReply": {"comment": None}}},
-                                _GOOD_RESOLVE)
+        gh, fake = _mutation_gh(
+            {"data": {"addPullRequestReviewThreadReply": {"comment": None}}}, _GOOD_RESOLVE
+        )
         with self.assertRaisesRegex(GhError, "no comment id"):
             reply_and_resolve(gh, "T", "b")
         self.assertEqual(fake.graphql_calls("resolveReviewThread"), [])
@@ -517,23 +687,31 @@ class TestReplyAndResolve(unittest.TestCase):
         reply_to_thread(gh, "T", "@/etc/passwd")
         call = fake.graphql_calls("addPullRequestReviewThreadReply")[0]
         self.assertEqual(call.fields["body"], ("-f", "@/etc/passwd"))
-        self.assertNotIn("-F", [a for a, b in zip(call.argv, call.argv[1:]) if b.startswith("body=")])
+        self.assertNotIn(
+            "-F", [a for a, b in zip(call.argv, call.argv[1:]) if b.startswith("body=")]
+        )
 
     def test_good_reply_then_verified_resolve(self):
         gh, fake = _mutation_gh(_GOOD_REPLY, _GOOD_RESOLVE)
         out = reply_and_resolve(gh, "T", "done")
-        self.assertEqual(out, {"reply": {"comment_id": "PRRC_1", "url": "u"}, "resolved": True, "error": None})
+        self.assertEqual(
+            out, {"reply": {"comment_id": "PRRC_1", "url": "u"}, "resolved": True, "error": None}
+        )
         order = [("reply" if "addPull" in c.query else "resolve") for c in fake.calls]
         self.assertEqual(order, ["reply", "resolve"])
 
     def test_resolve_that_does_not_report_resolved_is_failed(self):
-        gh, _ = _mutation_gh(_GOOD_REPLY, {"data": {"resolveReviewThread": {"thread": {"isResolved": False}}}})
+        gh, _ = _mutation_gh(
+            _GOOD_REPLY, {"data": {"resolveReviewThread": {"thread": {"isResolved": False}}}}
+        )
         out = reply_and_resolve(gh, "T", "done")
         self.assertFalse(out["resolved"])
         self.assertIn("isResolved", out["error"])
 
     def test_resolve_with_errors_and_exit_zero_raises(self):
-        gh, _ = _mutation_gh(_GOOD_REPLY, {"data": {"resolveReviewThread": None}, "errors": [{"message": "no"}]})
+        gh, _ = _mutation_gh(
+            _GOOD_REPLY, {"data": {"resolveReviewThread": None}, "errors": [{"message": "no"}]}
+        )
         with self.assertRaises(GhError):
             resolve_thread(gh, "T")
 
@@ -544,9 +722,11 @@ class TestReplyAndResolve(unittest.TestCase):
         self.assertEqual(fake.calls, [])
 
     def test_run_marker_found_anywhere_in_the_chain(self):
-        chain = [{"author": "rev", "body": "fix"},
-                 {"author": "me[bot]", "body": "ok\n" + run_marker("run-1")},
-                 {"author": "rev", "body": "reviewer again"}]
+        chain = [
+            {"author": "rev", "body": "fix"},
+            {"author": "me[bot]", "body": "ok\n" + run_marker("run-1")},
+            {"author": "rev", "body": "reviewer again"},
+        ]
         self.assertTrue(has_run_marker(chain, "run-1", actor="me"))
         self.assertFalse(has_run_marker(chain, "run-2", actor="me"))
 
@@ -554,8 +734,9 @@ class TestReplyAndResolve(unittest.TestCase):
         chain = [{"author": "mallory", "body": "pasted " + run_marker("run-1")}]
         self.assertFalse(has_run_marker(chain, "run-1", actor="me"))
         self.assertTrue(forged_run_marker(chain, "run-1", actor="me"))
-        self.assertFalse(forged_run_marker([{"author": "me", "body": run_marker("run-1")}],
-                                           "run-1", actor="me"))
+        self.assertFalse(
+            forged_run_marker([{"author": "me", "body": run_marker("run-1")}], "run-1", actor="me")
+        )
 
     def test_mark_body_strips_every_quoted_marker_then_appends_ours(self):
         body = "> <!-- dancing-bear-run: A -->\n<!--\ndancing-bear-run: B\n-->\nfixed\n"
@@ -570,7 +751,12 @@ class TestReplyAndResolve(unittest.TestCase):
         # turn "" into "\n\n<!-- dancing-bear-run: R -->", a non-empty string
         # that reply_to_thread's `.strip()` guard would then wave through as
         # a marker-only reply with no reviewer-visible content.
-        for bad_body in ("   ", "\n\t\n", run_marker("stale-run"), "  " + run_marker("stale-run") + "  "):
+        for bad_body in (
+            "   ",
+            "\n\t\n",
+            run_marker("stale-run"),
+            "  " + run_marker("stale-run") + "  ",
+        ):
             with self.subTest(bad_body=bad_body):
                 with self.assertRaisesRegex(GhError, "empty or whitespace-only"):
                     mark_body(bad_body, "R")

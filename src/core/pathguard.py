@@ -58,9 +58,7 @@ def require_path(value: object, *, argument: str = "path") -> Path:
         )
 
     if not isinstance(value, _PATH_TYPES):
-        raise TypeError(
-            f"{argument} must be str or os.PathLike, got {type(value).__name__}"
-        )
+        raise TypeError(f"{argument} must be str or os.PathLike, got {type(value).__name__}")
 
     return Path(value)
 

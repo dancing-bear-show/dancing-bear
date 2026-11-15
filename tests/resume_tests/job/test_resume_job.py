@@ -42,11 +42,13 @@ class TestNormalizeKeywords(unittest.TestCase):
         self.assertEqual(result, [{"skill": "Kubernetes", "weight": 1}])
 
     def test_normalize_mixed_items(self):
-        result = _normalize_keywords([
-            "Python",
-            {"skill": "Java", "weight": 2},
-            {"name": "Go"},
-        ])
+        result = _normalize_keywords(
+            [
+                "Python",
+                {"skill": "Java", "weight": 2},
+                {"name": "Go"},
+            ]
+        )
         self.assertEqual(len(result), 3)
         self.assertEqual(result[0], {"skill": "Python", "weight": 1})
         self.assertEqual(result[1], {"skill": "Java", "weight": 2})
@@ -173,7 +175,9 @@ class TestBuildKeywordSpec(unittest.TestCase):
         self.assertEqual(weights["Kubernetes"], 1)
         self.assertEqual([x["skill"] for x in spec["preferred"]], ["Terraform"])
         self.assertEqual([x["skill"] for x in spec["nice"]], ["Prometheus"])
-        self.assertEqual([x["skill"] for x in spec["categories"]["soft_skills"]], ["Communication", "Leadership"])
+        self.assertEqual(
+            [x["skill"] for x in spec["categories"]["soft_skills"]], ["Communication", "Leadership"]
+        )
         self.assertEqual([x["skill"] for x in spec["categories"]["tech_skills"]], ["Docker"])
         self.assertEqual([x["skill"] for x in spec["categories"]["technologies"]], ["Linux"])
         self.assertEqual(syn["Kubernetes"], ["k8s", "EKS"])

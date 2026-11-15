@@ -137,9 +137,7 @@ def _parse_checks(raw: object, source: str) -> tuple[ParamCheck, ...]:
 def _parse_required(raw: object, source: str) -> frozenset[str]:
     """Parse the ``required`` list of param names."""
     if not isinstance(raw, list) or not all(isinstance(n, str) for n in raw):
-        raise WorkflowParseError(
-            f"{source}: trigger 'required' must be a list of param names"
-        )
+        raise WorkflowParseError(f"{source}: trigger 'required' must be a list of param names")
     return frozenset(raw)
 
 
@@ -154,7 +152,9 @@ def parse_param_rules(trigger: Mapping[str, Any], source: str) -> ParamRules:
             invalid regex, or a ``required`` that is not a list of strings.
     """
     checks = _parse_checks(trigger["param_rules"], source) if "param_rules" in trigger else ()
-    required = _parse_required(trigger["required"], source) if "required" in trigger else frozenset()
+    required = (
+        _parse_required(trigger["required"], source) if "required" in trigger else frozenset()
+    )
     return ParamRules(checks=checks, required=required)
 
 
@@ -191,7 +191,8 @@ def _is_blank(value: object) -> bool:
 def _applicable(checks: Iterable[ParamCheck], params: Mapping[str, object]) -> list[ParamCheck]:
     """Checks whose param holds a non-blank string -- the values rules apply to."""
     return [
-        c for c in checks
+        c
+        for c in checks
         if isinstance(params.get(c.name), str) and not _is_blank(params.get(c.name))
     ]
 

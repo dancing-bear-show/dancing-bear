@@ -51,8 +51,18 @@ def _make_sandbox_repo(root: Path) -> Path:
         check=True,
     )
     subprocess.run(  # nosec B603 B607 - fixed argv, temp dir
-        ["git", "-c", "user.email=t@example.com", "-c", "user.name=t",
-         "commit", "-q", "--allow-empty", "-m", "init"],
+        [
+            "git",
+            "-c",
+            "user.email=t@example.com",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "init",
+        ],
         cwd=str(root),
         capture_output=True,
         text=True,
@@ -374,9 +384,7 @@ class TestNameWorktreeHookGeneratorFailureFallsBack(unittest.TestCase):
         real_path = os.environ.get("PATH", "")
         self.fallback_env = {**os.environ, "PATH": f"{fake_bin}{os.pathsep}{real_path}"}
 
-    def _run_with_broken_python3(
-        self, payload: str
-    ) -> subprocess.CompletedProcess[str]:
+    def _run_with_broken_python3(self, payload: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(  # nosec B603 B607 - in-repo script, sandbox repo
             ["bash", str(HOOK)],
             input=payload,
@@ -395,9 +403,7 @@ class TestNameWorktreeHookGeneratorFailureFallsBack(unittest.TestCase):
         be absent on stock Linux CI runners for real, the fallback was fixed,
         and this test was updated to assert the current, working contract.
         """
-        proc = self._run_with_broken_python3(
-            json.dumps({"name": "fallback-safe-name"})
-        )
+        proc = self._run_with_broken_python3(json.dumps({"name": "fallback-safe-name"}))
 
         self.assertEqual(
             proc.returncode,
@@ -469,9 +475,7 @@ class TestNameWorktreeHookBothBranches(unittest.TestCase):
         branch specifically, not "some" branch.
         """
         if not os.path.isfile("/usr/share/dict/words"):
-            self.skipTest(
-                "generator branch requires /usr/share/dict/words, absent on this host"
-            )
+            self.skipTest("generator branch requires /usr/share/dict/words, absent on this host")
 
         proc = _run_hook(self.repo, json.dumps({"name": "caller-name-ignored"}))
 
@@ -535,8 +539,7 @@ class TestNameWorktreeHookBothBranches(unittest.TestCase):
         self.assertEqual(
             proc.returncode,
             0,
-            f"fallback branch: hook exited nonzero with generator forced to "
-            f"fail: {proc.stderr!r}",
+            f"fallback branch: hook exited nonzero with generator forced to fail: {proc.stderr!r}",
         )
         printed_path = Path(proc.stdout.splitlines()[-1])
         self.assertTrue(

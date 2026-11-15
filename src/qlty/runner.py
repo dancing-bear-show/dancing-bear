@@ -30,10 +30,9 @@ from __future__ import annotations
 import json
 import os
 import shutil
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Sequence
 
 from core.cli_errors import CLIError, ExitCode
 from core.process import run_binary
@@ -70,7 +69,7 @@ class QltyError(CLIError):
         self,
         message: str,
         code: ExitCode = ExitCode.ERROR,
-        hint: Optional[str] = None,
+        hint: str | None = None,
     ) -> None:
         super().__init__(message, code, hint)
 
@@ -78,7 +77,7 @@ class QltyError(CLIError):
 class QltyNotInstalledError(QltyError):
     """The qlty binary could not be located."""
 
-    def __init__(self, message: str, hint: Optional[str] = None) -> None:
+    def __init__(self, message: str, hint: str | None = None) -> None:
         super().__init__(
             message,
             ExitCode.CONFIG_ERROR,
@@ -94,7 +93,7 @@ class QltyInvocationError(QltyError):
     """
 
 
-def resolve_binary(explicit: Optional[str] = None) -> str:
+def resolve_binary(explicit: str | None = None) -> str:
     """Locate the qlty binary, preferring an explicit path.
 
     Order: explicit argument, ``$QLTY_BIN``, ``~/.qlty/bin/qlty``, then PATH.
@@ -150,8 +149,8 @@ class QltyRunner:
 
     def __init__(
         self,
-        binary: Optional[str] = None,
-        cwd: Optional[Path] = None,
+        binary: str | None = None,
+        cwd: Path | None = None,
         timeout: int = _SUBPROCESS_TIMEOUT_SECONDS,
     ) -> None:
         self._binary = binary
@@ -225,9 +224,7 @@ class QltyRunner:
 
         json_run = self._execute(argv("--json"))
         if self._scan_ran(json_run):
-            findings = self._parse_or_raise(
-                json_run, WireFormat.JSON, source, parse_json_findings
-            )
+            findings = self._parse_or_raise(json_run, WireFormat.JSON, source, parse_json_findings)
             return InvocationResult(
                 findings=tuple(findings),
                 wire_format=WireFormat.JSON,
@@ -248,9 +245,7 @@ class QltyRunner:
                 f"  --sarif: {self._failure_summary(sarif_run)}"
             )
 
-        findings = self._parse_or_raise(
-            sarif_run, WireFormat.SARIF, source, parse_sarif_findings
-        )
+        findings = self._parse_or_raise(sarif_run, WireFormat.SARIF, source, parse_sarif_findings)
         return InvocationResult(
             findings=tuple(findings),
             wire_format=WireFormat.SARIF,
@@ -264,9 +259,7 @@ class QltyRunner:
         )
 
     @staticmethod
-    def _with_paths(
-        base: Sequence[str], wire_flag: str, paths: Sequence[str]
-    ) -> list[str]:
+    def _with_paths(base: Sequence[str], wire_flag: str, paths: Sequence[str]) -> list[str]:
         """Append the wire-format flag and paths to already-built scan flags.
 
         Kept separate from ``_base_args`` because ordering is the whole point:
@@ -364,8 +357,7 @@ def parse_json_findings(payload: str, source: Source) -> list[Finding]:
     data = _loads(payload, WireFormat.JSON)
     if not isinstance(data, list):
         raise QltyInvocationError(
-            f"expected a JSON array from qlty {source.value}, got "
-            f"{type(data).__name__}"
+            f"expected a JSON array from qlty {source.value}, got {type(data).__name__}"
         )
 
     # Every element must be an object. Skipping non-dict entries would let a
@@ -393,9 +385,7 @@ def _finding_from_json(item: dict, source: Source) -> Finding:
         wire_format=WireFormat.JSON,
         tool=str(item.get("tool", "")),
         value=raw_value if isinstance(raw_value, int) else None,
-        other_locations=tuple(
-            _location_from_json(loc) for loc in item.get("otherLocations") or []
-        ),
+        other_locations=tuple(_location_from_json(loc) for loc in item.get("otherLocations") or []),
         group_key=_str_or_none(properties.get("structural_hash")),
     )
 
@@ -430,8 +420,7 @@ def parse_sarif_findings(payload: str, source: Source) -> list[Finding]:
     data = _loads(payload, WireFormat.SARIF)
     if not isinstance(data, dict):
         raise QltyInvocationError(
-            f"expected a SARIF object from qlty {source.value}, got "
-            f"{type(data).__name__}"
+            f"expected a SARIF object from qlty {source.value}, got {type(data).__name__}"
         )
 
     runs = data.get("runs")
@@ -544,9 +533,9 @@ def _normalize_level(level: str) -> str:
     """
     cleaned = level.strip().lower()
     if cleaned.startswith("level_"):
-        cleaned = cleaned[len("level_"):]
+        cleaned = cleaned[len("level_") :]
     return cleaned or "unknown"
 
 
-def _str_or_none(value: object) -> Optional[str]:
+def _str_or_none(value: object) -> str | None:
     return str(value) if isinstance(value, str) and value else None

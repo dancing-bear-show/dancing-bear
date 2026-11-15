@@ -119,7 +119,9 @@ class TestPromptsMain(unittest.TestCase):
         self.assertEqual(result, 0)
 
     def test_value_error_returns_1(self):
-        with patch("telemetry.otel.cli.prompts.get_prompt_metrics", side_effect=ValueError("bad since")):
+        with patch(
+            "telemetry.otel.cli.prompts.get_prompt_metrics", side_effect=ValueError("bad since")
+        ):
             buf = io.StringIO()
             with patch("sys.stderr", buf):
                 result = main(["--since", "bad"])
@@ -134,6 +136,7 @@ class TestPromptsMain(unittest.TestCase):
 
     def test_data_dir_flag(self):
         import tempfile
+
         with tempfile.TemporaryDirectory() as td:
             with patch("telemetry.otel.cli.prompts.get_prompt_metrics", return_value=[]):
                 result = main(["--data-dir", td])

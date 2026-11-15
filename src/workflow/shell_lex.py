@@ -91,7 +91,9 @@ class Heredoc:
     body: str
     start: int
     subs: tuple[tuple[str, int], ...] = ()  # substitutions an unquoted body runs
-    strip_tabs: bool = False  # opened by <<-: leading tabs are stripped before the closer is matched
+    strip_tabs: bool = (
+        False  # opened by <<-: leading tabs are stripped before the closer is matched
+    )
 
 
 @dataclass(frozen=True)
@@ -140,7 +142,9 @@ class _Lexer:
     whatever the input.
     """
 
-    def __init__(self, text: str, base: int = 0, pos: int = 0, depth: int = 0, nest: int = 0) -> None:
+    def __init__(
+        self, text: str, base: int = 0, pos: int = 0, depth: int = 0, nest: int = 0
+    ) -> None:
         self.text = text
         self.base = base
         self.pos = pos
@@ -167,7 +171,9 @@ class _Lexer:
         if self.text.startswith("((", start):
             parts = _WordParts()
             self.pos = self._nested(self._arith_body, start + 2, parts)
-            return ShellToken("arith", self.text[start:self.pos], self.base + start, subs=tuple(parts.subs))
+            return ShellToken(
+                "arith", self.text[start : self.pos], self.base + start, subs=tuple(parts.subs)
+            )
         return self._operator() or self._word()
 
     def closing_paren(self) -> int:
@@ -235,7 +241,9 @@ class _Lexer:
             i = self._word_char(i, parts)
         i = max(i, start + 1)
         self.pos = i
-        tok = ShellToken("word", "".join(parts.parts), self.base + start, text[start:i], tuple(parts.subs))
+        tok = ShellToken(
+            "word", "".join(parts.parts), self.base + start, text[start:i], tuple(parts.subs)
+        )
         if self._heredoc_op is not None:
             self._pending.append(_Delimiter(tok, strip_tabs=self._heredoc_op == "<<-"))
             self._heredoc_op = None
@@ -244,12 +252,12 @@ class _Lexer:
     def _word_char(self, i: int, parts: _WordParts) -> int:
         ch = self.text[i]
         if ch == "\\":
-            parts.parts.append(self.text[i + 1:i + 2].replace("\n", ""))
+            parts.parts.append(self.text[i + 1 : i + 2].replace("\n", ""))
             return i + 2
         if ch == "'":
             end = self.text.find("'", i + 1)
             end = len(self.text) if end < 0 else end
-            parts.parts.append(self.text[i + 1:end])
+            parts.parts.append(self.text[i + 1 : end])
             return end + 1
         if ch == '"':
             return self._double(i + 1, parts, closer='"')
@@ -279,7 +287,7 @@ class _Lexer:
         """Read double-quoted text from *i* up to *closer* (None: the end of the text)."""
         text = self.text
         while i < len(text) and text[i] != closer:
-            if text[i] == "\\" and text[i + 1:i + 2] in _DQUOTE_ESCAPABLE:
+            if text[i] == "\\" and text[i + 1 : i + 2] in _DQUOTE_ESCAPABLE:
                 parts.parts.append(text[i + 1].replace("\n", ""))
                 i += 2
             elif text[i] in "$`":
@@ -355,7 +363,7 @@ class _Lexer:
     def _command_sub(self, open_at: int, body_start: int, parts: _WordParts) -> int:
         end = self._nested(self._closing_paren_from, body_start, parts, child=True)
         parts.subs.append((self.text[body_start:end], self.base + body_start))
-        parts.parts.append(self.text[open_at:end + 1])
+        parts.parts.append(self.text[open_at : end + 1])
         return min(end + 1, len(self.text))
 
     def _closing_paren_from(self, body_start: int, parts: _WordParts) -> int:
@@ -385,13 +393,13 @@ class _Lexer:
         body: list[str] = []
         j = i + 1
         while j < len(text) and text[j] != "`":
-            if text[j] == "\\" and text[j + 1:j + 2] and text[j + 1] in escapable:
+            if text[j] == "\\" and text[j + 1 : j + 2] and text[j + 1] in escapable:
                 j += 1
             body.append(text[j])
             j += 1
         j = min(j, len(text))
         parts.subs.append(("".join(body), self.base + i + 1))
-        parts.parts.append(text[i:j + 1])
+        parts.parts.append(text[i : j + 1])
         return min(j + 1, len(text))
 
     def _read_heredoc_bodies(self) -> None:
@@ -426,6 +434,7 @@ def _heredoc_delimiters(text: str) -> list[_Delimiter]:
     """The delimiter of each heredoc opened in *text*, in order, with its redirect kind."""
     tokens = _Lexer(text).tokens()
     return [
-        _Delimiter(nxt, strip_tabs=tok.text == "<<-") for tok, nxt in zip(tokens, tokens[1:])
+        _Delimiter(nxt, strip_tabs=tok.text == "<<-")
+        for tok, nxt in zip(tokens, tokens[1:])
         if tok.kind == "redirect" and tok.text in _HEREDOC_OPS and nxt.kind == "word"
     ]

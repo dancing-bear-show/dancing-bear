@@ -3,8 +3,8 @@ import stat
 import subprocess  # nosec B404
 import tempfile
 import textwrap
-from pathlib import Path
 import unittest
+from pathlib import Path
 
 from tests.fixtures import bin_path, repo_root
 
@@ -23,7 +23,8 @@ class TestIosInstallProfileAuth(unittest.TestCase):
         # Stub cfgutil that records args
         self.capture_file = self.tmpdir / "cfgutil_args.txt"
         cfgutil = self.tmpdir / "cfgutil"
-        cfgutil.write_text(textwrap.dedent(f"""
+        cfgutil.write_text(
+            textwrap.dedent(f"""
             #!/usr/bin/env bash
             set -euo pipefail
             if [[ "${{1:-}}" == "list" ]]; then
@@ -32,12 +33,15 @@ class TestIosInstallProfileAuth(unittest.TestCase):
             fi
             echo "$@" >> "{self.capture_file}"
             exit 0
-        """), encoding="utf-8")
+        """),
+            encoding="utf-8",
+        )
         os.chmod(cfgutil, stat.S_IRWXU)
 
         # Stub openssl that creates requested output files
         openssl = self.tmpdir / "openssl"
-        openssl.write_text(textwrap.dedent("""
+        openssl.write_text(
+            textwrap.dedent("""
             #!/usr/bin/env bash
             set -euo pipefail
             cmd=${1:-}
@@ -55,7 +59,9 @@ class TestIosInstallProfileAuth(unittest.TestCase):
               printf 'DER' > "$out"
             fi
             exit 0
-        """), encoding="utf-8")
+        """),
+            encoding="utf-8",
+        )
         os.chmod(openssl, stat.S_IRWXU)
 
         # Config directory and credentials.ini
@@ -69,31 +75,44 @@ class TestIosInstallProfileAuth(unittest.TestCase):
         self.profile = self.tmpdir / "test.mobileconfig"
         self.profile.write_text("profile", encoding="utf-8")
 
-        self.credentials.write_text(textwrap.dedent(f"""
+        self.credentials.write_text(
+            textwrap.dedent(f"""
             [ios_layout_manager]
             supervision_identity_p12 = {self.p12}
             supervision_identity_pass = TESTPASS
-        """), encoding="utf-8")
+        """),
+            encoding="utf-8",
+        )
 
         # Environment for the test
         self.env = os.environ.copy()
         # Prepend stub bin to PATH
-        self.env["PATH"] = f"{self.tmpdir}:{self.env.get('PATH','')}"
+        self.env["PATH"] = f"{self.tmpdir}:{self.env.get('PATH', '')}"
         # XDG config so resolve_config finds our credentials
         self.env["XDG_CONFIG_HOME"] = str(self.tmpdir)
 
     def run_install(self, extra_args=None):
-        args = [str(self.bin_install), "--udid", "TESTUDID", "--profile", str(self.profile), "--creds-profile", "ios_layout_manager"]
+        args = [
+            str(self.bin_install),
+            "--udid",
+            "TESTUDID",
+            "--profile",
+            str(self.profile),
+            "--creds-profile",
+            "ios_layout_manager",
+        ]
         if extra_args:
             args.extend(extra_args)
-        return subprocess.run(args, env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # nosec B603 - test code with trusted local script
+        return subprocess.run(args, env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # nosec B603 - test code with trusted local script  # fmt: skip
 
     def test_reads_identity_from_credentials_and_passes_to_cfgutil(self):
         # Run installer; stubs should cause success
         proc = self.run_install()
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         # Verify cfgutil was invoked with certificate and private-key options
-        self.assertTrue(self.capture_file.exists(), "cfgutil capture not found; stub may not have been used")
+        self.assertTrue(
+            self.capture_file.exists(), "cfgutil capture not found; stub may not have been used"
+        )
         content = self.capture_file.read_text(encoding="utf-8")
         self.assertIn("install-profile", content)
         self.assertIn(str(self.profile), content)

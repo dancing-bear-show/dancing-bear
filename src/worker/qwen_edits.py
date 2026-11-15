@@ -320,7 +320,9 @@ def _find_unique(lines: list[str], search: tuple[str, ...]) -> int:
     if not search:
         raise EditBlockError(EDIT_AMBIGUOUS_OUTCOME)
     n, first, wanted = len(search), search[0], list(search)
-    hits = [i for i in range(len(lines) - n + 1) if lines[i] == first and lines[i : i + n] == wanted]
+    hits = [
+        i for i in range(len(lines) - n + 1) if lines[i] == first and lines[i : i + n] == wanted
+    ]
     if not hits:
         raise EditBlockError(EDIT_NOT_FOUND_OUTCOME)
     if len(hits) > 1:
@@ -369,7 +371,17 @@ def _diff_lines(text: str) -> list[str]:
     return lines
 
 
-_QUOTE_ESCAPES = {"\a": "\\a", "\b": "\\b", "\t": "\\t", "\n": "\\n", "\v": "\\v", "\f": "\\f", "\r": "\\r", '"': '\\"', "\\": "\\\\"}
+_QUOTE_ESCAPES = {
+    "\a": "\\a",
+    "\b": "\\b",
+    "\t": "\\t",
+    "\n": "\\n",
+    "\v": "\\v",
+    "\f": "\\f",
+    "\r": "\\r",
+    '"': '\\"',
+    "\\": "\\\\",
+}
 
 
 def _quote_diff_label(label: str) -> str:

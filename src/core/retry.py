@@ -29,8 +29,8 @@ import functools
 import logging
 import random
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 from core.secrets import mask_text
 
@@ -95,7 +95,7 @@ def exponential_backoff(
     matters because such a series never reaches the cap at all.
     """
     try:
-        return min(base_delay * (multiplier ** attempt), max_delay)
+        return min(base_delay * (multiplier**attempt), max_delay)
     except OverflowError:
         return max_delay
 
@@ -129,7 +129,9 @@ def jitter_backoff(
     a near-zero delay. ``random`` is used here for timing spread, not
     cryptography — no security property is implied.
     """
-    base = exponential_backoff(attempt, base_delay=base_delay, multiplier=multiplier, max_delay=max_delay)
+    base = exponential_backoff(
+        attempt, base_delay=base_delay, multiplier=multiplier, max_delay=max_delay
+    )
     spread = base * jitter_ratio
     # random.uniform is for thundering-herd mitigation, not any security-sensitive purpose.
     jittered = base + random.uniform(-spread, spread)  # nosec B311
@@ -290,5 +292,7 @@ def retry(
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             return policy.call(func, args, kwargs)
+
         return wrapper
+
     return decorator

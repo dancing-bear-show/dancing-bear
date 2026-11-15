@@ -2,7 +2,7 @@
 
 import unittest
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from telemetry.models import AgentSummary, SessionEvent, SessionSummary
 from telemetry.tui._summary import SummaryConfig, compute_summary
@@ -22,9 +22,7 @@ class EventSpec:
     output_tokens: int | None = None
     cache_read_tokens: int | None = None
     cache_creation_tokens: int | None = None
-    timestamp: datetime = field(
-        default_factory=lambda: datetime(2026, 1, 1, tzinfo=timezone.utc)
-    )
+    timestamp: datetime = field(default_factory=lambda: datetime(2026, 1, 1, tzinfo=UTC))
 
 
 def make_event(spec: EventSpec, session_id: str = "sess-1") -> SessionEvent:
@@ -140,7 +138,8 @@ class TestComputeSummaryEmpty(unittest.TestCase):
 
     def test_empty_project_path_is_none(self):
         summary = compute_summary(
-            events=[], agents=[],
+            events=[],
+            agents=[],
             config=SummaryConfig("s", None, cost_is_estimated=True),
         )
         self.assertIsNone(summary.project_path)
@@ -282,8 +281,8 @@ class TestComputeSummaryCacheHitRate(unittest.TestCase):
 
 class TestComputeSummaryEndTime(unittest.TestCase):
     def test_end_time_present_when_events_exist(self):
-        t1 = datetime(2026, 1, 1, 10, 0, tzinfo=timezone.utc)
-        t2 = datetime(2026, 1, 1, 10, 30, tzinfo=timezone.utc)
+        t1 = datetime(2026, 1, 1, 10, 0, tzinfo=UTC)
+        t2 = datetime(2026, 1, 1, 10, 30, tzinfo=UTC)
         events = [
             make_tool_event("Read", classification="productive", sequence=1, timestamp=t1),
             make_tool_event("Bash", classification="productive", sequence=2, timestamp=t2),

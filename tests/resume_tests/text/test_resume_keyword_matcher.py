@@ -6,11 +6,11 @@ import unittest
 
 from resume.keyword_matcher import (
     KeywordInfo,
-    MatchResult,
     KeywordMatcher,
-    normalize_text,
-    keyword_match,
+    MatchResult,
     expand_keywords,
+    keyword_match,
+    normalize_text,
 )
 from tests.resume_tests.fixtures import KeywordMatcherTestMixin
 
@@ -218,7 +218,9 @@ class TestKeywordMatcherTextMatching(KeywordMatcherTestMixin, unittest.TestCase)
     def test_match_keyword_word_boundary(self):
         # word_boundary=True still falls back to substring if boundary check fails
         # So "Java" matches "JavaScript" via substring
-        self.assertTrue(self.matcher.match_keyword("JavaScript developer", "Java", word_boundary=True))
+        self.assertTrue(
+            self.matcher.match_keyword("JavaScript developer", "Java", word_boundary=True)
+        )
         # But "Java" also matches as a standalone word
         self.assertTrue(self.matcher.match_keyword("Java and Python", "Java", word_boundary=True))
 
@@ -296,17 +298,21 @@ class TestKeywordMatcherScoring(KeywordMatcherTestMixin, unittest.TestCase):
 
     def test_score_texts_deduplicates(self):
         # Same keyword in multiple texts should only count once
-        score = self.matcher.score_texts([
-            "Python developer",
-            "More Python experience",
-        ])
+        score = self.matcher.score_texts(
+            [
+                "Python developer",
+                "More Python experience",
+            ]
+        )
         self.assertEqual(score, 3)  # Not 6
 
     def test_score_texts_multiple_keywords(self):
-        score = self.matcher.score_texts([
-            "Python developer",
-            "Docker expert",
-        ])
+        score = self.matcher.score_texts(
+            [
+                "Python developer",
+                "Docker expert",
+            ]
+        )
         self.assertEqual(score, 5)
 
 

@@ -17,28 +17,30 @@ from .placeholders import substitute
 
 logger = logging.getLogger(__name__)
 
-KNOWN_ROLES: frozenset[str] = frozenset({
-    "researcher",
-    "code-writer",
-    "doc-writer",
-    "reviewer",
-    "tester",
-    "ci-fixer",
-    "unit-validator",
-    "cross-unit-validator",
-    "fact-checker",
-    "critic",
-    "haiku-reviewer",
-    "workflow-author",
-    "thread-fixer",
-    "code-writer-opus",
-    "tester-opus",
-    "code-writer-haiku-scaffold",
-    "ci-fixer-opus",
-    "workflow-debugger",
-    "Explore",
-    "Plan",
-})
+KNOWN_ROLES: frozenset[str] = frozenset(
+    {
+        "researcher",
+        "code-writer",
+        "doc-writer",
+        "reviewer",
+        "tester",
+        "ci-fixer",
+        "unit-validator",
+        "cross-unit-validator",
+        "fact-checker",
+        "critic",
+        "haiku-reviewer",
+        "workflow-author",
+        "thread-fixer",
+        "code-writer-opus",
+        "tester-opus",
+        "code-writer-haiku-scaffold",
+        "ci-fixer-opus",
+        "workflow-debugger",
+        "Explore",
+        "Plan",
+    }
+)
 
 _RESULT_FMT = (
     '{{"stage_name": "{name}", "stage_index": {index}, "status": "success",\n'
@@ -53,7 +55,7 @@ _RESULT_FMT = (
 # writes an unparsable stage result and breaks orchestration.
 _STATUS_NOTE = (
     'Set `"status"` to `"success"` or `"failed"` — report what actually '
-    "happened. Use `\"failed\"` if a command you were told to run exited "
+    'happened. Use `"failed"` if a command you were told to run exited '
     "non-zero, a required output could not be written, or you could not "
     "complete the stage as specified, and list the reasons as strings in "
     '`"errors"`. Downstream stages are skipped only when a required stage '
@@ -62,8 +64,16 @@ _STATUS_NOTE = (
 )
 
 _FINDINGS_EXAMPLE = json.dumps(
-    [{"id": "F-001", "status": "PASS|FAIL|WARN", "claim": "...",
-      "expected": "...", "actual": "...", "fix": "..."}],
+    [
+        {
+            "id": "F-001",
+            "status": "PASS|FAIL|WARN",
+            "claim": "...",
+            "expected": "...",
+            "actual": "...",
+            "fix": "...",
+        }
+    ],
     indent=2,
 )
 
@@ -71,6 +81,7 @@ _ISOLATED_ROOT = "<your-cwd>"
 
 
 # -- Helpers ------------------------------------------------------------------
+
 
 def _ws(workspace_dir: str | Path) -> str:
     return str(Path(workspace_dir).resolve())
@@ -161,7 +172,7 @@ def _fan_out_section(stage: ResolvedStage) -> list[str]:
             f"`{fan_out.source}` stage's output. Wherever this prompt refers to the "
             f"item's `{key}`, the orchestrator has substituted YOUR item's value. If "
             f"a brace-wrapped `{key}` placeholder is still visible anywhere above or "
-            "below, substitution did not happen: report status \"failed\" and do not "
+            'below, substitution did not happen: report status "failed" and do not '
             "guess which item is yours.\n\n"
             "The Completion section's result path is numbered by your item's "
             f"zero-based position in `{fan_out.field}`, not by its `{key}`: that "
@@ -219,7 +230,11 @@ def _read_paths(stage: ResolvedStage, ws: str) -> list[str]:
 # This is the single copy: the prompt builder, the subprocess dispatcher and
 # the when-skip sentinel writer all resolve through writes_to_relpath.
 WORKSPACE_ROOT_PREFIXES: tuple[str, ...] = (
-    "outputs/", "validation/", "stages/", "dispatch/", "context/",
+    "outputs/",
+    "validation/",
+    "stages/",
+    "dispatch/",
+    "context/",
 )
 
 
@@ -276,7 +291,9 @@ def _section(heading: str, items: list[str]) -> list[str]:
     return [f"## {heading}"] + [f"- {i}" for i in items] + [""]
 
 
-def _header(stage: ResolvedStage, workflow_name: str, ws: str, verb: str = "executing") -> list[str]:
+def _header(
+    stage: ResolvedStage, workflow_name: str, ws: str, verb: str = "executing"
+) -> list[str]:
     return [
         f"You are {verb} stage '{stage.spec.name}' in workflow '{workflow_name}'.",
         "",
@@ -312,6 +329,7 @@ def _header(stage: ResolvedStage, workflow_name: str, ws: str, verb: str = "exec
 
 # -- Per-kind prompt builders -------------------------------------------------
 
+
 def _gather(stage: ResolvedStage, wf: str, ws: str) -> str:
     lines = _header(stage, wf, ws)
     write_root = _ISOLATED_ROOT if _is_isolated(stage) else ws
@@ -324,7 +342,10 @@ def _gather(stage: ResolvedStage, wf: str, ws: str) -> str:
         "",
     ]
     if stage.cli_commands:
-        lines += _section("CLI Commands\nRun these commands and capture their output", [f"`{c}`" for c in stage.cli_commands])
+        lines += _section(
+            "CLI Commands\nRun these commands and capture their output",
+            [f"`{c}`" for c in stage.cli_commands],
+        )
     wp = _write_paths(stage, ws)
     if wp:
         lines += _section("Output Files\nWrite results to", wp)
@@ -339,14 +360,18 @@ def _gather(stage: ResolvedStage, wf: str, ws: str) -> str:
     return "\n".join(lines)
 
 
-def _action(stage: ResolvedStage, wf: str, ws: str, input_verb: str = "Read prior stage outputs from") -> str:
+def _action(
+    stage: ResolvedStage, wf: str, ws: str, input_verb: str = "Read prior stage outputs from"
+) -> str:
     """Shared builder for propose, execute, and publish stages."""
     lines = _header(stage, wf, ws)
     rp = _read_paths(stage, ws)
     if rp:
         lines += _section(f"Input Data\n{input_verb}", rp)
     if stage.cli_commands:
-        lines += _section("CLI Commands\nRun these commands", [f"`{c}`" for c in stage.cli_commands])
+        lines += _section(
+            "CLI Commands\nRun these commands", [f"`{c}`" for c in stage.cli_commands]
+        )
     if stage.template_content:
         lines += ["## Template", "---", stage.template_content, "---", ""]
     if stage.guide_content:
@@ -391,7 +416,9 @@ def _validate(stage: ResolvedStage, wf: str, ws: str) -> str:
     strategy = getattr(raw_strategy, "value", raw_strategy) or "unknown"
     lines = [
         f"You are validating outputs from workflow '{wf}'.",
-        "", f"## Strategy: {strategy}", "",
+        "",
+        f"## Strategy: {strategy}",
+        "",
     ]
     if spec and spec.criteria:
         lines += _section("Criteria", [_resolve_ws(c, ws) for c in spec.criteria])
@@ -405,8 +432,11 @@ def _validate(stage: ResolvedStage, wf: str, ws: str) -> str:
         "1. Extract every verifiable claim from the target outputs",
         "2. For each claim, check it against the source data or run the verification command",
         "3. Classify each finding as PASS, FAIL, or WARN",
-        "4. Return findings as a JSON array", "",
-        "## Findings Format", f"```json\n{_FINDINGS_EXAMPLE}\n```", "",
+        "4. Return findings as a JSON array",
+        "",
+        "## Findings Format",
+        f"```json\n{_FINDINGS_EXAMPLE}\n```",
+        "",
     ]
     wp = _write_paths(stage, ws)
     lines += _validate_output_lines(stage, ws, wp)
@@ -478,7 +508,9 @@ def build_dispatch_instruction(
         "writes_to": list(stage.spec.writes_to),
         "reads_from": list(stage.spec.reads_from),
         "is_validation": is_val,
-        "validation_strategy": getattr(val_strategy, "value", val_strategy) if val_strategy else None,
+        "validation_strategy": getattr(val_strategy, "value", val_strategy)
+        if val_strategy
+        else None,
         "kind": stage.spec.kind.value,
         "sub_workflow": stage.spec.sub_workflow or None,
     }
@@ -500,7 +532,5 @@ def build_group_dispatch(
         if stage is None:
             logger.warning("Stage '%s' not found in resolved stages, skipping", stage_name)
             continue
-        instructions.append(
-            build_dispatch_instruction(stage, workflow_name, workspace_dir)
-        )
+        instructions.append(build_dispatch_instruction(stage, workflow_name, workspace_dir))
     return instructions

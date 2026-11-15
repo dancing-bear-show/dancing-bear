@@ -1,4 +1,5 @@
 """Tests for OutlookClientBase and _TimeoutRequestsWrapper — unique tests not in test_core_outlook_client.py."""
+
 from __future__ import annotations
 
 import unittest

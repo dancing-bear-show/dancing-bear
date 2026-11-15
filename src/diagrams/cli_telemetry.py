@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC
+
 from core.format_utils import format_tokens as _format_tokens
 
 from .mermaid import GanttBuilder, PieBuilder
@@ -9,7 +11,7 @@ from .mermaid import GanttBuilder, PieBuilder
 
 def _load_telemetry(days: int):
     """Load session stats and helpers from the telemetry module."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from telemetry.parser import iter_session_files, parse_session
     from telemetry.pricing import compute_cost, model_tier
@@ -20,7 +22,7 @@ def _load_telemetry(days: int):
         if s.events > 0:
             sessions.append(s)
     sessions.sort(
-        key=lambda s: s.start_time or datetime.min.replace(tzinfo=timezone.utc),
+        key=lambda s: s.start_time or datetime.min.replace(tzinfo=UTC),
         reverse=True,
     )
     return sessions, compute_cost, model_tier
@@ -30,6 +32,7 @@ def _session_cost(s, compute_cost) -> float:
     if not s.model:
         return 0.0
     from telemetry.pricing import TokenMetrics
+
     return compute_cost(
         TokenMetrics(s.input_tokens, s.output_tokens, s.cache_read_tokens, s.cache_create_tokens),
         s.model,

@@ -314,13 +314,13 @@ class OTLPMetricsRecord:
     def metrics_by_name(self, pattern: str) -> list[OTLPMetric]:  # noqa - called via src/telemetry/otel/cli/query.py:80
         """Return metrics matching a fnmatch glob pattern."""
         import fnmatch
+
         return [m for m in self.metrics if fnmatch.fnmatch(m.name, pattern)]
 
     def earliest_timestamp(self) -> datetime | None:  # noqa - called via src/telemetry/otel/retention.py:171, cli/inspect.py:69
         """Get the earliest timestamp from all data points."""
         all_times = [dp.timestamp for metric in self.metrics for dp in metric.data_points]
         return min(all_times) if all_times else None
-
 
 
 @dataclass(frozen=True)

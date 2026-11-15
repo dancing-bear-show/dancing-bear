@@ -13,14 +13,12 @@ import tempfile
 import textwrap
 import unittest
 from pathlib import Path
-
 from typing import cast
 
 from workflow.compiler import compile_workflow
 from workflow.linter import lint_workflow
 from workflow.models import WorkflowDefinition
 from workflow.parser import WorkflowParseError, parse_workflow_str
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -122,7 +120,9 @@ class TestParseFragmentValidation(unittest.TestCase):
             frag = tmp_path / "empty-fragment.yaml"
             frag.write_text("fragment: true\n")
             yaml = _workflow_with_fragment(str(frag))
-            with self.assertRaisesRegex(WorkflowParseError, "fragment missing required key 'stages'"):
+            with self.assertRaisesRegex(
+                WorkflowParseError, "fragment missing required key 'stages'"
+            ):
                 parse_workflow_str(yaml, source="workflows/test.yaml")
 
 
@@ -595,7 +595,8 @@ class TestExpandIncludesCircularDetection(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
             frag_a = tmp_path / "frag_a.yaml"
-            frag_a.write_text(textwrap.dedent("""\
+            frag_a.write_text(
+                textwrap.dedent("""\
                 fragment: true
                 stages:
                   - name: step-a
@@ -603,10 +604,9 @@ class TestExpandIncludesCircularDetection(unittest.TestCase):
                     description: Step A
                     agent:
                       role: researcher
-            """))
-            inc = IncludeSpec(
-                path=str(frag_a), prefix="a", depends_on=(), reads_from=(), params={}
+            """)
             )
+            inc = IncludeSpec(path=str(frag_a), prefix="a", depends_on=(), reads_from=(), params={})
             ctx = FragmentContext(source="<test>", source_path=tmp_path / "workflow.yaml")
             # Pre-seed visited with frag_a's resolved key to trigger circular detection
             already_visited = frozenset([str(frag_a.resolve())])
@@ -627,7 +627,8 @@ class TestExpandIncludesNested(unittest.TestCase):
             tmp_path = Path(tmp_dir)
 
             inner_frag = tmp_path / "inner.yaml"
-            inner_frag.write_text(textwrap.dedent("""\
+            inner_frag.write_text(
+                textwrap.dedent("""\
                 fragment: true
                 stages:
                   - name: inner-step
@@ -635,10 +636,12 @@ class TestExpandIncludesNested(unittest.TestCase):
                     description: Inner step
                     agent:
                       role: researcher
-            """))
+            """)
+            )
 
             outer_frag = tmp_path / "outer.yaml"
-            outer_frag.write_text(textwrap.dedent(f"""\
+            outer_frag.write_text(
+                textwrap.dedent(f"""\
                 fragment: true
                 include:
                   - path: {inner_frag}
@@ -649,7 +652,8 @@ class TestExpandIncludesNested(unittest.TestCase):
                     description: Outer step
                     agent:
                       role: researcher
-            """))
+            """)
+            )
 
             workflow_yaml = textwrap.dedent(f"""\
                 name: test-nested
@@ -787,32 +791,25 @@ def _fragment_with_trigger_params(params_dict: dict[str, str], when: str = "") -
         "fragment: true\n"
         "trigger:\n"
         "  source: manual\n"
-        "  params:\n"
-        + params_yaml
-        + "stages:\n"
+        "  params:\n" + params_yaml + "stages:\n"
         "  - name: gated\n"
         "    kind: execute\n"
         "    description: Uses the mode param\n"
         "    agent:\n"
-        "      role: code-writer\n"
-        + when_line
+        "      role: code-writer\n" + when_line
     )
 
 
 def _workflow_including(frag_path: str, own_params: dict[str, str] | None = None) -> str:
     params_block = ""
     if own_params:
-        params_block = "  params:\n" + "".join(
-            f"    {k}: {v}\n" for k, v in own_params.items()
-        )
+        params_block = "  params:\n" + "".join(f"    {k}: {v}\n" for k, v in own_params.items())
     return (
         "name: test-frag-params\n"
         'version: "1.0"\n'
         "description: Imports a fragment that declares trigger params\n"
         "trigger:\n"
-        "  source: manual\n"
-        + params_block
-        + "stages:\n"
+        "  source: manual\n" + params_block + "stages:\n"
         "  - name: compose\n"
         "    kind: execute\n"
         "    description: Generate output\n"
@@ -859,9 +856,7 @@ class TestFragmentTriggerParams(unittest.TestCase):
     def test_fragment_param_gates_its_own_stage(self):
         # The end-to-end consequence: without the merge, "{mode}" stays
         # unsubstituted and the contains-check is always false.
-        frag = _fragment_with_trigger_params(
-            {"mode": "fast"}, when='"{mode}" contains "fast"'
-        )
+        frag = _fragment_with_trigger_params({"mode": "fast"}, when='"{mode}" contains "fast"')
         wf = self._parse(frag)
         gated = next(st for st in wf.stages if st.name.endswith("gated"))
         self.assertEqual(wf.trigger.params.get("mode"), "fast")
@@ -943,9 +938,7 @@ class TestMappingFormTriggerParams(unittest.TestCase):
             "description: Mapping-form trigger params\n"
             "trigger:\n"
             "  source: manual\n"
-            "  params:\n"
-            + params_yaml
-            + "stages:\n"
+            "  params:\n" + params_yaml + "stages:\n"
             "  - name: only\n"
             "    kind: execute\n"
             "    description: Uses the mode param\n"
@@ -956,19 +949,19 @@ class TestMappingFormTriggerParams(unittest.TestCase):
 
     def test_mapping_form_resolves_to_default(self):
         params = self._parse_params(
-            '    mode:\n'
-            '      type: string\n'
-            '      default: fast\n'
-            '      description: Execution mode\n'
+            "    mode:\n"
+            "      type: string\n"
+            "      default: fast\n"
+            "      description: Execution mode\n"
         )
         self.assertEqual(params["mode"], "fast")
 
     def test_mapping_form_does_not_stringify_the_dict(self):
         params = self._parse_params(
-            '    mode:\n'
-            '      type: string\n'
-            '      default: fast\n'
-            '      description: Execution mode\n'
+            "    mode:\n"
+            "      type: string\n"
+            "      default: fast\n"
+            "      description: Execution mode\n"
         )
         self.assertNotIn("description", params["mode"])
         self.assertNotIn("{", params["mode"])
@@ -984,9 +977,7 @@ class TestMappingFormTriggerParams(unittest.TestCase):
         # would substitute "" and select a branch nobody asked for.
         with self.assertRaises(WorkflowParseError) as ctx:
             self._parse_params(
-                '    mode:\n'
-                '      type: string\n'
-                '      description: no default here\n'
+                "    mode:\n      type: string\n      description: no default here\n"
             )
         self.assertIn("default", str(ctx.exception))
 

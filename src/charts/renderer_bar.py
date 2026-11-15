@@ -5,13 +5,13 @@ from __future__ import annotations
 import datetime
 from typing import TYPE_CHECKING, Any
 
-from charts.theme import ChartTheme
-from charts.types.bar import BarChartSpec
 from charts.renderer_line_area import (
     _parse_iso_to_datetime,
     _parse_x_values,
     _series_color,
 )
+from charts.theme import ChartTheme
+from charts.types.bar import BarChartSpec
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
@@ -41,6 +41,7 @@ def _render_stacked_bars(
     x_indices: Any,
 ) -> None:
     import numpy as np
+
     all_x = {_x_key(v) for v in x_values}
     for idx, series in enumerate(spec.series):
         if {_x_key(row[spec.x_field]) for row in series.data} != all_x:
@@ -69,6 +70,7 @@ def _render_grouped_bars(
     x_indices: Any,
 ) -> None:
     import numpy as np
+
     n_series = len(spec.series)
     group_width = spec.bar_width / n_series if n_series > 0 else spec.bar_width
     offsets = (
@@ -94,6 +96,7 @@ def _render_grouped_bars(
 
 def _render_bar(ax: Axes, spec: BarChartSpec, theme: ChartTheme) -> None:
     import numpy as np
+
     x_values, is_dates = _parse_x_values(spec.series, spec.x_field)
     x_indices = np.arange(len(x_values), dtype=float)
 
@@ -105,8 +108,7 @@ def _render_bar(ax: Axes, spec: BarChartSpec, theme: ChartTheme) -> None:
     if is_dates:
         fmt = spec.date_format or "%b %d"
         x_labels = [
-            v.strftime(fmt) if isinstance(v, datetime.datetime) else str(v)
-            for v in x_values
+            v.strftime(fmt) if isinstance(v, datetime.datetime) else str(v) for v in x_values
         ]
     else:
         x_labels = [_x_key(v) for v in x_values]

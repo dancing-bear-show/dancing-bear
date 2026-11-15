@@ -1,4 +1,5 @@
 """Convenience orchestration helpers for signatures commands."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -6,18 +7,18 @@ from pathlib import Path
 from ..context import MailContext
 from .consumers import (
     SignaturesExportConsumer,
-    SignaturesSyncConsumer,
     SignaturesNormalizeConsumer,
+    SignaturesSyncConsumer,
 )
 from .processors import (
     SignaturesExportProcessor,
-    SignaturesSyncProcessor,
     SignaturesNormalizeProcessor,
+    SignaturesSyncProcessor,
 )
 from .producers import (
     SignaturesExportProducer,
-    SignaturesSyncProducer,
     SignaturesNormalizeProducer,
+    SignaturesSyncProducer,
 )
 
 

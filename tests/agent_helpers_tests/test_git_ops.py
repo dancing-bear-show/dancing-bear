@@ -35,7 +35,9 @@ class GitRepoCase(TempDirMixin, unittest.TestCase):
         _git(self.repo, "branch", "topic")
 
     def _head(self) -> str:
-        return run_binary(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=self.repo, timeout=30).stdout.strip()
+        return run_binary(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=self.repo, timeout=30
+        ).stdout.strip()
 
 
 class TestCheckout(GitRepoCase):
@@ -105,7 +107,9 @@ class TestWorktrees(GitRepoCase):
         self.assertEqual(self._head(), "topic")
 
     def test_remove_failure_skips_checkout(self):
-        result = git_ops.op_worktree_remove(self.repo, os.path.join(self.tmpdir, "missing"), "topic")
+        result = git_ops.op_worktree_remove(
+            self.repo, os.path.join(self.tmpdir, "missing"), "topic"
+        )
         self.assertEqual(result.status, "error")
         self.assertEqual(self._head(), "main")
 
@@ -124,7 +128,9 @@ class TestWorktrees(GitRepoCase):
 
     def test_remove_requires_path_and_rejects_option_like(self):
         self.assertEqual(git_ops.op_worktree_remove(self.repo, None, None).status, "error")
-        self.assertIn("must not start", git_ops.op_worktree_remove(self.repo, "--force", None).output)
+        self.assertIn(
+            "must not start", git_ops.op_worktree_remove(self.repo, "--force", None).output
+        )
 
     def test_list_reports_main_worktree(self):
         result = git_ops.op_worktree_list(self.repo)
@@ -148,14 +154,18 @@ class TestTimeoutAndCli(GitRepoCase):
         self.assertEqual(result["op"], "worktree-list")
 
     def test_cli_outside_repo_reports_error_in_body(self):
-        with unittest.mock.patch("agent_helpers.cli.resolve_repo_root", return_value=("", "not inside a git repository")):
+        with unittest.mock.patch(
+            "agent_helpers.cli.resolve_repo_root", return_value=("", "not inside a git repository")
+        ):
             result = run_json(["git-ops", "--op", "worktree-list"])
         self.assertEqual(result["status"], "error")
         self.assertEqual(result["output"], "not inside a git repository")
 
     def test_cli_emits_full_gitopresult_shape(self):
         """The CLI layer must serialise GitOpResult to its full 5-key dict shape."""
-        with unittest.mock.patch("agent_helpers.cli.resolve_repo_root", return_value=("", "not in a repo")):
+        with unittest.mock.patch(
+            "agent_helpers.cli.resolve_repo_root", return_value=("", "not in a repo")
+        ):
             result = run_json(["git-ops", "--op", "checkout", "--branch", "main"])
         for key in ("op", "branch", "path", "status", "output"):
             self.assertIn(key, result, f"key {key!r} missing from CLI output")

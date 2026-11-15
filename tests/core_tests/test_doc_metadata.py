@@ -23,9 +23,7 @@ class TestParseDocMetadata(unittest.TestCase):
         self.assertEqual(meta, DocMetadata(title="", author="", date=""))
 
     def test_present_fields(self) -> None:
-        meta = parse_doc_metadata(
-            {"title": "Deck", "author": "Alice", "date": "2026-01-15"}, "T"
-        )
+        meta = parse_doc_metadata({"title": "Deck", "author": "Alice", "date": "2026-01-15"}, "T")
         self.assertEqual(meta, DocMetadata(title="Deck", author="Alice", date="2026-01-15"))
 
     def test_yaml_date_object_is_stringified(self) -> None:

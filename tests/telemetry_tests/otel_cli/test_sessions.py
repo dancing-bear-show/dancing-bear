@@ -5,7 +5,7 @@ from __future__ import annotations
 import io
 import json
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 from telemetry.otel.cli.sessions import (
@@ -194,7 +194,7 @@ class TestFilterSessions(unittest.TestCase):
 class TestFormatTimelineEntry(unittest.TestCase):
     def test_entry_with_timestamp(self):
         entry = {
-            "timestamp": datetime(2026, 4, 16, 10, 30, 0, tzinfo=timezone.utc),
+            "timestamp": datetime(2026, 4, 16, 10, 30, 0, tzinfo=UTC),
             "event_type": "claude_code.api_request",
             "detail": "sonnet",
         }
@@ -204,7 +204,7 @@ class TestFormatTimelineEntry(unittest.TestCase):
 
     def test_entry_without_detail(self):
         entry = {
-            "timestamp": datetime(2026, 4, 16, 10, 30, 0, tzinfo=timezone.utc),
+            "timestamp": datetime(2026, 4, 16, 10, 30, 0, tzinfo=UTC),
             "event_type": "user_prompt",
             "detail": "",
         }
@@ -520,7 +520,9 @@ class TestSessionsMainPerfFlags(unittest.TestCase):
         return result, buf.getvalue()
 
     def test_perf_flag(self):
-        perf = _make_perf(avg_api_latency_ms=500.0, p95_api_latency_ms=1000.0, total_api_wait_ms=5000.0)
+        perf = _make_perf(
+            avg_api_latency_ms=500.0, p95_api_latency_ms=1000.0, total_api_wait_ms=5000.0
+        )
         s = _make_session(perf=perf)
         result, _ = self._run(["--perf"], by_session=[s])
         self.assertEqual(result, 0)
@@ -541,9 +543,7 @@ class TestSessionsMainPerfFlags(unittest.TestCase):
     def test_json_with_error_codes_flag(self):
         perf = _make_perf(error_status_codes={"429": 2})
         s = _make_session(perf=perf)
-        result, output = self._run(
-            ["--format", "json", "--error-codes"], by_session=[s]
-        )
+        result, output = self._run(["--format", "json", "--error-codes"], by_session=[s])
         self.assertEqual(result, 0)
         data = json.loads(output)
         self.assertIn("error_codes", data["sessions"][0])

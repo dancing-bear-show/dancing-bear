@@ -107,9 +107,7 @@ def _before_replace(path: Path) -> None:
     """Hook invoked after the new content is computed, just before the re-stat."""
 
 
-def _modify_index(
-    path: Path, transform: Callable[[list[str]], list[str] | None]
-) -> bool:
+def _modify_index(path: Path, transform: Callable[[list[str]], list[str] | None]) -> bool:
     """Read-modify-write MEMORY.md without clobbering a concurrent writer.
 
     ``transform`` maps the current lines to the new lines, or None for no
@@ -137,9 +135,7 @@ def _modify_index(
 def _insert_entry(lines: list[str], m: Memory, section: str | None) -> list[str]:
     """Return ``lines`` with m's index line inserted under the right section."""
     lines = list(lines)
-    target_section = section or (
-        m.frontmatter.type.value if m.frontmatter.type else "Reference"
-    )
+    target_section = section or (m.frontmatter.type.value if m.frontmatter.type else "Reference")
 
     # Match section headers case-insensitively: MemoryType.value is lowercase
     # ("feedback", "project") but on-disk headers are capitalized ("## Feedback").
@@ -165,9 +161,7 @@ def _insert_entry(lines: list[str], m: Memory, section: str | None) -> list[str]
     )
     # Preserve the on-disk header's existing casing if the section already
     # exists; otherwise create a new one in Title Case for consistency.
-    header_text = (
-        header_names[section_idx] if section_idx is not None else target_section.title()
-    )
+    header_text = header_names[section_idx] if section_idx is not None else target_section.title()
 
     if section_idx is None:
         if lines and lines[-1].strip() != "":
@@ -201,11 +195,7 @@ def append_entry(path: str | Path, m: Memory, *, section: str | None = None) -> 
 
 def _drop_entry(lines: list[str], target: str) -> list[str] | None:
     """Return ``lines`` without entries for target, or None when none matched."""
-    kept = [
-        line
-        for line in lines
-        if not ((em := _ENTRY_RE.match(line)) and em.group(2) == target)
-    ]
+    kept = [line for line in lines if not ((em := _ENTRY_RE.match(line)) and em.group(2) == target)]
     return kept if len(kept) != len(lines) else None
 
 
@@ -264,9 +254,7 @@ def _group_lines_by_section(
 
 def _merge_sections(lines: list[str]) -> tuple[list[str] | None, int]:
     """Return (merged lines, duplicates collapsed); lines is None when nothing to merge."""
-    section_order, preamble, section_entries, duplicate_count = _group_lines_by_section(
-        lines
-    )
+    section_order, preamble, section_entries, duplicate_count = _group_lines_by_section(lines)
     if duplicate_count == 0:
         return None, 0
 

@@ -34,7 +34,6 @@ def _make_paragraph():
 
 class _Concrete(StylingMixin):
     """Concrete subclass so we can instantiate the mixin."""
-    pass
 
 
 class TestStyleRun(unittest.TestCase):
@@ -283,9 +282,7 @@ class TestAddTextToParagraph(unittest.TestCase):
         runs = [_make_run(), _make_run(), _make_run()]
         para.add_run.side_effect = runs
 
-        self.mixin._add_text_to_paragraph(
-            para, "foo bar baz", TextStyle(highlights=["bar"])
-        )
+        self.mixin._add_text_to_paragraph(para, "foo bar baz", TextStyle(highlights=["bar"]))
         self.assertGreater(para.add_run.call_count, 1)
 
     def test_bold_applied_to_plain_run(self):
@@ -309,9 +306,7 @@ class TestStyleHighlightedRun(unittest.TestCase):
 
     def test_highlighted_segment_uses_accent_color_when_theme_set(self):
         run = _make_run()
-        self.mixin._style_highlighted_run(
-            run, "key", ["key"], None, MSO_THEME_COLOR.LIGHT_2, False
-        )
+        self.mixin._style_highlighted_run(run, "key", ["key"], None, MSO_THEME_COLOR.LIGHT_2, False)
         self.assertEqual(run.font.color.theme_color, HIGHLIGHT_THEME_COLOR)
 
     def test_non_highlighted_segment_uses_theme_color(self):

@@ -34,6 +34,7 @@ class TestWorkerPurgeSelective(unittest.TestCase, QueueRootIsolationMixin):
     def test_purge_done_only(self):
         from worker import queue_ops as q
         from worker.cli import main
+
         q.QUEUE_ROOT = self.root / "queue"
         q._ensure_dirs(q.QUEUE_ROOT)
         # create done and error with old mtime
@@ -56,6 +57,7 @@ class TestWorkerPurgeSelective(unittest.TestCase, QueueRootIsolationMixin):
     def test_purge_error_only(self):
         from worker import queue_ops as q
         from worker.cli import main
+
         q.QUEUE_ROOT = self.root / "queue"
         q._ensure_dirs(q.QUEUE_ROOT)
         err = q.QUEUE_ROOT / "error" / "e3.json"

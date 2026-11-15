@@ -1,4 +1,5 @@
 """Outlook authentication commands - interactive device code flow."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -6,7 +7,8 @@ from pathlib import Path
 from core.auth import resolve_outlook_credentials
 from core.constants import GRAPH_API_URL, GRAPH_DEFAULT_SCOPE
 from core.fileutil import atomic_write_json, load_json_or_exit
-from ..config_resolver import expand_path, default_outlook_token_path
+
+from ..config_resolver import default_outlook_token_path, expand_path
 
 _MSAL_MISSING_MSG = "Missing msal dependency: {}. Run: pip install msal"
 
@@ -20,7 +22,9 @@ def run_outlook_auth_device_code(args) -> int:
         None,
     )
     if not client_id:
-        print("Missing --client-id. Set MAIL_ASSISTANT_OUTLOOK_CLIENT_ID, or store outlook_client_id in credentials.ini.")
+        print(
+            "Missing --client-id. Set MAIL_ASSISTANT_OUTLOOK_CLIENT_ID, or store outlook_client_id in credentials.ini."
+        )
         return 2
 
     try:
@@ -42,14 +46,19 @@ def run_outlook_auth_device_code(args) -> int:
     flow_out["_tenant"] = tenant
     atomic_write_json(outp, flow_out)
 
-    msg = flow.get("message") or f"To sign in, visit {flow.get('verification_uri')} and enter code: {flow.get('user_code')}"
+    msg = (
+        flow.get("message")
+        or f"To sign in, visit {flow.get('verification_uri')} and enter code: {flow.get('user_code')}"
+    )
     print(msg)
 
-    prof = getattr(args, 'profile', None)
+    prof = getattr(args, "profile", None)
     prof_flag = f" --profile {prof}" if prof else ""
-    print(f"Next: ./bin/mail-assistant{prof_flag} outlook auth.poll --flow {args.out} --token {default_outlook_token_path()}")
+    print(
+        f"Next: ./bin/mail-assistant{prof_flag} outlook auth.poll --flow {args.out} --token {default_outlook_token_path()}"
+    )
 
-    if getattr(args, 'verbose', False):
+    if getattr(args, "verbose", False):
         print(f"[device-code] Saved flow to {outp} (client_id={client_id}, tenant={tenant}).")
     print(f"Saved device flow to {outp}")
     return 0
@@ -76,10 +85,14 @@ def run_outlook_auth_poll(args) -> int:
         return 2
 
     cache = msal.SerializableTokenCache()
-    app = msal.PublicClientApplication(client_id, authority=f"https://login.microsoftonline.com/{tenant}", token_cache=cache)
+    app = msal.PublicClientApplication(
+        client_id, authority=f"https://login.microsoftonline.com/{tenant}", token_cache=cache
+    )
 
-    if getattr(args, 'verbose', False):
-        print(f"[device-code] Polling device flow from {flow_path}. This may take up to {int(flow.get('expires_in', 900))//60} minutes…")
+    if getattr(args, "verbose", False):
+        print(
+            f"[device-code] Polling device flow from {flow_path}. This may take up to {int(flow.get('expires_in', 900)) // 60} minutes…"
+        )
 
     result = app.acquire_token_by_device_flow(flow)
     if "access_token" not in result:
@@ -118,7 +131,10 @@ def _run_device_flow(app, scopes: list, cache, tp: Path) -> int:
         print("Failed to start device flow.")
         return 1
 
-    msg = flow.get("message") or f"To sign in, visit {flow.get('verification_uri')} and enter code: {flow.get('user_code')}"
+    msg = (
+        flow.get("message")
+        or f"To sign in, visit {flow.get('verification_uri')} and enter code: {flow.get('user_code')}"
+    )
     print(msg)
 
     result = app.acquire_token_by_device_flow(flow)
@@ -148,7 +164,9 @@ def run_outlook_auth_ensure(args) -> int:
     )
     token_path = expand_path(token_path or default_outlook_token_path())
     if not client_id:
-        print("Missing --client-id. Set MAIL_ASSISTANT_OUTLOOK_CLIENT_ID or configure a profile in ~/.config/credentials.ini")
+        print(
+            "Missing --client-id. Set MAIL_ASSISTANT_OUTLOOK_CLIENT_ID or configure a profile in ~/.config/credentials.ini"
+        )
         return 2
 
     cache = msal.SerializableTokenCache()
@@ -156,11 +174,17 @@ def run_outlook_auth_ensure(args) -> int:
     if tp.exists():
         try:
             cache.deserialize(tp.read_text(encoding="utf-8"))
-        except (ValueError, OSError, IOError) as e:  # nosec B110 - corrupt/invalid cache, start fresh
+        except (ValueError, OSError) as e:  # nosec B110 - corrupt/invalid cache, start fresh
             import sys
-            print(f"Warning: Could not load token cache ({type(e).__name__}), starting fresh", file=sys.stderr)
 
-    app = msal.PublicClientApplication(client_id, authority=f"https://login.microsoftonline.com/{tenant}", token_cache=cache)
+            print(
+                f"Warning: Could not load token cache ({type(e).__name__}), starting fresh",
+                file=sys.stderr,
+            )
+
+    app = msal.PublicClientApplication(
+        client_id, authority=f"https://login.microsoftonline.com/{tenant}", token_cache=cache
+    )
     scopes = [GRAPH_DEFAULT_SCOPE]
 
     # Try silent auth first, fall back to device flow
@@ -185,7 +209,9 @@ def _load_validate_cache(client_id: str, tenant: str, tp) -> tuple:
         print(f"Unable to read token cache: {tp}")
         return None, 3
 
-    app = msal.PublicClientApplication(client_id, authority=f"https://login.microsoftonline.com/{tenant}", token_cache=cache)
+    app = msal.PublicClientApplication(
+        client_id, authority=f"https://login.microsoftonline.com/{tenant}", token_cache=cache
+    )
 
     accounts = []
     try:
@@ -240,7 +266,9 @@ def run_outlook_auth_validate(args) -> int:
     )
     token_path = expand_path(token_path or default_outlook_token_path())
     if not client_id:
-        print("Missing --client-id. Set MAIL_ASSISTANT_OUTLOOK_CLIENT_ID or configure a profile in ~/.config/credentials.ini")
+        print(
+            "Missing --client-id. Set MAIL_ASSISTANT_OUTLOOK_CLIENT_ID or configure a profile in ~/.config/credentials.ini"
+        )
         return 2
 
     tp = Path(token_path)

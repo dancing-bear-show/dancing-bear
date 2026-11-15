@@ -35,11 +35,11 @@ from .shell_lex import Span as _Span
 from .shell_lex import _Lexer
 
 __all__ = [
+    "WRAPPER_NAMES",
     "LoopVariable",
     "Redirect",
     "ShellScript",
     "SimpleCommand",
-    "WRAPPER_NAMES",
     "command_from_words",
     "parse_shell",
 ]
@@ -54,14 +54,17 @@ _FD_TARGET_RE = re.compile(r"\d+-?|-")
 
 # Reserved words that open or continue a compound command: the next word is
 # still in command position. ``do rm x`` runs ``rm``, not a program ``do``.
-_KEEP_START = frozenset({"!", "{", "then", "do", "else", "elif", "if", "while", "until", "time", "coproc"})
+_KEEP_START = frozenset(
+    {"!", "{", "then", "do", "else", "elif", "if", "while", "until", "time", "coproc"}
+)
 _COMPOUND_CLOSERS = frozenset({"}", "fi", "done", "esac"})
 # Reserved word -> the parser state it opens when met in command position.
 _START_STATES = {
-    "for": "loop_var", "select": "loop_var",  # the header is not a command
+    "for": "loop_var",
+    "select": "loop_var",  # the header is not a command
     "case": "case_subject",
     "function": "function_name",
-    "[[": "test",                             # < and > compare inside [[ ]]
+    "[[": "test",  # < and > compare inside [[ ]]
 }
 _CASE_ENDS = frozenset({";;", ";&", ";;&"})
 # Reserved words that open a compound command; each _COMPOUND_CLOSERS word
@@ -137,7 +140,7 @@ class SimpleCommand:
     @property
     def arguments(self) -> tuple[_ShellToken, ...]:
         """The words after the program word: this command's operands and options only."""
-        return self.words[self.command_index + 1:] if self.command_index >= 0 else ()
+        return self.words[self.command_index + 1 :] if self.command_index >= 0 else ()
 
     @property
     def args(self) -> list[str]:
@@ -200,8 +203,13 @@ _TIMEOUT = _Wrapper(value_opts="sk", long_value_opts=("signal", "kill-after"), l
 # Mirrors the wrapper handlers in .claude/hooks/_bash_write_targets.py, which
 # the Bash guard uses to find the command a wrapper runs.
 _WRAPPERS: dict[str, _Wrapper] = {
-    "env": _Wrapper(value_opts="uCSP", long_value_opts=("unset", "chdir", "split-string"),
-                    takes_assignments=True, split_opts="S", long_split_opts=("split-string",)),
+    "env": _Wrapper(
+        value_opts="uCSP",
+        long_value_opts=("unset", "chdir", "split-string"),
+        takes_assignments=True,
+        split_opts="S",
+        long_split_opts=("split-string",),
+    ),
     "command": _Wrapper(lookup_opts="vV"),
     "builtin": _Wrapper(),
     "nohup": _Wrapper(),
@@ -211,13 +219,23 @@ _WRAPPERS: dict[str, _Wrapper] = {
     "time": _Wrapper(value_opts="of", long_value_opts=("output", "format")),
     "timeout": _TIMEOUT,
     "gtimeout": _TIMEOUT,
-    "sudo": _Wrapper(value_opts="ugCDhprtTUc", lookup_opts="lvK",
-                     long_value_opts=("user", "group", "chdir", "host", "prompt", "role", "type",
-                                      "other-user")),
+    "sudo": _Wrapper(
+        value_opts="ugCDhprtTUc",
+        lookup_opts="lvK",
+        long_value_opts=("user", "group", "chdir", "host", "prompt", "role", "type", "other-user"),
+    ),
     "doas": _Wrapper(value_opts="uC"),
-    "xargs": _Wrapper(value_opts="IELnPsda",
-                      long_value_opts=("arg-file", "delimiter", "max-args", "max-procs",
-                                       "max-chars", "process-slot-var")),
+    "xargs": _Wrapper(
+        value_opts="IELnPsda",
+        long_value_opts=(
+            "arg-file",
+            "delimiter",
+            "max-args",
+            "max-procs",
+            "max-chars",
+            "process-slot-var",
+        ),
+    ),
 }
 # The wrapper vocabulary, derived from the table above so the segment
 # extractor in shell_text recognises exactly the wrappers this parser sees
@@ -333,8 +351,13 @@ def command_from_words(
     """
     resolved = _resolve_command(words)
     return SimpleCommand(
-        words, tuple(resolved.assigned), (), resolved.index, in_loop,
-        depth=depth, split_string=resolved.split_string,
+        words,
+        tuple(resolved.assigned),
+        (),
+        resolved.index,
+        in_loop,
+        depth=depth,
+        split_string=resolved.split_string,
     )
 
 
@@ -372,9 +395,14 @@ class _CommandSplitter:
         self._after_or = False  # the current command runs only when the one before failed
         self._or_left: int | None = None  # a command followed by ||, until what comes next is known
         self._on_word = {
-            "start": self._start_word, "after": self._start_word, "args": self._words.append,
-            "test": self._test_word, "loop_var": self._loop_var_word, "loop_head": self._loop_head_word,
-            "case_subject": self._case_subject_word, "case_pattern": self._case_pattern_word,
+            "start": self._start_word,
+            "after": self._start_word,
+            "args": self._words.append,
+            "test": self._test_word,
+            "loop_var": self._loop_var_word,
+            "loop_head": self._loop_head_word,
+            "case_subject": self._case_subject_word,
+            "case_pattern": self._case_pattern_word,
             "function_name": self._function_name_word,
         }
 
@@ -385,7 +413,9 @@ class _CommandSplitter:
     def feed(self, tok: _ShellToken) -> None:
         for body, offset in tok.subs:
             self.nested.append(
-                parse_shell(body, offset, self.inside_loop, (offset, offset + len(body)), self.depth + 1)
+                parse_shell(
+                    body, offset, self.inside_loop, (offset, offset + len(body)), self.depth + 1
+                )
             )
         if tok.kind == "word" and self._redirect_op is not None:
             self._redirects.append(Redirect(self._redirect_op, tok.text))
@@ -404,11 +434,19 @@ class _CommandSplitter:
             words = tuple(self._words)
             resolved = _resolve_command(words)
             unconditional = not (self._compound or self._masked or self._piped or self._after_or)
-            self.commands.append(SimpleCommand(
-                words, tuple(self._assignments + resolved.assigned), tuple(self._redirects),
-                resolved.index, self._in_loop, self.subshell, self.depth, resolved.split_string,
-                unconditional,
-            ))
+            self.commands.append(
+                SimpleCommand(
+                    words,
+                    tuple(self._assignments + resolved.assigned),
+                    tuple(self._redirects),
+                    resolved.index,
+                    self._in_loop,
+                    self.subshell,
+                    self.depth,
+                    resolved.split_string,
+                    unconditional,
+                )
+            )
             self._settle_or(self.commands[-1])
         self._words.clear()
         self._assignments = []
@@ -570,8 +608,11 @@ def parse_shell(
     return ShellScript(
         commands=tuple(splitter.commands) + tuple(c for s in nested for c in s.commands),
         heredocs=tuple(lexer.heredocs) + tuple(d for s in nested for d in s.heredocs),
-        loop_variables=tuple(splitter.loop_variables) + tuple(v for s in nested for v in s.loop_variables),
+        loop_variables=tuple(splitter.loop_variables)
+        + tuple(v for s in nested for v in s.loop_variables),
         comments=tuple(lexer.comments) + tuple(c for s in nested for c in s.comments),
-        max_depth=max((_MAX_DEPTH + 1 if lexer.overflow else depth, *(s.max_depth for s in nested))),
+        max_depth=max(
+            (_MAX_DEPTH + 1 if lexer.overflow else depth, *(s.max_depth for s in nested))
+        ),
         too_nested=lexer.too_nested or any(s.too_nested for s in nested),
     )

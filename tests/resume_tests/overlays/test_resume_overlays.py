@@ -129,23 +129,29 @@ class TestApplyProfileOverlays(TempDirMixin, unittest.TestCase):
         cases = [
             (
                 "skills_groups",
-                "skills", "skills_groups.yaml",
+                "skills",
+                "skills_groups.yaml",
                 "groups:\n"
                 "  - name: Languages\n"
                 "    skills: [Python, Java]\n"
                 "  - name: Tools\n"
                 "    skills: [Docker, K8s]\n",
-                "skills_groups", "name", "Languages",
+                "skills_groups",
+                "name",
+                "Languages",
             ),
             (
                 "experience",
-                "exp", "experience.yaml",
+                "exp",
+                "experience.yaml",
                 "experience:\n"
                 "  - title: Senior Engineer\n"
                 "    company: TechCorp\n"
                 "  - title: Junior Dev\n"
                 "    company: StartupXYZ\n",
-                "experience", "title", "Senior Engineer",
+                "experience",
+                "title",
+                "Senior Engineer",
             ),
         ]
         for label, profile, filename, yaml_content, result_key, item_key, first_value in cases:

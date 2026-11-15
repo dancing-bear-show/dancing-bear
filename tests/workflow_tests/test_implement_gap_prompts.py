@@ -26,13 +26,12 @@ def _qlty_command() -> str:
         for criterion in stage.validation.criteria if stage.validation else ():
             if "qlty-paths.z" in criterion:
                 start = criterion.index("as ONE Bash call: `") + len("as ONE Bash call: `")
-                return criterion[start: criterion.index("`. PATHS=0")]
+                return criterion[start : criterion.index("`. PATHS=0")]
     raise AssertionError("qlty criterion not found")
 
 
 @unittest.skipUnless(all(map(shutil.which, ("git", "bash"))), "needs git and bash")
 class TestQltyCriterionIsArgvSafe(unittest.TestCase):
-
     def setUp(self) -> None:
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -51,7 +50,9 @@ class TestQltyCriterionIsArgvSafe(unittest.TestCase):
         # A stand-in for qlty: records each path, fails on bad.py.
         self.log = root / "checked.log"
         self.stub = root / "qlty-stub"
-        self.stub.write_text(f'#!/bin/bash\nprintf "%s\\n" "$2" >> "{self.log}"\n[ "$2" != bad.py ]\n')
+        self.stub.write_text(
+            f'#!/bin/bash\nprintf "%s\\n" "$2" >> "{self.log}"\n[ "$2" != bad.py ]\n'
+        )
         self.stub.chmod(0o755)
 
     @staticmethod
@@ -60,8 +61,11 @@ class TestQltyCriterionIsArgvSafe(unittest.TestCase):
         subprocess.run(argv, check=True, capture_output=True)  # nosec B603 - fixed argv, temp repo
 
     def _run(self) -> subprocess.CompletedProcess[str]:
-        command = (_qlty_command().replace("{workspace}", str(self.ws))
-                   .replace("~/.qlty/bin/qlty", str(self.stub)))
+        command = (
+            _qlty_command()
+            .replace("{workspace}", str(self.ws))
+            .replace("~/.qlty/bin/qlty", str(self.stub))
+        )
         argv = [str(shutil.which("bash")), "-c", command]
         return subprocess.run(argv, cwd=self.repo, capture_output=True, text=True)  # nosec B603 - runs the workflow's own command in a temp repo
 

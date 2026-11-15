@@ -16,6 +16,7 @@ from core.cli_errors import CLIError, ExitCode
 
 try:
     import fcntl  # patched by tests via menubar.fcntl
+
     _HAS_FCNTL = True
 except ImportError:
     _HAS_FCNTL = False  # Windows — instance lock is a no-op there
@@ -34,17 +35,18 @@ try:
         NSPasteboard,  # noqa: F401
         NSPasteboardTypeString,  # noqa: F401
     )
+
     _HAS_APPKIT = True
 except ImportError:
     _HAS_APPKIT = False
 
 from telemetry._menubar_app import (
-    TelemetryMenubarApp,  # noqa: F401
     _HAS_RUMPS,  # noqa: F401
     _OTEL_WINDOWS,  # noqa: F401
     _PROJECTS_DIR,  # noqa: F401
     _STORAGE_WARN_DAYS,  # noqa: F401
     _WINDOWS,  # noqa: F401
+    TelemetryMenubarApp,  # noqa: F401
     _app_version_cache,  # noqa: F401
     _month_since,  # noqa: F401
     _project_short,  # noqa: F401
@@ -54,11 +56,6 @@ from telemetry._menubar_budget import (
     _safe_float,  # noqa: F401
     _safe_int,  # noqa: F401
 )
-from telemetry._menubar_renderers import (
-    _icon_substitutions,  # noqa: F401
-    _icon_token_stream,  # noqa: F401
-    _render_icon_plain,  # noqa: F401
-)
 from telemetry._menubar_config import (
     _DEFAULT_COST_MULTIPLIER,  # noqa: F401
     _DEFAULT_ICON_TEMPLATE,  # noqa: F401
@@ -67,7 +64,6 @@ from telemetry._menubar_config import (
     _DEFAULT_SECTIONS,  # noqa: F401
     _ICON_LEGACY_MAP,  # noqa: F401
     _ICON_VAR_NAMES,  # noqa: F401
-    _IconTemplate,  # noqa: F401
     _MAX_TIPS_LIMIT,  # noqa: F401
     _OTEL_SECTION_KEYS,  # noqa: F401
     _POLL_INTERVAL_MAX,  # noqa: F401
@@ -83,11 +79,16 @@ from telemetry._menubar_config import (
     _coerce_icon_display,  # noqa: F401
     _config_to_text,  # noqa: F401
     _icon_template_vars,  # noqa: F401
+    _IconTemplate,  # noqa: F401
     _merge_section,  # noqa: F401
     _migrate_flat_keys,  # noqa: F401
     _parse_bool,  # noqa: F401
     _parse_config_text,  # noqa: F401
+)
+from telemetry._menubar_config import (
     _load_config as _load_config_impl,  # noqa: F401
+)
+from telemetry._menubar_config import (
     _save_config as _save_config_impl,  # noqa: F401
 )
 from telemetry._menubar_display import (
@@ -98,6 +99,11 @@ from telemetry._menubar_display import (
     _rate_str,  # noqa: F401
     _sparkline,  # noqa: F401
     _window_since_impl,
+)
+from telemetry._menubar_renderers import (
+    _icon_substitutions,  # noqa: F401
+    _icon_token_stream,  # noqa: F401
+    _render_icon_plain,  # noqa: F401
 )
 
 _CLAUDE_DIR = Path.home() / ".claude"
@@ -111,6 +117,7 @@ _VERSION = "v1.1.0"
 # ---------------------------------------------------------------------------
 # Functions defined here directly so tests can patch module-level dependencies
 # ---------------------------------------------------------------------------
+
 
 def _load_config() -> dict:
     """Load config — delegates to _menubar_config but passes local _CONFIG_PATH."""
@@ -169,7 +176,10 @@ def _score_color(score: int) -> object:
 
 
 def _compose_icon_attributed(
-    template: str, icon_ctx: dict[str, dict], mtd_cost: float, score: int,
+    template: str,
+    icon_ctx: dict[str, dict],
+    mtd_cost: float,
+    score: int,
     otel_cost_1d: float = 0.0,
 ) -> object:
     """Build an NSMutableAttributedString from a template.

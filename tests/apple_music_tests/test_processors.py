@@ -30,13 +30,11 @@ from apple_music.cli_pipeline import (
 from core.cli_errors import AuthError
 from core.cli_output import OutputConfig, OutputFormat, OutputWriter
 from core.pipeline import ResultEnvelope
-
 from tests.apple_music_tests.fixtures import (
     FakeAppleMusicClient,
     make_playlist,
     make_track,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -117,9 +115,7 @@ class TestListPlaylistsProducerHappy(unittest.TestCase):
         self.assertEqual(data["playlists"][0]["name"], "Chill Mix")
 
     def test_produces_nothing_on_error_envelope(self):
-        envelope = ResultEnvelope(
-            status="error", diagnostics={"message": "something went wrong"}
-        )
+        envelope = ResultEnvelope(status="error", diagnostics={"message": "something went wrong"})
         buf = io.StringIO()
         with redirect_stdout(buf):
             ListPlaylistsProducer(_json_writer()).produce(envelope)
@@ -201,7 +197,10 @@ class TestTracksProcessorHappy(unittest.TestCase):
             playlists=[make_playlist("a", "A"), make_playlist("b", "B")],
             tracks_by_playlist={
                 "a": [make_track("t1", "Song1", "Art1", "Al1")],
-                "b": [make_track("t2", "Song2", "Art2", "Al2"), make_track("t3", "Song3", "Art3", "Al3")],
+                "b": [
+                    make_track("t2", "Song2", "Art2", "Al2"),
+                    make_track("t3", "Song3", "Art3", "Al3"),
+                ],
             },
         )
         envelope = TracksProcessor().process(TracksRequest(client=client))
@@ -313,9 +312,7 @@ class TestExportProcessorHappy(unittest.TestCase):
     def setUp(self):
         self.client = FakeAppleMusicClient(
             playlists=[make_playlist("pl-1", "Chill Mix")],
-            tracks_by_playlist={
-                "pl-1": [make_track("t1", "Song", "Artist", "Album")]
-            },
+            tracks_by_playlist={"pl-1": [make_track("t1", "Song", "Artist", "Album")]},
         )
 
     def test_returns_typed_export_playlist_results(self):

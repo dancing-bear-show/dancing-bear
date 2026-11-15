@@ -1,10 +1,10 @@
 import unittest
 
 from mail.dsl import (
-    normalize_label_color_outlook,
-    normalize_labels_for_outlook,
     normalize_filter_for_outlook,
     normalize_filters_for_outlook,
+    normalize_label_color_outlook,
+    normalize_labels_for_outlook,
 )
 
 
@@ -59,7 +59,12 @@ class DslNormalizeTests(unittest.TestCase):
     def test_normalize_filter_for_outlook_basic_fields(self):
         spec = {
             "match": {"from": "a@b.com", "to": "me@example.com", "subject": "hi", "ignore": "x"},
-            "action": {"add": ["A", "", None], "forward": "fwd@x", "moveToFolder": "Archive/Receipts", "noop": True},
+            "action": {
+                "add": ["A", "", None],
+                "forward": "fwd@x",
+                "moveToFolder": "Archive/Receipts",
+                "noop": True,
+            },
         }
         out = normalize_filter_for_outlook(spec)
         self.assertEqual(
@@ -137,7 +142,10 @@ class DslNormalizeTests(unittest.TestCase):
         because they bypassed normalization entirely.
         """
         out = normalize_filter_for_outlook(
-            {"match": {"from": "grafana.com"}, "action": {"add": ["Tech/Grafana"], "noMoveToFolder": True}}
+            {
+                "match": {"from": "grafana.com"},
+                "action": {"add": ["Tech/Grafana"], "noMoveToFolder": True},
+            }
         )
         self.assertEqual(
             out,
@@ -161,7 +169,10 @@ class DslNormalizeTests(unittest.TestCase):
         `action={'moveToFolderId': 'Tech-Grafana'}`.
         """
         out = normalize_filter_for_outlook(
-            {"match": {"from": "grafana.com"}, "action": {"add": ["Tech/Grafana"], "keepInInbox": True}}
+            {
+                "match": {"from": "grafana.com"},
+                "action": {"add": ["Tech/Grafana"], "keepInInbox": True},
+            }
         )
         self.assertTrue(out["action"]["noMoveToFolder"])
         # Still carried for _strip_keep_in_inbox to consume on the derive path.
@@ -226,9 +237,7 @@ class MalformedSpecTests(unittest.TestCase):
         self.assertEqual(out, {"match": {}, "action": {"forward": "f@x"}})
 
     def test_falsy_match_values_are_dropped(self):
-        out = normalize_filter_for_outlook(
-            {"match": {"from": "a@b", "to": None, "subject": ""}}
-        )
+        out = normalize_filter_for_outlook({"match": {"from": "a@b", "to": None, "subject": ""}})
         self.assertEqual(out["match"], {"from": "a@b"})
 
     def test_non_string_scalars_are_coerced(self):
@@ -305,9 +314,7 @@ class ScalarAddValueTests(unittest.TestCase):
     """
 
     def _add(self, value):
-        out = normalize_filters_for_outlook(
-            [{"match": {"from": "a@b"}, "action": {"add": value}}]
-        )
+        out = normalize_filters_for_outlook([{"match": {"from": "a@b"}, "action": {"add": value}}])
         return out[0]["action"]["add"]
 
     def test_string_is_one_label_not_one_per_character(self):
@@ -363,9 +370,7 @@ class MappingAddValueTests(ScalarAddValueTests):
         self.assertNotIn("urgent", result)
 
     def test_empty_mapping_omits_action_entirely(self):
-        out = normalize_filters_for_outlook(
-            [{"match": {"from": "a@b"}, "action": {"add": {}}}]
-        )
+        out = normalize_filters_for_outlook([{"match": {"from": "a@b"}, "action": {"add": {}}}])
         self.assertNotIn("add", out[0]["action"])
 
 
@@ -389,12 +394,9 @@ class BytesAddValueTests(ScalarAddValueTests):
         self.assertEqual(self._add(b"w\xffork"), ["w�ork"])
 
     def test_empty_bytes_omits_action_entirely(self):
-        out = normalize_filters_for_outlook(
-            [{"match": {"from": "a@b"}, "action": {"add": b""}}]
-        )
+        out = normalize_filters_for_outlook([{"match": {"from": "a@b"}, "action": {"add": b""}}])
         self.assertNotIn("add", out[0]["action"])
 
 
 if __name__ == "__main__":
     unittest.main()
-

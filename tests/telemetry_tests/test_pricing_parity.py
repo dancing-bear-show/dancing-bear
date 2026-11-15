@@ -108,7 +108,9 @@ class TestPricingKeyVariants(unittest.TestCase):
             for form, model in _id_variants(key).items():
                 with self.subTest(key=key, form=form, model=model):
                     self.assertEqual(get_model_pricing(model), price)
-                    self.assertEqual(get_cache_read_multiplier(model), get_cache_read_multiplier(key))
+                    self.assertEqual(
+                        get_cache_read_multiplier(model), get_cache_read_multiplier(key)
+                    )
 
     def test_opus_4_1_variants_price_at_15_75(self):
         from telemetry.pricing import get_model_pricing

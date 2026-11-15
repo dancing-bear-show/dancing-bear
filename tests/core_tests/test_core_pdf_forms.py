@@ -147,11 +147,15 @@ class FakeDoc:
 
 class TestSetTextField(unittest.TestCase):
     def _doc(self):
-        return FakeDoc([[
-            FakeWidget("lastName", 10, "Text"),
-            FakeWidget("2.day_phone.area", 11, "Text"),
-            FakeWidget("1.language", 12, "CheckBox", {"normal": ["Off", "Eng"]}),
-        ]])
+        return FakeDoc(
+            [
+                [
+                    FakeWidget("lastName", 10, "Text"),
+                    FakeWidget("2.day_phone.area", 11, "Text"),
+                    FakeWidget("1.language", 12, "CheckBox", {"normal": ["Off", "Eng"]}),
+                ]
+            ]
+        )
 
     def test_writes_value_and_sized_da_and_clears_appearance(self):
         doc = self._doc()
@@ -186,8 +190,7 @@ class TestSetTextField(unittest.TestCase):
 
 class TestFillTextFields(unittest.TestCase):
     def _doc(self):
-        return FakeDoc([[FakeWidget("lastName", 10, "Text"),
-                         FakeWidget("firstName", 11, "Text")]])
+        return FakeDoc([[FakeWidget("lastName", 10, "Text"), FakeWidget("firstName", 11, "Text")]])
 
     def test_fills_all_fields_and_reports_counts(self):
         doc = self._doc()
@@ -215,10 +218,14 @@ class TestSetCheckbox(unittest.TestCase):
         # A Yes/No pair: ONE field name, two widgets, distinguished only by
         # their on-state. This is the shape that makes name-level setting tick
         # both boxes at once.
-        return FakeDoc([[
-            FakeWidget("2.member_another_plan", 20, "CheckBox", {"normal": ["Off", "Yes"]}),
-            FakeWidget("2.member_another_plan", 21, "CheckBox", {"normal": ["Off", "No"]}),
-        ]])
+        return FakeDoc(
+            [
+                [
+                    FakeWidget("2.member_another_plan", 20, "CheckBox", {"normal": ["Off", "Yes"]}),
+                    FakeWidget("2.member_another_plan", 21, "CheckBox", {"normal": ["Off", "No"]}),
+                ]
+            ]
+        )
 
     def test_ticks_only_the_matching_widget_of_a_shared_name_pair(self):
         doc = self._pair()
@@ -244,10 +251,14 @@ class TestSetCheckbox(unittest.TestCase):
     def test_tolerates_widget_with_no_button_states(self):
         # button_states() returns None for non-button widgets, and a button
         # may carry {"normal": None}. Neither may raise.
-        doc = FakeDoc([[
-            FakeWidget("cb", 30, "CheckBox", None),
-            FakeWidget("cb", 31, "CheckBox", {"normal": None}),
-        ]])
+        doc = FakeDoc(
+            [
+                [
+                    FakeWidget("cb", 30, "CheckBox", None),
+                    FakeWidget("cb", 31, "CheckBox", {"normal": None}),
+                ]
+            ]
+        )
         self.assertEqual(set_checkbox(doc, "cb", "Yes"), 2)
         self.assertEqual(doc.written(30, "AS"), "/Off")
         self.assertEqual(doc.written(31, "AS"), "/Off")

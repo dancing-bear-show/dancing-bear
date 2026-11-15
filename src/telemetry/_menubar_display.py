@@ -1,6 +1,6 @@
 """Display formatting helpers for the menubar app."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from core.date_utils import now_utc
 
@@ -36,10 +36,10 @@ def _model_short(name: str) -> str:
 def _window_since_impl(seconds: int | None) -> datetime:
     """Internal implementation of _window_since; imported by _menubar_app."""
     if seconds is None:
-        local_midnight = datetime.now().astimezone().replace(
-            hour=0, minute=0, second=0, microsecond=0
+        local_midnight = (
+            datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
         )
-        return local_midnight.astimezone(timezone.utc)
+        return local_midnight.astimezone(UTC)
     return now_utc() - timedelta(seconds=seconds)
 
 

@@ -5,6 +5,7 @@ run_labels_doctor, _prune_one_label, run_labels_prune_empty, run_labels_learn,
 _apply_one_suggestion, _maybe_sweep_after_suggestions, run_labels_delete,
 _sweep_one_parent, run_labels_sweep_parents.
 """
+
 from __future__ import annotations
 
 import os
@@ -16,10 +17,9 @@ from tests.fixtures import capture_stdout
 from tests.mail_tests.fixtures import (
     FakeGmailClient,
     make_args,
-    make_user_label,
     make_label_with_visibility,
+    make_user_label,
 )
-
 
 # ---------------------------------------------------------------------------
 # Local extension: add list_labels(use_cache, ttl) and headers_to_dict
@@ -57,6 +57,7 @@ class TestPrintDoctorReport(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from mail.labels.commands_doctor import _print_doctor_report
+
         cls.print_report = staticmethod(_print_doctor_report)
 
     def _make_info(self, **overrides) -> dict:
@@ -121,6 +122,7 @@ class TestRedirectImapLabels(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from mail.labels.commands_doctor import _redirect_imap_labels
+
         cls.redirect = staticmethod(_redirect_imap_labels)
 
     def test_no_specs_returns_zero(self):
@@ -136,18 +138,22 @@ class TestRedirectImapLabels(unittest.TestCase):
         self.assertEqual(result, 0)
 
     def test_skips_missing_old_label(self):
-        client = ExtendedFakeGmailClient(labels=[
-            make_user_label("NewLabel", "NEW_ID"),
-        ])
+        client = ExtendedFakeGmailClient(
+            labels=[
+                make_user_label("NewLabel", "NEW_ID"),
+            ]
+        )
         with capture_stdout() as buf:
             result = self.redirect(client, ["MissingOld=NewLabel"])
         self.assertEqual(result, 0)
         self.assertIn("Skip redirect", buf.getvalue())
 
     def test_skips_when_ensure_label_returns_empty(self):
-        client = ExtendedFakeGmailClient(labels=[
-            make_user_label("OldLabel", "OLD_ID"),
-        ])
+        client = ExtendedFakeGmailClient(
+            labels=[
+                make_user_label("OldLabel", "OLD_ID"),
+            ]
+        )
         client.ensure_label = MagicMock(return_value="")
         with capture_stdout() as buf:
             result = self.redirect(client, ["OldLabel=MissingNew"])
@@ -155,22 +161,25 @@ class TestRedirectImapLabels(unittest.TestCase):
         self.assertIn("Skip redirect", buf.getvalue())
 
     def test_redirects_messages_and_returns_count(self):
-        client = ExtendedFakeGmailClient(labels=[
-            make_user_label("OldLabel", "OLD_ID"),
-            make_user_label("NewLabel", "NEW_ID"),
-        ])
+        client = ExtendedFakeGmailClient(
+            labels=[
+                make_user_label("OldLabel", "OLD_ID"),
+                make_user_label("NewLabel", "NEW_ID"),
+            ]
+        )
         client.list_message_ids = MagicMock(return_value=["m1", "m2"])
-        with patch("mail.utils.batch.apply_in_chunks") as mock_apply, \
-                capture_stdout() as buf:
+        with patch("mail.utils.batch.apply_in_chunks") as mock_apply, capture_stdout() as buf:
             result = self.redirect(client, ["OldLabel=NewLabel"])
         self.assertEqual(result, 1)
         mock_apply.assert_called_once()
         self.assertIn("Redirected", buf.getvalue())
 
     def test_creates_label_when_new_is_absent(self):
-        client = ExtendedFakeGmailClient(labels=[
-            make_user_label("OldLabel", "OLD_ID"),
-        ])
+        client = ExtendedFakeGmailClient(
+            labels=[
+                make_user_label("OldLabel", "OLD_ID"),
+            ]
+        )
         client.list_message_ids = MagicMock(return_value=["m1"])
         with patch("mail.utils.batch.apply_in_chunks"), capture_stdout():
             result = self.redirect(client, ["OldLabel=BrandNewLabel"])
@@ -208,11 +217,13 @@ class TestRunLabelsDoctor(unittest.TestCase):
             use_cache=False,
             cache_ttl=300,
         )
-        with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client), \
-                patch("mail.labels.commands_plan._analyze_labels",
-                      return_value=self._analyze_stub()), \
-                capture_stdout() as buf:
+        with (
+            patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client),
+            patch("mail.labels.commands_plan._analyze_labels", return_value=self._analyze_stub()),
+            capture_stdout() as buf,
+        ):
             from mail.labels.commands_doctor import run_labels_doctor
+
             rc = run_labels_doctor(args)
         return rc, buf.getvalue(), client
 
@@ -254,13 +265,16 @@ class TestRunLabelsDoctor(unittest.TestCase):
             use_cache=False,
             cache_ttl=300,
         )
-        with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client), \
-                patch("mail.labels.commands_plan._analyze_labels",
-                      return_value=self._analyze_stub()), \
-                patch("mail.labels.commands_doctor._redirect_imap_labels",
-                      return_value=2) as mock_redir, \
-                capture_stdout() as buf:
+        with (
+            patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client),
+            patch("mail.labels.commands_plan._analyze_labels", return_value=self._analyze_stub()),
+            patch(
+                "mail.labels.commands_doctor._redirect_imap_labels", return_value=2
+            ) as mock_redir,
+            capture_stdout() as buf,
+        ):
             from mail.labels.commands_doctor import run_labels_doctor
+
             rc = run_labels_doctor(args)
         self.assertEqual(rc, 0)
         mock_redir.assert_called_once_with(client, ["OldLabel=NewLabel"])
@@ -278,6 +292,7 @@ class TestPruneOneLabel(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from mail.labels.commands_doctor import _prune_one_label
+
         cls.prune = staticmethod(_prune_one_label)
 
     def test_dry_run_does_not_delete(self):
@@ -321,15 +336,16 @@ class TestPruneOneLabel(unittest.TestCase):
 class TestRunLabelsPruneEmpty(unittest.TestCase):
     """Tests for run_labels_prune_empty."""
 
-    def _run_prune(self, labels, dry_run=False, limit=0, sleep_sec=0.0,
-                   filters=None, force=False):
+    def _run_prune(self, labels, dry_run=False, limit=0, sleep_sec=0.0, filters=None, force=False):
         client = FakeGmailClient(labels=labels, filters=filters or [])
-        args = make_args(dry_run=dry_run, limit=limit, sleep_sec=sleep_sec,
-                         force=force)
-        with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client), \
-                patch("time.sleep"), \
-                capture_stdout() as buf:
+        args = make_args(dry_run=dry_run, limit=limit, sleep_sec=sleep_sec, force=force)
+        with (
+            patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client),
+            patch("time.sleep"),
+            capture_stdout() as buf,
+        ):
             from mail.labels.commands_doctor import run_labels_prune_empty
+
             rc = run_labels_prune_empty(args)
         return rc, buf.getvalue(), client
 
@@ -370,8 +386,13 @@ class TestRunLabelsPruneEmpty(unittest.TestCase):
     def test_keeps_empty_label_targeted_by_filter(self):
         """An archive-on-arrival rule leaves its label empty; it is not dead."""
         labels = [make_user_label("Finance/TD", "L1", messages=0)]
-        filters = [{"id": "F1", "criteria": {"from": "td.com"},
-                    "action": {"addLabelIds": ["L1"], "removeLabelIds": ["INBOX"]}}]
+        filters = [
+            {
+                "id": "F1",
+                "criteria": {"from": "td.com"},
+                "action": {"addLabelIds": ["L1"], "removeLabelIds": ["INBOX"]},
+            }
+        ]
         rc, out, client = self._run_prune(labels, filters=filters)
         self.assertEqual(rc, 0)
         self.assertIn("Keeping label: Finance/TD", out)
@@ -381,8 +402,9 @@ class TestRunLabelsPruneEmpty(unittest.TestCase):
 
     def test_keeps_label_referenced_only_via_remove(self):
         labels = [make_user_label("Archived", "L1", messages=0)]
-        filters = [{"id": "F1", "criteria": {"from": "x.com"},
-                    "action": {"removeLabelIds": ["L1"]}}]
+        filters = [
+            {"id": "F1", "criteria": {"from": "x.com"}, "action": {"removeLabelIds": ["L1"]}}
+        ]
         _, out, client = self._run_prune(labels, filters=filters)
         self.assertIn("Keeping label: Archived", out)
         self.assertEqual(len(client.labels), 1)
@@ -393,8 +415,7 @@ class TestRunLabelsPruneEmpty(unittest.TestCase):
             make_user_label("Finance", "P1", messages=0),
             make_user_label("Finance/TD", "L1", messages=0),
         ]
-        filters = [{"id": "F1", "criteria": {"from": "td.com"},
-                    "action": {"addLabelIds": ["L1"]}}]
+        filters = [{"id": "F1", "criteria": {"from": "td.com"}, "action": {"addLabelIds": ["L1"]}}]
         _, out, client = self._run_prune(labels, filters=filters)
         self.assertIn("Keeping label: Finance (parent of a filter-targeted label)", out)
         self.assertIn("Keeping label: Finance/TD (targeted by a filter)", out)
@@ -406,16 +427,14 @@ class TestRunLabelsPruneEmpty(unittest.TestCase):
             make_user_label("Finance/TD", "L1", messages=0),
             make_user_label("Dead", "L2", messages=0),
         ]
-        filters = [{"id": "F1", "criteria": {"from": "td.com"},
-                    "action": {"addLabelIds": ["L1"]}}]
+        filters = [{"id": "F1", "criteria": {"from": "td.com"}, "action": {"addLabelIds": ["L1"]}}]
         _, out, client = self._run_prune(labels, filters=filters)
         self.assertIn("Deleted: 1", out)
         self.assertEqual([lab["name"] for lab in client.labels], ["Finance/TD"])
 
     def test_force_deletes_filter_targeted_label(self):
         labels = [make_user_label("Finance/TD", "L1", messages=0)]
-        filters = [{"id": "F1", "criteria": {"from": "td.com"},
-                    "action": {"addLabelIds": ["L1"]}}]
+        filters = [{"id": "F1", "criteria": {"from": "td.com"}, "action": {"addLabelIds": ["L1"]}}]
         _, out, client = self._run_prune(labels, filters=filters, force=True)
         self.assertIn("Deleted: 1", out)
         self.assertNotIn("Keeping label", out)
@@ -426,8 +445,7 @@ class TestRunLabelsPruneEmpty(unittest.TestCase):
             make_user_label("Finance/TD", "L1", messages=0),
             make_user_label("Dead", "L2", messages=0),
         ]
-        filters = [{"id": "F1", "criteria": {"from": "td.com"},
-                    "action": {"addLabelIds": ["L1"]}}]
+        filters = [{"id": "F1", "criteria": {"from": "td.com"}, "action": {"addLabelIds": ["L1"]}}]
         _, out, client = self._run_prune(labels, filters=filters, dry_run=True)
         self.assertIn("Keeping label: Finance/TD", out)
         self.assertIn("Would delete label: Dead", out)
@@ -439,8 +457,7 @@ class TestRunLabelsPruneEmpty(unittest.TestCase):
         from mail.labels.commands_doctor import _partition_prunable
 
         client = FakeGmailClient(labels=[make_user_label("Full", "L1", messages=5)])
-        with patch.object(client, "list_filters",
-                          wraps=client.list_filters) as spy:
+        with patch.object(client, "list_filters", wraps=client.list_filters) as spy:
             prunable, skipped = _partition_prunable(client, client.labels)
         self.assertEqual(prunable, [])
         self.assertEqual(skipped, {})
@@ -451,8 +468,7 @@ class TestRunLabelsPruneEmpty(unittest.TestCase):
         from mail.labels.commands_doctor import _partition_prunable
 
         client = FakeGmailClient(labels=[make_user_label("Dead", "L1", messages=0)])
-        with patch.object(client, "list_filters",
-                          wraps=client.list_filters) as spy:
+        with patch.object(client, "list_filters", wraps=client.list_filters) as spy:
             prunable, _ = _partition_prunable(client, client.labels)
         self.assertEqual([lab["name"] for lab in prunable], ["Dead"])
         spy.assert_called_once()
@@ -460,8 +476,7 @@ class TestRunLabelsPruneEmpty(unittest.TestCase):
     def test_unknown_label_id_in_filter_is_ignored(self):
         """A filter referencing a deleted label must not crash the prune."""
         labels = [make_user_label("Dead", "L2", messages=0)]
-        filters = [{"id": "F1", "criteria": {"from": "x.com"},
-                    "action": {"addLabelIds": ["GONE"]}}]
+        filters = [{"id": "F1", "criteria": {"from": "x.com"}, "action": {"addLabelIds": ["GONE"]}}]
         rc, out, client = self._run_prune(labels, filters=filters)
         self.assertEqual(rc, 0)
         self.assertIn("Deleted: 1", out)
@@ -476,8 +491,7 @@ class TestRunLabelsPruneEmpty(unittest.TestCase):
 class TestRunLabelsLearn(unittest.TestCase):
     """Tests for run_labels_learn."""
 
-    def _make_learn_args(self, out_path, days=30, min_count=5, protect=None,
-                         only_inbox=False):
+    def _make_learn_args(self, out_path, days=30, min_count=5, protect=None, only_inbox=False):
         return make_args(
             credentials="cred.json",
             token="tok.json",  # noqa: S106  # nosec B106 - test file path
@@ -495,12 +509,16 @@ class TestRunLabelsLearn(unittest.TestCase):
         client.get_messages_metadata = MagicMock(return_value=messages)
         client.headers_to_dict = MagicMock(side_effect=lambda m: m.get("_headers", {}))
 
-        with patch("mail.config_resolver.resolve_paths_profile",
-                   return_value=("cred.json", "tok.json")), \
-                patch("mail.gmail_api.GmailClient", return_value=client), \
-                patch("mail.utils.filters.build_gmail_query", return_value="in:inbox"), \
-                capture_stdout() as buf:
+        with (
+            patch(
+                "mail.config_resolver.resolve_paths_profile", return_value=("cred.json", "tok.json")
+            ),
+            patch("mail.gmail_api.GmailClient", return_value=client),
+            patch("mail.utils.filters.build_gmail_query", return_value="in:inbox"),
+            capture_stdout() as buf,
+        ):
             from mail.labels.commands_doctor import run_labels_learn
+
             rc = run_labels_learn(args)
         return rc, buf.getvalue()
 
@@ -508,10 +526,16 @@ class TestRunLabelsLearn(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             out_path = os.path.join(tmp, "suggestions.yaml")
             msgs = [
-                {"id": "m1", "_headers": {"from": "promo@shop.com"},
-                 "labelIds": ["CATEGORY_PROMOTIONS"]},
-                {"id": "m2", "_headers": {"from": "promo@shop.com"},
-                 "labelIds": ["CATEGORY_PROMOTIONS"]},
+                {
+                    "id": "m1",
+                    "_headers": {"from": "promo@shop.com"},
+                    "labelIds": ["CATEGORY_PROMOTIONS"],
+                },
+                {
+                    "id": "m2",
+                    "_headers": {"from": "promo@shop.com"},
+                    "labelIds": ["CATEGORY_PROMOTIONS"],
+                },
             ]
             args = self._make_learn_args(out_path, min_count=1)
             rc, out = self._run_learn(msgs, args)
@@ -522,8 +546,11 @@ class TestRunLabelsLearn(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             out_path = os.path.join(tmp, "suggestions.yaml")
             msgs = [
-                {"id": "m1", "_headers": {"from": "promo@shop.com"},
-                 "labelIds": ["CATEGORY_PROMOTIONS"]},
+                {
+                    "id": "m1",
+                    "_headers": {"from": "promo@shop.com"},
+                    "labelIds": ["CATEGORY_PROMOTIONS"],
+                },
             ]
             args = self._make_learn_args(out_path, min_count=999)
             rc, out = self._run_learn(msgs, args)
@@ -534,8 +561,11 @@ class TestRunLabelsLearn(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             out_path = os.path.join(tmp, "suggestions.yaml")
             msgs = [
-                {"id": f"m{i}", "_headers": {"from": "promo@protected.com"},
-                 "labelIds": ["CATEGORY_PROMOTIONS"]}
+                {
+                    "id": f"m{i}",
+                    "_headers": {"from": "promo@protected.com"},
+                    "labelIds": ["CATEGORY_PROMOTIONS"],
+                }
                 for i in range(3)
             ]
             args = self._make_learn_args(out_path, min_count=1, protect=["@protected.com"])
@@ -547,9 +577,11 @@ class TestRunLabelsLearn(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             out_path = os.path.join(tmp, "suggestions.yaml")
             msgs = [
-                {"id": f"m{i}", "_headers": {"from": "news@letters.com",
-                                             "list-unsubscribe": "<url>"},
-                 "labelIds": []}
+                {
+                    "id": f"m{i}",
+                    "_headers": {"from": "news@letters.com", "list-unsubscribe": "<url>"},
+                    "labelIds": [],
+                }
                 for i in range(3)
             ]
             args = self._make_learn_args(out_path, min_count=1)
@@ -561,8 +593,7 @@ class TestRunLabelsLearn(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             out_path = os.path.join(tmp, "suggestions.yaml")
             msgs = [
-                {"id": f"m{i}", "_headers": {"from": f"user{i}@plain.com"},
-                 "labelIds": []}
+                {"id": f"m{i}", "_headers": {"from": f"user{i}@plain.com"}, "labelIds": []}
                 for i in range(5)
             ]
             args = self._make_learn_args(out_path, min_count=1)
@@ -582,6 +613,7 @@ class TestApplyOneSuggestion(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from mail.labels.commands_doctor import _apply_one_suggestion
+
         cls.apply = staticmethod(_apply_one_suggestion)
 
     def test_missing_domain_returns_false(self):
@@ -596,9 +628,10 @@ class TestApplyOneSuggestion(unittest.TestCase):
 
     def test_dry_run_prints_would_create_and_returns_true(self):
         client = FakeGmailClient()
-        with patch("mail.utils.filters.action_to_label_changes",
-                   return_value=(["LBL_Lists"], [])), \
-                capture_stdout() as buf:
+        with (
+            patch("mail.utils.filters.action_to_label_changes", return_value=(["LBL_Lists"], [])),
+            capture_stdout() as buf,
+        ):
             result = self.apply(
                 client,
                 {"domain": "shop.com", "label": "Lists/Commercial"},
@@ -610,9 +643,10 @@ class TestApplyOneSuggestion(unittest.TestCase):
 
     def test_live_run_creates_filter_and_returns_true(self):
         client = FakeGmailClient()
-        with patch("mail.utils.filters.action_to_label_changes",
-                   return_value=(["LBL_Lists"], [])), \
-                capture_stdout() as buf:
+        with (
+            patch("mail.utils.filters.action_to_label_changes", return_value=(["LBL_Lists"], [])),
+            capture_stdout() as buf,
+        ):
             result = self.apply(
                 client,
                 {"domain": "shop.com", "label": "Lists/Commercial"},
@@ -634,6 +668,7 @@ class TestMaybeSweepAfterSuggestions(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from mail.labels.commands_doctor import _maybe_sweep_after_suggestions
+
         cls.maybe_sweep = staticmethod(_maybe_sweep_after_suggestions)
 
     def test_no_sweep_days_does_not_call_run_filters_sweep(self):
@@ -652,8 +687,7 @@ class TestMaybeSweepAfterSuggestions(unittest.TestCase):
             pages=2,
             batch_size=50,
         )
-        with patch("mail.filters.commands.run_filters_sweep") as mock_sweep, \
-                capture_stdout():
+        with patch("mail.filters.commands.run_filters_sweep") as mock_sweep, capture_stdout():
             self.maybe_sweep(args, dry_run=True)
         mock_sweep.assert_called_once()
         called_ns = mock_sweep.call_args[0][0]
@@ -673,9 +707,12 @@ class TestRunLabelsDelete(unittest.TestCase):
     def _run_delete(self, labels, name):
         client = ExtendedFakeGmailClient(labels=labels)
         args = make_args(name=name)
-        with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client), \
-                capture_stdout() as buf:
+        with (
+            patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client),
+            capture_stdout() as buf,
+        ):
             from mail.labels.commands_doctor import run_labels_delete
+
             rc = run_labels_delete(args)
         return rc, buf.getvalue(), client
 
@@ -703,6 +740,7 @@ class TestSweepOneParent(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from mail.labels.commands_doctor import _sweep_one_parent
+
         cls.sweep_one = staticmethod(_sweep_one_parent)
 
     def _make_args(self, pages=1, batch_size=50):
@@ -717,10 +755,12 @@ class TestSweepOneParent(unittest.TestCase):
         self.assertIn("No child labels", buf.getvalue())
 
     def test_dry_run_returns_message_count_without_modifying(self):
-        client = ExtendedFakeGmailClient(labels=[
-            make_user_label("Work", "W"),
-            make_user_label("Work/Projects", "WP"),
-        ])
+        client = ExtendedFakeGmailClient(
+            labels=[
+                make_user_label("Work", "W"),
+                make_user_label("Work/Projects", "WP"),
+            ]
+        )
         client.list_message_ids = MagicMock(return_value=["m1", "m2", "m3"])
         name_to_id = {"Work": "W", "Work/Projects": "WP"}
         with capture_stdout() as buf:
@@ -730,28 +770,34 @@ class TestSweepOneParent(unittest.TestCase):
         self.assertEqual(client.modified_batches, [])
 
     def test_live_run_adds_parent_label_to_messages(self):
-        client = ExtendedFakeGmailClient(labels=[
-            make_user_label("Work", "W"),
-            make_user_label("Work/Projects", "WP"),
-        ])
+        client = ExtendedFakeGmailClient(
+            labels=[
+                make_user_label("Work", "W"),
+                make_user_label("Work/Projects", "WP"),
+            ]
+        )
         client.list_message_ids = MagicMock(return_value=["m1", "m2"])
         name_to_id = {"Work": "W", "Work/Projects": "WP"}
-        with patch("mail.utils.batch.apply_in_chunks") as mock_apply, \
-                capture_stdout() as buf:
+        with patch("mail.utils.batch.apply_in_chunks") as mock_apply, capture_stdout() as buf:
             result = self.sweep_one(client, name_to_id, "Work", self._make_args(), dry_run=False)
         self.assertEqual(result, 2)
         mock_apply.assert_called_once()
         self.assertIn("Added to 2 messages", buf.getvalue())
 
     def test_creates_parent_label_when_missing_from_map(self):
-        client = ExtendedFakeGmailClient(labels=[
-            make_user_label("Work/Projects", "WP"),
-        ])
+        client = ExtendedFakeGmailClient(
+            labels=[
+                make_user_label("Work/Projects", "WP"),
+            ]
+        )
         client.list_message_ids = MagicMock(return_value=["m1"])
         with patch("mail.utils.batch.apply_in_chunks"), capture_stdout():
             result = self.sweep_one(
-                client, {"Work/Projects": "WP"},
-                "Work", self._make_args(), dry_run=False,
+                client,
+                {"Work/Projects": "WP"},
+                "Work",
+                self._make_args(),
+                dry_run=False,
             )
         self.assertEqual(result, 1)
         names = [lab["name"] for lab in client.labels]
@@ -769,9 +815,12 @@ class TestRunLabelsSweepParents(unittest.TestCase):
     def _run_sweep_parents(self, labels, names, dry_run=False, pages=1, batch_size=50):
         client = ExtendedFakeGmailClient(labels=labels)
         args = make_args(names=names, dry_run=dry_run, pages=pages, batch_size=batch_size)
-        with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client), \
-                capture_stdout() as buf:
+        with (
+            patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client),
+            capture_stdout() as buf,
+        ):
             from mail.labels.commands_doctor import run_labels_sweep_parents
+
             rc = run_labels_sweep_parents(args)
         return rc, buf.getvalue(), client
 

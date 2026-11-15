@@ -4,6 +4,7 @@ Domain-specific helpers for whatsapp tests.  Import from here rather than
 constructing MagicMock args inline — keeps all default values in one place
 so that a field rename only needs one fix.
 """
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock

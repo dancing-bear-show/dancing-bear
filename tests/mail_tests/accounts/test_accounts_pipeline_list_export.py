@@ -9,12 +9,12 @@ Covers:
 - accounts_filter narrows which accounts are processed
 - Error path: process() returns an error envelope when an exception is raised
 """
+
 from __future__ import annotations
 
 import os
 import unittest
 from dataclasses import dataclass, field
-from typing import Dict, List
 from unittest.mock import patch
 
 from mail.accounts.pipeline_list_export import (
@@ -22,7 +22,6 @@ from mail.accounts.pipeline_list_export import (
     AccountsExportFiltersRequest,
 )
 from tests.fixtures import TempDirMixin
-
 
 # ---------------------------------------------------------------------------
 # Fake provider client
@@ -33,25 +32,25 @@ from tests.fixtures import TempDirMixin
 class FakeProviderClient:
     """Minimal fake provider client for export-filters tests."""
 
-    labels: List[Dict] = field(default_factory=list)
-    filters: List[Dict] = field(default_factory=list)
+    labels: list[dict] = field(default_factory=list)
+    filters: list[dict] = field(default_factory=list)
     authenticate_called: bool = field(default=False, init=False)
 
     def authenticate(self) -> None:
         self.authenticate_called = True
 
-    def list_labels(self) -> List[Dict]:
+    def list_labels(self) -> list[dict]:
         return list(self.labels)
 
-    def list_filters(self, **_kwargs) -> List[Dict]:
+    def list_filters(self, **_kwargs) -> list[dict]:
         return list(self.filters)
 
 
-def _make_label(label_id: str, name: str) -> Dict:
+def _make_label(label_id: str, name: str) -> dict:
     return {"id": label_id, "name": name, "type": "user"}
 
 
-def _make_filter(from_addr: str, label_ids: List[str]) -> Dict:
+def _make_filter(from_addr: str, label_ids: list[str]) -> dict:
     return {
         "id": "F1",
         "criteria": {"from": from_addr},
@@ -59,7 +58,7 @@ def _make_filter(from_addr: str, label_ids: List[str]) -> Dict:
     }
 
 
-def _make_account(name: str = "personal") -> Dict:
+def _make_account(name: str = "personal") -> dict:
     return {"name": name, "provider": "gmail"}
 
 

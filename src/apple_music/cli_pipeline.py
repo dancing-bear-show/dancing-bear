@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json as _json
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from core.cli_output import OutputConfig, OutputFormat, OutputWriter
 from core.pipeline import BaseProducer, ResultEnvelope, SafeProcessor
@@ -18,7 +19,6 @@ from .cli_models import (
     TracksRequest,
 )
 
-
 # ---------------------------------------------------------------------------
 # Processors (C2)
 # ---------------------------------------------------------------------------
@@ -32,11 +32,13 @@ class ListPlaylistsProcessor(SafeProcessor[ListPlaylistsRequest, list[PlaylistRe
         results: list[PlaylistResult] = []
         for pl in raw:
             attrs = pl.get("attributes") or {}
-            results.append(PlaylistResult(
-                id=pl.get("id") or "",
-                name=attrs.get("name") or "",
-                track_count=attrs.get("trackCount") or 0,
-            ))
+            results.append(
+                PlaylistResult(
+                    id=pl.get("id") or "",
+                    name=attrs.get("name") or "",
+                    track_count=attrs.get("trackCount") or 0,
+                )
+            )
         return results
 
 
@@ -64,16 +66,18 @@ class TracksProcessor(SafeProcessor[TracksRequest, list[TrackResult]]):
             pl_id = pl.get("id") or ""
             for tr in payload.client.list_playlist_tracks(pl_id, limit=payload.track_limit):
                 track = _track_fields(tr)
-                results.append(TrackResult(
-                    id=track["id"] or "",
-                    title=track["name"] or "",
-                    artist=track["artist"] or "",
-                    album=track["album"] or "",
-                    playlist_id=pl_id,
-                    playlist_name=pl_name,
-                    duration_ms=track["duration_ms"],
-                    track_number=track["track_number"],
-                ))
+                results.append(
+                    TrackResult(
+                        id=track["id"] or "",
+                        title=track["name"] or "",
+                        artist=track["artist"] or "",
+                        album=track["album"] or "",
+                        playlist_id=pl_id,
+                        playlist_name=pl_name,
+                        duration_ms=track["duration_ms"],
+                        track_number=track["track_number"],
+                    )
+                )
         return results
 
 
@@ -84,16 +88,16 @@ class ExportProcessor(SafeProcessor[ExportRequest, list[ExportPlaylistResult]]):
         results: list[ExportPlaylistResult] = []
         for pl in payload.client.list_library_playlists(limit=payload.playlist_limit):
             attrs = pl.get("attributes") or {}
-            tracks_raw = payload.client.list_playlist_tracks(
-                pl["id"], limit=payload.track_limit
-            )
+            tracks_raw = payload.client.list_playlist_tracks(pl["id"], limit=payload.track_limit)
             tracks = [_track_fields(tr) for tr in tracks_raw]
-            results.append(ExportPlaylistResult(
-                id=pl.get("id") or "",
-                name=attrs.get("name") or "",
-                description=(attrs.get("description") or {}).get("standard"),
-                tracks=tracks,
-            ))
+            results.append(
+                ExportPlaylistResult(
+                    id=pl.get("id") or "",
+                    name=attrs.get("name") or "",
+                    description=(attrs.get("description") or {}).get("standard"),
+                    tracks=tracks,
+                )
+            )
         return results
 
 

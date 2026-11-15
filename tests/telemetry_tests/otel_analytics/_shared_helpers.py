@@ -11,14 +11,14 @@ import to this module.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from telemetry.otel.cost_models import CostMetrics, SessionCost, SessionPerf
 
 
 def _utc(year: int, month: int, day: int, hour: int = 0, minute: int = 0) -> datetime:
     """Build a UTC datetime. `minute` defaults to 0, matching hour-only callers."""
-    return datetime(year, month, day, hour, minute, tzinfo=timezone.utc)
+    return datetime(year, month, day, hour, minute, tzinfo=UTC)
 
 
 def _make_perf(

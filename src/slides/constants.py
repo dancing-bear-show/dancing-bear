@@ -80,7 +80,9 @@ SLIDE_HEIGHT = 7.5  # Standard widescreen slide height in inches
 CONTENT_WIDTH = 10.5  # Text box width
 CONTENT_LEFT = (SLIDE_WIDTH - CONTENT_WIDTH) / 2  # Centered horizontally
 CONTENT_BOTTOM_MARGIN = 0.4  # Inches from slide bottom
-IMAGE_CONTENT_TOP = 1.3  # Top of content area for image/mermaid slides (below title in layout_map mode)
+IMAGE_CONTENT_TOP = (
+    1.3  # Top of content area for image/mermaid slides (below title in layout_map mode)
+)
 
 # Table positioning
 TABLE_WIDTH = 8.5
@@ -208,7 +210,9 @@ YAML_MERMAID = "mermaid"
 # =============================================================================
 
 DEFAULT_TITLE = "Untitled"
-DEFAULT_TEMPLATE_SLIDE_INDEX = 0  # 0-indexed fallback; master layouts are preferred at generate time
+DEFAULT_TEMPLATE_SLIDE_INDEX = (
+    0  # 0-indexed fallback; master layouts are preferred at generate time
+)
 DEFAULT_BULLET_LEVEL = 0
 DEFAULT_SECTION_HEADER_MAX_LENGTH = 40
 DEFAULT_LAYOUT_KEY = LAYOUT_BULLET

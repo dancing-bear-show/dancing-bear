@@ -20,7 +20,7 @@ def _split_name_and_addr(s: str) -> tuple[str, str]:
         return head.strip(), addr.strip()
     m = re.search(r"\b\d+\b", s)
     if m:
-        return s[:m.start()].strip(), s[m.start():].strip()
+        return s[: m.start()].strip(), s[m.start() :].strip()
     return s.strip(), ""
 
 
@@ -61,7 +61,7 @@ def _parse_addr_two_parts(parts: list[str], street: str) -> tuple[str, str, str,
     state = toks[0]
     rest = " ".join(toks[1:]).upper()
     mpc = re.search(r"[A-Z]\d[A-Z]\s?\d[A-Z]\d", rest)
-    postal = rest[mpc.start():mpc.end()] if mpc else ""
+    postal = rest[mpc.start() : mpc.end()] if mpc else ""
     words = [w for w in parts[0].strip().split() if w]
     city, street = _city_and_street_from_words(words, street)
     return city, state, postal, street
@@ -127,8 +127,13 @@ def _parse_addr(addr: str) -> dict[str, Any]:
     street = parts[0] if parts else ""
     street, city, state, postal, country = _parse_addr_parts(parts, street)
     addr_obj: dict[str, Any] = {}
-    for key, val in [("street", street), ("city", city), ("state", state),
-                     ("postalCode", postal), ("countryOrRegion", country)]:
+    for key, val in [
+        ("street", street),
+        ("city", city),
+        ("state", state),
+        ("postalCode", postal),
+        ("countryOrRegion", country),
+    ]:
         if val:
             addr_obj[key] = val
     return addr_obj

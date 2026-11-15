@@ -2,39 +2,39 @@
 
 Provides the default single-column resume layout.
 """
+
 from __future__ import annotations
 
 from typing import Any
 
 from .docx_base import ResumeWriterBase
-from .schema import Resume
 from .docx_links import render_contact_runs
-from .docx_styles import (
-    _parse_hex_color,
-    _tight_paragraph,
-    _flush_left,
-    _apply_paragraph_shading,
-    _format_phone_display,
+from .docx_sections_exp import (
+    EducationSectionRenderer,
+    ExperienceSectionRenderer,
 )
 from .docx_sections_simple import (
+    CertificationsSectionRenderer,
+    CourseworkSectionRenderer,
     InterestsSectionRenderer,
     LanguagesSectionRenderer,
-    CourseworkSectionRenderer,
-    CertificationsSectionRenderer,
     PresentationsSectionRenderer,
     ProjectsSectionRenderer,
     TeachingSectionRenderer,
 )
 from .docx_sections_skills import (
-    SummarySectionRenderer,
     SkillsSectionRenderer,
+    SummarySectionRenderer,
     TechnologiesSectionRenderer,
 )
-from .docx_sections_exp import (
-    ExperienceSectionRenderer,
-    EducationSectionRenderer,
+from .docx_styles import (
+    _apply_paragraph_shading,
+    _flush_left,
+    _format_phone_display,
+    _parse_hex_color,
+    _tight_paragraph,
 )
-
+from .schema import Resume
 
 # Section renderer registry
 SECTION_RENDERERS = {

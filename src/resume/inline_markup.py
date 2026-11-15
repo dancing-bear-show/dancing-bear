@@ -34,6 +34,7 @@ NESTING IS UNSUPPORTED, AND DEGRADES PREDICTABLY
     alternative (dropping them) would silently rewrite the text. Emphasis
     does not nest in this vocabulary; authors who need both should not.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

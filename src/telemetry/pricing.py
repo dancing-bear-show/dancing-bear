@@ -36,10 +36,9 @@ calibration against actual billed spend (default 1.0, no scaling);
 
 from __future__ import annotations
 
-from collections.abc import Callable
-
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from telemetry.constants import CONFIG_PATH as _CONFIG_PATH
@@ -162,7 +161,7 @@ def _names_version(lower: str, marker: str) -> bool:
     """
     start = lower.find(marker)
     while start != -1:
-        rest = lower[start + len(marker):]
+        rest = lower[start + len(marker) :]
         if not rest[:1].isdigit() and not _MINOR_VERSION_RE.match(rest):
             return True
         start = lower.find(marker, start + 1)
@@ -224,7 +223,7 @@ def _embedded_pricing_key(lower: str) -> str | None:
     for key in _EMBEDDABLE_PRICING_KEYS:
         start = lower.find(key)
         while start != -1:
-            rest = lower[start + len(key):]
+            rest = lower[start + len(key) :]
             if not rest[:1].isalnum() and not _MINOR_VERSION_RE.match(rest):
                 return key
             start = lower.find(key, start + 1)

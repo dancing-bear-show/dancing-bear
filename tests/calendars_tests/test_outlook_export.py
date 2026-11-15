@@ -7,10 +7,10 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-
 # ---------------------------------------------------------------------------
 # Fake service helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_singleinstance(subject: str, start_dt: str, end_dt: str, tz: str) -> dict[str, Any]:
     return {
@@ -151,11 +151,13 @@ def _make_fake_service(events: list[dict[str, Any]]) -> MagicMock:
 # Tests
 # ---------------------------------------------------------------------------
 
+
 class TestOutlookExportProcessor(unittest.TestCase):
     """Tests for OutlookExportProcessor."""
 
     def _make_request(self, svc, **kwargs):
         from calendars.outlook_pipelines.export import OutlookExportRequest
+
         return OutlookExportRequest(
             service=svc,
             calendar=None,
@@ -169,6 +171,7 @@ class TestOutlookExportProcessor(unittest.TestCase):
 
     def _run(self, events: list[dict[str, Any]], **kwargs):
         from calendars.outlook_pipelines.export import OutlookExportProcessor
+
         svc = _make_fake_service(events)
         request = self._make_request(svc, **kwargs)
         proc = OutlookExportProcessor()
@@ -281,9 +284,17 @@ class TestOutlookExportProcessor(unittest.TestCase):
                     master if eid == master_id else None
                 )
 
-                from calendars.outlook_pipelines.export import OutlookExportProcessor, OutlookExportRequest
+                from calendars.outlook_pipelines.export import (
+                    OutlookExportProcessor,
+                    OutlookExportRequest,
+                )
+
                 request = OutlookExportRequest(
-                    service=svc, calendar=None, from_date="2026-01-01", to_date="2026-12-31", out_path=None
+                    service=svc,
+                    calendar=None,
+                    from_date="2026-01-01",
+                    to_date="2026-12-31",
+                    out_path=None,
                 )
                 envelope = OutlookExportProcessor().process(request)
                 result = envelope.payload
@@ -316,7 +327,10 @@ class TestOutlookExportProcessor(unittest.TestCase):
         svc.get_event.return_value = None
 
         from calendars.outlook_pipelines.export import OutlookExportProcessor, OutlookExportRequest
-        request = OutlookExportRequest(service=svc, calendar=None, from_date="2026-01-01", to_date="2026-12-31", out_path=None)
+
+        request = OutlookExportRequest(
+            service=svc, calendar=None, from_date="2026-01-01", to_date="2026-12-31", out_path=None
+        )
         envelope = OutlookExportProcessor().process(request)
         result = envelope.payload
         self.assertEqual(result.event_count, 0)
@@ -345,7 +359,10 @@ class TestOutlookExportProcessor(unittest.TestCase):
         svc.get_event.side_effect = lambda eid: master if eid == "master-tri-1" else None
 
         from calendars.outlook_pipelines.export import OutlookExportProcessor, OutlookExportRequest
-        request = OutlookExportRequest(service=svc, calendar=None, from_date="2026-01-01", to_date="2026-06-30", out_path=None)
+
+        request = OutlookExportRequest(
+            service=svc, calendar=None, from_date="2026-01-01", to_date="2026-06-30", out_path=None
+        )
         envelope = OutlookExportProcessor().process(request)
         result = envelope.payload
         self.assertEqual(result.event_count, 1)
@@ -377,7 +394,10 @@ class TestOutlookExportProcessor(unittest.TestCase):
         svc.get_event.side_effect = lambda eid: master if eid == "master-nointerval" else None
 
         from calendars.outlook_pipelines.export import OutlookExportProcessor, OutlookExportRequest
-        request = OutlookExportRequest(service=svc, calendar=None, from_date="2026-01-01", to_date="2026-06-30", out_path=None)
+
+        request = OutlookExportRequest(
+            service=svc, calendar=None, from_date="2026-01-01", to_date="2026-06-30", out_path=None
+        )
         envelope = OutlookExportProcessor().process(request)
         result = envelope.payload
         self.assertEqual(result.event_count, 0)
@@ -409,7 +429,10 @@ class TestOutlookExportProcessor(unittest.TestCase):
         svc.get_event.side_effect = lambda eid: master if eid == "master-counted" else None
 
         from calendars.outlook_pipelines.export import OutlookExportProcessor, OutlookExportRequest
-        request = OutlookExportRequest(service=svc, calendar=None, from_date="2026-01-01", to_date="2026-06-30", out_path=None)
+
+        request = OutlookExportRequest(
+            service=svc, calendar=None, from_date="2026-01-01", to_date="2026-06-30", out_path=None
+        )
         envelope = OutlookExportProcessor().process(request)
         result = envelope.payload
         self.assertEqual(result.event_count, 1)
@@ -421,7 +444,10 @@ class TestOutlookExportProcessor(unittest.TestCase):
     def test_no_service_returns_error(self):
         """Processor fails loudly when service is None."""
         from calendars.outlook_pipelines.export import OutlookExportProcessor, OutlookExportRequest
-        request = OutlookExportRequest(service=None, calendar=None, from_date=None, to_date=None, out_path=None)
+
+        request = OutlookExportRequest(
+            service=None, calendar=None, from_date=None, to_date=None, out_path=None
+        )
         envelope = OutlookExportProcessor().process(request)
         self.assertFalse(envelope.ok())
 
@@ -431,6 +457,7 @@ class TestOutlookExportProducer(unittest.TestCase):
 
     def _make_result(self, events=None, skipped=None, dry_run=False, verbose=False, out_path=None):
         from calendars.outlook_pipelines.export import OutlookExportResult
+
         return OutlookExportResult(
             events=events or [],
             skipped=skipped or [],
@@ -441,18 +468,21 @@ class TestOutlookExportProducer(unittest.TestCase):
 
     def test_verbose_reports_reasons_without_leaking_subject_or_ids(self):
         """--verbose explains skips but must not print subjects or Graph object ids."""
+        import io
+
         from calendars.outlook_pipelines.export import OutlookExportProducer
         from core.pipeline import ResultEnvelope
-        import io
 
         result = self._make_result(
             events=[],
-            skipped=[{
-                "seriesMasterId": "AAMkAG-secret-master-id",
-                "subject": "Oncologist follow-up",
-                "pattern_type": "relativeMonthly",
-                "reason": "unsupported_pattern",
-            }],
+            skipped=[
+                {
+                    "seriesMasterId": "AAMkAG-secret-master-id",
+                    "subject": "Oncologist follow-up",
+                    "pattern_type": "relativeMonthly",
+                    "reason": "unsupported_pattern",
+                }
+            ],
             verbose=True,
         )
         envelope = ResultEnvelope(status="success", payload=result)
@@ -470,9 +500,10 @@ class TestOutlookExportProducer(unittest.TestCase):
         self.assertNotIn("AAMkAG-secret-master-id", output)
 
     def test_prints_count_summary(self):
+        import io
+
         from calendars.outlook_pipelines.export import OutlookExportProducer
         from core.pipeline import ResultEnvelope
-        import io
 
         result = self._make_result(events=[{"subject": "X"}], skipped=[])
         envelope = ResultEnvelope(status="success", payload=result)
@@ -487,10 +518,11 @@ class TestOutlookExportProducer(unittest.TestCase):
         self.assertIn("skipped 0", output)
 
     def test_dry_run_does_not_write_file(self):
+        import io
+        import tempfile
+
         from calendars.outlook_pipelines.export import OutlookExportProducer
         from core.pipeline import ResultEnvelope
-        import tempfile
-        import io
 
         with tempfile.TemporaryDirectory() as tmpdir:
             out = Path(tmpdir) / "plan.yaml"
@@ -509,8 +541,9 @@ class TestGetEventMethod(unittest.TestCase):
     """Tests for the new get_event method on OutlookCalendarMixin."""
 
     def test_get_event_returns_json_on_200(self):
-        from core.outlook.calendar import OutlookCalendarMixin
         from unittest.mock import MagicMock, patch
+
+        from core.outlook.calendar import OutlookCalendarMixin
 
         mixin = OutlookCalendarMixin.__new__(OutlookCalendarMixin)
         mixin._headers = MagicMock(return_value={"Authorization": "Bearer tok"})
@@ -525,8 +558,9 @@ class TestGetEventMethod(unittest.TestCase):
         self.assertEqual(result, {"id": "evt1", "subject": "Test"})
 
     def test_get_event_returns_none_on_404(self):
-        from core.outlook.calendar import OutlookCalendarMixin
         from unittest.mock import MagicMock, patch
+
+        from core.outlook.calendar import OutlookCalendarMixin
 
         mixin = OutlookCalendarMixin.__new__(OutlookCalendarMixin)
         fake_response = MagicMock()
@@ -541,8 +575,9 @@ class TestGetEventMethod(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_get_event_raises_on_500(self):
-        from core.outlook.calendar import OutlookCalendarMixin
         from unittest.mock import MagicMock, patch
+
+        from core.outlook.calendar import OutlookCalendarMixin
 
         mixin = OutlookCalendarMixin.__new__(OutlookCalendarMixin)
         fake_response = MagicMock()
@@ -595,11 +630,17 @@ class TestCLIExportPlanCommand(unittest.TestCase):
             return 0
 
         args = argparse.Namespace(
-            out=None, calendar=None, from_date=None, to_date=None,
-            dry_run=True, verbose=False,
+            out=None,
+            calendar=None,
+            from_date=None,
+            to_date=None,
+            dry_run=True,
+            verbose=False,
         )
-        with patch.object(commands, "_build_outlook_service", return_value=MagicMock()), \
-                patch.object(commands, "run_pipeline", side_effect=_capture):
+        with (
+            patch.object(commands, "_build_outlook_service", return_value=MagicMock()),
+            patch.object(commands, "run_pipeline", side_effect=_capture),
+        ):
             commands.run_outlook_export_plan(args)
 
         out_path = captured["out_path"]
@@ -612,7 +653,12 @@ class TestExdatesProducer(unittest.TestCase):
     """GAP 1 — cancelled/exception occurrences are extracted as exdates by the processor."""
 
     def _make_cancelled_occurrence(
-        self, master_id: str, original_start: str, *, is_cancelled: bool = False, occ_type: str = "occurrence"
+        self,
+        master_id: str,
+        original_start: str,
+        *,
+        is_cancelled: bool = False,
+        occ_type: str = "occurrence",
     ) -> dict[str, Any]:
         occ: dict[str, Any] = {
             "type": occ_type,
@@ -629,6 +675,7 @@ class TestExdatesProducer(unittest.TestCase):
 
     def _run_with_master(self, occurrences: list[dict[str, Any]], master: dict[str, Any]) -> Any:
         from calendars.outlook_pipelines.export import OutlookExportProcessor, OutlookExportRequest
+
         svc = MagicMock()
         svc.list_events_in_range.return_value = occurrences
         svc.get_mailbox_timezone.return_value = "America/Toronto"
@@ -777,6 +824,7 @@ class TestDSTBoundaryExport(unittest.TestCase):
         svc.get_event.side_effect = lambda eid: master if eid == "master-dst-1" else None
 
         from calendars.outlook_pipelines.export import OutlookExportProcessor, OutlookExportRequest
+
         request = OutlookExportRequest(
             service=svc,
             calendar=None,
@@ -834,6 +882,7 @@ class TestDSTBoundaryExport(unittest.TestCase):
         svc.get_event.side_effect = lambda eid: master if eid == "master-fallback-1" else None
 
         from calendars.outlook_pipelines.export import OutlookExportProcessor, OutlookExportRequest
+
         request = OutlookExportRequest(
             service=svc,
             calendar=None,
@@ -884,8 +933,13 @@ class TestSupportedPatternsAndRangeTypes(unittest.TestCase):
         svc.get_mailbox_timezone.return_value = "America/Toronto"
         svc.get_event.side_effect = lambda _id: master
         request = OutlookExportRequest(
-            service=svc, calendar=None, from_date="2026-01-01",
-            to_date="2026-12-31", out_path=None, dry_run=False, verbose=False,
+            service=svc,
+            calendar=None,
+            from_date="2026-01-01",
+            to_date="2026-12-31",
+            out_path=None,
+            dry_run=False,
+            verbose=False,
         )
         envelope = OutlookExportProcessor().process(request)
         self.assertTrue(envelope.ok())
@@ -959,8 +1013,13 @@ class TestAllDayDetection(unittest.TestCase):
         svc.get_mailbox_timezone.return_value = "America/Toronto"
         svc.get_event.side_effect = lambda _id: None
         request = OutlookExportRequest(
-            service=svc, calendar=None, from_date="2026-05-01",
-            to_date="2026-05-31", out_path=None, dry_run=False, verbose=False,
+            service=svc,
+            calendar=None,
+            from_date="2026-05-01",
+            to_date="2026-05-31",
+            out_path=None,
+            dry_run=False,
+            verbose=False,
         )
         envelope = OutlookExportProcessor().process(request)
         self.assertTrue(envelope.ok())
@@ -977,14 +1036,18 @@ class TestAllDayDetection(unittest.TestCase):
 
     def test_isallday_event_exports_dates_not_times(self):
         """The Graph shape this repo itself writes must export as all-day."""
-        result = self._run([{
-            "type": "singleInstance",
-            "isAllDay": True,
-            "subject": "Holiday",
-            "start": {"dateTime": "2026-05-18T00:00:00", "timeZone": "America/Toronto"},
-            "end": {"dateTime": "2026-05-19T00:00:00", "timeZone": "America/Toronto"},
-            "location": {},
-        }])
+        result = self._run(
+            [
+                {
+                    "type": "singleInstance",
+                    "isAllDay": True,
+                    "subject": "Holiday",
+                    "start": {"dateTime": "2026-05-18T00:00:00", "timeZone": "America/Toronto"},
+                    "end": {"dateTime": "2026-05-19T00:00:00", "timeZone": "America/Toronto"},
+                    "location": {},
+                }
+            ]
+        )
         self.assertEqual(result.event_count, 1)
         ev = result.events[0]
         self.assertEqual(ev["start"], "2026-05-18")
@@ -996,13 +1059,17 @@ class TestAllDayDetection(unittest.TestCase):
 
     def test_date_only_all_day_still_works(self):
         """The original date-only shape must keep working."""
-        result = self._run([{
-            "type": "singleInstance",
-            "subject": "Holiday",
-            "start": {"date": "2026-05-18"},
-            "end": {"date": "2026-05-18"},
-            "location": {},
-        }])
+        result = self._run(
+            [
+                {
+                    "type": "singleInstance",
+                    "subject": "Holiday",
+                    "start": {"date": "2026-05-18"},
+                    "end": {"date": "2026-05-18"},
+                    "location": {},
+                }
+            ]
+        )
         ev = result.events[0]
         self.assertEqual(ev["start"], "2026-05-18")
         self.assertNotIn("tz", ev)
@@ -1122,8 +1189,13 @@ class TestResolveTzFallbackChain(unittest.TestCase):
         svc.get_event.side_effect = lambda _id: None
 
         request = OutlookExportRequest(
-            service=svc, calendar=None, from_date="2026-04-01",
-            to_date="2026-04-30", out_path=None, dry_run=False, verbose=False,
+            service=svc,
+            calendar=None,
+            from_date="2026-04-01",
+            to_date="2026-04-30",
+            out_path=None,
+            dry_run=False,
+            verbose=False,
         )
         envelope = OutlookExportProcessor().process(request)
         self.assertTrue(envelope.ok())
@@ -1131,9 +1203,7 @@ class TestResolveTzFallbackChain(unittest.TestCase):
 
         # Both events recorded, with subject and the guessed value.
         self.assertEqual(len(result.tz_inferred), 2)
-        self.assertEqual(
-            sorted(i["subject"] for i in result.tz_inferred), ["Alpha", "Beta"]
-        )
+        self.assertEqual(sorted(i["subject"] for i in result.tz_inferred), ["Alpha", "Beta"])
         self.assertTrue(all(i["source"] == "fallback" for i in result.tz_inferred))
 
         # The private provenance marker must never reach the plan.

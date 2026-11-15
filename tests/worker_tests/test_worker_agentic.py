@@ -19,8 +19,8 @@ from unittest.mock import patch
 
 from tests.agentic_builder_contract import AgenticBuilderContractMixin
 from tests.agentic_cli_contract import AgenticCLIContractMixin
-from tests.cli_separator_contract import SeparatorContractMixin
 from tests.cli_no_subcommand_contract import NoSubcommandContractMixin
+from tests.cli_separator_contract import SeparatorContractMixin
 
 
 class TestWorkerAgenticBuilder(AgenticBuilderContractMixin, unittest.TestCase):
@@ -78,7 +78,6 @@ class TestWorkerMainAgenticExtra(unittest.TestCase):
         self.assertTrue(any("worker" in line for line in captured))
 
 
-
 class TestWorkerSeparatorCLI(SeparatorContractMixin, unittest.TestCase):
     """The shared ``--`` separator contract."""
 
@@ -93,6 +92,7 @@ class TestWorkerNoSubcommand(NoSubcommandContractMixin, unittest.TestCase):
     MODULE_PATH = "worker.cli"
     EXPECTED_RC = 1
     EXPECTED_STREAM = "stderr"
+
 
 if __name__ == "__main__":
     unittest.main()

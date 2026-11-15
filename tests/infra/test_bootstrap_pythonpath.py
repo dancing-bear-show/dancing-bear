@@ -125,10 +125,7 @@ def _replayable_verify_command(interpreter: str) -> str:
             "update _EXPECTED_ENV_PREFIX deliberately — never relax it to make "
             "a test pass, since this text is interpolated into `bash -c`."
         )
-    return (
-        f"{env_prefix} {shlex.quote(interpreter)} "
-        f"-c {shlex.quote(_ORIGIN_REPORTER)}"
-    )
+    return f"{env_prefix} {shlex.quote(interpreter)} -c {shlex.quote(_ORIGIN_REPORTER)}"
 
 
 class BootstrapVerifyStepTests(unittest.TestCase):
@@ -219,9 +216,7 @@ class BootstrapVerifyStepTests(unittest.TestCase):
         """
         text = BOOTSTRAP.read_text(encoding="utf-8")
         pip_lines = [
-            ln.strip()
-            for ln in text.splitlines()
-            if re.search(r"\.venv/bin/python -m pip", ln)
+            ln.strip() for ln in text.splitlines() if re.search(r"\.venv/bin/python -m pip", ln)
         ]
         self.assertTrue(pip_lines, "no pip lines found — did bootstrap change?")
         for line in pip_lines:

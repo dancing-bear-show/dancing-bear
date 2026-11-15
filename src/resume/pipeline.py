@@ -38,20 +38,21 @@ Usage:
         .with_priority_filter(0.5)
         .execute())
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .experience_filter import filter_experience_by_keywords
 from .io_utils import read_yaml_or_json
 from .job import build_keyword_spec, load_job_config
 from .overlays import apply_profile_overlays
 from .priority import filter_by_min_priority
+from .render_config import ExperienceFilterConfig
 from .schema import Resume
 from .skills_filter import filter_skills_by_keywords
-from .experience_filter import filter_experience_by_keywords
-from .render_config import ExperienceFilterConfig
 
 
 @dataclass(frozen=True)
@@ -87,7 +88,7 @@ class FilterPipeline:
         self._data: dict[str, Any] = resume.to_dict()
         self._synonyms: dict[str, list[str]] = {}
 
-    def with_profile_overlays(self, profile: str | None) -> "FilterPipeline":
+    def with_profile_overlays(self, profile: str | None) -> FilterPipeline:
         """Apply profile-specific config overlays.
 
         Locates the profile directory via
@@ -108,7 +109,7 @@ class FilterPipeline:
     def with_synonyms_from_job(
         self,
         job_path: str | Path | None,
-    ) -> "FilterPipeline":
+    ) -> FilterPipeline:
         """Load synonyms from a job config file to use in subsequent filters.
 
         Args:
@@ -130,7 +131,7 @@ class FilterPipeline:
         self,
         alignment_path: str | Path | None,
         job_path: str | Path | None = None,
-    ) -> "FilterPipeline":
+    ) -> FilterPipeline:
         """Filter skills to only those matching keywords from alignment report.
 
         Args:
@@ -162,7 +163,7 @@ class FilterPipeline:
         alignment_path: str | Path | None,
         job_path: str | Path | None = None,
         filter_cfg: ExperienceFilterConfig | None = None,
-    ) -> "FilterPipeline":
+    ) -> FilterPipeline:
         """Filter experience entries to those matching alignment keywords.
 
         Args:
@@ -194,7 +195,7 @@ class FilterPipeline:
     def with_priority_filter(
         self,
         min_priority: float | None,
-    ) -> "FilterPipeline":
+    ) -> FilterPipeline:
         """Filter items by priority/usefulness threshold.
 
         Applies to: skills_groups, technologies, interests, presentations,
@@ -243,11 +244,7 @@ class FilterPipeline:
         """
         al = read_yaml_or_json(str(alignment_path))
         matched_kw = al.get("matched_keywords") or []
-        return [
-            str(m.get("skill"))
-            for m in matched_kw
-            if isinstance(m, dict) and m.get("skill")
-        ]
+        return [str(m.get("skill")) for m in matched_kw if isinstance(m, dict) and m.get("skill")]
 
     @property
     def data(self) -> dict[str, Any]:

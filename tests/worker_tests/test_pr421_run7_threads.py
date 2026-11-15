@@ -239,7 +239,9 @@ class TestMarkerParserValidatesToken(_Base):
         staged = paths["processing"] / f"{job_id}.json.requeue"
         staged.write_text(json.dumps({"id": job_id, "status": "pending"}), encoding="utf-8")
         # A pending/ copy already exists, so staged recovery keeps the file.
-        (paths["pending"] / f"{job_id}.json").write_text(json.dumps({"id": job_id}), encoding="utf-8")
+        (paths["pending"] / f"{job_id}.json").write_text(
+            json.dumps({"id": job_id}), encoding="utf-8"
+        )
         q.recover_staged_requeues(root=self.root)
         self.assertTrue(staged.exists())
 

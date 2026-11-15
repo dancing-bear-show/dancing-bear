@@ -2,18 +2,19 @@
 
 from dataclasses import field
 
+from calendars.selection import filter_events_in_window, window_bounds_utc
+
 from ._base import (
-    dataclass,
-    Path,
     Any,
-    EventIterationProcessor,
-    compute_window,
-    filter_events_by_day_time,
     BaseProducer,
+    EventIterationProcessor,
+    Path,
     RequestConsumer,
+    compute_window,
+    dataclass,
+    filter_events_by_day_time,
 )
 from ._context import VerificationContext
-from calendars.selection import filter_events_in_window, window_bounds_utc
 
 
 @dataclass
@@ -102,7 +103,11 @@ class OutlookVerifyProcessor(EventIterationProcessor):
         return _VerifyAccumulator(logs=[], total=0, duplicates=0, missing=0)
 
     def _handle_event(
-        self, payload: OutlookVerifyRequest, idx: int, nev: dict[str, Any], accumulator: _VerifyAccumulator
+        self,
+        payload: OutlookVerifyRequest,
+        idx: int,
+        nev: dict[str, Any],
+        accumulator: _VerifyAccumulator,
     ) -> None:
         subj = (nev.get("subject") or "").strip()
         byday = nev.get("byday") or []
@@ -113,17 +118,21 @@ class OutlookVerifyProcessor(EventIterationProcessor):
         win = compute_window(nev)
         if not win:
             return
-        accumulator.pending.append(VerificationContext(
-            idx=idx,
-            nev=nev,
-            subj=subj,
-            byday=byday,
-            cal_name=payload.calendar or nev.get("calendar"),
-            start_iso=win[0],
-            end_iso=win[1],
-        ))
+        accumulator.pending.append(
+            VerificationContext(
+                idx=idx,
+                nev=nev,
+                subj=subj,
+                byday=byday,
+                cal_name=payload.calendar or nev.get("calendar"),
+                start_iso=win[0],
+                end_iso=win[1],
+            )
+        )
 
-    def _finalize_result(self, payload: OutlookVerifyRequest, accumulator: _VerifyAccumulator) -> OutlookVerifyResult:
+    def _finalize_result(
+        self, payload: OutlookVerifyRequest, accumulator: _VerifyAccumulator
+    ) -> OutlookVerifyResult:
         fetches = _plan_fetches(accumulator.pending)
         for fetch in fetches.values():
             self._run_fetch(payload, fetch)
@@ -143,12 +152,15 @@ class OutlookVerifyProcessor(EventIterationProcessor):
     @staticmethod
     def _run_fetch(payload: OutlookVerifyRequest, fetch: _CalendarFetch) -> None:
         from calendars.outlook_service import ListEventsRequest
+
         try:
-            fetch.events = payload.service.list_events_in_range(ListEventsRequest(
-                start_iso=fetch.start_iso,
-                end_iso=fetch.end_iso,
-                calendar_name=fetch.cal_name,
-            ))
+            fetch.events = payload.service.list_events_in_range(
+                ListEventsRequest(
+                    start_iso=fetch.start_iso,
+                    end_iso=fetch.end_iso,
+                    calendar_name=fetch.cal_name,
+                )
+            )
         except Exception as e:  # reported per entry by _classify, as the per-entry query did
             fetch.error = e
 
@@ -160,7 +172,9 @@ class OutlookVerifyProcessor(EventIterationProcessor):
         needle = ctx.subj.lower()
         return [ev for ev in in_window if needle in (ev.get("subject") or "").lower()]
 
-    def _classify(self, ctx: VerificationContext, fetch: _CalendarFetch, logs: list[str]) -> str | None:
+    def _classify(
+        self, ctx: VerificationContext, fetch: _CalendarFetch, logs: list[str]
+    ) -> str | None:
         if fetch.error is not None:
             logs.append(f"[{ctx.idx}] Unable to list events for '{ctx.subj}': {fetch.error}")
             return None
@@ -175,14 +189,20 @@ class OutlookVerifyProcessor(EventIterationProcessor):
         )
         cal_display = ctx.cal_name or "<primary>"
         if matches:
-            logs.append(f"[{ctx.idx}] duplicate: {ctx.subj} {','.join(ctx.byday)} {want_start}-{want_end} in '{cal_display}'")
+            logs.append(
+                f"[{ctx.idx}] duplicate: {ctx.subj} {','.join(ctx.byday)} {want_start}-{want_end} in '{cal_display}'"
+            )
             return "duplicate"
-        logs.append(f"[{ctx.idx}] missing:   {ctx.subj} {','.join(ctx.byday)} {want_start}-{want_end} in '{cal_display}'")
+        logs.append(
+            f"[{ctx.idx}] missing:   {ctx.subj} {','.join(ctx.byday)} {want_start}-{want_end} in '{cal_display}'"
+        )
         return "missing"
 
 
 class OutlookVerifyProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookVerifyResult, diagnostics: dict[str, Any] | None) -> None:
+    def _produce_success(
+        self, payload: OutlookVerifyResult, diagnostics: dict[str, Any] | None
+    ) -> None:
         self.print_logs(payload.logs)
         print(
             f"Checked {payload.total} recurring entries. "
@@ -191,9 +211,9 @@ class OutlookVerifyProducer(BaseProducer):
 
 
 __all__ = [
+    "OutlookVerifyProcessor",
+    "OutlookVerifyProducer",
     "OutlookVerifyRequest",
     "OutlookVerifyRequestConsumer",
     "OutlookVerifyResult",
-    "OutlookVerifyProcessor",
-    "OutlookVerifyProducer",
 ]

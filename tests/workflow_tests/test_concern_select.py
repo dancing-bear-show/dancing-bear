@@ -30,7 +30,6 @@ from workflow.concern_select import (
     valid_task_types,
 )
 
-
 # ---------------------------------------------------------------------------
 # select_guides: always-include
 # ---------------------------------------------------------------------------
@@ -314,9 +313,7 @@ class TestUnknownExtension(unittest.TestCase):
 
 class TestDedup(unittest.TestCase):
     def test_no_duplicates_with_many_py_files(self) -> None:
-        guides = select_guides(
-            paths=["src/a.py", "src/b.py", "tests/test_a.py"]
-        )
+        guides = select_guides(paths=["src/a.py", "src/b.py", "tests/test_a.py"])
         self.assertEqual(len(guides), len(set(guides)))
 
     def test_patterns_first_from_always(self) -> None:
@@ -395,16 +392,12 @@ class TestReasonDedup(unittest.TestCase):
             )
 
     def test_always_reason_appears_once(self) -> None:
-        result = select_guides_with_reasons(
-            paths=["src/a.py", "src/b.py", "workflows/c.yaml"]
-        )
+        result = select_guides_with_reasons(paths=["src/a.py", "src/b.py", "workflows/c.yaml"])
         patterns_reasons = result.get("patterns.md", [])
         self.assertEqual(patterns_reasons.count("always"), 1)
 
     def test_task_type_reason_appears_once_even_with_paths(self) -> None:
-        result = select_guides_with_reasons(
-            paths=["src/a.py"], task_type="feature"
-        )
+        result = select_guides_with_reasons(paths=["src/a.py"], task_type="feature")
         for guide, reasons in result.items():
             self.assertEqual(
                 len(reasons),
@@ -449,9 +442,7 @@ class TestAbsolutePathNormalization(unittest.TestCase):
         )
 
     def test_absolute_resume_config_path_adds_resume_copy_not_workflow(self) -> None:
-        abs_path = str(
-            self._repo_root() / "src" / "resume" / "config" / "profiles" / "bcs.yaml"
-        )
+        abs_path = str(self._repo_root() / "src" / "resume" / "config" / "profiles" / "bcs.yaml")
         guides = select_guides(paths=[abs_path])
         self.assertIn(
             "resume-copy.md",

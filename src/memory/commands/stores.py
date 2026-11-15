@@ -79,7 +79,10 @@ def _build_row(store: MemoryStore, role: str) -> dict[str, str | int | None]:
 
 ARGUMENTS: list[ArgSpec] = [
     format_arg(["table", "json", "csv"], "table"),
-    (("--with-memory-only",), {"action": "store_true", "help": "Only stores with at least one memory"}),
+    (
+        ("--with-memory-only",),
+        {"action": "store_true", "help": "Only stores with at least one memory"},
+    ),
 ]
 
 

@@ -1,8 +1,9 @@
 """Tests for mail/accounts/helpers.py."""
-import unittest
-from unittest.mock import Mock, patch, MagicMock
-import tempfile
+
 import os
+import tempfile
+import unittest
+from unittest.mock import MagicMock, Mock, patch
 
 
 class TestLoadAccounts(unittest.TestCase):
@@ -300,7 +301,9 @@ class TestBuildClientForAccount(unittest.TestCase):
 
         with patch("mail.accounts.helpers._lazy_gmail_client") as mock_lazy:
             with patch("mail.accounts.helpers.expand_path", side_effect=lambda x: x):
-                with patch("mail.accounts.helpers.default_gmail_credentials_path", return_value="/c"):
+                with patch(
+                    "mail.accounts.helpers.default_gmail_credentials_path", return_value="/c"
+                ):
                     with patch("mail.accounts.helpers.default_gmail_token_path", return_value="/t"):
                         mock_lazy.return_value = Mock()
 
@@ -474,8 +477,7 @@ class TestLazyGmailClient(unittest.TestCase):
         import sys
 
         removed = {n: sys.modules.pop(n) for n in names if n in sys.modules}
-        snapshots = [s for s in (self._snapshot_parent_attr(n) for n in names)
-                     if s is not None]
+        snapshots = [s for s in (self._snapshot_parent_attr(n) for n in names) if s is not None]
 
         def restore():
             for name in names:

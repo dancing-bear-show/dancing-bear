@@ -29,10 +29,20 @@ _WORKFLOW = _ROOT / "workflows/code/update-review-concerns.yaml"
 _PROMPT_FILE = _ROOT / "workflows/code/prompts/classify-rereview.md"
 
 _TOPIC_STAGES = {
-    "init", "fetch-findings", "fetch-review-threads", "cluster-gaps",
-    "propose-concerns", "human-gate", "update-guides",
+    "init",
+    "fetch-findings",
+    "fetch-review-threads",
+    "cluster-gaps",
+    "propose-concerns",
+    "human-gate",
+    "update-guides",
 }
-_REREVIEW_ONLY = {"fetch-round-history", "seed-class-list", "classify-rereview", "aggregate-rereview"}
+_REREVIEW_ONLY = {
+    "fetch-round-history",
+    "seed-class-list",
+    "classify-rereview",
+    "aggregate-rereview",
+}
 _PLACEHOLDER_RE = re.compile(r"\{[a-z_][a-z0-9_]*\}")
 #: Input round per fixture thread: 406 has a round-0 and a round-2 thread,
 #: 395 has one unplaced (null) thread.
@@ -49,15 +59,20 @@ def _compile(**params: str) -> tuple[WorkflowDefinition, WorkflowManifest]:
 
 def _prompts(workspace: str, **params: str) -> dict[str, str]:
     defn, manifest = _compile(**params)
-    return {name: build_agent_prompt(stage, defn.name, workspace)
-            for name, stage in manifest.resolved_stages.items()}
+    return {
+        name: build_agent_prompt(stage, defn.name, workspace)
+        for name, stage in manifest.resolved_stages.items()
+    }
 
 
 def _running(**params: str) -> set[str]:
     defn, manifest = _compile(**params)
     effective = {**defn.trigger.params, **params}
-    return {name for name, stage in manifest.resolved_stages.items()
-            if stage.spec.when is None or match_when_expression(stage.spec.when, effective)}
+    return {
+        name
+        for name, stage in manifest.resolved_stages.items()
+        if stage.spec.when is None or match_when_expression(stage.spec.when, effective)
+    }
 
 
 class TestParamRules(unittest.TestCase):
@@ -149,21 +164,37 @@ class TestRenderedPrompts(unittest.TestCase):
             self.assertNotIn(leaked, body)
         self.assertIn("outputs/rounds-safe/prN.json", body)
         self.assertIn("`spec-or-logic-error`", body)
-        for category in ("FIX_REGRESSION", "SIBLING", "INCOMPLETE_FIX", "COLLATERAL_DOC",
-                         "NEW_SURFACE", "LATE_DISCOVERY", "NOISE", "ROUND0"):
+        for category in (
+            "FIX_REGRESSION",
+            "SIBLING",
+            "INCOMPLETE_FIX",
+            "COLLATERAL_DOC",
+            "NEW_SURFACE",
+            "LATE_DISCOVERY",
+            "NOISE",
+            "ROUND0",
+        ):
             self.assertIn(category, body)
 
     def test_cluster_gaps_rejects_with_reasons(self) -> None:
         text = self.prompts["cluster-gaps"]
-        for code in ("`catch-all`", "`single-pr`", "`covered`", "`no-sweep`", "`sweep-too-broad`",
-                     "`procedure-not-mechanical`"):
+        for code in (
+            "`catch-all`",
+            "`single-pr`",
+            "`covered`",
+            "`no-sweep`",
+            "`sweep-too-broad`",
+            "`procedure-not-mechanical`",
+        ):
             self.assertIn(code, text)
         self.assertIn("## Rejected clusters", text)
         self.assertIn('"sweep":', text)
 
     def test_blank_pr_number_scans_max_prs_recent_prs(self) -> None:
         text = _prompts("/ws", mode="rereview", max_prs="30")["fetch-round-history"]
-        self.assertIn('review-rounds --recent "30" --out-dir "/ws/outputs/rounds" --min-threads "15"', text)
+        self.assertIn(
+            'review-rounds --recent "30" --out-dir "/ws/outputs/rounds" --min-threads "15"', text
+        )
         self.assertNotIn("--recent 60", text)
 
     def test_empty_scan_advice_sits_in_step_4(self) -> None:
@@ -194,10 +225,15 @@ class TestRenderedPrompts(unittest.TestCase):
             for name, stage in manifest.resolved_stages.items():
                 for path in stage.spec.writes_to:
                     with self.subTest(mode=mode, stage=name, path=path):
-                        self.assertTrue("/" not in path or path.startswith(("outputs/", "validation/", "stages/")))
+                        self.assertTrue(
+                            "/" not in path
+                            or path.startswith(("outputs/", "validation/", "stages/"))
+                        )
                         self.assertFalse(path.startswith("concerns/"))
-            self.assertEqual(manifest.resolved_stages["update-guides"].spec.writes_to,
-                             ("outputs/update-summary.md",))
+            self.assertEqual(
+                manifest.resolved_stages["update-guides"].spec.writes_to,
+                ("outputs/update-summary.md",),
+            )
 
     def test_human_gate_writes_selection_on_none(self) -> None:
         text = self.prompts["human-gate"]
@@ -249,14 +285,19 @@ class TestRenderedPrompts(unittest.TestCase):
 
     def test_prompt_git_templates_are_quoted_and_end_options(self) -> None:
         body = _PROMPT_FILE.read_text(encoding="utf-8")
-        allowed = ("git show --stat '<commit>' --`", "git show '<commit>' -- '<path>'`",
-                   "git show '<commit>:<path>' --`")
+        allowed = (
+            "git show --stat '<commit>' --`",
+            "git show '<commit>' -- '<path>'`",
+            "git show '<commit>:<path>' --`",
+        )
         starts = [m.start() for m in re.finditer(r"git show", body)]
         self.assertGreaterEqual(len(starts), 3)
         for at in starts:
-            with self.subTest(at=body[at:at + 40]):
+            with self.subTest(at=body[at : at + 40]):
                 self.assertTrue(body.startswith(allowed, at))
-        self.assertEqual(re.findall(r"gh api [^`]*", body), ["gh api 'repos/OWNER/NAME/commits/<commit>'"])
+        self.assertEqual(
+            re.findall(r"gh api [^`]*", body), ["gh api 'repos/OWNER/NAME/commits/<commit>'"]
+        )
         flat = " ".join(body.split())
         self.assertIn("Every value these take has passed the fetch-round-history gate", flat)
         self.assertIn("A thread whose `path` or `commit` is `null` gets no git inspection", flat)
@@ -283,11 +324,22 @@ class TestRenderedJqExecutes(unittest.TestCase):
         summary = [{"pr": 406, "threads": 2}, {"pr": 395, "threads": 1}, {"pr": 12, "threads": 0}]
         self._write("outputs/rounds/summary.json", summary)
         for pr, n in ((406, 2), (395, 1), (12, 0)):
-            self._write(f"outputs/rounds/pr{pr}.json",
-                        {"pr": pr, "threads": [{"thread_id": f"T{pr}-{i}", "round": _ROUNDS[f"T{pr}-{i}"],
-                                                "path": f"src/f{pr}_{i}.py", "line": 10 + i,
-                                                "original_line": 10 + i}
-                                               for i in range(n)]})
+            self._write(
+                f"outputs/rounds/pr{pr}.json",
+                {
+                    "pr": pr,
+                    "threads": [
+                        {
+                            "thread_id": f"T{pr}-{i}",
+                            "round": _ROUNDS[f"T{pr}-{i}"],
+                            "path": f"src/f{pr}_{i}.py",
+                            "line": 10 + i,
+                            "original_line": 10 + i,
+                        }
+                        for i in range(n)
+                    ],
+                },
+            )
         prompts = _prompts(str(self.ws), mode="rereview", min_threads="1")
         fetch = _jq_lines(prompts["fetch-round-history"])
         self.refuse_empty = next(c for c in fetch if "length > 0' " in c and "items" not in c)
@@ -305,7 +357,9 @@ class TestRenderedJqExecutes(unittest.TestCase):
         argv = [str(shutil.which("bash")), "-c", cmd]
         return subprocess.run(argv, capture_output=True, text=True, check=False)  # nosec B603 - rendered workflow lines against a temp dir
 
-    def _classify(self, pr: int, n: int, override: Mapping[str, Mapping[str, object]] | None = None) -> None:
+    def _classify(
+        self, pr: int, n: int, override: Mapping[str, Mapping[str, object]] | None = None
+    ) -> None:
         """Write a valid classified file for the first n input threads of ``pr``.
 
         thread_ids match the source rounds data (T{pr}-{i}) so the multiset
@@ -326,16 +380,23 @@ class TestRenderedJqExecutes(unittest.TestCase):
             rnd = _ROUNDS.get(tid)
             category = _CATEGORY_FOR_ROUND.get(rnd, "LATE_DISCOVERY")
             src = source.get(tid, {})
-            entry: dict[str, object] = {"thread_id": tid, "round": rnd, "category": category,
-                                        "class": "no-defect" if rnd is None else "unquoted-shell-var",
-                                        "path": src.get("path"), "line": src.get("line"),
-                                        "original_line": src.get("original_line")}
+            entry: dict[str, object] = {
+                "thread_id": tid,
+                "round": rnd,
+                "category": category,
+                "class": "no-defect" if rnd is None else "unquoted-shell-var",
+                "path": src.get("path"),
+                "line": src.get("line"),
+                "original_line": src.get("original_line"),
+            }
             entry.update((override or {}).get(tid, {}))
             threads.append(entry)
         counts: dict[str, int] = {}
         for entry in threads:
             counts[str(entry["category"])] = counts.get(str(entry["category"]), 0) + 1
-        self._write(f"outputs/classified/pr{pr}.json", {"pr": pr, "threads": threads, "counts": counts})
+        self._write(
+            f"outputs/classified/pr{pr}.json", {"pr": pr, "threads": threads, "counts": counts}
+        )
 
     def _index(self) -> None:
         self.assertEqual(self._run(self.build_index).returncode, 0)
@@ -346,7 +407,9 @@ class TestRenderedJqExecutes(unittest.TestCase):
         self.assertEqual(index, {"items": [{"pr": "406"}, {"pr": "395"}]})
 
     def test_index_keys_must_be_pr_numbers(self) -> None:
-        fetch = _jq_lines(_prompts(str(self.ws), mode="rereview", min_threads="1")["fetch-round-history"])
+        fetch = _jq_lines(
+            _prompts(str(self.ws), mode="rereview", min_threads="1")["fetch-round-history"]
+        )
         (check,) = [c for c in fetch if "all(.pr | test(" in c]
         self._index()
         self.assertEqual(self._run(check).returncode, 0)
@@ -357,10 +420,12 @@ class TestRenderedJqExecutes(unittest.TestCase):
 
     def _seed_block(self) -> str:
         """The rendered seed-class-list Step 1 `if ls ... fi` block, dedented."""
-        lines = _prompts(str(self.ws), mode="rereview", min_threads="1")["seed-class-list"].splitlines()
+        lines = _prompts(str(self.ws), mode="rereview", min_threads="1")[
+            "seed-class-list"
+        ].splitlines()
         start = next(i for i, ln in enumerate(lines) if ln.strip().startswith("if ls "))
         end = next(i for i in range(start, len(lines)) if lines[i].strip() == "fi")
-        return "\n".join(ln.strip() for ln in lines[start:end + 1])
+        return "\n".join(ln.strip() for ln in lines[start : end + 1])
 
     def test_seed_list_reads_earlier_classified_files(self) -> None:
         # A quoted glob ("…/pr*.json") never expands, so the seed list came back
@@ -405,7 +470,9 @@ class TestRenderedJqExecutes(unittest.TestCase):
     def test_pr_number_mode_keeps_a_pr_under_the_floor(self) -> None:
         """#429 has 5 threads; with pr_number set, Step 4 and Step 5 must pass it."""
         self._write("outputs/rounds/summary.json", [{"pr": 429, "threads": 5}])
-        fetch = _jq_lines(_prompts(str(self.ws), mode="rereview", pr_number="429")["fetch-round-history"])
+        fetch = _jq_lines(
+            _prompts(str(self.ws), mode="rereview", pr_number="429")["fetch-round-history"]
+        )
         refuse_empty = next(c for c in fetch if "length > 0' " in c and "items" not in c)
         build_index = next(c for c in fetch if "select(.items" in c and "--argjson" not in c)
         self.assertEqual(self._run(refuse_empty).returncode, 0)
@@ -414,25 +481,52 @@ class TestRenderedJqExecutes(unittest.TestCase):
         self.assertEqual(index, {"items": [{"pr": "429"}]})
 
     def test_cluster_totals_are_computed_by_jq(self) -> None:
-        self._write("outputs/rereview-classified.json", [
-            {"pr": 406, "threads": [{"category": "SIBLING"}, {"category": "ROUND0"}, {"category": "SIBLING"}]},
-            {"pr": 395, "threads": [{"category": "NOISE"}]},
-        ])
+        self._write(
+            "outputs/rereview-classified.json",
+            [
+                {
+                    "pr": 406,
+                    "threads": [
+                        {"category": "SIBLING"},
+                        {"category": "ROUND0"},
+                        {"category": "SIBLING"},
+                    ],
+                },
+                {"pr": 395, "threads": [{"category": "NOISE"}]},
+            ],
+        )
         self._write("outputs/known-concern-ids.json", ["a", "b", "c"])
         text = _prompts(str(self.ws), mode="rereview")["cluster-gaps"]
         (totals,) = [c for c in _jq_lines(text) if "known concern ids" in c]
         res = self._run(totals)
         self.assertEqual(res.returncode, 0, res.stderr)
-        self.assertEqual(res.stdout.splitlines(), [
-            "PRs: 2", "threads: 4", "NOISE: 1", "ROUND0: 1", "SIBLING: 2", "known concern ids: 3",
-        ])
+        self.assertEqual(
+            res.stdout.splitlines(),
+            [
+                "PRs: 2",
+                "threads: 4",
+                "NOISE: 1",
+                "ROUND0: 1",
+                "SIBLING: 2",
+                "known concern ids: 3",
+            ],
+        )
 
     def test_classifier_count_jq_executes(self) -> None:
         body = _PROMPT_FILE.read_text(encoding="utf-8")
         (line,) = [ln.strip() for ln in body.splitlines() if ln.strip().startswith("jq '[.threads")]
         out = self.ws / "outputs/classified/pr1.json"
-        self._write("outputs/classified/pr1.json",
-                    {"pr": 1, "threads": [{"category": "SIBLING"}, {"category": "SIBLING"}, {"category": "NOISE"}]})
+        self._write(
+            "outputs/classified/pr1.json",
+            {
+                "pr": 1,
+                "threads": [
+                    {"category": "SIBLING"},
+                    {"category": "SIBLING"},
+                    {"category": "NOISE"},
+                ],
+            },
+        )
         self.assertIn('"<your output file>"', line)
         res = self._run(line.replace("<your output file>", str(out)))
         self.assertEqual(res.returncode, 0, res.stderr)
@@ -447,14 +541,18 @@ class TestRenderedJqExecutes(unittest.TestCase):
         self.assertNotEqual(self._run(self.check).returncode, 0)
         self.assertIn("406: thread_id mismatch", self._run(self.explain).stdout)
 
-    def _invariants_after(self, override: Mapping[str, Mapping[str, object]] | None = None,
-                          ) -> subprocess.CompletedProcess[str]:
+    def _invariants_after(
+        self,
+        override: Mapping[str, Mapping[str, object]] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
         """Classify both indexed PRs validly except ``override``, pass Steps 1-3, run Step 4."""
         self._index()
         self._classify(406, 2, override)
         self._classify(395, 1, override)
         for cmd in (self.merge, self.counts, self.check):
-            self.assertEqual(self._run(cmd).returncode, 0, cmd)  # thread_ids are right in every case
+            self.assertEqual(
+                self._run(cmd).returncode, 0, cmd
+            )  # thread_ids are right in every case
         return self._run(self.invariants)
 
     def test_invariants_pass_on_clean_files(self) -> None:
@@ -476,10 +574,14 @@ class TestRenderedJqExecutes(unittest.TestCase):
         self.assertIn("406 T406-0: category LATE_DISCOVERY with input round 0", res.stdout)
 
     def test_unplaced_thread_must_be_noise(self) -> None:
-        for category, needle in (("ROUND0", "category ROUND0 with input round null"),
-                                 ("LATE_DISCOVERY", "category LATE_DISCOVERY with input round null (must be NOISE)")):
+        for category, needle in (
+            ("ROUND0", "category ROUND0 with input round null"),
+            ("LATE_DISCOVERY", "category LATE_DISCOVERY with input round null (must be NOISE)"),
+        ):
             with self.subTest(category=category):
-                res = self._invariants_after({"T395-0": {"category": category, "class": "unquoted-shell-var"}})
+                res = self._invariants_after(
+                    {"T395-0": {"category": category, "class": "unquoted-shell-var"}}
+                )
                 self.assertNotEqual(res.returncode, 0)
                 self.assertIn(f"395 T395-0: {needle}", res.stdout)
 
@@ -487,15 +589,21 @@ class TestRenderedJqExecutes(unittest.TestCase):
         """The gate reads the INPUT round, so a copied round of 0 cannot launder ROUND0."""
         res = self._invariants_after({"T406-1": {"round": 0, "category": "ROUND0"}})
         self.assertNotEqual(res.returncode, 0)
-        self.assertIn("406 T406-1: category ROUND0 with input round 2; round 0 copied, input has 2", res.stdout)
+        self.assertIn(
+            "406 T406-1: category ROUND0 with input round 2; round 0 copied, input has 2",
+            res.stdout,
+        )
 
     def test_path_line_original_line_must_be_copied_verbatim(self) -> None:
         """A classifier can relocate or drop the evidence location while every
         other invariant (thread_id/round/category/class/counts) stays valid;
         Step 4 must catch that independently."""
         for field, bad, needle in (
-            ("path", "src/somewhere_else.py",
-             'path "src/somewhere_else.py" copied, input has "src/f406_1.py"'),
+            (
+                "path",
+                "src/somewhere_else.py",
+                'path "src/somewhere_else.py" copied, input has "src/f406_1.py"',
+            ),
             ("line", 999, "line 999 copied, input has 11"),
             ("original_line", 999, "original_line 999 copied, input has 11"),
         ):
@@ -505,10 +613,15 @@ class TestRenderedJqExecutes(unittest.TestCase):
                 self.assertIn(f"406 T406-1: {needle}", res.stdout)
 
     def test_unknown_category_and_bad_class_fail(self) -> None:
-        for fields, needle in (({"category": "UNPLACED"}, 'category "UNPLACED" is not allowed'),
-                               ({"class": "spec-or-logic-error"}, "class spec-or-logic-error is a forbidden catch-all"),
-                               ({"class": ""}, "class is missing"),
-                               ({"class": "no-defect"}, "class no-defect with category LATE_DISCOVERY")):
+        for fields, needle in (
+            ({"category": "UNPLACED"}, 'category "UNPLACED" is not allowed'),
+            (
+                {"class": "spec-or-logic-error"},
+                "class spec-or-logic-error is a forbidden catch-all",
+            ),
+            ({"class": ""}, "class is missing"),
+            ({"class": "no-defect"}, "class no-defect with category LATE_DISCOVERY"),
+        ):
             with self.subTest(fields=fields):
                 res = self._invariants_after({"T406-1": fields})
                 self.assertNotEqual(res.returncode, 0)
@@ -526,20 +639,26 @@ class TestRenderedJqExecutes(unittest.TestCase):
 
     def test_banned_classes_match_the_prompt_list(self) -> None:
         body = _PROMPT_FILE.read_text(encoding="utf-8")
-        section = body[body.index("**Forbidden catch-alls**"):body.index("and any name ending in")]
+        section = body[
+            body.index("**Forbidden catch-alls**") : body.index("and any name ending in")
+        ]
         from_prompt = set(re.findall(r"`([a-z-]+)`", section))
-        in_gate = set(re.findall(r'"([a-z-]+)"', self.invariants.split("as $cats")[1].split("as $banned")[0]))
+        in_gate = set(
+            re.findall(r'"([a-z-]+)"', self.invariants.split("as $cats")[1].split("as $banned")[0])
+        )
         self.assertTrue(from_prompt)
         self.assertEqual(from_prompt, in_gate)
 
     def test_class_shape_rules_fail_catch_all_suffixes_and_non_kebab_names(self) -> None:
-        for cls, needle in (("validation-error", "class validation-error ends in a catch-all suffix"),
-                            ("parser-issue", "class parser-issue ends in a catch-all suffix"),
-                            ("regex-problem", "class regex-problem ends in a catch-all suffix"),
-                            ("guard-bug", "class guard-bug ends in a catch-all suffix"),
-                            ("Unquoted_Var", 'class "Unquoted_Var" is not kebab-case'),
-                            ("unquoted-", 'class "unquoted-" is not kebab-case'),
-                            ("9-lives", 'class "9-lives" is not kebab-case')):
+        for cls, needle in (
+            ("validation-error", "class validation-error ends in a catch-all suffix"),
+            ("parser-issue", "class parser-issue ends in a catch-all suffix"),
+            ("regex-problem", "class regex-problem ends in a catch-all suffix"),
+            ("guard-bug", "class guard-bug ends in a catch-all suffix"),
+            ("Unquoted_Var", 'class "Unquoted_Var" is not kebab-case'),
+            ("unquoted-", 'class "unquoted-" is not kebab-case'),
+            ("9-lives", 'class "9-lives" is not kebab-case'),
+        ):
             with self.subTest(cls=cls):
                 res = self._invariants_after({"T406-1": {"class": cls}})
                 self.assertNotEqual(res.returncode, 0)
@@ -547,7 +666,7 @@ class TestRenderedJqExecutes(unittest.TestCase):
 
     def test_every_seed_class_passes_the_gate(self) -> None:
         body = _PROMPT_FILE.read_text(encoding="utf-8")
-        table = body[body.index("#### Seed class list"):body.index("### 2. `category`")]
+        table = body[body.index("#### Seed class list") : body.index("### 2. `category`")]
         seeds = re.findall(r"^\| `([^`]+)` \|", table, flags=re.MULTILINE)
         self.assertGreater(len(seeds), 20)
         for cls in seeds:
@@ -558,25 +677,46 @@ class TestRenderedJqExecutes(unittest.TestCase):
     def test_unplaced_thread_must_be_no_defect(self) -> None:
         res = self._invariants_after({"T395-0": {"class": "unquoted-shell-var"}})
         self.assertNotEqual(res.returncode, 0)
-        self.assertIn("395 T395-0: class unquoted-shell-var with input round null (must be no-defect)", res.stdout)
+        self.assertIn(
+            "395 T395-0: class unquoted-shell-var with input round null (must be no-defect)",
+            res.stdout,
+        )
 
     def test_prompt_states_the_gate_suffixes_and_shape(self) -> None:
         body = _PROMPT_FILE.read_text(encoding="utf-8")
-        suffixes = body[body.index("and any name ending in"):body.index("whatever precedes the suffix")]
-        in_gate = re.search(r'-\(([a-z|]+)\)\$', self.invariants)
+        suffixes = body[
+            body.index("and any name ending in") : body.index("whatever precedes the suffix")
+        ]
+        in_gate = re.search(r"-\(([a-z|]+)\)\$", self.invariants)
         if in_gate is None:
             self.fail("suffix regex missing from the gate")
-        self.assertEqual(set(re.findall(r"`-([a-z]+)`", suffixes)), set(in_gate.group(1).split("|")))
+        self.assertEqual(
+            set(re.findall(r"`-([a-z]+)`", suffixes)), set(in_gate.group(1).split("|"))
+        )
         self.assertIn("`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`", body)
         self.assertIn('test("^[a-z][a-z0-9]*(-[a-z0-9]+)*$")', self.invariants)
 
-    def _rounds_406(self, paths: tuple[object, object], thread_commit: object = _OID,
-                    round_commit: object = _OID) -> None:
+    def _rounds_406(
+        self,
+        paths: tuple[object, object],
+        thread_commit: object = _OID,
+        round_commit: object = _OID,
+    ) -> None:
         """Rewrite pr406.json with a commit and a path on each of its two threads."""
-        threads = [{"thread_id": f"T406-{i}", "round": _ROUNDS[f"T406-{i}"], "commit": thread_commit,
-                    "path": path, "body": "b"} for i, path in enumerate(paths)]
-        self._write("outputs/rounds/pr406.json", {"pr": 406, "rounds": [{"round": 0, "commit": round_commit}],
-                                                  "threads": threads})
+        threads = [
+            {
+                "thread_id": f"T406-{i}",
+                "round": _ROUNDS[f"T406-{i}"],
+                "commit": thread_commit,
+                "path": path,
+                "body": "b",
+            }
+            for i, path in enumerate(paths)
+        ]
+        self._write(
+            "outputs/rounds/pr406.json",
+            {"pr": 406, "rounds": [{"round": 0, "commit": round_commit}], "threads": threads},
+        )
 
     def _gate_and_sanitise(self) -> tuple[list[object], dict[str, Any]]:
         for cmd in (self.gate, self.sanitise):
@@ -586,21 +726,37 @@ class TestRenderedJqExecutes(unittest.TestCase):
         return unsafe, json.loads((self.ws / "outputs/rounds-sanitised.json").read_text())
 
     def test_gate_nulls_shell_unfriendly_paths_without_failing(self) -> None:
-        bad = ["src/$(id).py", "docs/my file.md", "src/`id`.py", "../etc/passwd", "a/./b",
-               ".github/workflows/ci.yml", ".claude/settings.json", "src/.GIT/hooks", "src/.envrc",
-               "-rf", "/etc/passwd", "it's.py", "café.py"]
+        bad = [
+            "src/$(id).py",
+            "docs/my file.md",
+            "src/`id`.py",
+            "../etc/passwd",
+            "a/./b",
+            ".github/workflows/ci.yml",
+            ".claude/settings.json",
+            "src/.GIT/hooks",
+            "src/.envrc",
+            "-rf",
+            "/etc/passwd",
+            "it's.py",
+            "café.py",
+        ]
         for path in bad:
             with self.subTest(path=path):
                 self._rounds_406((path, "src/core/ok_file-1.py"))
                 unsafe, safe = self._gate_and_sanitise()
                 self.assertEqual(unsafe, [{"pr": 406, "thread_id": "T406-0", "path": path}])
-                self.assertEqual([t["path"] for t in safe["406"]["threads"]], [None, "src/core/ok_file-1.py"])
+                self.assertEqual(
+                    [t["path"] for t in safe["406"]["threads"]], [None, "src/core/ok_file-1.py"]
+                )
 
     def test_gate_fails_on_a_short_or_missing_commit(self) -> None:
-        for label, kwargs in (("thread short", {"thread_commit": "abc123"}),
-                              ("thread uppercase", {"thread_commit": _OID.upper()}),
-                              ("round short", {"round_commit": "abc123"}),
-                              ("round null", {"round_commit": None})):
+        for label, kwargs in (
+            ("thread short", {"thread_commit": "abc123"}),
+            ("thread uppercase", {"thread_commit": _OID.upper()}),
+            ("round short", {"round_commit": "abc123"}),
+            ("round null", {"round_commit": None}),
+        ):
             with self.subTest(case=label):
                 self._rounds_406(("src/a.py", "src/b.py"), **kwargs)
                 res = self._run(self.gate)
@@ -609,11 +765,16 @@ class TestRenderedJqExecutes(unittest.TestCase):
 
     def test_valid_data_passes_unchanged(self) -> None:
         self._rounds_406(("src/a.py", None), thread_commit=None)
-        originals = {p: json.loads((self.ws / f"outputs/rounds/pr{p}.json").read_text()) for p in (406, 395, 12)}
+        originals = {
+            p: json.loads((self.ws / f"outputs/rounds/pr{p}.json").read_text())
+            for p in (406, 395, 12)
+        }
         unsafe, safe = self._gate_and_sanitise()
         self.assertEqual(unsafe, [])
         self.assertEqual(safe, {str(p): doc for p, doc in originals.items()})
-        self.assertEqual(json.loads((self.ws / "outputs/rounds/pr406.json").read_text()), originals[406])
+        self.assertEqual(
+            json.loads((self.ws / "outputs/rounds/pr406.json").read_text()), originals[406]
+        )
 
     def test_classifier_extract_is_the_sanitised_copy(self) -> None:
         self._rounds_406(("src/$(id).py", "src/a.py"))
@@ -621,7 +782,9 @@ class TestRenderedJqExecutes(unittest.TestCase):
         (self.ws / "outputs/rounds-safe").mkdir()
         res = self._run(self.extract.replace("{pr}", "406"))
         self.assertEqual(res.returncode, 0, res.stderr)
-        self.assertEqual(json.loads((self.ws / "outputs/rounds-safe/pr406.json").read_text()), safe["406"])
+        self.assertEqual(
+            json.loads((self.ws / "outputs/rounds-safe/pr406.json").read_text()), safe["406"]
+        )
         self.assertNotEqual(self._run(self.extract.replace("{pr}", "999")).returncode, 0)
 
     def test_unsafe_path_copied_as_the_sanitised_null_passes(self) -> None:
@@ -662,7 +825,10 @@ class TestRenderedJqExecutes(unittest.TestCase):
             self.assertEqual(self._run(cmd).returncode, 0, cmd)
         res = self._run(self.invariants)
         self.assertNotEqual(res.returncode, 0)
-        self.assertIn("406 T406-1: category ROUND0 with input round 2; round 0 copied, input has 2", res.stdout)
+        self.assertIn(
+            "406 T406-1: category ROUND0 with input round 2; round 0 copied, input has 2",
+            res.stdout,
+        )
 
     def test_aggregate_multiset_passes_on_sanitised_data(self) -> None:
         self._rounds_406(("src/$(id).py", "docs/my file.md"))
@@ -672,14 +838,20 @@ class TestRenderedJqExecutes(unittest.TestCase):
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
 
     def _propose_line(self, needle: str) -> str:
-        (line,) = [c for c in _jq_lines(_prompts(str(self.ws), mode="rereview")["propose-concerns"]) if needle in c]
+        (line,) = [
+            c
+            for c in _jq_lines(_prompts(str(self.ws), mode="rereview")["propose-concerns"])
+            if needle in c
+        ]
         return line
 
     def _group(self, clusters: list[dict[str, object]]) -> list[dict[str, object]]:
         self._write("outputs/gap-clusters.json", clusters)
         res = self._run(self._propose_line("rereview-concern-groups.json"))
         self.assertEqual(res.returncode, 0, res.stderr)
-        groups: list[dict[str, object]] = json.loads((self.ws / "outputs/rereview-concern-groups.json").read_text())
+        groups: list[dict[str, object]] = json.loads(
+            (self.ws / "outputs/rereview-concern-groups.json").read_text()
+        )
         return groups
 
     def test_one_class_in_three_categories_yields_one_group(self) -> None:
@@ -687,13 +859,43 @@ class TestRenderedJqExecutes(unittest.TestCase):
         procedure = {"procedure": _procedure()}
         pattern = {"pattern": "check-params[^|]*--check", "paths": ["workflows/"]}
         clusters = [
-            _cluster("incomplete-guard-coverage", "LATE_DISCOVERY", ["406", "395"], 5, "security.md", procedure,
-                     ["#406 a.py:1 — x", "#406 a.py:9 — y", "#395 b.py:2 — z"]),
-            _cluster("incomplete-guard-coverage", "SIBLING", ["395", "400"], 4, "collateral-damage.md", pattern,
-                     ["#395 c.py:3 — w", "#400 d.py:4 — v"], hits=7),
-            _cluster("incomplete-guard-coverage", "FIX_REGRESSION", ["400", "412"], 3, "security.md",
-                     {"structural": "every guard lists its input forms"}, ["#412 e.py:5 — u"]),
-            _cluster("unquoted-shell-var", "SIBLING", ["406", "412"], 2, "security.md", pattern, ["#406 f.sh:1 — t"]),
+            _cluster(
+                "incomplete-guard-coverage",
+                "LATE_DISCOVERY",
+                ["406", "395"],
+                5,
+                "security.md",
+                procedure,
+                ["#406 a.py:1 — x", "#406 a.py:9 — y", "#395 b.py:2 — z"],
+            ),
+            _cluster(
+                "incomplete-guard-coverage",
+                "SIBLING",
+                ["395", "400"],
+                4,
+                "collateral-damage.md",
+                pattern,
+                ["#395 c.py:3 — w", "#400 d.py:4 — v"],
+                hits=7,
+            ),
+            _cluster(
+                "incomplete-guard-coverage",
+                "FIX_REGRESSION",
+                ["400", "412"],
+                3,
+                "security.md",
+                {"structural": "every guard lists its input forms"},
+                ["#412 e.py:5 — u"],
+            ),
+            _cluster(
+                "unquoted-shell-var",
+                "SIBLING",
+                ["406", "412"],
+                2,
+                "security.md",
+                pattern,
+                ["#406 f.sh:1 — t"],
+            ),
         ]
         groups = {g["class"]: g for g in self._group(clusters)}
         self.assertEqual(set(groups), {"incomplete-guard-coverage", "unquoted-shell-var"})
@@ -718,7 +920,9 @@ class TestRenderedJqExecutes(unittest.TestCase):
         clusters = [
             _cluster("k", "SIBLING", ["1"], 1, "tests.md", sweep, []),
             _cluster("k", "LATE_DISCOVERY", ["2"], 1, "security.md", sweep, []),
-            _cluster("k", "FIX_REGRESSION", ["3"], 1, "security.md", {"procedure": _procedure()}, []),
+            _cluster(
+                "k", "FIX_REGRESSION", ["3"], 1, "security.md", {"procedure": _procedure()}, []
+            ),
         ]
         (g,) = self._group(clusters)
         self.assertEqual(g["guide_file"], "security.md")
@@ -728,19 +932,27 @@ class TestRenderedJqExecutes(unittest.TestCase):
     def test_proposal_id_gate(self) -> None:
         gate = self._propose_line("collides with a known concern id")
         self._write("outputs/known-concern-ids.json", ["unquoted-shell-var-in-stage"])
-        good = [{"concern_id": "guard-input-forms-listed", "class": "incomplete-guard-coverage"},
-                {"concern_id": "topic-entry"}]  # topics entries carry no class
+        good = [
+            {"concern_id": "guard-input-forms-listed", "class": "incomplete-guard-coverage"},
+            {"concern_id": "topic-entry"},
+        ]  # topics entries carry no class
         self._write("outputs/proposed-concerns.json", good)
         res = self._run(gate)
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
         self.assertEqual(res.stdout.strip(), "true")
         bad = {
-            "duplicate id": ([*good, {"concern_id": "guard-input-forms-listed", "class": "other-class"}],
-                             "guard-input-forms-listed: proposed 2 times"),
-            "known id": ([*good, {"concern_id": "unquoted-shell-var-in-stage"}],
-                         "unquoted-shell-var-in-stage: collides with a known concern id"),
-            "same class twice": ([*good, {"concern_id": "second-id", "class": "incomplete-guard-coverage"}],
-                                 "class incomplete-guard-coverage: 2 proposals, expected 1"),
+            "duplicate id": (
+                [*good, {"concern_id": "guard-input-forms-listed", "class": "other-class"}],
+                "guard-input-forms-listed: proposed 2 times",
+            ),
+            "known id": (
+                [*good, {"concern_id": "unquoted-shell-var-in-stage"}],
+                "unquoted-shell-var-in-stage: collides with a known concern id",
+            ),
+            "same class twice": (
+                [*good, {"concern_id": "second-id", "class": "incomplete-guard-coverage"}],
+                "class incomplete-guard-coverage: 2 proposals, expected 1",
+            ),
             "missing id": ([*good, {"class": "z"}], "?: concern_id is missing"),
         }
         for label, (doc, needle) in bad.items():
@@ -752,14 +964,25 @@ class TestRenderedJqExecutes(unittest.TestCase):
 
     def _sweep_gate(self, stage: str, file: str) -> str:
         prompts = _prompts(str(self.ws), mode="rereview")
-        (line,) = [c for c in _jq_lines(prompts[stage]) if f"outputs/{file}" in c and "structural" in c]
+        (line,) = [
+            c for c in _jq_lines(prompts[stage]) if f"outputs/{file}" in c and "structural" in c
+        ]
         return line
 
     def test_sweep_gate_accepts_data_and_refuses_shell_or_unsafe_paths(self) -> None:
         gate = self._sweep_gate("cluster-gaps", "gap-clusters.json")
         good = [
-            {"class": "a", "sweep": {"pattern": "check-params[^|]*--check", "paths": ["workflows/", "src/core"]}},
-            {"class": "b", "sweep": {"structural": "every isolated stage that names the workspace"}},
+            {
+                "class": "a",
+                "sweep": {
+                    "pattern": "check-params[^|]*--check",
+                    "paths": ["workflows/", "src/core"],
+                },
+            },
+            {
+                "class": "b",
+                "sweep": {"structural": "every isolated stage that names the workspace"},
+            },
         ]
         self._write("outputs/gap-clusters.json", good)
         res = self._run(gate)
@@ -793,19 +1016,30 @@ class TestRenderedJqExecutes(unittest.TestCase):
         cluster = self._sweep_gate("cluster-gaps", "gap-clusters.json")
         proposal = self._sweep_gate("propose-concerns", "proposed-concerns.json")
         self.assertIn('has("procedure")', cluster)
-        self.assertEqual(proposal, cluster.replace("gap-clusters.json", "proposed-concerns.json")
-                         .replace('(.class // "?")', '(.concern_id // "?")'))
+        self.assertEqual(
+            proposal,
+            cluster.replace("gap-clusters.json", "proposed-concerns.json").replace(
+                '(.class // "?")', '(.concern_id // "?")'
+            ),
+        )
 
-    def _gate_both(self, entry_sweep: dict[str, object], label: str) -> list[subprocess.CompletedProcess[str]]:
+    def _gate_both(
+        self, entry_sweep: dict[str, object], label: str
+    ) -> list[subprocess.CompletedProcess[str]]:
         """Run the cluster gate and the proposal gate over one extra entry."""
         results = []
-        for stage, file, key in (("cluster-gaps", "gap-clusters.json", "class"),
-                                 ("propose-concerns", "proposed-concerns.json", "concern_id")):
+        for stage, file, key in (
+            ("cluster-gaps", "gap-clusters.json", "class"),
+            ("propose-concerns", "proposed-concerns.json", "concern_id"),
+        ):
             gate = self._sweep_gate(stage, file)
-            self._write(f"outputs/{file}", [
-                {key: "a", "sweep": {"pattern": "x", "paths": ["src"]}},
-                {key: label, "sweep": entry_sweep},
-            ])
+            self._write(
+                f"outputs/{file}",
+                [
+                    {key: "a", "sweep": {"pattern": "x", "paths": ["src"]}},
+                    {key: label, "sweep": entry_sweep},
+                ],
+            )
             results.append(self._run(gate))
         return results
 
@@ -817,8 +1051,11 @@ class TestRenderedJqExecutes(unittest.TestCase):
     def test_worked_example_in_the_prompt_passes_the_gate(self) -> None:
         """The example R5 teaches must itself be a valid procedure."""
         text = _prompts(str(self.ws), mode="rereview")["cluster-gaps"]
-        (line,) = [ln.strip() for ln in text.splitlines()
-                   if ln.strip().startswith('{"procedure": {"trigger": "a function')]
+        (line,) = [
+            ln.strip()
+            for ln in text.splitlines()
+            if ln.strip().startswith('{"procedure": {"trigger": "a function')
+        ]
         for res in self._gate_both(json.loads(line), "example"):
             self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
 
@@ -847,7 +1084,9 @@ class TestRenderedJqExecutes(unittest.TestCase):
                     self.assertIn(f"{label}: ", res.stdout)
                     self.assertNotIn("a: ", res.stdout)
         with self.subTest(case="procedure-beside-pattern"):
-            for res in self._gate_both({"procedure": _procedure(), "pattern": "x", "paths": ["src"]}, "mixed"):
+            for res in self._gate_both(
+                {"procedure": _procedure(), "pattern": "x", "paths": ["src"]}, "mixed"
+            ):
                 self.assertNotEqual(res.returncode, 0)
 
     def _enforcement_lines(self) -> tuple[str, str]:
@@ -859,7 +1098,10 @@ class TestRenderedJqExecutes(unittest.TestCase):
 
     def test_enforcement_gap_gate_requires_a_known_concern_and_two_prs(self) -> None:
         gate, _ = self._enforcement_lines()
-        self._write("outputs/known-concern-ids.json", ["stale-prose-after-behavior-change", "silent-failure"])
+        self._write(
+            "outputs/known-concern-ids.json",
+            ["stale-prose-after-behavior-change", "silent-failure"],
+        )
         self._write("outputs/enforcement-gaps.json", [])
         self.assertEqual(self._run(gate).returncode, 0)
         self._write("outputs/enforcement-gaps.json", [_gap()])
@@ -887,8 +1129,11 @@ class TestRenderedJqExecutes(unittest.TestCase):
         self.assertEqual(res.returncode, 0, res.stderr)
         rows = res.stdout.splitlines()
         self.assertEqual(len(rows), 3)
-        self.assertEqual(rows[2], "| `stale-prose-after-behavior-change` | patterns.md | doc-claims-drift-from-code"
-                                  " | COLLATERAL_DOC | 406, 395 | 8 | a.md:3 — x   y |")
+        self.assertEqual(
+            rows[2],
+            "| `stale-prose-after-behavior-change` | patterns.md | doc-claims-drift-from-code"
+            " | COLLATERAL_DOC | 406, 395 | 8 | a.md:3 — x   y |",
+        )
 
 
 _STEPS = [
@@ -906,20 +1151,43 @@ def _procedure(**over: object) -> dict[str, object]:
     return {**base, **over}
 
 
-def _cluster(cls: str, category: str, prs: list[str], threads: int, guide: str,
-             sweep: Mapping[str, object], examples: list[str], hits: int | None = None) -> dict[str, object]:
+def _cluster(
+    cls: str,
+    category: str,
+    prs: list[str],
+    threads: int,
+    guide: str,
+    sweep: Mapping[str, object],
+    examples: list[str],
+    hits: int | None = None,
+) -> dict[str, object]:
     """One promoted gap-clusters.json entry in the R7 shape."""
-    return {"theme": f"{cls} ({category})", "occurrences": len(prs), "pr_numbers": prs, "file_types": [".py"],
-            "guide_file": guide, "example_comments": examples, "source": "rereview", "class": cls,
-            "cause_category": category, "thread_count": threads, "sweep": sweep, "sweep_hits": hits,
-            "sweep_hits_reason": None if hits is not None else "no tree count"}
+    return {
+        "theme": f"{cls} ({category})",
+        "occurrences": len(prs),
+        "pr_numbers": prs,
+        "file_types": [".py"],
+        "guide_file": guide,
+        "example_comments": examples,
+        "source": "rereview",
+        "class": cls,
+        "cause_category": category,
+        "thread_count": threads,
+        "sweep": sweep,
+        "sweep_hits": hits,
+        "sweep_hits_reason": None if hits is not None else "no tree count",
+    }
 
 
 def _gap(**over: object) -> dict[str, object]:
     base: dict[str, object] = {
-        "concern_id": "stale-prose-after-behavior-change", "guide_file": "patterns.md",
-        "class": "doc-claims-drift-from-code", "cause_category": "COLLATERAL_DOC",
-        "pr_numbers": ["406", "395"], "thread_count": 8, "example": "README.md:12 — stale claim",
+        "concern_id": "stale-prose-after-behavior-change",
+        "guide_file": "patterns.md",
+        "class": "doc-claims-drift-from-code",
+        "cause_category": "COLLATERAL_DOC",
+        "pr_numbers": ["406", "395"],
+        "thread_count": 8,
+        "example": "README.md:12 — stale claim",
     }
     return {**base, **over}
 
@@ -937,12 +1205,17 @@ class TestPromotionRule(unittest.TestCase):
             self.assertIn(code, flat)
         self.assertLess(flat.index("1. pattern"), flat.index("2. structural"))
         self.assertLess(flat.index("2. structural"), flat.index("3. procedure"))
-        self.assertIn("Never reject with `no-sweep` or `sweep-too-broad` before attempting a procedure", flat)
-        self.assertIn("neither a pattern, a structural check, nor a mechanical procedure could be written", flat)
+        self.assertIn(
+            "Never reject with `no-sweep` or `sweep-too-broad` before attempting a procedure", flat
+        )
+        self.assertIn(
+            "neither a pattern, a structural check, nor a mechanical procedure could be written",
+            flat,
+        )
 
     def test_catch_all_and_single_pr_precede_covered(self) -> None:
         text = self.prompts["cluster-gaps"]
-        r5 = text[text.index("R5 —"):text.index("R6 —")]
+        r5 = text[text.index("R5 —") : text.index("R6 —")]
         self.assertLess(r5.index("`catch-all`"), r5.index("`single-pr`"))
         self.assertLess(r5.index("`single-pr`"), r5.index("`covered`"))
         self.assertLess(r5.index("`covered`"), r5.index("the sweep ladder"))
@@ -950,8 +1223,10 @@ class TestPromotionRule(unittest.TestCase):
     def test_enforcement_gaps_declared(self) -> None:
         for mode in ("topics", "rereview"):
             _, manifest = _compile(mode=mode)
-            self.assertIn("outputs/enforcement-gaps.json",
-                          manifest.resolved_stages["cluster-gaps"].spec.writes_to)
+            self.assertIn(
+                "outputs/enforcement-gaps.json",
+                manifest.resolved_stages["cluster-gaps"].spec.writes_to,
+            )
 
     def test_every_exit_writes_every_declared_output(self) -> None:
         _, manifest = _compile(mode="rereview")
@@ -960,19 +1235,25 @@ class TestPromotionRule(unittest.TestCase):
             flat = " ".join(_prompts("/ws", mode=mode)["cluster-gaps"].split())
             with self.subTest(mode=mode, check="exit rule"):
                 start = flat.index("Every exit from this stage, early or not and in either mode")
-                rule = flat[start:flat.index("A missing file", start)]
+                rule = flat[start : flat.index("A missing file", start)]
                 for name in declared:
                     self.assertIn(name, rule)
             with self.subTest(mode=mode, check="topics path"):
-                topics = flat[:flat.index("REREVIEW MODE (only")]
+                topics = flat[: flat.index("REREVIEW MODE (only")]
                 self.assertIn("write [] to /ws/outputs/enforcement-gaps.json", topics)
             with self.subTest(mode=mode, check="empty-array exits"):
-                exits = [m.start() for m in re.finditer(r"write \[\] to gap-clusters\.json", flat, re.IGNORECASE)]
+                exits = [
+                    m.start()
+                    for m in re.finditer(r"write \[\] to gap-clusters\.json", flat, re.IGNORECASE)
+                ]
                 self.assertEqual(len(exits), 2)  # topics Step 5 and rereview R7
                 for at in exits:
-                    self.assertIn("enforcement-gaps.json", flat[at:at + 250])
+                    self.assertIn("enforcement-gaps.json", flat[at : at + 250])
             with self.subTest(mode=mode, check="single-PR rereview"):
-                self.assertIn("Write [] when there are none, which is always the case when pr_number is set", flat)
+                self.assertIn(
+                    "Write [] when there are none, which is always the case when pr_number is set",
+                    flat,
+                )
 
     def test_every_stage_early_exit_writes_every_declared_output(self) -> None:
         """Beyond cluster-gaps: any paragraph that exits 0 early must still
@@ -1029,7 +1310,11 @@ class TestSweepCounting(unittest.TestCase):
     def test_every_stage_building_the_command_is_checked(self) -> None:
         for mode in ("topics", "rereview"):
             with self.subTest(mode=mode):
-                found = {name for name, text in _prompts("/ws", mode=mode).items() if "count-sweep --" in text}
+                found = {
+                    name
+                    for name, text in _prompts("/ws", mode=mode).items()
+                    if "count-sweep --" in text
+                }
                 self.assertEqual(found, _COUNT_SWEEP_STAGES)
 
     def test_sweeping_stages_single_quote_the_pattern_and_every_path(self) -> None:
@@ -1043,7 +1328,9 @@ class TestSweepCounting(unittest.TestCase):
                 calls = re.findall(r"count-sweep --pattern[^\n`]*", text)
                 self.assertTrue(calls)
                 for call in calls:
-                    self.assertTrue(call.startswith("count-sweep --pattern='<pattern>' --path='<path>'"), call)
+                    self.assertTrue(
+                        call.startswith("count-sweep --pattern='<pattern>' --path='<path>'"), call
+                    )
                     # Every --path in the call, including the repeat form, is quoted.
                     self.assertEqual(re.findall(r"--path(?!=')", call), [], call)
                 self.assertNotIn("--path <", text)
@@ -1070,7 +1357,13 @@ class TestSweepCounting(unittest.TestCase):
     def test_rendered_call_runs_and_refuses_an_escaping_path(self) -> None:
         text = _prompts("/ws", mode="rereview")["cluster-gaps"]
         self.assertIn(_COUNT_SWEEP_CALL, text)
-        argv = [str(_ROOT / "bin/workflow"), "count-sweep", "--pattern=check-params", "--path", "workflows/"]
+        argv = [
+            str(_ROOT / "bin/workflow"),
+            "count-sweep",
+            "--pattern=check-params",
+            "--path",
+            "workflows/",
+        ]
         res = subprocess.run(argv, cwd=_ROOT, capture_output=True, text=True, check=False)  # nosec B603 - fixed argv, repo's own wrapper
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertGreater(json.loads(res.stdout)["hits"], 0)
@@ -1080,7 +1373,16 @@ class TestSweepCounting(unittest.TestCase):
         self.assertIn("escapes-repo", res.stderr)
 
     def test_rendered_call_refuses_shell_metacharacter_paths(self) -> None:
-        for bad in ("src/$(id)", "src/`id`", "src;id", "src|id", "src&id", "src id", "-src", "src'x"):
+        for bad in (
+            "src/$(id)",
+            "src/`id`",
+            "src;id",
+            "src|id",
+            "src&id",
+            "src id",
+            "-src",
+            "src'x",
+        ):
             with self.subTest(path=bad):
                 argv = [str(_ROOT / "bin/workflow"), "count-sweep", "--pattern=x", f"--path={bad}"]
                 res = subprocess.run(argv, cwd=_ROOT, capture_output=True, text=True, check=False)  # nosec B603 - fixed argv, repo's own wrapper
@@ -1111,12 +1413,24 @@ class TestReviewRecountGate(unittest.TestCase):
     def _set_up_happy(self) -> None:
         """Write proposed-concerns.json and all.json for the happy path."""
         proposals = [
-            {"concern_id": "missing-guard", "sweep": {"pattern": "x", "paths": ["src"]},
-             "sweep_hits": 3, "sweep_hits_reason": None},
-            {"concern_id": "stale-docs", "sweep": {"structural": "every guide mentions the new flag"},
-             "sweep_hits": None, "sweep_hits_reason": "structural: no pattern to count"},
-            {"concern_id": "proc-concern", "sweep": {"procedure": _procedure()},
-             "sweep_hits": None, "sweep_hits_reason": "procedure: applied per diff, no tree count"},
+            {
+                "concern_id": "missing-guard",
+                "sweep": {"pattern": "x", "paths": ["src"]},
+                "sweep_hits": 3,
+                "sweep_hits_reason": None,
+            },
+            {
+                "concern_id": "stale-docs",
+                "sweep": {"structural": "every guide mentions the new flag"},
+                "sweep_hits": None,
+                "sweep_hits_reason": "structural: no pattern to count",
+            },
+            {
+                "concern_id": "proc-concern",
+                "sweep": {"procedure": _procedure()},
+                "sweep_hits": None,
+                "sweep_hits_reason": "procedure: applied per diff, no tree count",
+            },
         ]
         self._write("outputs/proposed-concerns.json", proposals)
         self._write("outputs/sweep-recounts/all.json", {"missing-guard": {"hits": 3, "files": 2}})
@@ -1131,8 +1445,12 @@ class TestReviewRecountGate(unittest.TestCase):
     def test_fabricated_sweep_hits_fails(self) -> None:
         """A sweep_hits that does not match the recount must fail the gate."""
         proposals = [
-            {"concern_id": "missing-guard", "sweep": {"pattern": "x", "paths": ["src"]},
-             "sweep_hits": 99, "sweep_hits_reason": None},
+            {
+                "concern_id": "missing-guard",
+                "sweep": {"pattern": "x", "paths": ["src"]},
+                "sweep_hits": 99,
+                "sweep_hits_reason": None,
+            },
         ]
         self._write("outputs/proposed-concerns.json", proposals)
         self._write("outputs/sweep-recounts/all.json", {"missing-guard": {"hits": 3, "files": 2}})
@@ -1145,8 +1463,12 @@ class TestReviewRecountGate(unittest.TestCase):
     def test_pattern_entry_with_null_sweep_hits_fails(self) -> None:
         """A pattern sweep with null sweep_hits must fail — a count is required."""
         proposals = [
-            {"concern_id": "missing-guard", "sweep": {"pattern": "x", "paths": ["src"]},
-             "sweep_hits": None, "sweep_hits_reason": None},
+            {
+                "concern_id": "missing-guard",
+                "sweep": {"pattern": "x", "paths": ["src"]},
+                "sweep_hits": None,
+                "sweep_hits_reason": None,
+            },
         ]
         self._write("outputs/proposed-concerns.json", proposals)
         self._write("outputs/sweep-recounts/all.json", {})
@@ -1157,8 +1479,12 @@ class TestReviewRecountGate(unittest.TestCase):
     def test_non_pattern_entry_with_integer_sweep_hits_fails(self) -> None:
         """A structural sweep with a numeric sweep_hits must fail."""
         proposals = [
-            {"concern_id": "stale-docs", "sweep": {"structural": "every guide mentions the new flag"},
-             "sweep_hits": 5, "sweep_hits_reason": "structural: should not have a count"},
+            {
+                "concern_id": "stale-docs",
+                "sweep": {"structural": "every guide mentions the new flag"},
+                "sweep_hits": 5,
+                "sweep_hits_reason": "structural: should not have a count",
+            },
         ]
         self._write("outputs/proposed-concerns.json", proposals)
         self._write("outputs/sweep-recounts/all.json", {})
@@ -1169,8 +1495,12 @@ class TestReviewRecountGate(unittest.TestCase):
     def test_non_pattern_entry_missing_sweep_hits_reason_fails(self) -> None:
         """A non-pattern entry with null sweep_hits_reason must fail."""
         proposals = [
-            {"concern_id": "proc-concern", "sweep": {"procedure": _procedure()},
-             "sweep_hits": None, "sweep_hits_reason": None},
+            {
+                "concern_id": "proc-concern",
+                "sweep": {"procedure": _procedure()},
+                "sweep_hits": None,
+                "sweep_hits_reason": None,
+            },
         ]
         self._write("outputs/proposed-concerns.json", proposals)
         self._write("outputs/sweep-recounts/all.json", {})

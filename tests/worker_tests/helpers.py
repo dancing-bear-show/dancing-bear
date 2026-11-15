@@ -19,6 +19,7 @@ class _QueueHost(Protocol):
     isolate_queue_root (from the mixin itself), so neither annotation alone
     is sufficient. This Protocol declares the full required surface.
     """
+
     # Dynamic instance attributes set during setup
     tmp: tempfile.TemporaryDirectory
     root: Path
@@ -57,14 +58,15 @@ class QueueRootIsolationMixin:
     whatever path the env var named at save time, for every later test.
     """
 
-    def isolate_queue_root(self: "_QueueHost"):
+    def isolate_queue_root(self: _QueueHost):
         from worker import queue_ops as q
+
         self._orig_queue_root_assigned = "QUEUE_ROOT" in vars(q)
         self._orig_queue_root = vars(q).get("QUEUE_ROOT")
         self._orig_worker_state_dir_env = os.environ.get(WORKER_STATE_DIR_ENV)
         self.addCleanup(self._restore_queue_root)
 
-    def setup_queue_root(self: "_QueueHost") -> Path:
+    def setup_queue_root(self: _QueueHost) -> Path:
         """Create a scratch ``<tmp>/queue`` root and isolate ``QUEUE_ROOT``.
 
         Sets ``self.tmp`` (the ``TemporaryDirectory``) and ``self.root`` (the
@@ -81,10 +83,11 @@ class QueueRootIsolationMixin:
         # Pin QUEUE_ROOT to the exact path tests compare against (the env var
         # alone would give its resolved form, e.g. /private/var/... on macOS).
         from worker import queue_ops as q
+
         q.QUEUE_ROOT = self.root
         return self.root
 
-    def join_new_threads_before_restore(self: "_QueueHost", timeout: float = 10.0) -> None:
+    def join_new_threads_before_restore(self: _QueueHost, timeout: float = 10.0) -> None:
         """Join every thread started after this call before isolation is undone.
 
         Call after ``setup_queue_root``/``isolate_queue_root``: cleanups run
@@ -112,6 +115,7 @@ class QueueRootIsolationMixin:
 
     def _restore_queue_root(self):
         from worker import queue_ops as q
+
         if self._orig_queue_root_assigned:
             q.QUEUE_ROOT = self._orig_queue_root
         else:

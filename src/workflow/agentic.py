@@ -7,7 +7,9 @@ def build_agentic_capsule() -> str:
     """Return the human/LLM-readable agentic capsule text for workflow."""
     lines: list[str] = []
     lines.append("agentic: workflow")
-    lines.append("purpose: YAML DAG workflow engine — parse, compile, run, lint, and manage workflows")
+    lines.append(
+        "purpose: YAML DAG workflow engine — parse, compile, run, lint, and manage workflows"
+    )
     lines.append("commands:")
     lines.append("  - run: ./bin/workflow run <file.yaml> --params k=v")
     lines.append("  - list: ./bin/workflow list")
@@ -53,7 +55,9 @@ def build_agentic_capsule() -> str:
         "  - aggregate-fix-results: ./bin/workflow aggregate-fix-results "
         "<workspace>/outputs/fix-index.json <workspace>/outputs/fixes <workspace>/outputs/fix-results.json"
     )
-    lines.append("  - snapshot-dirty: ./bin/workflow snapshot-dirty <workspace>/outputs/dirty-baseline.json")
+    lines.append(
+        "  - snapshot-dirty: ./bin/workflow snapshot-dirty <workspace>/outputs/dirty-baseline.json"
+    )
     lines.append(
         "  - check-unlisted: ./bin/workflow check-unlisted <workspace>/outputs/dirty-baseline.json "
         "<workspace>/outputs/fix-results.json"
@@ -65,16 +69,18 @@ def build_agentic_capsule() -> str:
     lines.append(
         "  - count-sweep: ./bin/workflow count-sweep --pattern='<regex>' --path='<p>' [--path='<p>' ...]"
     )
-    lines.append(
-        "  - count-blocking: ./bin/workflow count-blocking PATH_TO_sweep-findings.json"
-    )
+    lines.append("  - count-blocking: ./bin/workflow count-blocking PATH_TO_sweep-findings.json")
     lines.append(
         "  - merge-fix-results: ./bin/workflow merge-fix-results "
         "<workspace>/outputs/fix-results.json <workspace>/outputs/refix-results.json "
         "<workspace>/outputs/fix-results-merged.json"
     )
-    lines.append("  - sweep-record.write: ./bin/workflow sweep-record write --head <sha40> --workspace <dir>")
-    lines.append("  - sweep-record.waive: ./bin/workflow sweep-record waive --head <sha40> --reason '<text>'")
+    lines.append(
+        "  - sweep-record.write: ./bin/workflow sweep-record write --head <sha40> --workspace <dir>"
+    )
+    lines.append(
+        "  - sweep-record.waive: ./bin/workflow sweep-record waive --head <sha40> --reason '<text>'"
+    )
     lines.append("  - sweep-record.check: ./bin/workflow sweep-record check --head <sha40>")
     lines.append(
         "  - fleet.run: ./bin/workflow fleet run <file.yaml> --fan-over items:a,b "
@@ -82,7 +88,9 @@ def build_agentic_capsule() -> str:
         "[--base-dir DIR] [--dry-run]"
     )
     lines.append("  - fleet.status: ./bin/workflow fleet status <file.yaml> [--filter STATUS]")
-    lines.append("  - fleet.reset: ./bin/workflow fleet reset <file.yaml> [--filter STATUS] [--items a,b]")
+    lines.append(
+        "  - fleet.reset: ./bin/workflow fleet reset <file.yaml> [--filter STATUS] [--items a,b]"
+    )
     lines.append("  - fleet.report: ./bin/workflow fleet report <file.yaml> [--filter STATUS]")
     lines.append(
         "  - fleet.mark: ./bin/workflow fleet mark <file.yaml> <item> <running/done/failed/skipped> "

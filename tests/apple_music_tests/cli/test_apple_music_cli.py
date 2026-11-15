@@ -6,14 +6,10 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
-from tests.cli_separator_contract import SeparatorContractMixin
-from tests.cli_no_subcommand_contract import NoSubcommandContractMixin
-
 from apple_music import __main__ as cli
 from apple_music import cli as am_cli
-from apple_music.client import AppleMusicClient
 from apple_music import token_helpers, user_token_cli
-
+from apple_music.client import AppleMusicClient
 from tests.apple_music_tests.fixtures import (
     FakeAppleMusicClient,
     FakeResponse,
@@ -21,12 +17,16 @@ from tests.apple_music_tests.fixtures import (
     make_playlist,
     make_track,
 )
+from tests.cli_no_subcommand_contract import NoSubcommandContractMixin
+from tests.cli_separator_contract import SeparatorContractMixin
 
 
 class AppleMusicClientTests(unittest.TestCase):
     def test_paginates_and_limits(self):
         responses = [
-            FakeResponse({"data": [{"id": "1"}, {"id": "2"}], "next": "v1/me/library/playlists?offset=2"}),
+            FakeResponse(
+                {"data": [{"id": "1"}, {"id": "2"}], "next": "v1/me/library/playlists?offset=2"}
+            ),
             FakeResponse({"data": [{"id": "3"}]}),
         ]
         session = FakeSession(responses)
@@ -41,9 +41,7 @@ class AppleMusicCLITests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             cfg = Path(td) / "credentials.ini"
             cfg.write_text(
-                "[musickit.personal]\n"
-                "developer_token = DEV_TOKEN\n"
-                "user_token = USER_TOKEN\n"
+                "[musickit.personal]\ndeveloper_token = DEV_TOKEN\nuser_token = USER_TOKEN\n"
             )
             out_path = Path(td) / "out.json"
 
@@ -66,7 +64,9 @@ class AppleMusicCLITests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory():
             with mock.patch.dict("os.environ", {"APPLE_MUSIC_DEVELOPER_TOKEN": "DEV_TOKEN"}):
-                with mock.patch.object(user_token_cli, "build_data_url", return_value="URL") as m_build:
+                with mock.patch.object(
+                    user_token_cli, "build_data_url", return_value="URL"
+                ) as m_build:
                     with mock.patch("webbrowser.open") as m_open:
                         rc = user_token_cli.main(["--open"])
         self.assertEqual(rc, 0)
@@ -77,7 +77,10 @@ class AppleMusicCLITests(unittest.TestCase):
         stub = FakeAppleMusicClient(storefront="us")
 
         with mock.patch("apple_music.cli.AppleMusicClient", return_value=stub):
-            with mock.patch.dict("os.environ", {"APPLE_MUSIC_DEVELOPER_TOKEN": "DEV", "APPLE_MUSIC_USER_TOKEN": "USER"}):
+            with mock.patch.dict(
+                "os.environ",
+                {"APPLE_MUSIC_DEVELOPER_TOKEN": "DEV", "APPLE_MUSIC_USER_TOKEN": "USER"},
+            ):
                 rc = cli.main(["ping"])
         self.assertEqual(rc, 0)
 
@@ -86,11 +89,7 @@ class AppleMusicCLITests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as td:
             cfg = Path(td) / "credentials.ini"
-            cfg.write_text(
-                "[musickit.personal]\n"
-                "developer_token = DEV\n"
-                "user_token = USER\n"
-            )
+            cfg.write_text("[musickit.personal]\ndeveloper_token = DEV\nuser_token = USER\n")
             with mock.patch("apple_music.cli.AppleMusicClient", return_value=stub):
                 buf = io.StringIO()
                 with redirect_stdout(buf):
@@ -104,14 +103,20 @@ class AppleMusicCLITests(unittest.TestCase):
         stub = FakeAppleMusicClient(
             playlists=[make_playlist("1", "P1"), make_playlist("2", "P2")],
             tracks_by_playlist={
-                "1": [make_track("t1", "Song1", "A1", "AL1"), make_track("t2", "Song2", "A2", "AL2")],
+                "1": [
+                    make_track("t1", "Song1", "A1", "AL1"),
+                    make_track("t2", "Song2", "A2", "AL2"),
+                ],
                 "2": [],
             },
         )
 
         with mock.patch("apple_music.cli.AppleMusicClient", return_value=stub):
             buf = io.StringIO()
-            with mock.patch.dict("os.environ", {"APPLE_MUSIC_DEVELOPER_TOKEN": "DEV", "APPLE_MUSIC_USER_TOKEN": "USER"}):
+            with mock.patch.dict(
+                "os.environ",
+                {"APPLE_MUSIC_DEVELOPER_TOKEN": "DEV", "APPLE_MUSIC_USER_TOKEN": "USER"},
+            ):
                 with redirect_stdout(buf):
                     rc = cli.main(["tracks"])
         self.assertEqual(rc, 0)
@@ -121,7 +126,10 @@ class AppleMusicCLITests(unittest.TestCase):
 
         with mock.patch("apple_music.cli.AppleMusicClient", return_value=stub):
             buf = io.StringIO()
-            with mock.patch.dict("os.environ", {"APPLE_MUSIC_DEVELOPER_TOKEN": "DEV", "APPLE_MUSIC_USER_TOKEN": "USER"}):
+            with mock.patch.dict(
+                "os.environ",
+                {"APPLE_MUSIC_DEVELOPER_TOKEN": "DEV", "APPLE_MUSIC_USER_TOKEN": "USER"},
+            ):
                 with redirect_stdout(buf):
                     rc = cli.main(["list", "--playlist-limit", "1"])
         self.assertEqual(rc, 0)
@@ -133,7 +141,10 @@ class AppleMusicCLITests(unittest.TestCase):
 
         with mock.patch("apple_music.cli.AppleMusicClient", return_value=stub):
             buf = io.StringIO()
-            with mock.patch.dict("os.environ", {"APPLE_MUSIC_DEVELOPER_TOKEN": "DEV", "APPLE_MUSIC_USER_TOKEN": "USER"}):
+            with mock.patch.dict(
+                "os.environ",
+                {"APPLE_MUSIC_DEVELOPER_TOKEN": "DEV", "APPLE_MUSIC_USER_TOKEN": "USER"},
+            ):
                 with redirect_stdout(buf):
                     rc = cli.main(["--dry-run", "create", "--shuffle-seed", "1", "--count", "3"])
         self.assertEqual(rc, 0)
@@ -144,9 +155,14 @@ class AppleMusicCLITests(unittest.TestCase):
 
         with mock.patch("apple_music.cli.AppleMusicClient", return_value=stub):
             buf = io.StringIO()
-            with mock.patch.dict("os.environ", {"APPLE_MUSIC_DEVELOPER_TOKEN": "DEV", "APPLE_MUSIC_USER_TOKEN": "USER"}):
+            with mock.patch.dict(
+                "os.environ",
+                {"APPLE_MUSIC_DEVELOPER_TOKEN": "DEV", "APPLE_MUSIC_USER_TOKEN": "USER"},
+            ):
                 with redirect_stdout(buf):
-                    rc = cli.main(["create", "--shuffle-seed", "1", "--count", "2", "--name", "My Playlist"])
+                    rc = cli.main(
+                        ["create", "--shuffle-seed", "1", "--count", "2", "--name", "My Playlist"]
+                    )
         self.assertEqual(rc, 0)
         payload = json.loads(buf.getvalue())
         self.assertIn("created", payload)
@@ -157,9 +173,14 @@ class AppleMusicCLITests(unittest.TestCase):
 
         with mock.patch("apple_music.cli.AppleMusicClient", return_value=stub):
             buf = io.StringIO()
-            with mock.patch.dict("os.environ", {"APPLE_MUSIC_DEVELOPER_TOKEN": "DEV", "APPLE_MUSIC_USER_TOKEN": "USER"}):
+            with mock.patch.dict(
+                "os.environ",
+                {"APPLE_MUSIC_DEVELOPER_TOKEN": "DEV", "APPLE_MUSIC_USER_TOKEN": "USER"},
+            ):
                 with redirect_stdout(buf):
-                    rc = cli.main(["create", "--preset", "sonic", "--count", "3", "--shuffle-seed", "2"])
+                    rc = cli.main(
+                        ["create", "--preset", "sonic", "--count", "3", "--shuffle-seed", "2"]
+                    )
         self.assertEqual(rc, 0)
         payload = json.loads(buf.getvalue())
         self.assertIn("created", payload)
@@ -177,7 +198,10 @@ class AppleMusicCLITests(unittest.TestCase):
 
         with mock.patch("apple_music.cli.AppleMusicClient", return_value=stub):
             buf = io.StringIO()
-            with mock.patch.dict("os.environ", {"APPLE_MUSIC_DEVELOPER_TOKEN": "DEV", "APPLE_MUSIC_USER_TOKEN": "USER"}):
+            with mock.patch.dict(
+                "os.environ",
+                {"APPLE_MUSIC_DEVELOPER_TOKEN": "DEV", "APPLE_MUSIC_USER_TOKEN": "USER"},
+            ):
                 with redirect_stdout(buf):
                     rc = cli.main(["dedupe", "--keep", "latest"])
         self.assertEqual(rc, 0)
@@ -186,12 +210,14 @@ class AppleMusicCLITests(unittest.TestCase):
 
         with mock.patch("apple_music.cli.AppleMusicClient", return_value=stub):
             buf = io.StringIO()
-            with mock.patch.dict("os.environ", {"APPLE_MUSIC_DEVELOPER_TOKEN": "DEV", "APPLE_MUSIC_USER_TOKEN": "USER"}):
+            with mock.patch.dict(
+                "os.environ",
+                {"APPLE_MUSIC_DEVELOPER_TOKEN": "DEV", "APPLE_MUSIC_USER_TOKEN": "USER"},
+            ):
                 with redirect_stdout(buf):
                     rc = cli.main(["dedupe", "--keep", "first", "--delete"])
         self.assertEqual(rc, 0)
         self.assertIn("a2", stub.deleted)
-
 
 
 class TestAppleMusicNoSubcommand(NoSubcommandContractMixin, unittest.TestCase):
@@ -200,6 +226,7 @@ class TestAppleMusicNoSubcommand(NoSubcommandContractMixin, unittest.TestCase):
     MODULE_PATH = "apple_music.__main__"
     EXPECTED_RC = 0
     EXPECTED_STREAM = "stdout"
+
 
 if __name__ == "__main__":
     unittest.main()
@@ -219,14 +246,18 @@ class TestVerifyTokensLive(unittest.TestCase):
 
     def test_401_blames_the_developer_token(self):
         with unittest.mock.patch.object(am_cli, "AppleMusicClient") as m_client:
-            m_client.return_value.ping.side_effect = am_cli.AppleMusicCLIError("401 from Apple Music: ")
+            m_client.return_value.ping.side_effect = am_cli.AppleMusicCLIError(
+                "401 from Apple Music: "
+            )
             result = am_cli._verify_tokens_live("dev", "user")
         self.assertFalse(result["verified"])
         self.assertIn("token mint", result["remedy"])
 
     def test_403_blames_the_user_token(self):
         with unittest.mock.patch.object(am_cli, "AppleMusicClient") as m_client:
-            m_client.return_value.ping.side_effect = am_cli.AppleMusicCLIError("403 from Apple Music: ")
+            m_client.return_value.ping.side_effect = am_cli.AppleMusicCLIError(
+                "403 from Apple Music: "
+            )
             result = am_cli._verify_tokens_live("dev", "user")
         self.assertFalse(result["verified"])
         self.assertIn("apple-music-user-token", result["remedy"])

@@ -30,7 +30,9 @@ from tests.fixtures import TempDirMixin
 # facades={}, and we then access only the pure-function helpers.
 # ---------------------------------------------------------------------------
 
-_SCRIPT = Path(__file__).resolve().parents[1] / "workflows" / "code" / "scripts" / "detect_facades.py"
+_SCRIPT = (
+    Path(__file__).resolve().parents[1] / "workflows" / "code" / "scripts" / "detect_facades.py"
+)
 
 
 def _load_detector():
@@ -68,6 +70,7 @@ module_path = _df.module_path
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _parse(src: str) -> ast.Module:
     return ast.parse(textwrap.dedent(src))
 
@@ -79,6 +82,7 @@ def _stmt(src: str) -> ast.stmt:
 # ---------------------------------------------------------------------------
 # Tests: _resolve_relative_import
 # ---------------------------------------------------------------------------
+
 
 class TestResolveRelativeImport(unittest.TestCase):
     """Relative-import resolution is relative-import-blind if done with string grep.
@@ -123,6 +127,7 @@ class TestResolveRelativeImport(unittest.TestCase):
 # Tests: _is_future_import
 # ---------------------------------------------------------------------------
 
+
 class TestIsFutureImport(unittest.TestCase):
     def test_future_import_annotations(self):
         node = _stmt("from __future__ import annotations")
@@ -140,6 +145,7 @@ class TestIsFutureImport(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Tests: _collect_import_names
 # ---------------------------------------------------------------------------
+
 
 class TestCollectImportNames(unittest.TestCase):
     def test_plain_import(self):
@@ -176,6 +182,7 @@ class TestCollectImportNames(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Tests: _classify_assignment  (alias re-export detection)
 # ---------------------------------------------------------------------------
+
 
 class TestClassifyAssignment(unittest.TestCase):
     """Alias re-export: RHS is a bare Name or Attribute — not "other"."""
@@ -247,6 +254,7 @@ class TestClassifyAssignment(unittest.TestCase):
 # Tests: _node_defines_sym  (4 AST binding forms)
 # ---------------------------------------------------------------------------
 
+
 class TestNodeDefinesSym(unittest.TestCase):
     """The module documents 4 AST binding forms for _node_defines_sym."""
 
@@ -286,6 +294,7 @@ class TestNodeDefinesSym(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Tests: _aliases_from_import / _aliases_from_import_from / _build_alias_to_mod
 # ---------------------------------------------------------------------------
+
 
 class TestBuildAliasToMod(unittest.TestCase):
     """Alias-to-module map covers both binding forms documented in the module."""
@@ -330,6 +339,7 @@ class TestBuildAliasToMod(unittest.TestCase):
 # Tests: lazy imports in function bodies (_collect_py_callers uses ast.walk)
 # ---------------------------------------------------------------------------
 
+
 class TestLazyImportDiscovery(unittest.TestCase):
     """ast.walk discovers imports nested inside function bodies.
 
@@ -357,16 +367,14 @@ class TestLazyImportDiscovery(unittest.TestCase):
                 from os import path
         """)
         tree = ast.parse(src)
-        top_level_imports = [
-            n for n in tree.body
-            if isinstance(n, (ast.Import, ast.ImportFrom))
-        ]
+        top_level_imports = [n for n in tree.body if isinstance(n, (ast.Import, ast.ImportFrom))]
         self.assertEqual(top_level_imports, [])
 
 
 # ---------------------------------------------------------------------------
 # Tests: scan_lines / _scan_file_lines (patch-target strings)
 # ---------------------------------------------------------------------------
+
 
 class TestScanLines(TempDirMixin, unittest.TestCase):
     """scan_lines finds patch-target strings in test files.
@@ -393,6 +401,7 @@ class TestScanLines(TempDirMixin, unittest.TestCase):
         )
         p = self._write("tests/test_foo.py", content)
         import re
+
         hits = _scan_file_lines(p, re.compile(r'patch\("example\.dummy\.'))
         self.assertEqual(len(hits), 1)
         self.assertIn("test_foo.py", hits[0])
@@ -402,9 +411,10 @@ class TestScanLines(TempDirMixin, unittest.TestCase):
         content = 'patch("example.dummy.run")\n'
         self._write("notes.txt", content)
         import re
+
         hits = _scan_file_lines(
             os.path.join(self.tmpdir, "notes.txt"),
-            re.compile(r'patch'),
+            re.compile(r"patch"),
         )
         # _scan_file_lines doesn't filter by extension; that's scan_lines's job
         # but it still reads the file and finds the hit
@@ -412,6 +422,7 @@ class TestScanLines(TempDirMixin, unittest.TestCase):
 
     def test_unreadable_file_returns_empty(self):
         import re
+
         hits = _scan_file_lines("/nonexistent/path/file.py", re.compile(r"anything"))
         self.assertEqual(hits, [])
 
@@ -429,6 +440,7 @@ class TestScanLines(TempDirMixin, unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Tests: classify (integration — uses tempfile for real Python source)
 # ---------------------------------------------------------------------------
+
 
 class TestClassify(unittest.TestCase):
     """classify determines whether a module is a pure facade."""
@@ -515,6 +527,7 @@ class TestClassify(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Tests: imports_of (relative-import resolution through a real source file)
 # ---------------------------------------------------------------------------
+
 
 class TestImportsOf(unittest.TestCase):
     """imports_of resolves relative imports to fully-qualified dotted module paths."""

@@ -1,14 +1,25 @@
 """Agentic capsule helpers for the Resume Assistant CLI."""
+
 from __future__ import annotations
 
 import argparse
 
 from core.agentic import (
     build_capsule as _build_capsule,
+)
+from core.agentic import (
     build_cli_tree as _core_build_cli_tree,
+)
+from core.agentic import (
     build_domain_map as _core_build_domain_map,
+)
+from core.agentic import (
     cached_parser_loader as _cached_parser_loader,
+)
+from core.agentic import (
     cli_path_exists as _core_cli_path_exists,
+)
+from core.agentic import (
     tree_and_flow_sections as _tree_and_flow_sections,
 )
 
@@ -39,13 +50,23 @@ def _flow_map() -> str:
     lines: list[str] = []
     if all(_cli_path_exists(cmd) for cmd in [["extract"], ["summarize"], ["render"]]):
         lines.append("- Resume workflow")
-        lines.append("  - Extract: ./bin/assistant resume extract --linkedin data/linkedin.txt --resume data/resume.pdf --out out/profile.json")
-        lines.append("  - Summarize: ./bin/assistant resume summarize --data out/profile.json --seed 'role=SRE,keywords=python;aws'")
-        lines.append("  - Render DOCX: ./bin/assistant resume render --data out/profile.json --template templates/modern.yaml --profile default")
+        lines.append(
+            "  - Extract: ./bin/assistant resume extract --linkedin data/linkedin.txt --resume data/resume.pdf --out out/profile.json"
+        )
+        lines.append(
+            "  - Summarize: ./bin/assistant resume summarize --data out/profile.json --seed 'role=SRE,keywords=python;aws'"
+        )
+        lines.append(
+            "  - Render DOCX: ./bin/assistant resume render --data out/profile.json --template templates/modern.yaml --profile default"
+        )
     if _cli_path_exists(["align"]):
-        lines.append("- Align to job posting: ./bin/assistant resume align --data out/profile.json --job jobs/default.yaml --out out/alignment.yaml")
+        lines.append(
+            "- Align to job posting: ./bin/assistant resume align --data out/profile.json --job jobs/default.yaml --out out/alignment.yaml"
+        )
     if _cli_path_exists(["style"]):
-        lines.append("- Style profile: ./bin/assistant resume style build --corpus-dir corpus/ --out out/style_profile.json")
+        lines.append(
+            "- Style profile: ./bin/assistant resume style build --corpus-dir corpus/ --out out/style_profile.json"
+        )
     # `files`, not `cleanup`: cleanup is the internal module name, and the CLI
     # surface is `files tidy`. The old guard never matched, so this line was
     # never emitted -- which is also why the capsule-drift test could not catch
@@ -82,5 +103,6 @@ def build_domain_map() -> str:
 def emit_agentic_context(_fmt: str = "text", _compact: bool = False) -> int:
     """Emit the agentic capsule (fmt/compact not yet implemented)."""
     from core.cli_output import OutputWriter
+
     OutputWriter().print_data(build_agentic_capsule())
     return 0

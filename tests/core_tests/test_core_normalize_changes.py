@@ -4,6 +4,7 @@ C1 — OutputConfig backward-compat alias
 C3 — OutlookBaseProvider Protocol conformance
 C7 — build_outlook_service consumes OutlookServiceConfig directly
 """
+
 from __future__ import annotations
 
 import unittest
@@ -16,17 +17,20 @@ class TestOutputConfigAlias(unittest.TestCase):
     def test_output_config_is_output_format_config(self):
         """OutputConfig and OutputFormatConfig must be the exact same object."""
         from core.cli_args import OutputConfig, OutputFormatConfig
+
         self.assertIs(OutputConfig, OutputFormatConfig)
 
     def test_output_config_instances_are_output_format_config(self):
         """Instances constructed via the alias are OutputFormatConfig instances."""
         from core.cli_args import OutputConfig, OutputFormatConfig
+
         obj = OutputConfig()
         self.assertIsInstance(obj, OutputFormatConfig)
 
     def test_output_config_fields_accessible(self):
         """OutputConfig exposes the same fields as OutputFormatConfig."""
         from core.cli_args import OutputConfig
+
         cfg = OutputConfig(formats=["text", "json"], default_format="json")
         self.assertEqual(cfg.default_format, "json")
         self.assertEqual(cfg.formats, ["text", "json"])
@@ -58,6 +62,7 @@ class TestOutlookBaseProviderProtocol(unittest.TestCase):
     def test_protocol_exported_from_package(self):
         """OutlookBaseProvider is exported from core.outlook.__init__."""
         from core import outlook as pkg
+
         self.assertIn("OutlookBaseProvider", pkg.__all__)
 
     def test_provider_get_service_callable(self):
@@ -101,7 +106,10 @@ class TestBuildOutlookServiceConsolidation(unittest.TestCase):
 
         mock_resolve.assert_called_once_with("p", "cid", "t", "/t.json")
         mock_context_cls.assert_called_once_with(
-            client_id="cid", tenant="tenant", token_path="/tok.json", profile="p"  # nosec B106 - test fixture path, not a credential
+            client_id="cid",
+            tenant="tenant",
+            token_path="/tok.json",
+            profile="p",  # nosec B106 - test fixture path, not a credential
         )
         mock_service_cls.assert_called_once()
 
@@ -121,7 +129,9 @@ class TestBuildOutlookServiceConsolidation(unittest.TestCase):
         mock_svc = MagicMock(return_value=MagicMock())
 
         build_outlook_service(
-            OutlookServiceConfig(profile="x", client_id="cid3", tenant="t3", token_path="/tok3.json"),  # nosec B106 - test fixture path, not a credential
+            OutlookServiceConfig(
+                profile="x", client_id="cid3", tenant="t3", token_path="/tok3.json"
+            ),  # nosec B106 - test fixture path, not a credential
             context_cls=tracking_context_cls,
             service_cls=mock_svc,
         )

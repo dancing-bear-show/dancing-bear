@@ -49,6 +49,7 @@ _DEFAULT_TIMEOUT: Any = object()
 
 class GhCLI:
     """Thin wrapper around the `gh` CLI for JSON-friendly calls."""
+
     def __init__(
         self,
         run_func: Callable[..., Any] | None = None,
@@ -123,11 +124,15 @@ class GhCLI:
         except json.JSONDecodeError as exc:
             raise GhError(f"gh api {path} returned non-JSON output: {exc}") from exc
         if not isinstance(pages, list):
-            raise GhError(f"gh api {path} returned {type(pages).__name__}, expected a list of pages")
+            raise GhError(
+                f"gh api {path} returned {type(pages).__name__}, expected a list of pages"
+            )
         items: list[Any] = []
         for page in pages:
             if not isinstance(page, list):
-                raise GhError(f"gh api {path} is not a list endpoint (page is {type(page).__name__})")
+                raise GhError(
+                    f"gh api {path} is not a list endpoint (page is {type(page).__name__})"
+                )
             items.extend(page)
         return items
 
@@ -157,7 +162,9 @@ class GhCLI:
             raise GhError(f"gh api POST {path} returned {type(data).__name__}, expected an object")
         return data
 
-    def graphql_checked(self, query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
+    def graphql_checked(
+        self, query: str, variables: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """Run a GraphQL call and return its ``data``, raising on any failure.
 
         ``gh`` exits 0 on an HTTP 200 whose body carries a GraphQL ``errors``

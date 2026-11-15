@@ -69,18 +69,67 @@ __all__ = [
     "quote_context",
 ]
 
-_STRONG_COMMANDS: frozenset[str] = frozenset({
-    "gh", "git", "jq", "curl", "grep", "rg", "sed", "awk",
-    "mkdir", "rm", "cp", "mv", "ls", "cat", "printf", "echo", "cd", "ollama",
-    "launchctl", "qlty", "xargs", "wc", "mktemp", "shasum", "du", "df",
-    "vm_stat", "uv", "pip", "npm", "chmod", "PYTHONPATH",
-})
+_STRONG_COMMANDS: frozenset[str] = frozenset(
+    {
+        "gh",
+        "git",
+        "jq",
+        "curl",
+        "grep",
+        "rg",
+        "sed",
+        "awk",
+        "mkdir",
+        "rm",
+        "cp",
+        "mv",
+        "ls",
+        "cat",
+        "printf",
+        "echo",
+        "cd",
+        "ollama",
+        "launchctl",
+        "qlty",
+        "xargs",
+        "wc",
+        "mktemp",
+        "shasum",
+        "du",
+        "df",
+        "vm_stat",
+        "uv",
+        "pip",
+        "npm",
+        "chmod",
+        "PYTHONPATH",
+    }
+)
 
-_WEAK_COMMANDS: frozenset[str] = frozenset({
-    "make", "test", "find", "sort", "head", "tail", "diff", "touch", "export",
-    "command", "for", "while", "until", "if", "read", "set", "local", "declare",
-    "readonly", "typeset",
-})
+_WEAK_COMMANDS: frozenset[str] = frozenset(
+    {
+        "make",
+        "test",
+        "find",
+        "sort",
+        "head",
+        "tail",
+        "diff",
+        "touch",
+        "export",
+        "command",
+        "for",
+        "while",
+        "until",
+        "if",
+        "read",
+        "set",
+        "local",
+        "declare",
+        "readonly",
+        "typeset",
+    }
+)
 
 # A compound-command head counts only with its body keyword on the same line:
 # Python's ``for x in y:`` / ``if x:`` and prose "for R in $ROOTS" have none.
@@ -122,12 +171,42 @@ _PYTHON_WORD_RE = re.compile(r"^(?:.*/)?python3?(?:\.\d+)?$")
 # and pip"), plus the nouns workflow prose puts there ("a short python3
 # script for", "every python invocation", "use python3 inline"). No script
 # is plausibly named one of these; any other first operand is a script.
-_INTERPRETER_PROSE_WORDS: frozenset[str] = frozenset({
-    "a", "an", "the", "and", "or", "not", "to", "for", "with", "on", "in", "of", "from", "as",
-    "is", "are", "was", "must", "should", "will", "can", "may",
-    "version", "interpreter", "installed", "required",
-    "script", "command", "invocation", "snippet", "inline", "there",
-})
+_INTERPRETER_PROSE_WORDS: frozenset[str] = frozenset(
+    {
+        "a",
+        "an",
+        "the",
+        "and",
+        "or",
+        "not",
+        "to",
+        "for",
+        "with",
+        "on",
+        "in",
+        "of",
+        "from",
+        "as",
+        "is",
+        "are",
+        "was",
+        "must",
+        "should",
+        "will",
+        "can",
+        "may",
+        "version",
+        "interpreter",
+        "installed",
+        "required",
+        "script",
+        "command",
+        "invocation",
+        "snippet",
+        "inline",
+        "there",
+    }
+)
 _PROSE_TRAILING_PUNCTUATION = ".,;:!?"
 # Shells and eval, bare or path-qualified (``/bin/bash``). The guard refuses
 # ``eval``, ``sh -c`` and a shell reading stdin anywhere, so lines they lead
@@ -211,7 +290,7 @@ def _scan(text: str) -> _Scan:
             if ch == "'":
                 result.stack.pop()
         else:
-            _advance(result, top, ch, text[i - 1:i])
+            _advance(result, top, ch, text[i - 1 : i])
     return result
 
 
@@ -247,7 +326,7 @@ def _ends_open(text: str) -> bool:
 def _command_body(line: str) -> str:
     """*line* stripped of surrounding whitespace and a ``$ `` prompt."""
     body = line.strip()
-    return body[len(_PROMPT_PREFIX):] if body.startswith(_PROMPT_PREFIX) else body
+    return body[len(_PROMPT_PREFIX) :] if body.startswith(_PROMPT_PREFIX) else body
 
 
 def _is_command_word(word: str) -> bool:
@@ -294,7 +373,7 @@ def _wrapper_target(body: str) -> str | None:
     word = commands[0].word if commands else None
     if word is None or word.start == 0:
         return None
-    return body[word.start:]
+    return body[word.start :]
 
 
 def _operator_candidates(body: str) -> tuple[bool, list[_Candidate]]:
@@ -323,7 +402,7 @@ def _operator_candidates(body: str) -> tuple[bool, list[_Candidate]]:
     candidates: list[_Candidate] = []
     for tok, nxt in zip(tokens, [*tokens[1:], None]):
         if tok.kind == "op" and tok.text in _JOINING_OPS:
-            candidates.append(_Candidate(body[tok.start + len(tok.text):], scan_operators=False))
+            candidates.append(_Candidate(body[tok.start + len(tok.text) :], scan_operators=False))
         elif tok.kind == "redirect":
             if nxt is not None and nxt.kind == "word" and _is_path_shaped(nxt.raw):
                 return True, []
@@ -440,7 +519,7 @@ def _fence_segments(
             i += 1
             continue
         end = next((j for j in range(i + 1, len(lines)) if _FENCE_RE.match(lines[j])), len(lines))
-        body = lines[i + 1:end]
+        body = lines[i + 1 : end]
         lang, first_line = _fence_lang_and_first_line(m.group(1), m.group(2), m.group(3))
         # The folded-scalar fallback recovers a body line that was collapsed
         # onto the opening marker's own line -- it has no line of its own to
@@ -471,7 +550,7 @@ def _dedent(lines: list[str]) -> list[str]:
 def _strip_indent(line: str, width: int) -> str:
     """*line* with up to *width* leading blanks removed: the indentation its block shares."""
     blanks = len(line) - len(line.lstrip(" \t"))
-    return line[min(blanks, width):]
+    return line[min(blanks, width) :]
 
 
 def _fence_lang_and_first_line(gap: str, tag: str, trailing: str | None) -> tuple[str, str]:
@@ -560,11 +639,11 @@ def _absorb_heredoc_body(
     the block ends the body, while one indented further is body data.
     """
     for delimiter in _heredoc_delimiters("\n".join(chunk)):
-        body = [_strip_indent(line, indent) for line in lines[i + 1:]]
+        body = [_strip_indent(line, indent) for line in lines[i + 1 :]]
         end = next((k for k, line in enumerate(body) if delimiter.closes(line)), None)
         if end is None:
             return i
-        chunk.extend(body[:end + 1])
+        chunk.extend(body[: end + 1])
         consumed.update(range(i + 1, i + end + 2))
         i += end + 1
     return i
@@ -587,9 +666,13 @@ def _span_segments(
             continue
         for m in _BACKTICK_SPAN_RE.finditer(line):
             if is_command_line(m.group(1)):
-                segments.append(ShellSegment(
-                    text=m.group(1).strip(), origin="span", start=line_starts[idx] + m.start(1),
-                ))
+                segments.append(
+                    ShellSegment(
+                        text=m.group(1).strip(),
+                        origin="span",
+                        start=line_starts[idx] + m.start(1),
+                    )
+                )
     return segments
 
 
@@ -649,7 +732,7 @@ def _extract(description: str) -> tuple[list[ShellSegment], list[ShellSegment]]:
         first = line_starts.index(seg.start)
         covered.update(range(first, first + seg.text.count("\n") + 1))
     labels = [
-        ShellSegment(text=line[m.end():].strip(), origin="label", start=line_starts[idx] + m.end())
+        ShellSegment(text=line[m.end() :].strip(), origin="label", start=line_starts[idx] + m.end())
         for idx, line in enumerate(lines)
         if idx not in covered and (m := _LABEL_RE.match(line)) is not None
     ]

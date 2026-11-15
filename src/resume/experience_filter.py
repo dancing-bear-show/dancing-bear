@@ -2,16 +2,20 @@
 
 Uses KeywordMatcher for consistent matching behavior across the codebase.
 """
+
 from __future__ import annotations
 
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 from .keyword_matcher import KeywordMatcher
 from .keyword_normalize import item_match_text
 from .render_config import ExperienceFilterConfig
 
 
-def _score_experience(e: dict[str, Any], matcher: KeywordMatcher, expanded: list[str]) -> tuple[int, dict[str, Any]]:
+def _score_experience(
+    e: dict[str, Any], matcher: KeywordMatcher, expanded: list[str]
+) -> tuple[int, dict[str, Any]]:
     """Score a single experience entry against expanded keywords."""
     score = 0
     title_company = f"{e.get('title', '')} {e.get('company', '')}".strip()
@@ -20,7 +24,9 @@ def _score_experience(e: dict[str, Any], matcher: KeywordMatcher, expanded: list
             score += 1
     bullets = e.get("bullets") or []
     keep_bullets = [
-        b for b in bullets if matcher.matches_any(item_match_text(b), expanded, expand_synonyms=False)
+        b
+        for b in bullets
+        if matcher.matches_any(item_match_text(b), expanded, expand_synonyms=False)
     ]
     if not keep_bullets and bullets:
         keep_bullets = [bullets[0]]

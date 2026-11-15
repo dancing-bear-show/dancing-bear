@@ -5,33 +5,33 @@ Targets the missing lines/branches identified from ``make cov``:
   211-212, 228, 231, 241-242, 246->238, 311-312, 341-342, 351, 409-410, 417,
   432-433
 """
+
 from __future__ import annotations
 
-from typing import Any, cast
-
 import unittest
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
+from mail.outlook.consumers import (
+    OutlookCalendarAddFromConfigPayload,
+    OutlookCalendarAddRecurringPayload,
+    OutlookCategoriesExportPayload,
+    OutlookCategoriesSyncPayload,
+    OutlookFoldersSyncPayload,
+)
 from mail.outlook.processors_calendar import (
-    OutlookCategoriesExportProcessor,
-    OutlookCategoriesSyncProcessor,
     OutlookCalendarAddFromConfigProcessor,
     OutlookCalendarAddRecurringProcessor,
+    OutlookCategoriesExportProcessor,
+    OutlookCategoriesSyncProcessor,
     OutlookFoldersSyncProcessor,
     _entry_name,
 )
-from mail.outlook.consumers import (
-    OutlookCategoriesExportPayload,
-    OutlookCategoriesSyncPayload,
-    OutlookCalendarAddFromConfigPayload,
-    OutlookCalendarAddRecurringPayload,
-    OutlookFoldersSyncPayload,
-)
-
 
 # ---------------------------------------------------------------------------
 # _entry_name helper (lines 74-76)
 # ---------------------------------------------------------------------------
+
 
 class TestEntryName(unittest.TestCase):
     """Tests for _entry_name module-level helper."""
@@ -54,6 +54,7 @@ class TestEntryName(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # OutlookCategoriesExportProcessor (lines 108->110, 122-123)
 # ---------------------------------------------------------------------------
+
 
 class TestCategoriesExportBranches(unittest.TestCase):
     """Coverage for export processor branches."""
@@ -98,6 +99,7 @@ class TestCategoriesExportBranches(unittest.TestCase):
 # OutlookCategoriesSyncProcessor (lines 155-156, 166-171, 179, 181-182, 183->176)
 # ---------------------------------------------------------------------------
 
+
 class TestCategoriesSyncBranches(unittest.TestCase):
     """Coverage for sync processor internal branches."""
 
@@ -105,7 +107,7 @@ class TestCategoriesSyncBranches(unittest.TestCase):
     @patch("mail.dsl.normalize_labels_for_outlook")
     def test_process_error_path(self, mock_norm, mock_load):
         """Exception during sync triggers error envelope (lines 155-156)."""
-        mock_load.side_effect = IOError("file missing")
+        mock_load.side_effect = OSError("file missing")
         payload = OutlookCategoriesSyncPayload(client=MagicMock(), config_path="/missing.yaml")
         envelope = OutlookCategoriesSyncProcessor().process(payload)
 
@@ -125,7 +127,9 @@ class TestCategoriesSyncBranches(unittest.TestCase):
         """_create_one_category without dry_run calls create_label (lines 167-169)."""
         proc = OutlookCategoriesSyncProcessor()
         mock_client = MagicMock()
-        result = proc._create_one_category(mock_client, {"name": "Work", "color": "blue"}, dry_run=False)
+        result = proc._create_one_category(
+            mock_client, {"name": "Work", "color": "blue"}, dry_run=False
+        )
 
         self.assertTrue(result)
         mock_client.create_label.assert_called_once_with("Work", color="blue")
@@ -163,7 +167,9 @@ class TestCategoriesSyncBranches(unittest.TestCase):
         proc = OutlookCategoriesSyncProcessor()
         mock_client = MagicMock()
         existing = {"Work": {"name": "Work"}}
-        created, skipped = proc._sync_categories(mock_client, [{"name": "Work"}], existing, dry_run=True)
+        created, skipped = proc._sync_categories(
+            mock_client, [{"name": "Work"}], existing, dry_run=True
+        )
 
         self.assertEqual(created, 0)
         self.assertEqual(skipped, 1)
@@ -183,6 +189,7 @@ class TestCategoriesSyncBranches(unittest.TestCase):
 # OutlookFoldersSyncProcessor (lines 199, 211-212, 228, 231, 241-242, 246->238)
 # ---------------------------------------------------------------------------
 
+
 class TestFoldersSyncBranches(unittest.TestCase):
     """Coverage for folders sync internal branches."""
 
@@ -199,7 +206,7 @@ class TestFoldersSyncBranches(unittest.TestCase):
     @patch("core.yamlio.load_config")
     def test_process_error_path(self, mock_load):
         """Exception during process triggers error envelope (lines 211-212)."""
-        mock_load.side_effect = IOError("cannot read")
+        mock_load.side_effect = OSError("cannot read")
         payload = OutlookFoldersSyncPayload(client=MagicMock(), config_path="/missing.yaml")
         envelope = OutlookFoldersSyncProcessor().process(payload)
 
@@ -243,7 +250,9 @@ class TestFoldersSyncBranches(unittest.TestCase):
         """Entry with name starting with '[' is skipped (lines 241-242)."""
         proc = OutlookFoldersSyncProcessor()
         mock_client = MagicMock()
-        created, skipped = proc._sync_folders(mock_client, [{"name": "[Category]"}], {}, dry_run=True)
+        created, skipped = proc._sync_folders(
+            mock_client, [{"name": "[Category]"}], {}, dry_run=True
+        )
 
         self.assertEqual(created, 0)
         self.assertEqual(skipped, 1)
@@ -262,7 +271,9 @@ class TestFoldersSyncBranches(unittest.TestCase):
         proc = OutlookFoldersSyncProcessor()
         mock_client = MagicMock()
         mock_client.ensure_folder_path.return_value = ""  # causes False
-        created, skipped = proc._sync_folders(mock_client, [{"name": "NewFolder"}], {}, dry_run=False)
+        created, skipped = proc._sync_folders(
+            mock_client, [{"name": "NewFolder"}], {}, dry_run=False
+        )
 
         self.assertEqual(created, 0)
         self.assertEqual(skipped, 0)
@@ -271,6 +282,7 @@ class TestFoldersSyncBranches(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # OutlookCalendarAddRecurringProcessor (lines 311-312)
 # ---------------------------------------------------------------------------
+
 
 class TestCalendarAddRecurringBranches(unittest.TestCase):
     """Coverage for recurring add processor error path."""
@@ -299,14 +311,17 @@ class TestCalendarAddRecurringBranches(unittest.TestCase):
 # OutlookCalendarAddFromConfigProcessor (lines 341-342, 351, 409-410, 417, 432-433)
 # ---------------------------------------------------------------------------
 
+
 class TestCalendarAddFromConfigBranches(unittest.TestCase):
     """Coverage for add-from-config processor branches."""
 
     @patch("core.yamlio.load_config")
     def test_process_error_path(self, mock_load):
         """Exception from load_config triggers error envelope (lines 341-342)."""
-        mock_load.side_effect = IOError("file not found")
-        payload = OutlookCalendarAddFromConfigPayload(client=MagicMock(), config_path="/missing.yaml")
+        mock_load.side_effect = OSError("file not found")
+        payload = OutlookCalendarAddFromConfigPayload(
+            client=MagicMock(), config_path="/missing.yaml"
+        )
         envelope = OutlookCalendarAddFromConfigProcessor().process(payload)
 
         self.assertEqual(envelope.status, "error")
@@ -328,7 +343,9 @@ class TestCalendarAddFromConfigBranches(unittest.TestCase):
     def test_create_one_event_non_dict_returns_false(self):
         """Non-dict event entry returns False (line 351 branch)."""
         proc = OutlookCalendarAddFromConfigProcessor()
-        result = proc._create_one_event_from_config(cast(Any, "not a dict"), MagicMock(), False)  # cast: exercises non-dict isinstance guard
+        result = proc._create_one_event_from_config(
+            cast(Any, "not a dict"), MagicMock(), False
+        )  # cast: exercises non-dict isinstance guard
 
         self.assertFalse(result)
 

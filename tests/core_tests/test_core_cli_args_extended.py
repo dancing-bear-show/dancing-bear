@@ -6,16 +6,16 @@ import argparse
 import unittest
 
 from core.cli_args import (
-    add_gmail_auth_args,
-    GmailAuthConfig,
-    add_output_args,
-    OutputConfig,
-    add_dry_run_args,
-    add_date_range_args,
-    DateRangeConfig,
-    add_profile_args,
-    add_filter_args,
     ArgumentGroup,
+    DateRangeConfig,
+    GmailAuthConfig,
+    OutputConfig,
+    add_date_range_args,
+    add_dry_run_args,
+    add_filter_args,
+    add_gmail_auth_args,
+    add_output_args,
+    add_profile_args,
 )
 
 
@@ -23,7 +23,9 @@ class TestAddGmailAuthArgs(unittest.TestCase):
     def test_default_config_includes_cache(self):
         parser = argparse.ArgumentParser()
         add_gmail_auth_args(parser)
-        args = parser.parse_args(["--credentials", "c.json", "--token", "t.json", "--cache", "cache.json"])
+        args = parser.parse_args(
+            ["--credentials", "c.json", "--token", "t.json", "--cache", "cache.json"]
+        )
         self.assertEqual(args.credentials, "c.json")
         self.assertEqual(args.token, "t.json")
         self.assertEqual(args.cache, "cache.json")
@@ -253,18 +255,22 @@ class TestAddFilterArgs(unittest.TestCase):
 class TestArgumentGroup(unittest.TestCase):
     def test_add_to_parser_with_tuple(self):
         parser = argparse.ArgumentParser()
-        group = ArgumentGroup([
-            (("--myarg",), {"help": "My argument", "default": "default_val"}),
-        ])
+        group = ArgumentGroup(
+            [
+                (("--myarg",), {"help": "My argument", "default": "default_val"}),
+            ]
+        )
         group.add_to_parser(parser)
         args = parser.parse_args([])
         self.assertEqual(args.myarg, "default_val")
 
     def test_add_to_parser_with_string_tuple(self):
         parser = argparse.ArgumentParser()
-        group = ArgumentGroup([
-            ("--flag", {"action": "store_true"}),
-        ])
+        group = ArgumentGroup(
+            [
+                ("--flag", {"action": "store_true"}),
+            ]
+        )
         group.add_to_parser(parser)
         args = parser.parse_args(["--flag"])
         self.assertTrue(args.flag)

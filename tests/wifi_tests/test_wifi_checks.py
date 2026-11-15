@@ -1,9 +1,11 @@
 """Tests for wifi/diagnostics_probes.py and wifi/diagnostics_report.py — parse, check, format, and run functions."""
+
 from __future__ import annotations
 
 import unittest
 from unittest.mock import MagicMock, patch
 
+from tests.wifi_tests.shared_fixtures import FakeRunner
 from wifi.diagnostics_probes import (
     DnsResult,
     HttpResult,
@@ -49,7 +51,6 @@ from wifi.diagnostics_report import (
     report_to_dict,
 )
 from wifi.diagnostics_runners import CommandResult
-from tests.wifi_tests.shared_fixtures import FakeRunner
 
 
 class TestParseGatewayFromLine(unittest.TestCase):
@@ -92,25 +93,35 @@ class TestExtractGatewayLine(unittest.TestCase):
 
 class TestDetectGateway(unittest.TestCase):
     def test_detects_gateway_from_route(self):
-        runner = FakeRunner({
-            "route": CommandResult(stdout="  gateway: 192.168.1.1\n  interface: en0", stderr="", returncode=0)
-        })
+        runner = FakeRunner(
+            {
+                "route": CommandResult(
+                    stdout="  gateway: 192.168.1.1\n  interface: en0", stderr="", returncode=0
+                )
+            }
+        )
         result = detect_gateway(runner)
         self.assertEqual(result, "192.168.1.1")
 
     def test_falls_back_to_ip_route(self):
-        runner = FakeRunner({
-            "route": CommandResult(stdout="no gateway info", stderr="", returncode=1),
-            "ip": CommandResult(stdout="default via 10.0.0.1 dev eth0", stderr="", returncode=0),
-        })
+        runner = FakeRunner(
+            {
+                "route": CommandResult(stdout="no gateway info", stderr="", returncode=1),
+                "ip": CommandResult(
+                    stdout="default via 10.0.0.1 dev eth0", stderr="", returncode=0
+                ),
+            }
+        )
         result = detect_gateway(runner)
         self.assertEqual(result, "10.0.0.1")
 
     def test_returns_none_when_no_gateway(self):
-        runner = FakeRunner({
-            "route": CommandResult(stdout="", stderr="error", returncode=1),
-            "ip": CommandResult(stdout="", stderr="error", returncode=1),
-        })
+        runner = FakeRunner(
+            {
+                "route": CommandResult(stdout="", stderr="error", returncode=1),
+                "ip": CommandResult(stdout="", stderr="error", returncode=1),
+            }
+        )
         result = detect_gateway(runner)
         self.assertIsNone(result)
 
@@ -119,8 +130,9 @@ class TestCollectWifiInfo(unittest.TestCase):
     def test_uses_airport(self):
         airport_output = "     SSID: MyNetwork\n     BSSID: aa:bb:cc:dd:ee:ff\n     channel: 6\n     agrCtlRSSI: -55\n     agrCtlNoise: -95\n     lastTxRate: 144"
         runner = FakeRunner()
-        runner.responses["/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport"] = \
-            CommandResult(stdout=airport_output, stderr="", returncode=0)
+        runner.responses[
+            "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport"
+        ] = CommandResult(stdout=airport_output, stderr="", returncode=0)
         result = collect_wifi_info(runner)
         self.assertIsNotNone(result)
         self.assertEqual(result.ssid, "MyNetwork")
@@ -128,31 +140,43 @@ class TestCollectWifiInfo(unittest.TestCase):
 
     def test_falls_back_to_nmcli(self):
         nmcli_output = "yes:HomeNetwork:aa:bb:cc:dd:ee:ff:80:130 Mbit/s"
-        runner = FakeRunner({
-            "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport": CommandResult(stdout="", stderr="", returncode=1),
-            "nmcli": CommandResult(stdout=nmcli_output, stderr="", returncode=0),
-        })
+        runner = FakeRunner(
+            {
+                "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport": CommandResult(
+                    stdout="", stderr="", returncode=1
+                ),
+                "nmcli": CommandResult(stdout=nmcli_output, stderr="", returncode=0),
+            }
+        )
         result = collect_wifi_info(runner)
         self.assertIsNotNone(result)
         self.assertEqual(result.source, "nmcli")
 
     def test_falls_back_to_iwconfig(self):
         iwconfig_output = 'wlan0 ESSID:"MyNet" Access Point: 11:22:33:44:55:66 Signal level=-60 dBm'
-        runner = FakeRunner({
-            "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport": CommandResult(stdout="", stderr="", returncode=1),
-            "nmcli": CommandResult(stdout="inactive:none:::", stderr="", returncode=0),
-            "iwconfig": CommandResult(stdout=iwconfig_output, stderr="", returncode=0),
-        })
+        runner = FakeRunner(
+            {
+                "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport": CommandResult(
+                    stdout="", stderr="", returncode=1
+                ),
+                "nmcli": CommandResult(stdout="inactive:none:::", stderr="", returncode=0),
+                "iwconfig": CommandResult(stdout=iwconfig_output, stderr="", returncode=0),
+            }
+        )
         result = collect_wifi_info(runner)
         self.assertIsNotNone(result)
         self.assertEqual(result.source, "iwconfig")
 
     def test_returns_none_when_all_fail(self):
-        runner = FakeRunner({
-            "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport": CommandResult(stdout="", stderr="", returncode=1),
-            "nmcli": CommandResult(stdout="inactive:none:::", stderr="", returncode=0),
-            "iwconfig": CommandResult(stdout="no wireless extensions", stderr="", returncode=0),
-        })
+        runner = FakeRunner(
+            {
+                "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport": CommandResult(
+                    stdout="", stderr="", returncode=1
+                ),
+                "nmcli": CommandResult(stdout="inactive:none:::", stderr="", returncode=0),
+                "iwconfig": CommandResult(stdout="no wireless extensions", stderr="", returncode=0),
+            }
+        )
         result = collect_wifi_info(runner)
         self.assertIsNone(result)
 
@@ -245,7 +269,9 @@ class TestPingTarget(unittest.TestCase):
         self.assertIsNone(result.error)
 
     def test_failed_ping_sets_error(self):
-        runner = FakeRunner({"ping": CommandResult(stdout="", stderr="host unreachable", returncode=1)})
+        runner = FakeRunner(
+            {"ping": CommandResult(stdout="", stderr="host unreachable", returncode=1)}
+        )
         result = ping_target("target", "10.0.0.1", count=3, runner=runner, timeout=5)
         self.assertIsNotNone(result.error)
         self.assertEqual(result.error, "host unreachable")
@@ -303,20 +329,44 @@ class TestCheckGatewayHealth(unittest.TestCase):
         self.assertEqual(result, [])
 
     def test_high_loss(self):
-        p = PingResult(label="gateway", target="192.168.1.1", transmitted=10, received=0,
-                       loss_pct=100.0, min_ms=None, avg_ms=None, max_ms=None)
+        p = PingResult(
+            label="gateway",
+            target="192.168.1.1",
+            transmitted=10,
+            received=0,
+            loss_pct=100.0,
+            min_ms=None,
+            avg_ms=None,
+            max_ms=None,
+        )
         result = _check_gateway_health(p, False)
         self.assertTrue(any("unstable" in f.lower() for f in result))
 
     def test_high_latency(self):
-        p = PingResult(label="gateway", target="192.168.1.1", transmitted=10, received=10,
-                       loss_pct=0.0, min_ms=45.0, avg_ms=60.0, max_ms=80.0)
+        p = PingResult(
+            label="gateway",
+            target="192.168.1.1",
+            transmitted=10,
+            received=10,
+            loss_pct=0.0,
+            min_ms=45.0,
+            avg_ms=60.0,
+            max_ms=80.0,
+        )
         result = _check_gateway_health(p, False)
         self.assertTrue(any("latency" in f.lower() for f in result))
 
     def test_healthy(self):
-        p = PingResult(label="gateway", target="192.168.1.1", transmitted=10, received=10,
-                       loss_pct=0.0, min_ms=1.0, avg_ms=2.0, max_ms=5.0)
+        p = PingResult(
+            label="gateway",
+            target="192.168.1.1",
+            transmitted=10,
+            received=10,
+            loss_pct=0.0,
+            min_ms=1.0,
+            avg_ms=2.0,
+            max_ms=5.0,
+        )
         result = _check_gateway_health(p, False)
         self.assertEqual(result, [])
 
@@ -327,23 +377,53 @@ class TestCheckUpstreamHealth(unittest.TestCase):
         self.assertEqual(result, [])
 
     def test_backhaul_loss(self):
-        upstream = [PingResult(label="8.8.8.8", target="8.8.8.8", transmitted=10, received=9,
-                               loss_pct=10.0, min_ms=20.0, avg_ms=25.0, max_ms=30.0)]
-        gateway = PingResult(label="gateway", target="192.168.1.1", transmitted=10, received=10,
-                             loss_pct=0.0, min_ms=1.0, avg_ms=2.0, max_ms=3.0)
+        upstream = [
+            PingResult(
+                label="8.8.8.8",
+                target="8.8.8.8",
+                transmitted=10,
+                received=9,
+                loss_pct=10.0,
+                min_ms=20.0,
+                avg_ms=25.0,
+                max_ms=30.0,
+            )
+        ]
+        gateway = PingResult(
+            label="gateway",
+            target="192.168.1.1",
+            transmitted=10,
+            received=10,
+            loss_pct=0.0,
+            min_ms=1.0,
+            avg_ms=2.0,
+            max_ms=3.0,
+        )
         result = _check_upstream_health(upstream, gateway)
         self.assertTrue(any("backhaul" in f.lower() or "isp" in f.lower() for f in result))
 
     def test_high_internet_latency(self):
-        upstream = [PingResult(label="8.8.8.8", target="8.8.8.8", transmitted=10, received=10,
-                               loss_pct=0.0, min_ms=100.0, avg_ms=150.0, max_ms=200.0)]
+        upstream = [
+            PingResult(
+                label="8.8.8.8",
+                target="8.8.8.8",
+                transmitted=10,
+                received=10,
+                loss_pct=0.0,
+                min_ms=100.0,
+                avg_ms=150.0,
+                max_ms=200.0,
+            )
+        ]
         result = _check_upstream_health(upstream, None)
         self.assertTrue(any("latency" in f.lower() for f in result))
 
 
 class TestCheckDnsHealth(unittest.TestCase):
     def test_dns_error(self):
-        dns = DnsResult(host="google.com", success=False, addresses=[], elapsed_ms=None, error="SERVFAIL")
+        dns = DnsResult(
+            host="google.com", success=False, addresses=[], elapsed_ms=None, error="SERVFAIL"
+        )
         result = _check_dns_health(dns)
         self.assertTrue(any("SERVFAIL" in f for f in result))
 
@@ -364,17 +444,28 @@ class TestCheckHttpHealth(unittest.TestCase):
         self.assertEqual(result, [])
 
     def test_http_failure(self):
-        http = HttpResult(url="https://test.com", success=False, status=None, elapsed_ms=None, bytes_read=None, error="Connection refused")
+        http = HttpResult(
+            url="https://test.com",
+            success=False,
+            status=None,
+            elapsed_ms=None,
+            bytes_read=None,
+            error="Connection refused",
+        )
         result = _check_http_health(http)
         self.assertTrue(any("failed" in f.lower() for f in result))
 
     def test_slow_http(self):
-        http = HttpResult(url="https://test.com", success=True, status=200, elapsed_ms=1500.0, bytes_read=100)
+        http = HttpResult(
+            url="https://test.com", success=True, status=200, elapsed_ms=1500.0, bytes_read=100
+        )
         result = _check_http_health(http)
         self.assertTrue(any("slow" in f.lower() for f in result))
 
     def test_healthy_http(self):
-        http = HttpResult(url="https://test.com", success=True, status=200, elapsed_ms=200.0, bytes_read=1024)
+        http = HttpResult(
+            url="https://test.com", success=True, status=200, elapsed_ms=200.0, bytes_read=1024
+        )
         result = _check_http_health(http)
         self.assertEqual(result, [])
 
@@ -382,27 +473,69 @@ class TestCheckHttpHealth(unittest.TestCase):
 class TestDeriveFindingsEdgeCases(unittest.TestCase):
     def test_derive_findings_no_issues(self):
         ping_results = [
-            PingResult(label="gateway", target="192.168.1.1", transmitted=10, received=10,
-                       loss_pct=0.0, min_ms=1.0, avg_ms=2.0, max_ms=5.0),
-            PingResult(label="8.8.8.8", target="8.8.8.8", transmitted=10, received=10,
-                       loss_pct=0.0, min_ms=20.0, avg_ms=25.0, max_ms=30.0),
+            PingResult(
+                label="gateway",
+                target="192.168.1.1",
+                transmitted=10,
+                received=10,
+                loss_pct=0.0,
+                min_ms=1.0,
+                avg_ms=2.0,
+                max_ms=5.0,
+            ),
+            PingResult(
+                label="8.8.8.8",
+                target="8.8.8.8",
+                transmitted=10,
+                received=10,
+                loss_pct=0.0,
+                min_ms=20.0,
+                avg_ms=25.0,
+                max_ms=30.0,
+            ),
         ]
         dns = DnsResult(host="google.com", success=True, addresses=["8.8.8.8"], elapsed_ms=10.0)
-        findings = derive_findings(DiagnoseResults(gateway="192.168.1.1", ping_results=ping_results,
-                                   icmp_filtered=False, dns=dns, trace=None, http=None))
+        findings = derive_findings(
+            DiagnoseResults(
+                gateway="192.168.1.1",
+                ping_results=ping_results,
+                icmp_filtered=False,
+                dns=dns,
+                trace=None,
+                http=None,
+            )
+        )
         self.assertTrue(any("healthy" in f.lower() for f in findings))
 
     def test_derive_findings_icmp_filtered_note(self):
         dns = DnsResult(host="google.com", success=True, addresses=["8.8.8.8"], elapsed_ms=10.0)
-        findings = derive_findings(DiagnoseResults(gateway="192.168.1.1", ping_results=[],
-                                   icmp_filtered=True, dns=dns, trace=None, http=None))
+        findings = derive_findings(
+            DiagnoseResults(
+                gateway="192.168.1.1",
+                ping_results=[],
+                icmp_filtered=True,
+                dns=dns,
+                trace=None,
+                http=None,
+            )
+        )
         self.assertTrue(any("icmp" in f.lower() for f in findings))
 
 
 class TestComputeCondition(unittest.TestCase):
     def test_good_condition(self):
-        ping = [PingResult(label="gateway", target="192.168.1.1", transmitted=10, received=10,
-                           loss_pct=0.0, min_ms=1.0, avg_ms=5.0, max_ms=10.0)]
+        ping = [
+            PingResult(
+                label="gateway",
+                target="192.168.1.1",
+                transmitted=10,
+                received=10,
+                loss_pct=0.0,
+                min_ms=1.0,
+                avg_ms=5.0,
+                max_ms=10.0,
+            )
+        ]
         dns = DnsResult(host="google.com", success=True, addresses=["8.8.8.8"], elapsed_ms=10.0)
         result = compute_condition(ping_results=ping, icmp_filtered=False, http=None, dns=dns)
         self.assertEqual(result, "good")
@@ -414,8 +547,18 @@ class TestComputeCondition(unittest.TestCase):
         self.assertEqual(result, "poor")
 
     def test_bad_condition_with_packet_loss(self):
-        ping = [PingResult(label="gateway", target="192.168.1.1", transmitted=10, received=3,
-                           loss_pct=70.0, min_ms=None, avg_ms=None, max_ms=None)]
+        ping = [
+            PingResult(
+                label="gateway",
+                target="192.168.1.1",
+                transmitted=10,
+                received=3,
+                loss_pct=70.0,
+                min_ms=None,
+                avg_ms=None,
+                max_ms=None,
+            )
+        ]
         dns = DnsResult(host="google.com", success=True, addresses=["8.8.8.8"], elapsed_ms=10.0)
         result = compute_condition(ping_results=ping, icmp_filtered=False, http=None, dns=dns)
         self.assertEqual(result, "bad")
@@ -428,7 +571,14 @@ class TestComputeCondition(unittest.TestCase):
     def test_http_bad_degrades_condition(self):
         ping = []
         dns = DnsResult(host="google.com", success=True, addresses=["8.8.8.8"], elapsed_ms=10.0)
-        http = HttpResult(url="https://test.com", success=False, status=None, elapsed_ms=None, bytes_read=None, error="timeout")
+        http = HttpResult(
+            url="https://test.com",
+            success=False,
+            status=None,
+            elapsed_ms=None,
+            bytes_read=None,
+            error="timeout",
+        )
         result = compute_condition(ping_results=ping, icmp_filtered=False, http=http, dns=dns)
         self.assertIn(result, ("poor", "bad"))
 
@@ -440,18 +590,42 @@ class TestDetectIcmpFiltered(unittest.TestCase):
 
     def test_high_gateway_loss_with_upstream_ok(self):
         survey = [
-            PingResult(label="survey-gateway", target="192.168.1.1", transmitted=4, received=0,
-                       loss_pct=100.0, min_ms=None, avg_ms=None, max_ms=None),
-            PingResult(label="survey-8.8.8.8", target="8.8.8.8", transmitted=4, received=4,
-                       loss_pct=0.0, min_ms=20.0, avg_ms=25.0, max_ms=30.0),
+            PingResult(
+                label="survey-gateway",
+                target="192.168.1.1",
+                transmitted=4,
+                received=0,
+                loss_pct=100.0,
+                min_ms=None,
+                avg_ms=None,
+                max_ms=None,
+            ),
+            PingResult(
+                label="survey-8.8.8.8",
+                target="8.8.8.8",
+                transmitted=4,
+                received=4,
+                loss_pct=0.0,
+                min_ms=20.0,
+                avg_ms=25.0,
+                max_ms=30.0,
+            ),
         ]
         result = _detect_icmp_filtered(survey, None)
         self.assertTrue(result)
 
     def test_low_gateway_loss_not_filtered(self):
         survey = [
-            PingResult(label="survey-gateway", target="192.168.1.1", transmitted=4, received=4,
-                       loss_pct=0.0, min_ms=1.0, avg_ms=2.0, max_ms=3.0),
+            PingResult(
+                label="survey-gateway",
+                target="192.168.1.1",
+                transmitted=4,
+                received=4,
+                loss_pct=0.0,
+                min_ms=1.0,
+                avg_ms=2.0,
+                max_ms=3.0,
+            ),
         ]
         result = _detect_icmp_filtered(survey, None)
         self.assertFalse(result)
@@ -459,23 +633,55 @@ class TestDetectIcmpFiltered(unittest.TestCase):
 
 class TestScorePing(unittest.TestCase):
     def test_good_ping(self):
-        p = PingResult(label="x", target="1.1.1.1", transmitted=5, received=5,
-                       loss_pct=0.0, min_ms=1.0, avg_ms=10.0, max_ms=20.0)
+        p = PingResult(
+            label="x",
+            target="1.1.1.1",
+            transmitted=5,
+            received=5,
+            loss_pct=0.0,
+            min_ms=1.0,
+            avg_ms=10.0,
+            max_ms=20.0,
+        )
         self.assertEqual(_score_ping(p), 0)
 
     def test_poor_ping(self):
-        p = PingResult(label="x", target="1.1.1.1", transmitted=5, received=4,
-                       loss_pct=20.0, min_ms=10.0, avg_ms=50.0, max_ms=100.0)
+        p = PingResult(
+            label="x",
+            target="1.1.1.1",
+            transmitted=5,
+            received=4,
+            loss_pct=20.0,
+            min_ms=10.0,
+            avg_ms=50.0,
+            max_ms=100.0,
+        )
         self.assertEqual(_score_ping(p), 1)
 
     def test_bad_ping_no_loss_data(self):
-        p = PingResult(label="x", target="1.1.1.1", transmitted=5, received=0,
-                       loss_pct=None, min_ms=None, avg_ms=None, max_ms=None)
+        p = PingResult(
+            label="x",
+            target="1.1.1.1",
+            transmitted=5,
+            received=0,
+            loss_pct=None,
+            min_ms=None,
+            avg_ms=None,
+            max_ms=None,
+        )
         self.assertEqual(_score_ping(p), 2)
 
     def test_bad_ping_high_latency(self):
-        p = PingResult(label="x", target="1.1.1.1", transmitted=5, received=5,
-                       loss_pct=5.0, min_ms=100.0, avg_ms=250.0, max_ms=400.0)
+        p = PingResult(
+            label="x",
+            target="1.1.1.1",
+            transmitted=5,
+            received=5,
+            loss_pct=5.0,
+            min_ms=100.0,
+            avg_ms=250.0,
+            max_ms=400.0,
+        )
         self.assertEqual(_score_ping(p), 1)
 
 
@@ -497,7 +703,15 @@ class TestLossBar(unittest.TestCase):
 
 class TestFormatWifi(unittest.TestCase):
     def test_full_wifi_info(self):
-        info = WifiInfo(ssid="TestNet", bssid="aa:bb:cc:dd:ee:ff", rssi=-60, noise=-90, tx_rate=150.0, channel="6", source="airport")
+        info = WifiInfo(
+            ssid="TestNet",
+            bssid="aa:bb:cc:dd:ee:ff",
+            rssi=-60,
+            noise=-90,
+            tx_rate=150.0,
+            channel="6",
+            source="airport",
+        )
         result = format_wifi(info)
         self.assertIn("TestNet", result)
         self.assertIn("-60 dBm", result)
@@ -505,21 +719,27 @@ class TestFormatWifi(unittest.TestCase):
         self.assertIn("Channel=6", result)
 
     def test_minimal_wifi_info(self):
-        info = WifiInfo(ssid=None, bssid=None, rssi=None, noise=None, tx_rate=None, channel=None, source="test")
+        info = WifiInfo(
+            ssid=None, bssid=None, rssi=None, noise=None, tx_rate=None, channel=None, source="test"
+        )
         result = format_wifi(info)
         self.assertIn("source=test", result)
 
 
 class TestFormatDns(unittest.TestCase):
     def test_success(self):
-        dns = DnsResult(host="google.com", success=True, addresses=["8.8.8.8", "8.8.4.4"], elapsed_ms=5.0)
+        dns = DnsResult(
+            host="google.com", success=True, addresses=["8.8.8.8", "8.8.4.4"], elapsed_ms=5.0
+        )
         result = format_dns(dns)
         self.assertIn("google.com", result)
         self.assertIn("8.8.8.8", result)
         self.assertIn("5.0 ms", result)
 
     def test_failure(self):
-        dns = DnsResult(host="google.com", success=False, addresses=[], elapsed_ms=10.0, error="NXDOMAIN")
+        dns = DnsResult(
+            host="google.com", success=False, addresses=[], elapsed_ms=10.0, error="NXDOMAIN"
+        )
         result = format_dns(dns)
         self.assertIn("FAILED", result)
         self.assertIn("NXDOMAIN", result)
@@ -532,19 +752,30 @@ class TestFormatDns(unittest.TestCase):
 
 class TestFormatHttp(unittest.TestCase):
     def test_success(self):
-        http = HttpResult(url="https://test.com", success=True, status=200, elapsed_ms=150.0, bytes_read=1024)
+        http = HttpResult(
+            url="https://test.com", success=True, status=200, elapsed_ms=150.0, bytes_read=1024
+        )
         result = format_http(http)
         self.assertIn("200 OK", result)
         self.assertIn("150 ms", result)
         self.assertIn("1024 bytes", result)
 
     def test_success_no_status(self):
-        http = HttpResult(url="https://test.com", success=True, status=None, elapsed_ms=None, bytes_read=None)
+        http = HttpResult(
+            url="https://test.com", success=True, status=None, elapsed_ms=None, bytes_read=None
+        )
         result = format_http(http)
         self.assertIn("ok", result)
 
     def test_failure(self):
-        http = HttpResult(url="https://test.com", success=False, status=None, elapsed_ms=None, bytes_read=None, error="timeout")
+        http = HttpResult(
+            url="https://test.com",
+            success=False,
+            status=None,
+            elapsed_ms=None,
+            bytes_read=None,
+            error="timeout",
+        )
         result = format_http(http)
         self.assertIn("failed", result)
         self.assertIn("timeout", result)
@@ -552,36 +783,89 @@ class TestFormatHttp(unittest.TestCase):
 
 class TestFormatPing(unittest.TestCase):
     def test_with_stats(self):
-        p = PingResult(label="gateway", target="192.168.1.1", transmitted=5, received=5,
-                       loss_pct=0.0, min_ms=1.0, avg_ms=2.5, max_ms=4.0)
+        p = PingResult(
+            label="gateway",
+            target="192.168.1.1",
+            transmitted=5,
+            received=5,
+            loss_pct=0.0,
+            min_ms=1.0,
+            avg_ms=2.5,
+            max_ms=4.0,
+        )
         result = format_ping(p)
         self.assertIn("gateway", result)
         self.assertIn("0.0%", result)
         self.assertIn("2.5 ms", result)
 
     def test_with_error(self):
-        p = PingResult(label="target", target="1.1.1.1", transmitted=5, received=0,
-                       loss_pct=100.0, min_ms=None, avg_ms=None, max_ms=None, error="host unreachable")
+        p = PingResult(
+            label="target",
+            target="1.1.1.1",
+            transmitted=5,
+            received=0,
+            loss_pct=100.0,
+            min_ms=None,
+            avg_ms=None,
+            max_ms=None,
+            error="host unreachable",
+        )
         result = format_ping(p)
         self.assertIn("host unreachable", result)
 
     def test_none_loss(self):
-        p = PingResult(label="target", target="1.1.1.1", transmitted=0, received=0,
-                       loss_pct=None, min_ms=None, avg_ms=None, max_ms=None)
+        p = PingResult(
+            label="target",
+            target="1.1.1.1",
+            transmitted=0,
+            received=0,
+            loss_pct=None,
+            min_ms=None,
+            avg_ms=None,
+            max_ms=None,
+        )
         result = format_ping(p)
         self.assertIn("loss ?:??%", result)
 
 
 class TestRenderReport(unittest.TestCase):
     def test_renders_full_report(self):
-        ping = PingResult(label="gateway", target="192.168.1.1", transmitted=5, received=5,
-                          loss_pct=0.0, min_ms=1.0, avg_ms=2.0, max_ms=5.0)
+        ping = PingResult(
+            label="gateway",
+            target="192.168.1.1",
+            transmitted=5,
+            received=5,
+            loss_pct=0.0,
+            min_ms=1.0,
+            avg_ms=2.0,
+            max_ms=5.0,
+        )
         dns = DnsResult(host="google.com", success=True, addresses=["8.8.8.8"], elapsed_ms=5.0)
-        wifi = WifiInfo(ssid="TestNet", bssid=None, rssi=-55, noise=None, tx_rate=None, channel=None, source="airport")
-        survey = [PingResult(label="survey-gateway", target="192.168.1.1", transmitted=4, received=4,
-                             loss_pct=0.0, min_ms=1.0, avg_ms=2.0, max_ms=3.0)]
+        wifi = WifiInfo(
+            ssid="TestNet",
+            bssid=None,
+            rssi=-55,
+            noise=None,
+            tx_rate=None,
+            channel=None,
+            source="airport",
+        )
+        survey = [
+            PingResult(
+                label="survey-gateway",
+                target="192.168.1.1",
+                transmitted=4,
+                received=4,
+                loss_pct=0.0,
+                min_ms=1.0,
+                avg_ms=2.0,
+                max_ms=3.0,
+            )
+        ]
         trace = TraceResult(target="8.8.8.8", success=True, lines=["1 192.168.1.1 1ms"])
-        http = HttpResult(url="https://test.com", success=True, status=200, elapsed_ms=100.0, bytes_read=512)
+        http = HttpResult(
+            url="https://test.com", success=True, status=200, elapsed_ms=100.0, bytes_read=512
+        )
         report = Report(
             timestamp="2025-01-01 12:00:00",
             gateway="192.168.1.1",
@@ -605,9 +889,16 @@ class TestRenderReport(unittest.TestCase):
     def test_format_report_alias(self):
         dns = DnsResult(host="google.com", success=True, addresses=["8.8.8.8"], elapsed_ms=5.0)
         report = Report(
-            timestamp="2025-01-01", gateway=None, wifi=None,
-            ping_results=[], dns=dns, trace=None, http=None,
-            survey_results=[], findings=[], condition="unknown"
+            timestamp="2025-01-01",
+            gateway=None,
+            wifi=None,
+            ping_results=[],
+            dns=dns,
+            trace=None,
+            http=None,
+            survey_results=[],
+            findings=[],
+            condition="unknown",
         )
         result = format_report(report)
         self.assertIsInstance(result, str)
@@ -616,9 +907,16 @@ class TestRenderReport(unittest.TestCase):
         dns = DnsResult(host="google.com", success=True, addresses=["8.8.8.8"], elapsed_ms=5.0)
         trace = TraceResult(target="8.8.8.8", success=False, lines=[], error="traceroute not found")
         report = Report(
-            timestamp="2025-01-01", gateway=None, wifi=None,
-            ping_results=[], dns=dns, trace=trace, http=None,
-            survey_results=[], findings=["test"], condition="unknown"
+            timestamp="2025-01-01",
+            gateway=None,
+            wifi=None,
+            ping_results=[],
+            dns=dns,
+            trace=trace,
+            http=None,
+            survey_results=[],
+            findings=["test"],
+            condition="unknown",
         )
         result = render_report(report)
         self.assertIn("traceroute not found", result)
@@ -628,9 +926,16 @@ class TestReportToDict(unittest.TestCase):
     def test_converts_report(self):
         dns = DnsResult(host="google.com", success=True, addresses=["8.8.8.8"], elapsed_ms=5.0)
         report = Report(
-            timestamp="2025-01-01", gateway="192.168.1.1", wifi=None,
-            ping_results=[], dns=dns, trace=None, http=None,
-            survey_results=[], findings=["healthy"], condition="good"
+            timestamp="2025-01-01",
+            gateway="192.168.1.1",
+            wifi=None,
+            ping_results=[],
+            dns=dns,
+            trace=None,
+            http=None,
+            survey_results=[],
+            findings=["healthy"],
+            condition="good",
         )
         d = report_to_dict(report)
         self.assertIsInstance(d, dict)
@@ -674,9 +979,19 @@ class TestDnsLookup(unittest.TestCase):
 
 class TestRunDiagnosis(unittest.TestCase):
     def test_full_run_without_wifi_trace_http(self):
-        ping_result = PingResult(label="gateway", target="192.168.1.1", transmitted=4, received=4,
-                                 loss_pct=0.0, min_ms=1.0, avg_ms=2.0, max_ms=3.0)
-        dns_result = DnsResult(host="google.com", success=True, addresses=["8.8.8.8"], elapsed_ms=5.0)
+        ping_result = PingResult(
+            label="gateway",
+            target="192.168.1.1",
+            transmitted=4,
+            received=4,
+            loss_pct=0.0,
+            min_ms=1.0,
+            avg_ms=2.0,
+            max_ms=3.0,
+        )
+        dns_result = DnsResult(
+            host="google.com", success=True, addresses=["8.8.8.8"], elapsed_ms=5.0
+        )
 
         mock_runner = MagicMock()
         mock_runner.run.return_value = CommandResult(stdout="", stderr="", returncode=1)
@@ -696,8 +1011,10 @@ class TestRunDiagnosis(unittest.TestCase):
         def fake_dns(host):
             return dns_result
 
-        with patch("wifi.diagnostics_probes.ping_target", side_effect=fake_ping), \
-             patch("wifi.diagnostics_probes.detect_gateway", return_value="192.168.1.1"):
+        with (
+            patch("wifi.diagnostics_probes.ping_target", side_effect=fake_ping),
+            patch("wifi.diagnostics_probes.detect_gateway", return_value="192.168.1.1"),
+        ):
             report = run_diagnosis(config, runner=mock_runner, resolver=fake_dns)
 
         self.assertEqual(report.gateway, "192.168.1.1")
@@ -708,18 +1025,26 @@ class TestRunDiagnosis(unittest.TestCase):
 
 class TestTraceRoute(unittest.TestCase):
     def test_traceroute_success(self):
-        runner = FakeRunner({
-            "traceroute": CommandResult(stdout="traceroute output\n1 192.168.1.1", stderr="", returncode=0)
-        })
+        runner = FakeRunner(
+            {
+                "traceroute": CommandResult(
+                    stdout="traceroute output\n1 192.168.1.1", stderr="", returncode=0
+                )
+            }
+        )
         result = trace_route("8.8.8.8", runner=runner)
         self.assertTrue(result.success)
         self.assertIn("traceroute output", result.lines)
 
     def test_traceroute_falls_back_to_tracepath(self):
-        runner = FakeRunner({
-            "traceroute": CommandResult(stdout="", stderr="traceroute: not found", returncode=127),
-            "tracepath": CommandResult(stdout="tracepath output", stderr="", returncode=0),
-        })
+        runner = FakeRunner(
+            {
+                "traceroute": CommandResult(
+                    stdout="", stderr="traceroute: not found", returncode=127
+                ),
+                "tracepath": CommandResult(stdout="tracepath output", stderr="", returncode=0),
+            }
+        )
         result = trace_route("8.8.8.8", runner=runner)
         self.assertTrue(result.success)
 

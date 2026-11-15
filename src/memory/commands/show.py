@@ -118,4 +118,3 @@ def run(args: argparse.Namespace) -> int:
         return 0
 
     return emit_one(_build_structured(memory, known_slugs=known_slugs), args.format)
-

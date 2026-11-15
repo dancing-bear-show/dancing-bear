@@ -1,4 +1,5 @@
 """Processors for filters sweep, prune, and token pipelines."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -7,23 +8,24 @@ from core.pipeline import Processor, ResultEnvelope
 
 from ..providers.base import BaseProvider
 from ..utils.filters import (
+    action_to_label_changes,
     build_gmail_query,
     expand_categories,
-    action_to_label_changes,
 )
 from .consumers import (
-    FiltersSweepPayload,
-    FiltersSweepRangePayload,
-    FiltersPrunePayload,
     FiltersAddForwardPayload,
     FiltersAddTokenPayload,
+    FiltersPrunePayload,
     FiltersRemoveTokenPayload,
+    FiltersSweepPayload,
+    FiltersSweepRangePayload,
 )
 
 
 @dataclass
 class SweepConfig:
     """Configuration for sweep operations."""
+
     days: int | None = None
     only_inbox: bool = False
     older_than_days: int | None = None
@@ -49,7 +51,9 @@ class FiltersSweepProcessor(Processor[FiltersSweepPayload, ResultEnvelope[Filter
             _build_sweep_instruction(spec, payload.client, payload.sweep_config)
             for spec in payload.filters
         ]
-        return ResultEnvelope(status="success", payload=FiltersSweepResult(instructions=instructions))
+        return ResultEnvelope(
+            status="success", payload=FiltersSweepResult(instructions=instructions)
+        )
 
 
 @dataclass
@@ -63,7 +67,9 @@ class FiltersSweepRangeResult:
     windows: list[FiltersSweepWindowResult]
 
 
-class FiltersSweepRangeProcessor(Processor[FiltersSweepRangePayload, ResultEnvelope[FiltersSweepRangeResult]]):
+class FiltersSweepRangeProcessor(
+    Processor[FiltersSweepRangePayload, ResultEnvelope[FiltersSweepRangeResult]]
+):
     """Prepare sweep instructions for ranged windows."""
 
     def process(self, payload: FiltersSweepRangePayload) -> ResultEnvelope[FiltersSweepRangeResult]:
@@ -74,8 +80,7 @@ class FiltersSweepRangeProcessor(Processor[FiltersSweepRangePayload, ResultEnvel
             label = f"newer_than:{newer}d older_than:{cur}d"
             config = SweepConfig(days=newer, only_inbox=False, older_than_days=cur)
             instructions = [
-                _build_sweep_instruction(spec, payload.client, config)
-                for spec in payload.filters
+                _build_sweep_instruction(spec, payload.client, config) for spec in payload.filters
             ]
             windows.append(FiltersSweepWindowResult(label=label, instructions=instructions))
             cur += payload.step_days
@@ -127,7 +132,9 @@ class FiltersAddForwardResult:
     destination: str
 
 
-class FiltersAddForwardProcessor(Processor[FiltersAddForwardPayload, ResultEnvelope[FiltersAddForwardResult]]):
+class FiltersAddForwardProcessor(
+    Processor[FiltersAddForwardPayload, ResultEnvelope[FiltersAddForwardResult]]
+):
     """Determine which filters should receive forward actions."""
 
     def process(self, payload: FiltersAddForwardPayload) -> ResultEnvelope[FiltersAddForwardResult]:
@@ -185,7 +192,9 @@ class FiltersAddTokenResult:
     updates: list[FilterTokenUpdate]
 
 
-class FiltersAddTokenProcessor(Processor[FiltersAddTokenPayload, ResultEnvelope[FiltersAddTokenResult]]):
+class FiltersAddTokenProcessor(
+    Processor[FiltersAddTokenPayload, ResultEnvelope[FiltersAddTokenResult]]
+):
     """Compute new 'from' clauses when adding tokens."""
 
     def process(self, payload: FiltersAddTokenPayload) -> ResultEnvelope[FiltersAddTokenResult]:
@@ -227,10 +236,14 @@ class FiltersRemoveTokenResult:
     updates: list[FilterTokenUpdate]
 
 
-class FiltersRemoveTokenProcessor(Processor[FiltersRemoveTokenPayload, ResultEnvelope[FiltersRemoveTokenResult]]):
+class FiltersRemoveTokenProcessor(
+    Processor[FiltersRemoveTokenPayload, ResultEnvelope[FiltersRemoveTokenResult]]
+):
     """Compute new 'from' clauses when removing tokens."""
 
-    def process(self, payload: FiltersRemoveTokenPayload) -> ResultEnvelope[FiltersRemoveTokenResult]:
+    def process(
+        self, payload: FiltersRemoveTokenPayload
+    ) -> ResultEnvelope[FiltersRemoveTokenResult]:
         updates: list[FilterTokenUpdate] = []
         tokens_to_remove = {tok.lower() for tok in payload.tokens}
         matches = _matching_filters_for_token_ops(

@@ -5,16 +5,19 @@ Provides synonym registry and data classes used by KeywordMatcher:
   - SynonymRegistry: synonym management helpers
   - normalize_text: standalone text normalization helper (compat)
 """
+
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Any, Iterable
+from typing import Any
 
 
 @dataclass
 class KeywordInfo:
     """Metadata for a tracked keyword."""
+
     keyword: str
     tier: str = "preferred"  # required, preferred, nice
     weight: int = 1
@@ -24,6 +27,7 @@ class KeywordInfo:
 @dataclass
 class KeywordMatchResult:
     """Result of a keyword match."""
+
     keyword: str
     tier: str
     weight: int
@@ -53,7 +57,7 @@ class SynonymRegistry:
         self._synonyms: dict[str, list[str]] = {}  # canonical -> [aliases]
         self._reverse_map: dict[str, str] = {}  # alias.lower() -> canonical
 
-    def add_synonym(self, canonical: str, alias: str) -> "SynonymRegistry":
+    def add_synonym(self, canonical: str, alias: str) -> SynonymRegistry:
         """Add a single synonym mapping."""
         if canonical not in self._synonyms:
             self._synonyms[canonical] = []
@@ -63,7 +67,7 @@ class SynonymRegistry:
         self._reverse_map[canonical.lower()] = canonical
         return self
 
-    def add_synonyms(self, synonyms: dict[str, list[str]]) -> "SynonymRegistry":
+    def add_synonyms(self, synonyms: dict[str, list[str]]) -> SynonymRegistry:
         """Add multiple synonym mappings."""
         for canonical, aliases in (synonyms or {}).items():
             self._reverse_map[canonical.lower()] = canonical
@@ -138,8 +142,5 @@ def item_match_text(item: Any) -> str:
     """
     if not isinstance(item, dict):
         return str(item or "")
-    values = [
-        str(item.get(key) or "")
-        for key in ("text", "line", "name", "desc", "description")
-    ]
+    values = [str(item.get(key) or "") for key in ("text", "line", "name", "desc", "description")]
     return " ".join(v for v in values if v)

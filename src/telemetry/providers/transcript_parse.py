@@ -14,8 +14,8 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Protocol
 
-from telemetry.timeutil import now_utc, parse_iso_utc
 from telemetry.models import AgentSummary, SessionEvent
+from telemetry.timeutil import now_utc, parse_iso_utc
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +91,9 @@ def extract_cache_creation(usage: dict) -> tuple[int, int]:
         return cache_5m + cache_1h, cache_1h
     total = int_or_zero(cc)
     detail = usage.get("cache_creation")
-    cache_1h = int_or_zero(detail.get("ephemeral_1h_input_tokens")) if isinstance(detail, dict) else 0
+    cache_1h = (
+        int_or_zero(detail.get("ephemeral_1h_input_tokens")) if isinstance(detail, dict) else 0
+    )
     return total, cache_1h
 
 
@@ -103,10 +105,13 @@ def is_billable_usage(model: str, usage: dict, cache_create: int) -> bool:
     """
     if not usage or model == SYNTHETIC_MODEL:
         return False
-    return any(
-        int_or_zero(usage.get(k))
-        for k in ("input_tokens", "output_tokens", "cache_read_input_tokens")
-    ) or cache_create > 0
+    return (
+        any(
+            int_or_zero(usage.get(k))
+            for k in ("input_tokens", "output_tokens", "cache_read_input_tokens")
+        )
+        or cache_create > 0
+    )
 
 
 def collapse_streamed_snapshots(events: list[SessionEvent]) -> list[SessionEvent]:
@@ -172,23 +177,27 @@ def parse_assistant_record(
     cost = 0.0
     billable = is_billable_usage(model, usage, cache_create)
     if billable:
-        cost = compute_cost_fn(model, input_tokens, output_tokens, cache_read, cache_create, cache_1h)
+        cost = compute_cost_fn(
+            model, input_tokens, output_tokens, cache_read, cache_create, cache_1h
+        )
         sequence += 1
-        new_events.append(SessionEvent(
-            timestamp=ts,
-            event_type="api_request",
-            sequence=sequence,
-            session_id=session_id,
-            model=model,
-            cost_usd=cost,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            cache_read_tokens=cache_read,
-            cache_creation_tokens=cache_create,
-            cache_creation_1h_tokens=cache_1h,
-            message_id=msg.get("id"),
-            request_id=record.get("requestId"),
-        ))
+        new_events.append(
+            SessionEvent(
+                timestamp=ts,
+                event_type="api_request",
+                sequence=sequence,
+                session_id=session_id,
+                model=model,
+                cost_usd=cost,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cache_read_tokens=cache_read,
+                cache_creation_tokens=cache_create,
+                cache_creation_1h_tokens=cache_1h,
+                message_id=msg.get("id"),
+                request_id=record.get("requestId"),
+            )
+        )
 
     tool_blocks = [b for b in content if isinstance(b, dict) and b.get("type") == "tool_use"]
     per_tool_cost = cost / len(tool_blocks) if billable and tool_blocks else 0.0
@@ -200,17 +209,19 @@ def parse_assistant_record(
         if tool_name == "Agent":
             agent_tool_inputs[tool_id] = tool_input
         sequence += 1
-        new_events.append(SessionEvent(
-            timestamp=ts,
-            event_type="tool_use",
-            sequence=sequence,
-            session_id=session_id,
-            tool_name=tool_name,
-            tool_input=tool_input,
-            model=model,
-            cost_usd=per_tool_cost,
-            cost_is_estimated=True,
-        ))
+        new_events.append(
+            SessionEvent(
+                timestamp=ts,
+                event_type="tool_use",
+                sequence=sequence,
+                session_id=session_id,
+                tool_name=tool_name,
+                tool_input=tool_input,
+                model=model,
+                cost_usd=per_tool_cost,
+                cost_is_estimated=True,
+            )
+        )
 
     return new_events, sequence
 
@@ -290,7 +301,7 @@ def parse_session_file(
     agent_tool_inputs: dict[str, dict] = {}
     sequence = 0
 
-    with open(path, "r", encoding="utf-8") as fh:
+    with open(path, encoding="utf-8") as fh:
         for raw_line in fh:
             raw_line = raw_line.strip()
             if not raw_line:

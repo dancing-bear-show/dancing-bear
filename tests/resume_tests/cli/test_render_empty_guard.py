@@ -26,6 +26,7 @@ class TestHasResumeContent(unittest.TestCase):
     def _fn(self, data: dict) -> bool:
         from resume.cli.cmd_render import _has_resume_content
         from resume.schema import Resume
+
         return _has_resume_content(Resume.from_dict(data))
 
     def test_empty_resume_has_no_content(self):
@@ -60,6 +61,7 @@ class TestCmdRenderEmptyGuard(unittest.TestCase):
 
     def _make_args(self, out: str, **overrides):
         import argparse
+
         args = argparse.Namespace(
             data="data.json",  # non-None so _resolve_data returns immediately
             template=None,
@@ -88,9 +90,9 @@ class TestCmdRenderEmptyGuard(unittest.TestCase):
         self, mock_read, mock_template, mock_filter, mock_structure, mock_write
     ) -> None:
         """An empty resume raises CLIError before write_resume_docx is called."""
+        from core.cli_errors import CLIError, ExitCode
         from resume.cli.cmd_render import cmd_render
         from resume.schema import Resume
-        from core.cli_errors import CLIError, ExitCode
 
         mock_filter.return_value = Resume.from_dict({})
         args = self._make_args(out="out.docx")
@@ -111,9 +113,9 @@ class TestCmdRenderEmptyGuard(unittest.TestCase):
         self, mock_read, mock_template, mock_filter, mock_structure, mock_write
     ) -> None:
         """The CLIError message hints at --data and --profile."""
+        from core.cli_errors import CLIError
         from resume.cli.cmd_render import cmd_render
         from resume.schema import Resume
-        from core.cli_errors import CLIError
 
         mock_filter.return_value = Resume.from_dict({})
         args = self._make_args(out="out.docx")
@@ -172,6 +174,7 @@ class TestExtractThenRenderUnknownProfile(TempDirMixin, unittest.TestCase):
     def test_render_with_unknown_profile_renders_base_data(self):
         """render --profile X with no overlay dir still renders the --data content."""
         import io
+
         from resume.cli.main import main
         from tests.resume_tests.fixtures import make_candidate
 
@@ -182,6 +185,7 @@ class TestExtractThenRenderUnknownProfile(TempDirMixin, unittest.TestCase):
         data_dir.mkdir()
         data_file = data_dir / "data.json"
         import json
+
         data_file.write_text(json.dumps(make_candidate()))
 
         out_file = Path(self.tmpdir) / "resume.docx"
@@ -190,12 +194,17 @@ class TestExtractThenRenderUnknownProfile(TempDirMixin, unittest.TestCase):
         with self.in_tmpdir():
             with patch.dict(os.environ, {"DANCING_BEAR_CONFIG_HOME": str(empty_home)}):
                 with patch("sys.stderr", buf):
-                    exit_code = main([
-                        "render",
-                        "--data", str(data_file),
-                        "--profile", "nonexistent_profile_xyz",
-                        "--out", str(out_file),
-                    ])
+                    exit_code = main(
+                        [
+                            "render",
+                            "--data",
+                            str(data_file),
+                            "--profile",
+                            "nonexistent_profile_xyz",
+                            "--out",
+                            str(out_file),
+                        ]
+                    )
 
         # The warning must name the profile
         self.assertIn("nonexistent_profile_xyz", buf.getvalue())

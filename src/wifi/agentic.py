@@ -1,11 +1,20 @@
 """Agentic capsule builders for the Wi-Fi Assistant CLI."""
+
 from __future__ import annotations
 
 from core.agentic import (
     build_capsule as _build_capsule,
+)
+from core.agentic import (
     build_cli_tree as _core_build_cli_tree,
+)
+from core.agentic import (
     build_domain_map as _core_build_domain_map,
+)
+from core.agentic import (
     cached_parser_loader as _cached_parser_loader,
+)
+from core.agentic import (
     tree_and_flow_sections as _tree_and_flow_sections,
 )
 

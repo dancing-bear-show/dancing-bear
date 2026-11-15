@@ -18,7 +18,6 @@ from workflow.shell_text import (
     quote_context,
 )
 
-
 # ---------------------------------------------------------------------------
 # Shell-text extraction and serialisation
 # ---------------------------------------------------------------------------
@@ -34,7 +33,7 @@ class TestExtractShellSegments(unittest.TestCase):
             "  ./bin/github pr view --pr 1\n"
             "Then run `git status --short` and read `outputs/x.json`.\n"
             "```bash\nmake test\n```\n"
-            "```json\n{\"a\": 1}\n```\n"
+            '```json\n{"a": 1}\n```\n'
         )
         texts = self._texts(desc)
         self.assertIn("./bin/github pr view --pr 1", texts)
@@ -44,7 +43,9 @@ class TestExtractShellSegments(unittest.TestCase):
         self.assertFalse(any('"a"' in t for t in texts), msg="json fence is not shell")
 
     def test_continuation_and_open_quote_pull_lines_in(self) -> None:
-        desc = "  HOST=$(./bin/workflow check-params m.json \\\n    --print ollama_host) || exit 1\n"
+        desc = (
+            "  HOST=$(./bin/workflow check-params m.json \\\n    --print ollama_host) || exit 1\n"
+        )
         self.assertEqual(len(self._texts(desc)), 1)
         self.assertIn("--print ollama_host", self._texts(desc)[0])
 
@@ -57,7 +58,9 @@ class TestExtractShellSegments(unittest.TestCase):
         # read as shell before this; so was prose quoting `for R in $ROOTS`.
         self.assertEqual(self._texts("  for parser in PARSERS:\n"), [])
         self.assertEqual(self._texts("Note `for R in $ROOTS` splits.\n"), [])
-        self.assertEqual(self._texts("  for p in a b; do echo $p; done\n"), ["for p in a b; do echo $p; done"])
+        self.assertEqual(
+            self._texts("  for p in a b; do echo $p; done\n"), ["for p in a b; do echo $p; done"]
+        )
 
     def test_prose_line_closing_a_paren_is_not_shell(self) -> None:
         self.assertEqual(self._texts("  git add -A) and run /open-pr with a title\n"), [])
@@ -65,7 +68,7 @@ class TestExtractShellSegments(unittest.TestCase):
     def test_fence_marker_alone_on_its_line_is_still_recognized(self) -> None:
         # Happy path: a normal fence, unaffected by folded-scalar collapsing,
         # still yields one fence segment with all its body lines intact.
-        desc = "```bash\necho setup\nfor p in items; do echo \"$p\"; done\n```\n"
+        desc = '```bash\necho setup\nfor p in items; do echo "$p"; done\n```\n'
         segments = extract_shell_segments(desc)
         fence_segments = [s for s in segments if s.origin == "fence"]
         self.assertEqual(len(fence_segments), 1)
@@ -102,7 +105,9 @@ class TestExtractShellSegments(unittest.TestCase):
         self.assertEqual(len(fence_segments), 1)
         self.assertEqual(fence_segments[0].text, 'echo setup\nfor p in items; do echo "$p"; done')
 
-    def test_folded_scalar_collapsed_unlabelled_fence_with_prose_first_line_stays_silent(self) -> None:
+    def test_folded_scalar_collapsed_unlabelled_fence_with_prose_first_line_stays_silent(
+        self,
+    ) -> None:
         # Sibling near-miss: when the collapsed first line is NOT a command
         # (prose, not a recognised command word), the fence must still be
         # rejected as non-shell -- the fix must not turn every unlabelled
@@ -151,8 +156,11 @@ class TestExtractShellSegments(unittest.TestCase):
     def test_python_tagged_fences_stay_non_shell(self) -> None:
         # Happy path: a glued "```python" tag, and the spaced "``` python"
         # language tag, are still Python fences.
-        for desc in ("```python\nprint(1)\n```\n", "``` python\nprint(1)\n```\n",
-                     "``` python\nimport os\n```\n"):
+        for desc in (
+            "```python\nprint(1)\n```\n",
+            "``` python\nprint(1)\n```\n",
+            "``` python\nimport os\n```\n",
+        ):
             with self.subTest(desc=desc):
                 self.assertEqual(extract_shell_segments(desc), [])
 
@@ -163,16 +171,26 @@ class TestExtractShellSegments(unittest.TestCase):
 
     def test_bare_script_with_further_operands_is_a_command_line(self) -> None:
         # PR #437 thread PRRT_kwDOQr1kjM6nGwUo.
-        for line in ("python3 runner input", "python3 runner --flag",
-                     "python3 tools/gen.py a b", "python3 -m pkg x"):
+        for line in (
+            "python3 runner input",
+            "python3 runner --flag",
+            "python3 tools/gen.py a b",
+            "python3 -m pkg x",
+        ):
             with self.subTest(line=line):
                 self.assertEqual(self._texts(f"  {line}\n"), [line])
 
     def test_interpreter_prose_is_not_a_command_line(self) -> None:
-        for line in ("python3 is required", "python3 is required for this step",
-                     "python must be 3.11 or newer", "python3 must be installed",
-                     "python3 and pip", "Python 3.11 or newer", "python 3.11 or newer",
-                     "python3 is."):
+        for line in (
+            "python3 is required",
+            "python3 is required for this step",
+            "python must be 3.11 or newer",
+            "python3 must be installed",
+            "python3 and pip",
+            "Python 3.11 or newer",
+            "python 3.11 or newer",
+            "python3 is.",
+        ):
             with self.subTest(line=line):
                 self.assertEqual(self._texts(f"  {line}\n"), [])
 
@@ -191,9 +209,14 @@ class TestExtractShellSegments(unittest.TestCase):
         # PR #437 "Previously missed" finding: wrappers parse_shell sees
         # through (WRAPPER_NAMES) now lead a command line when what they run
         # is itself a command.
-        for line in ("env FOO=1 python3 -c 'print(1)'", "timeout 5 python3 run.py",
-                     "timeout 1200 ./bin/github pr checks --pr 1", "nohup git fetch",
-                     "time -p make -C src lint", "command rm -f x"):
+        for line in (
+            "env FOO=1 python3 -c 'print(1)'",
+            "timeout 5 python3 run.py",
+            "timeout 1200 ./bin/github pr checks --pr 1",
+            "nohup git fetch",
+            "time -p make -C src lint",
+            "command rm -f x",
+        ):
             with self.subTest(line=line):
                 self.assertEqual(self._texts(f"  {line}\n"), [line])
 
@@ -201,16 +224,22 @@ class TestExtractShellSegments(unittest.TestCase):
         # Happy path: the words that follow a wrapper-shaped English word are
         # prose, so the line is too. The last three are real lines from
         # workflows/code/qwen-local-handler.yaml and qwen-admin.yaml.
-        for line in ("env vars must be set before the run", "time to wait for CI",
-                     "time regardless of lock state.", "timeout to interrupt a blocked handler",
-                     "timeout — so the exposure is seconds rather than minutes,",
-                     "nice to have: a faster runner"):
+        for line in (
+            "env vars must be set before the run",
+            "time to wait for CI",
+            "time regardless of lock state.",
+            "timeout to interrupt a blocked handler",
+            "timeout — so the exposure is seconds rather than minutes,",
+            "nice to have: a faster runner",
+        ):
             with self.subTest(line=line):
                 self.assertEqual(self._texts(f"  {line}\n"), [])
 
     def test_assignment_and_if_lines_are_commands(self) -> None:
         self.assertEqual(self._texts("  export FOO=1\n"), ["export FOO=1"])
-        self.assertEqual(self._texts("  if true; then echo ok; fi\n"), ["if true; then echo ok; fi"])
+        self.assertEqual(
+            self._texts("  if true; then echo ok; fi\n"), ["if true; then echo ok; fi"]
+        )
         self.assertEqual(self._texts("  if the gate fails, stop\n"), [])
 
     def test_quote_context_handles_nested_substitution(self) -> None:
@@ -225,7 +254,9 @@ class TestExtractShellSegments(unittest.TestCase):
         # "python"/"python3", or a path ending in "/python3", were recognised
         # -- a versioned interpreter like python3.11 was silently treated as
         # prose and extracted no segment at all.
-        self.assertEqual(self._texts("  python3.11 tools/run_checks\n"), ["python3.11 tools/run_checks"])
+        self.assertEqual(
+            self._texts("  python3.11 tools/run_checks\n"), ["python3.11 tools/run_checks"]
+        )
         self.assertEqual(
             self._texts("  /usr/bin/python3.12 -c 'print(1)'\n"),
             ["/usr/bin/python3.12 -c 'print(1)'"],
@@ -237,7 +268,8 @@ class TestExtractShellSegments(unittest.TestCase):
         # the regex-based versioned check.
         self.assertEqual(self._texts("  python3 -c 'print(1)'\n"), ["python3 -c 'print(1)'"])
         self.assertEqual(
-            self._texts("  /usr/bin/python3 -c 'print(1)'\n"), ["/usr/bin/python3 -c 'print(1)'"],
+            self._texts("  /usr/bin/python3 -c 'print(1)'\n"),
+            ["/usr/bin/python3 -c 'print(1)'"],
         )
 
     def test_heredoc_body_is_included_in_the_line_segment(self) -> None:
@@ -277,9 +309,14 @@ class TestExtractShellSegments(unittest.TestCase):
         # Copilot "Previously missed" on shell_text.py:286: the interpreter
         # prose exception judged only `is`, so the rm after the operator was
         # never extracted and every rule missed it.
-        for line in ("python3 is; rm -rf scratch", "python3 is && rm -rf scratch",
-                     "python3 is || rm -rf scratch", "python3 is | grep x",
-                     "python3 is $(rm -rf scratch)", "python3 is > /dev/null"):
+        for line in (
+            "python3 is; rm -rf scratch",
+            "python3 is && rm -rf scratch",
+            "python3 is || rm -rf scratch",
+            "python3 is | grep x",
+            "python3 is $(rm -rf scratch)",
+            "python3 is > /dev/null",
+        ):
             with self.subTest(line=line):
                 self.assertEqual(self._texts(f"  {line}\n"), [line])
 
@@ -293,10 +330,16 @@ class TestExtractShellSegments(unittest.TestCase):
         # Happy path: English interpreter lines, including ones whose
         # punctuation lexes as an operator not followed by a command, and
         # operators inside quotes or a comment.
-        for line in ("python3 is required", "Note: python3 is fast", "python3 is fast; use it",
-                     "python3 script for the aggregation; it is deterministic.",
-                     "python 3.11 or newer (>= 3.11)", 'python3 is "x; rm y"',
-                     "python3 is # a; rm x", "timeout to interrupt a handler; read job_runtime before"):
+        for line in (
+            "python3 is required",
+            "Note: python3 is fast",
+            "python3 is fast; use it",
+            "python3 script for the aggregation; it is deterministic.",
+            "python 3.11 or newer (>= 3.11)",
+            'python3 is "x; rm y"',
+            "python3 is # a; rm x",
+            "timeout to interrupt a handler; read job_runtime before",
+        ):
             with self.subTest(line=line):
                 self.assertEqual(self._texts(f"  {line}\n"), [])
 
@@ -313,8 +356,10 @@ class TestExtractShellSegments(unittest.TestCase):
         # Happy path: a few joins are still judged text by text; only a line
         # needing more than the bound is called shell without judging the rest.
         self.assertEqual(self._texts("  python3 is; python3 is fast; it is fine\n"), [])
-        self.assertEqual(self._texts("  python3 is; python3 is fast; rm -rf x\n"),
-                         ["python3 is; python3 is fast; rm -rf x"])
+        self.assertEqual(
+            self._texts("  python3 is; python3 is fast; rm -rf x\n"),
+            ["python3 is; python3 is fast; rm -rf x"],
+        )
         many = "python3 is; " * 100 + "it is fine"
         self.assertEqual(self._texts(f"  {many}\n"), [many])
 
@@ -322,19 +367,34 @@ class TestExtractShellSegments(unittest.TestCase):
         # PR #437 thread PRRT_kwDOQr1kjM6njyuh: is_command_line knew no shell
         # or eval, so these were extracted only when fenced. A path-qualified
         # shell is judged by its basename.
-        for line in ("bash -s name", "/bin/bash < script", 'eval "$CMD"', "eval $(ssh-agent -s)",
-                     "sh -c 'echo hi'", "zsh -f run.zsh", "/usr/bin/env bash -s", "bash run.sh",
-                     "dash < f", "ksh ./setup", "sh is; rm -rf scratch"):
+        for line in (
+            "bash -s name",
+            "/bin/bash < script",
+            'eval "$CMD"',
+            "eval $(ssh-agent -s)",
+            "sh -c 'echo hi'",
+            "zsh -f run.zsh",
+            "/usr/bin/env bash -s",
+            "bash run.sh",
+            "dash < f",
+            "ksh ./setup",
+            "sh is; rm -rf scratch",
+        ):
             with self.subTest(line=line):
                 self.assertEqual(self._texts(f"  {line}\n"), [line])
 
     def test_prose_led_by_a_shell_word_is_not_a_command_line(self) -> None:
         # Happy path: the reviewer's prose, plus the two workflow lines that
         # start with "bash" (review-fix-threads.yaml, telemetry-review.yaml).
-        for line in ("sh is the default shell", "eval is dangerous", "bash scripts should be short",
-                     "bash when 16 were, and the composed reply described a code line",
-                     "bash commands and error text, which is where secrets most often appear in",
-                     "bash", "eval"):
+        for line in (
+            "sh is the default shell",
+            "eval is dangerous",
+            "bash scripts should be short",
+            "bash when 16 were, and the composed reply described a code line",
+            "bash commands and error text, which is where secrets most often appear in",
+            "bash",
+            "eval",
+        ):
             with self.subTest(line=line):
                 self.assertEqual(self._texts(f"  {line}\n"), [])
 
@@ -351,14 +411,15 @@ class TestExtractShellSegments(unittest.TestCase):
         # Happy path: YAML descriptions indent shell under prose, so a closer
         # indented with its command line ends the body, in a line segment and
         # in a fence; the next line is outside it.
-        for desc in ("Write it:\n\n    cat > f <<'EOF'\n    {x}\n    EOF\n    echo after\n",
-                     "Write it:\n\n    ```bash\n    cat > f <<'EOF'\n    {x}\n    EOF\n    echo after\n    ```\n"):
+        for desc in (
+            "Write it:\n\n    cat > f <<'EOF'\n    {x}\n    EOF\n    echo after\n",
+            "Write it:\n\n    ```bash\n    cat > f <<'EOF'\n    {x}\n    EOF\n    echo after\n    ```\n",
+        ):
             with self.subTest(desc=desc):
                 segments = extract_shell_segments(desc)
                 script_text = "\n".join(s.text for s in segments)
                 self.assertIn("cat > f <<'EOF'\n{x}\nEOF", script_text)
                 self.assertIn("echo after", script_text)
-
 
 
 class TestRuleSerialisation(unittest.TestCase):

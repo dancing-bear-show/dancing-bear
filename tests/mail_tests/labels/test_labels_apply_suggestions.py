@@ -7,6 +7,7 @@ from tests.mail_tests.fixtures import FakeGmailClient, make_args
 
 class ConstructableFakeGmailClient(FakeGmailClient):
     """FakeGmailClient that accepts constructor args."""
+
     def __init__(self, credentials_path: str, token_path: str, cache_dir=None):
         super().__init__()
         self.credentials_path = credentials_path

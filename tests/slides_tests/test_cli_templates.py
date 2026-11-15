@@ -26,9 +26,8 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
+from slides.cli import _list_pptx_layouts, cmd_templates
 from tests.fixtures import capture_stdout
-
-from slides.cli import cmd_templates, _list_pptx_layouts
 
 
 def _make_templates_args(**overrides: object):
@@ -52,8 +51,7 @@ def _create_minimal_pptx(path: str, layout_names: list[str] | None = None) -> No
     with zipfile.ZipFile(path, "w") as zf:
         for idx, name in enumerate(layout_names, 1):
             xml_content = (
-                f'<?xml version="1.0" encoding="UTF-8"?>'
-                f'<p:cSld name="{name}"><p:spTree/></p:cSld>'
+                f'<?xml version="1.0" encoding="UTF-8"?><p:cSld name="{name}"><p:spTree/></p:cSld>'
             ).encode()
             zf.writestr(f"ppt/slideLayouts/slideLayout{idx}.xml", xml_content)
 

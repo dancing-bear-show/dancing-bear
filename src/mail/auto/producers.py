@@ -1,9 +1,10 @@
 """Producers for auto pipelines."""
+
 from __future__ import annotations
 
 from core.pipeline import BaseProducer
 
-from .processors import AutoProposeResult, AutoSummaryResult, AutoApplyResult
+from .processors import AutoApplyResult, AutoProposeResult, AutoSummaryResult
 
 
 class AutoProposeProducer(BaseProducer):

@@ -11,6 +11,8 @@ from core.cli_output import emit_one
 from core.paths import output_dir
 from core.pipeline import (
     BaseProducer as _CoreBaseProducer,
+)
+from core.pipeline import (
     RequestConsumer,
     ResultEnvelope,
     SafeProcessor,
@@ -143,9 +145,7 @@ class ExportProcessor(SafeProcessor[ExportRequest, ExportResult]):
 
 
 class ExportProducer(BaseProducer):
-    def _produce_success(
-        self, payload: ExportResult, diagnostics: dict[str, Any] | None
-    ) -> None:
+    def _produce_success(self, payload: ExportResult, diagnostics: dict[str, Any] | None) -> None:
         write_yaml(payload.document, payload.out_path)
         print(f"Wrote layout export to {payload.out_path}")
 
@@ -174,9 +174,7 @@ class PlanProcessor(SafeProcessor[PlanRequest, PlanResult]):
 
 
 class PlanProducer(BaseProducer):
-    def _produce_success(
-        self, payload: PlanResult, diagnostics: dict[str, Any] | None
-    ) -> None:
+    def _produce_success(self, payload: PlanResult, diagnostics: dict[str, Any] | None) -> None:
         write_yaml(payload.document, payload.out_path)
         print(f"Wrote plan scaffold to {payload.out_path}")
 
@@ -258,9 +256,7 @@ class UnusedProcessor(SafeProcessor[UnusedRequest, UnusedResult]):
 
 
 class UnusedProducer(BaseProducer):
-    def _produce_success(
-        self, payload: UnusedResult, diagnostics: dict[str, Any] | None
-    ) -> None:
+    def _produce_success(self, payload: UnusedResult, diagnostics: dict[str, Any] | None) -> None:
         rows = payload.rows
         if payload.format == "csv":
             self._writer.print("app,score,location")
@@ -287,7 +283,9 @@ class PruneRequest:
     limit: int = 50
     threshold: float = 1.0
     mode: str = "offload"  # "offload" or "delete"
-    out_path: Path = field(default_factory=lambda: output_dir("phone") / "ios.unused.prune_checklist.txt")
+    out_path: Path = field(
+        default_factory=lambda: output_dir("phone") / "ios.unused.prune_checklist.txt"
+    )
 
 
 PruneRequestConsumer = RequestConsumer[PruneRequest]
@@ -314,9 +312,7 @@ class PruneProcessor(SafeProcessor[PruneRequest, PruneResult]):
         lines.append("")
         lines.append("Instructions:")
         if payload.mode == "offload":
-            lines.append(
-                "1) Settings → General → iPhone Storage → search for app → Offload App"
-            )
+            lines.append("1) Settings → General → iPhone Storage → search for app → Offload App")
             lines.append("   or long‑press app icon → Remove App → Offload App")
         else:
             lines.append("1) Long‑press app icon → Remove App → Delete App")
@@ -330,9 +326,7 @@ class PruneProcessor(SafeProcessor[PruneRequest, PruneResult]):
 
 
 class PruneProducer(BaseProducer):
-    def _produce_success(
-        self, payload: PruneResult, diagnostics: dict[str, Any] | None
-    ) -> None:
+    def _produce_success(self, payload: PruneResult, diagnostics: dict[str, Any] | None) -> None:
         out = payload.out_path
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text("\n".join(payload.lines) + "\n", encoding="utf-8")
@@ -378,9 +372,7 @@ class AnalyzeProcessor(SafeProcessor[AnalyzeRequest, AnalyzeResult]):
 
 
 class AnalyzeProducer(BaseProducer):
-    def _produce_success(
-        self, payload: AnalyzeResult, diagnostics: dict[str, Any] | None
-    ) -> None:
+    def _produce_success(self, payload: AnalyzeResult, diagnostics: dict[str, Any] | None) -> None:
         metrics = payload.metrics
 
         if payload.format == "json":
@@ -399,9 +391,7 @@ class AnalyzeProducer(BaseProducer):
             )
         print(f"Folders: {metrics['totals']['folders']}")
         if metrics.get("folders"):
-            top = sorted(
-                metrics["folders"], key=lambda x: x.get("app_count", 0), reverse=True
-            )[:5]
+            top = sorted(metrics["folders"], key=lambda x: x.get("app_count", 0), reverse=True)[:5]
             for f in top:
                 print(f"  - {f['name']} (page {f['page']}, {f['app_count']} apps)")
         if metrics.get("duplicates"):
@@ -437,7 +427,7 @@ class ExportDeviceResult:
 
 class ExportDeviceProcessor(SafeProcessor[ExportDeviceRequest, ExportDeviceResult]):
     def _process_safe(self, payload: ExportDeviceRequest) -> ExportDeviceResult:
-        from .device import find_cfgutil_path, map_udid_to_ecid, export_from_device
+        from .device import export_from_device, find_cfgutil_path, map_udid_to_ecid
 
         cfgutil = find_cfgutil_path()
         ecid = payload.ecid
@@ -481,6 +471,7 @@ class IconmapResult:
 class IconmapProcessor(SafeProcessor[IconmapRequest, IconmapResult]):
     def _process_safe(self, payload: IconmapRequest) -> IconmapResult:
         import subprocess as _sp  # nosec B404
+
         from .device import find_cfgutil_path, map_udid_to_ecid
 
         cfgutil = find_cfgutil_path()
@@ -504,9 +495,7 @@ class IconmapProcessor(SafeProcessor[IconmapRequest, IconmapResult]):
 
 
 class IconmapProducer(BaseProducer):
-    def _produce_success(
-        self, payload: IconmapResult, diagnostics: dict[str, Any] | None
-    ) -> None:
+    def _produce_success(self, payload: IconmapResult, diagnostics: dict[str, Any] | None) -> None:
         payload.out_path.parent.mkdir(parents=True, exist_ok=True)
         payload.out_path.write_bytes(payload.data)
         print(f"Wrote icon map to {payload.out_path}")

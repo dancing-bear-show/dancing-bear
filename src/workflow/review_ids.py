@@ -138,12 +138,14 @@ def thread_fingerprints(threads_path: str | Path) -> list[ThreadFingerprint]:
         first = _first_comment(thread)
         body = first.get("body")
         thread_id = thread.get("thread_id")
-        rows.append(ThreadFingerprint(
-            index=index,
-            thread_id=thread_id if isinstance(thread_id, str) else None,
-            database_id=_db_id(first.get("database_id")),
-            body_fingerprint=body_fingerprint(body) if isinstance(body, str) else None,
-        ))
+        rows.append(
+            ThreadFingerprint(
+                index=index,
+                thread_id=thread_id if isinstance(thread_id, str) else None,
+                database_id=_db_id(first.get("database_id")),
+                body_fingerprint=body_fingerprint(body) if isinstance(body, str) else None,
+            )
+        )
     return rows
 
 
@@ -181,8 +183,9 @@ def _index_entries(index_path: str | Path) -> list[tuple[str, dict[str, Any]]]:
         if not isinstance(data, dict) or not isinstance(data.get("threads"), list):
             raise ValueError(f"{index_path}: items[{i}].data.threads is not a JSON list")
         for j, entry in enumerate(data["threads"]):
-            entries.append((f"items[{i}].data.threads[{j}]",
-                            entry if isinstance(entry, dict) else {}))
+            entries.append(
+                (f"items[{i}].data.threads[{j}]", entry if isinstance(entry, dict) else {})
+            )
     return entries
 
 
@@ -205,17 +208,22 @@ def check_fix_index(index_path: str | Path) -> FixIndexResult:
     for where, entry in entries:
         for failure in (
             _unique_string_failure("id", entry.get("id"), where, seen_ids, None),
-            _unique_string_failure("file_id", entry.get("file_id"), where, seen_files,
-                                   FILE_ID_PATTERN),
+            _unique_string_failure(
+                "file_id", entry.get("file_id"), where, seen_files, FILE_ID_PATTERN
+            ),
         ):
             if failure:
                 failures.append(failure)
     return FixIndexResult(checked=len(entries), failures=tuple(failures))
 
 
-def _unique_string_failure(field_name: str, value: object, where: str,
-                           first_seen: dict[str, str],
-                           pattern: re.Pattern[str] | None) -> str | None:
+def _unique_string_failure(
+    field_name: str,
+    value: object,
+    where: str,
+    first_seen: dict[str, str],
+    pattern: re.Pattern[str] | None,
+) -> str | None:
     if value is None or value == "":
         return f"{where}: {field_name} is missing"
     if not isinstance(value, str):
@@ -294,12 +302,16 @@ def _fetch_map(threads_path: str | Path) -> dict[str, dict[str, Any]]:
         if thread_id is None:
             continue
         if not isinstance(thread_id, str) or thread_id in by_id:
-            raise ValueError(f"{threads_path}: threads[{index}] has a non-string or repeated thread_id")
+            raise ValueError(
+                f"{threads_path}: threads[{index}] has a non-string or repeated thread_id"
+            )
         by_id[thread_id] = thread
     return by_id
 
 
-def _recorded_and_fetched(kind: object, entry: dict[str, Any], fetched: dict[str, Any]) -> tuple[str | None, str | None]:
+def _recorded_and_fetched(
+    kind: object, entry: dict[str, Any], fetched: dict[str, Any]
+) -> tuple[str | None, str | None]:
     """Return (value triage recorded, value the fetch holds) for ``kind``, as text."""
     first = _first_comment(fetched)
     if kind == DISCRIMINATOR_DATABASE_ID:
@@ -330,13 +342,18 @@ def _discriminator_issue(entry: dict[str, Any], fetched: dict[str, Any]) -> str 
     return None if held == truth else ISSUE_MISMATCH
 
 
-def _relabel(index: int, thread_id: str, entry: dict[str, Any], fetched: dict[str, Any]) -> Relabel | None:
+def _relabel(
+    index: int, thread_id: str, entry: dict[str, Any], fetched: dict[str, Any]
+) -> Relabel | None:
     if (entry.get("path"), entry.get("line")) == (fetched.get("path"), fetched.get("line")):
         return None
     return Relabel(
-        index=index, thread_id=thread_id,
-        old_path=entry.get("path"), old_line=entry.get("line"),
-        path=fetched.get("path"), line=fetched.get("line"),
+        index=index,
+        thread_id=thread_id,
+        old_path=entry.get("path"),
+        old_line=entry.get("line"),
+        path=fetched.get("path"),
+        line=fetched.get("line"),
     )
 
 
@@ -391,11 +408,13 @@ def apply_relabels(triage_path: str | Path, relabels: tuple[Relabel, ...]) -> No
     for r in relabels:
         entries[r.index]["path"] = r.path
         entries[r.index]["line"] = r.line
-        repairs.append({
-            "thread_id": r.thread_id,
-            "from": {"path": r.old_path, "line": r.old_line},
-            "to": {"path": r.path, "line": r.line},
-        })
+        repairs.append(
+            {
+                "thread_id": r.thread_id,
+                "from": {"path": r.old_path, "line": r.old_line},
+                "to": {"path": r.path, "line": r.line},
+            }
+        )
     doc["_id_repairs"] = repairs
     atomic_write_json(triage_path, doc)
 
@@ -505,8 +524,9 @@ def _test_file_of(test_id: str) -> str | None:
     return path
 
 
-def _files_changed(results: tuple[dict[str, Any], ...],
-                   scopes: dict[str, str | None]) -> tuple[list[str], list[dict[str, Any]]]:
+def _files_changed(
+    results: tuple[dict[str, Any], ...], scopes: dict[str, str | None]
+) -> tuple[list[str], list[dict[str, Any]]]:
     """Every file a fixer edited: its files_changed plus its tests' files.
 
     The fixer schema records tests as test ids, not paths, and a fixer that
@@ -664,9 +684,12 @@ def _expected_findings(index_path: str | Path) -> list[_Expected]:
     if not gate.ok:
         raise ValueError(f"{index_path}: fix-index gate fails; run check-fix-index")
     return [
-        _Expected(id=entry["id"], file_id=entry["file_id"], thread_id=entry.get("thread_id"),
-                  scope=scope)
-        for (_, entry), scope in zip(_index_entries(index_path), _entry_scopes(index_path), strict=True)
+        _Expected(
+            id=entry["id"], file_id=entry["file_id"], thread_id=entry.get("thread_id"), scope=scope
+        )
+        for (_, entry), scope in zip(
+            _index_entries(index_path), _entry_scopes(index_path), strict=True
+        )
     ]
 
 
@@ -686,8 +709,9 @@ def _mismatch(stem: str, obj: dict[str, Any] | None, reason: str) -> dict[str, A
     }
 
 
-def _identity_failure(stem: str, obj: dict[str, Any] | None,
-                      expected: dict[str, _Expected]) -> str | None:
+def _identity_failure(
+    stem: str, obj: dict[str, Any] | None, expected: dict[str, _Expected]
+) -> str | None:
     """Why a result file cannot be credited to the finding its name claims."""
     if obj is None:
         return "not a readable JSON object"

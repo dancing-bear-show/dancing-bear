@@ -81,13 +81,13 @@ if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
 from _argtype_common import _STATS  # noqa: E402
+from _argtype_scan import scan_test_files  # noqa: E402
 from _argtype_signatures import (  # noqa: E402
     _collect_class_sigs,
     _collect_params,
     _has_staticmethod_decorator,
     collect_signatures,
 )
-from _argtype_scan import scan_test_files  # noqa: E402
 from _argtype_types import _is_mismatch  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -115,6 +115,7 @@ TEST_ROOT = os.environ.get("TEST_ROOT", "tests")
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
 
 def main(argv: list[str]) -> int:
     src_root = argv[1] if len(argv) > 1 else SRC_ROOT

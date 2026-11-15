@@ -4,17 +4,17 @@ import unittest
 import unittest.mock
 
 from core.secrets import (
-    mask_headers,
-    mask_url,
-    mask_text,
     _mask_value,
+    mask_headers,
+    mask_text,
+    mask_url,
 )
 
 
 class MaskValueTests(unittest.TestCase):
     def test_empty_value(self):
         self.assertEqual(_mask_value(""), "")
-        self.assertIsNone(_mask_value(None))  # NOSONAR - intentional None test for defensive handling
+        self.assertIsNone(_mask_value(None))  # NOSONAR - intentional None test for defensive handling  # fmt: skip
 
     def test_bearer_token(self):
         self.assertEqual(_mask_value("Bearer abc123"), "Bearer ***REDACTED***")
@@ -77,7 +77,7 @@ class MaskHeadersTests(unittest.TestCase):
 class MaskUrlTests(unittest.TestCase):
     def test_empty_url(self):
         self.assertEqual(mask_url(""), "")
-        self.assertEqual(mask_url(None), "")  # NOSONAR - intentional None test for defensive handling
+        self.assertEqual(mask_url(None), "")  # NOSONAR - intentional None test for defensive handling  # fmt: skip
 
     def test_none_on_the_urlsplit_failure_path(self):
         """None must survive the except branch, not just the happy path.
@@ -130,7 +130,7 @@ class MaskUrlTests(unittest.TestCase):
 class MaskTextTests(unittest.TestCase):
     def test_empty_text(self):
         self.assertEqual(mask_text(""), "")
-        self.assertEqual(mask_text(None), "")  # NOSONAR - intentional None test for defensive handling
+        self.assertEqual(mask_text(None), "")  # NOSONAR - intentional None test for defensive handling  # fmt: skip
 
     def test_authorization_bearer(self):
         text = "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
@@ -417,9 +417,7 @@ class TestBareCredentialPairs(unittest.TestCase):
     def test_password_style_keys_are_masked(self):
         for key in ("password", "passwd", "secret", "client_secret", "private_key"):
             with self.subTest(key=key):
-                self.assertNotIn(
-                    self.SECRET, mask_text(f"{key}={self.SECRET}")
-                )
+                self.assertNotIn(self.SECRET, mask_text(f"{key}={self.SECRET}"))
 
     def test_dot_separated_spelling_is_masked(self):
         self.assertNotIn(self.SECRET, mask_text(f"api.key={self.SECRET}"))
@@ -460,19 +458,23 @@ class TestJsonFieldSpellings(unittest.TestCase):
     def test_api_secret_json_field_is_masked(self):
         for key in ("api_secret", "api-secret", "api.secret"):
             with self.subTest(key=key):
-                self.assertNotIn(
-                    self.SECRET, mask_text(f'{{"{key}": "{self.SECRET}"}}')
-                )
+                self.assertNotIn(self.SECRET, mask_text(f'{{"{key}": "{self.SECRET}"}}'))
 
     def test_other_sensitive_json_fields_are_masked(self):
         for key in (
-            "api_key", "api_token", "token", "access_token", "refresh_token",
-            "secret", "client_secret", "private_key", "password", "passwd",
+            "api_key",
+            "api_token",
+            "token",
+            "access_token",
+            "refresh_token",
+            "secret",
+            "client_secret",
+            "private_key",
+            "password",
+            "passwd",
         ):
             with self.subTest(key=key):
-                self.assertNotIn(
-                    self.SECRET, mask_text(f'{{"{key}": "{self.SECRET}"}}')
-                )
+                self.assertNotIn(self.SECRET, mask_text(f'{{"{key}": "{self.SECRET}"}}'))
 
     def test_benign_json_fields_survive(self):
         payload = '{"api_version": "2", "name": "widget"}'
@@ -532,9 +534,7 @@ class TestHeaderMaskingUsesSharedPolicy(unittest.TestCase):
     """
 
     def test_vendor_token_header_is_masked(self):
-        out = mask_headers(
-            {"Authorization": "Bearer devtok", "Music-User-Token": "usertok456"}
-        )
+        out = mask_headers({"Authorization": "Bearer devtok", "Music-User-Token": "usertok456"})
         self.assertNotIn("usertok456", str(out))
         self.assertNotIn("devtok", str(out))
 

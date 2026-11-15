@@ -7,10 +7,12 @@ Provides the matching and scoring logic used by KeywordMatcher:
   - collect_matches_from_candidate / score_experience_roles: bulk operations
   - keyword_match: standalone match helper (compat)
 """
+
 from __future__ import annotations
 
 import re
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 from resume.keyword_normalize import (
     KeywordInfo,
@@ -30,6 +32,7 @@ def keyword_match(
 ) -> bool:
     """Check if keyword matches in text (standalone function)."""
     from resume.keyword_matcher import KeywordMatcher
+
     matcher = KeywordMatcher()
     return matcher.match_keyword(text, keyword, normalize=normalize, word_boundary=word_boundary)
 
@@ -59,7 +62,7 @@ class KeywordMatchEngine(SynonymRegistry):
         tier: str = "preferred",
         weight: int = 1,
         category: str | None = None,
-    ) -> "KeywordMatchEngine":
+    ) -> KeywordMatchEngine:
         """Register a keyword with metadata."""
         canon = self.canonicalize(keyword)
         self._keywords[canon] = KeywordInfo(
@@ -76,28 +79,28 @@ class KeywordMatchEngine(SynonymRegistry):
         tier: str = "preferred",
         weight: int = 1,
         category: str | None = None,
-    ) -> "KeywordMatchEngine":
+    ) -> KeywordMatchEngine:
         """Register multiple keywords with the same metadata."""
         for kw in keywords or []:
             if kw:
                 self.add_keyword(kw, tier=tier, weight=weight, category=category)
         return self
 
-    def _add_keyword_item(
-        self, item: Any, tier: str, category: str | None = None
-    ) -> None:
+    def _add_keyword_item(self, item: Any, tier: str, category: str | None = None) -> None:
         """Add a single keyword item from a spec."""
         if isinstance(item, dict):
             kw = item.get("skill") or item.get("name") or ""
             if kw:
-                self.add_keyword(kw, tier=tier, weight=int(item.get("weight", 1)), category=category)
+                self.add_keyword(
+                    kw, tier=tier, weight=int(item.get("weight", 1)), category=category
+                )
         elif isinstance(item, str) and item:
             self.add_keyword(item, tier=tier, category=category)
 
     def add_keywords_from_spec(
         self,
         spec: dict[str, Any],
-    ) -> "KeywordMatchEngine":
+    ) -> KeywordMatchEngine:
         """Register keywords from a job/keyword spec."""
         for tier in ("required", "preferred", "nice"):
             for item in spec.get(tier, []) or []:
@@ -163,10 +166,16 @@ class KeywordMatchEngine(SynonymRegistry):
         results: list[KeywordMatchResult] = []
         for canon, info in self._keywords.items():
             if self._keyword_hits(text, canon, expand_synonyms=expand_synonyms):
-                results.append(KeywordMatchResult(
-                    keyword=canon, tier=info.tier, weight=info.weight,
-                    category=info.category, count=1, contexts=[text],
-                ))
+                results.append(
+                    KeywordMatchResult(
+                        keyword=canon,
+                        tier=info.tier,
+                        weight=info.weight,
+                        category=info.category,
+                        count=1,
+                        contexts=[text],
+                    )
+                )
         return results
 
     def find_matching_keywords(
@@ -178,7 +187,10 @@ class KeywordMatchEngine(SynonymRegistry):
             if not kw:
                 continue
             canon = self.canonicalize(kw)
-            if self._keyword_hits(text, kw, expand_synonyms=expand_synonyms) and canon not in matched:
+            if (
+                self._keyword_hits(text, kw, expand_synonyms=expand_synonyms)
+                and canon not in matched
+            ):
                 matched.append(canon)
         return matched
 
@@ -204,8 +216,12 @@ class KeywordMatchEngine(SynonymRegistry):
     def _make_match_result(self, canon: str) -> KeywordMatchResult:
         info = self._keywords.get(canon, KeywordInfo(keyword=canon))
         return KeywordMatchResult(
-            keyword=canon, tier=info.tier, weight=info.weight,
-            category=info.category, count=0, contexts=[],
+            keyword=canon,
+            tier=info.tier,
+            weight=info.weight,
+            category=info.category,
+            count=0,
+            contexts=[],
         )
 
     def _record_match(
@@ -235,16 +251,16 @@ class KeywordMatchEngine(SynonymRegistry):
                     results, item_match_text(bullet), f"exp[{i}].bullet"
                 )
 
-    def collect_matches_from_candidate(self, candidate: dict[str, Any]) -> dict[str, KeywordMatchResult]:
+    def collect_matches_from_candidate(
+        self, candidate: dict[str, Any]
+    ) -> dict[str, KeywordMatchResult]:
         """Collect all keyword matches from a candidate profile."""
         results: dict[str, KeywordMatchResult] = {}
         summary = _summary_text(candidate.get("summary"))
         if summary:
             self._match_text_against_keywords(results, summary, "summary")
         for skill in candidate.get("skills") or []:
-            self._match_text_against_keywords(
-                results, item_match_text(skill), "skills"
-            )
+            self._match_text_against_keywords(results, item_match_text(skill), "skills")
         self._collect_exp_matches(results, candidate)
         return results
 
@@ -263,15 +279,16 @@ class KeywordMatchEngine(SynonymRegistry):
         role_score = self._score_title(title_text)
         for bullet in exp.get("bullets") or []:
             text = item_match_text(bullet)
-            if any(self._keyword_hits(text, canon, expand_synonyms=True) for canon in self._keywords):
+            if any(
+                self._keyword_hits(text, canon, expand_synonyms=True) for canon in self._keywords
+            ):
                 role_score += 1
         return role_score
 
     def score_experience_roles(self, candidate: dict[str, Any]) -> list[tuple[int, int]]:
         """Score each experience role by keyword matches."""
         scores = [
-            (i, self._score_role(exp))
-            for i, exp in enumerate(candidate.get("experience") or [])
+            (i, self._score_role(exp)) for i, exp in enumerate(candidate.get("experience") or [])
         ]
         scores.sort(key=lambda t: t[1], reverse=True)
         return scores

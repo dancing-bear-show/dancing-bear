@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from tests.fixtures import test_path
-from tests.resume_tests.fixtures import make_docx_paragraph_side_effect
 import unittest
 from unittest.mock import MagicMock, patch
+
+from tests.fixtures import test_path
+from tests.resume_tests.fixtures import make_docx_paragraph_side_effect
 
 
 class TestMatchSectionKey(unittest.TestCase):
@@ -13,39 +14,46 @@ class TestMatchSectionKey(unittest.TestCase):
 
     def test_matches_summary_variants(self):
         from resume.docx_writer import _match_section_key
+
         self.assertEqual(_match_section_key("Summary"), "summary")
         self.assertEqual(_match_section_key("profile"), "summary")
         self.assertEqual(_match_section_key("ABOUT"), "summary")
 
     def test_matches_skills_variants(self):
         from resume.docx_writer import _match_section_key
+
         self.assertEqual(_match_section_key("Skills"), "skills")
         self.assertEqual(_match_section_key("TECHNICAL SKILLS"), "skills")
 
     def test_matches_technologies(self):
         from resume.docx_writer import _match_section_key
+
         self.assertEqual(_match_section_key("Technologies"), "technologies")
         self.assertEqual(_match_section_key("technology"), "technologies")
         self.assertEqual(_match_section_key("tools"), "technologies")
 
     def test_matches_experience_variants(self):
         from resume.docx_writer import _match_section_key
+
         self.assertEqual(_match_section_key("Experience"), "experience")
         self.assertEqual(_match_section_key("work history"), "experience")
         self.assertEqual(_match_section_key("employment"), "experience")
 
     def test_matches_education_variants(self):
         from resume.docx_writer import _match_section_key
+
         self.assertEqual(_match_section_key("Education"), "education")
         self.assertEqual(_match_section_key("academics"), "education")
 
     def test_returns_none_for_unknown(self):
         from resume.docx_writer import _match_section_key
+
         self.assertIsNone(_match_section_key("Unknown Section"))
         self.assertIsNone(_match_section_key("Certifications"))
 
     def test_strips_whitespace(self):
         from resume.docx_writer import _match_section_key
+
         self.assertEqual(_match_section_key("  Summary  "), "summary")
 
 
@@ -54,18 +62,21 @@ class TestGetHeaderLevel(unittest.TestCase):
 
     def test_returns_from_sec_if_present(self):
         from resume.docx_writer import _get_header_level
+
         sec = {"header_level": 2}
         result = _get_header_level(sec, None)
         self.assertEqual(result, 2)
 
     def test_returns_from_page_cfg_if_sec_missing(self):
         from resume.docx_writer import _get_header_level
+
         page_cfg = {"header_level": 3}
         result = _get_header_level(None, page_cfg)
         self.assertEqual(result, 3)
 
     def test_prefers_sec_over_page_cfg(self):
         from resume.docx_writer import _get_header_level
+
         sec = {"header_level": 2}
         page_cfg = {"header_level": 3}
         result = _get_header_level(sec, page_cfg)
@@ -73,11 +84,13 @@ class TestGetHeaderLevel(unittest.TestCase):
 
     def test_defaults_to_1_if_missing(self):
         from resume.docx_writer import _get_header_level
+
         result = _get_header_level(None, None)
         self.assertEqual(result, 1)
 
     def test_handles_invalid_header_level(self):
         from resume.docx_writer import _get_header_level
+
         sec = {"header_level": "not-a-number"}
         result = _get_header_level(sec, None)
         self.assertEqual(result, 1)
@@ -89,6 +102,7 @@ class TestExtractExperienceLocations(unittest.TestCase):
     def test_extracts_unique_locations(self):
         from resume.docx_writer import _extract_experience_locations
         from resume.schema import Resume
+
         data = {
             "experience": [
                 {"title": "Engineer", "location": "Seattle, WA"},
@@ -102,6 +116,7 @@ class TestExtractExperienceLocations(unittest.TestCase):
     def test_handles_empty_locations(self):
         from resume.docx_writer import _extract_experience_locations
         from resume.schema import Resume
+
         # `location` is declared str, but an explicit null in the source file
         # survives as None -- the helper must coerce rather than crash.
         data = {
@@ -117,6 +132,7 @@ class TestExtractExperienceLocations(unittest.TestCase):
     def test_handles_missing_experience(self):
         from resume.docx_writer import _extract_experience_locations
         from resume.schema import Resume
+
         data = {}
         result = _extract_experience_locations(Resume.from_dict(data))
         self.assertEqual(result, [])
@@ -124,6 +140,7 @@ class TestExtractExperienceLocations(unittest.TestCase):
     def test_handles_none_experience(self):
         from resume.docx_writer import _extract_experience_locations
         from resume.schema import Resume
+
         # experience: None is coerced to an empty list by the schema.
         data = {"experience": None}
         result = _extract_experience_locations(Resume.from_dict(data))
@@ -132,6 +149,7 @@ class TestExtractExperienceLocations(unittest.TestCase):
     def test_preserves_order(self):
         from resume.docx_writer import _extract_experience_locations
         from resume.schema import Resume
+
         data = {
             "experience": [
                 {"location": "A"},
@@ -149,6 +167,7 @@ class TestGetContactField(unittest.TestCase):
     def test_returns_top_level_field(self):
         from resume.docx_writer import _get_contact_field
         from resume.schema import Resume
+
         data = {"email": "test@example.com"}
         result = _get_contact_field(Resume.from_dict(data), "email")
         self.assertEqual(result, "test@example.com")
@@ -156,6 +175,7 @@ class TestGetContactField(unittest.TestCase):
     def test_returns_nested_contact_field(self):
         from resume.docx_writer import _get_contact_field
         from resume.schema import Resume
+
         # Resume.from_dict promotes contact.email to resume.email when the
         # top-level key is absent, so the field is accessible either way.
         data = {"contact": {"email": "nested@example.com"}}
@@ -165,6 +185,7 @@ class TestGetContactField(unittest.TestCase):
     def test_prefers_top_level_over_nested(self):
         from resume.docx_writer import _get_contact_field
         from resume.schema import Resume
+
         data = {
             "email": "top@example.com",
             "contact": {"email": "nested@example.com"},
@@ -175,6 +196,7 @@ class TestGetContactField(unittest.TestCase):
     def test_returns_empty_if_missing(self):
         from resume.docx_writer import _get_contact_field
         from resume.schema import Resume
+
         data = {}
         result = _get_contact_field(Resume.from_dict(data), "email")
         self.assertEqual(result, "")
@@ -186,6 +208,7 @@ class TestCollectLinkExtras(unittest.TestCase):
     def test_collects_website_linkedin_github(self):
         from resume.docx_writer import _collect_link_extras
         from resume.schema import Resume
+
         data = {
             "website": "https://example.com",
             "linkedin": "https://linkedin.com/in/johndoe",
@@ -197,6 +220,7 @@ class TestCollectLinkExtras(unittest.TestCase):
     def test_collects_from_nested_contact(self):
         from resume.docx_writer import _collect_link_extras
         from resume.schema import Resume
+
         # website is not in _CONTACT_PROMOTED, so it stays in resume.contact
         # and is read via the contact dict fallback in _get_contact_field.
         data = {
@@ -210,6 +234,7 @@ class TestCollectLinkExtras(unittest.TestCase):
     def test_collects_from_links_list(self):
         from resume.docx_writer import _collect_link_extras
         from resume.schema import Resume
+
         data = {
             "links": ["https://portfolio.com", "https://blog.com"],
         }
@@ -219,6 +244,7 @@ class TestCollectLinkExtras(unittest.TestCase):
     def test_handles_empty_data(self):
         from resume.docx_writer import _collect_link_extras
         from resume.schema import Resume
+
         data = {}
         result = _collect_link_extras(Resume.from_dict(data))
         self.assertEqual(result, [])
@@ -229,6 +255,7 @@ class TestResolveSections(unittest.TestCase):
 
     def test_returns_template_sections_by_default(self):
         from resume.docx_writer import _resolve_sections
+
         template = {
             "sections": [
                 {"key": "summary", "title": "Summary"},
@@ -241,6 +268,7 @@ class TestResolveSections(unittest.TestCase):
 
     def test_respects_structure_order(self):
         from resume.docx_writer import _resolve_sections
+
         template = {
             "sections": [
                 {"key": "summary", "title": "Summary"},
@@ -257,6 +285,7 @@ class TestResolveSections(unittest.TestCase):
 
     def test_uses_custom_titles_from_structure(self):
         from resume.docx_writer import _resolve_sections
+
         template = {"sections": [{"key": "skills", "title": "Skills"}]}
         structure = {
             "order": ["skills"],
@@ -268,6 +297,7 @@ class TestResolveSections(unittest.TestCase):
 
     def test_handles_empty_sections(self):
         from resume.docx_writer import _resolve_sections
+
         template = {"sections": []}
         result = _resolve_sections(template, None)
         self.assertEqual(result, [])
@@ -278,6 +308,7 @@ class TestSectionRenderers(unittest.TestCase):
 
     def test_has_expected_renderers(self):
         from resume.docx_writer import SECTION_RENDERERS
+
         expected_keys = [
             "summary",
             "skills",
@@ -299,11 +330,13 @@ class TestSectionsWithKeywords(unittest.TestCase):
 
     def test_includes_expected_sections(self):
         from resume.docx_writer import SECTIONS_WITH_KEYWORDS
+
         self.assertIn("summary", SECTIONS_WITH_KEYWORDS)
         self.assertIn("experience", SECTIONS_WITH_KEYWORDS)
 
     def test_excludes_other_sections(self):
         from resume.docx_writer import SECTIONS_WITH_KEYWORDS
+
         self.assertNotIn("skills", SECTIONS_WITH_KEYWORDS)
         self.assertNotIn("education", SECTIONS_WITH_KEYWORDS)
 
@@ -315,6 +348,7 @@ class TestWriteResumeDocx(unittest.TestCase):
     def test_raises_when_docx_unavailable(self, mock_safe_import):
         from resume.docx_writer import write_resume_docx
         from resume.schema import Resume
+
         mock_safe_import.return_value = None
         with self.assertRaises(RuntimeError) as ctx:
             write_resume_docx(Resume(), {}, test_path("out.docx"))  # nosec B108 - test fixture path
@@ -324,6 +358,7 @@ class TestWriteResumeDocx(unittest.TestCase):
     def test_creates_document_and_saves(self, mock_safe_import):
         from resume.docx_writer import write_resume_docx
         from resume.schema import Resume
+
         # Mock the docx module with all necessary components
         mock_docx = MagicMock()
         mock_doc = MagicMock()
@@ -354,23 +389,27 @@ class TestSectionSynonyms(unittest.TestCase):
 
     def test_summary_synonyms(self):
         from resume.docx_writer import SECTION_SYNONYMS
+
         self.assertIn("summary", SECTION_SYNONYMS["summary"])
         self.assertIn("profile", SECTION_SYNONYMS["summary"])
         self.assertIn("about", SECTION_SYNONYMS["summary"])
 
     def test_skills_synonyms(self):
         from resume.docx_writer import SECTION_SYNONYMS
+
         self.assertIn("skills", SECTION_SYNONYMS["skills"])
         self.assertIn("technical skills", SECTION_SYNONYMS["skills"])
 
     def test_experience_synonyms(self):
         from resume.docx_writer import SECTION_SYNONYMS
+
         self.assertIn("experience", SECTION_SYNONYMS["experience"])
         self.assertIn("work history", SECTION_SYNONYMS["experience"])
         self.assertIn("employment", SECTION_SYNONYMS["experience"])
 
     def test_education_synonyms(self):
         from resume.docx_writer import SECTION_SYNONYMS
+
         self.assertIn("education", SECTION_SYNONYMS["education"])
         self.assertIn("academics", SECTION_SYNONYMS["education"])
 
@@ -379,9 +418,11 @@ class TestResolveGlyph(unittest.TestCase):
     """Tests for BulletRenderer.resolve_glyph."""
 
     def test_returns_the_default_glyph_without_config(self):
-        from tests.resume_tests.fixtures import mock_docx_modules, make_fake_renderer
+        from tests.resume_tests.fixtures import make_fake_renderer, mock_docx_modules
+
         with mock_docx_modules:
             from resume.docx_bullets import BulletRenderer
+
             renderer, _doc = make_fake_renderer(BulletRenderer)
             result = renderer.resolve_glyph(None)
         self.assertEqual(result, "•")
@@ -398,12 +439,14 @@ class TestApplyPageStyles(unittest.TestCase):
 
     def test_skips_non_compact(self):
         from resume.docx_writer import _apply_page_styles
+
         doc = self._make_mock_doc()
         _apply_page_styles(doc, {"compact": False})
         doc.sections.__getitem__.assert_not_called()
 
     def test_skips_empty_config(self):
         from resume.docx_writer import _apply_page_styles
+
         doc = self._make_mock_doc()
         _apply_page_styles(doc, {})
         doc.sections.__getitem__.assert_not_called()
@@ -419,6 +462,7 @@ class TestSetDocumentMetadata(unittest.TestCase):
     def test_sets_title_from_name(self):
         from resume.docx_writer import _set_document_metadata
         from resume.schema import Resume
+
         data = {"name": "John Doe", "email": "john@example.com"}
         _set_document_metadata(self.doc, Resume.from_dict(data), {})
         self.assertIn("John Doe", self.doc.core_properties.title)
@@ -426,6 +470,7 @@ class TestSetDocumentMetadata(unittest.TestCase):
     def test_sets_author_from_name(self):
         from resume.docx_writer import _set_document_metadata
         from resume.schema import Resume
+
         data = {"name": "Jane Smith"}
         _set_document_metadata(self.doc, Resume.from_dict(data), {})
         self.assertEqual(self.doc.core_properties.author, "Jane Smith")
@@ -433,6 +478,7 @@ class TestSetDocumentMetadata(unittest.TestCase):
     def test_includes_experience_locations_in_keywords(self):
         from resume.docx_writer import _set_document_metadata
         from resume.schema import Resume
+
         data = {"name": "Test", "experience": [{"location": "NYC"}, {"location": "LA"}]}
         template = {"page": {"metadata_include_locations": True}}
         _set_document_metadata(self.doc, Resume.from_dict(data), template)
@@ -442,6 +488,7 @@ class TestSetDocumentMetadata(unittest.TestCase):
     def test_excludes_locations_when_disabled(self):
         from resume.docx_writer import _set_document_metadata
         from resume.schema import Resume
+
         data = {"name": "Test", "experience": [{"location": "NYC"}]}
         template = {"page": {"metadata_include_locations": False}}
         _set_document_metadata(self.doc, Resume.from_dict(data), template)
@@ -450,6 +497,7 @@ class TestSetDocumentMetadata(unittest.TestCase):
     def test_handles_missing_data(self):
         from resume.docx_writer import _set_document_metadata
         from resume.schema import Resume
+
         _set_document_metadata(self.doc, Resume.from_dict({}), {})
         self.assertEqual(self.doc.core_properties.title, "Resume")
 
@@ -458,8 +506,10 @@ class TestCenterParagraph(unittest.TestCase):
     """Tests for _center_paragraph function."""
 
     def test_centers_paragraph(self):
-        from resume.docx_writer import _center_paragraph
         from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+        from resume.docx_writer import _center_paragraph
+
         para = MagicMock()
         para.paragraph_format = MagicMock()
         _center_paragraph(para)
@@ -467,7 +517,9 @@ class TestCenterParagraph(unittest.TestCase):
 
     def test_handles_exception_gracefully(self):
         from unittest.mock import PropertyMock
+
         from resume.docx_writer import _center_paragraph
+
         para = MagicMock()
         type(para).alignment = PropertyMock(side_effect=Exception("test"))
         # Should not raise

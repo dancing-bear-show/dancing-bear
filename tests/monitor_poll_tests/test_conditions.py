@@ -72,7 +72,9 @@ class CommandConditionTests(unittest.TestCase):
 
     def test_attempt_timeout_is_pending_not_error(self):
         timed_out = CompletedRun("", "timeout", 124, timed_out=True)
-        probe = conditions.command_condition(["x"], attempt_timeout=2, runner=FakeRunner(timed_out))()
+        probe = conditions.command_condition(
+            ["x"], attempt_timeout=2, runner=FakeRunner(timed_out)
+        )()
         self.assertEqual(probe.outcome, Outcome.PENDING)
         self.assertIn("timed out", probe.detail)
 
@@ -93,7 +95,9 @@ class CommandConditionTests(unittest.TestCase):
 
 class OutputConditionTests(unittest.TestCase):
     def test_match_succeeds_and_reports_matched_text(self):
-        check = conditions.output_condition(["x"], r"ready \d+", runner=FakeRunner(done("state: ready 42\n")))
+        check = conditions.output_condition(
+            ["x"], r"ready \d+", runner=FakeRunner(done("state: ready 42\n"))
+        )
         probe = check()
         self.assertEqual(probe.outcome, Outcome.SUCCESS)
         self.assertIn("ready 42", probe.detail)
@@ -104,7 +108,8 @@ class OutputConditionTests(unittest.TestCase):
 
     def test_fail_pattern_wins_over_match(self):
         check = conditions.output_condition(
-            ["x"], "done", fail_pattern="FAILED", runner=FakeRunner(done("done FAILED")))
+            ["x"], "done", fail_pattern="FAILED", runner=FakeRunner(done("done FAILED"))
+        )
         self.assertEqual(check().outcome, Outcome.FAILURE)
 
     def test_nonzero_rc_still_matches_output(self):
@@ -176,7 +181,9 @@ class HttpConditionTests(unittest.TestCase):
         self.assertIn("unreachable", probe.detail)
 
     def test_socket_timeout_is_pending(self):
-        probe = conditions.http_condition("http://h/x", opener=opener_returning(TimeoutError("slow")))()
+        probe = conditions.http_condition(
+            "http://h/x", opener=opener_returning(TimeoutError("slow"))
+        )()
         self.assertEqual(probe.outcome, Outcome.PENDING)
 
     def test_body_match_required_when_given(self):
@@ -211,7 +218,9 @@ class HttpConditionTests(unittest.TestCase):
         self.assertNotIn("SEKRET99", msg)
 
 
-def gh_client_with(stdout: str = "", stderr: str = "", returncode: int = 0) -> tuple[GhCLI, list[list[str]]]:
+def gh_client_with(
+    stdout: str = "", stderr: str = "", returncode: int = 0
+) -> tuple[GhCLI, list[list[str]]]:
     calls: list[list[str]] = []
 
     def fake(cmd: list[str], **_kwargs: Any) -> SimpleNamespace:

@@ -8,8 +8,8 @@ captured payloads and never shell out to qlty.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Optional, Sequence
 
 from qlty.models import Finding, Location, Source, WireFormat
 from qlty.runner import CompletedRun, InvocationResult
@@ -31,7 +31,7 @@ class FakeRunner:
 
     def __init__(
         self,
-        results: Optional[dict[Source, list[InvocationResult]]] = None,
+        results: dict[Source, list[InvocationResult]] | None = None,
     ) -> None:
         self._results = results or {}
         self.calls: list[tuple[Source, bool, tuple[str, ...], bool]] = []
@@ -64,8 +64,8 @@ def make_finding(
     line: int = 10,
     *,
     source: Source = Source.SMELLS,
-    value: Optional[int] = 6,
-    group_key: Optional[str] = None,
+    value: int | None = 6,
+    group_key: str | None = None,
     message: str = "Function with many parameters (count = 6): example",
     level: str = "medium",
     other_locations: Sequence[Location] = (),
@@ -102,9 +102,7 @@ def result_of(
     )
 
 
-def completed(
-    stdout: str = "", returncode: int = 0, stderr: str = ""
-) -> CompletedRun:
+def completed(stdout: str = "", returncode: int = 0, stderr: str = "") -> CompletedRun:
     return CompletedRun(
         stdout=stdout,
         stderr=stderr,

@@ -1,4 +1,5 @@
 """Tests for CLI rules/command wiring and top-level CLI commands."""
+
 from __future__ import annotations
 
 import contextlib
@@ -6,7 +7,7 @@ import io
 import json
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -15,9 +16,10 @@ from telemetry.cli import (
     _rules_validate,
     main,
 )
-
 from tests.telemetry_tests.shared_fixtures import (
     _make_agent_summary_cli as _make_agent_summary,
+)
+from tests.telemetry_tests.shared_fixtures import (
     _make_agent_token_row,
     _make_session_summary,
 )
@@ -29,7 +31,7 @@ def _run_main(argv: list[str]) -> tuple[int, str]:
     try:
         with contextlib.redirect_stdout(buf):
             rc = main(argv)
-    except SystemExit as e:  # NOSONAR - argparse --help exits by design; re-raising would defeat the helper
+    except (SystemExit) as e:  # NOSONAR - argparse --help exits by design; re-raising would defeat the helper  # fmt: skip
         rc = e.code if isinstance(e.code, int) else 0
     return rc, buf.getvalue()
 
@@ -37,6 +39,7 @@ def _run_main(argv: list[str]) -> tuple[int, str]:
 # ---------------------------------------------------------------------------
 # _rules_init
 # ---------------------------------------------------------------------------
+
 
 class TestRulesInit(unittest.TestCase):
     def test_creates_file_when_missing(self):
@@ -68,15 +71,18 @@ class TestRulesInit(unittest.TestCase):
 # _rules_validate
 # ---------------------------------------------------------------------------
 
+
 class TestRulesValidate(unittest.TestCase):
     def test_valid_rules_no_exit(self):
         from telemetry.rules import DEFAULT_RULES
+
         with patch("telemetry.rules.load_rules", return_value=DEFAULT_RULES):
             with patch("telemetry.rules.validate_rules", return_value=[]):
                 _rules_validate()
 
     def test_invalid_rules_raises_system_exit(self):
         from telemetry.rules import DEFAULT_RULES
+
         errors = ["avoidable.bash-as-grep: enabled must be boolean"]
         with patch("telemetry.rules.load_rules", return_value=DEFAULT_RULES):
             with patch("telemetry.rules.validate_rules", return_value=errors):
@@ -89,10 +95,13 @@ class TestRulesValidate(unittest.TestCase):
 # _rules_explain
 # ---------------------------------------------------------------------------
 
+
 class TestRulesExplain(unittest.TestCase):
     def test_found_rule_no_fix_hints(self):
         import copy
+
         from telemetry.rules import DEFAULT_RULES
+
         rules_no_hints = copy.deepcopy(DEFAULT_RULES)
         rules_no_hints.pop("fix_hints", None)
         with patch("telemetry.rules.load_rules", return_value=rules_no_hints):
@@ -102,6 +111,7 @@ class TestRulesExplain(unittest.TestCase):
 
     def test_found_rule_with_fix_hints(self):
         from telemetry.rules import DEFAULT_RULES
+
         with patch("telemetry.rules.load_rules", return_value=DEFAULT_RULES):
             rc, out = _run_main(["rules", "--explain", "bash-as-grep"])
         self.assertEqual(rc, 0)
@@ -110,6 +120,7 @@ class TestRulesExplain(unittest.TestCase):
 
     def test_not_found_rule(self):
         from telemetry.rules import DEFAULT_RULES
+
         with patch("telemetry.rules.load_rules", return_value=DEFAULT_RULES):
             rc, out = _run_main(["rules", "--explain", "nonexistent-rule"])
         self.assertEqual(rc, 0)
@@ -121,9 +132,11 @@ class TestRulesExplain(unittest.TestCase):
 # _rules_list
 # ---------------------------------------------------------------------------
 
+
 class TestRulesList(unittest.TestCase):
     def test_lists_avoidable_and_review_rules(self):
         from telemetry.rules import DEFAULT_RULES
+
         with patch("telemetry.rules.load_rules", return_value=DEFAULT_RULES):
             rc, out = _run_main(["rules"])
         self.assertEqual(rc, 0)
@@ -132,7 +145,9 @@ class TestRulesList(unittest.TestCase):
 
     def test_lists_custom_rules(self):
         import copy
+
         from telemetry.rules import DEFAULT_RULES
+
         rules_with_custom = copy.deepcopy(DEFAULT_RULES)
         rules_with_custom["custom_rules"] = [{"reason": "my-custom-rule", "tool": "Bash"}]
         with patch("telemetry.rules.load_rules", return_value=rules_with_custom):
@@ -142,7 +157,9 @@ class TestRulesList(unittest.TestCase):
 
     def test_custom_rule_without_reason_uses_index(self):
         import copy
+
         from telemetry.rules import DEFAULT_RULES
+
         rules_with_custom = copy.deepcopy(DEFAULT_RULES)
         rules_with_custom["custom_rules"] = [{"tool": "Bash"}]
         with patch("telemetry.rules.load_rules", return_value=rules_with_custom):
@@ -152,7 +169,9 @@ class TestRulesList(unittest.TestCase):
 
     def test_skips_non_dict_rule_cfg(self):
         import copy
+
         from telemetry.rules import DEFAULT_RULES
+
         rules_bad_cfg = copy.deepcopy(DEFAULT_RULES)
         rules_bad_cfg["avoidable"]["broken-rule"] = "not-a-dict"
         with patch("telemetry.rules.load_rules", return_value=rules_bad_cfg):
@@ -164,6 +183,7 @@ class TestRulesList(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # rules command wiring
 # ---------------------------------------------------------------------------
+
 
 class TestRulesCommand(unittest.TestCase):
     def test_init_flag(self):
@@ -186,6 +206,7 @@ class TestRulesCommand(unittest.TestCase):
 
     def test_validate_flag_success(self):
         from telemetry.rules import DEFAULT_RULES
+
         with patch("telemetry.rules.load_rules", return_value=DEFAULT_RULES):
             with patch("telemetry.rules.validate_rules", return_value=[]):
                 rc, out = _run_main(["rules", "--validate"])
@@ -194,6 +215,7 @@ class TestRulesCommand(unittest.TestCase):
 
     def test_validate_flag_with_errors(self):
         from telemetry.rules import DEFAULT_RULES
+
         errors = ["avoidable.bash-as-grep: enabled must be boolean"]
         with patch("telemetry.rules.load_rules", return_value=DEFAULT_RULES):
             with patch("telemetry.rules.validate_rules", return_value=errors):
@@ -205,6 +227,7 @@ class TestRulesCommand(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # history command
 # ---------------------------------------------------------------------------
+
 
 class TestHistoryCommand(unittest.TestCase):
     def test_no_sessions_message(self):
@@ -235,6 +258,7 @@ class TestHistoryCommand(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # sessions command
 # ---------------------------------------------------------------------------
+
 
 class TestSessionsCommand(unittest.TestCase):
     def test_no_sessions_message(self):
@@ -307,6 +331,7 @@ class TestSessionsCommand(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # agents command
 # ---------------------------------------------------------------------------
+
 
 class TestAgentsCommand(unittest.TestCase):
     def test_no_data_message(self):
@@ -409,7 +434,9 @@ class TestAgentsCommand(unittest.TestCase):
         ]
         with patch("telemetry.providers.transcript.TranscriptProvider") as MockProvider:
             MockProvider.return_value.aggregate_agents.return_value = rows
-            rc, out = _run_main(["agents", "--since", "7d", "--sort", "cache-read", "--format", "json"])
+            rc, out = _run_main(
+                ["agents", "--since", "7d", "--sort", "cache-read", "--format", "json"]
+            )
         self.assertEqual(rc, 0)
         data = json.loads(out)
         self.assertEqual(data["agents"][0]["agent"], "high-cache")
@@ -418,6 +445,7 @@ class TestAgentsCommand(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # cost-breakdown command
 # ---------------------------------------------------------------------------
+
 
 class TestCostBreakdownCommand(unittest.TestCase):
     def test_no_data_message(self):
@@ -431,19 +459,23 @@ class TestCostBreakdownCommand(unittest.TestCase):
         rows = [_make_agent_token_row(agent="myagent", est_cost=0.10)]
         with patch("telemetry.providers.transcript.TranscriptProvider") as MockProvider:
             MockProvider.return_value.aggregate_agents.return_value = rows
-            rc, out = _run_main(["cost-breakdown", "--since", "7d", "--format", "json", "--group-by", "agent"])
+            rc, out = _run_main(
+                ["cost-breakdown", "--since", "7d", "--format", "json", "--group-by", "agent"]
+            )
         self.assertEqual(rc, 0)
         data = json.loads(out)
         self.assertEqual(data["group_by"], "agent")
         self.assertIn("rows", data)
 
     def test_group_by_day_json(self):
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         s = _make_session_summary(total_cost=0.15)
         s.start_time = now
         with patch("telemetry.providers.transcript.TranscriptProvider") as MockProvider:
             MockProvider.return_value.get_sessions.return_value = [s]
-            rc, out = _run_main(["cost-breakdown", "--since", "7d", "--format", "json", "--group-by", "day"])
+            rc, out = _run_main(
+                ["cost-breakdown", "--since", "7d", "--format", "json", "--group-by", "day"]
+            )
         self.assertEqual(rc, 0)
         data = json.loads(out)
         self.assertEqual(data["group_by"], "day")
@@ -453,17 +485,21 @@ class TestCostBreakdownCommand(unittest.TestCase):
         rows = [_make_agent_token_row(agent="csvagent", est_cost=0.07)]
         with patch("telemetry.providers.transcript.TranscriptProvider") as MockProvider:
             MockProvider.return_value.aggregate_agents.return_value = rows
-            rc, out = _run_main(["cost-breakdown", "--since", "7d", "--format", "csv", "--group-by", "agent"])
+            rc, out = _run_main(
+                ["cost-breakdown", "--since", "7d", "--format", "csv", "--group-by", "agent"]
+            )
         self.assertEqual(rc, 0)
         self.assertIn("agent", out)
 
     def test_group_by_day_csv(self):
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         s = _make_session_summary(total_cost=0.05)
         s.start_time = now
         with patch("telemetry.providers.transcript.TranscriptProvider") as MockProvider:
             MockProvider.return_value.get_sessions.return_value = [s]
-            rc, out = _run_main(["cost-breakdown", "--since", "7d", "--format", "csv", "--group-by", "day"])
+            rc, out = _run_main(
+                ["cost-breakdown", "--since", "7d", "--format", "csv", "--group-by", "day"]
+            )
         self.assertEqual(rc, 0)
         self.assertIn("day", out)
 
@@ -471,17 +507,21 @@ class TestCostBreakdownCommand(unittest.TestCase):
         rows = [_make_agent_token_row()]
         with patch("telemetry.providers.transcript.TranscriptProvider") as MockProvider:
             MockProvider.return_value.aggregate_agents.return_value = rows
-            rc, out = _run_main(["cost-breakdown", "--since", "7d", "--format", "table", "--group-by", "agent"])
+            rc, out = _run_main(
+                ["cost-breakdown", "--since", "7d", "--format", "table", "--group-by", "agent"]
+            )
         self.assertEqual(rc, 0)
         self.assertIn("Cost breakdown by agent", out)
 
     def test_group_by_day_table(self):
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         s = _make_session_summary(total_cost=0.20)
         s.start_time = now
         with patch("telemetry.providers.transcript.TranscriptProvider") as MockProvider:
             MockProvider.return_value.get_sessions.return_value = [s]
-            rc, out = _run_main(["cost-breakdown", "--since", "7d", "--format", "table", "--group-by", "day"])
+            rc, out = _run_main(
+                ["cost-breakdown", "--since", "7d", "--format", "table", "--group-by", "day"]
+            )
         self.assertEqual(rc, 0)
         self.assertIn("Cost breakdown by day", out)
 
@@ -492,7 +532,9 @@ class TestCostBreakdownCommand(unittest.TestCase):
         ]
         with patch("telemetry.providers.transcript.TranscriptProvider") as MockProvider:
             MockProvider.return_value.aggregate_agents.return_value = rows
-            rc, out = _run_main(["cost-breakdown", "--since", "7d", "--limit", "1", "--format", "json"])
+            rc, out = _run_main(
+                ["cost-breakdown", "--since", "7d", "--limit", "1", "--format", "json"]
+            )
         self.assertEqual(rc, 0)
         data = json.loads(out)
         self.assertEqual(len(data["rows"]), 1)
@@ -517,6 +559,7 @@ class TestCostBreakdownCommand(unittest.TestCase):
 # main help
 # ---------------------------------------------------------------------------
 
+
 class TestMainCLI(unittest.TestCase):
     def test_main_shows_help(self):
         rc, out = _run_main(["--help"])
@@ -524,14 +567,18 @@ class TestMainCLI(unittest.TestCase):
         self.assertIn("telemetry", out.lower())
 
     def test_sessions_command_no_sessions(self):
-        with patch("telemetry.providers.transcript.TranscriptProvider.get_sessions", return_value=[]):
+        with patch(
+            "telemetry.providers.transcript.TranscriptProvider.get_sessions", return_value=[]
+        ):
             rc, out = _run_main(["sessions", "--since", "7d"])
         self.assertEqual(rc, 0)
         self.assertIn("No sessions found", out)
 
     def test_sessions_command_json_format(self):
         sessions = [_make_session_summary()]
-        with patch("telemetry.providers.transcript.TranscriptProvider.get_sessions", return_value=sessions):
+        with patch(
+            "telemetry.providers.transcript.TranscriptProvider.get_sessions", return_value=sessions
+        ):
             rc, out = _run_main(["sessions", "--since", "7d", "--format", "json"])
         self.assertEqual(rc, 0)
         data = json.loads(out)
@@ -539,13 +586,17 @@ class TestMainCLI(unittest.TestCase):
         self.assertEqual(data["session_count"], 1)
 
     def test_history_command_no_sessions(self):
-        with patch("telemetry.providers.transcript.TranscriptProvider.get_sessions", return_value=[]):
+        with patch(
+            "telemetry.providers.transcript.TranscriptProvider.get_sessions", return_value=[]
+        ):
             rc, out = _run_main(["history", "--days", "7"])
         self.assertEqual(rc, 0)
         self.assertIn("No sessions found", out)
 
     def test_agents_command_no_data(self):
-        with patch("telemetry.providers.transcript.TranscriptProvider.aggregate_agents", return_value=[]):
+        with patch(
+            "telemetry.providers.transcript.TranscriptProvider.aggregate_agents", return_value=[]
+        ):
             rc, out = _run_main(["agents", "--since", "7d"])
         self.assertEqual(rc, 0)
         self.assertIn("No agent data found", out)
@@ -556,7 +607,9 @@ class TestMainCLI(unittest.TestCase):
         self.assertIn("bash-as-grep", out)
 
     def test_cost_breakdown_no_data(self):
-        with patch("telemetry.providers.transcript.TranscriptProvider.aggregate_agents", return_value=[]):
+        with patch(
+            "telemetry.providers.transcript.TranscriptProvider.aggregate_agents", return_value=[]
+        ):
             rc, out = _run_main(["cost-breakdown", "--since", "7d"])
         self.assertEqual(rc, 0)
         self.assertIn("No cost data found", out)
@@ -565,6 +618,7 @@ class TestMainCLI(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # otel command
 # ---------------------------------------------------------------------------
+
 
 class TestOtelCommand(unittest.TestCase):
     def test_otel_delegates_to_otel_main(self):

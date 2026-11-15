@@ -7,6 +7,7 @@
 Keeps mock-response builders and a common test base close to the outlook
 integration tests without dragging a facade into the source tree.
 """
+
 from __future__ import annotations
 
 import datetime as dt
@@ -20,7 +21,7 @@ from core.outlook.mail import OutlookMailMixin
 
 def iso_days_ago(days: int) -> str:
     """Return an ISO-8601 Z timestamp ``days`` before now."""
-    stamp = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=days)
+    stamp = dt.datetime.now(dt.UTC) - dt.timedelta(days=days)
     return stamp.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 

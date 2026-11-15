@@ -4,6 +4,7 @@ Tests cover HeaderPanel, TipsPanel, FooterInfo, _DetailModal, and
 SessionPickerScreen — focusing on update logic and compose output rather than
 mounting a full Textual event loop.
 """
+
 from __future__ import annotations
 
 import unittest
@@ -12,19 +13,18 @@ from unittest.mock import MagicMock, patch
 
 from telemetry.tui._widgets import (
     APP_CSS,
-    _DetailModal,
     FooterInfo,
     HeaderPanel,
     SessionPickerScreen,
     TipsPanel,
+    _DetailModal,
 )
-
 from tests.telemetry_tests.shared_fixtures import _make_summary
-
 
 # ---------------------------------------------------------------------------
 # APP_CSS constant
 # ---------------------------------------------------------------------------
+
 
 class TestAppCssConstant(unittest.TestCase):
     def test_css_is_non_empty_string(self):
@@ -48,12 +48,17 @@ class TestAppCssConstant(unittest.TestCase):
 # HeaderPanel.update_summary
 # ---------------------------------------------------------------------------
 
+
 class TestHeaderPanelUpdateSummary(unittest.TestCase):
     def test_update_called_with_rendered_text(self):
         panel = HeaderPanel()
         rendered = "[bold]Session: abc123[/]"
-        with patch("telemetry.tui._widgets.HeaderPanel.update") as mock_update, \
-             patch("telemetry.tui._renderers._render_header_text", return_value=rendered) as mock_render:
+        with (
+            patch("telemetry.tui._widgets.HeaderPanel.update") as mock_update,
+            patch(
+                "telemetry.tui._renderers._render_header_text", return_value=rendered
+            ) as mock_render,
+        ):
             summary = _make_summary()
             panel.update_summary(summary)
             mock_render.assert_called_once_with(summary)
@@ -63,24 +68,30 @@ class TestHeaderPanelUpdateSummary(unittest.TestCase):
         panel = HeaderPanel()
         summary = _make_summary(session_id="deadbeef1234abcd", total_cost=0.99)
         captured: dict = {}
-        with patch(
-            "telemetry.tui._renderers._render_header_text",
-            side_effect=lambda s: captured.update({"s": s}) or "x",
-        ), patch("telemetry.tui._widgets.HeaderPanel.update"):
+        with (
+            patch(
+                "telemetry.tui._renderers._render_header_text",
+                side_effect=lambda s: captured.update({"s": s}) or "x",
+            ),
+            patch("telemetry.tui._widgets.HeaderPanel.update"),
+        ):
             panel.update_summary(summary)
         self.assertIs(captured["s"], summary)
 
     def test_update_summary_happy_path_does_not_raise(self):
         panel = HeaderPanel()
         summary = _make_summary()
-        with patch("telemetry.tui._widgets.HeaderPanel.update"), \
-             patch("telemetry.tui._renderers._render_header_text", return_value="ok"):
+        with (
+            patch("telemetry.tui._widgets.HeaderPanel.update"),
+            patch("telemetry.tui._renderers._render_header_text", return_value="ok"),
+        ):
             panel.update_summary(summary)
 
 
 # ---------------------------------------------------------------------------
 # TipsPanel.update_empty
 # ---------------------------------------------------------------------------
+
 
 class TestTipsPanelUpdateEmpty(unittest.TestCase):
     def _get_update_arg(self) -> str:
@@ -113,9 +124,12 @@ class TestTipsPanelUpdateEmpty(unittest.TestCase):
 # FooterInfo.update_info
 # ---------------------------------------------------------------------------
 
+
 class TestFooterInfoUpdateInfo(unittest.TestCase):
     def _call(self, **overrides: object) -> str:
-        defaults: dict[str, object] = dict(session_id="abcdef123456", event_count=42, refresh=5.0, estimated=False)
+        defaults: dict[str, object] = dict(
+            session_id="abcdef123456", event_count=42, refresh=5.0, estimated=False
+        )
         defaults.update(overrides)
         panel = FooterInfo()
         with patch("telemetry.tui._widgets.FooterInfo.update") as mock_update:
@@ -170,6 +184,7 @@ class TestFooterInfoUpdateInfo(unittest.TestCase):
 # _DetailModal
 # ---------------------------------------------------------------------------
 
+
 class TestDetailModalInit(unittest.TestCase):
     def test_stores_title(self):
         modal = _DetailModal("My Title", "some content")
@@ -214,6 +229,7 @@ class TestDetailModalInit(unittest.TestCase):
 # SessionPickerScreen
 # ---------------------------------------------------------------------------
 
+
 class TestSessionPickerScreenInit(unittest.TestCase):
     def test_stores_sessions(self):
         sessions = [_make_summary(session_id=f"s{i:012d}") for i in range(3)]
@@ -251,6 +267,7 @@ class TestSessionPickerScreenInit(unittest.TestCase):
 # compose() output — generators run without a mounted DOM, so the label
 # formatting inside them is directly assertable.
 # ---------------------------------------------------------------------------
+
 
 class TestSessionPickerCompose(unittest.TestCase):
     def _options(self, sessions):

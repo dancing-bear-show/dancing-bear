@@ -6,22 +6,21 @@ import json
 import os
 import time
 import unittest
-from unittest.mock import MagicMock, patch, mock_open
+from unittest.mock import MagicMock, mock_open, patch
 
+from core.constants import (
+    DEFAULT_REQUEST_TIMEOUT,
+    GRAPH_API_SCOPES,
+    GRAPH_API_URL,
+)
 from core.outlook.client import (
     OutlookClientBase,
     _TimeoutRequestsWrapper,
 )
-from core.constants import (
-    DEFAULT_REQUEST_TIMEOUT,
-    GRAPH_API_URL,
-    GRAPH_API_SCOPES,
-)
-
 from tests.fixtures import TempDirMixin
 
-
 # -------------------- Fixtures --------------------
+
 
 def make_mock_response(json_data=None, status_code=200, text=None):
     """Create a mock HTTP response object."""
@@ -45,6 +44,7 @@ def make_mock_response(json_data=None, status_code=200, text=None):
 
 
 # -------------------- TimeoutRequestsWrapper Tests --------------------
+
 
 class TestTimeoutRequestsWrapper(unittest.TestCase):
     """Tests for _TimeoutRequestsWrapper."""
@@ -105,6 +105,7 @@ class TestTimeoutRequestsWrapper(unittest.TestCase):
 
 # -------------------- OutlookClientBase Tests --------------------
 
+
 class TestOutlookClientBaseInit(unittest.TestCase):
     """Tests for OutlookClientBase initialization."""
 
@@ -126,7 +127,7 @@ class TestOutlookClientBaseInit(unittest.TestCase):
             client_id="custom-id",
             tenant="common",
             token_path="/tmp/token.json",  # nosec  # Test uses temp directory
-            cache_dir="/tmp/cache"  # nosec  # Test uses temp directory
+            cache_dir="/tmp/cache",  # nosec  # Test uses temp directory
         )
         self.assertEqual(client.client_id, "custom-id")
         self.assertEqual(client.tenant, "common")
@@ -137,8 +138,8 @@ class TestOutlookClientBaseInit(unittest.TestCase):
         """Test client inherits from ConfigCacheMixin."""
         client = OutlookClientBase(client_id="test-id", cache_dir="/tmp/cache")  # nosec  # Test uses temp directory
         # ConfigCacheMixin should provide cfg_get_json and cfg_put_json methods
-        self.assertTrue(hasattr(client, 'cfg_get_json'))
-        self.assertTrue(hasattr(client, 'cfg_put_json'))
+        self.assertTrue(hasattr(client, "cfg_get_json"))
+        self.assertTrue(hasattr(client, "cfg_put_json"))
 
 
 class TestOutlookClientBaseAuthentication(TempDirMixin, unittest.TestCase):
@@ -149,7 +150,7 @@ class TestOutlookClientBaseAuthentication(TempDirMixin, unittest.TestCase):
         super().setUp()
         self.token_path = os.path.join(self.tmpdir, "token.json")
 
-    @patch('core.outlook.client._msal')
+    @patch("core.outlook.client._msal")
     def test_authenticate_device_flow_success(self, mock_msal_fn):
         """Test successful device flow authentication."""
         # Mock MSAL components
@@ -164,18 +165,18 @@ class TestOutlookClientBaseAuthentication(TempDirMixin, unittest.TestCase):
         mock_app.get_accounts.return_value = []
         mock_app.initiate_device_flow.return_value = {
             "user_code": "ABC123",
-            "verification_uri": "https://microsoft.com/devicelogin"
+            "verification_uri": "https://microsoft.com/devicelogin",
         }
         mock_app.acquire_token_by_device_flow.return_value = {
             "access_token": "test-token",
-            "expires_in": 3600
+            "expires_in": 3600,
         }
         mock_msal.PublicClientApplication.return_value = mock_app
 
         # Create client and authenticate
         client = OutlookClientBase(client_id="test-id", token_path=self.token_path)
 
-        with patch('builtins.print') as mock_print:
+        with patch("builtins.print") as mock_print:
             client.authenticate()
 
         # Verify device flow was initiated
@@ -190,7 +191,7 @@ class TestOutlookClientBaseAuthentication(TempDirMixin, unittest.TestCase):
         # Verify token was saved to file
         self.assertTrue(os.path.exists(self.token_path))
 
-    @patch('core.outlook.client._msal')
+    @patch("core.outlook.client._msal")
     def test_authenticate_silent_success(self, mock_msal_fn):
         """Test successful silent authentication with cached token."""
         # Mock MSAL components
@@ -206,7 +207,7 @@ class TestOutlookClientBaseAuthentication(TempDirMixin, unittest.TestCase):
         mock_app.get_accounts.return_value = [mock_account]
         mock_app.acquire_token_silent.return_value = {
             "access_token": "silent-token",
-            "expires_in": 3600
+            "expires_in": 3600,
         }
         mock_msal.PublicClientApplication.return_value = mock_app
 
@@ -223,7 +224,7 @@ class TestOutlookClientBaseAuthentication(TempDirMixin, unittest.TestCase):
         # Verify device flow was NOT called
         mock_app.initiate_device_flow.assert_not_called()
 
-    @patch('core.outlook.client._msal')
+    @patch("core.outlook.client._msal")
     def test_authenticate_loads_existing_token_cache(self, mock_msal_fn):
         """Test loading existing token cache from file."""
         # Mock MSAL components
@@ -239,12 +240,12 @@ class TestOutlookClientBaseAuthentication(TempDirMixin, unittest.TestCase):
         mock_app.get_accounts.return_value = [mock_account]
         mock_app.acquire_token_silent.return_value = {
             "access_token": "cached-token",
-            "expires_in": 3600
+            "expires_in": 3600,
         }
         mock_msal.PublicClientApplication.return_value = mock_app
 
         # Create token cache file
-        with open(self.token_path, 'w') as f:
+        with open(self.token_path, "w") as f:
             f.write('{"cached": "token"}')
 
         # Create client and authenticate
@@ -254,7 +255,7 @@ class TestOutlookClientBaseAuthentication(TempDirMixin, unittest.TestCase):
         # Verify cache was deserialized
         mock_cache.deserialize.assert_called_once()
 
-    @patch('core.outlook.client._msal')
+    @patch("core.outlook.client._msal")
     def test_authenticate_legacy_token_format(self, mock_msal_fn):
         """Test loading legacy simple token format."""
         # Mock MSAL components
@@ -269,11 +270,8 @@ class TestOutlookClientBaseAuthentication(TempDirMixin, unittest.TestCase):
         mock_msal.PublicClientApplication.return_value = mock_app
 
         # Create legacy token file
-        legacy_token = {
-            "access_token": "legacy-token",
-            "expires_at": time.time() + 3600
-        }
-        with open(self.token_path, 'w') as f:
+        legacy_token = {"access_token": "legacy-token", "expires_at": time.time() + 3600}
+        with open(self.token_path, "w") as f:
             json.dump(legacy_token, f)
 
         # Create client and authenticate
@@ -283,7 +281,7 @@ class TestOutlookClientBaseAuthentication(TempDirMixin, unittest.TestCase):
         # Verify legacy token was loaded
         self.assertEqual(client._token["access_token"], "legacy-token")
 
-    @patch('core.outlook.client._msal')
+    @patch("core.outlook.client._msal")
     def test_authenticate_device_flow_failure(self, mock_msal_fn):
         """Test device flow authentication failure."""
         # Mock MSAL components
@@ -297,11 +295,11 @@ class TestOutlookClientBaseAuthentication(TempDirMixin, unittest.TestCase):
         mock_app.get_accounts.return_value = []
         mock_app.initiate_device_flow.return_value = {
             "user_code": "ABC123",
-            "verification_uri": "https://microsoft.com/devicelogin"
+            "verification_uri": "https://microsoft.com/devicelogin",
         }
         mock_app.acquire_token_by_device_flow.return_value = {
             "error": "user_cancelled",
-            "error_description": "User cancelled the flow"
+            "error_description": "User cancelled the flow",
         }
         mock_msal.PublicClientApplication.return_value = mock_app
 
@@ -309,12 +307,12 @@ class TestOutlookClientBaseAuthentication(TempDirMixin, unittest.TestCase):
         client = OutlookClientBase(client_id="test-id")
 
         with self.assertRaises(RuntimeError) as ctx:
-            with patch('builtins.print'):
+            with patch("builtins.print"):
                 client.authenticate()
 
         self.assertIn("Device flow failed", str(ctx.exception))
 
-    @patch('core.outlook.client._msal')
+    @patch("core.outlook.client._msal")
     def test_authenticate_no_user_code_in_flow(self, mock_msal_fn):
         """Test device flow initiation failure."""
         # Mock MSAL components
@@ -344,10 +342,7 @@ class TestOutlookClientBaseHeaders(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures."""
         self.client = OutlookClientBase(client_id="test-id")
-        self.client._token = {
-            "access_token": "test-token",
-            "expires_at": time.time() + 3600
-        }
+        self.client._token = {"access_token": "test-token", "expires_at": time.time() + 3600}
 
     def test_headers_returns_correct_format(self):
         """Test _headers returns proper authorization headers."""
@@ -365,7 +360,7 @@ class TestOutlookClientBaseHeaders(unittest.TestCase):
 
         self.assertIn("not authenticated", str(ctx.exception))
 
-    @patch('core.outlook.client._msal')
+    @patch("core.outlook.client._msal")
     def test_headers_refreshes_token_silently(self, mock_msal_fn):
         """Test _headers attempts silent token refresh."""
         # Mock MSAL components
@@ -380,7 +375,7 @@ class TestOutlookClientBaseHeaders(unittest.TestCase):
         mock_app.get_accounts.return_value = [mock_account]
         mock_app.acquire_token_silent.return_value = {
             "access_token": "refreshed-token",
-            "expires_in": 3600
+            "expires_in": 3600,
         }
 
         # Set up client with app and cache
@@ -388,7 +383,7 @@ class TestOutlookClientBaseHeaders(unittest.TestCase):
         self.client._cache = mock_cache
         self.client.token_path = "/tmp/token.json"  # nosec  # Test uses temp file path
 
-        with patch('builtins.open', mock_open()) as mock_file:
+        with patch("builtins.open", mock_open()) as mock_file:
             headers = self.client._headers()
 
         # Verify token was refreshed
@@ -414,20 +409,15 @@ class TestOutlookClientBaseMailboxSettings(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures."""
         self.client = OutlookClientBase(client_id="test-id")
-        self.client._token = {
-            "access_token": "test-token",
-            "expires_at": time.time() + 3600
-        }
+        self.client._token = {"access_token": "test-token", "expires_at": time.time() + 3600}
 
-    @patch('core.outlook.client._requests')
+    @patch("core.outlook.client._requests")
     def test_get_mailbox_timezone_success(self, mock_requests_fn):
         """Test successful mailbox timezone retrieval."""
         mock_requests = MagicMock()
         mock_requests_fn.return_value = mock_requests
 
-        mock_response = make_mock_response(
-            json_data={"timeZone": "Pacific Standard Time"}
-        )
+        mock_response = make_mock_response(json_data={"timeZone": "Pacific Standard Time"})
         mock_requests.get.return_value = mock_response
 
         tz = self.client.get_mailbox_timezone()
@@ -435,7 +425,7 @@ class TestOutlookClientBaseMailboxSettings(unittest.TestCase):
         self.assertEqual(tz, "Pacific Standard Time")
         mock_requests.get.assert_called_once()
 
-    @patch('core.outlook.client._requests')
+    @patch("core.outlook.client._requests")
     def test_get_mailbox_timezone_returns_none_on_error(self, mock_requests_fn):
         """Test mailbox timezone returns None on error."""
         mock_requests = MagicMock()
@@ -447,7 +437,7 @@ class TestOutlookClientBaseMailboxSettings(unittest.TestCase):
 
         self.assertIsNone(tz)
 
-    @patch('core.outlook.client._requests')
+    @patch("core.outlook.client._requests")
     def test_get_mailbox_timezone_handles_empty_timezone(self, mock_requests_fn):
         """Test mailbox timezone handles empty/whitespace values."""
         mock_requests = MagicMock()
@@ -460,7 +450,7 @@ class TestOutlookClientBaseMailboxSettings(unittest.TestCase):
 
         self.assertIsNone(tz)
 
-    @patch('core.outlook.client._requests')
+    @patch("core.outlook.client._requests")
     def test_get_mailbox_timezone_handles_missing_timezone(self, mock_requests_fn):
         """Test mailbox timezone handles missing timezone field."""
         mock_requests = MagicMock()

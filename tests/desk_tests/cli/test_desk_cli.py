@@ -12,16 +12,19 @@ from tests.fixtures import capture_stdout, make_mock_envelope
 class TestStarterRulesYaml(unittest.TestCase):
     def test_contains_version(self):
         from desk.cli import _starter_rules_yaml
+
         result = _starter_rules_yaml()
         self.assertIn("version: 1", result)
 
     def test_contains_rules_key(self):
         from desk.cli import _starter_rules_yaml
+
         result = _starter_rules_yaml()
         self.assertIn("rules:", result)
 
     def test_contains_example_rule(self):
         from desk.cli import _starter_rules_yaml
+
         result = _starter_rules_yaml()
         self.assertIn("move_to:", result)
 
@@ -208,12 +211,14 @@ class TestCmdRulesExport(unittest.TestCase):
 class TestEmitAgentic(unittest.TestCase):
     def test_emit_agentic_returns_0(self):
         from desk.cli import _emit_agentic
+
         with capture_stdout():
             rc = _emit_agentic("yaml", False)
         self.assertEqual(rc, 0)
 
     def test_emit_agentic_compact_returns_0(self):
         from desk.cli import _emit_agentic
+
         with capture_stdout():
             rc = _emit_agentic("yaml", True)
         self.assertEqual(rc, 0)
@@ -222,6 +227,7 @@ class TestEmitAgentic(unittest.TestCase):
 class TestPathsDefault(unittest.TestCase):
     def test_returns_list_with_downloads_and_desktop(self):
         from desk.cli import _paths_default
+
         paths = _paths_default()
         self.assertIsInstance(paths, list)
         self.assertEqual(len(paths), 2)

@@ -39,33 +39,42 @@ class TestCountBlocking(unittest.TestCase):
     # ------------------------------------------------------------------
 
     def test_counts_critical_and_major(self) -> None:
-        path = _write(self.tmp, {
-            "blocking": 2,
-            "findings": [
-                {"severity": "critical"},
-                {"severity": "major"},
-                {"severity": "minor"},
-                {"severity": "info"},
-            ],
-        })
+        path = _write(
+            self.tmp,
+            {
+                "blocking": 2,
+                "findings": [
+                    {"severity": "critical"},
+                    {"severity": "major"},
+                    {"severity": "minor"},
+                    {"severity": "info"},
+                ],
+            },
+        )
         derived, reported = count_blocking(path)
         self.assertEqual(derived, 2)
         self.assertEqual(reported, 2)
 
     def test_unknown_severity_counts_as_blocking_fail_closed(self) -> None:
         """An unknown severity string (not minor/info) is counted as blocking."""
-        path = _write(self.tmp, {
-            "blocking": 1,
-            "findings": [{"severity": "unknown-future-level"}],
-        })
+        path = _write(
+            self.tmp,
+            {
+                "blocking": 1,
+                "findings": [{"severity": "unknown-future-level"}],
+            },
+        )
         derived, _ = count_blocking(path)
         self.assertEqual(derived, 1)
 
     def test_mismatch_returns_both_values(self) -> None:
-        path = _write(self.tmp, {
-            "blocking": 5,
-            "findings": [{"severity": "critical"}, {"severity": "major"}],
-        })
+        path = _write(
+            self.tmp,
+            {
+                "blocking": 5,
+                "findings": [{"severity": "critical"}, {"severity": "major"}],
+            },
+        )
         derived, reported = count_blocking(path)
         self.assertEqual(derived, 2)
         self.assertEqual(reported, 5)
@@ -206,8 +215,9 @@ class TestCountBlocking(unittest.TestCase):
         self.assertIn("count-blocking:", err)
         # stdout must not contain a number — a caller that captured stdout
         # and treated it as the count would get an empty or error string.
-        self.assertFalse(out.strip().isdigit(),
-                         f"stdout must not be a number on exit 2, got {out!r}")
+        self.assertFalse(
+            out.strip().isdigit(), f"stdout must not be a number on exit 2, got {out!r}"
+        )
 
     def test_exit2_missing_findings_key(self) -> None:
         path = _write(self.tmp, {"blocking": 0, "results": []}, "no_findings.json")
@@ -280,9 +290,17 @@ class TestCountBlocking(unittest.TestCase):
     # ------------------------------------------------------------------
 
     def test_cmd_prints_derived_count_to_stdout(self) -> None:
-        path = _write(self.tmp, {"blocking": 2, "findings": [
-            {"severity": "critical"}, {"severity": "major"}, {"severity": "minor"},
-        ]})
+        path = _write(
+            self.tmp,
+            {
+                "blocking": 2,
+                "findings": [
+                    {"severity": "critical"},
+                    {"severity": "major"},
+                    {"severity": "minor"},
+                ],
+            },
+        )
         rc, out, err = _run(path)
         self.assertEqual(rc, 0)
         self.assertEqual(out.strip(), "2")
@@ -355,10 +373,14 @@ class TestCountBlocking(unittest.TestCase):
 
     def test_cmd_info_severity_prints_zero(self) -> None:
         """count-blocking on a file with only info findings must print 0."""
-        path = _write(self.tmp, {
-            "blocking": 0,
-            "findings": [{"severity": "info"}, {"severity": "minor"}],
-        }, "info_cmd.json")
+        path = _write(
+            self.tmp,
+            {
+                "blocking": 0,
+                "findings": [{"severity": "info"}, {"severity": "minor"}],
+            },
+            "info_cmd.json",
+        )
         rc, out, _ = _run(path)
         self.assertEqual(rc, 0)
         self.assertEqual(out.strip(), "0")

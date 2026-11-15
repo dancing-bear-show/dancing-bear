@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from tests.fixtures import test_path
 import unittest
 from unittest.mock import MagicMock, patch
 
-from tests.resume_tests.fixtures import make_candidate, mock_docx_modules
-
 from resume.schema import Resume
+from tests.fixtures import test_path
+from tests.resume_tests.fixtures import make_candidate, mock_docx_modules
 
 
 def _make_fake_cell():
@@ -47,6 +46,7 @@ class TestCellHelpers(unittest.TestCase):
     def test_set_cell_shading_valid_color(self):
         """Test setting cell shading with valid hex color."""
         from resume.docx_sidebar import _set_cell_shading
+
         cell = MagicMock()
         cell._tc.get_or_add_tcPr.return_value = MagicMock()
         _set_cell_shading(cell, "#F0F0F0")
@@ -55,6 +55,7 @@ class TestCellHelpers(unittest.TestCase):
     def test_set_cell_shading_invalid_color(self):
         """Test setting cell shading with invalid color is no-op."""
         from resume.docx_sidebar import _set_cell_shading
+
         cell = MagicMock()
         _set_cell_shading(cell, "invalid")
         # Should not raise error
@@ -62,6 +63,7 @@ class TestCellHelpers(unittest.TestCase):
     def test_remove_cell_borders(self):
         """Test removing cell borders."""
         from resume.docx_sidebar import _remove_cell_borders
+
         cell = MagicMock()
         cell._tc.get_or_add_tcPr.return_value = MagicMock()
         _remove_cell_borders(cell)
@@ -75,6 +77,7 @@ class TestSidebarSectionRenderers(unittest.TestCase):
     def test_render_sidebar_section_with_title(self):
         """Test rendering sidebar section with title."""
         from resume.docx_sidebar import _render_sidebar_section
+
         cell = _make_fake_cell()
         page_cfg = {"h1_pt": 14, "body_pt": 10}
 
@@ -86,6 +89,7 @@ class TestSidebarSectionRenderers(unittest.TestCase):
     def test_render_sidebar_section_bulleted(self):
         """Test rendering sidebar section with bullets."""
         from resume.docx_sidebar import _render_sidebar_section
+
         cell = _make_fake_cell()
         page_cfg = {"body_pt": 10}
 
@@ -97,6 +101,7 @@ class TestSidebarSectionRenderers(unittest.TestCase):
     def test_render_sidebar_section_not_bulleted(self):
         """Test rendering sidebar section without bullets."""
         from resume.docx_sidebar import _render_sidebar_section
+
         cell = _make_fake_cell()
         page_cfg = {"body_pt": 10}
 
@@ -113,6 +118,7 @@ class TestMainColumnRenderers(unittest.TestCase):
     def test_render_main_section_heading(self):
         """Test rendering main section heading."""
         from resume.docx_sidebar import _render_main_section_heading
+
         cell = _make_fake_cell()
         page_cfg = {"h1_pt": 14, "h1_color": "#D4A84B"}
 
@@ -123,6 +129,7 @@ class TestMainColumnRenderers(unittest.TestCase):
     def test_render_main_education(self):
         """Test rendering education in main column."""
         from resume.docx_sidebar import _render_main_education
+
         cell = _make_fake_cell()
         page_cfg = {"body_pt": 10, "meta_pt": 9}
         data = {
@@ -141,6 +148,7 @@ class TestMainColumnRenderers(unittest.TestCase):
     def test_render_main_experience(self):
         """Test rendering experience in main column."""
         from resume.docx_sidebar import _render_main_experience
+
         cell = _make_fake_cell()
         page_cfg = {"body_pt": 10, "meta_pt": 9}
         data = {
@@ -164,6 +172,7 @@ class TestMainColumnRenderers(unittest.TestCase):
     def test_render_main_teaching(self):
         """Test rendering teaching in main column."""
         from resume.docx_sidebar import _render_main_teaching
+
         cell = _make_fake_cell()
         page_cfg = {"body_pt": 10, "meta_pt": 9}
         data = {
@@ -182,6 +191,7 @@ class TestMainColumnRenderers(unittest.TestCase):
     def test_render_main_presentations(self):
         """Test rendering presentations in main column."""
         from resume.docx_sidebar import _render_main_presentations
+
         cell = _make_fake_cell()
         page_cfg = {"body_pt": 10, "meta_pt": 9}
         data = {
@@ -214,6 +224,7 @@ class TestSidebarResumeWriter(unittest.TestCase):
         self.data mirror, so assert on writer.resume instead.
         """
         from resume.docx_sidebar import SidebarResumeWriter
+
         data = make_candidate()
         template = {"page": {"compact": True}, "layout": {"type": "sidebar"}}
 
@@ -225,6 +236,7 @@ class TestSidebarResumeWriter(unittest.TestCase):
     def test_get_contact_field_top_level(self):
         """Test getting contact field from top level."""
         from resume.docx_sidebar import SidebarResumeWriter
+
         data = {"name": "John Doe", "email": "john@example.com"}
         template = {}
 
@@ -236,6 +248,7 @@ class TestSidebarResumeWriter(unittest.TestCase):
     def test_get_contact_field_nested(self):
         """Test getting contact field from nested contact dict."""
         from resume.docx_sidebar import SidebarResumeWriter
+
         data = {"name": "John Doe", "contact": {"email": "nested@example.com"}}
         template = {}
 

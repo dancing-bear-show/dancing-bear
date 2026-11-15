@@ -22,6 +22,7 @@ class TestEmitAgenticContext(unittest.TestCase):
         blind `except TypeError: emit_func()` retry.
         """
         from maker.agentic import emit_agentic_context
+
         for fmt in ("text", "yaml", "json"):
             with capture_stdout():
                 self.assertEqual(emit_agentic_context(fmt, False), 0)

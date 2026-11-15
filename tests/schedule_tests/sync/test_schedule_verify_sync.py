@@ -1,8 +1,8 @@
 import io
 import unittest
-from types import SimpleNamespace
-from pathlib import Path
 from contextlib import redirect_stdout
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from tests.schedule_tests.fixtures import FakeOutlook
@@ -21,7 +21,6 @@ def _make_outlook_args(**kwargs) -> SimpleNamespace:
 
 
 class TestScheduleVerifySync(unittest.TestCase):
-
     def _write_plan(self, tmpdir: Path, yaml_text: str) -> Path:
         p = tmpdir / "plan.yaml"
         p.write_text(yaml_text, encoding="utf-8")
@@ -31,11 +30,14 @@ class TestScheduleVerifySync(unittest.TestCase):
         # Plan: weekly Monday 18:00–19:00 from 2025-10-06 to 2025-10-20 with exdate 2025-10-13
         import tempfile
         import textwrap
+
         from schedule.cli import main as sa
 
         with tempfile.TemporaryDirectory() as td:
-            plan = self._write_plan(Path(td), textwrap.dedent(
-                """
+            plan = self._write_plan(
+                Path(td),
+                textwrap.dedent(
+                    """
                 events:
                   - subject: Leisure Swim
                     repeat: weekly
@@ -45,18 +47,36 @@ class TestScheduleVerifySync(unittest.TestCase):
                     range: { start_date: 2025-10-06, until: 2025-10-20 }
                     exdates: [2025-10-13]
                 """
-            ).strip())
+                ).strip(),
+            )
 
             # Outlook returns occurrences on 10/06 and 10/20 (10/13 excluded)
             occ = [
-                {"subject": "Leisure Swim", "start": {"dateTime": "2025-10-06T18:00:00"}, "end": {"dateTime": "2025-10-06T19:00:00"}},
-                {"subject": "Leisure Swim", "start": {"dateTime": "2025-10-20T18:00:00"}, "end": {"dateTime": "2025-10-20T19:00:00"}},
+                {
+                    "subject": "Leisure Swim",
+                    "start": {"dateTime": "2025-10-06T18:00:00"},
+                    "end": {"dateTime": "2025-10-06T19:00:00"},
+                },
+                {
+                    "subject": "Leisure Swim",
+                    "start": {"dateTime": "2025-10-20T18:00:00"},
+                    "end": {"dateTime": "2025-10-20T19:00:00"},
+                },
             ]
             fake = FakeOutlook(events=occ)
 
-            args = _make_outlook_args(plan=str(plan), calendar="Activities", from_date="2025-10-01", to_date="2025-10-31", match="subject-time")
+            args = _make_outlook_args(
+                plan=str(plan),
+                calendar="Activities",
+                from_date="2025-10-01",
+                to_date="2025-10-31",
+                match="subject-time",
+            )
             buf = io.StringIO()
-            with patch("core.outlook.OutlookClient", new=lambda *a, **k: fake), redirect_stdout(buf):
+            with (
+                patch("core.outlook.OutlookClient", new=lambda *a, **k: fake),
+                redirect_stdout(buf),
+            ):
                 rc = sa.cmd_verify(args)
             out = buf.getvalue()
             self.assertEqual(rc, 0)
@@ -65,10 +85,14 @@ class TestScheduleVerifySync(unittest.TestCase):
     def test_verify_subject_time_reports_missing(self):
         import tempfile
         import textwrap
+
         from schedule.cli import main as sa
+
         with tempfile.TemporaryDirectory() as td:
-            plan = self._write_plan(Path(td), textwrap.dedent(
-                """
+            plan = self._write_plan(
+                Path(td),
+                textwrap.dedent(
+                    """
                 events:
                   - subject: Chess
                     repeat: weekly
@@ -77,16 +101,30 @@ class TestScheduleVerifySync(unittest.TestCase):
                     end_time: "11:00"
                     range: { start_date: 2025-10-05, until: 2025-10-19 }
                 """
-            ).strip())
+                ).strip(),
+            )
             # Outlook only has 10/05; missing 10/12 and 10/19
             occ = [
-                {"subject": "Chess", "start": {"dateTime": "2025-10-05T10:00:00"}, "end": {"dateTime": "2025-10-05T11:00:00"}},
+                {
+                    "subject": "Chess",
+                    "start": {"dateTime": "2025-10-05T10:00:00"},
+                    "end": {"dateTime": "2025-10-05T11:00:00"},
+                },
             ]
             fake = FakeOutlook(events=occ)
 
-            args = _make_outlook_args(plan=str(plan), calendar="Your Family", from_date="2025-10-01", to_date="2025-10-31", match="subject-time")
+            args = _make_outlook_args(
+                plan=str(plan),
+                calendar="Your Family",
+                from_date="2025-10-01",
+                to_date="2025-10-31",
+                match="subject-time",
+            )
             buf = io.StringIO()
-            with patch("core.outlook.OutlookClient", new=lambda *a, **k: fake), redirect_stdout(buf):
+            with (
+                patch("core.outlook.OutlookClient", new=lambda *a, **k: fake),
+                redirect_stdout(buf),
+            ):
                 rc = sa.cmd_verify(args)
             out = buf.getvalue()
             self.assertEqual(rc, 0)
@@ -95,10 +133,14 @@ class TestScheduleVerifySync(unittest.TestCase):
     def test_sync_dry_run_counts_subject_time(self):
         import tempfile
         import textwrap
+
         from schedule.cli import main as sa
+
         with tempfile.TemporaryDirectory() as td:
-            plan = self._write_plan(Path(td), textwrap.dedent(
-                """
+            plan = self._write_plan(
+                Path(td),
+                textwrap.dedent(
+                    """
                 events:
                   - subject: Leisure Swim
                     repeat: weekly
@@ -110,18 +152,43 @@ class TestScheduleVerifySync(unittest.TestCase):
                     start: 2025-10-10T18:00:00
                     end: 2025-10-10T19:00:00
                 """
-            ).strip())
+                ).strip(),
+            )
 
             # Outlook occurrences: Leisure Swim only on 10/05; extra wrong one-off on 10/06
             occ = [
-                {"subject": "Leisure Swim", "start": {"dateTime": "2025-10-05T10:00:00"}, "end": {"dateTime": "2025-10-05T11:00:00"}, "type": "occurrence", "seriesMasterId": "SID1", "id": "OCC1"},
-                {"subject": "Leisure Swim", "start": {"dateTime": "2025-10-06T10:00:00"}, "end": {"dateTime": "2025-10-06T11:00:00"}, "type": "singleInstance", "id": "OID1"},
+                {
+                    "subject": "Leisure Swim",
+                    "start": {"dateTime": "2025-10-05T10:00:00"},
+                    "end": {"dateTime": "2025-10-05T11:00:00"},
+                    "type": "occurrence",
+                    "seriesMasterId": "SID1",
+                    "id": "OCC1",
+                },
+                {
+                    "subject": "Leisure Swim",
+                    "start": {"dateTime": "2025-10-06T10:00:00"},
+                    "end": {"dateTime": "2025-10-06T11:00:00"},
+                    "type": "singleInstance",
+                    "id": "OID1",
+                },
             ]
             fake = FakeOutlook(events=occ)
 
-            args = _make_outlook_args(plan=str(plan), calendar="Activities", from_date="2025-10-01", to_date="2025-10-31", match="subject-time", delete_missing=True, apply=False)
+            args = _make_outlook_args(
+                plan=str(plan),
+                calendar="Activities",
+                from_date="2025-10-01",
+                to_date="2025-10-31",
+                match="subject-time",
+                delete_missing=True,
+                apply=False,
+            )
             buf = io.StringIO()
-            with patch("core.outlook.OutlookClient", new=lambda *a, **k: fake), redirect_stdout(buf):
+            with (
+                patch("core.outlook.OutlookClient", new=lambda *a, **k: fake),
+                redirect_stdout(buf),
+            ):
                 rc = sa.cmd_sync(args)
             out = buf.getvalue()
             self.assertEqual(rc, 0)
@@ -131,18 +198,35 @@ class TestScheduleVerifySync(unittest.TestCase):
 
     def test_export_writes_yaml(self):
         import tempfile
+
         from schedule.cli import main as sa
+
         with tempfile.TemporaryDirectory() as td:
             out = Path(td) / "activities.yaml"
             evs = [
-                {"subject": "Leisure Swim", "start": {"dateTime": "2025-10-05T10:00:00"}, "end": {"dateTime": "2025-10-05T11:00:00"}, "location": {"displayName": "Pool"}},
-                {"subject": "Public Skating", "start": {"dateTime": "2025-10-06T10:00:00"}, "end": {"dateTime": "2025-10-06T11:00:00"}, "location": {"displayName": "Rink"}},
+                {
+                    "subject": "Leisure Swim",
+                    "start": {"dateTime": "2025-10-05T10:00:00"},
+                    "end": {"dateTime": "2025-10-05T11:00:00"},
+                    "location": {"displayName": "Pool"},
+                },
+                {
+                    "subject": "Public Skating",
+                    "start": {"dateTime": "2025-10-06T10:00:00"},
+                    "end": {"dateTime": "2025-10-06T11:00:00"},
+                    "location": {"displayName": "Rink"},
+                },
             ]
             fake = FakeOutlook(events=evs)
 
-            args = _make_outlook_args(calendar="Activities", from_date="2025-10-01", to_date="2025-10-31", out=str(out))
+            args = _make_outlook_args(
+                calendar="Activities", from_date="2025-10-01", to_date="2025-10-31", out=str(out)
+            )
             buf = io.StringIO()
-            with patch("core.outlook.OutlookClient", new=lambda *a, **k: fake), redirect_stdout(buf):
+            with (
+                patch("core.outlook.OutlookClient", new=lambda *a, **k: fake),
+                redirect_stdout(buf),
+            ):
                 rc = sa.cmd_export(args)
             self.assertEqual(rc, 0)
             self.assertTrue(out.exists())

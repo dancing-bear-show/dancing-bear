@@ -154,9 +154,7 @@ class TestBuildSummary(unittest.TestCase):
         seed = {"keywords": ["Python"]}
         result = build_summary(data, seed=seed)
         # Python Developer should be first due to keyword matches
-        self.assertTrue(
-            result["experience_highlights"][0].startswith("Python Developer")
-        )
+        self.assertTrue(result["experience_highlights"][0].startswith("Python Developer"))
 
     def test_handles_missing_experience(self):
         data = {"name": "John", "experience": None}

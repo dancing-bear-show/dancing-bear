@@ -1,4 +1,5 @@
 """Tests for telemetry/_menubar_budget.py — budget scoring and safe-coerce helpers."""
+
 from __future__ import annotations
 
 import unittest

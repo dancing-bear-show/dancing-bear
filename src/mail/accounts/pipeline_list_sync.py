@@ -1,4 +1,5 @@
 """Sync labels and filters pipeline implementations for accounts commands."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -8,8 +9,8 @@ from core.pipeline import SafeProcessor
 from .pipeline_auth import (
     AccountsResultProducer,
     SimpleConsumer,
-    _sync_outlook_filters,
     _sync_labels_for_account,
+    _sync_outlook_filters,
 )
 
 
@@ -43,11 +44,14 @@ class AccountsSyncLabelsResult:
 AccountsSyncLabelsRequestConsumer = SimpleConsumer[AccountsSyncLabelsRequest]
 
 
-class AccountsSyncLabelsProcessor(SafeProcessor[AccountsSyncLabelsRequest, AccountsSyncLabelsResult]):
+class AccountsSyncLabelsProcessor(
+    SafeProcessor[AccountsSyncLabelsRequest, AccountsSyncLabelsResult]
+):
     def _process_safe(self, payload: AccountsSyncLabelsRequest) -> AccountsSyncLabelsResult:
-        from .helpers import load_accounts, iter_accounts, build_provider_for_account
         from core.yamlio import load_config
+
         from ..dsl import normalize_labels_for_outlook
+        from .helpers import build_provider_for_account, iter_accounts, load_accounts
 
         accts = load_accounts(payload.config_path)
         desired_doc = load_config(payload.labels_path)
@@ -58,17 +62,25 @@ class AccountsSyncLabelsProcessor(SafeProcessor[AccountsSyncLabelsRequest, Accou
             provider = (a.get("provider") or "").lower()
             client = build_provider_for_account(a)
             client.authenticate()
-            desired = normalize_labels_for_outlook(desired_base) if provider == "outlook" else desired_base
+            desired = (
+                normalize_labels_for_outlook(desired_base)
+                if provider == "outlook"
+                else desired_base
+            )
             existing = {lab.get("name", ""): lab for lab in client.list_labels()}
 
-            created, updated = _sync_labels_for_account(client, desired, existing, provider, payload.dry_run)
+            created, updated = _sync_labels_for_account(
+                client, desired, existing, provider, payload.dry_run
+            )
 
-            synced.append(SyncedLabelInfo(
-                account_name=a.get("name", "account"),
-                provider=provider,
-                created=created,
-                updated=updated,
-            ))
+            synced.append(
+                SyncedLabelInfo(
+                    account_name=a.get("name", "account"),
+                    provider=provider,
+                    created=created,
+                    updated=updated,
+                )
+            )
 
         return AccountsSyncLabelsResult(synced=synced)
 
@@ -77,7 +89,9 @@ class AccountsSyncLabelsProducer(AccountsResultProducer[AccountsSyncLabelsResult
     def _produce_items(self, payload: AccountsSyncLabelsResult) -> None:
         verb = "would" if self._dry_run else ""
         for info in payload.synced:
-            self._writer.print(f"[labels sync] {info.account_name} provider={info.provider} {verb} created={info.created} updated={info.updated}")
+            self._writer.print(
+                f"[labels sync] {info.account_name} provider={info.provider} {verb} created={info.created} updated={info.updated}"
+            )
 
 
 # -----------------------------------------------------------------------------
@@ -116,9 +130,10 @@ class AccountsSyncFiltersResult:
 AccountsSyncFiltersRequestConsumer = SimpleConsumer[AccountsSyncFiltersRequest]
 
 
-def _sync_filters_gmail(a: dict, payload: "AccountsSyncFiltersRequest") -> SyncedFiltersInfo:
+def _sync_filters_gmail(a: dict, payload: AccountsSyncFiltersRequest) -> SyncedFiltersInfo:
     """Delegate Gmail filter sync to run_filters_sync."""
     import argparse
+
     from ..filters.commands import run_filters_sync
 
     ns = argparse.Namespace(
@@ -139,11 +154,12 @@ def _sync_filters_gmail(a: dict, payload: "AccountsSyncFiltersRequest") -> Synce
     )
 
 
-def _sync_filters_outlook(a: dict, payload: "AccountsSyncFiltersRequest") -> SyncedFiltersInfo:
+def _sync_filters_outlook(a: dict, payload: AccountsSyncFiltersRequest) -> SyncedFiltersInfo:
     """Sync Outlook filters directly against the Graph API."""
-    from .helpers import build_client_for_account
     from core.yamlio import load_config
+
     from ..dsl import normalize_filters_for_outlook
+    from .helpers import build_client_for_account
 
     client = build_client_for_account(a)
     client.authenticate()
@@ -178,9 +194,11 @@ _FILTERS_SYNC_BY_PROVIDER = {
 }
 
 
-class AccountsSyncFiltersProcessor(SafeProcessor[AccountsSyncFiltersRequest, AccountsSyncFiltersResult]):
+class AccountsSyncFiltersProcessor(
+    SafeProcessor[AccountsSyncFiltersRequest, AccountsSyncFiltersResult]
+):
     def _process_safe(self, payload: AccountsSyncFiltersRequest) -> AccountsSyncFiltersResult:
-        from .helpers import load_accounts, iter_accounts
+        from .helpers import iter_accounts, load_accounts
 
         accts = load_accounts(payload.config_path)
         synced: list[SyncedFiltersInfo] = []
@@ -201,9 +219,13 @@ class AccountsSyncFiltersProducer(AccountsResultProducer[AccountsSyncFiltersResu
         verb = "would" if self._dry_run else ""
         for info in payload.synced:
             if info.created < 0:
-                self._writer.print(f"[filters sync] {info.account_name} provider={info.provider} (delegated)")
+                self._writer.print(
+                    f"[filters sync] {info.account_name} provider={info.provider} (delegated)"
+                )
             else:
-                self._writer.print(f"[filters sync] {info.account_name} provider={info.provider} {verb} created={info.created} errors={info.errors}")
+                self._writer.print(
+                    f"[filters sync] {info.account_name} provider={info.provider} {verb} created={info.created} errors={info.errors}"
+                )
 
 
 # -----------------------------------------------------------------------------

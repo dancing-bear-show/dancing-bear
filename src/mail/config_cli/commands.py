@@ -1,47 +1,49 @@
 """Config CLI commands for configuration, backup, cache, workflows, and env setup."""
+
 from __future__ import annotations
 
 import argparse
 
 from core.pipeline import RequestConsumer
-from .pipeline_cache import (
-    AuthRequest,
-    AuthProcessor,
-    AuthProducer,
-    BackupRequest,
-    BackupProcessor,
-    BackupProducer,
-    CacheStatsRequest,
-    CacheStatsProcessor,
-    CacheStatsProducer,
-    CacheClearRequest,
-    CacheClearProcessor,
-    CacheClearProducer,
-    CachePruneRequest,
-    CachePruneProcessor,
-    CachePruneProducer,
-    ConfigInspectRequest,
-    ConfigInspectProcessor,
-    ConfigInspectProducer,
-)
-from .pipeline_derive import (
-    DeriveLabelsRequest,
-    DeriveLabelsProcessor,
-    DeriveLabelsProducer,
-    DeriveFiltersRequest,
-    DeriveFiltersProcessor,
-    DeriveFiltersProducer,
-    OptimizeFiltersRequest,
-    OptimizeFiltersProcessor,
-    OptimizeFiltersProducer,
-)
+
 from .pipeline_audit import (
-    AuditFiltersRequest,
     AuditFiltersProcessor,
     AuditFiltersProducer,
-    EnvSetupRequest,
+    AuditFiltersRequest,
     EnvSetupProcessor,
     EnvSetupProducer,
+    EnvSetupRequest,
+)
+from .pipeline_cache import (
+    AuthProcessor,
+    AuthProducer,
+    AuthRequest,
+    BackupProcessor,
+    BackupProducer,
+    BackupRequest,
+    CacheClearProcessor,
+    CacheClearProducer,
+    CacheClearRequest,
+    CachePruneProcessor,
+    CachePruneProducer,
+    CachePruneRequest,
+    CacheStatsProcessor,
+    CacheStatsProducer,
+    CacheStatsRequest,
+    ConfigInspectProcessor,
+    ConfigInspectProducer,
+    ConfigInspectRequest,
+)
+from .pipeline_derive import (
+    DeriveFiltersProcessor,
+    DeriveFiltersProducer,
+    DeriveFiltersRequest,
+    DeriveLabelsProcessor,
+    DeriveLabelsProducer,
+    DeriveLabelsRequest,
+    OptimizeFiltersProcessor,
+    OptimizeFiltersProducer,
+    OptimizeFiltersRequest,
 )
 
 
@@ -191,9 +193,10 @@ def run_config_audit_filters(args: argparse.Namespace) -> int:
 def run_workflows_gmail_from_unified(args: argparse.Namespace) -> int:
     """Workflow: derive Gmail filters from unified, plan, and optionally apply."""
     from pathlib import Path
+
     from ..filters.commands import run_filters_plan, run_filters_sync
 
-    out_dir = Path(getattr(args, 'out_dir', 'out'))
+    out_dir = Path(getattr(args, "out_dir", "out"))
     out_dir.mkdir(parents=True, exist_ok=True)
     out_gmail = out_dir / "filters.gmail.from_unified.yaml"
     out_outlook = out_dir / "filters.outlook.from_unified.yaml"
@@ -213,26 +216,26 @@ def run_workflows_gmail_from_unified(args: argparse.Namespace) -> int:
     # 2) Plan Gmail changes
     ns_plan = argparse.Namespace(
         config=str(out_gmail),
-        delete_missing=bool(getattr(args, 'delete_missing', False)),
+        delete_missing=bool(getattr(args, "delete_missing", False)),
         credentials=None,
         token=None,
         cache=None,
-        profile=getattr(args, 'profile', None),
+        profile=getattr(args, "profile", None),
     )
     print("\n[Plan] Gmail filters vs derived from unified:")
     run_filters_plan(ns_plan)
 
     # 3) Optionally apply
-    if getattr(args, 'apply', False):
+    if getattr(args, "apply", False):
         ns_sync = argparse.Namespace(
             config=str(out_gmail),
             dry_run=False,
-            delete_missing=bool(getattr(args, 'delete_missing', False)),
+            delete_missing=bool(getattr(args, "delete_missing", False)),
             require_forward_verified=False,
             credentials=None,
             token=None,
             cache=None,
-            profile=getattr(args, 'profile', None),
+            profile=getattr(args, "profile", None),
         )
         print("\n[Apply] Syncing Gmail filters to match derived …")
         run_filters_sync(ns_sync)
@@ -269,9 +272,12 @@ def _detect_gmail_available(args: argparse.Namespace) -> bool:
 
     try:
         from ..config_resolver import resolve_paths_profile
-        cpath, tpath = resolve_paths_profile(arg_credentials=None, arg_token=None, profile=getattr(args, 'profile', None))
-        cpath = os.path.expanduser(cpath or '')
-        tpath = os.path.expanduser(tpath or '')
+
+        cpath, tpath = resolve_paths_profile(
+            arg_credentials=None, arg_token=None, profile=getattr(args, "profile", None)
+        )
+        cpath = os.path.expanduser(cpath or "")
+        tpath = os.path.expanduser(tpath or "")
         return bool(os.path.exists(cpath) or os.path.exists(tpath))
     except Exception:  # nosec B110 - detection probe
         return False
@@ -286,9 +292,9 @@ def _detect_outlook_available(args: argparse.Namespace) -> bool:
             client_id=None,
             tenant=None,
             token=None,
-            accounts_config=getattr(args, 'accounts_config', None),
-            account=getattr(args, 'account', None),
-            profile=getattr(args, 'profile', None),
+            accounts_config=getattr(args, "accounts_config", None),
+            account=getattr(args, "account", None),
+            profile=getattr(args, "profile", None),
         )
         cid, _ten, _tok, _cache = _resolve_outlook_args(oargs)
         return bool(cid)
@@ -303,24 +309,24 @@ def _run_gmail_steps(args: argparse.Namespace, out_gmail: str) -> None:
     print("\n[Gmail] Plan:")
     ns_plan = argparse.Namespace(
         config=out_gmail,
-        delete_missing=bool(getattr(args, 'delete_missing', False)),
+        delete_missing=bool(getattr(args, "delete_missing", False)),
         credentials=None,
         token=None,
         cache=None,
-        profile=getattr(args, 'profile', None),
+        profile=getattr(args, "profile", None),
     )
     run_filters_plan(ns_plan)
-    if getattr(args, 'apply', False):
+    if getattr(args, "apply", False):
         print("\n[Gmail] Apply:")
         ns_sync = argparse.Namespace(
             config=out_gmail,
             dry_run=False,
-            delete_missing=bool(getattr(args, 'delete_missing', False)),
+            delete_missing=bool(getattr(args, "delete_missing", False)),
             require_forward_verified=False,
             credentials=None,
             token=None,
             cache=None,
-            profile=getattr(args, 'profile', None),
+            profile=getattr(args, "profile", None),
         )
         run_filters_sync(ns_sync)
 
@@ -335,26 +341,26 @@ def _run_outlook_steps(args: argparse.Namespace, out_outlook: str) -> None:
         client_id=None,
         tenant=None,
         token=None,
-        accounts_config=getattr(args, 'accounts_config', None),
-        account=getattr(args, 'account', None),
-        profile=getattr(args, 'profile', None),
+        accounts_config=getattr(args, "accounts_config", None),
+        account=getattr(args, "account", None),
+        profile=getattr(args, "profile", None),
         use_cache=False,
         cache_ttl=600,
     )
     run_outlook_rules_plan(ns_pl)
-    if getattr(args, 'apply', False):
+    if getattr(args, "apply", False):
         print("\n[Outlook] Apply:")
         ns_sync = argparse.Namespace(
             config=out_outlook,
             client_id=None,
             tenant=None,
             token=None,
-            accounts_config=getattr(args, 'accounts_config', None),
-            account=getattr(args, 'account', None),
-            profile=getattr(args, 'profile', None),
+            accounts_config=getattr(args, "accounts_config", None),
+            account=getattr(args, "account", None),
+            profile=getattr(args, "profile", None),
             dry_run=False,
-            delete_missing=bool(getattr(args, 'delete_missing', False)),
-            move_to_folders=bool(getattr(args, 'outlook_move_to_folders', True)),
+            delete_missing=bool(getattr(args, "delete_missing", False)),
+            move_to_folders=bool(getattr(args, "outlook_move_to_folders", True)),
         )
         run_outlook_rules_sync(ns_sync)
 
@@ -362,14 +368,14 @@ def _run_outlook_steps(args: argparse.Namespace, out_outlook: str) -> None:
 def _resolve_providers(args: argparse.Namespace) -> tuple:
     """Determine which providers to run. Returns (run_gmail, run_outlook)."""
     requested = None
-    if getattr(args, 'providers', None):
-        requested = {p.strip().lower() for p in str(args.providers).split(',') if p.strip()}
+    if getattr(args, "providers", None):
+        requested = {p.strip().lower() for p in str(args.providers).split(",") if p.strip()}
 
-    run_gmail = (requested is None or 'gmail' in requested) and _detect_gmail_available(args)
-    if requested and 'gmail' in requested:
+    run_gmail = (requested is None or "gmail" in requested) and _detect_gmail_available(args)
+    if requested and "gmail" in requested:
         run_gmail = True
-    run_outlook = (requested is None or 'outlook' in requested) and _detect_outlook_available(args)
-    if requested and 'outlook' in requested:
+    run_outlook = (requested is None or "outlook" in requested) and _detect_outlook_available(args)
+    if requested and "outlook" in requested:
         run_outlook = True
     return requested, run_gmail, run_outlook
 
@@ -379,11 +385,11 @@ def _run_provider_steps(args: argparse.Namespace, out_gmail: str, out_outlook: s
     requested, run_gmail, run_outlook = _resolve_providers(args)
     if run_gmail:
         _run_gmail_steps(args, out_gmail)
-    elif requested is None or 'gmail' in (requested or {'gmail'}):
+    elif requested is None or "gmail" in (requested or {"gmail"}):
         print("\n[Gmail] Skipping (no credentials/token detected). Use --profile or env setup.")
     if run_outlook:
         _run_outlook_steps(args, out_outlook)
-    elif requested is None or 'outlook' in (requested or {'outlook'}):
+    elif requested is None or "outlook" in (requested or {"outlook"}):
         print("\n[Outlook] Skipping (no client_id/token detected). Use env setup or accounts.yaml.")
     return run_gmail or run_outlook
 
@@ -392,7 +398,7 @@ def run_workflows_from_unified(args: argparse.Namespace) -> int:
     """Workflow: derive provider configs from unified and plan/apply per provider."""
     from pathlib import Path
 
-    out_dir = Path(getattr(args, 'out_dir', 'out'))
+    out_dir = Path(getattr(args, "out_dir", "out"))
     out_dir.mkdir(parents=True, exist_ok=True)
     out_gmail = str(out_dir / "filters.gmail.from_unified.yaml")
     out_outlook = str(out_dir / "filters.outlook.from_unified.yaml")
@@ -401,7 +407,7 @@ def run_workflows_from_unified(args: argparse.Namespace) -> int:
         in_path=resolve_filters_config(args, "config"),
         out_gmail=out_gmail,
         out_outlook=out_outlook,
-        outlook_move_to_folders=bool(getattr(args, 'outlook_move_to_folders', True)),
+        outlook_move_to_folders=bool(getattr(args, "outlook_move_to_folders", True)),
     )
     envelope = DeriveFiltersProcessor().process(RequestConsumer(request).consume())
     DeriveFiltersProducer().produce(envelope)

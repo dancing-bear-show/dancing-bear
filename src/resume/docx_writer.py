@@ -9,31 +9,33 @@ For new code, prefer using the class-based API:
     writer = create_resume_writer(data, template)
     writer.write(out_path)
 """
+
 from __future__ import annotations
 
 from typing import Any
 
-from .io_utils import safe_import
+from .docx_base import get_contact_field
 from .docx_links import (
     normalize_link_url,
+)
+from .docx_links import (
     render_contact_runs as _render_contact_runs,
 )
-from .docx_styles import (
-    _parse_hex_color,
-    _tight_paragraph,
-    _flush_left,
-    _apply_paragraph_shading,
-    _format_phone_display,
-    _format_link_display,
-)
-from .docx_base import get_contact_field
 from .docx_standard import (
     SECTION_RENDERERS,
     SECTIONS_WITH_KEYWORDS,
     _section_has_data,
 )
+from .docx_styles import (
+    _apply_paragraph_shading,
+    _flush_left,
+    _format_link_display,
+    _format_phone_display,
+    _parse_hex_color,
+    _tight_paragraph,
+)
+from .io_utils import safe_import
 from .schema import Resume
-
 
 SECTION_SYNONYMS = {
     "summary": {"summary", "profile", "about"},
@@ -96,7 +98,7 @@ def _collect_link_extra_items(resume: Resume) -> list[tuple[str, str]]:
         if val:
             items.append((_format_link_display(val), normalize_link_url(val)))
     links_list = _get_contact_field(resume, "links") or []
-    for val in (links_list if isinstance(links_list, list) else []):
+    for val in links_list if isinstance(links_list, list) else []:
         if isinstance(val, str) and val.strip():
             items.append((_format_link_display(val), normalize_link_url(val)))
     return items
@@ -105,12 +107,14 @@ def _collect_link_extra_items(resume: Resume) -> list[tuple[str, str]]:
 def _apply_page_styles(doc, page_cfg: dict[str, Any]) -> None:
     """Apply compact page styles (margins and fonts)."""
     from .docx_base import apply_page_styles_to_doc
+
     apply_page_styles_to_doc(doc, page_cfg)
 
 
 def _set_document_metadata(doc, resume: Resume, template: dict[str, Any]) -> None:
     """Set document core properties (title, author, keywords)."""
     from .docx_base import set_document_metadata_on_doc
+
     page_cfg = template.get("page") or {}
     set_document_metadata_on_doc(doc, resume, page_cfg)
 
@@ -118,6 +122,7 @@ def _set_document_metadata(doc, resume: Resume, template: dict[str, Any]) -> Non
 def _center_paragraph(para) -> None:
     """Center a paragraph and remove indents."""
     from .docx_styles import StyleManager
+
     StyleManager.center_paragraph(para)
 
 
@@ -152,7 +157,9 @@ def _render_document_header(doc, resume: Resume) -> None:
         _render_contact_runs(p, email, plain_parts, link_items)
 
 
-def _resolve_sections(template: dict[str, Any], structure: dict[str, Any] | None) -> list[dict[str, Any]]:
+def _resolve_sections(
+    template: dict[str, Any], structure: dict[str, Any] | None
+) -> list[dict[str, Any]]:
     """Resolve section order and configuration from template/structure."""
     sections = template.get("sections") or []
 
@@ -176,7 +183,9 @@ def _render_section_heading(doc, title: str, template: dict[str, Any]) -> None:
     doc.add_heading(str(title), level=1)
     _tight_paragraph(doc.paragraphs[-1], before_pt=6, after_pt=2)
     _flush_left(doc.paragraphs[-1])
-    page_h1_bg = (template.get("page") or {}).get("h1_bg") or (template.get("page") or {}).get("heading_bg")
+    page_h1_bg = (template.get("page") or {}).get("h1_bg") or (template.get("page") or {}).get(
+        "heading_bg"
+    )
     bg_rgb = _parse_hex_color(page_h1_bg)
     if bg_rgb:
         _apply_paragraph_shading(doc.paragraphs[-1], bg_rgb)
@@ -212,6 +221,7 @@ def write_resume_docx(
     layout_cfg = template.get("layout") or {}
     if layout_cfg.get("type") == "sidebar":
         from .docx_sidebar import write_resume_docx_sidebar
+
         return write_resume_docx_sidebar(resume, template, out_path, seed)
 
     # Standard single-column layout

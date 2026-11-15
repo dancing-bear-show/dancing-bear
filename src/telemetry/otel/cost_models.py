@@ -66,11 +66,7 @@ class SessionCost:
     @property
     def billable_tokens(self) -> int:
         """Total tokens billed (excludes cache_read_tokens)."""
-        return (
-            self.input_tokens
-            + self.output_tokens
-            + self.cache_creation_tokens
-        )
+        return self.input_tokens + self.output_tokens + self.cache_creation_tokens
 
     @property
     def duration_minutes(self) -> float | None:
@@ -96,11 +92,7 @@ class ModelCost:
     @property
     def billable_tokens(self) -> int:
         """Total tokens billed (excludes cache_read_tokens)."""
-        return (
-            self.input_tokens
-            + self.output_tokens
-            + self.cache_creation_tokens
-        )
+        return self.input_tokens + self.output_tokens + self.cache_creation_tokens
 
 
 @dataclass(frozen=True)
@@ -121,11 +113,7 @@ class CostMetrics:
     @property
     def total_billable_tokens(self) -> int:
         """Total tokens billed (excludes cache_read_tokens)."""
-        return (
-            self.total_input_tokens
-            + self.total_output_tokens
-            + self.total_cache_creation_tokens
-        )
+        return self.total_input_tokens + self.total_output_tokens + self.total_cache_creation_tokens
 
     @property
     def cache_savings_percent(self) -> float:

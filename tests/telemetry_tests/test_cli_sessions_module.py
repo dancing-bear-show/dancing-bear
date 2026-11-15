@@ -1,15 +1,12 @@
 """Tests for telemetry/_cli_sessions.py — session rendering helpers."""
+
 from __future__ import annotations
 
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from rich.table import Table
 
-from tests.telemetry_tests.shared_fixtures import (
-    _make_agent_summary_cli,
-    _make_session_summary,
-)
 from telemetry._cli_sessions import (
     _LABEL_SESSION_ID,
     _build_sessions_table,
@@ -19,11 +16,15 @@ from telemetry._cli_sessions import (
     _sessions_json_payload,
     _truncate_id,
 )
-
+from tests.telemetry_tests.shared_fixtures import (
+    _make_agent_summary_cli,
+    _make_session_summary,
+)
 
 # ---------------------------------------------------------------------------
 # _truncate_id
 # ---------------------------------------------------------------------------
+
 
 class TestTruncateId(unittest.TestCase):
     def test_short_id_not_truncated(self):
@@ -44,6 +45,7 @@ class TestTruncateId(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _fmt_duration
 # ---------------------------------------------------------------------------
+
 
 class TestFmtDuration(unittest.TestCase):
     def test_returns_dash_for_non_session(self):
@@ -68,8 +70,8 @@ class TestFmtDuration(unittest.TestCase):
         self.assertEqual(result, "30m")
 
     def test_formats_hours_and_minutes(self):
-        start = datetime(2026, 4, 16, 10, 0, 0, tzinfo=timezone.utc)
-        end = datetime(2026, 4, 16, 12, 34, 0, tzinfo=timezone.utc)
+        start = datetime(2026, 4, 16, 10, 0, 0, tzinfo=UTC)
+        end = datetime(2026, 4, 16, 12, 34, 0, tzinfo=UTC)
         s = _make_session_summary()
         s.start_time = start
         s.end_time = end
@@ -77,8 +79,8 @@ class TestFmtDuration(unittest.TestCase):
         self.assertEqual(result, "2h34m")
 
     def test_zero_minutes_shown_as_0m(self):
-        start = datetime(2026, 4, 16, 10, 0, 0, tzinfo=timezone.utc)
-        end = datetime(2026, 4, 16, 10, 0, 0, tzinfo=timezone.utc)
+        start = datetime(2026, 4, 16, 10, 0, 0, tzinfo=UTC)
+        end = datetime(2026, 4, 16, 10, 0, 0, tzinfo=UTC)
         s = _make_session_summary()
         s.start_time = start
         s.end_time = end
@@ -89,6 +91,7 @@ class TestFmtDuration(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _fmt_tokens
 # ---------------------------------------------------------------------------
+
 
 class TestFmtTokens(unittest.TestCase):
     def test_small_number_no_suffix(self):
@@ -109,6 +112,7 @@ class TestFmtTokens(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _session_to_dict
 # ---------------------------------------------------------------------------
+
 
 class TestSessionToDict(unittest.TestCase):
     def test_returns_empty_for_non_session(self):
@@ -150,8 +154,16 @@ class TestSessionToDict(unittest.TestCase):
         self.assertEqual(result["num_agents"], 1)
         self.assertEqual(len(result["agents"]), 1)
         agent_dict = result["agents"][0]
-        for key in ("agent_id", "agent_type", "description", "model",
-                    "duration_ms", "total_tokens", "total_tool_uses", "cost_usd"):
+        for key in (
+            "agent_id",
+            "agent_type",
+            "description",
+            "model",
+            "duration_ms",
+            "total_tokens",
+            "total_tool_uses",
+            "cost_usd",
+        ):
             self.assertIn(key, agent_dict)
 
     def test_empty_agents_list(self):
@@ -164,10 +176,21 @@ class TestSessionToDict(unittest.TestCase):
         s = _make_session_summary()
         result = _session_to_dict(s)
         expected_keys = [
-            "session_id", "project_path", "start_time", "end_time",
-            "duration_minutes", "model", "total_cost", "total_events",
-            "input_tokens", "output_tokens", "cache_read_tokens",
-            "cache_creation_tokens", "efficiency_score", "num_agents", "agents",
+            "session_id",
+            "project_path",
+            "start_time",
+            "end_time",
+            "duration_minutes",
+            "model",
+            "total_cost",
+            "total_events",
+            "input_tokens",
+            "output_tokens",
+            "cache_read_tokens",
+            "cache_creation_tokens",
+            "efficiency_score",
+            "num_agents",
+            "agents",
         ]
         for key in expected_keys:
             self.assertIn(key, result)
@@ -176,6 +199,7 @@ class TestSessionToDict(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _sessions_json_payload
 # ---------------------------------------------------------------------------
+
 
 class TestSessionsJsonPayload(unittest.TestCase):
     def test_empty_sessions_returns_zeros(self):
@@ -192,9 +216,7 @@ class TestSessionsJsonPayload(unittest.TestCase):
         self.assertAlmostEqual(payload["total_cost"], 0.15, places=5)
 
     def test_session_count_matches(self):
-        sessions = [
-            _make_session_summary(session_id=f"s{i}") for i in range(5)
-        ]
+        sessions = [_make_session_summary(session_id=f"s{i}") for i in range(5)]
         payload = _sessions_json_payload(sessions)
         self.assertEqual(payload["session_count"], 5)
         self.assertEqual(len(payload["sessions"]), 5)
@@ -207,6 +229,7 @@ class TestSessionsJsonPayload(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _build_sessions_table
 # ---------------------------------------------------------------------------
+
 
 class TestBuildSessionsTable(unittest.TestCase):
     def test_returns_rich_table(self):

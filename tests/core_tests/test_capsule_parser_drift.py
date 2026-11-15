@@ -29,7 +29,7 @@ import re
 import subprocess
 import sys
 import unittest
-from functools import lru_cache
+from functools import cache
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -115,15 +115,15 @@ _UNIVERSAL_FLAGS = frozenset({"--help"})
 # "contains a dot means filename" rule would silently skip exactly the commands
 # most prone to drift. Only a dot with a known file extension is treated as a
 # path, and `/` always is.
-_NOISE_ANGLE = re.compile(r"^<.*>$")           # <job-id>, <file.yaml>
-_NOISE_BRACKET = re.compile(r"^\[.*\]$")       # [options]
-_NOISE_BRACE = re.compile(r"^\{.*\}$")         # {a,b}
-_NOISE_PATH = re.compile(r".*/")               # paths: out/x.yaml, ~/.config/x
+_NOISE_ANGLE = re.compile(r"^<.*>$")  # <job-id>, <file.yaml>
+_NOISE_BRACKET = re.compile(r"^\[.*\]$")  # [options]
+_NOISE_BRACE = re.compile(r"^\{.*\}$")  # {a,b}
+_NOISE_PATH = re.compile(r".*/")  # paths: out/x.yaml, ~/.config/x
 _NOISE_EXT = re.compile(
     r"\.(ya?ml|json|md|py|csv|txt|png|svg|pptx|xlsx|mmd|docx|pdf)$"
-)                                               # bare filenames with known extensions
-_NOISE_NUMBER = re.compile(r"^\d+[a-z]?$")    # bare numbers and durations: 7, 7d
-_NOISE_QUOTED = re.compile(r"'")               # quoted fragments: any token containing a single-quote
+)  # bare filenames with known extensions
+_NOISE_NUMBER = re.compile(r"^\d+[a-z]?$")  # bare numbers and durations: 7, 7d
+_NOISE_QUOTED = re.compile(r"'")  # quoted fragments: any token containing a single-quote
 
 # Every pattern is either anchored or intentionally unanchored, so a single
 # `search` over all of them is equivalent to checking each individually.
@@ -168,7 +168,7 @@ def _run(args: list[str]) -> subprocess.CompletedProcess:
     )
 
 
-@lru_cache(maxsize=None)
+@cache
 def _schema(invocation: tuple[str, ...]) -> dict:
     proc = _run([*invocation, "--agentic", "--agentic-format", "json"])
     shown = " ".join(invocation)
@@ -180,14 +180,13 @@ def _schema(invocation: tuple[str, ...]) -> dict:
     return json.loads(proc.stdout)
 
 
-@lru_cache(maxsize=None)
+@cache
 def _capsule(invocation: tuple[str, ...]) -> str:
     proc = _run([*invocation, "--agentic"])
     shown = " ".join(invocation)
     if proc.returncode != 0:
         raise AssertionError(
-            f"{shown} --agentic exited {proc.returncode}: "
-            f"{proc.stderr.strip()[:300]}"
+            f"{shown} --agentic exited {proc.returncode}: {proc.stderr.strip()[:300]}"
         )
     return proc.stdout
 
@@ -255,9 +254,7 @@ def _index(schema: dict) -> tuple[dict[str, set[str]], set[str]]:
     return index, booleans
 
 
-def _match_prefix(
-    parts: list[str], prefixes: list[list[str]]
-) -> list[str] | None:
+def _match_prefix(parts: list[str], prefixes: list[list[str]]) -> list[str] | None:
     """Return the tokens after the matched prefix, or None if no prefix matches."""
     for prefix in prefixes:
         if parts[: len(prefix)] == prefix:
@@ -340,9 +337,7 @@ def _collect_problems(
         path = _resolve_path(subs, known)
         if path is None:
             if subs:
-                problems.append(
-                    f"subcommand {' '.join(subs)!r} does not exist  ({raw})"
-                )
+                problems.append(f"subcommand {' '.join(subs)!r} does not exist  ({raw})")
             continue
         valid = index.get(path, set()) | index.get("", set()) | _UNIVERSAL_FLAGS
         for flag in flags:
@@ -381,9 +376,7 @@ class CapsuleMatchesParser(unittest.TestCase):
         # branch is kept as tolerance for a future minimal capsule, not because
         # any current domain takes it.
         if not checked and _INVOCATION.search(capsule):
-            unmatched = sorted(
-                {m.group(0).split()[0] for m in _INVOCATION.finditer(capsule)}
-            )
+            unmatched = sorted({m.group(0).split()[0] for m in _INVOCATION.finditer(capsule)})
             self.fail(
                 f"{shown} --agentic advertises commands, but none match a prefix "
                 f"in APPS[{app!r}], so this test asserted nothing.\n"
@@ -438,16 +431,12 @@ class InvocationParsing(unittest.TestCase):
         return subs, flags
 
     def test_boolean_flag_does_not_swallow_the_next_subcommand(self):
-        subs, flags = self._parse(
-            "./bin/mail --dry-run labels plan\n", "./bin/mail", {"--dry-run"}
-        )
+        subs, flags = self._parse("./bin/mail --dry-run labels plan\n", "./bin/mail", {"--dry-run"})
         self.assertEqual(subs, ["labels", "plan"])
         self.assertEqual(flags, ["--dry-run"])
 
     def test_value_flag_still_consumes_its_value(self):
-        subs, flags = self._parse(
-            "./bin/mail --profile p messages search\n", "./bin/mail"
-        )
+        subs, flags = self._parse("./bin/mail --profile p messages search\n", "./bin/mail")
         self.assertEqual(subs, ["messages", "search"])
         self.assertEqual(flags, ["--profile"])
 
@@ -468,15 +457,11 @@ class InvocationParsing(unittest.TestCase):
         self.assertIn("--dry-run", flags)
 
     def test_dotted_subcommands_are_not_mistaken_for_filenames(self):
-        subs, _ = self._parse(
-            "./bin/mail outlook rules.plan --config f.yaml\n", "./bin/mail"
-        )
+        subs, _ = self._parse("./bin/mail outlook rules.plan --config f.yaml\n", "./bin/mail")
         self.assertEqual(subs, ["outlook", "rules.plan"])
 
     def test_match_stops_at_end_of_line(self):
-        got = _invocations(
-            "./bin/mail labels plan\n./bin/mail filters sync\n", [["./bin/mail"]]
-        )
+        got = _invocations("./bin/mail labels plan\n./bin/mail filters sync\n", [["./bin/mail"]])
         self.assertEqual([subs for subs, _, _ in got], [["labels", "plan"], ["filters", "sync"]])
 
     def test_prose_after_a_command_is_not_parsed_as_flags(self):

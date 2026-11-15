@@ -16,7 +16,6 @@ from pathlib import Path
 
 from tests.fixtures import TempDirMixin
 
-
 # ---------------------------------------------------------------------------
 # _validate_profile_name
 # ---------------------------------------------------------------------------
@@ -33,8 +32,8 @@ class TestValidateProfileName(unittest.TestCase):
                 _validate_profile_name(name)  # must not raise
 
     def test_rejects_path_traversal(self):
-        from resume.overlays import _validate_profile_name
         from core.cli_errors import CLIError
+        from resume.overlays import _validate_profile_name
 
         for name in ("../x", "a/../b", "..", "a/b", "/etc/passwd"):
             with self.subTest(name=name):
@@ -42,23 +41,23 @@ class TestValidateProfileName(unittest.TestCase):
                     _validate_profile_name(name)
 
     def test_rejects_leading_dot(self):
-        from resume.overlays import _validate_profile_name
         from core.cli_errors import CLIError
+        from resume.overlays import _validate_profile_name
 
         with self.assertRaises(CLIError):
             _validate_profile_name(".hidden")
 
     def test_rejects_empty_string(self):
-        from resume.overlays import _validate_profile_name
         from core.cli_errors import CLIError
+        from resume.overlays import _validate_profile_name
 
         with self.assertRaises(CLIError):
             _validate_profile_name("")
 
     def test_rejects_path_traversal_exit_code_is_usage(self):
         """Unsafe name raises CLIError with ExitCode.USAGE (not NOT_FOUND)."""
-        from resume.overlays import _validate_profile_name
         from core.cli_errors import CLIError, ExitCode
+        from resume.overlays import _validate_profile_name
 
         with self.assertRaises(CLIError) as ctx:
             _validate_profile_name("../evil")
@@ -82,7 +81,9 @@ class TestResolveProfileDir(TempDirMixin, unittest.TestCase):
         prof_dir.mkdir(parents=True)
 
         with self.in_tmpdir():
-            with unittest.mock.patch.dict(os.environ, {"DANCING_BEAR_CONFIG_HOME": str(config_home)}):
+            with unittest.mock.patch.dict(
+                os.environ, {"DANCING_BEAR_CONFIG_HOME": str(config_home)}
+            ):
                 result = resolve_profile_dir("myprof")
 
         self.assertIsNotNone(result)
@@ -98,7 +99,9 @@ class TestResolveProfileDir(TempDirMixin, unittest.TestCase):
         with self.in_tmpdir():
             prof_dir = Path("config") / "profiles" / "cwd_prof"
             prof_dir.mkdir(parents=True)
-            with unittest.mock.patch.dict(os.environ, {"DANCING_BEAR_CONFIG_HOME": str(empty_home)}):
+            with unittest.mock.patch.dict(
+                os.environ, {"DANCING_BEAR_CONFIG_HOME": str(empty_home)}
+            ):
                 result = resolve_profile_dir("cwd_prof")
             # Resolve while still in tmpdir so relative paths compare correctly.
             self.assertIsNotNone(result)
@@ -112,7 +115,9 @@ class TestResolveProfileDir(TempDirMixin, unittest.TestCase):
         empty_home.mkdir()
 
         with self.in_tmpdir():
-            with unittest.mock.patch.dict(os.environ, {"DANCING_BEAR_CONFIG_HOME": str(empty_home)}):
+            with unittest.mock.patch.dict(
+                os.environ, {"DANCING_BEAR_CONFIG_HOME": str(empty_home)}
+            ):
                 result = resolve_profile_dir("sample")
 
         self.assertIsNotNone(result)
@@ -134,7 +139,9 @@ class TestResolveProfileDir(TempDirMixin, unittest.TestCase):
             cwd_prof.mkdir(parents=True)
             (cwd_prof / "profile.yaml").write_text("name: From CWD\n")
 
-            with unittest.mock.patch.dict(os.environ, {"DANCING_BEAR_CONFIG_HOME": str(config_home_dir)}):
+            with unittest.mock.patch.dict(
+                os.environ, {"DANCING_BEAR_CONFIG_HOME": str(config_home_dir)}
+            ):
                 result = resolve_profile_dir("dupe")
 
         self.assertEqual(result, home_prof)
@@ -147,15 +154,17 @@ class TestResolveProfileDir(TempDirMixin, unittest.TestCase):
         empty_home.mkdir()
 
         with self.in_tmpdir():
-            with unittest.mock.patch.dict(os.environ, {"DANCING_BEAR_CONFIG_HOME": str(empty_home)}):
+            with unittest.mock.patch.dict(
+                os.environ, {"DANCING_BEAR_CONFIG_HOME": str(empty_home)}
+            ):
                 result = resolve_profile_dir("definitely_does_not_exist_xyz123")
 
         self.assertIsNone(result)
 
     def test_rejects_unsafe_name(self):
         """Unsafe profile name raises CLIError immediately (not ValueError)."""
-        from resume.overlays import resolve_profile_dir
         from core.cli_errors import CLIError
+        from resume.overlays import resolve_profile_dir
 
         with self.assertRaises(CLIError):
             resolve_profile_dir("../x")
@@ -185,7 +194,9 @@ class TestApplyProfileOverlaysFromConfigHome(TempDirMixin, unittest.TestCase):
         )
 
         with self.in_tmpdir():
-            with unittest.mock.patch.dict(os.environ, {"DANCING_BEAR_CONFIG_HOME": str(config_home_dir)}):
+            with unittest.mock.patch.dict(
+                os.environ, {"DANCING_BEAR_CONFIG_HOME": str(config_home_dir)}
+            ):
                 result = apply_profile_overlays({}, "regtest")
 
         self.assertIn("experience", result)
@@ -204,7 +215,9 @@ class TestApplyProfileOverlaysFromConfigHome(TempDirMixin, unittest.TestCase):
         )
 
         with self.in_tmpdir():
-            with unittest.mock.patch.dict(os.environ, {"DANCING_BEAR_CONFIG_HOME": str(config_home_dir)}):
+            with unittest.mock.patch.dict(
+                os.environ, {"DANCING_BEAR_CONFIG_HOME": str(config_home_dir)}
+            ):
                 result = apply_profile_overlays({"name": "Original"}, "nametest")
 
         self.assertEqual(result["name"], "Config Home Name")
@@ -228,7 +241,9 @@ class TestApplyProfileOverlaysFromConfigHome(TempDirMixin, unittest.TestCase):
                 "experience:\n  - title: CWD Engineer\n    company: CWDCo\n"
             )
 
-            with unittest.mock.patch.dict(os.environ, {"DANCING_BEAR_CONFIG_HOME": str(config_home_dir)}):
+            with unittest.mock.patch.dict(
+                os.environ, {"DANCING_BEAR_CONFIG_HOME": str(config_home_dir)}
+            ):
                 result = apply_profile_overlays({}, "prio")
 
         self.assertEqual(result["experience"][0]["title"], "Home Engineer")
@@ -245,7 +260,9 @@ class TestApplyProfileOverlaysFromConfigHome(TempDirMixin, unittest.TestCase):
             cwd_prof.mkdir(parents=True)
             (cwd_prof / "profile.yaml").write_text("name: CWD User\n")
 
-            with unittest.mock.patch.dict(os.environ, {"DANCING_BEAR_CONFIG_HOME": str(empty_home)}):
+            with unittest.mock.patch.dict(
+                os.environ, {"DANCING_BEAR_CONFIG_HOME": str(empty_home)}
+            ):
                 result = apply_profile_overlays({}, "cwdonly")
 
         self.assertEqual(result["name"], "CWD User")
@@ -258,7 +275,9 @@ class TestApplyProfileOverlaysFromConfigHome(TempDirMixin, unittest.TestCase):
         empty_home.mkdir()
 
         with self.in_tmpdir():
-            with unittest.mock.patch.dict(os.environ, {"DANCING_BEAR_CONFIG_HOME": str(empty_home)}):
+            with unittest.mock.patch.dict(
+                os.environ, {"DANCING_BEAR_CONFIG_HOME": str(empty_home)}
+            ):
                 result = apply_profile_overlays({}, "sample")
 
         # The packaged sample profile has at least a name in profile.yaml
@@ -282,7 +301,9 @@ class TestApplyProfileOverlaysUnknownProfile(TempDirMixin, unittest.TestCase):
         base = {"name": "Test", "experience": [{"title": "Dev"}]}
 
         with self.in_tmpdir():
-            with unittest.mock.patch.dict(os.environ, {"DANCING_BEAR_CONFIG_HOME": str(empty_home)}):
+            with unittest.mock.patch.dict(
+                os.environ, {"DANCING_BEAR_CONFIG_HOME": str(empty_home)}
+            ):
                 result = apply_profile_overlays(base, "unknown_profile_xyz")
 
         self.assertEqual(result, base, "Data must be returned unchanged for unknown profile")
@@ -295,14 +316,17 @@ class TestApplyProfileOverlaysUnknownProfile(TempDirMixin, unittest.TestCase):
         empty_home.mkdir()
 
         with self.in_tmpdir():
-            with unittest.mock.patch.dict(os.environ, {"DANCING_BEAR_CONFIG_HOME": str(empty_home)}):
+            with unittest.mock.patch.dict(
+                os.environ, {"DANCING_BEAR_CONFIG_HOME": str(empty_home)}
+            ):
                 # Must not raise
                 apply_profile_overlays({}, "no_such_profile_abc")
 
     def test_warning_includes_profile_name(self):
         """The stderr warning names the missing profile."""
-        from resume.overlays import apply_profile_overlays
         import io
+
+        from resume.overlays import apply_profile_overlays
 
         empty_home = Path(self.tmpdir) / "empty"
         empty_home.mkdir()
@@ -310,7 +334,9 @@ class TestApplyProfileOverlaysUnknownProfile(TempDirMixin, unittest.TestCase):
 
         buf = io.StringIO()
         with self.in_tmpdir():
-            with unittest.mock.patch.dict(os.environ, {"DANCING_BEAR_CONFIG_HOME": str(empty_home)}):
+            with unittest.mock.patch.dict(
+                os.environ, {"DANCING_BEAR_CONFIG_HOME": str(empty_home)}
+            ):
                 with unittest.mock.patch("sys.stderr", buf):
                     apply_profile_overlays({}, profile)
 
@@ -319,8 +345,9 @@ class TestApplyProfileOverlaysUnknownProfile(TempDirMixin, unittest.TestCase):
 
     def test_warning_includes_searched_paths(self):
         """The stderr warning lists at least one searched directory."""
-        from resume.overlays import apply_profile_overlays, _searched_dirs
         import io
+
+        from resume.overlays import _searched_dirs, apply_profile_overlays
 
         empty_home = Path(self.tmpdir) / "empty"
         empty_home.mkdir()
@@ -328,7 +355,9 @@ class TestApplyProfileOverlaysUnknownProfile(TempDirMixin, unittest.TestCase):
 
         buf = io.StringIO()
         with self.in_tmpdir():
-            with unittest.mock.patch.dict(os.environ, {"DANCING_BEAR_CONFIG_HOME": str(empty_home)}):
+            with unittest.mock.patch.dict(
+                os.environ, {"DANCING_BEAR_CONFIG_HOME": str(empty_home)}
+            ):
                 expected_dirs = _searched_dirs(profile)
                 with unittest.mock.patch("sys.stderr", buf):
                     apply_profile_overlays({}, profile)
@@ -341,8 +370,9 @@ class TestApplyProfileOverlaysUnknownProfile(TempDirMixin, unittest.TestCase):
 
     def test_legacy_only_profile_loads_without_warning(self):
         """A profile with only legacy flat files loads silently."""
-        from resume.overlays import apply_profile_overlays
         import io
+
+        from resume.overlays import apply_profile_overlays
 
         empty_home = Path(self.tmpdir) / "empty"
         empty_home.mkdir()
@@ -352,7 +382,9 @@ class TestApplyProfileOverlaysUnknownProfile(TempDirMixin, unittest.TestCase):
             Path("config").mkdir()
             Path("config/profile.legacyonly.yaml").write_text("name: Legacy Only\n")
 
-            with unittest.mock.patch.dict(os.environ, {"DANCING_BEAR_CONFIG_HOME": str(empty_home)}):
+            with unittest.mock.patch.dict(
+                os.environ, {"DANCING_BEAR_CONFIG_HOME": str(empty_home)}
+            ):
                 with unittest.mock.patch("sys.stderr", buf):
                     result = apply_profile_overlays({}, "legacyonly")
 
@@ -362,8 +394,8 @@ class TestApplyProfileOverlaysUnknownProfile(TempDirMixin, unittest.TestCase):
 
     def test_rejects_unsafe_profile_name_with_cli_error(self):
         """Unsafe profile names raise CLIError with ExitCode.USAGE."""
-        from resume.overlays import apply_profile_overlays
         from core.cli_errors import CLIError, ExitCode
+        from resume.overlays import apply_profile_overlays
 
         with self.assertRaises(CLIError) as ctx:
             apply_profile_overlays({}, "../evil")
@@ -407,13 +439,21 @@ class TestExperienceExportCLIFromUnrelatedCWD(TempDirMixin, unittest.TestCase):
 
         # CWD is an unrelated temp dir with no config/ directory.
         with self.in_tmpdir():
-            with unittest.mock.patch.dict(os.environ, {"DANCING_BEAR_CONFIG_HOME": str(config_home_dir)}):
-                exit_code = main([
-                    "experience", "export",
-                    "--data", str(data_file),
-                    "--profile", "e2eprof",
-                    "--out", str(out_file),
-                ])
+            with unittest.mock.patch.dict(
+                os.environ, {"DANCING_BEAR_CONFIG_HOME": str(config_home_dir)}
+            ):
+                exit_code = main(
+                    [
+                        "experience",
+                        "export",
+                        "--data",
+                        str(data_file),
+                        "--profile",
+                        "e2eprof",
+                        "--out",
+                        str(out_file),
+                    ]
+                )
 
         self.assertEqual(exit_code, 0, "CLI must exit 0 on success")
         self.assertTrue(out_file.exists(), "Output file must be written")
@@ -429,8 +469,9 @@ class TestExperienceExportCLIFromUnrelatedCWD(TempDirMixin, unittest.TestCase):
         succeed even when no overlay directory exists for X — the flag doubles as
         an output-naming prefix, so it must not block the pipeline.
         """
-        from resume.cli.main import main
         import io
+
+        from resume.cli.main import main
 
         empty_home = Path(self.tmpdir) / "empty_home"
         empty_home.mkdir()
@@ -444,16 +485,26 @@ class TestExperienceExportCLIFromUnrelatedCWD(TempDirMixin, unittest.TestCase):
 
         buf = io.StringIO()
         with self.in_tmpdir():
-            with unittest.mock.patch.dict(os.environ, {"DANCING_BEAR_CONFIG_HOME": str(empty_home)}):
+            with unittest.mock.patch.dict(
+                os.environ, {"DANCING_BEAR_CONFIG_HOME": str(empty_home)}
+            ):
                 with unittest.mock.patch("sys.stderr", buf):
-                    exit_code = main([
-                        "experience", "export",
-                        "--data", str(data_file),
-                        "--profile", "absolutely_nonexistent_profile_xyz",
-                        "--out", str(out_file),
-                    ])
+                    exit_code = main(
+                        [
+                            "experience",
+                            "export",
+                            "--data",
+                            str(data_file),
+                            "--profile",
+                            "absolutely_nonexistent_profile_xyz",
+                            "--out",
+                            str(out_file),
+                        ]
+                    )
 
-        self.assertEqual(exit_code, 0, "CLI must exit 0 — unknown profile emits a warning, not an error")
+        self.assertEqual(
+            exit_code, 0, "CLI must exit 0 — unknown profile emits a warning, not an error"
+        )
         # Warning was printed mentioning the profile
         self.assertIn("absolutely_nonexistent_profile_xyz", buf.getvalue())
 

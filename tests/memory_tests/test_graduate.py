@@ -9,10 +9,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from tests.memory_tests.fixtures import MemoryTestCase
-from memory.graduate import GraduateError, graduate_memory, _find_memory_by_slug
+from memory.graduate import GraduateError, _find_memory_by_slug, graduate_memory
 from memory.models import MemoryStore
-
+from tests.memory_tests.fixtures import MemoryTestCase
 
 # ---------------------------------------------------------------------------
 # File-local helpers
@@ -348,9 +347,7 @@ class TestGraduateCliMain(MemoryTestCase):
     def test_no_stores_found_errors(self):
         with (
             patch("memory.commands.graduate.discover_stores", return_value=()),
-            patch(
-                "memory.commands.graduate.resolve_current_store", return_value=None
-            ),
+            patch("memory.commands.graduate.resolve_current_store", return_value=None),
         ):
             rc = _run_cli("graduate", "any-slug")
         self.assertNotEqual(rc, 0)
@@ -360,9 +357,7 @@ class TestGraduateCliMain(MemoryTestCase):
         stderr = io.StringIO()
         with (
             patch("memory.commands.graduate.discover_stores", return_value=(source,)),
-            patch(
-                "memory.commands.graduate.resolve_current_store", return_value=None
-            ) as resolve,
+            patch("memory.commands.graduate.resolve_current_store", return_value=None) as resolve,
             contextlib.redirect_stderr(stderr),
         ):
             rc = _run_cli("graduate", "mem", suppress_output=False)
@@ -383,13 +378,9 @@ class TestGraduateCliMain(MemoryTestCase):
         self.assertNotEqual(rc, 0)
 
     def test_no_canonical_errors(self):
-        source = _make_store(
-            self.tmp, "only-store", {"mem.md": _feedback("mem", "x")}
-        )
+        source = _make_store(self.tmp, "only-store", {"mem.md": _feedback("mem", "x")})
         with (
-            patch(
-                "memory.commands.graduate.discover_stores", return_value=(source,)
-            ),
+            patch("memory.commands.graduate.discover_stores", return_value=(source,)),
             patch(
                 "memory.commands.graduate.resolve_current_store",
                 return_value=source,
@@ -417,9 +408,7 @@ class TestGraduateCliMain(MemoryTestCase):
                 "memory.commands.graduate.resolve_current_store",
                 return_value=source,
             ),
-            patch(
-                "memory.commands.graduate.elect_canonical", return_value=canonical
-            ),
+            patch("memory.commands.graduate.elect_canonical", return_value=canonical),
         ):
             rc = _run_cli("graduate", "mem", "--format", "json")
         self.assertEqual(rc, 0)

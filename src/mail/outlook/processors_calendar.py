@@ -1,4 +1,5 @@
 """Processors for Outlook categories, folders, and calendar pipelines."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -8,27 +9,29 @@ from core.outlook.models import EventCreationParams, RecurringEventCreationParam
 from core.pipeline import Processor, ResultEnvelope
 
 from .consumers import (
-    OutlookCategoriesListPayload,
-    OutlookCategoriesExportPayload,
-    OutlookCategoriesSyncPayload,
-    OutlookFoldersSyncPayload,
+    OutlookCalendarAddFromConfigPayload,
     OutlookCalendarAddPayload,
     OutlookCalendarAddRecurringPayload,
-    OutlookCalendarAddFromConfigPayload,
+    OutlookCategoriesExportPayload,
+    OutlookCategoriesListPayload,
+    OutlookCategoriesSyncPayload,
+    OutlookFoldersSyncPayload,
 )
 
-
 # Result dataclasses
+
 
 @dataclass
 class OutlookCategoriesListResult:
     """Result of categories list."""
+
     categories: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
 class OutlookCategoriesExportResult:
     """Result of categories export."""
+
     count: int = 0
     out_path: str = ""
 
@@ -36,6 +39,7 @@ class OutlookCategoriesExportResult:
 @dataclass
 class OutlookCategoriesSyncResult:
     """Result of categories sync."""
+
     created: int = 0
     skipped: int = 0
 
@@ -43,6 +47,7 @@ class OutlookCategoriesSyncResult:
 @dataclass
 class OutlookFoldersSyncResult:
     """Result of folders sync."""
+
     created: int = 0
     skipped: int = 0
 
@@ -50,6 +55,7 @@ class OutlookFoldersSyncResult:
 @dataclass
 class OutlookCalendarAddResult:
     """Result of calendar add."""
+
     event_id: str = ""
     subject: str = ""
 
@@ -57,6 +63,7 @@ class OutlookCalendarAddResult:
 @dataclass
 class OutlookCalendarAddRecurringResult:
     """Result of calendar add recurring."""
+
     event_id: str = ""
     subject: str = ""
 
@@ -64,6 +71,7 @@ class OutlookCalendarAddRecurringResult:
 @dataclass
 class OutlookCalendarAddFromConfigResult:
     """Result of calendar add from config."""
+
     created: int = 0
 
 
@@ -76,10 +84,14 @@ def _entry_name(entry) -> str | None:
     return None
 
 
-class OutlookCategoriesListProcessor(Processor[OutlookCategoriesListPayload, ResultEnvelope[OutlookCategoriesListResult]]):
+class OutlookCategoriesListProcessor(
+    Processor[OutlookCategoriesListPayload, ResultEnvelope[OutlookCategoriesListResult]]
+):
     """List Outlook categories."""
 
-    def process(self, payload: OutlookCategoriesListPayload) -> ResultEnvelope[OutlookCategoriesListResult]:
+    def process(
+        self, payload: OutlookCategoriesListPayload
+    ) -> ResultEnvelope[OutlookCategoriesListResult]:
         try:
             cats = payload.client.list_labels(use_cache=payload.use_cache, ttl=payload.cache_ttl)
             return ResultEnvelope(
@@ -94,12 +106,17 @@ class OutlookCategoriesListProcessor(Processor[OutlookCategoriesListPayload, Res
             )
 
 
-class OutlookCategoriesExportProcessor(Processor[OutlookCategoriesExportPayload, ResultEnvelope[OutlookCategoriesExportResult]]):
+class OutlookCategoriesExportProcessor(
+    Processor[OutlookCategoriesExportPayload, ResultEnvelope[OutlookCategoriesExportResult]]
+):
     """Export Outlook categories to YAML."""
 
-    def process(self, payload: OutlookCategoriesExportPayload) -> ResultEnvelope[OutlookCategoriesExportResult]:
+    def process(
+        self, payload: OutlookCategoriesExportPayload
+    ) -> ResultEnvelope[OutlookCategoriesExportResult]:
         try:
             from pathlib import Path
+
             cats = payload.client.list_labels(use_cache=payload.use_cache, ttl=payload.cache_ttl)
             labels = []
             for c in cats:
@@ -113,6 +130,7 @@ class OutlookCategoriesExportProcessor(Processor[OutlookCategoriesExportPayload,
             outp = Path(payload.out_path)
             outp.parent.mkdir(parents=True, exist_ok=True)
             from core.yamlio import dump_config
+
             dump_config(str(outp), data)
 
             return ResultEnvelope(
@@ -127,12 +145,17 @@ class OutlookCategoriesExportProcessor(Processor[OutlookCategoriesExportPayload,
             )
 
 
-class OutlookCategoriesSyncProcessor(Processor[OutlookCategoriesSyncPayload, ResultEnvelope[OutlookCategoriesSyncResult]]):
+class OutlookCategoriesSyncProcessor(
+    Processor[OutlookCategoriesSyncPayload, ResultEnvelope[OutlookCategoriesSyncResult]]
+):
     """Sync Outlook categories from YAML config."""
 
-    def process(self, payload: OutlookCategoriesSyncPayload) -> ResultEnvelope[OutlookCategoriesSyncResult]:
+    def process(
+        self, payload: OutlookCategoriesSyncPayload
+    ) -> ResultEnvelope[OutlookCategoriesSyncResult]:
         try:
             from core.yamlio import load_config
+
             from ..dsl import normalize_labels_for_outlook
 
             client = payload.client
@@ -185,10 +208,14 @@ class OutlookCategoriesSyncProcessor(Processor[OutlookCategoriesSyncPayload, Res
         return created, skipped
 
 
-class OutlookFoldersSyncProcessor(Processor[OutlookFoldersSyncPayload, ResultEnvelope[OutlookFoldersSyncResult]]):
+class OutlookFoldersSyncProcessor(
+    Processor[OutlookFoldersSyncPayload, ResultEnvelope[OutlookFoldersSyncResult]]
+):
     """Sync Outlook folders from YAML config."""
 
-    def process(self, payload: OutlookFoldersSyncPayload) -> ResultEnvelope[OutlookFoldersSyncResult]:
+    def process(
+        self, payload: OutlookFoldersSyncPayload
+    ) -> ResultEnvelope[OutlookFoldersSyncResult]:
         try:
             from core.yamlio import load_config
 
@@ -248,22 +275,28 @@ class OutlookFoldersSyncProcessor(Processor[OutlookFoldersSyncPayload, ResultEnv
         return created, skipped
 
 
-class OutlookCalendarAddProcessor(Processor[OutlookCalendarAddPayload, ResultEnvelope[OutlookCalendarAddResult]]):
+class OutlookCalendarAddProcessor(
+    Processor[OutlookCalendarAddPayload, ResultEnvelope[OutlookCalendarAddResult]]
+):
     """Add a calendar event."""
 
-    def process(self, payload: OutlookCalendarAddPayload) -> ResultEnvelope[OutlookCalendarAddResult]:
+    def process(
+        self, payload: OutlookCalendarAddPayload
+    ) -> ResultEnvelope[OutlookCalendarAddResult]:
         try:
-            evt = payload.client.create_event(EventCreationParams(
-                calendar_name=payload.calendar_name,
-                subject=payload.subject,
-                start_iso=payload.start_iso,
-                end_iso=payload.end_iso,
-                tz=payload.tz,
-                body_html=payload.body_html,
-                all_day=payload.all_day,
-                location=payload.location,
-                no_reminder=payload.no_reminder,
-            ))
+            evt = payload.client.create_event(
+                EventCreationParams(
+                    calendar_name=payload.calendar_name,
+                    subject=payload.subject,
+                    start_iso=payload.start_iso,
+                    end_iso=payload.end_iso,
+                    tz=payload.tz,
+                    body_html=payload.body_html,
+                    all_day=payload.all_day,
+                    location=payload.location,
+                    no_reminder=payload.no_reminder,
+                )
+            )
             return ResultEnvelope(
                 status="success",
                 payload=OutlookCalendarAddResult(
@@ -279,28 +312,34 @@ class OutlookCalendarAddProcessor(Processor[OutlookCalendarAddPayload, ResultEnv
             )
 
 
-class OutlookCalendarAddRecurringProcessor(Processor[OutlookCalendarAddRecurringPayload, ResultEnvelope[OutlookCalendarAddRecurringResult]]):
+class OutlookCalendarAddRecurringProcessor(
+    Processor[OutlookCalendarAddRecurringPayload, ResultEnvelope[OutlookCalendarAddRecurringResult]]
+):
     """Add a recurring calendar event."""
 
-    def process(self, payload: OutlookCalendarAddRecurringPayload) -> ResultEnvelope[OutlookCalendarAddRecurringResult]:
+    def process(
+        self, payload: OutlookCalendarAddRecurringPayload
+    ) -> ResultEnvelope[OutlookCalendarAddRecurringResult]:
         try:
-            evt = payload.client.create_recurring_event(RecurringEventCreationParams(
-                calendar_name=payload.calendar_name,
-                subject=payload.subject,
-                start_time=payload.start_time,
-                end_time=payload.end_time,
-                tz=payload.tz,
-                repeat=payload.repeat,
-                interval=payload.interval,
-                byday=payload.byday,
-                range_start_date=payload.range_start,
-                range_until=payload.until,
-                count=payload.count,
-                body_html=payload.body_html,
-                location=payload.location,
-                exdates=payload.exdates,
-                no_reminder=payload.no_reminder,
-            ))
+            evt = payload.client.create_recurring_event(
+                RecurringEventCreationParams(
+                    calendar_name=payload.calendar_name,
+                    subject=payload.subject,
+                    start_time=payload.start_time,
+                    end_time=payload.end_time,
+                    tz=payload.tz,
+                    repeat=payload.repeat,
+                    interval=payload.interval,
+                    byday=payload.byday,
+                    range_start_date=payload.range_start,
+                    range_until=payload.until,
+                    count=payload.count,
+                    body_html=payload.body_html,
+                    location=payload.location,
+                    exdates=payload.exdates,
+                    no_reminder=payload.no_reminder,
+                )
+            )
             return ResultEnvelope(
                 status="success",
                 payload=OutlookCalendarAddRecurringResult(
@@ -316,10 +355,16 @@ class OutlookCalendarAddRecurringProcessor(Processor[OutlookCalendarAddRecurring
             )
 
 
-class OutlookCalendarAddFromConfigProcessor(Processor[OutlookCalendarAddFromConfigPayload, ResultEnvelope[OutlookCalendarAddFromConfigResult]]):
+class OutlookCalendarAddFromConfigProcessor(
+    Processor[
+        OutlookCalendarAddFromConfigPayload, ResultEnvelope[OutlookCalendarAddFromConfigResult]
+    ]
+):
     """Add calendar events from a config file."""
 
-    def process(self, payload: OutlookCalendarAddFromConfigPayload) -> ResultEnvelope[OutlookCalendarAddFromConfigResult]:
+    def process(
+        self, payload: OutlookCalendarAddFromConfigPayload
+    ) -> ResultEnvelope[OutlookCalendarAddFromConfigResult]:
         try:
             from core.yamlio import load_config
 
@@ -358,8 +403,7 @@ class OutlookCalendarAddFromConfigProcessor(Processor[OutlookCalendarAddFromConf
     ) -> int:
         """Create events from config list."""
         return sum(
-            1 for ev in events
-            if self._create_one_event_from_config(ev, client, no_reminder)
+            1 for ev in events if self._create_one_event_from_config(ev, client, no_reminder)
         )
 
     @staticmethod
@@ -374,7 +418,9 @@ class OutlookCalendarAddFromConfigProcessor(Processor[OutlookCalendarAddFromConf
     def _build_recurring_event_range(self, ev: dict[str, Any]) -> tuple[str, Any]:
         """Resolve (range_start_date, range_until), preferring the nested ``range`` block."""
         rng = ev.get("range") or {}
-        start_date = rng.get("start_date") or self._first_present(ev, "start_date", "startDate", default="")
+        start_date = rng.get("start_date") or self._first_present(
+            ev, "start_date", "startDate", default=""
+        )
         until = rng.get("until") or ev.get("until")
         return start_date, until
 
@@ -417,17 +463,19 @@ class OutlookCalendarAddFromConfigProcessor(Processor[OutlookCalendarAddFromConf
             return False
 
         try:
-            client.create_event(EventCreationParams(
-                calendar_name=ev.get("calendar"),
-                subject=ev.get("subject") or "",
-                start_iso=start_iso,
-                end_iso=end_iso,
-                tz=ev.get("tz"),
-                body_html=ev.get("body_html") or ev.get("bodyHtml"),
-                all_day=bool(ev.get("all_day") or ev.get("allDay")),
-                location=ev.get("location"),
-                no_reminder=no_reminder,
-            ))
+            client.create_event(
+                EventCreationParams(
+                    calendar_name=ev.get("calendar"),
+                    subject=ev.get("subject") or "",
+                    start_iso=start_iso,
+                    end_iso=end_iso,
+                    tz=ev.get("tz"),
+                    body_html=ev.get("body_html") or ev.get("bodyHtml"),
+                    all_day=bool(ev.get("all_day") or ev.get("allDay")),
+                    location=ev.get("location"),
+                    no_reminder=no_reminder,
+                )
+            )
             return True
         except Exception:  # nosec B110 - event creation failure
             return False

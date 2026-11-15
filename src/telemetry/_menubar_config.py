@@ -25,14 +25,14 @@ _DEFAULT_SECTIONS: dict[str, dict[str, bool | int]] = {
     },
     "models": {"enabled": True},
     "active_sessions": {"enabled": True},
-    "insights":      {"enabled": True, "max_tips": 3},
-    "otel_usage":    {"enabled": False},
-    "otel_models":   {"enabled": False},
-    "otel_meta":     {"enabled": False},
-    "otel_hooks":    {"enabled": False},
-    "otel_tools":    {"enabled": False},
-    "otel_code":     {"enabled": False},
-    "otel_skills":   {"enabled": False},
+    "insights": {"enabled": True, "max_tips": 3},
+    "otel_usage": {"enabled": False},
+    "otel_models": {"enabled": False},
+    "otel_meta": {"enabled": False},
+    "otel_hooks": {"enabled": False},
+    "otel_tools": {"enabled": False},
+    "otel_code": {"enabled": False},
+    "otel_skills": {"enabled": False},
     "otel_sessions": {"enabled": False},
 }
 
@@ -50,8 +50,14 @@ _DEFAULT_ICON_TEMPLATE = "$1d_spend"
 _ICON_VAR_NAMES = ("score", "1h_spend", "1d_spend", "mtd_spend", "tokens_1h", "otel_1d")
 
 _OTEL_SECTION_KEYS = (
-    "otel_usage", "otel_models", "otel_meta", "otel_hooks",
-    "otel_tools", "otel_code", "otel_skills", "otel_sessions",
+    "otel_usage",
+    "otel_models",
+    "otel_meta",
+    "otel_hooks",
+    "otel_tools",
+    "otel_code",
+    "otel_skills",
+    "otel_sessions",
 )
 
 
@@ -204,7 +210,9 @@ def _load_config(config_path: Path | None = None) -> dict:
         "monthly_budget": _coerce_monthly_budget(raw),
         "icon_display": _coerce_icon_display(raw_icon),
         "poll_interval": _coerce_poll_interval(raw),
-        "cost_multiplier": _coerce_cost_multiplier(raw.get("cost_multiplier", _DEFAULT_COST_MULTIPLIER)),
+        "cost_multiplier": _coerce_cost_multiplier(
+            raw.get("cost_multiplier", _DEFAULT_COST_MULTIPLIER)
+        ),
         "sections": sections,
     }
 
@@ -236,7 +244,7 @@ def _config_to_text(cfg: dict) -> str:
     lines = [
         f"monthly_budget: {cfg['monthly_budget']:.0f}",
         f"# icon_display: template with {vars_list}",
-        "# example: otel \"$otel_1d\", score \"$score\"",
+        '# example: otel "$otel_1d", score "$score"',
         f"icon_display: {cfg.get('icon_display', _DEFAULT_ICON_TEMPLATE)}",
         f"# poll_interval: seconds between refreshes ({_POLL_INTERVAL_MIN}–{_POLL_INTERVAL_MAX})",
         f"poll_interval: {cfg.get('poll_interval', _DEFAULT_POLL_INTERVAL)}",
@@ -358,26 +366,27 @@ def _apply_config_line(key: str, val: str, cfg: dict, bool_keys: dict) -> bool:
 def _parse_config_text(text: str, current: dict) -> tuple[dict, list[str]]:
     """Parse user-edited text back into a config dict."""
     import copy
+
     cfg = copy.deepcopy(current)
     s = cfg["sections"]
 
     bool_keys: dict[str, tuple[dict, str]] = {
-        "usage":            (s["usage"], "enabled"),
-        "tokens":           (s["usage"], "show_tokens"),
-        "sessions":         (s["usage"], "show_sessions"),
-        "rate":             (s["usage"], "show_rate"),
-        "sparkline":        (s["usage"], "show_sparkline"),
-        "models":           (s["models"], "enabled"),
-        "active_sessions":  (s["active_sessions"], "enabled"),
-        "insights":         (s["insights"], "enabled"),
-        "otel_usage":       (s["otel_usage"], "enabled"),
-        "otel_models":      (s["otel_models"], "enabled"),
-        "otel_meta":        (s["otel_meta"], "enabled"),
-        "otel_hooks":       (s["otel_hooks"], "enabled"),
-        "otel_tools":       (s["otel_tools"], "enabled"),
-        "otel_code":        (s["otel_code"], "enabled"),
-        "otel_skills":      (s["otel_skills"], "enabled"),
-        "otel_sessions":    (s["otel_sessions"], "enabled"),
+        "usage": (s["usage"], "enabled"),
+        "tokens": (s["usage"], "show_tokens"),
+        "sessions": (s["usage"], "show_sessions"),
+        "rate": (s["usage"], "show_rate"),
+        "sparkline": (s["usage"], "show_sparkline"),
+        "models": (s["models"], "enabled"),
+        "active_sessions": (s["active_sessions"], "enabled"),
+        "insights": (s["insights"], "enabled"),
+        "otel_usage": (s["otel_usage"], "enabled"),
+        "otel_models": (s["otel_models"], "enabled"),
+        "otel_meta": (s["otel_meta"], "enabled"),
+        "otel_hooks": (s["otel_hooks"], "enabled"),
+        "otel_tools": (s["otel_tools"], "enabled"),
+        "otel_code": (s["otel_code"], "enabled"),
+        "otel_skills": (s["otel_skills"], "enabled"),
+        "otel_sessions": (s["otel_sessions"], "enabled"),
     }
 
     rejected: list[str] = []

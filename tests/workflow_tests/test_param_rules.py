@@ -72,11 +72,7 @@ def _workflow_yaml(
     )
 
 
-_RULES = (
-    "  param_rules:\n"
-    f"    ollama_host: '{HOST_PATTERN}'\n"
-    f"    pr_number: '{PR_PATTERN}'\n"
-)
+_RULES = f"  param_rules:\n    ollama_host: '{HOST_PATTERN}'\n    pr_number: '{PR_PATTERN}'\n"
 _REQUIRED = "  required: [pr_number]\n"
 
 
@@ -100,7 +96,11 @@ class TestReservedPlaceholderParams(unittest.TestCase):
                     _compile(_workflow_yaml(params=f'    {name}: "0"\n'))
 
     def test_ordinary_params_still_compile(self) -> None:
-        _compile(_workflow_yaml(params='    fan_out_idx: "0"\n    ollama_host: "http://h"\n    pr_number: "1"\n'))
+        _compile(
+            _workflow_yaml(
+                params='    fan_out_idx: "0"\n    ollama_host: "http://h"\n    pr_number: "1"\n'
+            )
+        )
 
 
 def _fan_out_yaml(key: str, params: str = '    domain: "trigger-value"\n') -> str:
@@ -145,15 +145,18 @@ class TestFanOutKeyVersusTriggerParams(unittest.TestCase):
         self.assertIn("other=o", description)
 
     def test_same_param_is_still_substituted_in_non_fan_out_stages(self) -> None:
-        yaml_text = _fan_out_yaml("domain").replace('description: "list items"',
-                                                    'description: "list {domain}"')
+        yaml_text = _fan_out_yaml("domain").replace(
+            'description: "list items"', 'description: "list {domain}"'
+        )
         manifest = _compile(yaml_text)
         self.assertIn("list trigger-value", manifest.resolved_stages["src"].spec.description)
 
     def test_empty_fan_out_key_is_rejected(self) -> None:
         for key in ("", "   "):
             with self.subTest(key=key):
-                with self.assertRaisesRegex(WorkflowCompileError, "fan_out.key must be a non-empty name"):
+                with self.assertRaisesRegex(
+                    WorkflowCompileError, "fan_out.key must be a non-empty name"
+                ):
                     _compile(_fan_out_yaml(key))
 
 
@@ -185,7 +188,9 @@ class TestCompileEnforcement(unittest.TestCase):
             _compile(_workflow_yaml(rules=_RULES), {"ollama_host": "http://h:1\n"})
 
     def test_valid_override_passes_and_is_substituted(self) -> None:
-        manifest = _compile(_workflow_yaml(rules=_RULES), {"ollama_host": "http://gpu-box:11434", "pr_number": "42"})
+        manifest = _compile(
+            _workflow_yaml(rules=_RULES), {"ollama_host": "http://gpu-box:11434", "pr_number": "42"}
+        )
         self.assertEqual(_description(manifest), "host=http://gpu-box:11434 pr=42")
 
     def test_default_passes(self) -> None:
@@ -214,7 +219,9 @@ class TestCompileEnforcement(unittest.TestCase):
         self.assertNotIn("does not match", str(ctx.exception))
 
     def test_required_supplied_passes(self) -> None:
-        manifest = _compile(_workflow_yaml(rules=_RULES, extra_trigger=_REQUIRED), {"pr_number": "391"})
+        manifest = _compile(
+            _workflow_yaml(rules=_RULES, extra_trigger=_REQUIRED), {"pr_number": "391"}
+        )
         self.assertIn("pr=391", _description(manifest))
 
     def test_required_supplied_must_still_match_its_rule(self) -> None:
@@ -276,7 +283,9 @@ class TestParseTimeRejection(unittest.TestCase):
                 )
 
     def test_param_rules_not_a_mapping(self) -> None:
-        self._assert_parse_error(_workflow_yaml(rules="  param_rules: [pr_number]\n"), "must be a mapping")
+        self._assert_parse_error(
+            _workflow_yaml(rules="  param_rules: [pr_number]\n"), "must be a mapping"
+        )
 
     def test_required_not_a_list_of_names(self) -> None:
         for bad in ("pr_number", "[1]", "{pr_number: true}"):
@@ -299,7 +308,10 @@ class TestParseTimeRejection(unittest.TestCase):
         self.assertEqual(
             defn.trigger.rules,
             ParamRules(
-                checks=(ParamCheck("ollama_host", HOST_PATTERN), ParamCheck("pr_number", PR_PATTERN)),
+                checks=(
+                    ParamCheck("ollama_host", HOST_PATTERN),
+                    ParamCheck("pr_number", PR_PATTERN),
+                ),
                 required=frozenset({"pr_number"}),
             ),
         )
@@ -327,7 +339,9 @@ class TestLint(_TempDirMixin):
         self.assertTrue(any("not a valid regex" in e.message for e in result.errors))
 
     def test_malformed_fragment_rules_is_a_lint_error_on_the_fragment_alone(self) -> None:
-        path = self.write("frag.yaml", _FRAGMENT.format(rules="  param_rules:\n    frag_param: 7\n"))
+        path = self.write(
+            "frag.yaml", _FRAGMENT.format(rules="  param_rules:\n    frag_param: 7\n")
+        )
         result = lint_workflow(path)
         self.assertFalse(result.valid)
         self.assertTrue(any("must be a string regex" in e.message for e in result.errors))
@@ -431,7 +445,9 @@ class TestOrchestratorRecheck(_TempDirMixin):
     def test_constructor_rejects_hostile_params_before_creating_a_workspace(self) -> None:
         base = self.tmp / "ws"
         config = OrchestratorConfig(
-            manifest=self._manifest(), workspace_dir=base, dry_run=True,
+            manifest=self._manifest(),
+            workspace_dir=base,
+            dry_run=True,
             trigger_params={"ollama_host": HEREDOC_ESCAPE},
         )
         with self.assertRaises(WorkflowExecutionError) as ctx:
@@ -447,7 +463,9 @@ class TestOrchestratorRecheck(_TempDirMixin):
 
     def test_valid_params_construct(self) -> None:
         config = OrchestratorConfig(
-            manifest=self._manifest(), workspace_dir=self.tmp / "ws", dry_run=True,
+            manifest=self._manifest(),
+            workspace_dir=self.tmp / "ws",
+            dry_run=True,
             trigger_params={"pr_number": "7"},
         )
         self.assertIsInstance(WorkflowOrchestrator(config), WorkflowOrchestrator)
@@ -466,7 +484,10 @@ class TestWrapperEndToEnd(_TempDirMixin):
     def _run(self, *argv: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(  # nosec B603 - fixed argv, no shell, repo-owned binary
             [str(_REPO_ROOT / "bin" / "workflow"), *argv],
-            capture_output=True, text=True, cwd=str(_REPO_ROOT), check=False,
+            capture_output=True,
+            text=True,
+            cwd=str(_REPO_ROOT),
+            check=False,
             timeout=_WRAPPER_TIMEOUT_S,
         )
 
@@ -478,8 +499,12 @@ class TestWrapperEndToEnd(_TempDirMixin):
 
     def _init(self, value: str) -> subprocess.CompletedProcess[str]:
         return self._run(
-            "init-workspace", str(self.wf), "--base-dir", str(self.base),
-            "--params", f"ollama_host={value}",
+            "init-workspace",
+            str(self.wf),
+            "--base-dir",
+            str(self.base),
+            "--params",
+            f"ollama_host={value}",
         )
 
     def test_init_workspace_rejects_hostile_params_and_writes_nothing(self) -> None:
@@ -500,16 +525,25 @@ class TestWrapperEndToEnd(_TempDirMixin):
 
     def test_run_rejects_hostile_params(self) -> None:
         proc = self._run(
-            "run", str(self.wf), "--workspace", str(self.base),
-            "--params", f"ollama_host={self._payloads()[1]}",
+            "run",
+            str(self.wf),
+            "--workspace",
+            str(self.base),
+            "--params",
+            f"ollama_host={self._payloads()[1]}",
         )
         self.assertEqual(proc.returncode, 1, proc.stderr)
         self.assertEqual(list(self.base.iterdir()), [])
 
     def _compile(self, value: str) -> subprocess.CompletedProcess[str]:
         return self._run(
-            "compile", str(self.wf), "--no-compile-cache", "--format", "json",
-            "--params", f"ollama_host={value}",
+            "compile",
+            str(self.wf),
+            "--no-compile-cache",
+            "--format",
+            "json",
+            "--params",
+            f"ollama_host={value}",
         )
 
     def test_compile_rejects_hostile_params(self) -> None:

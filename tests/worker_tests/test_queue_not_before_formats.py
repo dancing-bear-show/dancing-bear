@@ -41,6 +41,7 @@ class TestNotBeforeFormatsDeferCorrectly(unittest.TestCase, QueueRootIsolationMi
 
     def _write_job(self, job_id: str, not_before: str) -> None:
         from worker.queue_ops import _ensure_dirs
+
         _ensure_dirs(self.root)
         (self.root / "pending" / f"{job_id}.json").write_text(
             json.dumps({"id": job_id, "type": "noop", "not_before": not_before}),
@@ -49,6 +50,7 @@ class TestNotBeforeFormatsDeferCorrectly(unittest.TestCase, QueueRootIsolationMi
 
     def _pending_ids(self) -> set[str]:
         from worker.queue_ops import list_pending
+
         return {str(data["id"]) for _, data in list_pending(self.root)}
 
     def test_future_z_suffix_is_deferred(self):
@@ -96,12 +98,14 @@ class TestEnqueueValidatesNotBefore(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_invalid_not_before_raises(self):
         from worker.queue_ops import Job, enqueue
+
         job = Job(id="bad", type="noop", payload={}, not_before="not-a-date")
         with self.assertRaises(ValueError):
             enqueue(job, root=self.root)
 
     def test_invalid_not_before_writes_no_job_file(self):
         from worker.queue_ops import Job, enqueue
+
         job = Job(id="bad2", type="noop", payload={}, not_before="2026-13-45T99:99:99Z")
         with self.assertRaises(ValueError):
             enqueue(job, root=self.root)
@@ -109,18 +113,22 @@ class TestEnqueueValidatesNotBefore(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_valid_formats_are_accepted(self):
         from worker.queue_ops import Job, enqueue
+
         f = _future(hours=1)
-        for i, ts in enumerate([
-            f.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            f.isoformat(),
-            f.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
-            " " + f.strftime("%Y-%m-%dT%H:%M:%SZ") + " ",
-        ]):
+        for i, ts in enumerate(
+            [
+                f.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                f.isoformat(),
+                f.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
+                " " + f.strftime("%Y-%m-%dT%H:%M:%SZ") + " ",
+            ]
+        ):
             enqueue(Job(id=f"ok{i}", type="noop", payload={}, not_before=ts), root=self.root)
         self.assertEqual(len(list((self.root / "pending").glob("*.json"))), 4)
 
     def test_empty_not_before_defaults_to_now(self):
         from worker.queue_ops import Job, enqueue
+
         path = enqueue(Job(id="empty", type="noop", payload={}), root=self.root)
         data = json.loads(path.read_text(encoding="utf-8"))
         self.assertTrue(data["not_before"])
@@ -139,6 +147,7 @@ class TestNotBeforePastFormatsAreEligible(unittest.TestCase, QueueRootIsolationM
 
     def _write_job(self, job_id: str, not_before: str) -> None:
         from worker.queue_ops import _ensure_dirs
+
         _ensure_dirs(self.root)
         (self.root / "pending" / f"{job_id}.json").write_text(
             json.dumps({"id": job_id, "type": "noop", "not_before": not_before}),
@@ -147,6 +156,7 @@ class TestNotBeforePastFormatsAreEligible(unittest.TestCase, QueueRootIsolationM
 
     def _pending_ids(self) -> set[str]:
         from worker.queue_ops import list_pending
+
         return {str(data["id"]) for _, data in list_pending(self.root)}
 
     def test_past_z_suffix_is_eligible(self):

@@ -1,11 +1,12 @@
 """Additional tests for schedule/pipeline.py covering previously uncovered lines."""
+
 from __future__ import annotations
 
 import datetime as dt
 import io
 import tempfile
 import unittest
-from contextlib import redirect_stdout, redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -100,19 +101,37 @@ class TestExpandWeeklyOccurrences(unittest.TestCase):
         ev = {"byday": ["MO", "WE"]}
         start = dt.date(2025, 1, 13)  # Monday
         end = dt.date(2025, 1, 19)  # Sunday
-        config = RecurrenceExpansionConfig(start_date=start, end_date=end, start_time="10:00", end_time="11:00", excluded_dates=set())
+        config = RecurrenceExpansionConfig(
+            start_date=start,
+            end_date=end,
+            start_time="10:00",
+            end_time="11:00",
+            excluded_dates=set(),
+        )
         result = _expand_weekly_occurrences(ev, config)
         self.assertEqual(len(result), 2)
 
     def test_returns_empty_when_no_byday(self):
         ev = {}
-        config = RecurrenceExpansionConfig(start_date=dt.date(2025, 1, 13), end_date=dt.date(2025, 1, 19), start_time="10:00", end_time="11:00", excluded_dates=set())
+        config = RecurrenceExpansionConfig(
+            start_date=dt.date(2025, 1, 13),
+            end_date=dt.date(2025, 1, 19),
+            start_time="10:00",
+            end_time="11:00",
+            excluded_dates=set(),
+        )
         result = _expand_weekly_occurrences(ev, config)
         self.assertEqual(result, [])
 
     def test_returns_empty_when_invalid_byday(self):
         ev = {"byday": ["XX", "YY"]}
-        config = RecurrenceExpansionConfig(start_date=dt.date(2025, 1, 13), end_date=dt.date(2025, 1, 19), start_time="10:00", end_time="11:00", excluded_dates=set())
+        config = RecurrenceExpansionConfig(
+            start_date=dt.date(2025, 1, 13),
+            end_date=dt.date(2025, 1, 19),
+            start_time="10:00",
+            end_time="11:00",
+            excluded_dates=set(),
+        )
         result = _expand_weekly_occurrences(ev, config)
         self.assertEqual(result, [])
 
@@ -120,7 +139,9 @@ class TestExpandWeeklyOccurrences(unittest.TestCase):
 class TestBuildOutlookService(unittest.TestCase):
     def test_returns_error_on_runtime_error(self):
         auth = OutlookServiceConfig()
-        with patch("schedule.pipeline_verify.build_outlook_service", side_effect=RuntimeError("no creds")):
+        with patch(
+            "schedule.pipeline_verify.build_outlook_service", side_effect=RuntimeError("no creds")
+        ):
             svc, err = _build_outlook_service(auth)
             self.assertIsNone(svc)
             self.assertIn("no creds", err)
@@ -128,7 +149,9 @@ class TestBuildOutlookService(unittest.TestCase):
     def test_returns_error_on_import_or_value_error(self):
         # _build_outlook_service narrows to (ImportError, OSError, ValueError) for non-auth errors
         auth = OutlookServiceConfig()
-        with patch("schedule.pipeline_verify.build_outlook_service", side_effect=ValueError("unavailable")):
+        with patch(
+            "schedule.pipeline_verify.build_outlook_service", side_effect=ValueError("unavailable")
+        ):
             svc, err = _build_outlook_service(auth)
             self.assertIsNone(svc)
             self.assertIn("unavailable", err)
@@ -152,13 +175,15 @@ class TestApplyOutlookEvents(unittest.TestCase):
 
     def test_creates_recurring_event(self):
         svc = self._make_svc()
-        events = [{
-            "subject": "Daily Standup",
-            "repeat": "daily",
-            "start_time": "09:00",
-            "end_time": "09:30",
-            "range": {"start_date": "2025-01-15", "until": "2025-01-31"},
-        }]
+        events = [
+            {
+                "subject": "Daily Standup",
+                "repeat": "daily",
+                "start_time": "09:00",
+                "end_time": "09:30",
+                "range": {"start_date": "2025-01-15", "until": "2025-01-31"},
+            }
+        ]
         rc, _logs = _apply_outlook_events(events, calendar_name="Work", service=svc)
         self.assertEqual(rc, 0)
 
@@ -324,9 +349,7 @@ class TestShouldCreateOneoff(unittest.TestCase):
 
 class TestDetermineCreates(unittest.TestCase):
     def test_determines_creates(self):
-        events = [
-            {"subject": "New Event", "start": "2025-01-15T10:00", "end": "2025-01-15T11:00"}
-        ]
+        events = [{"subject": "New Event", "start": "2025-01-15T10:00", "end": "2025-01-15T11:00"}]
         series_by_subject = {"missing_series": {"subject": "Missing Series"}}
         ctx = SyncMatchContext(
             plan_st_keys={"new event|2025-01-15T10:00|2025-01-15T11:00"},
@@ -366,9 +389,7 @@ class TestFindOccurrencesToDeleteByTime(unittest.TestCase):
         self.assertIn("occ-id", result)
 
     def test_skips_events_without_id(self):
-        have_map = {
-            "event|2025-01-15T10:00|2025-01-15T11:00": {"type": "singleInstance"}
-        }
+        have_map = {"event|2025-01-15T10:00|2025-01-15T11:00": {"type": "singleInstance"}}
         extra_keys = ["event|2025-01-15T10:00|2025-01-15T11:00"]
         result = _find_occurrences_to_delete_by_time(extra_keys, have_map)
         self.assertEqual(result, [])
@@ -522,7 +543,9 @@ class TestBuildDryRunLines(unittest.TestCase):
         self.assertTrue(any("disabled" in line for line in lines))
 
     def test_dry_run_with_creates(self):
-        series = [{"subject": "New Recurring", "repeat": "weekly", "byday": ["MO"], "start_time": "10:00"}]
+        series = [
+            {"subject": "New Recurring", "repeat": "weekly", "byday": ["MO"], "start_time": "10:00"}
+        ]
         oneoffs = [{"subject": "One Off", "start": "2025-01-15T10:00", "end": "2025-01-15T11:00"}]
         cfg = DryRunConfig(
             to_create_series=series,
@@ -543,7 +566,9 @@ class TestBuildDryRunLines(unittest.TestCase):
             to_delete_series_master_ids=["master1"],
             match_mode="subject-time",
         )
-        lines = _build_dry_run_lines(self._make_payload(delete_missing=True, delete_unplanned=True), cfg)
+        lines = _build_dry_run_lines(
+            self._make_payload(delete_missing=True, delete_unplanned=True), cfg
+        )
         self.assertTrue(any("extraneous" in line for line in lines))
         self.assertTrue(any("unplanned" in line for line in lines))
 
@@ -566,14 +591,16 @@ class TestExecuteSyncCreates(unittest.TestCase):
             apply=True,
             auth=OutlookServiceConfig(),
         )
-        series = [{
-            "subject": "Weekly",
-            "repeat": "weekly",
-            "start_time": "10:00",
-            "end_time": "11:00",
-            "range": {"start_date": "2025-01-15", "until": "2025-01-31"},
-            "byday": ["MO"],
-        }]
+        series = [
+            {
+                "subject": "Weekly",
+                "repeat": "weekly",
+                "start_time": "10:00",
+                "end_time": "11:00",
+                "range": {"start_date": "2025-01-15", "until": "2025-01-31"},
+                "byday": ["MO"],
+            }
+        ]
         oneoffs = [{"subject": "Meeting", "start": "2025-01-15T10:00", "end": "2025-01-15T11:00"}]
 
         _lines, created = _execute_sync_creates(svc, payload, series, oneoffs)
@@ -596,7 +623,9 @@ class TestExecuteSyncDeletes(unittest.TestCase):
             apply=True,
             auth=OutlookServiceConfig(),
         )
-        deleted = _execute_sync_deletes(raw_client, "cal-id", payload, ["occ1", "occ2"], ["master1"])
+        deleted = _execute_sync_deletes(
+            raw_client, "cal-id", payload, ["occ1", "occ2"], ["master1"]
+        )
         self.assertEqual(deleted, 3)  # 2 occ + 1 master
 
 
@@ -604,7 +633,9 @@ class TestApplyProcessorDryRun(unittest.TestCase):
     def test_dry_run_output(self):
         with tempfile.TemporaryDirectory() as tmp:
             plan_path = Path(tmp) / "plan.yaml"
-            plan_path.write_text("events:\n  - subject: Test Event\n    start: '2025-01-15T10:00'\n    end: '2025-01-15T11:00'\n")
+            plan_path.write_text(
+                "events:\n  - subject: Test Event\n    start: '2025-01-15T10:00'\n    end: '2025-01-15T11:00'\n"
+            )
 
             request = ApplyRequest(
                 plan_path=plan_path,
@@ -631,7 +662,9 @@ class TestApplyProcessorDryRun(unittest.TestCase):
                 apply=True,
                 auth=OutlookServiceConfig(),
             )
-            with patch("schedule.pipeline._build_outlook_service", return_value=(MagicMock(), None)):
+            with patch(
+                "schedule.pipeline._build_outlook_service", return_value=(MagicMock(), None)
+            ):
                 env = ApplyProcessor().process(ApplyRequestConsumer(request).consume())
             self.assertFalse(env.ok())
 
@@ -663,6 +696,7 @@ class TestExportScheduleProcessor(unittest.TestCase):
 
     def _make_request(self, svc, out_path):
         from schedule.pipeline import ExportScheduleRequest
+
         return ExportScheduleRequest(
             service=svc,
             cal_name="Activities",
@@ -734,7 +768,10 @@ class TestExportScheduleProcessor(unittest.TestCase):
 
         evs = [
             # No subject
-            {"start": {"dateTime": "2025-10-06T10:00:00"}, "end": {"dateTime": "2025-10-06T11:00:00"}},
+            {
+                "start": {"dateTime": "2025-10-06T10:00:00"},
+                "end": {"dateTime": "2025-10-06T11:00:00"},
+            },
             # No start
             {"subject": "Ghost", "end": {"dateTime": "2025-10-06T11:00:00"}},
             # No end
@@ -801,6 +838,7 @@ class TestExportScheduleProcessor(unittest.TestCase):
             svc.list_events_in_range.side_effect = RuntimeError("API timeout")
 
             from schedule.pipeline import ExportScheduleRequest
+
             request = ExportScheduleRequest(
                 service=svc,
                 cal_name="Activities",
@@ -820,9 +858,7 @@ class TestExportScheduleProcessor(unittest.TestCase):
         """ExportScheduleProducer.produce() routes error message to stderr."""
         from schedule.pipeline import ExportScheduleProducer
 
-        env = ResultEnvelope(
-            status="error", diagnostics={"message": "Export pipeline failed"}
-        )
+        env = ResultEnvelope(status="error", diagnostics={"message": "Export pipeline failed"})
         buf_err = io.StringIO()
         with redirect_stderr(buf_err):
             ExportScheduleProducer().produce(env)

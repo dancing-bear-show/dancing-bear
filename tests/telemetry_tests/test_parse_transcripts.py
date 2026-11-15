@@ -1,4 +1,5 @@
 """Tests for telemetry/parse_transcripts.py."""
+
 from __future__ import annotations
 
 import contextlib
@@ -8,7 +9,7 @@ import os
 import tempfile
 import time
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -38,6 +39,7 @@ from telemetry.parse_transcripts_io import (
 def _run_main(argv: list[str]) -> tuple[int, str]:
     """Invoke telemetry main(argv) and return (rc, stdout)."""
     from telemetry.cli_sessions import main
+
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         rc = main(argv)
@@ -47,6 +49,7 @@ def _run_main(argv: list[str]) -> tuple[int, str]:
 # ---------------------------------------------------------------------------
 # _token_estimate
 # ---------------------------------------------------------------------------
+
 
 class TestTokenEstimate(unittest.TestCase):
     def test_divides_len_by_4(self):
@@ -64,6 +67,7 @@ class TestTokenEstimate(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _load_json_nullable
 # ---------------------------------------------------------------------------
+
 
 class TestLoadJsonNullable(unittest.TestCase):
     def setUp(self):
@@ -97,6 +101,7 @@ class TestLoadJsonNullable(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _parse_since_window
 # ---------------------------------------------------------------------------
+
 
 class TestParseSinceWindow(unittest.TestCase):
     def test_all_returns_none(self):
@@ -140,6 +145,7 @@ class TestParseSinceWindow(unittest.TestCase):
 # _find_jsonl_files
 # ---------------------------------------------------------------------------
 
+
 class TestFindJsonlFiles(unittest.TestCase):
     def setUp(self):
         self._td = tempfile.TemporaryDirectory()
@@ -171,7 +177,7 @@ class TestFindJsonlFiles(unittest.TestCase):
 
     def test_since_future_cutoff_excludes_all_files(self):
         self._write_jsonl("project-a/session1.jsonl")
-        future = datetime(2099, 1, 1, tzinfo=timezone.utc)
+        future = datetime(2099, 1, 1, tzinfo=UTC)
         result = _find_jsonl_files(self.projects_dir, future)
         self.assertEqual(result, [])
 
@@ -188,6 +194,7 @@ class TestFindJsonlFiles(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _extract_tool_preview
 # ---------------------------------------------------------------------------
+
 
 class TestExtractToolPreview(unittest.TestCase):
     def test_dict_serialized_to_json(self):
@@ -216,6 +223,7 @@ class TestExtractToolPreview(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _append_bash_command
 # ---------------------------------------------------------------------------
+
 
 class TestAppendBashCommand(unittest.TestCase):
     def _make_index(self) -> dict:
@@ -253,6 +261,7 @@ class TestAppendBashCommand(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _process_tool_use_blocks
 # ---------------------------------------------------------------------------
+
 
 class TestProcessToolUseBlocks(unittest.TestCase):
     def _make_index(self) -> dict:
@@ -311,6 +320,7 @@ class TestProcessToolUseBlocks(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _process_user_role_record
 # ---------------------------------------------------------------------------
+
 
 class TestProcessUserRoleRecord(unittest.TestCase):
     def _make_index(self) -> dict:
@@ -401,6 +411,7 @@ class TestProcessUserRoleRecord(unittest.TestCase):
 # _parse_content_blocks
 # ---------------------------------------------------------------------------
 
+
 class TestParseContentBlocks(unittest.TestCase):
     def test_returns_list_from_msg(self):
         record = {}
@@ -429,6 +440,7 @@ class TestParseContentBlocks(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _process_one_record
 # ---------------------------------------------------------------------------
+
 
 class TestProcessOneRecord(unittest.TestCase):
     def _make_index(self) -> dict:
@@ -484,6 +496,7 @@ class TestProcessOneRecord(unittest.TestCase):
 # _process_jsonl_file
 # ---------------------------------------------------------------------------
 
+
 class TestProcessJsonlFile(unittest.TestCase):
     def setUp(self):
         self._td = tempfile.TemporaryDirectory()
@@ -519,9 +532,9 @@ class TestProcessJsonlFile(unittest.TestCase):
         self.assertEqual(nbytes, 0)
 
     def test_user_prompt_record_extracted(self):
-        p = self._write_jsonl_file("s1.jsonl", [
-            {"message": {"role": "user", "content": "Hello there"}}
-        ])
+        p = self._write_jsonl_file(
+            "s1.jsonl", [{"message": {"role": "user", "content": "Hello there"}}]
+        )
         idx = self._make_index()
         prompts, _, nbytes, _ = _process_jsonl_file(p, 0, idx, str(self.dir))
         self.assertEqual(prompts, 1)
@@ -529,14 +542,19 @@ class TestProcessJsonlFile(unittest.TestCase):
         self.assertEqual(idx["prompts"][0]["text"], "Hello there")
 
     def test_bash_command_extracted(self):
-        p = self._write_jsonl_file("s1.jsonl", [
-            {
-                "message": {
-                    "role": "assistant",
-                    "content": [{"type": "tool_use", "name": "Bash", "input": {"command": "echo hi"}}],
+        p = self._write_jsonl_file(
+            "s1.jsonl",
+            [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            {"type": "tool_use", "name": "Bash", "input": {"command": "echo hi"}}
+                        ],
+                    }
                 }
-            }
-        ])
+            ],
+        )
         idx = self._make_index()
         _, bash, _, _ = _process_jsonl_file(p, 0, idx, str(self.dir))
         self.assertEqual(bash, 1)
@@ -605,7 +623,9 @@ class TestProcessJsonlFile(unittest.TestCase):
         # Write a record without trailing newline to simulate partial write
         p = self.dir / "partial.jsonl"
         with open(p, "wb") as f:
-            f.write(json.dumps({"message": {"role": "user", "content": "Complete"}}).encode() + b"\n")
+            f.write(
+                json.dumps({"message": {"role": "user", "content": "Complete"}}).encode() + b"\n"
+            )
             f.write(b'{"partial": "no newline at eof"')
         idx = self._make_index()
         prompts, _, _, new_offset = _process_jsonl_file(p, 0, idx, str(self.dir))
@@ -625,6 +645,7 @@ class TestProcessJsonlFile(unittest.TestCase):
 # _session_id_from_path
 # ---------------------------------------------------------------------------
 
+
 class TestSessionIdFromPath(unittest.TestCase):
     def test_stem_extracted(self):
         p = Path("/some/dir/my-session-id.jsonl")
@@ -638,6 +659,7 @@ class TestSessionIdFromPath(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _safe_mtime
 # ---------------------------------------------------------------------------
+
 
 class TestSafeMtime(unittest.TestCase):
     def test_returns_mtime_for_existing_file(self):
@@ -653,6 +675,7 @@ class TestSafeMtime(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _load_or_init_session_index
 # ---------------------------------------------------------------------------
+
 
 class TestLoadOrInitSessionIndex(unittest.TestCase):
     def setUp(self):
@@ -730,6 +753,7 @@ class TestLoadOrInitSessionIndex(unittest.TestCase):
 # _process_one_file
 # ---------------------------------------------------------------------------
 
+
 class TestProcessOneFile(unittest.TestCase):
     def setUp(self):
         self._td = tempfile.TemporaryDirectory()
@@ -748,9 +772,7 @@ class TestProcessOneFile(unittest.TestCase):
         return p
 
     def test_happy_path_returns_ok(self):
-        p = self._write_jsonl("session1.jsonl", [
-            {"message": {"role": "user", "content": "Hello"}}
-        ])
+        p = self._write_jsonl("session1.jsonl", [{"message": {"role": "user", "content": "Hello"}}])
         state: dict = {}
         result = _process_one_file(p, self.index_dir, state, self.state_path, False)
         self.assertIsInstance(result, ParseResult)
@@ -781,25 +803,21 @@ class TestProcessOneFile(unittest.TestCase):
         self.assertEqual(result.status, "skipped")
 
     def test_corrupted_state_entry_reprocesses(self):
-        p = self._write_jsonl("sess.jsonl", [
-            {"message": {"role": "user", "content": "Hi"}}
-        ])
+        p = self._write_jsonl("sess.jsonl", [{"message": {"role": "user", "content": "Hi"}}])
         state: dict = {str(p.resolve()): "not_an_int"}
         result = _process_one_file(p, self.index_dir, state, self.state_path, False)
         self.assertEqual(result.prompts_added, 1)
 
     def test_index_file_created_on_disk(self):
-        p = self._write_jsonl("new_sess.jsonl", [
-            {"message": {"role": "user", "content": "Data"}}
-        ])
+        p = self._write_jsonl("new_sess.jsonl", [{"message": {"role": "user", "content": "Data"}}])
         state: dict = {}
         _process_one_file(p, self.index_dir, state, self.state_path, False)
         self.assertTrue((self.index_dir / "new_sess.json").exists())
 
     def test_state_updated_with_new_offset(self):
-        p = self._write_jsonl("state_sess.jsonl", [
-            {"message": {"role": "user", "content": "Update state"}}
-        ])
+        p = self._write_jsonl(
+            "state_sess.jsonl", [{"message": {"role": "user", "content": "Update state"}}]
+        )
         state: dict = {}
         _process_one_file(p, self.index_dir, state, self.state_path, False)
         abs_path = str(p.resolve())
@@ -807,14 +825,19 @@ class TestProcessOneFile(unittest.TestCase):
         self.assertGreater(state[abs_path], 0)
 
     def test_parse_result_bash_added(self):
-        p = self._write_jsonl("bash_sess.jsonl", [
-            {
-                "message": {
-                    "role": "assistant",
-                    "content": [{"type": "tool_use", "name": "Bash", "input": {"command": "ls"}}],
+        p = self._write_jsonl(
+            "bash_sess.jsonl",
+            [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            {"type": "tool_use", "name": "Bash", "input": {"command": "ls"}}
+                        ],
+                    }
                 }
-            }
-        ])
+            ],
+        )
         state: dict = {}
         result = _process_one_file(p, self.index_dir, state, self.state_path, False)
         self.assertEqual(result.bash_added, 1)
@@ -823,6 +846,7 @@ class TestProcessOneFile(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # run_parse_transcripts
 # ---------------------------------------------------------------------------
+
 
 class TestRunParseTranscripts(unittest.TestCase):
     def setUp(self):
@@ -852,9 +876,9 @@ class TestRunParseTranscripts(unittest.TestCase):
         self.assertEqual(results, [])
 
     def test_processes_jsonl_files(self):
-        self._write_jsonl("proj/session1.jsonl", [
-            {"message": {"role": "user", "content": "Hello"}}
-        ])
+        self._write_jsonl(
+            "proj/session1.jsonl", [{"message": {"role": "user", "content": "Hello"}}]
+        )
         results = run_parse_transcripts(
             since="all",
             projects_dir=self.projects_dir,
@@ -866,12 +890,12 @@ class TestRunParseTranscripts(unittest.TestCase):
         self.assertEqual(results[0].prompts_added, 1)
 
     def test_limit_applied(self):
-        self._write_jsonl("proj/session1.jsonl", [
-            {"message": {"role": "user", "content": "Hello"}}
-        ])
-        self._write_jsonl("proj/session2.jsonl", [
-            {"message": {"role": "user", "content": "World"}}
-        ])
+        self._write_jsonl(
+            "proj/session1.jsonl", [{"message": {"role": "user", "content": "Hello"}}]
+        )
+        self._write_jsonl(
+            "proj/session2.jsonl", [{"message": {"role": "user", "content": "World"}}]
+        )
         results = run_parse_transcripts(
             since="all",
             projects_dir=self.projects_dir,
@@ -920,9 +944,9 @@ class TestRunParseTranscripts(unittest.TestCase):
 
     def test_multiple_sessions_all_processed(self):
         for i in range(3):
-            self._write_jsonl(f"proj/session{i}.jsonl", [
-                {"message": {"role": "user", "content": f"Message {i}"}}
-            ])
+            self._write_jsonl(
+                f"proj/session{i}.jsonl", [{"message": {"role": "user", "content": f"Message {i}"}}]
+            )
         results = run_parse_transcripts(
             since="all",
             projects_dir=self.projects_dir,
@@ -937,9 +961,11 @@ class TestRunParseTranscripts(unittest.TestCase):
 # _emit_rows
 # ---------------------------------------------------------------------------
 
+
 class TestEmitRows(unittest.TestCase):
     def test_json_output(self):
         import io
+
         rows = [{"a": 1, "b": "x"}]
         buf = io.StringIO()
         with patch("sys.stdout", buf):
@@ -951,6 +977,7 @@ class TestEmitRows(unittest.TestCase):
 
     def test_table_output_has_header_and_data(self):
         import io
+
         rows = [{"session_id": "abc123", "status": "ok"}]
         buf = io.StringIO()
         with patch("sys.stdout", buf):
@@ -961,6 +988,7 @@ class TestEmitRows(unittest.TestCase):
 
     def test_empty_table_no_output(self):
         import io
+
         buf = io.StringIO()
         with patch("sys.stdout", buf):
             _emit_rows([], fmt="table")
@@ -974,6 +1002,7 @@ class TestEmitRows(unittest.TestCase):
         agree on what the row contains.
         """
         import io
+
         rows = [{"count": 0, "flag": False, "missing": None, "name": "x"}]
         buf = io.StringIO()
         with patch("sys.stdout", buf):
@@ -986,6 +1015,7 @@ class TestEmitRows(unittest.TestCase):
     def test_table_renders_none_as_empty(self):
         """A null value is absence and renders blank rather than "None"."""
         import io
+
         rows = [{"only": None}]
         buf = io.StringIO()
         with patch("sys.stdout", buf):
@@ -996,6 +1026,7 @@ class TestEmitRows(unittest.TestCase):
 
     def test_custom_headers_limit_columns(self):
         import io
+
         rows = [{"a": 1, "b": 2, "c": 3}]
         buf = io.StringIO()
         with patch("sys.stdout", buf):
@@ -1007,6 +1038,7 @@ class TestEmitRows(unittest.TestCase):
 
     def test_table_separator_line_present(self):
         import io
+
         rows = [{"col": "val"}]
         buf = io.StringIO()
         with patch("sys.stdout", buf):
@@ -1018,6 +1050,7 @@ class TestEmitRows(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # parse-transcripts CLI command (via main())
 # ---------------------------------------------------------------------------
+
 
 class TestParseTranscriptsCli(unittest.TestCase):
     def setUp(self):
@@ -1037,24 +1070,31 @@ class TestParseTranscriptsCli(unittest.TestCase):
         return p
 
     def test_cli_no_sessions_message(self):
-        rc, out = _run_main([
-            "parse-transcripts",
-            "--projects-dir", str(self.projects_dir),
-            "--index-dir", str(self.index_dir),
-        ])
+        rc, out = _run_main(
+            [
+                "parse-transcripts",
+                "--projects-dir",
+                str(self.projects_dir),
+                "--index-dir",
+                str(self.index_dir),
+            ]
+        )
         self.assertEqual(rc, 0)
         self.assertIn("No sessions processed", out)
 
     def test_cli_json_format(self):
-        self._write_jsonl("proj/s1.jsonl", [
-            {"message": {"role": "user", "content": "Hello"}}
-        ])
-        rc, out = _run_main([
-            "parse-transcripts",
-            "--projects-dir", str(self.projects_dir),
-            "--index-dir", str(self.index_dir),
-            "--format", "json",
-        ])
+        self._write_jsonl("proj/s1.jsonl", [{"message": {"role": "user", "content": "Hello"}}])
+        rc, out = _run_main(
+            [
+                "parse-transcripts",
+                "--projects-dir",
+                str(self.projects_dir),
+                "--index-dir",
+                str(self.index_dir),
+                "--format",
+                "json",
+            ]
+        )
         self.assertEqual(rc, 0)
         data = json.loads(out)
         self.assertIsInstance(data, list)
@@ -1062,94 +1102,116 @@ class TestParseTranscriptsCli(unittest.TestCase):
         self.assertIn("session_id", data[0])
 
     def test_cli_table_format(self):
-        self._write_jsonl("proj/s2.jsonl", [
-            {"message": {"role": "user", "content": "World"}}
-        ])
-        rc, out = _run_main([
-            "parse-transcripts",
-            "--projects-dir", str(self.projects_dir),
-            "--index-dir", str(self.index_dir),
-            "--format", "table",
-        ])
+        self._write_jsonl("proj/s2.jsonl", [{"message": {"role": "user", "content": "World"}}])
+        rc, out = _run_main(
+            [
+                "parse-transcripts",
+                "--projects-dir",
+                str(self.projects_dir),
+                "--index-dir",
+                str(self.index_dir),
+                "--format",
+                "table",
+            ]
+        )
         self.assertEqual(rc, 0)
         self.assertIn("session_id", out)
 
     def test_cli_invalid_since_exits_1(self):
-        rc, _ = _run_main([
-            "parse-transcripts",
-            "--projects-dir", str(self.projects_dir),
-            "--index-dir", str(self.index_dir),
-            "--since", "badvalue",
-        ])
+        rc, _ = _run_main(
+            [
+                "parse-transcripts",
+                "--projects-dir",
+                str(self.projects_dir),
+                "--index-dir",
+                str(self.index_dir),
+                "--since",
+                "badvalue",
+            ]
+        )
         self.assertEqual(rc, 1)
 
     def test_cli_force_flag(self):
-        self._write_jsonl("proj/s3.jsonl", [
-            {"message": {"role": "user", "content": "Force me"}}
-        ])
-        rc, out = _run_main([
-            "parse-transcripts",
-            "--projects-dir", str(self.projects_dir),
-            "--index-dir", str(self.index_dir),
-            "--force",
-        ])
+        self._write_jsonl("proj/s3.jsonl", [{"message": {"role": "user", "content": "Force me"}}])
+        rc, out = _run_main(
+            [
+                "parse-transcripts",
+                "--projects-dir",
+                str(self.projects_dir),
+                "--index-dir",
+                str(self.index_dir),
+                "--force",
+            ]
+        )
         self.assertEqual(rc, 0)
         self.assertIn("s3", out)
         self.assertIn("ok", out)
 
     def test_cli_limit_flag(self):
-        self._write_jsonl("proj/s4.jsonl", [
-            {"message": {"role": "user", "content": "Limit one"}}
-        ])
-        self._write_jsonl("proj/s5.jsonl", [
-            {"message": {"role": "user", "content": "Limit two"}}
-        ])
-        rc, out = _run_main([
-            "parse-transcripts",
-            "--projects-dir", str(self.projects_dir),
-            "--index-dir", str(self.index_dir),
-            "--limit", "1",
-            "--format", "json",
-        ])
+        self._write_jsonl("proj/s4.jsonl", [{"message": {"role": "user", "content": "Limit one"}}])
+        self._write_jsonl("proj/s5.jsonl", [{"message": {"role": "user", "content": "Limit two"}}])
+        rc, out = _run_main(
+            [
+                "parse-transcripts",
+                "--projects-dir",
+                str(self.projects_dir),
+                "--index-dir",
+                str(self.index_dir),
+                "--limit",
+                "1",
+                "--format",
+                "json",
+            ]
+        )
         self.assertEqual(rc, 0)
         data = json.loads(out)
         self.assertEqual(len(data), 1)
 
     def test_cli_since_7d_excludes_files_older_than_window(self):
-        recent = self._write_jsonl("proj/recent.jsonl", [
-            {"message": {"role": "user", "content": "In window"}}
-        ])
-        stale = self._write_jsonl("proj/stale.jsonl", [
-            {"message": {"role": "user", "content": "Out of window"}}
-        ])
+        recent = self._write_jsonl(
+            "proj/recent.jsonl", [{"message": {"role": "user", "content": "In window"}}]
+        )
+        stale = self._write_jsonl(
+            "proj/stale.jsonl", [{"message": {"role": "user", "content": "Out of window"}}]
+        )
         now = time.time()
         os.utime(recent, (now, now))
         old = now - (30 * 86400)
         os.utime(stale, (old, old))
 
-        rc, out = _run_main([
-            "parse-transcripts",
-            "--projects-dir", str(self.projects_dir),
-            "--index-dir", str(self.index_dir),
-            "--since", "7d",
-        ])
+        rc, out = _run_main(
+            [
+                "parse-transcripts",
+                "--projects-dir",
+                str(self.projects_dir),
+                "--index-dir",
+                str(self.index_dir),
+                "--since",
+                "7d",
+            ]
+        )
         self.assertEqual(rc, 0)
         self.assertIn("recent", out)
         self.assertNotIn("stale", out)
 
     def test_cli_since_reports_nothing_when_all_files_are_stale(self):
-        stale = self._write_jsonl("proj/stale_only.jsonl", [
-            {"message": {"role": "user", "content": "Out of window"}}
-        ])
+        stale = self._write_jsonl(
+            "proj/stale_only.jsonl", [{"message": {"role": "user", "content": "Out of window"}}]
+        )
         old = time.time() - (30 * 86400)
         os.utime(stale, (old, old))
 
-        rc, out = _run_main([
-            "parse-transcripts",
-            "--projects-dir", str(self.projects_dir),
-            "--index-dir", str(self.index_dir),
-            "--since", "7d",
-        ])
+        rc, out = _run_main(
+            [
+                "parse-transcripts",
+                "--projects-dir",
+                str(self.projects_dir),
+                "--index-dir",
+                str(self.index_dir),
+                "--since",
+                "7d",
+            ]
+        )
         self.assertEqual(rc, 0)
         self.assertIn("No sessions processed", out)
 

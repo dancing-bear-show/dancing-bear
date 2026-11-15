@@ -2,45 +2,45 @@
 
 from __future__ import annotations
 
-from tests.fixtures import test_path
 import tempfile
 import unittest
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 from unittest.mock import patch
 
-from mail.signatures.processors import (
-    _SafeDict,
-    _render_template,
-    SignaturesExportProcessor,
-    SignaturesExportResult,
-    SignaturesSyncProcessor,
-    SignaturesSyncResult,
-    SignaturesNormalizeProcessor,
-    SignaturesNormalizeResult,
-)
 from mail.signatures.consumers import (
     SignaturesExportPayload,
-    SignaturesSyncPayload,
     SignaturesNormalizePayload,
+    SignaturesSyncPayload,
 )
+from mail.signatures.processors import (
+    SignaturesExportProcessor,
+    SignaturesExportResult,
+    SignaturesNormalizeProcessor,
+    SignaturesNormalizeResult,
+    SignaturesSyncProcessor,
+    SignaturesSyncResult,
+    _render_template,
+    _SafeDict,
+)
+from tests.fixtures import test_path
 from tests.mail_tests.fixtures import FakeMailContext
 
 
 class FakeGmailClient:
     """Fake Gmail client for testing signatures."""
 
-    def __init__(self, signatures: Optional[List[Dict[str, Any]]] = None):
+    def __init__(self, signatures: list[dict[str, Any]] | None = None):
         self._signatures = signatures or []
-        self._updated: Dict[str, str] = {}
+        self._updated: dict[str, str] = {}
 
     def authenticate(self):
         """No-op for fake client."""
 
-    def list_signatures(self) -> List[Dict[str, Any]]:
+    def list_signatures(self) -> list[dict[str, Any]]:
         return self._signatures
 
-    def update_signature(self, email: str, html: str) -> Dict[str, Any]:
+    def update_signature(self, email: str, html: str) -> dict[str, Any]:
         self._updated[email] = html
         return {"sendAsEmail": email, "signature": html}
 
@@ -137,10 +137,22 @@ class TestSignaturesExportProcessor(unittest.TestCase):
 
     def test_exports_gmail_signatures(self):
         with tempfile.TemporaryDirectory() as td:
-            client = FakeGmailClient(signatures=[
-                {"sendAsEmail": "user@example.com", "isPrimary": True, "signature": "<p>Primary sig</p>", "displayName": "User"},
-                {"sendAsEmail": "alias@example.com", "isPrimary": False, "signature": "<p>Alias sig</p>", "displayName": "Alias"},
-            ])
+            client = FakeGmailClient(
+                signatures=[
+                    {
+                        "sendAsEmail": "user@example.com",
+                        "isPrimary": True,
+                        "signature": "<p>Primary sig</p>",
+                        "displayName": "User",
+                    },
+                    {
+                        "sendAsEmail": "alias@example.com",
+                        "isPrimary": False,
+                        "signature": "<p>Alias sig</p>",
+                        "displayName": "Alias",
+                    },
+                ]
+            )
             context = FakeMailContext(gmail_client=client)
             payload = SignaturesExportPayload(
                 context=context,
@@ -173,9 +185,15 @@ class TestSignaturesExportProcessor(unittest.TestCase):
 
     def test_handles_no_primary_signature(self):
         with tempfile.TemporaryDirectory() as td:
-            client = FakeGmailClient(signatures=[
-                {"sendAsEmail": "user@example.com", "isPrimary": False, "signature": "<p>Not primary</p>"},
-            ])
+            client = FakeGmailClient(
+                signatures=[
+                    {
+                        "sendAsEmail": "user@example.com",
+                        "isPrimary": False,
+                        "signature": "<p>Not primary</p>",
+                    },
+                ]
+            )
             context = FakeMailContext(gmail_client=client)
             payload = SignaturesExportPayload(
                 context=context,
@@ -195,9 +213,11 @@ class TestSignaturesSyncProcessor(unittest.TestCase):
     """Tests for SignaturesSyncProcessor."""
 
     def test_sync_with_default_html_dry_run(self):
-        client = FakeGmailClient(signatures=[
-            {"sendAsEmail": "user@example.com", "isPrimary": True, "displayName": "User"},
-        ])
+        client = FakeGmailClient(
+            signatures=[
+                {"sendAsEmail": "user@example.com", "isPrimary": True, "displayName": "User"},
+            ]
+        )
         context = FakeMailContext(gmail_client=client)
         config = {
             "signatures": {
@@ -219,9 +239,11 @@ class TestSignaturesSyncProcessor(unittest.TestCase):
         self.assertIn("Would update", result.payload.gmail_updates[0])
 
     def test_sync_with_default_html_live(self):
-        client = FakeGmailClient(signatures=[
-            {"sendAsEmail": "user@example.com", "isPrimary": True, "displayName": "User"},
-        ])
+        client = FakeGmailClient(
+            signatures=[
+                {"sendAsEmail": "user@example.com", "isPrimary": True, "displayName": "User"},
+            ]
+        )
         context = FakeMailContext(gmail_client=client)
         config = {
             "signatures": {
@@ -243,10 +265,12 @@ class TestSignaturesSyncProcessor(unittest.TestCase):
         self.assertIn("user@example.com", client._updated)
 
     def test_sync_with_specific_gmail_entries(self):
-        client = FakeGmailClient(signatures=[
-            {"sendAsEmail": "user@example.com", "displayName": "User"},
-            {"sendAsEmail": "alias@example.com", "displayName": "Alias"},
-        ])
+        client = FakeGmailClient(
+            signatures=[
+                {"sendAsEmail": "user@example.com", "displayName": "User"},
+                {"sendAsEmail": "alias@example.com", "displayName": "Alias"},
+            ]
+        )
         context = FakeMailContext(gmail_client=client)
         config = {
             "signatures": {
@@ -269,10 +293,12 @@ class TestSignaturesSyncProcessor(unittest.TestCase):
         self.assertEqual(len(result.payload.gmail_updates), 2)
 
     def test_sync_filters_by_send_as(self):
-        client = FakeGmailClient(signatures=[
-            {"sendAsEmail": "user@example.com", "displayName": "User"},
-            {"sendAsEmail": "alias@example.com", "displayName": "Alias"},
-        ])
+        client = FakeGmailClient(
+            signatures=[
+                {"sendAsEmail": "user@example.com", "displayName": "User"},
+                {"sendAsEmail": "alias@example.com", "displayName": "Alias"},
+            ]
+        )
         context = FakeMailContext(gmail_client=client)
         config = {
             "signatures": {
@@ -373,7 +399,10 @@ class TestSignaturesNormalizeProcessor(unittest.TestCase):
             config = {
                 "signatures": {
                     "gmail": [
-                        {"sendAs": "user@example.com", "signature_html": "<p>Gmail sig for {name}</p>"},
+                        {
+                            "sendAs": "user@example.com",
+                            "signature_html": "<p>Gmail sig for {name}</p>",
+                        },
                     ]
                 }
             }

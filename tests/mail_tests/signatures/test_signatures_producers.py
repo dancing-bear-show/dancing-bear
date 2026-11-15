@@ -2,24 +2,22 @@
 
 from __future__ import annotations
 
-from tests.fixtures import test_path
 import tempfile
 import unittest
 from pathlib import Path
 
 from core.pipeline import ResultEnvelope
-from tests.fixtures import capture_stderr, capture_stdout
-
-from mail.signatures.producers import (
-    SignaturesExportProducer,
-    SignaturesSyncProducer,
-    SignaturesNormalizeProducer,
-)
 from mail.signatures.processors import (
     SignaturesExportResult,
-    SignaturesSyncResult,
     SignaturesNormalizeResult,
+    SignaturesSyncResult,
 )
+from mail.signatures.producers import (
+    SignaturesExportProducer,
+    SignaturesNormalizeProducer,
+    SignaturesSyncProducer,
+)
+from tests.fixtures import capture_stderr, capture_stdout, test_path
 
 
 class TestSignaturesExportProducer(unittest.TestCase):
@@ -48,9 +46,7 @@ class TestSignaturesExportProducer(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             out_path = Path(td) / "signatures.yaml"
             payload = SignaturesExportResult(
-                gmail_signatures=[
-                    {"sendAs": "user@example.com", "signature_html": "<p>Sig</p>"}
-                ],
+                gmail_signatures=[{"sendAs": "user@example.com", "signature_html": "<p>Sig</p>"}],
                 default_html="<p>Default</p>",
                 out_path=out_path,
             )

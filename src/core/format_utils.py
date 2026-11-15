@@ -1,4 +1,5 @@
 """Shared number-formatting helpers used across telemetry and diagrams CLIs."""
+
 from __future__ import annotations
 
 __all__ = ["format_tokens"]

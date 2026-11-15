@@ -3,12 +3,11 @@
 import os
 import unittest
 
-from desk.scan import run_scan, find_duplicates, _sha256_of
+from desk.scan import _sha256_of, find_duplicates, run_scan
 from tests.fixtures import TempDirMixin
 
 
 class Sha256OfTests(TempDirMixin, unittest.TestCase):
-
     def test_hash_file(self):
         path = os.path.join(self.tmpdir, "test.txt")
         with open(path, "wb") as f:
@@ -43,7 +42,6 @@ class Sha256OfTests(TempDirMixin, unittest.TestCase):
 
 
 class FindDuplicatesTests(TempDirMixin, unittest.TestCase):
-
     def test_empty_list(self):
         result = find_duplicates([])
         self.assertEqual(result, [])
@@ -57,10 +55,12 @@ class FindDuplicatesTests(TempDirMixin, unittest.TestCase):
         with open(path2, "wb") as f:
             f.write(b"content two")
 
-        result = find_duplicates([
-            (path1, os.path.getsize(path1)),
-            (path2, os.path.getsize(path2)),
-        ])
+        result = find_duplicates(
+            [
+                (path1, os.path.getsize(path1)),
+                (path2, os.path.getsize(path2)),
+            ]
+        )
         self.assertEqual(result, [])
 
     def test_finds_duplicates(self):
@@ -90,15 +90,16 @@ class FindDuplicatesTests(TempDirMixin, unittest.TestCase):
         with open(path2, "wb") as f:
             f.write(b"much larger content")
 
-        result = find_duplicates([
-            (path1, os.path.getsize(path1)),
-            (path2, os.path.getsize(path2)),
-        ])
+        result = find_duplicates(
+            [
+                (path1, os.path.getsize(path1)),
+                (path2, os.path.getsize(path2)),
+            ]
+        )
         self.assertEqual(result, [])
 
 
 class RunScanTests(TempDirMixin, unittest.TestCase):
-
     def test_scan_empty_dir(self):
         result = run_scan([self.tmpdir], min_size="1MB")
 

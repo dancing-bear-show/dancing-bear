@@ -6,38 +6,55 @@ Extracted from parsing_experience. Provides:
   - _pdf_extract_summary, _pdf_extract_experience, _pdf_extract_education
   - parse_resume_pdf: public API
 """
+
 from __future__ import annotations
 
 import re
 from typing import Any
 
+from .parsing_experience_docx import (
+    _key_from_heading,
+    _looks_like_section_heading,
+)
 from .parsing_experience_text import (
     _extract_contact,
     _parse_education_entry,
     _parse_experience_entry,
     _parse_skills,
 )
-from .parsing_experience_docx import (
-    _key_from_heading,
-    _looks_like_section_heading,
-)
 
 
 def _pdf_empty_result() -> dict[str, Any]:
     """Return empty resume structure for PDF parsing."""
     return {
-        "name": "", "headline": "", "email": "", "phone": "",
-        "location": "", "linkedin": "", "github": "", "website": "",
-        "summary": "", "skills": [], "experience": [], "education": [],
+        "name": "",
+        "headline": "",
+        "email": "",
+        "phone": "",
+        "location": "",
+        "linkedin": "",
+        "github": "",
+        "website": "",
+        "summary": "",
+        "skills": [],
+        "experience": [],
+        "education": [],
     }
 
 
 def _pdf_looks_like_name(line: str) -> bool:
-    return bool(line and len(line) < 60 and not _looks_like_section_heading(line) and not re.search(r"[@()\d]{3,}", line))
+    return bool(
+        line
+        and len(line) < 60
+        and not _looks_like_section_heading(line)
+        and not re.search(r"[@()\d]{3,}", line)
+    )
 
 
 def _pdf_looks_like_headline(line: str) -> bool:
-    return bool(len(line) < 80 and not _looks_like_section_heading(line) and not re.search(r"[@|]", line))
+    return bool(
+        len(line) < 80 and not _looks_like_section_heading(line) and not re.search(r"[@|]", line)
+    )
 
 
 def _pdf_extract_name_headline(lines: list[str]) -> tuple[str, str]:
@@ -64,8 +81,10 @@ def _pdf_find_sections(lines: list[str]) -> tuple[dict[str, int], list[tuple[str
 
 
 def _pdf_get_section_lines(
-    key: str, lines: list[str], section_indices: dict[str, int],
-    sorted_sections: list[tuple[str, int]]
+    key: str,
+    lines: list[str],
+    section_indices: dict[str, int],
+    sorted_sections: list[tuple[str, int]],
 ) -> list[str]:
     """Get lines for a specific section."""
     if key not in section_indices:
@@ -80,8 +99,10 @@ def _pdf_get_section_lines(
 
 
 def _pdf_extract_summary(
-    lines: list[str], section_indices: dict[str, int],
-    sorted_sections: list[tuple[str, int]], has_name: bool
+    lines: list[str],
+    section_indices: dict[str, int],
+    sorted_sections: list[tuple[str, int]],
+    has_name: bool,
 ) -> str:
     """Extract summary from PDF."""
     summary_lines = _pdf_get_section_lines("summary", lines, section_indices, sorted_sections)
@@ -98,9 +119,9 @@ def _pdf_extract_summary(
 
     candidate = lines[start_idx:first_section_idx]
     filtered = [
-        ln for ln in candidate
-        if not re.search(r"[@()\d]{5,}", ln)
-        and not re.search(r"linkedin|github", ln, re.I)
+        ln
+        for ln in candidate
+        if not re.search(r"[@()\d]{5,}", ln) and not re.search(r"linkedin|github", ln, re.I)
     ]
     return " ".join(filtered).strip()
 
@@ -159,7 +180,9 @@ def parse_resume_pdf(path: str) -> dict[str, Any]:
     section_indices, sorted_sections = _pdf_find_sections(lines)
 
     summary = _pdf_extract_summary(lines, section_indices, sorted_sections, bool(name))
-    skills = _parse_skills(_pdf_get_section_lines("skills", lines, section_indices, sorted_sections))
+    skills = _parse_skills(
+        _pdf_get_section_lines("skills", lines, section_indices, sorted_sections)
+    )
     experience = _pdf_extract_experience(
         _pdf_get_section_lines("experience", lines, section_indices, sorted_sections)
     )

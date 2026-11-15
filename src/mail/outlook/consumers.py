@@ -1,4 +1,5 @@
 """Consumers for Outlook pipelines."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -10,6 +11,7 @@ from core.pipeline import Consumer
 @dataclass
 class OutlookRulesListPayload:
     """Payload for rules list."""
+
     client: Any
     use_cache: bool = False
     cache_ttl: int = 600
@@ -18,6 +20,7 @@ class OutlookRulesListPayload:
 @dataclass
 class OutlookRulesExportPayload:
     """Payload for rules export."""
+
     client: Any
     out_path: str
     use_cache: bool = False
@@ -27,6 +30,7 @@ class OutlookRulesExportPayload:
 @dataclass
 class OutlookRulesSyncPayload:
     """Payload for rules sync."""
+
     client: Any
     config_path: str
     dry_run: bool = False
@@ -39,6 +43,7 @@ class OutlookRulesSyncPayload:
 @dataclass
 class OutlookRulesPlanPayload:
     """Payload for rules plan."""
+
     client: Any
     config_path: str
     move_to_folders: bool = False
@@ -50,6 +55,7 @@ class OutlookRulesPlanPayload:
 @dataclass
 class OutlookRulesDeletePayload:
     """Payload for rules delete."""
+
     client: Any
     rule_id: str
 
@@ -57,6 +63,7 @@ class OutlookRulesDeletePayload:
 @dataclass
 class OutlookRulesSweepPayload:
     """Payload for rules sweep."""
+
     client: Any
     config_path: str
     dry_run: bool = False
@@ -70,6 +77,7 @@ class OutlookRulesSweepPayload:
 @dataclass
 class OutlookCategoriesListPayload:
     """Payload for categories list."""
+
     client: Any
     use_cache: bool = False
     cache_ttl: int = 600
@@ -78,6 +86,7 @@ class OutlookCategoriesListPayload:
 @dataclass
 class OutlookCategoriesExportPayload:
     """Payload for categories export."""
+
     client: Any
     out_path: str
     use_cache: bool = False
@@ -87,6 +96,7 @@ class OutlookCategoriesExportPayload:
 @dataclass
 class OutlookCategoriesSyncPayload:
     """Payload for categories sync."""
+
     client: Any
     config_path: str
     dry_run: bool = False
@@ -95,6 +105,7 @@ class OutlookCategoriesSyncPayload:
 @dataclass
 class OutlookFoldersSyncPayload:
     """Payload for folders sync."""
+
     client: Any
     config_path: str
     dry_run: bool = False
@@ -103,6 +114,7 @@ class OutlookFoldersSyncPayload:
 @dataclass
 class OutlookCalendarAddPayload:
     """Payload for calendar add."""
+
     client: Any
     subject: str
     start_iso: str
@@ -118,6 +130,7 @@ class OutlookCalendarAddPayload:
 @dataclass
 class OutlookCalendarAddRecurringPayload:
     """Payload for calendar add recurring."""
+
     client: Any
     subject: str
     start_time: str
@@ -139,12 +152,14 @@ class OutlookCalendarAddRecurringPayload:
 @dataclass
 class OutlookCalendarAddFromConfigPayload:
     """Payload for calendar add from config."""
+
     client: Any
     config_path: str
     no_reminder: bool = False
 
 
 # Base consumer classes for common patterns
+
 
 class _BaseCachedListConsumer(Consumer[Any]):
     """Base consumer for list operations with caching."""
@@ -175,6 +190,7 @@ class _BaseSyncConsumer(Consumer[Any]):
 
 
 # Consumer classes
+
 
 class OutlookRulesListConsumer(_BaseCachedListConsumer):
     """Consume args to create rules list payload."""

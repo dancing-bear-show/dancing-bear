@@ -46,11 +46,7 @@ def _detect_from_metrics(metrics: CostMetrics, threshold: float) -> list[Anomaly
         ("tokens", [(s.session_id, float(s.billable_tokens)) for s in sessions]),
         (
             "latency",
-            [
-                (s.session_id, s.perf.avg_api_latency_ms)
-                for s in sessions
-                if s.perf is not None
-            ],
+            [(s.session_id, s.perf.avg_api_latency_ms) for s in sessions if s.perf is not None],
         ),
     ]
 

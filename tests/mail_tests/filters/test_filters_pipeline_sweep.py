@@ -8,36 +8,33 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
-from typing import List
 
 from core.cli_output import OutputConfig, OutputWriter
-
 from mail.context import MailContext
 from mail.filters.consumers import (
-    FiltersSweepConsumer,
-    FiltersSweepRangeConsumer,
-    FiltersPruneConsumer,
     FiltersAddForwardConsumer,
     FiltersAddTokenConsumer,
+    FiltersPruneConsumer,
     FiltersRemoveTokenConsumer,
+    FiltersSweepConsumer,
+    FiltersSweepRangeConsumer,
 )
 from mail.filters.processors_sweep import (
-    FiltersSweepProcessor,
-    FiltersSweepRangeProcessor,
-    FiltersPruneProcessor,
     FiltersAddForwardProcessor,
     FiltersAddTokenProcessor,
+    FiltersPruneProcessor,
     FiltersRemoveTokenProcessor,
+    FiltersSweepProcessor,
+    FiltersSweepRangeProcessor,
 )
 from mail.filters.producers import (
-    FiltersSweepProducer,
-    FiltersSweepRangeProducer,
-    FiltersPruneProducer,
     FiltersAddForwardProducer,
     FiltersAddTokenProducer,
+    FiltersPruneProducer,
     FiltersRemoveTokenProducer,
+    FiltersSweepProducer,
+    FiltersSweepRangeProducer,
 )
-
 from tests.mail_tests.fixtures import FakeGmailClient, make_pipeline_client
 
 
@@ -202,7 +199,9 @@ class FiltersPruneProcessorTests(unittest.TestCase):
 
 
 class FiltersAddForwardProcessorTests(unittest.TestCase):
-    def _make_context(self, *, dry_run: bool, require_verified: bool = False, label_prefix: str = "Other"):
+    def _make_context(
+        self, *, dry_run: bool, require_verified: bool = False, label_prefix: str = "Other"
+    ):
         args = SimpleNamespace(
             email="dest@example.com",
             label_prefix=label_prefix,
@@ -251,7 +250,7 @@ class FiltersAddForwardProcessorTests(unittest.TestCase):
 
 
 class FiltersAddTokenProcessorTests(unittest.TestCase):
-    def _make_context(self, *, dry_run: bool, tokens: List[str]):
+    def _make_context(self, *, dry_run: bool, tokens: list[str]):
         args = SimpleNamespace(
             label_prefix="Other",
             needle="someone",
@@ -284,7 +283,7 @@ class FiltersAddTokenProcessorTests(unittest.TestCase):
 
 
 class FiltersRemoveTokenProcessorTests(unittest.TestCase):
-    def _make_context(self, *, dry_run: bool, tokens: List[str]):
+    def _make_context(self, *, dry_run: bool, tokens: list[str]):
         args = SimpleNamespace(
             label_prefix="Other",
             needle="someone",

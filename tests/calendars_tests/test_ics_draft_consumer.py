@@ -18,19 +18,17 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from tests.fixtures import write_yaml
-
 from calendars.outlook_pipelines.ics_draft import (
     IcsDraftProcessor,
     IcsDraftProducer,
     IcsDraftRequest,
     IcsDraftResult,
+    _build_rrule,
     _build_vcalendar,
     _build_vevent,
-    _build_rrule,
 )
 from core.pipeline import run_pipeline
-
+from tests.fixtures import write_yaml
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -209,7 +207,9 @@ class TestBuildVcalendar(unittest.TestCase):
 class TestIcsDraftProcessorOneOff(unittest.TestCase):
     """A one-off event is processed and ICS content is correct."""
 
-    def _make_request(self, config_path: Path, dry_run: bool = True, gmail_client=None) -> IcsDraftRequest:
+    def _make_request(
+        self, config_path: Path, dry_run: bool = True, gmail_client=None
+    ) -> IcsDraftRequest:
         return IcsDraftRequest(
             config_path=config_path,
             recipient="test@example.com",
@@ -221,7 +221,13 @@ class TestIcsDraftProcessorOneOff(unittest.TestCase):
     def test_one_off_event_dry_run(self):
         with tempfile.TemporaryDirectory() as tmp:
             plan = _make_plan_yaml(
-                [{"subject": "Doctor Appointment", "start": "2026-09-20T14:00:00", "end": "2026-09-20T15:00:00"}],
+                [
+                    {
+                        "subject": "Doctor Appointment",
+                        "start": "2026-09-20T14:00:00",
+                        "end": "2026-09-20T15:00:00",
+                    }
+                ],
                 tmp,
             )
             req = self._make_request(plan, dry_run=True)
@@ -240,7 +246,13 @@ class TestIcsDraftProcessorOneOff(unittest.TestCase):
         gmail = _fake_gmail_client("draft-111")
         with tempfile.TemporaryDirectory() as tmp:
             plan = _make_plan_yaml(
-                [{"subject": "Doctor Appointment", "start": "2026-09-20T14:00:00", "end": "2026-09-20T15:00:00"}],
+                [
+                    {
+                        "subject": "Doctor Appointment",
+                        "start": "2026-09-20T14:00:00",
+                        "end": "2026-09-20T15:00:00",
+                    }
+                ],
                 tmp,
             )
             req = self._make_request(plan, dry_run=False, gmail_client=gmail)
@@ -262,7 +274,13 @@ class TestIcsDraftProcessorOneOff(unittest.TestCase):
         # Ensure no "send" attribute is called; MagicMock records all calls
         with tempfile.TemporaryDirectory() as tmp:
             plan = _make_plan_yaml(
-                [{"subject": "Team Sync", "start": "2026-10-01T10:00:00", "end": "2026-10-01T10:30:00"}],
+                [
+                    {
+                        "subject": "Team Sync",
+                        "start": "2026-10-01T10:00:00",
+                        "end": "2026-10-01T10:30:00",
+                    }
+                ],
                 tmp,
             )
             req = IcsDraftRequest(
@@ -315,17 +333,19 @@ class TestIcsDraftProcessorRecurring(unittest.TestCase):
         gmail = _fake_gmail_client("draft-weekly-001")
         with tempfile.TemporaryDirectory() as tmp:
             plan = _make_plan_yaml(
-                [{
-                    "subject": "Swim Kids 3",
-                    "repeat": "weekly",
-                    "interval": 2,
-                    "byday": ["MO", "WE"],
-                    "start_time": "17:00",
-                    "end_time": "17:30",
-                    "tz": "America/Toronto",
-                    "range": {"start_date": "2026-09-07", "until": "2026-12-14"},
-                    "location": "Elgin West Community Centre",
-                }],
+                [
+                    {
+                        "subject": "Swim Kids 3",
+                        "repeat": "weekly",
+                        "interval": 2,
+                        "byday": ["MO", "WE"],
+                        "start_time": "17:00",
+                        "end_time": "17:30",
+                        "tz": "America/Toronto",
+                        "range": {"start_date": "2026-09-07", "until": "2026-12-14"},
+                        "location": "Elgin West Community Centre",
+                    }
+                ],
                 tmp,
             )
             req = IcsDraftRequest(
@@ -382,7 +402,13 @@ class TestIcsDraftDryRun(unittest.TestCase):
         gmail = _fake_gmail_client()
         with tempfile.TemporaryDirectory() as tmp:
             plan = _make_plan_yaml(
-                [{"subject": "Dry Run Event", "start": "2026-11-01T09:00:00", "end": "2026-11-01T10:00:00"}],
+                [
+                    {
+                        "subject": "Dry Run Event",
+                        "start": "2026-11-01T09:00:00",
+                        "end": "2026-11-01T10:00:00",
+                    }
+                ],
                 tmp,
             )
             req = IcsDraftRequest(
@@ -408,7 +434,13 @@ class TestIcsDraftDryRun(unittest.TestCase):
         """dry-run with gmail_client=None must succeed (no auth needed)."""
         with tempfile.TemporaryDirectory() as tmp:
             plan = _make_plan_yaml(
-                [{"subject": "No-Auth Dry Run", "start": "2026-11-02T08:00:00", "end": "2026-11-02T09:00:00"}],
+                [
+                    {
+                        "subject": "No-Auth Dry Run",
+                        "start": "2026-11-02T08:00:00",
+                        "end": "2026-11-02T09:00:00",
+                    }
+                ],
                 tmp,
             )
             req = IcsDraftRequest(
@@ -432,7 +464,13 @@ class TestIcsDraftRunPipeline(unittest.TestCase):
         gmail = _fake_gmail_client()
         with tempfile.TemporaryDirectory() as tmp:
             plan = _make_plan_yaml(
-                [{"subject": "Pipeline Test", "start": "2026-09-30T10:00:00", "end": "2026-09-30T11:00:00"}],
+                [
+                    {
+                        "subject": "Pipeline Test",
+                        "start": "2026-09-30T10:00:00",
+                        "end": "2026-09-30T11:00:00",
+                    }
+                ],
                 tmp,
             )
             req = IcsDraftRequest(
@@ -449,7 +487,13 @@ class TestIcsDraftRunPipeline(unittest.TestCase):
     def test_run_pipeline_dry_run_returns_zero(self):
         with tempfile.TemporaryDirectory() as tmp:
             plan = _make_plan_yaml(
-                [{"subject": "Dry Pipeline", "start": "2026-09-30T10:00:00", "end": "2026-09-30T11:00:00"}],
+                [
+                    {
+                        "subject": "Dry Pipeline",
+                        "start": "2026-09-30T10:00:00",
+                        "end": "2026-09-30T11:00:00",
+                    }
+                ],
                 tmp,
             )
             req = IcsDraftRequest(
@@ -472,9 +516,21 @@ class TestIcsDraftMultipleEvents(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             plan = _make_plan_yaml(
                 [
-                    {"subject": "Event A", "start": "2026-09-01T09:00:00", "end": "2026-09-01T10:00:00"},
-                    {"subject": "Event B", "start": "2026-09-02T09:00:00", "end": "2026-09-02T10:00:00"},
-                    {"subject": "Event C", "start": "2026-09-03T09:00:00", "end": "2026-09-03T10:00:00"},
+                    {
+                        "subject": "Event A",
+                        "start": "2026-09-01T09:00:00",
+                        "end": "2026-09-01T10:00:00",
+                    },
+                    {
+                        "subject": "Event B",
+                        "start": "2026-09-02T09:00:00",
+                        "end": "2026-09-02T10:00:00",
+                    },
+                    {
+                        "subject": "Event C",
+                        "start": "2026-09-03T09:00:00",
+                        "end": "2026-09-03T10:00:00",
+                    },
                 ],
                 tmp,
             )
@@ -586,17 +642,22 @@ class TestDryRunPrintsFullIcs(unittest.TestCase):
     def test_dry_run_output_contains_every_vevent_and_the_terminator(self):
         proc = IcsDraftProcessor()
         events = [
-            {"subject": f"Event {n}", "start": f"2026-0{n}-01T09:00:00",
-             "end": f"2026-0{n}-01T10:00:00"}
+            {
+                "subject": f"Event {n}",
+                "start": f"2026-0{n}-01T09:00:00",
+                "end": f"2026-0{n}-01T10:00:00",
+            }
             for n in range(1, 6)
         ]
         request = IcsDraftRequest(
-            config_path="plan.yaml", recipient="a@b.com", subject="S",
-            dry_run=True, gmail_client=None,
+            config_path="plan.yaml",
+            recipient="a@b.com",
+            subject="S",
+            dry_run=True,
+            gmail_client=None,
         )
         buf = io.StringIO()
-        with patch.object(proc, "_load_events", return_value=events), \
-                redirect_stdout(buf):
+        with patch.object(proc, "_load_events", return_value=events), redirect_stdout(buf):
             result = proc._process_safe(request)
         out = buf.getvalue()
 
@@ -667,11 +728,13 @@ class TestFloatingDateTimes(unittest.TestCase):
     def test_one_off_vevent_without_tz_emits_floating(self):
         from calendars.outlook_pipelines.ics_draft import _build_vevent
 
-        lines = _build_vevent({
-            "subject": "Doctor",
-            "start": "2026-03-10T09:00:00",
-            "end": "2026-03-10T10:00:00",
-        })
+        lines = _build_vevent(
+            {
+                "subject": "Doctor",
+                "start": "2026-03-10T09:00:00",
+                "end": "2026-03-10T10:00:00",
+            }
+        )
         dtstart = next(x for x in lines if x.startswith("DTSTART"))
         self.assertEqual(dtstart, "DTSTART:20260310T090000")
 
@@ -679,14 +742,16 @@ class TestFloatingDateTimes(unittest.TestCase):
         """The recurring branch built its own 'Z' separately from _ical_dt."""
         from calendars.outlook_pipelines.ics_draft import _build_vevent
 
-        lines = _build_vevent({
-            "subject": "Swim",
-            "repeat": "weekly",
-            "byday": ["MO"],
-            "start_time": "18:00",
-            "end_time": "19:00",
-            "range": {"start_date": "2026-01-05"},
-        })
+        lines = _build_vevent(
+            {
+                "subject": "Swim",
+                "repeat": "weekly",
+                "byday": ["MO"],
+                "start_time": "18:00",
+                "end_time": "19:00",
+                "range": {"start_date": "2026-01-05"},
+            }
+        )
         dtstart = next(x for x in lines if x.startswith("DTSTART"))
         dtend = next(x for x in lines if x.startswith("DTEND"))
         self.assertFalse(dtstart.endswith("Z"), dtstart)
@@ -728,7 +793,13 @@ class TestGmailClientWiring(unittest.TestCase):
             gmail_client=None,
         )
         proc = IcsDraftProcessor()
-        with patch.object(proc, "_load_events", return_value=[{"subject": "X", "start": "2026-05-01T09:00:00", "end": "2026-05-01T10:00:00"}]):
+        with patch.object(
+            proc,
+            "_load_events",
+            return_value=[
+                {"subject": "X", "start": "2026-05-01T09:00:00", "end": "2026-05-01T10:00:00"}
+            ],
+        ):
             with self.assertRaises(ValueError) as ctx:
                 proc._process_safe(request)
         self.assertIn("gmail_client is required", str(ctx.exception))
@@ -746,13 +817,21 @@ class TestGmailClientWiring(unittest.TestCase):
             return 0
 
         args = argparse.Namespace(
-            config="plan.yaml", recipient="a@b.com", subject="S",
-            dry_run=False, profile=None, credentials=None, token=None, cache=None,
+            config="plan.yaml",
+            recipient="a@b.com",
+            subject="S",
+            dry_run=False,
+            profile=None,
+            credentials=None,
+            token=None,
+            cache=None,
         )
         fake_client = MagicMock()
-        with patch("mail.gmail_api.GmailClient", return_value=fake_client), \
-                patch("core.auth.resolve_gmail_credentials", return_value=("c.json", "t.json")), \
-                patch.object(commands, "run_pipeline", side_effect=_capture):
+        with (
+            patch("mail.gmail_api.GmailClient", return_value=fake_client),
+            patch("core.auth.resolve_gmail_credentials", return_value=("c.json", "t.json")),
+            patch.object(commands, "run_pipeline", side_effect=_capture),
+        ):
             rc = commands.run_outlook_ics_draft(args)
 
         self.assertEqual(rc, 0)
@@ -772,11 +851,19 @@ class TestGmailClientWiring(unittest.TestCase):
             return 0
 
         args = argparse.Namespace(
-            config="plan.yaml", recipient="a@b.com", subject="S",
-            dry_run=True, profile=None, credentials=None, token=None, cache=None,
+            config="plan.yaml",
+            recipient="a@b.com",
+            subject="S",
+            dry_run=True,
+            profile=None,
+            credentials=None,
+            token=None,
+            cache=None,
         )
-        with patch("mail.gmail_api.GmailClient") as client_cls, \
-                patch.object(commands, "run_pipeline", side_effect=_capture):
+        with (
+            patch("mail.gmail_api.GmailClient") as client_cls,
+            patch.object(commands, "run_pipeline", side_effect=_capture),
+        ):
             commands.run_outlook_ics_draft(args)
 
         self.assertIsNone(captured["client"])

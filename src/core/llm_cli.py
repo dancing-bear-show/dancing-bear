@@ -3,20 +3,20 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Callable, Sequence
 
 # ---------------------------------------------------------------------------
 # Re-exports from core.llm_builders
 # (llm_builders imports LlmConfig from here lazily, so no circular import)
 # ---------------------------------------------------------------------------
 from core.llm_builders import (  # noqa: F401
+    _DOMAIN_MAP_UNAVAILABLE,
     DEFAULT_AGENTIC_FILENAME,
     DEFAULT_DOMAIN_MAP_FILENAME,
     DEFAULT_FAMILIAR_FILENAME,
     DEFAULT_INVENTORY_FILENAME,
     DEFAULT_POLICIES_FILENAME,
-    _DOMAIN_MAP_UNAVAILABLE,
     make_domain_llm_module,
 )
 
@@ -99,9 +99,7 @@ def _safe_call(builder: Callable[[], str] | None, fallback: str) -> str:
     return text or fallback
 
 
-def _make_emit_command_handler(
-    builder: Callable[[], str] | None, fallback: str
-) -> Callable:
+def _make_emit_command_handler(builder: Callable[[], str] | None, fallback: str) -> Callable:
     """Create a handler function for emit commands (agentic, domain-map, etc.)."""
 
     def _run(args):
@@ -123,8 +121,7 @@ def _make_familiar_handler(config: LlmConfig) -> Callable:
             else config.familiar_compact
         )
         fallback = (
-            "meta:\n  name: familiar\n  version: 1\n"
-            "steps:\n  - run: ./bin/llm agentic --stdout\n"
+            "meta:\n  name: familiar\n  version: 1\nsteps:\n  - run: ./bin/llm agentic --stdout\n"
         )
         content = _safe_call(builder, fallback)
         _emit_content(content, getattr(args, "write", None), getattr(args, "stdout", False))
@@ -156,7 +153,7 @@ def _collect_derive_outputs(config: LlmConfig) -> list[tuple[str, str]]:
     _add(config.policies_filename, config.policies, _default_policies())
 
     if hasattr(config, "extra_generators"):
-        extra: Sequence[tuple[str, Callable[[], str]]] = getattr(config, "extra_generators")
+        extra: Sequence[tuple[str, Callable[[], str]]] = config.extra_generators
         for fname, builder in extra:
             _add(fname, builder)
 
@@ -178,8 +175,8 @@ def _make_derive_handler(config: LlmConfig) -> Callable:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(content, encoding="utf-8")
 
-        summary_lines = (
-            ["Generated:"] + ([f"- {f}" for f, _ in outputs] if outputs else ["- (none)"])
+        summary_lines = ["Generated:"] + (
+            [f"- {f}" for f, _ in outputs] if outputs else ["- (none)"]
         )
         if getattr(args, "stdout", False) or not getattr(args, "include_generated", False):
             print("\n".join(summary_lines))
@@ -211,7 +208,9 @@ def _build_app_parser(config: LlmConfig) -> argparse.ArgumentParser:
         sub, "agentic", "Emit the agentic capsule", config.agentic, "agentic: (not available)"
     )
     agentic_cmd.add_argument(
-        "--compact", action="store_true", help="Accepted for parity; per-app capsules are already compact"
+        "--compact",
+        action="store_true",
+        help="Accepted for parity; per-app capsules are already compact",
     )
     _add_emit_subcommand(
         sub, "domain-map", "Emit domain map", config.domain_map, _DOMAIN_MAP_UNAVAILABLE

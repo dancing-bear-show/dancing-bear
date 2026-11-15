@@ -22,7 +22,6 @@ from memory.discovery import load_store
 from memory.models import MemoryStore
 from tests.memory_tests.fixtures import MemoryTestCase
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

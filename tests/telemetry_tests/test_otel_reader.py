@@ -4,8 +4,8 @@ import json
 import os
 import tempfile
 import unittest
-from pathlib import Path
 import unittest.mock as mock
+from pathlib import Path
 
 from telemetry.otel.reader import (
     EVENTS_FILE,
@@ -14,7 +14,6 @@ from telemetry.otel.reader import (
     OTLPDataDir,
     OTLPReader,
 )
-
 
 # Minimal valid JSONL lines for each record type.
 # OTLPMetricsRecord.from_dict handles missing keys with empty defaults.
@@ -88,20 +87,33 @@ class TestOTLPReaderReadMethods(unittest.TestCase):
 
     def test_bad_timestamp_drops_only_that_event(self):
         good = {"timeUnixNano": "1700000000000000000", "body": {"stringValue": "ok"}}
-        line = json.dumps({
-            "resourceLogs": [{"scopeLogs": [{"logRecords": [
-                {"timeUnixNano": None}, {"timeUnixNano": "garbage"}, {"timeUnixNano": 2**70}, good,
-            ]}]}]
-        })
+        line = json.dumps(
+            {
+                "resourceLogs": [
+                    {
+                        "scopeLogs": [
+                            {
+                                "logRecords": [
+                                    {"timeUnixNano": None},
+                                    {"timeUnixNano": "garbage"},
+                                    {"timeUnixNano": 2**70},
+                                    good,
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        )
         _write_jsonl(self.tmppath / EVENTS_FILE, [line])
         [record] = self._make_reader().read_events()
         self.assertEqual([e.body for e in record.log_records], ["ok"])
 
     def test_bad_timestamp_drops_only_that_span(self):
         good = {"name": "ok", "startTimeUnixNano": "1", "endTimeUnixNano": "2"}
-        line = json.dumps({
-            "resourceSpans": [{"scopeSpans": [{"spans": [{"startTimeUnixNano": "x"}, good]}]}]
-        })
+        line = json.dumps(
+            {"resourceSpans": [{"scopeSpans": [{"spans": [{"startTimeUnixNano": "x"}, good]}]}]}
+        )
         _write_jsonl(self.tmppath / SPANS_FILE, [line])
         [record] = self._make_reader().read_spans()
         self.assertEqual([s.name for s in record.spans], ["ok"])
@@ -111,7 +123,9 @@ class TestOTLPReaderReadMethods(unittest.TestCase):
             json.dumps({"resourceMetrics": None}),
             json.dumps({"resourceMetrics": [None, 3]}),
             json.dumps({"resourceMetrics": [{"resource": "x", "scopeMetrics": "y"}]}),
-            json.dumps({"resourceMetrics": [{"scopeMetrics": [{"scope": None, "metrics": [None]}]}]}),
+            json.dumps(
+                {"resourceMetrics": [{"scopeMetrics": [{"scope": None, "metrics": [None]}]}]}
+            ),
         ]
         _write_jsonl(self.tmppath / METRICS_FILE, lines)
         records = self._make_reader().read_metrics()
@@ -169,6 +183,7 @@ class TestOTLPReaderReadMethods(unittest.TestCase):
         # A valid JSON object that causes from_dict to raise KeyError gets skipped.
         # Patch OTLPMetricsRecord.from_dict as a classmethod side_effect.
         from telemetry.otel.models import OTLPMetricsRecord as _OMR
+
         call_count = {"n": 0}
         original_from_dict = _OMR.from_dict
 
@@ -183,7 +198,9 @@ class TestOTLPReaderReadMethods(unittest.TestCase):
 
         _write_jsonl(self.tmppath / METRICS_FILE, [_METRICS_LINE, _METRICS_LINE])
         reader = self._make_reader()
-        with mock.patch("telemetry.otel.reader.OTLPMetricsRecord.from_dict", side_effect=patched_from_dict):
+        with mock.patch(
+            "telemetry.otel.reader.OTLPMetricsRecord.from_dict", side_effect=patched_from_dict
+        ):
             records = reader.read_metrics()
         # First line triggers KeyError (skipped), second line succeeds
         self.assertEqual(len(records), 1)

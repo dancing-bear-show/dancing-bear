@@ -97,10 +97,15 @@ class TestTokenlessRequeueVerifiesUnderLock(unittest.TestCase, QueueRootIsolatio
         paths = q._ensure_dirs(self.root)
         proc = paths["processing"] / "reclaimed1.json"
         proc.write_text(
-            json.dumps({
-                "id": "reclaimed1", "type": "t", "payload": {}, "status": "processing",
-                q.CLAIM_TOKEN_FIELD: "rivals-real-token",  # nosec B106 - test claim token, not a secret
-            }),
+            json.dumps(
+                {
+                    "id": "reclaimed1",
+                    "type": "t",
+                    "payload": {},
+                    "status": "processing",
+                    q.CLAIM_TOKEN_FIELD: "rivals-real-token",  # nosec B106 - test claim token, not a secret
+                }
+            ),
             encoding="utf-8",
         )
 
@@ -108,7 +113,9 @@ class TestTokenlessRequeueVerifiesUnderLock(unittest.TestCase, QueueRootIsolatio
             "reclaimed1", reason="test-reason", root=self.root, claim_token=None
         )
 
-        self.assertIsNone(result, "must not requeue a record a rival has since claimed with a real token")
+        self.assertIsNone(
+            result, "must not requeue a record a rival has since claimed with a real token"
+        )
         self.assertTrue(proc.exists(), "rival's processing/ record must be left alone")
         self.assertEqual(_read(proc)[q.CLAIM_TOKEN_FIELD], "rivals-real-token")
         self.assertFalse((self.root / "pending" / "reclaimed1.json").exists())
@@ -130,9 +137,7 @@ class TestTokenlessRequeueVerifiesUnderLock(unittest.TestCase, QueueRootIsolatio
 
         real_start = q.start_processing
 
-        def _start_empty_token(
-            job_path: Path, root: Path | None = None
-        ) -> tuple[Path, str] | None:
+        def _start_empty_token(job_path: Path, root: Path | None = None) -> tuple[Path, str] | None:
             result = real_start(job_path, root)
             if result is not None:
                 proc, _tok = result
@@ -142,15 +147,23 @@ class TestTokenlessRequeueVerifiesUnderLock(unittest.TestCase, QueueRootIsolatio
                 return proc, ""
             return result
 
-        with patch("worker.job_runtime.q.start_processing", side_effect=_start_empty_token), \
-             self.assertLogs("worker.job_runtime", "WARNING"), \
-             patch("worker.job_runtime.q.requeue_processing", side_effect=q.requeue_processing) as spy:
+        with (
+            patch("worker.job_runtime.q.start_processing", side_effect=_start_empty_token),
+            self.assertLogs("worker.job_runtime", "WARNING"),
+            patch(
+                "worker.job_runtime.q.requeue_processing", side_effect=q.requeue_processing
+            ) as spy,
+        ):
             runner = _make_runner(self.root, max_per_tick=1)
             result = runner.run_once()
 
         self.assertEqual(result, 0)
         spy.assert_called_once()
-        self.assertIn("claim_token", spy.call_args.kwargs, "claim_token must be passed explicitly, not omitted")
+        self.assertIn(
+            "claim_token",
+            spy.call_args.kwargs,
+            "claim_token must be passed explicitly, not omitted",
+        )
         self.assertIsNone(spy.call_args.kwargs["claim_token"])
 
 
@@ -165,7 +178,12 @@ class TestCopyExclusiveTempFileMode(unittest.TestCase, QueueRootIsolationMixin):
         self.setup_queue_root()
         paths = q._ensure_dirs(self.root)
         self.staged = paths["processing"] / "mode1.json.requeue"
-        self.payload = {"id": "mode1", "status": "pending", "type": "t", "payload": {"secret": "value"}}
+        self.payload = {
+            "id": "mode1",
+            "status": "pending",
+            "type": "t",
+            "payload": {"secret": "value"},
+        }
         self.staged.write_text(json.dumps(self.payload), encoding="utf-8")
         self.dest = paths["pending"] / "mode1.json"
         link_patch = patch("worker.queue_ops.os.link", side_effect=OSError(errno.EPERM, "no links"))
@@ -185,7 +203,8 @@ class TestCopyExclusiveTempFileMode(unittest.TestCase, QueueRootIsolationMixin):
         self.assertTrue(self.dest.exists())
         mode = stat.S_IMODE(self.dest.stat().st_mode)
         self.assertEqual(
-            mode, 0o600,
+            mode,
+            0o600,
             f"published record has mode {oct(mode)}, expected 0o600 (owner-only)",
         )
         self.assertEqual(_read(self.dest)["payload"], {"secret": "value"})
@@ -249,8 +268,12 @@ class TestPublishNoClobberSelfRecognition(unittest.TestCase, QueueRootIsolationM
 
         published = q._publish_no_clobber(self.staged, self.dest)
 
-        self.assertTrue(published, "must recognize an identical dest as its own interrupted publish")
-        self.assertFalse(self.staged.exists(), "staged must be unlinked once recognized as already published")
+        self.assertTrue(
+            published, "must recognize an identical dest as its own interrupted publish"
+        )
+        self.assertFalse(
+            self.staged.exists(), "staged must be unlinked once recognized as already published"
+        )
         self.assertEqual(_read(self.dest)["payload"], {"k": 1})
 
     def test_sad_path_genuine_rival_is_still_refused(self) -> None:
@@ -265,7 +288,9 @@ class TestPublishNoClobberSelfRecognition(unittest.TestCase, QueueRootIsolationM
 
         self.assertFalse(published, "a genuinely different dest must still be refused")
         self.assertTrue(self.staged.exists(), "staged must be kept for recovery")
-        self.assertEqual(_read(self.dest)["payload"], {"theirs": True}, "rival's record must be untouched")
+        self.assertEqual(
+            _read(self.dest)["payload"], {"theirs": True}, "rival's record must be untouched"
+        )
 
 
 if __name__ == "__main__":

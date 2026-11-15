@@ -1,53 +1,55 @@
 """Convenience orchestration helpers for filters commands."""
+
 from __future__ import annotations
 
-from typing import Any, Callable, Type
+from collections.abc import Callable
+from typing import Any
 
 from ..context import MailContext
 from .consumers import (
-    FiltersPlanConsumer,
-    FiltersSyncConsumer,
-    FiltersImpactConsumer,
-    FiltersExportConsumer,
-    FiltersSweepConsumer,
-    FiltersSweepRangeConsumer,
-    FiltersPruneConsumer,
     FiltersAddForwardConsumer,
     FiltersAddTokenConsumer,
+    FiltersExportConsumer,
+    FiltersImpactConsumer,
+    FiltersPlanConsumer,
+    FiltersPruneConsumer,
     FiltersRemoveTokenConsumer,
+    FiltersSweepConsumer,
+    FiltersSweepRangeConsumer,
+    FiltersSyncConsumer,
 )
 from .processors_plan import (
+    FiltersExportProcessor,
+    FiltersImpactProcessor,
     FiltersPlanProcessor,
     FiltersSyncProcessor,
-    FiltersImpactProcessor,
-    FiltersExportProcessor,
 )
 from .processors_sweep import (
-    FiltersSweepProcessor,
-    FiltersSweepRangeProcessor,
-    FiltersPruneProcessor,
     FiltersAddForwardProcessor,
     FiltersAddTokenProcessor,
+    FiltersPruneProcessor,
     FiltersRemoveTokenProcessor,
+    FiltersSweepProcessor,
+    FiltersSweepRangeProcessor,
 )
 from .producers import (
-    FiltersPlanProducer,
-    FiltersSyncProducer,
-    FiltersImpactProducer,
-    FiltersExportProducer,
-    FiltersSweepProducer,
-    FiltersSweepRangeProducer,
-    FiltersPruneProducer,
     FiltersAddForwardProducer,
     FiltersAddTokenProducer,
+    FiltersExportProducer,
+    FiltersImpactProducer,
+    FiltersPlanProducer,
+    FiltersPruneProducer,
     FiltersRemoveTokenProducer,
+    FiltersSweepProducer,
+    FiltersSweepRangeProducer,
+    FiltersSyncProducer,
 )
 
 
 def _run_filter_pipeline(
     args,
-    consumer_cls: Type,
-    processor_cls: Type,
+    consumer_cls: type,
+    processor_cls: type,
     producer_factory: Callable[[Any], Any],
     handle_error: Callable[[Any], int] | None = None,
 ) -> int:
@@ -230,7 +232,9 @@ def run_filters_list(args) -> int:
         forward = a.get("forward")
         add = ids_to_names(a.get("addLabelIds"))
         rem = ids_to_names(a.get("removeLabelIds"))
-        print(f"{fid}\tfrom={c.get('from','')} subject={c.get('subject','')} query={c.get('query','')} | add={add} rem={rem} fwd={forward}")
+        print(
+            f"{fid}\tfrom={c.get('from', '')} subject={c.get('subject', '')} query={c.get('query', '')} | add={add} rem={rem} fwd={forward}"
+        )
     return 0
 
 

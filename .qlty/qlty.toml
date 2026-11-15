@@ -291,8 +291,11 @@ mode = "comment"
 
 [[plugin]]
 name = "ruff"
+# "format" makes `qlty check` (CI) fail on unformatted Python: check's default
+# --fail-level is `fmt`. Both drivers read [tool.ruff] in pyproject.toml.
 drivers = [
   "lint",
+  "format",
 ]
 
 [[plugin]]

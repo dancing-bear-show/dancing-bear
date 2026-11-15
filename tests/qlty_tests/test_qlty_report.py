@@ -114,15 +114,11 @@ class PathsScopeEmptyWordingTests(unittest.TestCase):
     def test_every_scope_renders_a_distinct_empty_note(self):
         # A missing dict entry would KeyError; a shared one would re-create the
         # two-valued bug this replaced.
-        notes = {
-            render_scan_text(_result([], scope=scope)) for scope in Scope
-        }
+        notes = {render_scan_text(_result([], scope=scope)) for scope in Scope}
         self.assertEqual(len(notes), len(Scope))
 
     def test_triage_payload_carries_the_scope(self):
-        payload = json.loads(
-            render_triage_json([], _result([], scope=Scope.PATHS))
-        )
+        payload = json.loads(render_triage_json([], _result([], scope=Scope.PATHS)))
         self.assertEqual(payload["scope"], "paths")
 
 
@@ -163,21 +159,15 @@ class RunScopedFramingTests(unittest.TestCase):
         self.assertIn("visible in this run", payload["note"])
 
     def test_unstable_rescan_is_surfaced(self):
-        text = render_scan_text(
-            _result([make_finding()], iterations=3, stable=False)
-        )
+        text = render_scan_text(_result([make_finding()], iterations=3, stable=False))
         self.assertIn("UNSTABLE", text)
 
     def test_dedup_count_is_disclosed(self):
-        text = render_scan_text(
-            _result([make_finding()], duplicates_collapsed=7)
-        )
+        text = render_scan_text(_result([make_finding()], duplicates_collapsed=7))
         self.assertIn("7 duplicate reports collapsed", text)
 
     def test_degradation_is_surfaced_as_a_warning(self):
-        text = render_scan_text(
-            _result([make_finding()], degradations=("--json gone",))
-        )
+        text = render_scan_text(_result([make_finding()], degradations=("--json gone",)))
         self.assertIn("WARNING", text)
         self.assertIn("--json gone", text)
 
@@ -214,9 +204,7 @@ class TriageRenderingTests(unittest.TestCase):
     def test_drift_candidates_are_listed(self):
         entry = TriageEntry(
             strategy=strategy_for("function-parameters"),
-            findings=tuple(
-                make_finding(path=f"src/{i}.py") for i in range(5)
-            ),
+            findings=tuple(make_finding(path=f"src/{i}.py") for i in range(5)),
             drift_files=("src/0.py",),
         )
         text = render_triage_text([entry], _result([make_finding()]))
@@ -241,17 +229,13 @@ class TriageRenderingTests(unittest.TestCase):
     def test_tooling_is_named_when_a_workflow_exists(self):
         # A rule with a real remediation workflow must say so; the whole point
         # of the tier table is routing to the tool that fixes it.
-        text = render_triage_text(
-            [self._entry("file-complexity")], _result([make_finding()])
-        )
+        text = render_triage_text([self._entry("file-complexity")], _result([make_finding()]))
         self.assertIn("tooling:", text)
         self.assertIn("qlty-complexity-sweep", text)
 
     def test_json_exposes_proposes_fix_flag(self):
         entries = [self._entry("similar-code"), self._entry("boolean-logic")]
-        payload = json.loads(
-            render_triage_json(entries, _result([make_finding()]))
-        )
+        payload = json.loads(render_triage_json(entries, _result([make_finding()])))
         by_rule = {t["rule"]: t for t in payload["tiers"]}
         self.assertFalse(by_rule["similar-code"]["proposes_fix"])
         self.assertTrue(by_rule["boolean-logic"]["proposes_fix"])
@@ -260,9 +244,7 @@ class TriageRenderingTests(unittest.TestCase):
         # "no fix" is not one posture. Tier D needs a human to read the
         # locations; Tier C wants a suppression with a stated reason. Rendering
         # both as a bare "report-only" would tell the reader to do nothing.
-        md = render_triage_markdown(
-            [self._entry("similar-code")], _result([make_finding()])
-        )
+        md = render_triage_markdown([self._entry("similar-code")], _result([make_finding()]))
         self.assertIn("| `similar-code` | D |", md)
         self.assertIn("no (read required)", md)
 
@@ -299,9 +281,7 @@ class RulesRenderingTests(unittest.TestCase):
         self.assertIn("qlty-complexity-sweep.yaml", text)
 
     def test_counts_are_included_when_supplied(self):
-        payload = json.loads(
-            render_rules_json(known_strategies(), {"similar-code": 6})
-        )
+        payload = json.loads(render_rules_json(known_strategies(), {"similar-code": 6}))
         by_rule = {r["rule"]: r for r in payload["rules"]}
         self.assertEqual(by_rule["similar-code"]["count"], 6)
         self.assertEqual(by_rule["boolean-logic"]["count"], 0)
@@ -356,24 +336,18 @@ class StrategyTableTests(unittest.TestCase):
         self.assertFalse(strategy.needs_human_read)
 
     def test_informational_is_distinguishable_from_a_lookup_miss(self):
-        self.assertNotEqual(
-            strategy_for("NO" + "TE").tier, strategy_for("python:S9999").tier
-        )
+        self.assertNotEqual(strategy_for("NO" + "TE").tier, strategy_for("python:S9999").tier)
 
     def test_only_tier_d_requires_a_human_read(self):
         for rule in ("boolean-logic", "function-parameters", "NO" + "TE"):
-            self.assertFalse(
-                strategy_for(rule).needs_human_read, msg=rule
-            )
+            self.assertFalse(strategy_for(rule).needs_human_read, msg=rule)
         self.assertTrue(strategy_for("return-statements").needs_human_read)
 
     def test_known_radarlint_false_positives_are_tier_c(self):
         self.assertIs(strategy_for("python:S5655").tier, Tier.C)
 
     def test_actionable_only_for_tiers_a_and_b(self):
-        self.assertTrue(
-            RuleStrategy("r", Tier.A, "a", "why").actionable
-        )
+        self.assertTrue(RuleStrategy("r", Tier.A, "a", "why").actionable)
         self.assertTrue(RuleStrategy("r", Tier.B, "a", "why").actionable)
         self.assertFalse(RuleStrategy("r", Tier.C, "a", "why").actionable)
 
@@ -431,9 +405,7 @@ class CsvRenderingTests(unittest.TestCase):
             strategy=strategy_for("similar-code"),
             findings=(make_finding(rule="similar-code"),),
         )
-        rows = list(
-            csv.reader(io.StringIO(render_triage_csv([entry], _result())))
-        )
+        rows = list(csv.reader(io.StringIO(render_triage_csv([entry], _result()))))
         self.assertEqual(len(rows), 2)
         self.assertEqual(rows[1][0], "similar-code")
 
@@ -442,9 +414,7 @@ class CsvRenderingTests(unittest.TestCase):
             strategy=strategy_for("similar-code"),
             findings=(make_finding(rule="similar-code"),),
         )
-        rows = list(
-            csv.reader(io.StringIO(render_triage_csv([entry], _result())))
-        )
+        rows = list(csv.reader(io.StringIO(render_triage_csv([entry], _result()))))
         self.assertEqual(rows[1][rows[0].index("proposes_fix")], "no")
 
 
@@ -475,11 +445,7 @@ class NonActionableTierLabelTests(unittest.TestCase):
     def test_non_actionable_tiers_do_not_share_one_label(self):
         # A blanket label would make these three indistinguishable.
         rows = {
-            next(
-                line
-                for line in self._markdown_for(t).splitlines()
-                if line.startswith("| `r`")
-            )
+            next(line for line in self._markdown_for(t).splitlines() if line.startswith("| `r`"))
             for t in (Tier.C, Tier.D, Tier.UNKNOWN)
         }
         self.assertEqual(len(rows), 3)

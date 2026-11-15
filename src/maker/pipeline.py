@@ -1,10 +1,12 @@
 """Maker pipeline primitives built on shared core scaffolding."""
+
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from importlib import import_module
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from core.cli_output import output
 from core.pipeline import BaseProducer, RequestConsumer, SafeProcessor
@@ -80,7 +82,9 @@ class ToolCatalogProcessor(SafeProcessor[ToolCatalogRequest, ToolCatalogResult])
 class ToolCatalogProducer(BaseProducer):
     """Print tool catalog to stdout."""
 
-    def _produce_success(self, payload: ToolCatalogResult, diagnostics: dict[str, Any] | None) -> None:
+    def _produce_success(
+        self, payload: ToolCatalogResult, diagnostics: dict[str, Any] | None
+    ) -> None:
         output(payload.text)
 
 

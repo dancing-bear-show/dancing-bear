@@ -28,11 +28,7 @@ SRC = pathlib.Path(__file__).resolve().parents[2] / "src"
 
 
 def _domain_llm_packages() -> list[str]:
-    return sorted(
-        p.parent.name
-        for p in SRC.glob("*/llm_cli.py")
-        if p.parent.name not in EXEMPT
-    )
+    return sorted(p.parent.name for p in SRC.glob("*/llm_cli.py") if p.parent.name not in EXEMPT)
 
 
 class TestLlmCliUniformity(unittest.TestCase):
@@ -40,9 +36,7 @@ class TestLlmCliUniformity(unittest.TestCase):
         # Guards the guard: if the glob silently matched nothing, every
         # subTest below would vacuously pass.
         packages = _domain_llm_packages()
-        self.assertGreaterEqual(
-            len(packages), 8, f"expected the full domain set, found {packages}"
-        )
+        self.assertGreaterEqual(len(packages), 8, f"expected the full domain set, found {packages}")
         self.assertIn("phone", packages)
 
     def test_every_domain_module_exposes_the_shared_contract(self):
@@ -82,8 +76,7 @@ class TestLlmCliUniformity(unittest.TestCase):
                 self.assertEqual(
                     rolled,
                     [],
-                    f"{pkg}.llm_cli hand-rolls {rolled}; use "
-                    f"make_domain_llm_module instead",
+                    f"{pkg}.llm_cli hand-rolls {rolled}; use make_domain_llm_module instead",
                 )
 
     def test_builders_return_content_not_empty_string(self):
@@ -101,9 +94,7 @@ class TestLlmCliUniformity(unittest.TestCase):
                 ):
                     value = getattr(config, field)()
                     self.assertIsInstance(value, str)
-                    self.assertTrue(
-                        value.strip(), f"{pkg}.CONFIG.{field}() returned blank"
-                    )
+                    self.assertTrue(value.strip(), f"{pkg}.CONFIG.{field}() returned blank")
 
     def test_agentic_subcommand_accepts_compact_flag(self):
         # Regression: --compact was accepted by `llm agentic` but not by

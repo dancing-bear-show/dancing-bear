@@ -5,7 +5,7 @@ Provides arg builders for all phone CLI commands to simplify testing.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any
 from unittest.mock import MagicMock
 
 # Default paths used across fixtures
@@ -35,7 +35,7 @@ def make_args(**kwargs: Any) -> MagicMock:
 
 
 def make_export_args(
-    backup: Optional[str] = None,
+    backup: str | None = None,
     out: str = _DEFAULT_ICON_STATE_PATH,
 ) -> MagicMock:
     """Create args for cmd_export."""
@@ -44,7 +44,7 @@ def make_export_args(
 
 def make_export_device_args(
     out: str = _DEFAULT_ICON_STATE_PATH,
-    udid: Optional[str] = None,
+    udid: str | None = None,
     timeout: int = 30,
 ) -> MagicMock:
     """Create args for cmd_export_device."""
@@ -53,7 +53,7 @@ def make_export_device_args(
 
 def make_iconmap_args(
     out: str = "out/ios.iconmap.json",
-    udid: Optional[str] = None,
+    udid: str | None = None,
     timeout: int = 30,
 ) -> MagicMock:
     """Create args for cmd_iconmap."""
@@ -61,8 +61,8 @@ def make_iconmap_args(
 
 
 def make_plan_args(
-    layout: Optional[str] = None,
-    backup: Optional[str] = None,
+    layout: str | None = None,
+    backup: str | None = None,
     out: str = _DEFAULT_PLAN_PATH,
 ) -> MagicMock:
     """Create args for cmd_plan."""
@@ -71,15 +71,15 @@ def make_plan_args(
 
 def make_checklist_args(
     plan: str = _DEFAULT_PLAN_PATH,
-    layout: Optional[str] = None,
-    backup: Optional[str] = None,
+    layout: str | None = None,
+    backup: str | None = None,
     out: str = "out/ios.checklist.txt",
 ) -> MagicMock:
     """Create args for cmd_checklist."""
     return make_args(plan=plan, layout=layout, backup=backup, out=out)
 
 
-_UNUSED_DEFAULTS: Dict[str, Any] = {
+_UNUSED_DEFAULTS: dict[str, Any] = {
     "layout": None,
     "backup": None,
     "keep": None,
@@ -94,7 +94,7 @@ def make_unused_args(**overrides: Any) -> MagicMock:
     return make_args(**{**_UNUSED_DEFAULTS, **overrides})
 
 
-_PRUNE_DEFAULTS: Dict[str, Any] = {
+_PRUNE_DEFAULTS: dict[str, Any] = {
     "layout": None,
     "backup": None,
     "keep": None,
@@ -110,16 +110,16 @@ def make_prune_args(**overrides: Any) -> MagicMock:
 
 
 def make_analyze_args(
-    layout: Optional[str] = None,
-    backup: Optional[str] = None,
-    plan: Optional[str] = None,
+    layout: str | None = None,
+    backup: str | None = None,
+    plan: str | None = None,
     format: str = "text",  # Note: CLI uses 'format' not 'output'
 ) -> MagicMock:
     """Create args for cmd_analyze."""
     return make_args(layout=layout, backup=backup, plan=plan, format=format)
 
 
-_MANIFEST_FROM_EXPORT_DEFAULTS: Dict[str, Any] = {
+_MANIFEST_FROM_EXPORT_DEFAULTS: dict[str, Any] = {
     "export": _DEFAULT_ICON_STATE_PATH,
     "out": "out/ios.manifest.from_export.yaml",
     "label": None,
@@ -137,7 +137,7 @@ def make_manifest_from_export_args(**overrides: Any) -> MagicMock:
     return make_args(**{**_MANIFEST_FROM_EXPORT_DEFAULTS, **overrides})
 
 
-_MANIFEST_FROM_DEVICE_DEFAULTS: Dict[str, Any] = {
+_MANIFEST_FROM_DEVICE_DEFAULTS: dict[str, Any] = {
     "out": "out/ios.manifest.from_device.yaml",
     "udid": None,
     "timeout": 30,
@@ -163,10 +163,10 @@ def make_manifest_install_args(
 
 
 def make_identity_verify_args(
-    p12: Optional[str] = None,
-    p12_pass: Optional[str] = None,
+    p12: str | None = None,
+    p12_pass: str | None = None,
     creds_profile: str = "ios_layout_manager",
-    udid: Optional[str] = None,
+    udid: str | None = None,
 ) -> MagicMock:
     """Create args for cmd_identity_verify."""
     return make_args(
@@ -180,7 +180,7 @@ def make_identity_verify_args(
 # Inline command arg builders
 
 
-_AUTO_FOLDERS_DEFAULTS: Dict[str, Any] = {
+_AUTO_FOLDERS_DEFAULTS: dict[str, Any] = {
     "plan": _DEFAULT_PLAN_PATH,
     "out": "out/ios.plan.folderized.yaml",
     "start_page": 2,
@@ -195,7 +195,7 @@ def make_auto_folders_args(**overrides: Any) -> MagicMock:
     return make_args(**{**_AUTO_FOLDERS_DEFAULTS, **overrides})
 
 
-_PROFILE_BUILD_DEFAULTS: Dict[str, Any] = {
+_PROFILE_BUILD_DEFAULTS: dict[str, Any] = {
     "plan": _DEFAULT_PLAN_PATH,
     "out": "out/ios.mobileconfig",
     "layout": None,
@@ -217,7 +217,7 @@ def make_profile_build_args(**overrides: Any) -> MagicMock:
     return make_args(**{**_PROFILE_BUILD_DEFAULTS, **overrides})
 
 
-_MANIFEST_CREATE_DEFAULTS: Dict[str, Any] = {
+_MANIFEST_CREATE_DEFAULTS: dict[str, Any] = {
     "from_plan": _DEFAULT_PLAN_PATH,
     "out": _DEFAULT_MANIFEST_PATH,
     "label": None,

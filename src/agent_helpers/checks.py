@@ -65,7 +65,9 @@ def _unittest_command(root: Path, path: Path) -> list[str]:
     return [*base, "-s", str(path.parent), "-p", path.name]
 
 
-def build_commands(tool: str, repo_root: str, paths: list[str]) -> tuple[list[list[str]], str | None]:
+def build_commands(
+    tool: str, repo_root: str, paths: list[str]
+) -> tuple[list[list[str]], str | None]:
     """Return the commands for ``tool`` (one per path for scoped test runs)."""
     if tool == "lint":
         return [["make", "lint"]], None
@@ -110,7 +112,9 @@ def run_check(tool: str, repo_root: str, paths: list[str]) -> CheckResult:
     chunks: list[str] = []
     missing_evidence = False
     for cmd in commands:
-        run = run_binary(cmd, cwd=repo_root, timeout=_TIMEOUTS_SECONDS[tool], env=env, errors="replace")
+        run = run_binary(
+            cmd, cwd=repo_root, timeout=_TIMEOUTS_SECONDS[tool], env=env, errors="replace"
+        )
         chunks.append(run.stdout + run.stderr)
         if run.returncode == 0 and not run.timed_out and not parse_tests_run(chunks[-1]):
             missing_evidence = True

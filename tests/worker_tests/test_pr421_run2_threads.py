@@ -42,12 +42,14 @@ from tests.worker_tests.test_daemon_nonblocking import (
     _patch_queue_root,
     _wait_for,
 )
+from worker import queue_ops as q
 from worker.queue_ops import (
     Job,
     enqueue,
+)
+from worker.queue_ops import (
     start_processing as _real_start,
 )
-from worker import queue_ops as q
 
 
 def _read(path: Path) -> dict[str, Any]:
@@ -70,7 +72,9 @@ class TestMissingClaimTokenAbandonsClaim(unittest.TestCase, QueueRootIsolationMi
         self.setup_queue_root()
         self.join_new_threads_before_restore()
         base = _patch_queue_root(self.root)
-        base.enter_context(patch.dict("worker.job_runtime.HANDLERS", {"fast": lambda _d: (True, "ok")}))
+        base.enter_context(
+            patch.dict("worker.job_runtime.HANDLERS", {"fast": lambda _d: (True, "ok")})
+        )
         self.addCleanup(base.close)
 
     def test_none_claim_token_requeues_job_without_starting_thread(self) -> None:
@@ -104,9 +108,7 @@ class TestMissingClaimTokenAbandonsClaim(unittest.TestCase, QueueRootIsolationMi
         # claim_token=None requeue_processing call still verifies correctly.
         real_start = q.start_processing
 
-        def _start_empty_token(
-            job_path: Path, root: Path | None = None
-        ) -> tuple[Path, str] | None:
+        def _start_empty_token(job_path: Path, root: Path | None = None) -> tuple[Path, str] | None:
             result = real_start(job_path, root)
             if result is not None:
                 proc, _tok = result
@@ -116,8 +118,10 @@ class TestMissingClaimTokenAbandonsClaim(unittest.TestCase, QueueRootIsolationMi
                 return proc, ""
             return result
 
-        with patch("worker.job_runtime.q.start_processing", side_effect=_start_empty_token), \
-             self.assertLogs("worker.job_runtime", "WARNING") as logs:
+        with (
+            patch("worker.job_runtime.q.start_processing", side_effect=_start_empty_token),
+            self.assertLogs("worker.job_runtime", "WARNING") as logs,
+        ):
             started = runner.tick()
 
         self.assertEqual(started, 0, "thread must not start when token is empty")
@@ -165,7 +169,9 @@ class TestDrainSkipsRequeueOnTokenMismatch(unittest.TestCase, QueueRootIsolation
         enqueue(Job(id="match1", type="slow", payload={}, attempts=1), root=self.root)
         runner.tick()
         # Wait for thread to reach handler.
-        self.assertTrue(_wait_for(lambda: (self.root / "processing" / "match1.json").exists(), timeout=5))
+        self.assertTrue(
+            _wait_for(lambda: (self.root / "processing" / "match1.json").exists(), timeout=5)
+        )
 
         with self.assertLogs("worker.job_runtime", "WARNING"):
             requeued = runner.drain_live_threads(grace=0)
@@ -300,14 +306,16 @@ class TestDrainRequeuesDeadThreadsWithResidualRecord(unittest.TestCase, QueueRoo
         paths = q._ensure_dirs(self.root)
         proc = paths["processing"] / f"{stem}.json"
         proc.write_text(
-            json.dumps({
-                "id": stem,
-                "type": "t",
-                "payload": {},
-                "attempts": 0,
-                "status": "processing",
-                q.CLAIM_TOKEN_FIELD: token,
-            }),
+            json.dumps(
+                {
+                    "id": stem,
+                    "type": "t",
+                    "payload": {},
+                    "attempts": 0,
+                    "status": "processing",
+                    q.CLAIM_TOKEN_FIELD: token,
+                }
+            ),
             encoding="utf-8",
         )
         return proc
@@ -375,7 +383,9 @@ class TestDrainRequeuesDeadThreadsWithResidualRecord(unittest.TestCase, QueueRoo
 
         requeued = runner.drain_live_threads(grace=0)
 
-        self.assertNotIn("fin1", requeued, "a dead thread with no record must not create a phantom requeue")
+        self.assertNotIn(
+            "fin1", requeued, "a dead thread with no record must not create a phantom requeue"
+        )
         self.assertFalse(
             (self.root / "pending" / "fin1.json").exists(),
             "requeue_processing must not create a pending/ job from nothing",

@@ -1,46 +1,56 @@
 """Plan/sync/export pipeline commands for labels."""
+
 from __future__ import annotations
 
 from ..context import MailContext
 from .consumers import (
+    LabelsExportConsumer,
     LabelsPlanConsumer,
     LabelsSyncConsumer,
-    LabelsExportConsumer,
 )
 from .processors import (
+    LabelsExportProcessor,
     LabelsPlanProcessor,
     LabelsSyncProcessor,
-    LabelsExportProcessor,
 )
 from .producers import (
+    LabelsExportProducer,
     LabelsPlanProducer,
     LabelsSyncProducer,
-    LabelsExportProducer,
 )
 
 
 def _analyze_labels(labels: list) -> dict:
     """Analyze labels for the doctor command."""
     from collections import Counter
+
     names = [lbl.get("name", "") for lbl in labels if isinstance(lbl, dict)]
     counts = Counter(names)
     dups = [n for n, c in counts.items() if c > 1]
-    parts = [n.split('/') for n in names]
+    parts = [n.split("/") for n in names]
     max_depth = max((len(ps) for ps in parts), default=0)
     top_counts = Counter(ps[0] for ps in parts if ps)
-    vis_l = Counter((lbl.get('labelListVisibility') or 'unset') for lbl in labels if isinstance(lbl, dict))
-    vis_m = Counter((lbl.get('messageListVisibility') or 'unset') for lbl in labels if isinstance(lbl, dict))
-    imapish = [n for n in names if n.startswith('[Gmail]') or n.lower().startswith('imap/')]
-    unset_vis = [lbl.get('name') for lbl in labels if not lbl.get('labelListVisibility') or not lbl.get('messageListVisibility')]
+    vis_l = Counter(
+        (lbl.get("labelListVisibility") or "unset") for lbl in labels if isinstance(lbl, dict)
+    )
+    vis_m = Counter(
+        (lbl.get("messageListVisibility") or "unset") for lbl in labels if isinstance(lbl, dict)
+    )
+    imapish = [n for n in names if n.startswith("[Gmail]") or n.lower().startswith("imap/")]
+    unset_vis = [
+        lbl.get("name")
+        for lbl in labels
+        if not lbl.get("labelListVisibility") or not lbl.get("messageListVisibility")
+    ]
     return {
-        'total': len(names),
-        'duplicates': dups,
-        'max_depth': max_depth,
-        'top_counts': dict(top_counts.most_common(10)),
-        'vis_label': dict(vis_l),
-        'vis_message': dict(vis_m),
-        'imapish': imapish,
-        'unset_visibility': unset_vis,
+        "total": len(names),
+        "duplicates": dups,
+        "max_depth": max_depth,
+        "top_counts": dict(top_counts.most_common(10)),
+        "vis_label": dict(vis_l),
+        "vis_message": dict(vis_m),
+        "imapish": imapish,
+        "unset_visibility": unset_vis,
     }
 
 
@@ -94,6 +104,7 @@ def run_labels_export(args) -> int:
 def run_labels_list(args) -> int:
     """List all labels."""
     from ..utils.cli_helpers import gmail_client_authenticated
+
     client = getattr(args, "_gmail_client", None) or gmail_client_authenticated(args)
     labels = client.list_labels()
     for lab in labels:

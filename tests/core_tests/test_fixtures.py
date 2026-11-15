@@ -2,16 +2,16 @@
 
 import unittest
 
+from tests.calendars_tests.fixtures import (
+    FakeOutlookClient,
+    make_outlook_client,
+    make_outlook_event,
+)
 from tests.fixtures import capture_stdout
 from tests.mail_tests.fixtures import (
     FakeGmailClient,
     make_args,
     make_gmail_client,
-)
-from tests.calendars_tests.fixtures import (
-    FakeOutlookClient,
-    make_outlook_client,
-    make_outlook_event,
 )
 
 
@@ -23,10 +23,12 @@ class FakeGmailClientTests(unittest.TestCase):
         self.assertEqual(labels[0]["name"], "Work")
 
     def test_get_label_id_map_builds_mapping(self):
-        client = FakeGmailClient(labels=[
-            {"id": "L1", "name": "Work"},
-            {"id": "L2", "name": "Personal"},
-        ])
+        client = FakeGmailClient(
+            labels=[
+                {"id": "L1", "name": "Work"},
+                {"id": "L2", "name": "Personal"},
+            ]
+        )
         mapping = client.get_label_id_map()
         self.assertEqual(mapping["Work"], "L1")
         self.assertEqual(mapping["Personal"], "L2")
@@ -65,7 +67,10 @@ class FakeOutlookClientTests(unittest.TestCase):
         events = [make_outlook_event("Meeting", "2025-01-01T10:00:00", "2025-01-01T11:00:00")]
         client = FakeOutlookClient(events=events)
         from core.outlook.models import ListEventsRequest
-        result = client.list_events_in_range(ListEventsRequest(start_iso="2025-01-01T00:00:00", end_iso="2025-12-31T23:59:59"))
+
+        result = client.list_events_in_range(
+            ListEventsRequest(start_iso="2025-01-01T00:00:00", end_iso="2025-12-31T23:59:59")
+        )
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["subject"], "Meeting")
 
@@ -77,10 +82,12 @@ class FakeOutlookClientTests(unittest.TestCase):
         self.assertIn("id", result)
 
     def test_get_calendar_by_name(self):
-        client = FakeOutlookClient(calendars=[
-            {"id": "c1", "name": "Work"},
-            {"id": "c2", "name": "Personal"},
-        ])
+        client = FakeOutlookClient(
+            calendars=[
+                {"id": "c1", "name": "Work"},
+                {"id": "c2", "name": "Personal"},
+            ]
+        )
         work = client.get_calendar_by_name("Work")
         self.assertEqual(work["id"], "c1")
         self.assertIsNone(client.get_calendar_by_name("Unknown"))
@@ -124,7 +131,17 @@ class FactoryTests(unittest.TestCase):
             events=[make_outlook_event("Event", "2025-01-01T10:00:00", "2025-01-01T11:00:00")]
         )
         from core.outlook.models import ListEventsRequest
-        self.assertEqual(len(client.list_events_in_range(ListEventsRequest(start_iso="2025-01-01T00:00:00", end_iso="2025-12-31T23:59:59"))), 1)
+
+        self.assertEqual(
+            len(
+                client.list_events_in_range(
+                    ListEventsRequest(
+                        start_iso="2025-01-01T00:00:00", end_iso="2025-12-31T23:59:59"
+                    )
+                )
+            ),
+            1,
+        )
 
 
 if __name__ == "__main__":

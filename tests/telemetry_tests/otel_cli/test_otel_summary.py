@@ -6,7 +6,7 @@ import io
 import json
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -16,7 +16,6 @@ from telemetry.otel.cli.otel_summary import (
     _stage_cost_if_recent,
     main,
 )
-
 
 # ---------------------------------------------------------------------------
 # _parse_since
@@ -50,6 +49,7 @@ class TestParseSince(unittest.TestCase):
 
     def test_invalid_raises_argument_type_error(self):
         import argparse
+
         with self.assertRaises(argparse.ArgumentTypeError):
             _parse_since("bad-value")
 
@@ -63,40 +63,52 @@ class TestStageCostIfRecent(unittest.TestCase):
     def test_recent_stage_returns_cost(self):
         with tempfile.TemporaryDirectory() as td:
             p = Path(td) / "stage.json"
-            cutoff = datetime(2026, 1, 1, tzinfo=timezone.utc)
-            p.write_text(json.dumps({
-                "finished_at": "2026-04-16T10:00:00Z",
-                "metadata": {"subagent_cost_usd": "0.05"},
-            }))
+            cutoff = datetime(2026, 1, 1, tzinfo=UTC)
+            p.write_text(
+                json.dumps(
+                    {
+                        "finished_at": "2026-04-16T10:00:00Z",
+                        "metadata": {"subagent_cost_usd": "0.05"},
+                    }
+                )
+            )
             result = _stage_cost_if_recent(p, cutoff)
         self.assertAlmostEqual(result, 0.05)
 
     def test_old_stage_returns_none(self):
         with tempfile.TemporaryDirectory() as td:
             p = Path(td) / "stage.json"
-            cutoff = datetime(2026, 6, 1, tzinfo=timezone.utc)
-            p.write_text(json.dumps({
-                "finished_at": "2026-04-16T10:00:00Z",
-                "metadata": {"subagent_cost_usd": "0.05"},
-            }))
+            cutoff = datetime(2026, 6, 1, tzinfo=UTC)
+            p.write_text(
+                json.dumps(
+                    {
+                        "finished_at": "2026-04-16T10:00:00Z",
+                        "metadata": {"subagent_cost_usd": "0.05"},
+                    }
+                )
+            )
             result = _stage_cost_if_recent(p, cutoff)
         self.assertIsNone(result)
 
     def test_missing_cost_returns_none(self):
         with tempfile.TemporaryDirectory() as td:
             p = Path(td) / "stage.json"
-            cutoff = datetime(2026, 1, 1, tzinfo=timezone.utc)
-            p.write_text(json.dumps({
-                "finished_at": "2026-04-16T10:00:00Z",
-                "metadata": {},
-            }))
+            cutoff = datetime(2026, 1, 1, tzinfo=UTC)
+            p.write_text(
+                json.dumps(
+                    {
+                        "finished_at": "2026-04-16T10:00:00Z",
+                        "metadata": {},
+                    }
+                )
+            )
             result = _stage_cost_if_recent(p, cutoff)
         self.assertIsNone(result)
 
     def test_missing_finished_at_returns_none(self):
         with tempfile.TemporaryDirectory() as td:
             p = Path(td) / "stage.json"
-            cutoff = datetime(2026, 1, 1, tzinfo=timezone.utc)
+            cutoff = datetime(2026, 1, 1, tzinfo=UTC)
             p.write_text(json.dumps({"metadata": {"subagent_cost_usd": "0.05"}}))
             result = _stage_cost_if_recent(p, cutoff)
         self.assertIsNone(result)
@@ -105,7 +117,7 @@ class TestStageCostIfRecent(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             p = Path(td) / "stage.json"
             p.write_text("not json!")
-            result = _stage_cost_if_recent(p, datetime.now(timezone.utc))
+            result = _stage_cost_if_recent(p, datetime.now(UTC))
         self.assertIsNone(result)
 
 
@@ -132,10 +144,14 @@ class TestGetWorkflowRunsCost24h(unittest.TestCase):
             p = Path(td)
             stages = p / "run-001" / "stages"
             stages.mkdir(parents=True)
-            (stages / "stage1.json").write_text(json.dumps({
-                "finished_at": datetime.now(timezone.utc).isoformat(),
-                "metadata": {"subagent_cost_usd": "0.05"},
-            }))
+            (stages / "stage1.json").write_text(
+                json.dumps(
+                    {
+                        "finished_at": datetime.now(UTC).isoformat(),
+                        "metadata": {"subagent_cost_usd": "0.05"},
+                    }
+                )
+            )
             with patch("telemetry.otel.cli.otel_summary.get_work_dir", return_value=p):
                 result = _get_workflow_runs_cost_24h()
         self.assertIsNotNone(result)
@@ -226,7 +242,9 @@ class TestOtelSummaryMain(unittest.TestCase):
     def test_unavailable_data_returns_1(self):
         mock_data = _make_display_data(available=False)
         with patch("telemetry.otel.cli.otel_summary.OtelMenubarProvider") as mock_cls:
-            with patch("telemetry.otel.cli.otel_summary._get_workflow_runs_cost_24h", return_value=None):
+            with patch(
+                "telemetry.otel.cli.otel_summary._get_workflow_runs_cost_24h", return_value=None
+            ):
                 mock_cls.return_value.get_display_data.return_value = mock_data
                 result = main([])
         self.assertEqual(result, 1)
@@ -234,7 +252,9 @@ class TestOtelSummaryMain(unittest.TestCase):
     def test_table_format_returns_0(self):
         mock_data = _make_display_data(available=True)
         with patch("telemetry.otel.cli.otel_summary.OtelMenubarProvider") as mock_cls:
-            with patch("telemetry.otel.cli.otel_summary._get_workflow_runs_cost_24h", return_value=None):
+            with patch(
+                "telemetry.otel.cli.otel_summary._get_workflow_runs_cost_24h", return_value=None
+            ):
                 mock_cls.return_value.get_display_data.return_value = mock_data
                 result = main([])
         self.assertEqual(result, 0)
@@ -242,7 +262,9 @@ class TestOtelSummaryMain(unittest.TestCase):
     def test_json_format_produces_valid_json(self):
         mock_data = _make_display_data(available=True)
         with patch("telemetry.otel.cli.otel_summary.OtelMenubarProvider") as mock_cls:
-            with patch("telemetry.otel.cli.otel_summary._get_workflow_runs_cost_24h", return_value=None):
+            with patch(
+                "telemetry.otel.cli.otel_summary._get_workflow_runs_cost_24h", return_value=None
+            ):
                 mock_cls.return_value.get_display_data.return_value = mock_data
                 buf = io.StringIO()
                 with patch("sys.stdout", buf):
@@ -254,7 +276,9 @@ class TestOtelSummaryMain(unittest.TestCase):
     def test_json_format_includes_source_otel(self):
         mock_data = _make_display_data(available=True)
         with patch("telemetry.otel.cli.otel_summary.OtelMenubarProvider") as mock_cls:
-            with patch("telemetry.otel.cli.otel_summary._get_workflow_runs_cost_24h", return_value=None):
+            with patch(
+                "telemetry.otel.cli.otel_summary._get_workflow_runs_cost_24h", return_value=None
+            ):
                 mock_cls.return_value.get_display_data.return_value = mock_data
                 buf = io.StringIO()
                 with patch("sys.stdout", buf):
@@ -270,7 +294,9 @@ class TestOtelSummaryMain(unittest.TestCase):
     def test_window_flag(self):
         mock_data = _make_display_data(available=True)
         with patch("telemetry.otel.cli.otel_summary.OtelMenubarProvider") as mock_cls:
-            with patch("telemetry.otel.cli.otel_summary._get_workflow_runs_cost_24h", return_value=None):
+            with patch(
+                "telemetry.otel.cli.otel_summary._get_workflow_runs_cost_24h", return_value=None
+            ):
                 mock_cls.return_value.get_display_data.return_value = mock_data
                 result = main(["--window", "7d"])
         self.assertEqual(result, 0)
@@ -278,7 +304,9 @@ class TestOtelSummaryMain(unittest.TestCase):
     def test_since_flag(self):
         mock_data = _make_display_data(available=True)
         with patch("telemetry.otel.cli.otel_summary.OtelMenubarProvider") as mock_cls:
-            with patch("telemetry.otel.cli.otel_summary._get_workflow_runs_cost_24h", return_value=None):
+            with patch(
+                "telemetry.otel.cli.otel_summary._get_workflow_runs_cost_24h", return_value=None
+            ):
                 mock_cls.return_value.get_display_data.return_value = mock_data
                 result = main(["--since", "6h"])
         self.assertEqual(result, 0)
@@ -286,7 +314,9 @@ class TestOtelSummaryMain(unittest.TestCase):
     def test_workflow_runs_cost_included_in_json(self):
         mock_data = _make_display_data(available=True)
         with patch("telemetry.otel.cli.otel_summary.OtelMenubarProvider") as mock_cls:
-            with patch("telemetry.otel.cli.otel_summary._get_workflow_runs_cost_24h", return_value=0.25):
+            with patch(
+                "telemetry.otel.cli.otel_summary._get_workflow_runs_cost_24h", return_value=0.25
+            ):
                 mock_cls.return_value.get_display_data.return_value = mock_data
                 buf = io.StringIO()
                 with patch("sys.stdout", buf):
@@ -297,7 +327,9 @@ class TestOtelSummaryMain(unittest.TestCase):
     def test_date_flag_shows_warning_to_stderr(self):
         mock_data = _make_display_data(available=True)
         with patch("telemetry.otel.cli.otel_summary.OtelMenubarProvider") as mock_cls:
-            with patch("telemetry.otel.cli.otel_summary._get_workflow_runs_cost_24h", return_value=None):
+            with patch(
+                "telemetry.otel.cli.otel_summary._get_workflow_runs_cost_24h", return_value=None
+            ):
                 mock_cls.return_value.get_display_data.return_value = mock_data
                 buf = io.StringIO()
                 with patch("sys.stderr", buf):

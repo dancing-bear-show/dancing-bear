@@ -26,6 +26,7 @@ class DeskPipelineTests(TestCase):
             return {"ok": True}
 
         from desk.pipeline import ScanRequestConsumer
+
         request = ScanRequest(
             paths=["~/Downloads"],
             min_size="10MB",
@@ -43,14 +44,18 @@ class DeskPipelineTests(TestCase):
             return {"generated_from": path}
 
         from desk.pipeline import PlanRequestConsumer
+
         request = PlanRequest(config_path="~/rules.yaml")
-        envelope = PlanProcessor(planner=fake_planner).process(PlanRequestConsumer(request).consume())
+        envelope = PlanProcessor(planner=fake_planner).process(
+            PlanRequestConsumer(request).consume()
+        )
         self.assertTrue(envelope.ok())
         result = envelope.unwrap()
         self.assertEqual(result["generated_from"], "~/rules.yaml")
 
     def test_report_producer_writes_json(self):
         from core.pipeline import ResultEnvelope
+
         with tempfile.TemporaryDirectory() as tmp:
             out_path = Path(tmp) / "report.json"
             envelope = ResultEnvelope(status="success", payload={"a": 1})
@@ -60,8 +65,11 @@ class DeskPipelineTests(TestCase):
 
     def test_apply_processor_success_and_failure(self):
         from desk.pipeline import ApplyRequestConsumer
+
         request = ApplyRequest(plan_path="plan.yaml", dry_run=True)
-        success = ApplyProcessor(applier=lambda p, dry_run=False: None).process(ApplyRequestConsumer(request).consume())
+        success = ApplyProcessor(applier=lambda p, dry_run=False: None).process(
+            ApplyRequestConsumer(request).consume()
+        )
         self.assertTrue(success.ok())
 
         def boom(_path, dry_run=False):
@@ -73,6 +81,7 @@ class DeskPipelineTests(TestCase):
 
     def test_apply_result_producer_reports_error(self):
         from desk.pipeline import ApplyRequestConsumer
+
         buf = io.StringIO()
         envelope = ApplyProcessor(applier=lambda *_: None).process(
             ApplyRequestConsumer(ApplyRequest("plan.yaml", False)).consume()

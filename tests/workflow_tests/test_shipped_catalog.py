@@ -145,19 +145,20 @@ def _has_unnegated_commit_instruction(description: str) -> bool:
             return True
     return False
 
+
 # Roles whose whole purpose is producing edits. For these the commit opt-out
 # below is NOT available: their work reaches the branch only as commits, so
 # "do not commit" in an isolated stage means the edits are silently discarded
 # at merge, which is the defect the gate exists to catch rather than an
 # exemption from it.
-_CODE_WRITING_ROLES = frozenset({"code-writer", "code-writer-opus", "tester", "tester-opus", "ci-fixer"})
+_CODE_WRITING_ROLES = frozenset(
+    {"code-writer", "code-writer-opus", "tester", "tester-opus", "ci-fixer"}
+)
 
 # An explicit opt-out: the stage is isolated but must not commit (e.g. a
 # read-only review stage that would corrupt a shared tree if it did). This is
 # a legitimate pattern, not the violation the gate exists to catch.
-_NEGATIVE_COMMIT_RE = re.compile(
-    r"(never|do not|don't|must not)\s+commit", re.IGNORECASE
-)
+_NEGATIVE_COMMIT_RE = re.compile(r"(never|do not|don't|must not)\s+commit", re.IGNORECASE)
 
 
 # Sample values for trigger params that are ``required`` but ship with a blank
@@ -222,9 +223,7 @@ def _baseline() -> dict[str, set[str]]:
     # `_ignored` disappears from the live gates AND from both rot checks, so
     # its entries are grandfathered permanently — the ratchet bypassed by a
     # rename. An unexpected underscore key is therefore an error, not a hint.
-    unknown_meta = sorted(
-        k for k in raw if k.startswith("_") and k not in _BASELINE_METADATA_KEYS
-    )
+    unknown_meta = sorted(k for k in raw if k.startswith("_") and k not in _BASELINE_METADATA_KEYS)
     if unknown_meta:
         raise AssertionError(
             f"unrecognised underscore-prefixed baseline keys: {unknown_meta}. "
@@ -333,8 +332,7 @@ def _instructs_commit(description: str) -> bool:
     giving no instruction to commit at all.
     """
     return bool(
-        _has_unnegated_commit_instruction(description)
-        or _NEGATIVE_COMMIT_RE.search(description)
+        _has_unnegated_commit_instruction(description) or _NEGATIVE_COMMIT_RE.search(description)
     )
 
 
@@ -362,10 +360,13 @@ def _iter_contract_warning_pairs() -> Iterator[tuple[Path, dict]]:
                 if upstream is None:
                     # A dangling reads_from is a different gate's finding.
                     continue
-                yield path, {
-                    "name": f"{stage.name}->{upstream_name}",
-                    "declares_outputs": bool(upstream.writes_to),
-                }
+                yield (
+                    path,
+                    {
+                        "name": f"{stage.name}->{upstream_name}",
+                        "declares_outputs": bool(upstream.writes_to),
+                    },
+                )
 
 
 def _upstream_declares_outputs(pair: dict) -> bool:
@@ -468,8 +469,7 @@ class TestShippedCatalogLints(unittest.TestCase):
                 ]
                 self.assertTrue(
                     result.valid,
-                    f"lint errors in {path.relative_to(REPO_ROOT)}:\n  "
-                    + "\n  ".join(messages),
+                    f"lint errors in {path.relative_to(REPO_ROOT)}:\n  " + "\n  ".join(messages),
                 )
 
 
@@ -586,8 +586,7 @@ class TestShippedCatalogParses(unittest.TestCase):
             new,
             [],
             "new reads_from contract warnings — the upstream stage declares "
-            "no writes_to, so the downstream agent reads an empty input:\n  "
-            + "\n  ".join(new),
+            "no writes_to, so the downstream agent reads an empty input:\n  " + "\n  ".join(new),
         )
 
     def test_depends_on_references_a_real_stage(self) -> None:
@@ -635,8 +634,7 @@ class TestValidateKindContractNotDropped(unittest.TestCase):
             "kind:validate stages declare no validation.criteria. Their "
             "description is dropped at dispatch (workflow/dispatch.py's "
             "_validate), so these stages would carry no contract at all. "
-            "Add validation.criteria, or use kind:execute:\n  "
-            + "\n  ".join(offenders),
+            "Add validation.criteria, or use kind:execute:\n  " + "\n  ".join(offenders),
         )
 
     def test_long_contracts_do_not_live_on_validate_stages(self) -> None:
@@ -681,8 +679,7 @@ class TestIsolatedStagesCommit(unittest.TestCase):
         offenders = [
             _stage_key(path, stage.get("name"))
             for path, stage in _iter_isolated_stages()
-            if not _commits(stage)
-            and _stage_key(path, stage.get("name")) not in grandfathered
+            if not _commits(stage) and _stage_key(path, stage.get("name")) not in grandfathered
         ]
         self.assertEqual(
             offenders,
@@ -707,64 +704,74 @@ class TestCommitInstructionPredicate(unittest.TestCase):
                 self.assertIs(_has_unnegated_commit_instruction(text), expected)
 
     def test_original_negators_invert_the_instruction(self) -> None:
-        self._assert_verdicts({
-            "Do not commit before you finish.": False,
-            "Never run git commit here.": False,
-            "You must not, under any circumstances, commit before you finish.": False,
-            "Commit before you finish.": True,
-        })
+        self._assert_verdicts(
+            {
+                "Do not commit before you finish.": False,
+                "Never run git commit here.": False,
+                "You must not, under any circumstances, commit before you finish.": False,
+                "Commit before you finish.": True,
+            }
+        )
 
     def test_avoidance_and_omission_negators_invert_the_instruction(self) -> None:
-        self._assert_verdicts({
-            "Avoid git commit in this stage.": False,
-            "Avoid `git commit` in this stage.": False,
-            "Avoiding git commit keeps the tree clean.": False,
-            "Skip git commit.": False,
-            "Skipping the git commit is fine.": False,
-            "Refrain from git commit.": False,
-            "Omit the git commit.": False,
-            "Forgo the git commit.": False,
-            "Stash rather than git commit.": False,
-            "Use stash instead of git commit.": False,
-            "There is no need to git commit.": False,
-            "You are not allowed to git commit.": False,
-            "You are forbidden to git commit.": False,
-            "Neither stash nor git commit.": False,
-            "Run git commit in this stage.": True,
-        })
+        self._assert_verdicts(
+            {
+                "Avoid git commit in this stage.": False,
+                "Avoid `git commit` in this stage.": False,
+                "Avoiding git commit keeps the tree clean.": False,
+                "Skip git commit.": False,
+                "Skipping the git commit is fine.": False,
+                "Refrain from git commit.": False,
+                "Omit the git commit.": False,
+                "Forgo the git commit.": False,
+                "Stash rather than git commit.": False,
+                "Use stash instead of git commit.": False,
+                "There is no need to git commit.": False,
+                "You are not allowed to git commit.": False,
+                "You are forbidden to git commit.": False,
+                "Neither stash nor git commit.": False,
+                "Run git commit in this stage.": True,
+            }
+        )
 
     def test_modal_negators_invert_the_instruction(self) -> None:
-        self._assert_verdicts({
-            "You shouldn't commit before you finish.": False,
-            "You should not commit before you finish.": False,
-            "You mustn't commit before you finish.": False,
-            "You mustn’t commit before you finish.": False,
-            "The agent won't git commit.": False,
-            "You need not commit before you finish.": False,
-            "You should commit before you finish.": True,
-        })
+        self._assert_verdicts(
+            {
+                "You shouldn't commit before you finish.": False,
+                "You should not commit before you finish.": False,
+                "You mustn't commit before you finish.": False,
+                "You mustn’t commit before you finish.": False,
+                "The agent won't git commit.": False,
+                "You need not commit before you finish.": False,
+                "You should commit before you finish.": True,
+            }
+        )
 
     def test_bare_no_and_not_negate_only_when_adjacent(self) -> None:
-        self._assert_verdicts({
-            "Make no git commit.": False,
-            "Make no `git commit`.": False,
-            "Do NOT git commit.": False,
-            # Given any filler, "no" would swallow an ordinary condition.
-            "If there are no failures, commit before you finish.": True,
-            "The note field is optional; commit before you finish.": True,
-        })
+        self._assert_verdicts(
+            {
+                "Make no git commit.": False,
+                "Make no `git commit`.": False,
+                "Do NOT git commit.": False,
+                # Given any filler, "no" would swallow an ordinary condition.
+                "If there are no failures, commit before you finish.": True,
+                "The note field is optional; commit before you finish.": True,
+            }
+        )
 
     def test_negator_does_not_reach_across_a_clause_break(self) -> None:
         # consolidate-schema.yaml::test-e2e-data: the "never" governs the
         # staging shortcut, and the dash plus "and" start a new clause.
-        self._assert_verdicts({
-            "Stage them by name — never `git add -A` — and commit them "
-            "before you finish.": True,
-            "Never `git add -A`, then git commit.": True,
-            "Skip the lint step and commit before you finish.": True,
-            "Never stage with -A. Commit before you finish.": True,
-            "Do not stage with -A; commit before you finish.": True,
-        })
+        self._assert_verdicts(
+            {
+                "Stage them by name — never `git add -A` — and commit them "
+                "before you finish.": True,
+                "Never `git add -A`, then git commit.": True,
+                "Skip the lint step and commit before you finish.": True,
+                "Never stage with -A. Commit before you finish.": True,
+                "Do not stage with -A; commit before you finish.": True,
+            }
+        )
 
     def test_one_standing_instruction_survives_a_negated_carve_out(self) -> None:
         # qwen-local-handler.yaml::impl-heartbeat: commit, but skip it on the
@@ -779,16 +786,17 @@ class TestCommitInstructionPredicate(unittest.TestCase):
             "(a), skip the commit entirely, record commit_sha: null and finish."
         )
         carve_out_only = (
-            "On route (a), skip the commit entirely, record commit_sha: null "
-            "and finish."
+            "On route (a), skip the commit entirely, record commit_sha: null and finish."
         )
         self._assert_verdicts({heartbeat: True, carve_out_only: False})
 
     def test_commit_sha_and_plural_commits_are_not_instructions(self) -> None:
-        self._assert_verdicts({
-            'Record "commit_sha": "<sha>" before you finish.': False,
-            "git merge moves COMMITS, not files, so finish cleanly.": False,
-        })
+        self._assert_verdicts(
+            {
+                'Record "commit_sha": "<sha>" before you finish.': False,
+                "git merge moves COMMITS, not files, so finish cleanly.": False,
+            }
+        )
 
 
 class TestBaselineDoesNotRot(unittest.TestCase):
@@ -876,18 +884,13 @@ class TestBaselineDoesNotRot(unittest.TestCase):
                 "raise a confusing KeyError.",
             )
             iterate, _ = _CATEGORY_COMPLIANCE[category]
-            known = {
-                _stage_key(path, item.get("name")) for path, item in iterate()
-            }
-            stale.extend(
-                f"{category}: {entry}" for entry in sorted(entries - known)
-            )
+            known = {_stage_key(path, item.get("name")) for path, item in iterate()}
+            stale.extend(f"{category}: {entry}" for entry in sorted(entries - known))
         self.assertEqual(
             stale,
             [],
             "baseline entries name stages that no longer exist — remove "
-            "these lines from shipped_catalog_baseline.json:\n  "
-            + "\n  ".join(stale),
+            "these lines from shipped_catalog_baseline.json:\n  " + "\n  ".join(stale),
         )
 
     def test_every_baselined_entry_is_still_a_violation(self) -> None:
@@ -980,8 +983,7 @@ class TestStageChecksMatchEngineRules(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             probe = Path(tmp) / "probe.yaml"
             probe.write_text(
-                "x --check 'a=[0-9]+' --check 'b=x'\n"
-                "y --top-level --check 'limit=[0-9]+'\n",
+                "x --check 'a=[0-9]+' --check 'b=x'\ny --top-level --check 'limit=[0-9]+'\n",
                 encoding="utf-8",
             )
             self.assertEqual(list(_stage_param_checks(probe)), [("a", "[0-9]+"), ("b", "x")])

@@ -6,19 +6,17 @@ from telemetry.otel.analytics.health_score import (
     _score_to_grade,
     calculate_health_score,
 )
-
 from tests.telemetry_tests.otel_analytics._shared_helpers import (
     _make_perf,
     _make_session_cost,
 )
 
-
 # ---------------------------------------------------------------------------
 # _score_to_grade
 # ---------------------------------------------------------------------------
 
-class TestScoreToGrade(unittest.TestCase):
 
+class TestScoreToGrade(unittest.TestCase):
     def test_exactly_1_0_is_A(self):
         self.assertEqual(_score_to_grade(1.0), "A")
 
@@ -54,8 +52,8 @@ class TestScoreToGrade(unittest.TestCase):
 # calculate_health_score — no perf data
 # ---------------------------------------------------------------------------
 
-class TestCalculateHealthScoreNoPerfData(unittest.TestCase):
 
+class TestCalculateHealthScoreNoPerfData(unittest.TestCase):
     def test_no_perf_returns_perfect_score(self):
         session = _make_session_cost(session_id="s1", perf=None)
         result = calculate_health_score(session)
@@ -83,8 +81,8 @@ class TestCalculateHealthScoreNoPerfData(unittest.TestCase):
 # calculate_health_score — perfect perf (no errors/failures/latency)
 # ---------------------------------------------------------------------------
 
-class TestCalculateHealthScorePerfectPerf(unittest.TestCase):
 
+class TestCalculateHealthScorePerfectPerf(unittest.TestCase):
     def test_perfect_perf_score_is_1(self):
         session = _make_session_cost(perf=_make_perf())
         result = calculate_health_score(session)
@@ -107,8 +105,8 @@ class TestCalculateHealthScorePerfectPerf(unittest.TestCase):
 # calculate_health_score — error penalty
 # ---------------------------------------------------------------------------
 
-class TestCalculateHealthScoreErrorPenalty(unittest.TestCase):
 
+class TestCalculateHealthScoreErrorPenalty(unittest.TestCase):
     def test_error_rate_10pct_subtracts_0_3(self):
         # error_penalty: min(0.1 * 3, 0.4) gives 0.3
         perf = _make_perf(error_rate=0.1)
@@ -142,8 +140,8 @@ class TestCalculateHealthScoreErrorPenalty(unittest.TestCase):
 # calculate_health_score — tool failure penalty
 # ---------------------------------------------------------------------------
 
-class TestCalculateHealthScoreToolPenalty(unittest.TestCase):
 
+class TestCalculateHealthScoreToolPenalty(unittest.TestCase):
     def test_tool_failure_rate_10pct_subtracts_0_2(self):
         # tool_penalty: min(0.1 * 2, 0.3) gives 0.2
         perf = _make_perf(tool_failure_rate=0.1)
@@ -170,8 +168,8 @@ class TestCalculateHealthScoreToolPenalty(unittest.TestCase):
 # calculate_health_score — latency penalty
 # ---------------------------------------------------------------------------
 
-class TestCalculateHealthScoreLatencyPenalty(unittest.TestCase):
 
+class TestCalculateHealthScoreLatencyPenalty(unittest.TestCase):
     def test_latency_below_5000ms_no_penalty(self):
         # latency below 5000ms: penalty formula gives a negative value, floored to 0
         perf = _make_perf(avg_api_latency_ms=4999.0)
@@ -217,8 +215,8 @@ class TestCalculateHealthScoreLatencyPenalty(unittest.TestCase):
 # calculate_health_score — combined penalties and score floor at 0
 # ---------------------------------------------------------------------------
 
-class TestCalculateHealthScoreCombined(unittest.TestCase):
 
+class TestCalculateHealthScoreCombined(unittest.TestCase):
     def test_combined_penalties_summed(self):
         # error_penalty 0.3 and tool_penalty 0.2 sum to 0.5, leaving score of 0.5
         perf = _make_perf(error_rate=0.1, tool_failure_rate=0.1)
@@ -247,6 +245,7 @@ class TestCalculateHealthScoreCombined(unittest.TestCase):
 
     def test_result_is_session_health_score_type(self):
         from telemetry.otel.cost_models import SessionHealthScore
+
         session = _make_session_cost(perf=_make_perf())
         result = calculate_health_score(session)
         self.assertIsInstance(result, SessionHealthScore)

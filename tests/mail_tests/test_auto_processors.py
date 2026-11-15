@@ -7,20 +7,21 @@ import unittest
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
-from mail.auto.processors import (
-    classify_low_interest,
-    AutoSummaryProcessor,
-    AutoApplyProcessor,
-)
-from mail.utils.senders import is_protected_sender
 from mail.auto.consumers import (
+    AutoApplyPayload,
     AutoProposePayload,
     AutoSummaryPayload,
-    AutoApplyPayload,
 )
-from tests.mail_tests.fixtures import make_args, make_message_with_headers as _make_message
+from mail.auto.processors import (
+    AutoApplyProcessor,
+    AutoSummaryProcessor,
+    classify_low_interest,
+)
+from mail.utils.senders import is_protected_sender
+from tests.mail_tests.fixtures import make_args
+from tests.mail_tests.fixtures import make_message_with_headers as _make_message
 
 
 class TestClassifyLowInterest(unittest.TestCase):
@@ -271,7 +272,6 @@ class FakeAutoClient:
 
     def authenticate(self) -> None:
         """No-op: test fixture does not require authentication."""
-        pass
 
     def get_label_id_map(self) -> dict[str, str]:
         return {lab["name"]: lab["id"] for lab in self.labels}
@@ -298,7 +298,9 @@ class FakeAutoClient:
         add_label_ids: list[str] | None = None,
         remove_label_ids: list[str] | None = None,
     ) -> None:
-        self.modified_batches.append((list(ids), list(add_label_ids or []), list(remove_label_ids or [])))
+        self.modified_batches.append(
+            (list(ids), list(add_label_ids or []), list(remove_label_ids or []))
+        )
 
 
 def _make_auto_context(client: FakeAutoClient):
@@ -354,9 +356,7 @@ class TestAutoApplyProcessor(unittest.TestCase):
         self.assertGreaterEqual(len(client.modified_batches), 1)
 
     def test_dry_run_does_not_modify(self):
-        client = FakeAutoClient(
-            labels=[{"id": "LBL_NEWS", "name": "Lists/Newsletters"}]
-        )
+        client = FakeAutoClient(labels=[{"id": "LBL_NEWS", "name": "Lists/Newsletters"}])
         ctx = _make_auto_context(client)
 
         proposal = {
@@ -387,9 +387,7 @@ class TestAutoApplyProcessor(unittest.TestCase):
         self.assertEqual(len(client.modified_batches), 0)
 
     def test_respects_cutoff_days(self):
-        client = FakeAutoClient(
-            labels=[{"id": "LBL_NEWS", "name": "Lists/Newsletters"}]
-        )
+        client = FakeAutoClient(labels=[{"id": "LBL_NEWS", "name": "Lists/Newsletters"}])
         ctx = _make_auto_context(client)
 
         now = int(time.time())
@@ -399,7 +397,12 @@ class TestAutoApplyProcessor(unittest.TestCase):
         proposal = {
             "messages": [
                 {"id": "m_old", "add": ["Lists/Newsletters"], "remove": ["INBOX"], "ts": old_ts},
-                {"id": "m_recent", "add": ["Lists/Newsletters"], "remove": ["INBOX"], "ts": recent_ts},
+                {
+                    "id": "m_recent",
+                    "add": ["Lists/Newsletters"],
+                    "remove": ["INBOX"],
+                    "ts": recent_ts,
+                },
             ]
         }
 
@@ -483,8 +486,9 @@ class TestAutoApplyProcessorSadPath(unittest.TestCase):
 
     def test_client_exception_wraps_in_error_envelope(self):
         """A client failure inside _process_safe is wrapped as error envelope."""
-        from mail.auto.consumers import AutoApplyPayload
         from unittest.mock import MagicMock
+
+        from mail.auto.consumers import AutoApplyPayload
 
         # Mock context whose get_gmail_client() raises
         mock_ctx = MagicMock()
@@ -520,10 +524,10 @@ class TestAutoProposeProcessor(unittest.TestCase):
     Network calls are fully stubbed; no real Gmail credentials are used.
     """
 
-    def _make_propose_payload(self, tmpdir: str, client) -> "AutoProposePayload":
+    def _make_propose_payload(self, tmpdir: str, client) -> AutoProposePayload:
         """Build an AutoProposePayload with a stub context and temp output path."""
-        from tests.mail_tests.fixtures import FakeMailContext
         from mail.context import MailContext
+        from tests.mail_tests.fixtures import FakeMailContext
 
         ctx = cast(MailContext, FakeMailContext(gmail_client=client))
         return AutoProposePayload(
@@ -589,6 +593,7 @@ class TestAutoProposeProcessor(unittest.TestCase):
     def test_sad_path_client_error_wraps_in_error_envelope(self):
         """A client failure inside AutoProposeProcessor._process_safe surfaces as error envelope."""
         import tempfile
+
         from tests.mail_tests.fixtures import FakeMailContext
 
         bad_client = MagicMock()

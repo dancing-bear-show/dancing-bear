@@ -10,10 +10,10 @@ from slides._parse_text import (
 )
 from slides.schema import BulletItem, SlideContent, TableSlide
 
-
 # ---------------------------------------------------------------------------
 # _normalize_title
 # ---------------------------------------------------------------------------
+
 
 class TestNormalizeTitle(unittest.TestCase):
     """Tests for _normalize_title helper."""
@@ -39,6 +39,7 @@ class TestNormalizeTitle(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _extract_highlights
 # ---------------------------------------------------------------------------
+
 
 class TestExtractHighlights(unittest.TestCase):
     """Tests for _extract_highlights helper."""
@@ -84,6 +85,7 @@ class TestExtractHighlights(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _parse_bullet_line
 # ---------------------------------------------------------------------------
+
 
 class TestParseBulletLine(unittest.TestCase):
     """Tests for _parse_bullet_line helper."""
@@ -146,12 +148,15 @@ class TestParseBulletLine(unittest.TestCase):
 # _chunk_slides
 # ---------------------------------------------------------------------------
 
+
 class TestChunkSlides(unittest.TestCase):
     """Tests for _chunk_slides helper."""
 
     def _make_slide(self, title: str, bullet_count: int) -> SlideContent:
         """Factory to create a slide with N bullets."""
-        bullets: list[str | BulletItem] = [BulletItem(text=f"Bullet {i}") for i in range(bullet_count)]
+        bullets: list[str | BulletItem] = [
+            BulletItem(text=f"Bullet {i}") for i in range(bullet_count)
+        ]
         return SlideContent(title=title, subtitle="Sub", bullets=bullets, notes="Notes")
 
     def test_under_limit_unchanged(self):
@@ -230,6 +235,7 @@ class TestChunkSlides(unittest.TestCase):
         result = _chunk_slides(slides, bullet_limit=-1)
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0].title, "X")
+
 
 if __name__ == "__main__":
     unittest.main()

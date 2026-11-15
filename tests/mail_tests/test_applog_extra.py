@@ -16,7 +16,6 @@ import unittest
 from unittest.mock import patch
 
 from mail.applog import AppLogger
-
 from tests.fixtures import TempDirMixin
 
 
@@ -66,7 +65,7 @@ class AppLoggerStartTests(_AppLoggerTestBase):
     """start() with and without argv."""
 
     def _read_records(self):
-        with open(self.log_path, "r", encoding="utf-8") as fh:
+        with open(self.log_path, encoding="utf-8") as fh:
             return [json.loads(line) for line in fh if line.strip()]
 
     def test_start_no_argv_writes_none(self):
@@ -95,7 +94,7 @@ class AppLoggerEndTests(_AppLoggerTestBase):
     """end() optional fields: duration_ms and error."""
 
     def _read_records(self):
-        with open(self.log_path, "r", encoding="utf-8") as fh:
+        with open(self.log_path, encoding="utf-8") as fh:
             return [json.loads(line) for line in fh if line.strip()]
 
     def test_end_default_status_no_duration_no_error(self):
@@ -132,7 +131,7 @@ class AppLoggerInfoTests(_AppLoggerTestBase):
     """info() record structure."""
 
     def _read_records(self):
-        with open(self.log_path, "r", encoding="utf-8") as fh:
+        with open(self.log_path, encoding="utf-8") as fh:
             return [json.loads(line) for line in fh if line.strip()]
 
     def test_info_record_fields(self):
@@ -149,7 +148,7 @@ class AppLoggerErrorTests(_AppLoggerTestBase):
     """error() record structure with and without extra."""
 
     def _read_records(self):
-        with open(self.log_path, "r", encoding="utf-8") as fh:
+        with open(self.log_path, encoding="utf-8") as fh:
             return [json.loads(line) for line in fh if line.strip()]
 
     def test_error_record_with_extra(self):

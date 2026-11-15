@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from telemetry.timeutil import now_utc
 from telemetry.otel.config import RetentionConfig
 from telemetry.otel.models import (
     OTLPEventsRecord,
@@ -15,6 +14,7 @@ from telemetry.otel.models import (
     OTLPSpansRecord,
 )
 from telemetry.otel.reader import OTLPReader
+from telemetry.timeutil import now_utc
 
 
 @dataclass
@@ -91,8 +91,10 @@ class TelemetryPruner:
         if not dry_run:
             self._write_records(file_path, kept_records)
 
-        bytes_after = file_path.stat().st_size if not dry_run else (
-            sum(len(json.dumps(r)) + 1 for r in kept_records)
+        bytes_after = (
+            file_path.stat().st_size
+            if not dry_run
+            else (sum(len(json.dumps(r)) + 1 for r in kept_records))
         )
 
         return PruneResult(
@@ -116,9 +118,7 @@ class TelemetryPruner:
         }
         return type_config[data_type]
 
-    def _parse_and_filter_line(
-        self, line: str, data_type: str, cutoff: datetime
-    ) -> dict | None:
+    def _parse_and_filter_line(self, line: str, data_type: str, cutoff: datetime) -> dict | None:
         """Parse one JSONL line and return its record dict if it should be kept.
 
         Returns None when the line is unparseable or the record predates *cutoff*.
@@ -132,9 +132,7 @@ class TelemetryPruner:
             pass
         return None
 
-    def _apply_line(
-        self, line: str, data_type: str, cutoff: datetime, kept_records: list
-    ) -> bool:
+    def _apply_line(self, line: str, data_type: str, cutoff: datetime, kept_records: list) -> bool:
         """Parse+filter one non-blank line, appending to kept_records if kept.
 
         Returns True when the line was a record (blank lines are not counted).
@@ -169,12 +167,12 @@ class TelemetryPruner:
             if data_type == "metrics":
                 metrics_record = OTLPMetricsRecord.from_dict(record_dict)
                 return metrics_record.earliest_timestamp()
-            elif data_type == "events":
+            if data_type == "events":
                 events_record = OTLPEventsRecord.from_dict(record_dict)
                 return min((e.timestamp for e in events_record.log_records), default=None)
-            else:  # spans
-                spans_record = OTLPSpansRecord.from_dict(record_dict)
-                return min((s.start_timestamp for s in spans_record.spans), default=None)
+            # spans
+            spans_record = OTLPSpansRecord.from_dict(record_dict)
+            return min((s.start_timestamp for s in spans_record.spans), default=None)
         except (KeyError, ValueError):
             return None
 

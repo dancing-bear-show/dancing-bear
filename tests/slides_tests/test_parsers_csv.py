@@ -9,10 +9,10 @@ from slides.parsers_csv import load_deck_from_csv
 from slides.schema import BulletItem, DeckOptions, TableSlide
 from tests.slides_tests.fixtures import assert_metadata_passthrough
 
-
 # ---------------------------------------------------------------------------
 # load_deck_from_csv
 # ---------------------------------------------------------------------------
+
 
 class TestLoadDeckFromCsv(unittest.TestCase):
     """Tests for load_deck_from_csv."""
@@ -33,10 +33,7 @@ class TestLoadDeckFromCsv(unittest.TestCase):
         """CSV with slide_title/summary columns groups into bullet slides."""
         csv_file = self._write(
             "bullets.csv",
-            "slide_title,summary\n"
-            "Intro,Welcome\n"
-            "Intro,Overview\n"
-            "Details,Point A\n",
+            "slide_title,summary\nIntro,Welcome\nIntro,Overview\nDetails,Point A\n",
         )
 
         deck = load_deck_from_csv(csv_file, options=DeckOptions(title="CSV Deck"))
@@ -51,9 +48,7 @@ class TestLoadDeckFromCsv(unittest.TestCase):
         """CSV without title column creates a table slide."""
         csv_file = self._write(
             "table.csv",
-            "name,value,status\n"
-            "SvcA,99.9%,OK\n"
-            "SvcB,98.5%,WARN\n",
+            "name,value,status\nSvcA,99.9%,OK\nSvcB,98.5%,WARN\n",
         )
 
         deck = load_deck_from_csv(csv_file, options=DeckOptions(title="Table Deck"))
@@ -95,9 +90,7 @@ class TestLoadDeckFromCsv(unittest.TestCase):
         """Custom title_column and text_column parameters work."""
         csv_file = self._write(
             "custom.csv",
-            "heading,body\n"
-            "Topic A,Content 1\n"
-            "Topic A,Content 2\n",
+            "heading,body\nTopic A,Content 1\nTopic A,Content 2\n",
         )
 
         deck = load_deck_from_csv(
@@ -144,10 +137,7 @@ class TestLoadDeckFromCsv(unittest.TestCase):
         """Rows with empty summary text are skipped."""
         csv_file = self._write(
             "gaps.csv",
-            "slide_title,summary\n"
-            "Topic,Content\n"
-            "Topic,\n"
-            "Topic,More content\n",
+            "slide_title,summary\nTopic,Content\nTopic,\nTopic,More content\n",
         )
 
         deck = load_deck_from_csv(csv_file)
@@ -157,10 +147,7 @@ class TestLoadDeckFromCsv(unittest.TestCase):
         """CSV table-data path (no title_column/text_column) does not crash in _chunk_slides."""
         csv_file = self._write(
             "table_only.csv",
-            "host,cpu,memory\n"
-            "web-1,45%,2GB\n"
-            "web-2,78%,4GB\n"
-            "web-3,12%,1GB\n",
+            "host,cpu,memory\nweb-1,45%,2GB\nweb-2,78%,4GB\nweb-3,12%,1GB\n",
         )
 
         deck = load_deck_from_csv(csv_file, options=DeckOptions(title="Table Test"))
@@ -175,14 +162,14 @@ class TestLoadDeckFromCsv(unittest.TestCase):
         """Bold markdown in CSV summary text produces highlights."""
         csv_file = self._write(
             "highlights.csv",
-            "slide_title,summary\n"
-            "Topic,Use **terraform** carefully\n",
+            "slide_title,summary\nTopic,Use **terraform** carefully\n",
         )
 
         deck = load_deck_from_csv(csv_file)
         bullet = deck.slides[0].bullets[0]
         self.assertIsInstance(bullet, BulletItem)
         self.assertIn("terraform", bullet.highlight)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -7,6 +7,7 @@ Covers:
 - _section_has_data recognises the projects key
 - Both write_resume_docx and create_resume_writer render projects
 """
+
 from __future__ import annotations
 
 import unittest
@@ -21,15 +22,18 @@ class TestProjectsSectionRendererUnit(unittest.TestCase):
 
     def _get_renderer(self):
         from resume.docx_sections_simple import ProjectsSectionRenderer
+
         return make_fake_renderer(ProjectsSectionRenderer)
 
     def test_name_appears_in_rendered_output(self):
         """A project name is added as a paragraph."""
         renderer, doc = self._get_renderer()
-        resume = Resume.from_dict({
-            "name": "Casey Synthetic",
-            "projects": [{"name": "Alpha Project"}],
-        })
+        resume = Resume.from_dict(
+            {
+                "name": "Casey Synthetic",
+                "projects": [{"name": "Alpha Project"}],
+            }
+        )
         lines = renderer.render(resume)
         self.assertIn("Alpha Project", lines)
         all_text = " ".join(p.text for p in doc.paragraphs)
@@ -38,9 +42,11 @@ class TestProjectsSectionRendererUnit(unittest.TestCase):
     def test_desc_appears_when_present(self):
         """Project desc is added as a plain paragraph."""
         renderer, doc = self._get_renderer()
-        resume = Resume.from_dict({
-            "projects": [{"name": "Beta", "desc": "A useful tool."}],
-        })
+        resume = Resume.from_dict(
+            {
+                "projects": [{"name": "Beta", "desc": "A useful tool."}],
+            }
+        )
         renderer.render(resume)
         all_text = " ".join(p.text for p in doc.paragraphs)
         self.assertIn("A useful tool", all_text)
@@ -48,9 +54,11 @@ class TestProjectsSectionRendererUnit(unittest.TestCase):
     def test_bullets_appear_when_present(self):
         """Project bullets are rendered."""
         renderer, doc = self._get_renderer()
-        resume = Resume.from_dict({
-            "projects": [{"name": "Gamma", "bullets": ["Did X", "Did Y"]}],
-        })
+        resume = Resume.from_dict(
+            {
+                "projects": [{"name": "Gamma", "bullets": ["Did X", "Did Y"]}],
+            }
+        )
         renderer.render(resume)
         all_text = " ".join(p.text for p in doc.paragraphs)
         self.assertIn("Did X", all_text)
@@ -59,9 +67,11 @@ class TestProjectsSectionRendererUnit(unittest.TestCase):
     def test_tech_appears_when_present(self):
         """Tech line is rendered as 'Tech: ...' paragraph."""
         renderer, doc = self._get_renderer()
-        resume = Resume.from_dict({
-            "projects": [{"name": "Delta", "tech": "Python, Go"}],
-        })
+        resume = Resume.from_dict(
+            {
+                "projects": [{"name": "Delta", "tech": "Python, Go"}],
+            }
+        )
         renderer.render(resume)
         all_text = " ".join(p.text for p in doc.paragraphs)
         self.assertIn("Tech:", all_text)
@@ -86,9 +96,11 @@ class TestProjectsSectionRendererUnit(unittest.TestCase):
     def test_project_missing_name_is_skipped(self):
         """A project with no name is silently skipped."""
         renderer, doc = self._get_renderer()
-        resume = Resume.from_dict({
-            "projects": [{"desc": "No name here"}],
-        })
+        resume = Resume.from_dict(
+            {
+                "projects": [{"desc": "No name here"}],
+            }
+        )
         lines = renderer.render(resume)
         self.assertEqual(lines, [])
         self.assertEqual(doc.paragraphs, [])
@@ -96,14 +108,16 @@ class TestProjectsSectionRendererUnit(unittest.TestCase):
     def test_bullets_dict_shape_renders(self):
         """Dict-shaped bullets (text + priority) are rendered correctly."""
         renderer, doc = self._get_renderer()
-        resume = Resume.from_dict({
-            "projects": [
-                {
-                    "name": "Zeta",
-                    "bullets": [{"text": "Built pipeline", "priority": 1.0}],
-                }
-            ],
-        })
+        resume = Resume.from_dict(
+            {
+                "projects": [
+                    {
+                        "name": "Zeta",
+                        "bullets": [{"text": "Built pipeline", "priority": 1.0}],
+                    }
+                ],
+            }
+        )
         renderer.render(resume)
         all_text = " ".join(p.text for p in doc.paragraphs)
         self.assertIn("Built pipeline", all_text)
@@ -111,12 +125,14 @@ class TestProjectsSectionRendererUnit(unittest.TestCase):
     def test_multiple_projects_all_render(self):
         """Multiple projects all emit their names."""
         renderer, _ = self._get_renderer()
-        resume = Resume.from_dict({
-            "projects": [
-                {"name": "First"},
-                {"name": "Second"},
-            ],
-        })
+        resume = Resume.from_dict(
+            {
+                "projects": [
+                    {"name": "First"},
+                    {"name": "Second"},
+                ],
+            }
+        )
         lines = renderer.render(resume)
         self.assertIn("First", lines)
         self.assertIn("Second", lines)
@@ -124,10 +140,13 @@ class TestProjectsSectionRendererUnit(unittest.TestCase):
     def test_link_added_as_hyperlink_run(self):
         """The ``link`` field is added as a hyperlink paragraph run, not plain text."""
         from unittest.mock import patch as _patch
+
         renderer, _ = self._get_renderer()
-        resume = Resume.from_dict({
-            "projects": [{"name": "Linked", "link": "https://github.com/example/proj"}],
-        })
+        resume = Resume.from_dict(
+            {
+                "projects": [{"name": "Linked", "link": "https://github.com/example/proj"}],
+            }
+        )
         with _patch("resume.docx_sections_simple.add_hyperlink") as mock_hl:
             renderer.render(resume)
         mock_hl.assert_called_once()
@@ -138,9 +157,11 @@ class TestProjectsSectionRendererUnit(unittest.TestCase):
     def test_tech_runs_are_italic(self):
         """Every run in the Tech paragraph has ``italic=True``."""
         renderer, doc = self._get_renderer()
-        resume = Resume.from_dict({
-            "projects": [{"name": "Typed", "tech": "Python, Go"}],
-        })
+        resume = Resume.from_dict(
+            {
+                "projects": [{"name": "Typed", "tech": "Python, Go"}],
+            }
+        )
         renderer.render(resume)
         # Find the Tech: paragraph
         tech_paras = [p for p in doc.paragraphs if "Tech:" in (p.text or "")]
@@ -174,6 +195,7 @@ class TestSectionHasDataRecognisesProjects(unittest.TestCase):
 def _docx_available() -> bool:
     try:
         import docx  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -190,7 +212,9 @@ class TestProjectsEndToEnd(unittest.TestCase):
     def _render_via_writer(self, data: dict) -> list[str]:
         import os
         import tempfile
+
         from docx import Document
+
         from resume.docx_writer import write_resume_docx
         from resume.schema import Resume
 
@@ -203,7 +227,9 @@ class TestProjectsEndToEnd(unittest.TestCase):
     def _render_via_factory(self, data: dict) -> list[str]:
         import os
         import tempfile
+
         from docx import Document
+
         from resume.docx_base import create_resume_writer
         from resume.schema import Resume
 

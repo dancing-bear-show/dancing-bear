@@ -5,6 +5,7 @@ has narrow branch-coverage tests elsewhere (test_producer_outlook_branches.py,
 test_producer_output_branches.py — both cover only the "no start_time" branch);
 this file adds the combined day+time filter and timezone-offset cases.
 """
+
 from __future__ import annotations
 
 import datetime as _dt
@@ -93,8 +94,15 @@ class TestComputeWindowOpenEndedRecurring(unittest.TestCase):
     def test_every_weekday_reachable_from_every_start_weekday(self):
         """All 49 start-weekday x byday combinations must be satisfiable."""
         codes = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]
-        names = {"MO": "Mon", "TU": "Tue", "WE": "Wed", "TH": "Thu",
-                 "FR": "Fri", "SA": "Sat", "SU": "Sun"}
+        names = {
+            "MO": "Mon",
+            "TU": "Tue",
+            "WE": "Wed",
+            "TH": "Thu",
+            "FR": "Fri",
+            "SA": "Sat",
+            "SU": "Sun",
+        }
         for offset in range(7):
             start_date = _dt.date(2026, 9, 21) + _dt.timedelta(days=offset)
             for code in codes:
@@ -113,22 +121,34 @@ class TestComputeWindowOpenEndedRecurring(unittest.TestCase):
             {"repeat": "weekly", "byday": ["SA"], "range": {"start_date": self.MONDAY}}
         )
         biweekly = compute_window(
-            {"repeat": "weekly", "byday": ["SA"], "interval": 2,
-             "range": {"start_date": self.MONDAY}}
+            {
+                "repeat": "weekly",
+                "byday": ["SA"],
+                "interval": 2,
+                "range": {"start_date": self.MONDAY},
+            }
         )
         self.assertGreater(biweekly[1], weekly[1])
 
     def test_absurd_interval_is_capped(self):
         """A bad interval must not ask Graph for an unbounded range."""
-        ev = {"repeat": "weekly", "byday": ["SA"], "interval": 9999,
-              "range": {"start_date": self.MONDAY}}
+        ev = {
+            "repeat": "weekly",
+            "byday": ["SA"],
+            "interval": 9999,
+            "range": {"start_date": self.MONDAY},
+        }
         start, end = compute_window(ev)
         span = _dt.date.fromisoformat(end[:10]) - _dt.date.fromisoformat(start[:10])
         self.assertLessEqual(span.days, 120)
 
     def test_non_integer_interval_falls_back_to_weekly(self):
-        ev = {"repeat": "weekly", "byday": ["SA"], "interval": "bogus",
-              "range": {"start_date": self.MONDAY}}
+        ev = {
+            "repeat": "weekly",
+            "byday": ["SA"],
+            "interval": "bogus",
+            "range": {"start_date": self.MONDAY},
+        }
         start, end = compute_window(ev)
         span = _dt.date.fromisoformat(end[:10]) - _dt.date.fromisoformat(start[:10])
         self.assertEqual(span.days, 28)
@@ -140,22 +160,16 @@ class TestComputeWindowOpenEndedRecurring(unittest.TestCase):
             "byday": ["SA"],
             "range": {"start_date": self.MONDAY, "until": "2026-12-20"},
         }
-        self.assertEqual(
-            compute_window(ev), ("2026-09-21T00:00:00", "2026-12-20T23:59:59")
-        )
+        self.assertEqual(compute_window(ev), ("2026-09-21T00:00:00", "2026-12-20T23:59:59"))
 
     def test_non_recurring_event_keeps_single_day_window(self):
         """No byday means one occurrence, on start_date -- do not widen."""
         ev = {"subject": "Dentist", "range": {"start_date": self.MONDAY}}
-        self.assertEqual(
-            compute_window(ev), ("2026-09-21T00:00:00", "2026-09-21T23:59:59")
-        )
+        self.assertEqual(compute_window(ev), ("2026-09-21T00:00:00", "2026-09-21T23:59:59"))
 
     def test_empty_byday_keeps_single_day_window(self):
         ev = {"subject": "Dentist", "byday": [], "range": {"start_date": self.MONDAY}}
-        self.assertEqual(
-            compute_window(ev), ("2026-09-21T00:00:00", "2026-09-21T23:59:59")
-        )
+        self.assertEqual(compute_window(ev), ("2026-09-21T00:00:00", "2026-09-21T23:59:59"))
 
     def test_explicit_start_end_takes_precedence_over_byday(self):
         ev = {
@@ -163,9 +177,7 @@ class TestComputeWindowOpenEndedRecurring(unittest.TestCase):
             "start": "2026-09-21T10:00:00",
             "end": "2026-09-21T11:00:00",
         }
-        self.assertEqual(
-            compute_window(ev), ("2026-09-21T10:00:00", "2026-09-21T11:00:00")
-        )
+        self.assertEqual(compute_window(ev), ("2026-09-21T10:00:00", "2026-09-21T11:00:00"))
 
     def test_malformed_start_date_does_not_raise(self):
         ev = {"repeat": "weekly", "byday": ["SA"], "range": {"start_date": "not-a-date"}}
@@ -202,23 +214,38 @@ class TestFilterEventsByDayTime(unittest.TestCase):
 
     def test_filters_by_day_only(self):
         evs = [
-            {"start": {"dateTime": "2025-01-06T10:00:00-05:00"}, "end": {"dateTime": "2025-01-06T11:00:00-05:00"}},
-            {"start": {"dateTime": "2025-01-07T10:00:00-05:00"}, "end": {"dateTime": "2025-01-07T11:00:00-05:00"}},
+            {
+                "start": {"dateTime": "2025-01-06T10:00:00-05:00"},
+                "end": {"dateTime": "2025-01-06T11:00:00-05:00"},
+            },
+            {
+                "start": {"dateTime": "2025-01-07T10:00:00-05:00"},
+                "end": {"dateTime": "2025-01-07T11:00:00-05:00"},
+            },
         ]
         matches = filter_events_by_day_time(evs, byday=["MO"])
         self.assertEqual(len(matches), 1)
 
     def test_filters_by_time_only(self):
         evs = [
-            {"start": {"dateTime": "2025-01-06T10:00:00-05:00"}, "end": {"dateTime": "2025-01-06T11:00:00-05:00"}},
-            {"start": {"dateTime": "2025-01-07T10:00:00-05:00"}, "end": {"dateTime": "2025-01-07T11:00:00-05:00"}},
+            {
+                "start": {"dateTime": "2025-01-06T10:00:00-05:00"},
+                "end": {"dateTime": "2025-01-06T11:00:00-05:00"},
+            },
+            {
+                "start": {"dateTime": "2025-01-07T10:00:00-05:00"},
+                "end": {"dateTime": "2025-01-07T11:00:00-05:00"},
+            },
         ]
         matches = filter_events_by_day_time(evs, start_time="10:00", end_time="11:00")
         self.assertEqual(len(matches), 2)
 
     def test_matches_with_timezone_offset(self):
         evs = [
-            {"start": {"dateTime": "2025-01-06T17:00:00-05:00"}, "end": {"dateTime": "2025-01-06T17:30:00-05:00"}},
+            {
+                "start": {"dateTime": "2025-01-06T17:00:00-05:00"},
+                "end": {"dateTime": "2025-01-06T17:30:00-05:00"},
+            },
         ]
         matches = filter_events_by_day_time(evs, start_time="17:00", end_time="17:30")
         self.assertEqual(len(matches), 1)
@@ -312,9 +339,7 @@ class TestFilterEventsUtcToLocal(unittest.TestCase):
     def test_default_tz_used_when_none_given(self):
         """Callers that pass no tz get DEFAULT_PLAN_TZ, not raw UTC."""
         evs = [self._utc_event("2026-09-27T14:30:00", "2026-09-27T15:30:00")]
-        matches = filter_events_by_day_time(
-            evs, byday=["SU"], start_time="10:30", end_time="11:30"
-        )
+        matches = filter_events_by_day_time(evs, byday=["SU"], start_time="10:30", end_time="11:30")
         self.assertEqual(len(matches), 1)
 
     def test_windows_zone_name_falls_back_to_wall_clock(self):
@@ -323,22 +348,29 @@ class TestFilterEventsUtcToLocal(unittest.TestCase):
         With no loadable zone on either side the value is compared as wall
         clock, which is what a Prefer-header response already delivers.
         """
-        evs = [{
-            "start": {"dateTime": "2026-09-27T10:30:00", "timeZone": "Eastern Standard Time"},
-            "end": {"dateTime": "2026-09-27T11:30:00", "timeZone": "Eastern Standard Time"},
-        }]
+        evs = [
+            {
+                "start": {"dateTime": "2026-09-27T10:30:00", "timeZone": "Eastern Standard Time"},
+                "end": {"dateTime": "2026-09-27T11:30:00", "timeZone": "Eastern Standard Time"},
+            }
+        ]
         matches = filter_events_by_day_time(
-            evs, byday=["SU"], start_time="10:30", end_time="11:30",
+            evs,
+            byday=["SU"],
+            start_time="10:30",
+            end_time="11:30",
             tz="Eastern Standard Time",
         )
         self.assertEqual(len(matches), 1)
 
     def test_naive_event_without_zone_is_treated_as_wall_clock(self):
         """No offset and no timeZone: compare as-is rather than raising."""
-        evs = [{
-            "start": {"dateTime": "2026-09-27T10:30:00"},
-            "end": {"dateTime": "2026-09-27T11:30:00"},
-        }]
+        evs = [
+            {
+                "start": {"dateTime": "2026-09-27T10:30:00"},
+                "end": {"dateTime": "2026-09-27T11:30:00"},
+            }
+        ]
         matches = filter_events_by_day_time(
             evs, byday=["SU"], start_time="10:30", end_time="11:30", tz=self.TZ
         )
@@ -359,10 +391,12 @@ class TestFilterEventsUtcToLocal(unittest.TestCase):
         self.assertEqual(len(matches), 1)
 
     def test_trailing_z_suffix_is_converted(self):
-        evs = [{
-            "start": {"dateTime": "2026-09-27T14:30:00Z"},
-            "end": {"dateTime": "2026-09-27T15:30:00Z"},
-        }]
+        evs = [
+            {
+                "start": {"dateTime": "2026-09-27T14:30:00Z"},
+                "end": {"dateTime": "2026-09-27T15:30:00Z"},
+            }
+        ]
         matches = filter_events_by_day_time(
             evs, byday=["SU"], start_time="10:30", end_time="11:30", tz=self.TZ
         )
@@ -390,9 +424,7 @@ class TestParseDtGraphFractionalSeconds(unittest.TestCase):
     def test_graph_seven_digit_fraction_parses_directly(self):
         for raw in self.GRAPH_FORMS:
             with self.subTest(raw=raw):
-                self.assertIsNotNone(
-                    parse_dt(raw), f"fromisoformat no longer accepts {raw!r}"
-                )
+                self.assertIsNotNone(parse_dt(raw), f"fromisoformat no longer accepts {raw!r}")
 
     def test_offset_is_preserved_not_collapsed_to_utc(self):
         # The reason this does not delegate to core.date_utils.parse_iso_utc:
@@ -407,7 +439,6 @@ class TestParseDtGraphFractionalSeconds(unittest.TestCase):
         for raw in ("", "   ", "not-a-date", "2026-13-45T99:99:99"):
             with self.subTest(raw=raw):
                 self.assertIsNone(parse_dt(raw))
-
 
 
 class TestIsoFieldHelpers(unittest.TestCase):
@@ -429,7 +460,10 @@ class TestIsoFieldHelpers(unittest.TestCase):
 
 class TestFilterEventsInWindow(unittest.TestCase):
     def _ev(self, start: str, end: str, tz: str = "UTC") -> dict:
-        return {"start": {"dateTime": start, "timeZone": tz}, "end": {"dateTime": end, "timeZone": tz}}
+        return {
+            "start": {"dateTime": start, "timeZone": tz},
+            "end": {"dateTime": end, "timeZone": tz},
+        }
 
     def test_keeps_overlap_drops_outside_and_touching(self):
         bounds = window_bounds_utc("2025-01-06T00:00:00", "2025-01-06T23:59:59")

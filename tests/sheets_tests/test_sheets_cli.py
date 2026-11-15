@@ -24,12 +24,15 @@ def _val_args(**overrides) -> argparse.Namespace:
 class TestCmdGenerate(unittest.TestCase):
     def test_missing_yaml_returns_1(self):
         from sheets.cli import cmd_generate
+
         result = cmd_generate(_gen_args(yaml_file="/no/such/file.yaml"))
         self.assertEqual(result, 1)
 
     def test_generate_success_with_explicit_output(self):
         import yaml
+
         from sheets.cli import cmd_generate
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump({"title": "T", "sheets": []}, f)
             yaml_path = f.name
@@ -46,6 +49,7 @@ class TestCmdGenerate(unittest.TestCase):
 
     def test_invalid_yaml_returns_1(self):
         from sheets.cli import cmd_generate
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write(": invalid: yaml: : :")
             yaml_path = f.name
@@ -58,7 +62,9 @@ class TestCmdGenerate(unittest.TestCase):
     def test_generate_default_output_path(self):
         """Without -o, output goes to output_dir('sheets')."""
         import yaml
+
         from sheets.cli import cmd_generate
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump({"title": "T", "sheets": []}, f)
             yaml_path = f.name
@@ -78,16 +84,24 @@ class TestCmdGenerate(unittest.TestCase):
 class TestCmdValidate(unittest.TestCase):
     def test_missing_yaml_returns_1(self):
         from sheets.cli import cmd_validate
+
         result = cmd_validate(_val_args(yaml_file="/no/file.yaml"))
         self.assertEqual(result, 1)
 
     def test_valid_yaml_returns_0(self):
         import yaml
+
         from sheets.cli import cmd_validate
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            yaml.dump({"title": "Report", "author": "Alice", "sheets": [
-                {"name": "S1", "headers": ["A", "B"], "rows": []}
-            ]}, f)
+            yaml.dump(
+                {
+                    "title": "Report",
+                    "author": "Alice",
+                    "sheets": [{"name": "S1", "headers": ["A", "B"], "rows": []}],
+                },
+                f,
+            )
             yaml_path = f.name
         try:
             result = cmd_validate(_val_args(yaml_file=yaml_path))
@@ -97,6 +111,7 @@ class TestCmdValidate(unittest.TestCase):
 
     def test_malformed_yaml_returns_1(self):
         from sheets.cli import cmd_validate
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write(": invalid: yaml: : :")
             yaml_path = f.name

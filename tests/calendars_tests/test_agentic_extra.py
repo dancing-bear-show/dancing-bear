@@ -1,4 +1,5 @@
 """Additional tests for calendars/agentic.py."""
+
 import unittest
 from unittest.mock import patch
 
@@ -15,11 +16,13 @@ class TestCalendarsAgenticContract(AgenticBuilderContractMixin, unittest.TestCas
 class TestFlowMap(unittest.TestCase):
     def test_flow_map_returns_string(self):
         from calendars.agentic import _flow_map
+
         result = _flow_map()
         self.assertIsInstance(result, str)
 
     def test_flow_map_contains_outlook_add_when_exists(self):
-        from calendars.agentic import _flow_map, _cli_path_exists
+        from calendars.agentic import _cli_path_exists, _flow_map
+
         # If outlook add exists in the real CLI, flow map should mention it
         if _cli_path_exists(["outlook", "add"]):
             result = _flow_map()
@@ -39,11 +42,13 @@ class TestFlowMap(unittest.TestCase):
 class TestCliTree(unittest.TestCase):
     def test_cli_tree_returns_string(self):
         from calendars.agentic import _cli_tree
+
         result = _cli_tree()
         self.assertIsInstance(result, str)
 
     def test_cli_tree_contains_outlook_when_available(self):
         from calendars.agentic import _cli_tree
+
         tree = _cli_tree()
         if tree:
             self.assertIn("outlook", tree.lower())
@@ -53,11 +58,13 @@ class TestCliTree(unittest.TestCase):
 class TestBuildAgenticCapsuleContent(unittest.TestCase):
     def test_capsule_mentions_gmail(self):
         from calendars.agentic import build_agentic_capsule
+
         cap = build_agentic_capsule()
         self.assertIn("gmail", cap.lower())
 
     def test_capsule_mentions_scan(self):
         from calendars.agentic import build_agentic_capsule
+
         cap = build_agentic_capsule()
         self.assertIn("scan", cap.lower())
 
@@ -65,11 +72,13 @@ class TestBuildAgenticCapsuleContent(unittest.TestCase):
 class TestCliPathExists(unittest.TestCase):
     def test_nonexistent_path_returns_false(self):
         from calendars.agentic import _cli_path_exists
+
         self.assertFalse(_cli_path_exists(["outlook", "nonexistent-cmd-xyz"]))
         self.assertFalse(_cli_path_exists(["nonexistent-group"]))
 
     def test_none_parser_returns_false(self):
         from calendars import agentic as agentic_mod
+
         with patch.object(agentic_mod, "_get_parser", return_value=None):
             result = agentic_mod._cli_path_exists(["outlook", "add"])
         self.assertFalse(result)
@@ -78,6 +87,7 @@ class TestCliPathExists(unittest.TestCase):
         """When parser can be constructed, known paths return True."""
         from calendars.agentic import _get_parser
         from core.agentic import cli_path_exists as core_exists
+
         parser = _get_parser()
         if parser is None:
             self.skipTest("Parser not available in this test environment")

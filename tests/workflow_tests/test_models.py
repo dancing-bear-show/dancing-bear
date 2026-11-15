@@ -10,6 +10,20 @@ from __future__ import annotations
 import unittest
 from dataclasses import FrozenInstanceError
 
+from tests.workflow_tests.helpers.factories import (
+    TEST_FINISHED_AT,
+    TEST_STARTED_AT,
+    make_agent_spec,
+    make_domain_rule,
+    make_output_spec,
+    make_resolved_stage,
+    make_stage_result,
+    make_stage_spec,
+    make_trigger_spec,
+    make_validation_spec,
+    make_workflow_definition,
+    make_workflow_manifest,
+)
 from workflow.models import (
     AgentAccess,
     AgentSpec,
@@ -26,21 +40,6 @@ from workflow.models import (
     ValidationStrategy,
     WorkflowRun,
 )
-from tests.workflow_tests.helpers.factories import (
-    TEST_FINISHED_AT,
-    TEST_STARTED_AT,
-    make_agent_spec,
-    make_domain_rule,
-    make_output_spec,
-    make_resolved_stage,
-    make_stage_result,
-    make_stage_spec,
-    make_trigger_spec,
-    make_validation_spec,
-    make_workflow_definition,
-    make_workflow_manifest,
-)
-
 
 # ---------------------------------------------------------------------------
 # Enum membership and string-value contract
@@ -450,9 +449,7 @@ class TestWorkflowManifest(unittest.TestCase):
         self.assertEqual(manifest.manifest_version, 1)
 
     def test_parallel_groups_structure(self) -> None:
-        manifest = make_workflow_manifest(
-            parallel_groups=(("stage-a",), ("stage-b", "stage-c"))
-        )
+        manifest = make_workflow_manifest(parallel_groups=(("stage-a",), ("stage-b", "stage-c")))
         self.assertIsInstance(manifest.parallel_groups, tuple)
         self.assertEqual(manifest.parallel_groups[0], ("stage-a",))
         self.assertEqual(manifest.parallel_groups[1], ("stage-b", "stage-c"))

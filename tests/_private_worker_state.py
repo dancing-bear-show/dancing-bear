@@ -104,6 +104,7 @@ def ensure_private() -> None:
 
     def _cleanup(_d: str = tmp_dir) -> None:
         import shutil
+
         try:
             shutil.rmtree(_d, ignore_errors=True)
         except Exception:  # nosec B110 - best-effort cleanup at exit

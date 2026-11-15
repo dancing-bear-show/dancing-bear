@@ -5,6 +5,7 @@ and inspect the zip contents to confirm mailto: hyperlinks are present.
 
 Mirrors the assertion style in tests/resume_tests/docx_tests/test_docx_links.py.
 """
+
 from __future__ import annotations
 
 import io
@@ -18,6 +19,7 @@ def _docx_available() -> bool:
     """Check if python-docx is installed."""
     try:
         import docx  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -38,6 +40,7 @@ class TestWriteResumeDocxMailtoHyperlink(unittest.TestCase):
         """
         from resume.docx_writer import write_resume_docx
         from resume.schema import Resume
+
         with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as f:
             path = f.name
         try:

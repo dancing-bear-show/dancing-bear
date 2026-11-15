@@ -8,12 +8,12 @@ from typing import Any
 
 from core.cli_framework import CLIApp
 
-from ..io_utils import write_yaml_or_json
-from ..job import load_job_config, build_keyword_spec
 from ..aligner import align_candidate_to_job, build_tailored_candidate
-from ..overlays import apply_profile_overlays
+from ..io_utils import write_yaml_or_json
+from ..job import build_keyword_spec, load_job_config
 from ..keyword_normalize import item_text
-from .args import PROFILE_HELP_DATA, OUT_DIR_HELP, DATA_HELP, EXT_JSON, EXT_YAML
+from ..overlays import apply_profile_overlays
+from .args import DATA_HELP, EXT_JSON, EXT_YAML, OUT_DIR_HELP, PROFILE_HELP_DATA
 from .helpers import _load_candidate_data, _resolve_out
 
 
@@ -61,22 +61,24 @@ def cmd_candidate_init(args: argparse.Namespace) -> int:
     }
     if args.include_experience:
         items = []
-        for e in (data.get("experience") or []):
-            items.append({
-                "title": e.get("title", ""),
-                "company": e.get("company", ""),
-                "start": e.get("start", ""),
-                "end": e.get("end", ""),
-                "location": e.get("location", ""),
-                # Flattened to prose: this file is a hand-editable skills
-                # skeleton, so bullets are written as plain strings regardless
-                # of whether they arrived as strings or as priority dicts.
-                "bullets": [
-                    t
-                    for b in (e.get("bullets") or [])[: args.max_bullets]
-                    if (t := item_text(b))
-                ],
-            })
+        for e in data.get("experience") or []:
+            items.append(
+                {
+                    "title": e.get("title", ""),
+                    "company": e.get("company", ""),
+                    "start": e.get("start", ""),
+                    "end": e.get("end", ""),
+                    "location": e.get("location", ""),
+                    # Flattened to prose: this file is a hand-editable skills
+                    # skeleton, so bullets are written as plain strings regardless
+                    # of whether they arrived as strings or as priority dicts.
+                    "bullets": [
+                        t
+                        for b in (e.get("bullets") or [])[: args.max_bullets]
+                        if (t := item_text(b))
+                    ],
+                }
+            )
         candidate["experience"] = items
     write_yaml_or_json(candidate, out)
     return 0
@@ -88,22 +90,38 @@ def register_align_commands(app: CLIApp) -> None:
         (("--data",), {"help": DATA_HELP}),
         (("--job",), {"required": True, "help": "Job posting config (YAML/JSON)"}),
         (("--tailored",), {"help": "Optional path to write tailored candidate data (YAML/JSON)"}),
-        (("--max-bullets",), {"type": int, "default": 6, "help": "Max bullets per role in tailored output"}),
-        (("--min-exp-score",), {"type": int, "default": 1, "help": "Minimum experience score to keep a role"}),
+        (
+            ("--max-bullets",),
+            {"type": int, "default": 6, "help": "Max bullets per role in tailored output"},
+        ),
+        (
+            ("--min-exp-score",),
+            {"type": int, "default": 1, "help": "Minimum experience score to keep a role"},
+        ),
         (("--out",), {"help": "Alignment report path (overrides --profile)"}),
         (("--profile",), {"help": PROFILE_HELP_DATA}),
         (("--out-dir",), {"help": OUT_DIR_HELP}),
     ]
     app.add_arguments(_ALIGN_ARGS)
-    app.command("align", help="Align unified candidate data with a job posting YAML/JSON")(cmd_align)
+    app.command("align", help="Align unified candidate data with a job posting YAML/JSON")(
+        cmd_align
+    )
 
     _CANDIDATE_INIT_ARGS: list[tuple[tuple[str, ...], dict[str, Any]]] = [
         (("--data",), {"help": DATA_HELP}),
-        (("--include-experience",), {"action": "store_true", "help": "Include experience items and bullets"}),
-        (("--max-bullets",), {"type": int, "default": 3, "help": "Max bullets per role if including experience"}),
+        (
+            ("--include-experience",),
+            {"action": "store_true", "help": "Include experience items and bullets"},
+        ),
+        (
+            ("--max-bullets",),
+            {"type": int, "default": 3, "help": "Max bullets per role if including experience"},
+        ),
         (("--out",), {"help": "Output candidate YAML path (overrides --profile)"}),
         (("--profile",), {"help": PROFILE_HELP_DATA}),
         (("--out-dir",), {"help": OUT_DIR_HELP}),
     ]
     app.add_arguments(_CANDIDATE_INIT_ARGS)
-    app.command("candidate-init", help="Generate a candidate skills YAML from unified data")(cmd_candidate_init)
+    app.command("candidate-init", help="Generate a candidate skills YAML from unified data")(
+        cmd_candidate_init
+    )

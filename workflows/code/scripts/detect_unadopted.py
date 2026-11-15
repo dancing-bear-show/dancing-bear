@@ -41,8 +41,17 @@ WORKFLOWS = "workflows"
 SHARED = os.path.join(WORKFLOWS, "shared")
 
 SKIP_WALK_DIRS = {
-    ".git", ".venv", ".claude", ".claire", "__pycache__", "node_modules",
-    ".cache", "out", "_out", "backups", "personal_assistants.egg-info",
+    ".git",
+    ".venv",
+    ".claude",
+    ".claire",
+    "__pycache__",
+    "node_modules",
+    ".cache",
+    "out",
+    "_out",
+    "backups",
+    "personal_assistants.egg-info",
 }
 
 #: A symbol defined in core/ but called this few times outside its own module

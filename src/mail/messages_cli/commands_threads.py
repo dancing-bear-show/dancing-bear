@@ -6,6 +6,7 @@ dataclass from `..messages` rather than defining a parallel thread-message type:
 `candidates_from_metadata` already parses, so a separate dataclass would only add
 another place for fields to get dropped.
 """
+
 from __future__ import annotations
 
 import argparse

@@ -15,9 +15,10 @@ import os
 import subprocess  # nosec B404
 import sys
 import tempfile
+from collections.abc import Sequence
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any
 from unittest.mock import MagicMock
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -59,7 +60,7 @@ def test_path(filename: str = "test") -> str:
     return f"/tmp/{filename}"  # nosec B108 - test fixture path, not used for file creation
 
 
-def run(cmd: Sequence[str], cwd: Optional[str] = None):
+def run(cmd: Sequence[str], cwd: str | None = None):
     return subprocess.run(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # nosec B603 - test helper with cmd controlled by test code
 
 
@@ -101,7 +102,7 @@ def capture_stderr():
 # -----------------------------------------------------------------------------
 
 
-def write_yaml(data: dict, dir: Optional[str] = None, filename: str = "config.yaml") -> str:
+def write_yaml(data: dict, dir: str | None = None, filename: str = "config.yaml") -> str:
     """Write a dict to a temporary YAML file, return the path."""
     import yaml
 
@@ -129,7 +130,7 @@ def temp_yaml_file(data: dict, suffix: str = ".yaml"):
 # -----------------------------------------------------------------------------
 
 
-def write_csv(path: str, headers: List[str], rows: List[List]) -> str:
+def write_csv(path: str, headers: list[str], rows: list[list]) -> str:
     """Write a CSV file with headers and rows.
 
     Args:
@@ -165,7 +166,7 @@ def write_csv_content(path: str, content: str) -> str:
 
 
 @contextmanager
-def temp_csv(headers: List[str], rows: List[List], suffix: str = ".csv"):
+def temp_csv(headers: list[str], rows: list[list], suffix: str = ".csv"):
     """Context manager that yields a path to a temporary CSV file.
 
     Example:
@@ -241,7 +242,7 @@ class TempDirMixin:
 
 
 @contextmanager
-def temp_json_file(data: Dict[str, Any], suffix: str = ".json"):
+def temp_json_file(data: dict[str, Any], suffix: str = ".json"):
     """Context manager that yields a path to a temporary JSON file.
 
     Example:
@@ -284,7 +285,7 @@ def temp_module_path(path: Path):
 # -----------------------------------------------------------------------------
 
 
-def make_mock_envelope(ok: bool = True, result: Any = None, error: Optional[str] = None):
+def make_mock_envelope(ok: bool = True, result: Any = None, error: str | None = None):
     """Factory for creating ResultEnvelope mocks.
 
     This reduces boilerplate when testing pipeline code that uses ResultEnvelope.
@@ -321,6 +322,8 @@ def make_path_mock(true_paths: set):
     this same helper — extracting it here keeps the two suites decoupled from
     each other but avoids two copies drifting.
     """
+
     def _exists(path):
         return tuple(path) in true_paths
+
     return _exists

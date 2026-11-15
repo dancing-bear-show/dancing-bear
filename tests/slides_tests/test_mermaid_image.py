@@ -95,9 +95,11 @@ class TestRenderMermaid(unittest.TestCase):
         """_render_mermaid invokes mmdc with the expected flags."""
         mermaid_src = "graph TD\n  A --> B"
 
-        with patch("slides.generator.subprocess.run") as mock_run, \
-             patch("slides.generator.tempfile.NamedTemporaryFile") as mock_ntf, \
-             patch("slides.generator.os.unlink"):
+        with (
+            patch("slides.generator.subprocess.run") as mock_run,
+            patch("slides.generator.tempfile.NamedTemporaryFile") as mock_ntf,
+            patch("slides.generator.os.unlink"),
+        ):
             # Simulate NamedTemporaryFile context manager
             mock_file = MagicMock()
             mock_file.name = "/fake/fake.mmd"
@@ -121,9 +123,11 @@ class TestRenderMermaid(unittest.TestCase):
         """_render_mermaid returns the path to the PNG file."""
         mermaid_src = "graph TD\n  A --> B"
 
-        with patch("slides.generator.subprocess.run"), \
-             patch("slides.generator.tempfile.NamedTemporaryFile") as mock_ntf, \
-             patch("slides.generator.os.unlink"):
+        with (
+            patch("slides.generator.subprocess.run"),
+            patch("slides.generator.tempfile.NamedTemporaryFile") as mock_ntf,
+            patch("slides.generator.os.unlink"),
+        ):
             mock_file = MagicMock()
             mock_file.name = "/fake/test_diagram.mmd"
             mock_ntf.return_value.__enter__ = MagicMock(return_value=mock_file)
@@ -138,9 +142,11 @@ class TestRenderMermaid(unittest.TestCase):
         """_render_mermaid raises RuntimeError when mmdc binary is missing."""
         mermaid_src = "graph TD\n  A --> B"
 
-        with patch("slides.generator.subprocess.run") as mock_run, \
-             patch("slides.generator.tempfile.NamedTemporaryFile") as mock_ntf, \
-             patch("slides.generator.os.unlink"):
+        with (
+            patch("slides.generator.subprocess.run") as mock_run,
+            patch("slides.generator.tempfile.NamedTemporaryFile") as mock_ntf,
+            patch("slides.generator.os.unlink"),
+        ):
             mock_file = MagicMock()
             mock_file.name = "/fake/test.mmd"
             mock_ntf.return_value.__enter__ = MagicMock(return_value=mock_file)
@@ -156,9 +162,11 @@ class TestRenderMermaid(unittest.TestCase):
         """_render_mermaid raises RuntimeError when mmdc exits non-zero."""
         mermaid_src = "invalid mermaid"
 
-        with patch("slides.generator.subprocess.run") as mock_run, \
-             patch("slides.generator.tempfile.NamedTemporaryFile") as mock_ntf, \
-             patch("slides.generator.os.unlink"):
+        with (
+            patch("slides.generator.subprocess.run") as mock_run,
+            patch("slides.generator.tempfile.NamedTemporaryFile") as mock_ntf,
+            patch("slides.generator.os.unlink"),
+        ):
             mock_file = MagicMock()
             mock_file.name = "/fake/bad.mmd"
             mock_ntf.return_value.__enter__ = MagicMock(return_value=mock_file)
@@ -175,9 +183,11 @@ class TestRenderMermaid(unittest.TestCase):
         """Temporary .mmd file is removed after successful render."""
         mermaid_src = "graph TD\n  A --> B"
 
-        with patch("slides.generator.subprocess.run"), \
-             patch("slides.generator.tempfile.NamedTemporaryFile") as mock_ntf, \
-             patch("slides.generator.os.unlink") as mock_unlink:
+        with (
+            patch("slides.generator.subprocess.run"),
+            patch("slides.generator.tempfile.NamedTemporaryFile") as mock_ntf,
+            patch("slides.generator.os.unlink") as mock_unlink,
+        ):
             mock_file = MagicMock()
             mock_file.name = "/fake/cleanup_test.mmd"
             mock_ntf.return_value.__enter__ = MagicMock(return_value=mock_file)
@@ -191,9 +201,11 @@ class TestRenderMermaid(unittest.TestCase):
         """Temporary .mmd file is removed even when mmdc fails."""
         mermaid_src = "graph TD\n  A --> B"
 
-        with patch("slides.generator.subprocess.run") as mock_run, \
-             patch("slides.generator.tempfile.NamedTemporaryFile") as mock_ntf, \
-             patch("slides.generator.os.unlink") as mock_unlink:
+        with (
+            patch("slides.generator.subprocess.run") as mock_run,
+            patch("slides.generator.tempfile.NamedTemporaryFile") as mock_ntf,
+            patch("slides.generator.os.unlink") as mock_unlink,
+        ):
             mock_file = MagicMock()
             mock_file.name = "/fake/fail_cleanup.mmd"
             mock_ntf.return_value.__enter__ = MagicMock(return_value=mock_file)
@@ -212,7 +224,9 @@ class TestRenderMermaid(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-def _make_minimal_slide(*, body_idx_1: bool = False, text_box: bool = False) -> tuple[MagicMock, list[MagicMock]]:
+def _make_minimal_slide(
+    *, body_idx_1: bool = False, text_box: bool = False
+) -> tuple[MagicMock, list[MagicMock]]:
     """Build a minimal mock slide for image tests.
 
     The shapes list supports multiple iterations (generator iterates it several
@@ -349,9 +363,11 @@ class TestPopulateSlideDispatch(unittest.TestCase):
         content = SlideContent(title="Flow", mermaid="graph TD\n  A --> B")
         fake_png = "/fake/rendered.png"
 
-        with patch.object(self.generator, "_render_mermaid", return_value=fake_png) as mock_render, \
-             patch.object(self.generator, "_add_image_to_slide") as mock_add_img, \
-             patch("slides.generator.os.unlink"):
+        with (
+            patch.object(self.generator, "_render_mermaid", return_value=fake_png) as mock_render,
+            patch.object(self.generator, "_add_image_to_slide") as mock_add_img,
+            patch("slides.generator.os.unlink"),
+        ):
             self.generator._populate_slide(self.mock_slide, content, self.theme)
 
         mock_render.assert_called_once_with(content.mermaid)
@@ -362,9 +378,11 @@ class TestPopulateSlideDispatch(unittest.TestCase):
         content = SlideContent(title="Flow", mermaid="graph TD\n  A --> B")
         fake_png = "/fake/to_delete.png"
 
-        with patch.object(self.generator, "_render_mermaid", return_value=fake_png), \
-             patch.object(self.generator, "_add_image_to_slide"), \
-             patch("slides.generator.os.unlink") as mock_unlink:
+        with (
+            patch.object(self.generator, "_render_mermaid", return_value=fake_png),
+            patch.object(self.generator, "_add_image_to_slide"),
+            patch("slides.generator.os.unlink") as mock_unlink,
+        ):
             self.generator._populate_slide(self.mock_slide, content, self.theme)
 
         mock_unlink.assert_called_once_with(fake_png)
@@ -374,9 +392,11 @@ class TestPopulateSlideDispatch(unittest.TestCase):
         content = SlideContent(title="Flow", mermaid="graph TD\n  A --> B")
         fake_png = "/fake/on_fail.png"
 
-        with patch.object(self.generator, "_render_mermaid", return_value=fake_png), \
-             patch.object(self.generator, "_add_image_to_slide", side_effect=RuntimeError("fail")), \
-             patch("slides.generator.os.unlink") as mock_unlink:
+        with (
+            patch.object(self.generator, "_render_mermaid", return_value=fake_png),
+            patch.object(self.generator, "_add_image_to_slide", side_effect=RuntimeError("fail")),
+            patch("slides.generator.os.unlink") as mock_unlink,
+        ):
             with self.assertRaises(RuntimeError):
                 self.generator._populate_slide(self.mock_slide, content, self.theme)
 
@@ -389,14 +409,18 @@ class TestPopulateSlideDispatch(unittest.TestCase):
         with patch.object(self.generator, "_add_image_to_slide") as mock_add_img:
             self.generator._populate_slide(self.mock_slide, content, self.theme)
 
-        mock_add_img.assert_called_once_with(self.mock_slide, "/fake/photo.png", content, self.theme)
+        mock_add_img.assert_called_once_with(
+            self.mock_slide, "/fake/photo.png", content, self.theme
+        )
 
     def test_image_does_not_call_render_mermaid(self):
         """content.image path skips mermaid rendering entirely."""
         content = SlideContent(title="Photo", image="/fake/photo.png")
 
-        with patch.object(self.generator, "_render_mermaid") as mock_render, \
-             patch.object(self.generator, "_add_image_to_slide"):
+        with (
+            patch.object(self.generator, "_render_mermaid") as mock_render,
+            patch.object(self.generator, "_add_image_to_slide"),
+        ):
             self.generator._populate_slide(self.mock_slide, content, self.theme)
 
         mock_render.assert_not_called()
@@ -406,9 +430,11 @@ class TestPopulateSlideDispatch(unittest.TestCase):
         content = SlideContent(title="Both", mermaid="graph TD\n  A-->B", image="/fake/img.png")
         fake_png = "/fake/mermaid.png"
 
-        with patch.object(self.generator, "_render_mermaid", return_value=fake_png) as mock_render, \
-             patch.object(self.generator, "_add_image_to_slide") as mock_add_img, \
-             patch("slides.generator.os.unlink"):
+        with (
+            patch.object(self.generator, "_render_mermaid", return_value=fake_png) as mock_render,
+            patch.object(self.generator, "_add_image_to_slide") as mock_add_img,
+            patch("slides.generator.os.unlink"),
+        ):
             self.generator._populate_slide(self.mock_slide, content, self.theme)
 
         mock_render.assert_called_once()
@@ -420,9 +446,11 @@ class TestPopulateSlideDispatch(unittest.TestCase):
         """Plain SlideContent (no mermaid/image) dispatches to _populate_bullet_slide."""
         content = SlideContent(title="Bullets", bullets=["a", "b"])
 
-        with patch.object(self.generator, "_populate_bullet_slide") as mock_bullets, \
-             patch.object(self.generator, "_render_mermaid") as mock_render, \
-             patch.object(self.generator, "_add_image_to_slide") as mock_add_img:
+        with (
+            patch.object(self.generator, "_populate_bullet_slide") as mock_bullets,
+            patch.object(self.generator, "_render_mermaid") as mock_render,
+            patch.object(self.generator, "_add_image_to_slide") as mock_add_img,
+        ):
             self.generator._populate_slide(self.mock_slide, content, self.theme)
 
         mock_bullets.assert_called_once()
@@ -476,9 +504,7 @@ class TestRemoveUnusedPlaceholders(unittest.TestCase):
         shapes[0]._element.getparent.return_value.remove.assert_not_called()
         shapes[1]._element.getparent.return_value.remove.assert_not_called()
         # idx=2 should be removed
-        shapes[2]._element.getparent.return_value.remove.assert_called_once_with(
-            shapes[2]._element
-        )
+        shapes[2]._element.getparent.return_value.remove.assert_called_once_with(shapes[2]._element)
 
     def test_keep_body_false_removes_idx1(self):
         """keep_body=False (default) removes the idx=1 placeholder."""
@@ -489,9 +515,7 @@ class TestRemoveUnusedPlaceholders(unittest.TestCase):
         # idx=0 (title) kept
         shapes[0]._element.getparent.return_value.remove.assert_not_called()
         # idx=1 removed
-        shapes[1]._element.getparent.return_value.remove.assert_called_once_with(
-            shapes[1]._element
-        )
+        shapes[1]._element.getparent.return_value.remove.assert_called_once_with(shapes[1]._element)
 
     def test_default_removes_idx1(self):
         """Default call (no keep_body kwarg) removes the idx=1 placeholder."""
@@ -499,9 +523,7 @@ class TestRemoveUnusedPlaceholders(unittest.TestCase):
 
         self.generator._remove_unused_placeholders(mock_slide)
 
-        shapes[1]._element.getparent.return_value.remove.assert_called_once_with(
-            shapes[1]._element
-        )
+        shapes[1]._element.getparent.return_value.remove.assert_called_once_with(shapes[1]._element)
 
     def test_page_number_placeholder_kept(self):
         """Placeholders whose text is purely numeric (page numbers) are preserved."""
@@ -551,8 +573,10 @@ class TestPopulateBulletSlideBodyPlaceholder(unittest.TestCase):
         mock_slide = self._make_slide_with_body()
         content = SlideContent(title="Slide", bullets=["point"])
 
-        with patch.object(self.generator, "_remove_unused_placeholders") as mock_remove, \
-             patch.object(self.generator, "_set_slide_content"):
+        with (
+            patch.object(self.generator, "_remove_unused_placeholders") as mock_remove,
+            patch.object(self.generator, "_set_slide_content"),
+        ):
             self.generator._populate_bullet_slide(mock_slide, content, MSO_THEME_COLOR.LIGHT_2)
 
         mock_remove.assert_called_once()
@@ -564,9 +588,11 @@ class TestPopulateBulletSlideBodyPlaceholder(unittest.TestCase):
         mock_slide = self._make_slide_with_body()
         content = SlideContent(title="Slide", bullets=[])
 
-        with patch.object(self.generator, "_remove_unused_placeholders") as mock_remove, \
-             patch.object(self.generator, "_set_slide_content"), \
-             patch.object(self.generator, "_reposition_textbox"):
+        with (
+            patch.object(self.generator, "_remove_unused_placeholders") as mock_remove,
+            patch.object(self.generator, "_set_slide_content"),
+            patch.object(self.generator, "_reposition_textbox"),
+        ):
             self.generator._populate_bullet_slide(mock_slide, content, MSO_THEME_COLOR.LIGHT_2)
 
         mock_remove.assert_called_once()
@@ -612,9 +638,7 @@ class TestSetSlideTitleBodyPlaceholderInteraction(unittest.TestCase):
         mock_slide = MagicMock()
         mock_slide.shapes.__iter__ = MagicMock(side_effect=lambda: iter(shapes))
 
-        self.generator._set_slide_title(
-            mock_slide, "My Title", MSO_THEME_COLOR.LIGHT_2
-        )
+        self.generator._set_slide_title(mock_slide, "My Title", MSO_THEME_COLOR.LIGHT_2)
 
         # Sentinel value unchanged: repositioning code was not reached
         self.assertEqual(title_shape.top, "SENTINEL")
@@ -627,9 +651,7 @@ class TestSetSlideTitleBodyPlaceholderInteraction(unittest.TestCase):
         mock_slide = MagicMock()
         mock_slide.shapes.__iter__ = MagicMock(side_effect=lambda: iter(shapes))
 
-        self.generator._set_slide_title(
-            mock_slide, "My Title", MSO_THEME_COLOR.LIGHT_2
-        )
+        self.generator._set_slide_title(mock_slide, "My Title", MSO_THEME_COLOR.LIGHT_2)
 
         # Sentinel was replaced — repositioning code ran and assigned an Inches value
         self.assertNotEqual(title_shape.top, "SENTINEL")

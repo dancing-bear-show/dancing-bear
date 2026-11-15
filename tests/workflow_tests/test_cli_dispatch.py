@@ -10,15 +10,17 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from core.cli_errors import CLIError
 from tests.workflow_tests.helpers.factories import (
     make_cli_args as _make_args,
+)
+from tests.workflow_tests.helpers.factories import (
     make_stage_result,
     make_stage_spec,
     make_workflow_definition,
     make_workflow_manifest,
     write_yaml,
 )
-from core.cli_errors import CLIError
 from workflow.cli_dispatch import (
     _build_plan_json,
     _build_resolved_params,
@@ -43,7 +45,6 @@ from workflow.cli_dispatch import (
 )
 from workflow.cli_dispatch_review import _cmd_snapshot_dirty
 from workflow.models import StageStatus
-
 
 # ---------------------------------------------------------------------------
 # Minimal YAML workflow fixture
@@ -243,6 +244,7 @@ class TestBuildPlanJson(unittest.TestCase):
 
     def test_total_stages_matches_manifest(self) -> None:
         from workflow.compiler import compile_workflow
+
         stages = (
             make_stage_spec(name="a"),
             make_stage_spec(name="b"),
@@ -280,6 +282,7 @@ class TestResolveBaseDir(unittest.TestCase):
     def test_falls_back_to_tempdir_when_no_workspace(self) -> None:
         defn = make_workflow_definition()
         import tempfile as _tf
+
         result = _resolve_base_dir(None, defn, {})
         self.assertEqual(result, _tf.gettempdir())
 
@@ -297,32 +300,37 @@ class TestResolveBaseDir(unittest.TestCase):
 
 class TestConfirmExecution(unittest.TestCase):
     def test_non_interactive_stdin_returns_true(self) -> None:
-        with patch("sys.stdin") as mock_stdin, \
-             patch("sys.stderr", io.StringIO()):
+        with patch("sys.stdin") as mock_stdin, patch("sys.stderr", io.StringIO()):
             mock_stdin.isatty.return_value = False
             result = _confirm_execution("test-wf", 3)
         self.assertTrue(result)
 
     def test_tty_with_y_response_returns_true(self) -> None:
-        with patch("sys.stdin") as mock_stdin, \
-             patch("builtins.input", return_value="y"), \
-             patch("sys.stderr", io.StringIO()):
+        with (
+            patch("sys.stdin") as mock_stdin,
+            patch("builtins.input", return_value="y"),
+            patch("sys.stderr", io.StringIO()),
+        ):
             mock_stdin.isatty.return_value = True
             result = _confirm_execution("test-wf", 3)
         self.assertTrue(result)
 
     def test_tty_with_n_response_returns_false(self) -> None:
-        with patch("sys.stdin") as mock_stdin, \
-             patch("builtins.input", return_value="n"), \
-             patch("sys.stderr", io.StringIO()):
+        with (
+            patch("sys.stdin") as mock_stdin,
+            patch("builtins.input", return_value="n"),
+            patch("sys.stderr", io.StringIO()),
+        ):
             mock_stdin.isatty.return_value = True
             result = _confirm_execution("test-wf", 3)
         self.assertFalse(result)
 
     def test_tty_with_yes_response_returns_true(self) -> None:
-        with patch("sys.stdin") as mock_stdin, \
-             patch("builtins.input", return_value="yes"), \
-             patch("sys.stderr", io.StringIO()):
+        with (
+            patch("sys.stdin") as mock_stdin,
+            patch("builtins.input", return_value="yes"),
+            patch("sys.stderr", io.StringIO()),
+        ):
             mock_stdin.isatty.return_value = True
             result = _confirm_execution("test-wf", 3)
         self.assertTrue(result)
@@ -572,8 +580,7 @@ class TestCmdList(unittest.TestCase):
     def test_returns_one_when_no_workflows_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             args = _make_args(format="json")
-            with patch("os.getcwd", return_value=tmp_dir), \
-                 patch("sys.stderr", io.StringIO()):
+            with patch("os.getcwd", return_value=tmp_dir), patch("sys.stderr", io.StringIO()):
                 rc = _cmd_list(args)
             self.assertEqual(rc, 1)
 
@@ -585,8 +592,7 @@ class TestCmdList(unittest.TestCase):
             (wf_dir / "a.yaml").write_text(_MINIMAL_YAML, encoding="utf-8")
             args = _make_args(format="json")
             out = io.StringIO()
-            with patch("os.getcwd", return_value=tmp_dir), \
-                 patch("sys.stdout", out):
+            with patch("os.getcwd", return_value=tmp_dir), patch("sys.stdout", out):
                 rc = _cmd_list(args)
             self.assertEqual(rc, 0)
             rows = json.loads(out.getvalue())
@@ -601,8 +607,7 @@ class TestCmdList(unittest.TestCase):
             (wf_dir / "broken.yaml").write_text("invalid: {{{", encoding="utf-8")
             args = _make_args(format="json")
             out = io.StringIO()
-            with patch("os.getcwd", return_value=tmp_dir), \
-                 patch("sys.stdout", out):
+            with patch("os.getcwd", return_value=tmp_dir), patch("sys.stdout", out):
                 rc = _cmd_list(args)
             self.assertEqual(rc, 0)
             rows = json.loads(out.getvalue())
@@ -613,8 +618,7 @@ class TestCmdList(unittest.TestCase):
             tmp_path = Path(tmp_dir)
             (tmp_path / "workflows").mkdir()
             args = _make_args(format="json")
-            with patch("os.getcwd", return_value=tmp_dir), \
-                 patch("sys.stderr", io.StringIO()):
+            with patch("os.getcwd", return_value=tmp_dir), patch("sys.stderr", io.StringIO()):
                 rc = _cmd_list(args)
             self.assertEqual(rc, 1)
 
@@ -640,6 +644,7 @@ class TestCmdStatus(unittest.TestCase):
 
     def test_returns_zero_when_results_exist(self) -> None:
         from workflow.persistence import write_stage_result
+
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
             result = make_stage_result(stage_name="gather", stage_index=0)
@@ -675,11 +680,10 @@ class TestCmdResume(unittest.TestCase):
 
     def test_returns_two_when_stages_pending(self) -> None:
         from workflow.persistence import write_manifest, write_stage_result
+
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
-            manifest = make_workflow_manifest(
-                parallel_groups=(("gather",), ("propose",))
-            )
+            manifest = make_workflow_manifest(parallel_groups=(("gather",), ("propose",)))
             write_manifest(tmp_path, manifest)
             plan = {
                 "parallel_groups": [
@@ -688,7 +692,9 @@ class TestCmdResume(unittest.TestCase):
                 ]
             }
             (tmp_path / "plan.json").write_text(json.dumps(plan), encoding="utf-8")
-            result = make_stage_result(stage_name="gather", stage_index=0, status=StageStatus.success)
+            result = make_stage_result(
+                stage_name="gather", stage_index=0, status=StageStatus.success
+            )
             write_stage_result(tmp_path, result)
             args = _make_args(workspace_dir=tmp_dir, format="json")
             out = io.StringIO()
@@ -698,13 +704,16 @@ class TestCmdResume(unittest.TestCase):
 
     def test_returns_zero_when_all_stages_done(self) -> None:
         from workflow.persistence import write_manifest, write_stage_result
+
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
             manifest = make_workflow_manifest(parallel_groups=(("gather",),))
             write_manifest(tmp_path, manifest)
             plan = {"parallel_groups": [{"stages": ["gather"]}]}
             (tmp_path / "plan.json").write_text(json.dumps(plan), encoding="utf-8")
-            result = make_stage_result(stage_name="gather", stage_index=0, status=StageStatus.success)
+            result = make_stage_result(
+                stage_name="gather", stage_index=0, status=StageStatus.success
+            )
             write_stage_result(tmp_path, result)
             args = _make_args(workspace_dir=tmp_dir, format="json")
             out = io.StringIO()
@@ -714,12 +723,15 @@ class TestCmdResume(unittest.TestCase):
 
     def test_falls_back_to_manifest_when_no_plan(self) -> None:
         from workflow.persistence import write_manifest, write_stage_result
+
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
             manifest = make_workflow_manifest(parallel_groups=(("gather",),))
             write_manifest(tmp_path, manifest)
             # No plan.json — should fall back to manifest groups
-            result = make_stage_result(stage_name="gather", stage_index=0, status=StageStatus.success)
+            result = make_stage_result(
+                stage_name="gather", stage_index=0, status=StageStatus.success
+            )
             write_stage_result(tmp_path, result)
             args = _make_args(workspace_dir=tmp_dir, format="json")
             out = io.StringIO()
@@ -738,8 +750,11 @@ class TestCmdInitWorkspace(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = _write_yaml(tmp_dir, _MINIMAL_YAML)
             args = _make_args(
-                path=path, params=[], run_id="run-001",
-                base_dir=tmp_dir, format="json",
+                path=path,
+                params=[],
+                run_id="run-001",
+                base_dir=tmp_dir,
+                format="json",
             )
             out = io.StringIO()
             with patch("sys.stdout", out):
@@ -752,8 +767,11 @@ class TestCmdInitWorkspace(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = _write_yaml(tmp_dir, _MINIMAL_YAML)
             args = _make_args(
-                path=path, params=[], run_id="run-002",
-                base_dir=tmp_dir, format="json",
+                path=path,
+                params=[],
+                run_id="run-002",
+                base_dir=tmp_dir,
+                format="json",
             )
             out = io.StringIO()
             with patch("sys.stdout", out):
@@ -765,8 +783,11 @@ class TestCmdInitWorkspace(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = _write_yaml(tmp_dir, _MINIMAL_YAML)
             args = _make_args(
-                path=path, params=[], run_id="run-003",
-                base_dir=tmp_dir, format="json",
+                path=path,
+                params=[],
+                run_id="run-003",
+                base_dir=tmp_dir,
+                format="json",
             )
             out = io.StringIO()
             with patch("sys.stdout", out):
@@ -776,8 +797,11 @@ class TestCmdInitWorkspace(unittest.TestCase):
 
     def test_returns_one_when_file_missing(self) -> None:
         args = _make_args(
-            path="/no/such/wf.yaml", params=[], run_id=None,
-            base_dir="", format="json",
+            path="/no/such/wf.yaml",
+            params=[],
+            run_id=None,
+            base_dir="",
+            format="json",
         )
         with patch("sys.stderr", io.StringIO()):
             rc = _cmd_init_workspace(args)
@@ -787,8 +811,11 @@ class TestCmdInitWorkspace(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = _write_yaml(tmp_dir, _MINIMAL_YAML)
             args = _make_args(
-                path=path, params=["badparam"], run_id=None,
-                base_dir=tmp_dir, format="json",
+                path=path,
+                params=["badparam"],
+                run_id=None,
+                base_dir=tmp_dir,
+                format="json",
             )
             with patch("sys.stderr", io.StringIO()):
                 rc = _cmd_init_workspace(args)
@@ -798,8 +825,11 @@ class TestCmdInitWorkspace(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = _write_yaml(tmp_dir, _MINIMAL_YAML)
             args = _make_args(
-                path=path, params=[], run_id="",
-                base_dir=tmp_dir, format="json",
+                path=path,
+                params=[],
+                run_id="",
+                base_dir=tmp_dir,
+                format="json",
             )
             out = io.StringIO()
             with patch("sys.stdout", out):
@@ -820,8 +850,12 @@ class TestCmdRunDryRun(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = _write_yaml(tmp_dir, _MINIMAL_YAML)
             args = _make_args(
-                path=path, params=[], execute=False,
-                workspace=tmp_dir, run_id=None, format="json",
+                path=path,
+                params=[],
+                execute=False,
+                workspace=tmp_dir,
+                run_id=None,
+                format="json",
             )
             out = io.StringIO()
             with patch("sys.stdout", out), patch("sys.stderr", io.StringIO()):
@@ -832,8 +866,12 @@ class TestCmdRunDryRun(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = _write_yaml(tmp_dir, _MINIMAL_YAML)
             args = _make_args(
-                path=path, params=[], execute=False,
-                workspace=tmp_dir, run_id=None, format="json",
+                path=path,
+                params=[],
+                execute=False,
+                workspace=tmp_dir,
+                run_id=None,
+                format="json",
             )
             out = io.StringIO()
             with patch("sys.stdout", out), patch("sys.stderr", io.StringIO()):
@@ -849,8 +887,12 @@ class TestCmdRunDryRun(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = _write_yaml(tmp_dir, _MINIMAL_YAML)
             args = _make_args(
-                path=path, params=[], execute=False,
-                workspace=tmp_dir, run_id=None, format="json",
+                path=path,
+                params=[],
+                execute=False,
+                workspace=tmp_dir,
+                run_id=None,
+                format="json",
             )
             out = io.StringIO()
             with patch("sys.stdout", out), patch("sys.stderr", io.StringIO()):
@@ -864,8 +906,12 @@ class TestCmdRunDryRun(unittest.TestCase):
 
     def test_returns_one_when_file_missing(self) -> None:
         args = _make_args(
-            path="/no/such.yaml", params=[], execute=False,
-            workspace=None, run_id=None, format="json",
+            path="/no/such.yaml",
+            params=[],
+            execute=False,
+            workspace=None,
+            run_id=None,
+            format="json",
         )
         with patch("sys.stderr", io.StringIO()):
             rc = _cmd_run(args)
@@ -875,8 +921,12 @@ class TestCmdRunDryRun(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = _write_yaml(tmp_dir, _MINIMAL_YAML)
             args = _make_args(
-                path=path, params=["bad-param-no-equals"], execute=False,
-                workspace=tmp_dir, run_id=None, format="json",
+                path=path,
+                params=["bad-param-no-equals"],
+                execute=False,
+                workspace=tmp_dir,
+                run_id=None,
+                format="json",
             )
             with patch("sys.stderr", io.StringIO()):
                 rc = _cmd_run(args)
@@ -886,14 +936,20 @@ class TestCmdRunDryRun(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = _write_yaml(tmp_dir, _MINIMAL_YAML)
             args = _make_args(
-                path=path, params=[], execute=True,
-                workspace=tmp_dir, run_id="run-xyz", format="json",
+                path=path,
+                params=[],
+                execute=True,
+                workspace=tmp_dir,
+                run_id="run-xyz",
+                format="json",
             )
             out = io.StringIO()
             err = io.StringIO()
-            with patch("sys.stdout", out), \
-                 patch("sys.stderr", err), \
-                 patch("sys.stdin") as mock_stdin:
+            with (
+                patch("sys.stdout", out),
+                patch("sys.stderr", err),
+                patch("sys.stdin") as mock_stdin,
+            ):
                 mock_stdin.isatty.return_value = False
                 rc = _cmd_run(args)
             self.assertIn(rc, (0, 2))
@@ -902,12 +958,18 @@ class TestCmdRunDryRun(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = _write_yaml(tmp_dir, _MINIMAL_YAML)
             args = _make_args(
-                path=path, params=[], execute=True,
-                workspace=tmp_dir, run_id=None, format="json",
+                path=path,
+                params=[],
+                execute=True,
+                workspace=tmp_dir,
+                run_id=None,
+                format="json",
             )
-            with patch("sys.stderr", io.StringIO()), \
-                 patch("sys.stdin") as mock_stdin, \
-                 patch("builtins.input", return_value="n"):
+            with (
+                patch("sys.stderr", io.StringIO()),
+                patch("sys.stdin") as mock_stdin,
+                patch("builtins.input", return_value="n"),
+            ):
                 mock_stdin.isatty.return_value = True
                 rc = _cmd_run(args)
             self.assertEqual(rc, 1)
@@ -933,14 +995,18 @@ class TestParseWorkflowSafe(unittest.TestCase):
             msg = str(ctx.exception)
             self.assertIn("yaml", msg)
             import sys as _sys
+
             self.assertIn(_sys.executable, msg)
 
     def test_raises_cli_error_on_parse_error(self) -> None:
         """WorkflowParseError becomes a CLIError (parse content errors still surface)."""
         from workflow.parser import WorkflowParseError
+
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = _write_yaml(tmp_dir, _MINIMAL_YAML)
-            with patch("workflow.cli_dispatch.parse_workflow", side_effect=WorkflowParseError("bad yaml")):
+            with patch(
+                "workflow.cli_dispatch.parse_workflow", side_effect=WorkflowParseError("bad yaml")
+            ):
                 with self.assertRaises(CLIError):
                     _parse_workflow_safe(path)
 
@@ -977,13 +1043,16 @@ class TestCmdListImportError(unittest.TestCase):
             err = ModuleNotFoundError("No module named 'yaml'")
             err.name = "yaml"
             args = _make_args(format="json")
-            with patch("os.getcwd", return_value=tmp_dir), \
-                 patch("workflow.cli_dispatch.parse_workflow", side_effect=err):
+            with (
+                patch("os.getcwd", return_value=tmp_dir),
+                patch("workflow.cli_dispatch.parse_workflow", side_effect=err),
+            ):
                 with self.assertRaises(CLIError) as ctx:
                     _cmd_list(args)
             msg = str(ctx.exception)
             self.assertIn("yaml", msg)
             import sys as _sys
+
             self.assertIn(_sys.executable, msg)
 
     def test_genuine_parse_error_still_yields_parse_error_row(self) -> None:
@@ -998,8 +1067,7 @@ class TestCmdListImportError(unittest.TestCase):
 
             args = _make_args(format="json")
             out = io.StringIO()
-            with patch("os.getcwd", return_value=tmp_dir), \
-                 patch("sys.stdout", out):
+            with patch("os.getcwd", return_value=tmp_dir), patch("sys.stdout", out):
                 rc = _cmd_list(args)
             self.assertEqual(rc, 0)
             rows = json.loads(out.getvalue())
@@ -1031,6 +1099,7 @@ class TestBuildResolvedParamsImportError(unittest.TestCase):
             msg = str(ctx.exception)
             self.assertIn("yaml", msg)
             import sys as _sys
+
             self.assertIn(_sys.executable, msg)
 
     def test_does_not_raise_raw_module_not_found_error(self) -> None:
@@ -1073,8 +1142,10 @@ class TestCmdSnapshotDirtyCallOrder(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             out_path = str(Path(tmp_dir) / "baseline.json")
-            with patch("workflow.worktree_gate.head_commit", side_effect=fake_head_commit), \
-                 patch("workflow.worktree_gate.snapshot_dirty", side_effect=fake_snapshot_dirty):
+            with (
+                patch("workflow.worktree_gate.head_commit", side_effect=fake_head_commit),
+                patch("workflow.worktree_gate.snapshot_dirty", side_effect=fake_snapshot_dirty),
+            ):
                 rc = _cmd_snapshot_dirty(argparse.Namespace(out=out_path))
             self.assertEqual(rc, 0)
             self.assertEqual(calls, ["head_commit", "snapshot_dirty"])
@@ -1100,8 +1171,10 @@ class TestCmdSnapshotDirtyCallOrder(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             out_path = str(Path(tmp_dir) / "baseline.json")
-            with patch("workflow.worktree_gate.head_commit", side_effect=fake_head_commit), \
-                 patch("workflow.worktree_gate.snapshot_dirty", side_effect=fake_snapshot_dirty):
+            with (
+                patch("workflow.worktree_gate.head_commit", side_effect=fake_head_commit),
+                patch("workflow.worktree_gate.snapshot_dirty", side_effect=fake_snapshot_dirty),
+            ):
                 rc = _cmd_snapshot_dirty(argparse.Namespace(out=out_path))
             self.assertEqual(rc, 0)
             recorded = json.loads(Path(out_path).read_text())
@@ -1110,7 +1183,9 @@ class TestCmdSnapshotDirtyCallOrder(unittest.TestCase):
             # will walk it, instead of being silently absorbed into the
             # baseline the way a snapshot-then-head order would allow.
             self.assertEqual(recorded["head"], "before-race-commit")
-            self.assertNotEqual(recorded["head"], head_snapshot_during_race["head_after_race_commit"])
+            self.assertNotEqual(
+                recorded["head"], head_snapshot_during_race["head_after_race_commit"]
+            )
             self.assertEqual(order, ["head_commit", "snapshot_dirty"])
 
 

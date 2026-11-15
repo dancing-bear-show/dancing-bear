@@ -4,6 +4,7 @@ Both commands dispatch on ``is_outlook_profile`` the way ``messages search``
 already does. The Gmail path must be unchanged; the Outlook path builds its
 record from Graph fields and extracts body text via ``outlook_message_text``.
 """
+
 from __future__ import annotations
 
 import json
@@ -39,8 +40,10 @@ class OutlookGetTestBase(unittest.TestCase):
         arg_overrides.setdefault("id", "OLK1")
         arg_overrides.setdefault("format", "text")
         arg_overrides.setdefault("profile", "outlook_personal")
-        with patch("mail.utils.cli_helpers.is_outlook_profile", return_value=True), \
-             patch("mail.utils.cli_helpers.outlook_client_from_args", return_value=client):
+        with (
+            patch("mail.utils.cli_helpers.is_outlook_profile", return_value=True),
+            patch("mail.utils.cli_helpers.outlook_client_from_args", return_value=client),
+        ):
             with capture_stdout() as buf:
                 rc = run_messages_get(make_args(**arg_overrides))
         return rc, buf.getvalue()
@@ -86,9 +89,11 @@ class TestOutlookGet(OutlookGetTestBase):
     def test_does_not_call_gmail_provider(self):
         """The Outlook branch must not build a Gmail client."""
         client = self._client()
-        with patch("mail.utils.cli_helpers.is_outlook_profile", return_value=True), \
-             patch("mail.utils.cli_helpers.outlook_client_from_args", return_value=client), \
-             patch("mail.utils.cli_helpers.gmail_provider_from_args") as gmail:
+        with (
+            patch("mail.utils.cli_helpers.is_outlook_profile", return_value=True),
+            patch("mail.utils.cli_helpers.outlook_client_from_args", return_value=client),
+            patch("mail.utils.cli_helpers.gmail_provider_from_args") as gmail,
+        ):
             with capture_stdout():
                 run_messages_get(make_args(id="OLK1", format="text", profile="outlook_personal"))
 
@@ -115,9 +120,11 @@ class TestOutlookSummarize(unittest.TestCase):
         arg_overrides.setdefault("id", "OLK1")
         arg_overrides.setdefault("profile", "outlook_personal")
         arg_overrides.setdefault("max_words", 40)
-        with patch("mail.utils.cli_helpers.is_outlook_profile", return_value=True), \
-             patch("mail.utils.cli_helpers.outlook_client_from_args", return_value=client), \
-             patch("mail.llm_adapter.summarize_text", side_effect=lambda t, max_words=120: t[:60]):
+        with (
+            patch("mail.utils.cli_helpers.is_outlook_profile", return_value=True),
+            patch("mail.utils.cli_helpers.outlook_client_from_args", return_value=client),
+            patch("mail.llm_adapter.summarize_text", side_effect=lambda t, max_words=120: t[:60]),
+        ):
             with capture_stdout() as buf:
                 rc = run_messages_summarize(make_args(**arg_overrides))
         return rc, buf.getvalue()
@@ -148,12 +155,16 @@ class TestOutlookSummarize(unittest.TestCase):
     def test_does_not_call_gmail_provider(self):
         client = MagicMock()
         client.get_message.return_value = graph_message()
-        with patch("mail.utils.cli_helpers.is_outlook_profile", return_value=True), \
-             patch("mail.utils.cli_helpers.outlook_client_from_args", return_value=client), \
-             patch("mail.llm_adapter.summarize_text", side_effect=lambda t, max_words=120: t[:60]), \
-             patch("mail.utils.cli_helpers.gmail_provider_from_args") as gmail:
+        with (
+            patch("mail.utils.cli_helpers.is_outlook_profile", return_value=True),
+            patch("mail.utils.cli_helpers.outlook_client_from_args", return_value=client),
+            patch("mail.llm_adapter.summarize_text", side_effect=lambda t, max_words=120: t[:60]),
+            patch("mail.utils.cli_helpers.gmail_provider_from_args") as gmail,
+        ):
             with capture_stdout():
-                run_messages_summarize(make_args(id="OLK1", profile="outlook_personal", max_words=40))
+                run_messages_summarize(
+                    make_args(id="OLK1", profile="outlook_personal", max_words=40)
+                )
 
         gmail.assert_not_called()
 
@@ -164,15 +175,19 @@ class TestGmailPathUnchanged(unittest.TestCase):
     def test_gmail_get_still_uses_gmail_provider(self):
         client = MagicMock()
         client.get_message.return_value = {
-            "payload": {"headers": [
-                {"name": "Subject", "value": "Hi"},
-                {"name": "From", "value": "a@b.com"},
-            ]}
+            "payload": {
+                "headers": [
+                    {"name": "Subject", "value": "Hi"},
+                    {"name": "From", "value": "a@b.com"},
+                ]
+            }
         }
         client.get_message_text.return_value = "body text"
 
-        with patch("mail.utils.cli_helpers.is_outlook_profile", return_value=False), \
-             patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
+        with (
+            patch("mail.utils.cli_helpers.is_outlook_profile", return_value=False),
+            patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client),
+        ):
             with capture_stdout() as buf:
                 rc = run_messages_get(make_args(id="G1", format="text"))
 

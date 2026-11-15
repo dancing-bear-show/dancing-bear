@@ -48,6 +48,7 @@ class TestResumeFlowMapBranches(unittest.TestCase):
 
         with patch("resume.agentic._cli_path_exists", side_effect=fake_exists):
             import resume.agentic as mod
+
             result = mod._flow_map()
         return result, recorded
 
@@ -91,11 +92,13 @@ class TestResumeFlowMapBranches(unittest.TestCase):
 
     def test_align_entry_only_when_align_path_true(self):
         """Align entry appears when _cli_path_exists returns True for the align call."""
+
         def only_align(path: list) -> bool:
             return path == ["align"]
 
         with patch("resume.agentic._cli_path_exists", side_effect=only_align):
             import resume.agentic as mod
+
             result = mod._flow_map()
         self.assertIn("Align to job posting", result)
         self.assertNotIn("Style profile", result)
@@ -107,6 +110,7 @@ class TestResumeFlowMapBranches(unittest.TestCase):
 
         with patch("resume.agentic._cli_path_exists", side_effect=only_style):
             import resume.agentic as mod
+
             result = mod._flow_map()
         self.assertIn("Style profile", result)
         self.assertNotIn("Align to job posting", result)
@@ -120,6 +124,7 @@ class TestResumeFlowMapBranches(unittest.TestCase):
 
         with patch("resume.agentic._cli_path_exists", side_effect=only_files_tidy):
             import resume.agentic as mod
+
             result = mod._flow_map()
         self.assertIn("Tidy workspace", result)
         self.assertIn("files tidy", result)
@@ -161,9 +166,7 @@ class TestResumeFlowMapBranches(unittest.TestCase):
         self.assertEqual(calls[3], ["files", "tidy"])
         for call in calls:
             for element in call:
-                self.assertIsInstance(
-                    element, str, f"nested path leaked back in: {call!r}"
-                )
+                self.assertIsInstance(element, str, f"nested path leaked back in: {call!r}")
 
 
 class TestResumeEmitAgenticContext(unittest.TestCase):
@@ -171,18 +174,21 @@ class TestResumeEmitAgenticContext(unittest.TestCase):
 
     def test_emit_fmt_yaml_returns_zero(self):
         import resume.agentic as mod
+
         with capture_stdout():
             rc = mod.emit_agentic_context(_fmt="yaml")
         self.assertEqual(rc, 0)
 
     def test_emit_compact_true_returns_zero(self):
         import resume.agentic as mod
+
         with capture_stdout():
             rc = mod.emit_agentic_context(_compact=True)
         self.assertEqual(rc, 0)
 
     def test_emit_compact_output_contains_capsule_header(self):
         import resume.agentic as mod
+
         with capture_stdout() as buf:
             mod.emit_agentic_context(_compact=True)
         self.assertIn("agentic: resume", buf.getvalue())
@@ -193,6 +199,7 @@ class TestResumeCapsuleContent(unittest.TestCase):
 
     def test_capsule_contains_key_commands(self):
         import resume.agentic as mod
+
         result = mod.build_agentic_capsule()
         self.assertIn("extract", result)
         self.assertIn("summarize", result)

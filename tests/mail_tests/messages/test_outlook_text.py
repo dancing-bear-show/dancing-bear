@@ -1,4 +1,5 @@
 """Tests for Outlook message body extraction."""
+
 from __future__ import annotations
 
 import unittest
@@ -37,9 +38,7 @@ class TestOutlookMessageText(unittest.TestCase):
 
     def test_css_boilerplate_is_stripped(self):
         """Transactional senders flatten CSS into the body; it must not survive."""
-        msg = graph_message(
-            "<style>.a { color: red; }</style><p>Real content</p>"
-        )
+        msg = graph_message("<style>.a { color: red; }</style><p>Real content</p>")
 
         result = outlook_message_text(msg)
 

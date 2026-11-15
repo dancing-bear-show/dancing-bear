@@ -7,28 +7,33 @@ Provides:
   - _parse_linkedin_meta_from_html: parse LinkedIn HTML page meta tags
   - parse_linkedin_text: parse LinkedIn plain text or HTML export
 """
+
 from __future__ import annotations
 
 import re
 from typing import Any
 
 from resume.parsing_experience_text import (
-    _split_lines,
     _extract_contact,
     _extract_sections,
-    _parse_experience,
     _parse_education,
+    _parse_experience,
     _parse_skills,
+    _split_lines,
 )
 
 
 def _meta_prop(html_text: str, prop: str) -> str:
-    m = re.search(rf"<meta[^>]+property=\"{re.escape(prop)}\"[^>]+content=\"([^\"]+)\"", html_text, re.I)
+    m = re.search(
+        rf"<meta[^>]+property=\"{re.escape(prop)}\"[^>]+content=\"([^\"]+)\"", html_text, re.I
+    )
     return m.group(1).strip() if m else ""
 
 
 def _meta_name(html_text: str, name: str) -> str:
-    m = re.search(rf"<meta[^>]+name=\"{re.escape(name)}\"[^>]+content=\"([^\"]+)\"", html_text, re.I)
+    m = re.search(
+        rf"<meta[^>]+name=\"{re.escape(name)}\"[^>]+content=\"([^\"]+)\"", html_text, re.I
+    )
     return m.group(1).strip() if m else ""
 
 

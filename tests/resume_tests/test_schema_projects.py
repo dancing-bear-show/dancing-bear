@@ -6,6 +6,7 @@ Covers:
 - Resume.from_dict wires projects through _LIST_ITEM_TYPES
 - Resume.to_dict round-trips projects verbatim
 """
+
 from __future__ import annotations
 
 import unittest
@@ -18,10 +19,12 @@ class TestProjectFromDict(unittest.TestCase):
 
     def test_bare_string_bullets_coerced_to_priority_items(self):
         """Bare strings in bullets are upgraded to PriorityItem instances."""
-        proj = Project.from_dict({
-            "name": "My Project",
-            "bullets": ["Built X", "Deployed Y"],
-        })
+        proj = Project.from_dict(
+            {
+                "name": "My Project",
+                "bullets": ["Built X", "Deployed Y"],
+            }
+        )
         self.assertEqual(proj.name, "My Project")
         self.assertEqual(len(proj.bullets), 2)
         self.assertIsInstance(proj.bullets[0], PriorityItem)
@@ -30,13 +33,15 @@ class TestProjectFromDict(unittest.TestCase):
 
     def test_dict_bullets_with_priority_coerced(self):
         """Dict bullets with text and priority are coerced correctly."""
-        proj = Project.from_dict({
-            "name": "Open Source Tool",
-            "bullets": [
-                {"text": "Built X", "priority": 1.0},
-                {"text": "Wrote tests", "priority": 0.5},
-            ],
-        })
+        proj = Project.from_dict(
+            {
+                "name": "Open Source Tool",
+                "bullets": [
+                    {"text": "Built X", "priority": 1.0},
+                    {"text": "Wrote tests", "priority": 0.5},
+                ],
+            }
+        )
         self.assertEqual(len(proj.bullets), 2)
         self.assertIsInstance(proj.bullets[0], PriorityItem)
         self.assertEqual(proj.bullets[0].text, "Built X")
@@ -46,14 +51,16 @@ class TestProjectFromDict(unittest.TestCase):
 
     def test_full_project_shape(self):
         """All supported fields are populated correctly."""
-        proj = Project.from_dict({
-            "name": "Project Name",
-            "desc": "one-line description",
-            "bullets": ["Built X"],
-            "tech": "Python, OpenTelemetry",
-            "link": "https://github.com/example/project",
-            "priority": 0.9,
-        })
+        proj = Project.from_dict(
+            {
+                "name": "Project Name",
+                "desc": "one-line description",
+                "bullets": ["Built X"],
+                "tech": "Python, OpenTelemetry",
+                "link": "https://github.com/example/project",
+                "priority": 0.9,
+            }
+        )
         self.assertEqual(proj.name, "Project Name")
         self.assertEqual(proj.desc, "one-line description")
         self.assertEqual(proj.tech, "Python, OpenTelemetry")

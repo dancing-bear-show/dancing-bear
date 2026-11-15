@@ -4,12 +4,12 @@ Encapsulates an authenticated Outlook client and exposes a stable set of
 helpers used by CLI handlers. This keeps __main__ smaller and centralizes
 Graph interactions while preserving existing behavior.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
 
-from .context import OutlookContext
 from core.constants import DEFAULT_REQUEST_TIMEOUT, GRAPH_API_URL
 from core.http import HttpClient
 from core.outlook.models import (
@@ -23,16 +23,18 @@ from core.outlook.models import (
     UpdateEventSubjectRequest,
 )
 
+from .context import OutlookContext
+
 __all__ = [
     "EventCreationParams",
     "EventSettingsPatch",
     "ListCalendarViewRequest",
     "ListEventsRequest",
+    "OutlookService",
     "RecurringEventCreationParams",
     "UpdateEventLocationRequest",
     "UpdateEventReminderRequest",
     "UpdateEventSubjectRequest",
-    "OutlookService",
 ]
 
 
@@ -67,8 +69,11 @@ class OutlookService:
         return self.client.get_mailbox_timezone()
 
     # Mail/message helpers (inbox search)
-    def search_inbox_messages(self, query: str, *, days: int = 60, top: int = 25, pages: int = 2) -> list[str]:
+    def search_inbox_messages(
+        self, query: str, *, days: int = 60, top: int = 25, pages: int = 2
+    ) -> list[str]:
         from core.outlook.models import SearchParams
+
         return self.client.search_inbox_messages(
             SearchParams(search_query=query, days=days, top=top, pages=pages)
         )
@@ -113,7 +118,9 @@ class OutlookService:
         """Update event subject using parameter object."""
         self.client.update_event_subject(params)
 
-    def ensure_calendar_permission(self, calendar_id: str, recipient: str, role: str) -> dict[str, Any]:
+    def ensure_calendar_permission(
+        self, calendar_id: str, recipient: str, role: str
+    ) -> dict[str, Any]:
         return self.client.ensure_calendar_permission(calendar_id, recipient, role)
 
     # Low-level access
@@ -127,7 +134,11 @@ class OutlookService:
     def list_calendar_view(self, params: ListCalendarViewRequest) -> list[dict[str, Any]]:
         """List calendar view with pagination using parameter object."""
         base = self.graph_base()
-        endpoint = f"{base}/me/calendars/{params.calendar_id}/calendarView" if params.calendar_id else f"{base}/me/calendarView"
+        endpoint = (
+            f"{base}/me/calendars/{params.calendar_id}/calendarView"
+            if params.calendar_id
+            else f"{base}/me/calendarView"
+        )
         url = f"{endpoint}?startDateTime={params.start_iso}&endDateTime={params.end_iso}&$top={int(params.top)}&$select={params.select}"
         hdrs = self.headers()
         out: list[dict[str, Any]] = []

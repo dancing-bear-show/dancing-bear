@@ -17,8 +17,15 @@ from pathlib import Path
 from core.cli_output import emit_rows
 from core.fileutil import atomic_write_text
 from core.text_utils import slugify
-from memory.commands._common import ArgSpec, DRY_RUN_ARG, STORE_ARG, format_arg, select_single_store, validation_error
 from memory.bundle import IMPORT_MARKER_KEY, load_bundle, render_imported_memory, string_values
+from memory.commands._common import (
+    DRY_RUN_ARG,
+    STORE_ARG,
+    ArgSpec,
+    format_arg,
+    select_single_store,
+    validation_error,
+)
 from memory.index import append_entry
 from memory.models import ExportedMemory, MemoryStore, Redaction
 from memory.parser import parse_frontmatter
@@ -56,9 +63,7 @@ def _prefix_issue(prefix: str) -> str | None:
     """
     separators = [sep for sep in ("/", os.sep, os.altsep) if sep]
     if any(sep in prefix for sep in separators):
-        return (
-            f"must be a plain filename prefix without path separators (got {prefix!r})"
-        )
+        return f"must be a plain filename prefix without path separators (got {prefix!r})"
     if os.path.splitdrive(prefix)[0]:
         return f"must not be drive-qualified (got {prefix!r})"
     return None
@@ -130,9 +135,7 @@ def _resolve_conflict(
 
     # on_conflict == "overwrite" (the only remaining argparse choice)
     if _is_native_file(target_path):
-        return _disposition(
-            slug, "error", target_filename, _OVERWRITE_ERROR.format(slug=slug)
-        )
+        return _disposition(slug, "error", target_filename, _OVERWRITE_ERROR.format(slug=slug))
     if not dry_run:
         shutil.copy2(str(target_path), str(target_path) + ".bak")
     return (
@@ -143,9 +146,7 @@ def _resolve_conflict(
     )
 
 
-def _reindex_written_memory(
-    target_path: Path, target_filename: str, store: MemoryStore
-) -> None:
+def _reindex_written_memory(target_path: Path, target_filename: str, store: MemoryStore) -> None:
     """Best-effort: append the written memory to MEMORY.md. Import already
     succeeded by the time this runs — a reindex failure is a warning, not a
     reason to fail the import."""
@@ -156,9 +157,7 @@ def _reindex_written_memory(
 
         written_memory = parse_memory_file(target_path, project_slug=store.project_slug)
         append_entry(store.index_path, written_memory, section=None)
-    except (
-        Exception
-    ) as exc:  # NOSONAR - reindex is best-effort; import succeeds regardless
+    except Exception as exc:  # NOSONAR - reindex is best-effort; import succeeds regardless
         print(f"Warning: reindex failed for {target_filename}: {exc}", file=sys.stderr)
 
 
@@ -200,7 +199,14 @@ def _process_memory(
 ARGUMENTS: list[ArgSpec] = [
     (("bundle_path",), {"help": "Bundle file (YAML or JSON)"}),
     STORE_ARG,
-    (("--on-conflict",), {"choices": ["skip", "rename", "overwrite"], "default": "skip", "help": "Existing-file policy"}),
+    (
+        ("--on-conflict",),
+        {
+            "choices": ["skip", "rename", "overwrite"],
+            "default": "skip",
+            "help": "Existing-file policy",
+        },
+    ),
     (("--reindex",), {"action": "store_true", "help": "Append imports to MEMORY.md"}),
     (("--prefix",), {"default": "imported_", "help": "Filename prefix for imports"}),
     format_arg(["json", "table", "csv"], "json"),
@@ -227,7 +233,6 @@ def _scan_fields(em: ExportedMemory) -> tuple[Redaction, ...]:
     return tuple(r for text in texts for r in scan(text))
 
 
-
 def run(args: argparse.Namespace) -> int:
     """Import a memory bundle into the current repo's store."""
     prefix_issue = _prefix_issue(args.prefix)
@@ -236,13 +241,15 @@ def run(args: argparse.Namespace) -> int:
 
     try:
         bundle = load_bundle(args.bundle_path)
-    except Exception as exc:  # NOSONAR - CLI boundary: surface as a validation error, never a raw traceback
+    except (Exception) as exc:  # NOSONAR - CLI boundary: surface as a validation error, never a raw traceback  # fmt: skip
         return validation_error("bundle_path", f"could not load bundle: {exc}")
 
     # Re-scan every rendered field — never trust the bundle's self-reported cleanliness
     combined_redactions = tuple(r for em in bundle.memories for r in _scan_fields(em))
     if has_blocking(combined_redactions):
-        return validation_error("bundle", "contains blocking redaction issues and cannot be imported")
+        return validation_error(
+            "bundle", "contains blocking redaction issues and cannot be imported"
+        )
 
     store = select_single_store(args.store)
     if isinstance(store, int):

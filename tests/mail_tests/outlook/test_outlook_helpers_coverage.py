@@ -19,10 +19,10 @@ from mail.outlook.helpers import (
     resolve_outlook_args,
 )
 
-
 # ---------------------------------------------------------------------------
 # _find_outlook_account branch: named account not found → falls back to provider match
 # ---------------------------------------------------------------------------
+
 
 class TestFindOutlookAccount(unittest.TestCase):
     """Cover _find_outlook_account with acc_name set but not matched."""
@@ -81,11 +81,13 @@ accounts:
 # get_outlook_client — import error, missing client_id, success
 # ---------------------------------------------------------------------------
 
+
 class TestGetOutlookClient(unittest.TestCase):
     """Cover lines 96-109 in get_outlook_client."""
 
     def _import_fn(self):
         from mail.outlook.helpers import get_outlook_client
+
         return get_outlook_client
 
     def test_import_error_returns_none_and_error_code(self):
@@ -107,6 +109,7 @@ class TestGetOutlookClient(unittest.TestCase):
             with patch.dict("sys.modules", {"core.outlook": None}):
                 # Simulating ImportError by patching the import inside the function
                 import builtins
+
                 real_import = builtins.__import__
 
                 def failing_import(name, *args, **kwargs):
@@ -140,6 +143,7 @@ class TestGetOutlookClient(unittest.TestCase):
         with patch("mail.outlook.helpers.resolve_outlook_args") as mock_resolve:
             mock_resolve.return_value = (None, None, None, None)
             import builtins
+
             real_import = builtins.__import__
 
             def patched_import(name, *a, **kw):
@@ -149,8 +153,10 @@ class TestGetOutlookClient(unittest.TestCase):
 
             with patch("builtins.__import__", side_effect=patched_import):
                 import io as _io
+
                 buf = _io.StringIO()
                 import contextlib
+
                 with contextlib.redirect_stderr(buf):
                     client, code = get_outlook_client(args)
 
@@ -172,6 +178,7 @@ class TestGetOutlookClient(unittest.TestCase):
         with patch("mail.outlook.helpers.resolve_outlook_args") as mock_resolve:
             mock_resolve.return_value = ("my-client-id", "consumers", "/path/token.json", None)
             import builtins
+
             real_import = builtins.__import__
 
             def patched_import(name, *a, **kw):
@@ -191,6 +198,7 @@ class TestGetOutlookClient(unittest.TestCase):
 # resolve_outlook_args: cache_dir populated from accounts config even when
 # client_id already set via profile (lines 83-86)
 # ---------------------------------------------------------------------------
+
 
 class TestResolveOutlookArgsCacheFromConfig(unittest.TestCase):
     """Cover the second _find_outlook_account call in resolve_outlook_args.

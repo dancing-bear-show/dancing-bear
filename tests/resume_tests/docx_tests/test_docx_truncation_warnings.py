@@ -13,6 +13,7 @@ Covers:
 
   Bonus (coordinator note) — summary list renders all bullets without silent drop.
 """
+
 from __future__ import annotations
 
 import unittest
@@ -30,12 +31,14 @@ _EXP_LOGGER = "resume.docx_sections_exp"
 # Defect 1: ExperienceSectionRenderer truncation warnings
 # ---------------------------------------------------------------------------
 
+
 @mock_docx_modules
 class TestExperienceTruncationWarnings(unittest.TestCase):
     """ExperienceSectionRenderer emits warnings on truncation."""
 
     def _make_renderer(self):
         from resume.docx_sections_exp import ExperienceSectionRenderer
+
         return ExperienceSectionRenderer(_make_mock_doc())
 
     def _make_roles(self, n: int, bullets_per_role: int = 0) -> list[dict]:
@@ -69,6 +72,7 @@ class TestExperienceTruncationWarnings(unittest.TestCase):
     def test_6_roles_max_5_renders_exactly_5_roles(self):
         """Only 5 roles are rendered when max_items=5."""
         from resume.docx_sections_exp import ExperienceSectionRenderer
+
         doc = _make_mock_doc()
         renderer = ExperienceSectionRenderer(doc)
         roles = self._make_roles(6)
@@ -132,16 +136,19 @@ class TestExperienceTruncationWarnings(unittest.TestCase):
 # Defect 2a: _section_has_data logic
 # ---------------------------------------------------------------------------
 
+
 @mock_docx_modules
 class TestSectionHasData(unittest.TestCase):
     """_section_has_data correctly identifies empty vs populated sections."""
 
     def _fn(self):
         from resume.docx_standard import _section_has_data
+
         return _section_has_data
 
     def _resume(self, data):
         from resume.schema import Resume
+
         return Resume.from_dict(data)
 
     def test_unknown_key_is_treated_as_having_data(self):
@@ -171,7 +178,9 @@ class TestSectionHasData(unittest.TestCase):
     def test_skills_accepts_skills_groups_or_flat_skills(self):
         fn = self._fn()
         self.assertTrue(fn("skills", self._resume({"skills": ["Python"]})))
-        self.assertTrue(fn("skills", self._resume({"skills_groups": [{"title": "Lang", "items": ["Go"]}]})))
+        self.assertTrue(
+            fn("skills", self._resume({"skills_groups": [{"title": "Lang", "items": ["Go"]}]}))
+        )
         self.assertFalse(fn("skills", self._resume({})))
 
     def test_empty_scalar_summary_reports_no_data(self):
@@ -192,9 +201,7 @@ class TestSectionHasData(unittest.TestCase):
         must keep reporting as populated.
         """
         fn = self._fn()
-        self.assertTrue(
-            fn("summary", self._resume({"summary": "", "headline": "Staff Engineer"}))
-        )
+        self.assertTrue(fn("summary", self._resume({"summary": "", "headline": "Staff Engineer"})))
 
     def test_non_empty_scalar_summary_reports_data(self):
         fn = self._fn()
@@ -215,12 +222,14 @@ class TestSectionHasData(unittest.TestCase):
 # Defect 2b: StandardResumeWriter section-heading suppression
 # ---------------------------------------------------------------------------
 
+
 @mock_docx_modules
 class TestStandardResumeWriterSectionSuppression(unittest.TestCase):
     """_render_content skips headings for unknown-key or empty-data sections."""
 
     def _make_writer(self, data: dict, sections: list[dict]):
         from resume.docx_standard import StandardResumeWriter
+
         template = {"sections": sections}
         writer = StandardResumeWriter(Resume.from_dict(data), template)
         writer.doc = _make_mock_doc()
@@ -228,10 +237,7 @@ class TestStandardResumeWriterSectionSuppression(unittest.TestCase):
 
     def _heading_titles(self, writer) -> list[str]:
         """Extract the text argument from each add_heading call."""
-        return [
-            args[0]
-            for args, _kwargs in writer.doc.add_heading.call_args_list
-        ]
+        return [args[0] for args, _kwargs in writer.doc.add_heading.call_args_list]
 
     def _render_sections_only(self, writer):
         """Run _render_content with document-header stubbed out."""
@@ -289,12 +295,14 @@ class TestStandardResumeWriterSectionSuppression(unittest.TestCase):
 # Bonus: summary list renders all items without silent drop
 # ---------------------------------------------------------------------------
 
+
 @mock_docx_modules
 class TestSummaryListRendersAllBullets(unittest.TestCase):
     """SummarySectionRenderer renders every item in a list summary without truncation."""
 
     def _make_renderer(self):
         from resume.docx_sections_skills import SummarySectionRenderer
+
         doc = _make_mock_doc()
         return SummarySectionRenderer(doc), doc
 

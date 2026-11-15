@@ -52,7 +52,9 @@ def _usage_error(message: str) -> int:
 
 
 @app.command("validate-imports", help="Import a module and verify named symbols exist")
-@app.argument("--import-order", help="Comma-separated modules to import in sequence (circular check)")
+@app.argument(
+    "--import-order", help="Comma-separated modules to import in sequence (circular check)"
+)
 @app.argument("--symbols", help="Comma-separated symbols to check within --module")
 @app.argument("--module", help="Module path to import")
 def cmd_validate_imports(args: argparse.Namespace) -> int:
@@ -83,12 +85,14 @@ def cmd_validate_ast(args: argparse.Namespace) -> int:
         return _usage_error("--complexity requires --function")
     if not args.all_exported and not args.function:
         return _usage_error("one of --all-exported or --function is required")
-    emit_one(_validate.validate_ast(
-        args.file,
-        all_exported=args.all_exported,
-        function=args.function,
-        complexity=args.complexity,
-    ))
+    emit_one(
+        _validate.validate_ast(
+            args.file,
+            all_exported=args.all_exported,
+            function=args.function,
+            complexity=args.complexity,
+        )
+    )
     return ExitCode.SUCCESS
 
 
@@ -126,7 +130,9 @@ def cmd_summarize_findings(args: argparse.Namespace) -> int:
     return ExitCode.SUCCESS
 
 
-@app.command("analyze-patch", help="Extract imports, added functions, __all__, or a dispatch map from a diff")
+@app.command(
+    "analyze-patch", help="Extract imports, added functions, __all__, or a dispatch map from a diff"
+)
 @app.argument("--extract", required=True, choices=_patch.EXTRACT_CHOICES, help="What to extract")
 @app.argument("--patch", required=True, help="Unified diff file")
 def cmd_analyze_patch(args: argparse.Namespace) -> int:
@@ -143,10 +149,17 @@ def cmd_analyze_patch(args: argparse.Namespace) -> int:
 def cmd_git_ops(args: argparse.Namespace) -> int:
     repo_root, error = resolve_repo_root()
     if error:
-        emit_one(asdict(_git_ops.GitOpResult(
-            op=args.op, branch=args.branch, path=args.path,
-            status="error", output=error,
-        )))
+        emit_one(
+            asdict(
+                _git_ops.GitOpResult(
+                    op=args.op,
+                    branch=args.branch,
+                    path=args.path,
+                    status="error",
+                    output=error,
+                )
+            )
+        )
         return ExitCode.SUCCESS
     if args.op == "checkout":
         result = _git_ops.op_checkout(repo_root, args.branch, args.fetch)
@@ -161,21 +174,27 @@ def cmd_git_ops(args: argparse.Namespace) -> int:
 
 
 @app.command("run-tests", help="Run make test/lint/typecheck-changed from the repo root")
-@app.argument("--paths", nargs="*", default=[], help="test only: dirs/files to run via unittest discover")
+@app.argument(
+    "--paths", nargs="*", default=[], help="test only: dirs/files to run via unittest discover"
+)
 @app.argument("--tool", choices=TOOL_CHOICES, default="test", help="Gate to run (default: test)")
 def cmd_run_tests(args: argparse.Namespace) -> int:
     if args.paths and args.tool != "test":
         return _usage_error("--paths applies only to --tool test")
     repo_root, error = resolve_repo_root()
     if error:
-        emit_one(asdict(CheckResult(
-            tool=args.tool,
-            paths=list(args.paths),
-            commands=[],
-            exit_code=1,
-            passed=False,
-            error=error,
-        )))
+        emit_one(
+            asdict(
+                CheckResult(
+                    tool=args.tool,
+                    paths=list(args.paths),
+                    commands=[],
+                    exit_code=1,
+                    passed=False,
+                    error=error,
+                )
+            )
+        )
         return ExitCode.SUCCESS
     emit_one(asdict(run_check(args.tool, repo_root, list(args.paths))))
     return ExitCode.SUCCESS

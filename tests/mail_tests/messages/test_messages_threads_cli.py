@@ -1,10 +1,10 @@
 """Tests for `messages threads-get` and the `messages get` selector flags."""
+
 import json
 import unittest
 from unittest.mock import patch
 
-from tests.fixtures import capture_stdout
-from tests.mail_tests.fixtures import FakeGmailClient, make_args
+from mail.messages import Candidate
 from mail.messages_cli.commands import parse_id_list, run_messages_get
 from mail.messages_cli.commands_threads import (
     ThreadMessage,
@@ -12,8 +12,9 @@ from mail.messages_cli.commands_threads import (
     resolve_thread_id,
     run_messages_threads_get,
 )
-from mail.messages import Candidate
 from mail.providers.base import BaseProvider
+from tests.fixtures import capture_stdout
+from tests.mail_tests.fixtures import FakeGmailClient, make_args
 
 
 def _thread_message(msg_id: str, subject: str, *, thread_id: str = "T1") -> dict:
@@ -113,8 +114,13 @@ class ThreadsGetCLITests(unittest.TestCase):
         client = _threads_client()
         with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
             args = make_args(
-                thread_id=None, id=None, query="from:alice", days=None,
-                only_inbox=False, include_body=False, json=True,
+                thread_id=None,
+                id=None,
+                query="from:alice",
+                days=None,
+                only_inbox=False,
+                include_body=False,
+                json=True,
             )
             with capture_stdout() as buf:
                 rc = run_messages_threads_get(args)
@@ -146,9 +152,13 @@ class ThreadsGetCLITests(unittest.TestCase):
     def test_threads_get_rejects_outlook_profile(self):
         """Outlook profiles are unsupported -> exit 1."""
         client = _threads_client()
-        with patch("mail.utils.cli_helpers.is_outlook_profile", return_value=True), \
-                patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
-            args = make_args(profile="outlook_personal", thread_id="T1", include_body=False, json=False)
+        with (
+            patch("mail.utils.cli_helpers.is_outlook_profile", return_value=True),
+            patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client),
+        ):
+            args = make_args(
+                profile="outlook_personal", thread_id="T1", include_body=False, json=False
+            )
             with capture_stdout():
                 rc = run_messages_threads_get(args)
 
@@ -181,9 +191,15 @@ class ThreadDataclassTests(unittest.TestCase):
     def test_thread_message_wraps_candidate_without_dropping_fields(self):
         """ThreadMessage composes Candidate rather than re-declaring its fields."""
         cand = Candidate(
-            id="M1", thread_id="T1", from_header="a@b.c", subject="S",
-            snippet="snip", to_header="d@e.f", date="2026-08-10T12:00:00Z",
-            labels=["INBOX"], unread=True,
+            id="M1",
+            thread_id="T1",
+            from_header="a@b.c",
+            subject="S",
+            snippet="snip",
+            to_header="d@e.f",
+            date="2026-08-10T12:00:00Z",
+            labels=["INBOX"],
+            unread=True,
         )
         payload = ThreadMessage(candidate=cand, body="hi").to_dict(include_body=True)
         self.assertEqual(payload["to_header"], "d@e.f")
@@ -238,8 +254,10 @@ class MessagesGetSelectorTests(unittest.TestCase):
 
         client.get_message = recording_get_message
 
-        with patch("mail.messages_cli.commands.select_message_id") as sel, \
-                patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
+        with (
+            patch("mail.messages_cli.commands.select_message_id") as sel,
+            patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client),
+        ):
             args = make_args(id=None, ids="A,B", query=None, format="json")
             with capture_stdout():
                 rc = run_messages_get(args)
@@ -281,8 +299,12 @@ class MessagesGetSelectorTests(unittest.TestCase):
         client = self._client()
         with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
             args = make_args(
-                id=None, ids=None, query="from:alice", days=None,
-                only_inbox=False, format="json",
+                id=None,
+                ids=None,
+                query="from:alice",
+                days=None,
+                only_inbox=False,
+                format="json",
             )
             with capture_stdout() as buf:
                 rc = run_messages_get(args)

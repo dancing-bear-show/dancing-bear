@@ -10,6 +10,7 @@ Initial scope: generate a canonical schedule plan from simple sources
 application (dry-run by default). This provides a stable CLI surface
 to extend later with real calendar integrations.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -19,35 +20,36 @@ from pathlib import Path
 from typing import Any
 
 from core.assistant import BaseAssistant
-from ..meta import META
+from core.auth import OutlookServiceConfig, build_outlook_service_from_args
 from core.cli_errors import CLIError, ExitCode
+from core.cli_framework import CLIApp
+from core.cli_help_text import HELP_START_DATE
 from core.cli_output import OutputWriter
 from core.date_utils import day_range_to_iso
-from core.auth import OutlookServiceConfig, build_outlook_service_from_args
-from core.cli_framework import CLIApp
 from core.paths import output_dir
-from core.cli_help_text import HELP_START_DATE
-from core.yamlio import dump_config as _dump_yaml, load_config as _load_yaml
+from core.yamlio import dump_config as _dump_yaml
+from core.yamlio import load_config as _load_yaml
 
+from ..meta import META
 from ..pipeline import (
-    ApplyProducer,
     ApplyProcessor,
+    ApplyProducer,
     ApplyRequest,
     ApplyRequestConsumer,
     ExportScheduleProcessor,
     ExportScheduleProducer,
     ExportScheduleRequest,
     ExportScheduleRequestConsumer,
-    PlanProducer,
     PlanProcessor,
+    PlanProducer,
     PlanRequest,
     PlanRequestConsumer,
-    SyncProducer,
     SyncProcessor,
+    SyncProducer,
     SyncRequest,
     SyncRequestConsumer,
-    VerifyProducer,
     VerifyProcessor,
+    VerifyProducer,
     VerifyRequest,
     VerifyRequestConsumer,
     _expand_recurring_occurrences,  # noqa: F401 - re-exported for tests
@@ -72,51 +74,59 @@ def _write_yaml(path: str | Path, data: dict[str, Any]) -> None:
 # Compress command helpers
 def _iso_to_date(iso: Any) -> _dt.date:
     """Parse ISO datetime string to date."""
-    s = str(iso).replace('Z', '').strip()
-    if 'T' in s:
-        s = s.split('T', 1)[0]
-    elif ' ' in s:
-        s = s.split(' ', 1)[0]
+    s = str(iso).replace("Z", "").strip()
+    if "T" in s:
+        s = s.split("T", 1)[0]
+    elif " " in s:
+        s = s.split(" ", 1)[0]
     return _dt.date.fromisoformat(s)
 
 
 def _iso_to_time(iso: Any) -> str:
     """Extract HH:MM time from ISO datetime string."""
-    s = str(iso).replace('Z', '').strip()
+    s = str(iso).replace("Z", "").strip()
     t = s
-    if 'T' in s:
-        t = s.split('T', 1)[1]
-    elif ' ' in s:
-        t = s.split(' ', 1)[1]
+    if "T" in s:
+        t = s.split("T", 1)[1]
+    elif " " in s:
+        t = s.split(" ", 1)[1]
     return t[:5]
 
 
 def _weekday_code(d: _dt.date) -> str:
     """Get weekday code (MO, TU, etc.) from date."""
-    return ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'][d.weekday()]
+    return ["MO", "TU", "WE", "TH", "FR", "SA", "SU"][d.weekday()]
 
 
 def _group_one_offs(
-    one_offs: list[dict[str, Any]]
+    one_offs: list[dict[str, Any]],
 ) -> tuple[dict[tuple, list[_dt.date]], dict[tuple, dict[str, Any]]]:
     """Group one-off events by (subject, start_time, end_time, weekday, location)."""
     groups: dict[tuple, list[_dt.date]] = {}
     meta: dict[tuple, dict[str, Any]] = {}
     for ev in one_offs:
-        subj = (ev.get('subject') or '').strip()
-        st = str(ev.get('start') or '')
-        en = str(ev.get('end') or '')
+        subj = (ev.get("subject") or "").strip()
+        st = str(ev.get("start") or "")
+        en = str(ev.get("end") or "")
         if not subj or not st or not en:
             continue
         d = _iso_to_date(st)
-        key = (subj, _iso_to_time(st), _iso_to_time(en), _weekday_code(d), (ev.get('location') or '').strip())
+        key = (
+            subj,
+            _iso_to_time(st),
+            _iso_to_time(en),
+            _weekday_code(d),
+            (ev.get("location") or "").strip(),
+        )
         groups.setdefault(key, []).append(d)
         if key not in meta:
-            meta[key] = {'calendar': ev.get('calendar'), 'subject': subj, 'location': key[4]}
+            meta[key] = {"calendar": ev.get("calendar"), "subject": subj, "location": key[4]}
     return groups, meta
 
 
-def _compute_exdates(dates_sorted: list[_dt.date], start_date: _dt.date, end_date: _dt.date) -> list[str]:
+def _compute_exdates(
+    dates_sorted: list[_dt.date], start_date: _dt.date, end_date: _dt.date
+) -> list[str]:
     """Compute exclusion dates for weekly series."""
     exdates: list[str] = []
     cur = start_date
@@ -151,36 +161,36 @@ class SeriesParams(EventParams):
 def _build_one_off_event(params: EventParams, d: _dt.date) -> dict[str, Any]:
     """Build a one-off event dict."""
     ev: dict[str, Any] = {
-        'subject': params.subject,
-        'start': f"{d.isoformat()}T{params.start_time}",
-        'end': f"{d.isoformat()}T{params.end_time}",
+        "subject": params.subject,
+        "start": f"{d.isoformat()}T{params.start_time}",
+        "end": f"{d.isoformat()}T{params.end_time}",
     }
     if params.location:
-        ev['location'] = params.location
+        ev["location"] = params.location
     if params.calendar:
-        ev['calendar'] = params.calendar
+        ev["calendar"] = params.calendar
     return ev
 
 
 def _build_series_event(params: SeriesParams) -> dict[str, Any]:
     """Build a recurring series event dict."""
     ev: dict[str, Any] = {
-        'subject': params.subject,
-        'repeat': 'weekly',
-        'byday': [params.day_of_week],
-        'start_time': params.start_time,
-        'end_time': params.end_time,
-        'range': {
-            'start_date': params.start_date.isoformat() if params.start_date else '',
-            'until': params.end_date.isoformat() if params.end_date else '',
+        "subject": params.subject,
+        "repeat": "weekly",
+        "byday": [params.day_of_week],
+        "start_time": params.start_time,
+        "end_time": params.end_time,
+        "range": {
+            "start_date": params.start_date.isoformat() if params.start_date else "",
+            "until": params.end_date.isoformat() if params.end_date else "",
         },
     }
     if params.location:
-        ev['location'] = params.location
+        ev["location"] = params.location
     if params.exdates:
-        ev['exdates'] = params.exdates
+        ev["exdates"] = params.exdates
     if params.calendar:
-        ev['calendar'] = params.calendar
+        ev["calendar"] = params.calendar
     return ev
 
 
@@ -195,31 +205,44 @@ def _compress_events(
     for key, dates in groups.items():
         subj, st_time, en_time, dow, loc = key
         dates_sorted = sorted(set(dates))
-        cal = override_cal or meta[key].get('calendar')
+        cal = override_cal or meta[key].get("calendar")
 
         if len(dates_sorted) < min_occur:
-            ep = EventParams(subject=subj, start_time=st_time, end_time=en_time, location=loc, calendar=cal)
+            ep = EventParams(
+                subject=subj, start_time=st_time, end_time=en_time, location=loc, calendar=cal
+            )
             for d in dates_sorted:
                 out_events.append(_build_one_off_event(ep, d))
         else:
             start_date, end_date = dates_sorted[0], dates_sorted[-1]
             exdates = _compute_exdates(dates_sorted, start_date, end_date)
-            out_events.append(_build_series_event(SeriesParams(
-                subject=subj, start_time=st_time, end_time=en_time, location=loc, calendar=cal,
-                day_of_week=dow, start_date=start_date, end_date=end_date, exdates=exdates,
-            )))
+            out_events.append(
+                _build_series_event(
+                    SeriesParams(
+                        subject=subj,
+                        start_time=st_time,
+                        end_time=en_time,
+                        location=loc,
+                        calendar=cal,
+                        day_of_week=dow,
+                        start_date=start_date,
+                        end_date=end_date,
+                        exdates=exdates,
+                    )
+                )
+            )
     return out_events
 
 
 def _compress_sort_key(e: dict[str, Any]) -> tuple:
     """Sort key for compressed events."""
-    subj = e.get('subject') or ''
-    if e.get('repeat'):
-        dow = (e.get('byday') or [''])[0]
-        sd = (e.get('range') or {}).get('start_date') or ''
-        tm = e.get('start_time') or ''
+    subj = e.get("subject") or ""
+    if e.get("repeat"):
+        dow = (e.get("byday") or [""])[0]
+        sd = (e.get("range") or {}).get("start_date") or ""
+        tm = e.get("start_time") or ""
         return (subj, dow, sd, tm)
-    return (subj, '', e.get('start') or '', '')
+    return (subj, "", e.get("start") or "", "")
 
 
 # Create the CLI app
@@ -246,8 +269,18 @@ def _emit_agentic(fmt: str, compact: bool) -> int:
 
 
 @app.command("plan", help="Generate a canonical schedule plan from sources")
-@app.argument("--source", action="append", default=[], help="Source path/URL (repeatable); supports CSV/XLSX/PDF/website")
-@app.argument("--kind", choices=["auto", "csv", "xlsx", "pdf", "website"], default="auto", help="Force parser kind (default auto)")
+@app.argument(
+    "--source",
+    action="append",
+    default=[],
+    help="Source path/URL (repeatable); supports CSV/XLSX/PDF/website",
+)
+@app.argument(
+    "--kind",
+    choices=["auto", "csv", "xlsx", "pdf", "website"],
+    default="auto",
+    help="Force parser kind (default auto)",
+)
 @app.argument("--out", default=None, help="Output YAML path (default: schedule data dir)")
 def cmd_plan(args: argparse.Namespace) -> int:
     out_path = Path(getattr(args, "out", None) or output_dir("schedule") / "schedule.plan.yaml")
@@ -279,7 +312,12 @@ def _build_outlook_service_from_args(args: argparse.Namespace):
 @app.argument("--calendar", required=True, help="Target calendar name")
 @app.argument("--from", dest="from_date", required=True, help="Start date (YYYY-MM-DD)")
 @app.argument("--to", dest="to_date", required=True, help="End date (YYYY-MM-DD)")
-@app.argument("--match", choices=["subject", "subject-time"], default="subject", help="Verification mode (default subject)")
+@app.argument(
+    "--match",
+    choices=["subject", "subject-time"],
+    default="subject",
+    help="Verification mode (default subject)",
+)
 @app.argument("--client-id", help="Outlook client ID")
 @app.argument("--tenant", help="Azure tenant (default consumers)")
 @app.argument("--token", help="Path to Outlook token cache")
@@ -291,7 +329,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
         token_path=getattr(args, "token", None),
     )
     request = VerifyRequest(
-        plan_path=Path(getattr(args, "plan")),
+        plan_path=Path(args.plan),
         calendar=getattr(args, "calendar", None),
         from_date=getattr(args, "from_date", None),
         to_date=getattr(args, "to_date", None),
@@ -305,14 +343,30 @@ def cmd_verify(args: argparse.Namespace) -> int:
     return int((envelope.diagnostics or {}).get("code", 2))
 
 
-@app.command("sync", help="Create missing items from plan; optionally delete extraneous one-offs (dry-run by default)")
+@app.command(
+    "sync",
+    help="Create missing items from plan; optionally delete extraneous one-offs (dry-run by default)",
+)
 @app.argument("--plan", required=True, help="Plan YAML path")
 @app.argument("--calendar", required=True, help="Target calendar name")
 @app.argument("--from", dest="from_date", required=True, help="Start date (YYYY-MM-DD)")
 @app.argument("--to", dest="to_date", required=True, help="End date (YYYY-MM-DD)")
-@app.argument("--match", choices=["subject", "subject-time"], default="subject-time", help="Matching mode for sync (default subject-time)")
-@app.argument("--delete-missing", action="store_true", help="Delete calendar items not present in plan (respects --match)")
-@app.argument("--delete-unplanned-series", action="store_true", help="Also delete entire recurring series with no matching occurrences in window")
+@app.argument(
+    "--match",
+    choices=["subject", "subject-time"],
+    default="subject-time",
+    help="Matching mode for sync (default subject-time)",
+)
+@app.argument(
+    "--delete-missing",
+    action="store_true",
+    help="Delete calendar items not present in plan (respects --match)",
+)
+@app.argument(
+    "--delete-unplanned-series",
+    action="store_true",
+    help="Also delete entire recurring series with no matching occurrences in window",
+)
 @app.argument("--apply", action="store_true", help="Perform changes (omit for dry-run)")
 @app.argument("--client-id", help="Outlook client ID")
 @app.argument("--tenant", help="Azure tenant (default consumers)")
@@ -325,7 +379,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
         token_path=getattr(args, "token", None),
     )
     request = SyncRequest(
-        plan_path=Path(getattr(args, "plan")),
+        plan_path=Path(args.plan),
         calendar=getattr(args, "calendar", None),
         from_date=getattr(args, "from_date", None),
         to_date=getattr(args, "to_date", None),
@@ -346,7 +400,9 @@ def cmd_sync(args: argparse.Namespace) -> int:
 @app.argument("--calendar", required=True, help="Outlook calendar name (e.g., 'Activities')")
 @app.argument("--from", dest="from_date", required=True, help=HELP_START_DATE)
 @app.argument("--to", dest="to_date", required=True, help="End date YYYY-MM-DD")
-@app.argument("--out", required=True, help="Output YAML path (e.g., config/calendar/activities.yaml)")
+@app.argument(
+    "--out", required=True, help="Output YAML path (e.g., config/calendar/activities.yaml)"
+)
 @app.argument("--client-id", help="Outlook client ID")
 @app.argument("--tenant", help="Azure tenant (default consumers)")
 @app.argument("--token", help="Path to Outlook token cache")
@@ -369,7 +425,7 @@ def cmd_export(args: argparse.Namespace) -> int:
     except ValueError as exc:
         raise CLIError(str(exc), ExitCode.USAGE)
 
-    out_path = Path(getattr(args, "out"))
+    out_path = Path(args.out)
     request = ExportScheduleRequest(
         service=svc,
         cal_name=cal_name,
@@ -385,13 +441,17 @@ def cmd_export(args: argparse.Namespace) -> int:
 
 
 @app.command("compress", help="Infer recurring weekly series from one-off plan events")
-@app.argument("--in", dest="in_path", required=True, help="Input plan YAML with one-offs (events: [])")
+@app.argument(
+    "--in", dest="in_path", required=True, help="Input plan YAML with one-offs (events: [])"
+)
 @app.argument("--out", required=True, help="Output compressed plan YAML")
 @app.argument("--calendar", help="Calendar name to set on series (optional)")
-@app.argument("--min-occur", type=int, default=2, help="Minimum occurrences to form a series (default 2)")
+@app.argument(
+    "--min-occur", type=int, default=2, help="Minimum occurrences to form a series (default 2)"
+)
 def cmd_compress(args: argparse.Namespace) -> int:
     _writer = OutputWriter()
-    inp = Path(getattr(args, "in_path"))
+    inp = Path(args.in_path)
     if not inp.exists():
         _writer.print_error(f"Input not found: {inp}")
         return ExitCode.NOT_FOUND
@@ -416,9 +476,9 @@ def cmd_compress(args: argparse.Namespace) -> int:
     out_events.sort(key=_compress_sort_key)
 
     # Write output
-    _write_yaml(Path(getattr(args, "out")), {"events": out_events})
+    _write_yaml(Path(args.out), {"events": out_events})
     total_input = sum(len(v) for v in groups.values())
-    _writer.print(f"Compressed {total_input} one-offs into {len(out_events)} entries → {getattr(args, 'out')}")
+    _writer.print(f"Compressed {total_input} one-offs into {len(out_events)} entries → {args.out}")
     return ExitCode.SUCCESS
 
 

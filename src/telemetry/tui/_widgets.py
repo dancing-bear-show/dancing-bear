@@ -104,8 +104,7 @@ class _DetailModal(ModalScreen):
 
         with VerticalScroll(id="detail-scroll"):
             yield Static(
-                Panel(self._content, title=f"[bold]{self._title}[/]",
-                      border_style="cyan"),
+                Panel(self._content, title=f"[bold]{self._title}[/]", border_style="cyan"),
                 id="detail-content",
             )
 
@@ -129,16 +128,11 @@ class SessionPickerScreen(ModalScreen[str]):
         for s in self._sessions[:50]:
             date_str = s.start_time.strftime("%Y-%m-%d %H:%M")
             project = (s.project_path or "-")[-40:]
-            label = (
-                f"{s.session_id[:12]}  {date_str}  "
-                f"{project}  ${s.total_cost:.2f}"
-            )
+            label = f"{s.session_id[:12]}  {date_str}  {project}  ${s.total_cost:.2f}"
             options.append(Option(label, id=s.session_id))
         yield OptionList(*options, id="session-list")
 
-    def on_option_list_option_selected(
-        self, event: OptionList.OptionSelected
-    ) -> None:
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         self.dismiss(event.option.id)
 
     def action_dismiss_modal(self) -> None:
@@ -170,7 +164,10 @@ class FooterInfo(Static):
     """Bottom info bar."""
 
     def update_info(
-        self, session_id: str, event_count: int, refresh: float,
+        self,
+        session_id: str,
+        event_count: int,
+        refresh: float,
         estimated: bool,
     ) -> None:
         est = " [estimated]" if estimated else ""
@@ -185,10 +182,10 @@ class FooterInfo(Static):
 # Re-export DataTable so _app.py can import it from one place
 __all__ = [
     "APP_CSS",
-    "_DetailModal",
     "DataTable",
     "FooterInfo",
     "HeaderPanel",
     "SessionPickerScreen",
     "TipsPanel",
+    "_DetailModal",
 ]

@@ -1,14 +1,12 @@
 """Tests for mail/auto/producers.py auto pipeline producers."""
-from tests.fixtures import test_path
-
 
 import unittest
 from pathlib import Path
 
 from core.pipeline import ResultEnvelope
-from mail.auto.processors import AutoProposeResult, AutoSummaryResult, AutoApplyResult
-from mail.auto.producers import AutoProposeProducer, AutoSummaryProducer, AutoApplyProducer
-from tests.fixtures import capture_stderr, capture_stdout
+from mail.auto.processors import AutoApplyResult, AutoProposeResult, AutoSummaryResult
+from mail.auto.producers import AutoApplyProducer, AutoProposeProducer, AutoSummaryProducer
+from tests.fixtures import capture_stderr, capture_stdout, test_path
 
 
 class TestAutoProposeProducer(unittest.TestCase):

@@ -1,4 +1,5 @@
 """Tests for telemetry/ccpulse_reader.py — ccpulse session insights reader."""
+
 from __future__ import annotations
 
 import json
@@ -7,7 +8,7 @@ import time
 import unittest
 from pathlib import Path
 
-from telemetry.ccpulse_reader import read_current, _STALE_AFTER_SECONDS, _SUPPORTED_SCHEMAS
+from telemetry.ccpulse_reader import _STALE_AFTER_SECONDS, _SUPPORTED_SCHEMAS, read_current
 
 
 def _write_payload(path: Path, data: dict) -> None:

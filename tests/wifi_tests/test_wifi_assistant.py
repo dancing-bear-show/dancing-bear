@@ -6,20 +6,25 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
+from tests.wifi_tests.shared_fixtures import FakeRunner
 from wifi import cli
 from wifi.diagnostics_probes import DnsResult, HttpResult, run_diagnosis
 from wifi.diagnostics_report import DiagnoseConfig, Report, render_report
-from tests.wifi_tests.shared_fixtures import FakeRunner
 
 
 class WifiAssistantTests(unittest.TestCase):
     def test_run_diagnosis_formats_report(self):
         runner = FakeRunner()
         runner.add(
-            ["/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport", "-I"],
+            [
+                "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport",
+                "-I",
+            ],
             stdout="     SSID: TestNet\n     BSSID: aa:bb:cc:dd:ee:ff\n     agrCtlRSSI: -60\n     agrCtlNoise: -95\n     lastTxRate: 300\n     channel: 36\n",
         )
-        runner.add(["route", "-n", "get", "default"], stdout="route to: default\ngateway: 192.168.1.1\n")
+        runner.add(
+            ["route", "-n", "get", "default"], stdout="route to: default\ngateway: 192.168.1.1\n"
+        )
         runner.add(
             ["ping", "-c", "5", "192.168.1.1"],
             stdout=(
@@ -54,8 +59,10 @@ class WifiAssistantTests(unittest.TestCase):
 
         def resolver(host):
             return DnsResult(host=host, success=True, addresses=["142.0.0.1"], elapsed_ms=8.5)
+
         def http_probe(url):
             return HttpResult(url=url, success=True, status=200, elapsed_ms=180.0, bytes_read=2048)
+
         cfg = DiagnoseConfig(
             ping_targets=["1.1.1.1", "8.8.8.8"],
             ping_count=5,
@@ -96,9 +103,7 @@ class WifiAssistantTests(unittest.TestCase):
     def test_icmp_filtered_survey_surfaces_hint(self):
         runner = FakeRunner()
         runner.add(["route", "-n", "get", "default"], stdout="gateway: 10.0.0.1\n")
-        loss_out = (
-            "3 packets transmitted, 0 packets received, 100.0% packet loss\n"
-        )
+        loss_out = "3 packets transmitted, 0 packets received, 100.0% packet loss\n"
         # survey (4) and main ping (12) for gateway and target
         for count in ("4", "12"):
             runner.add(["ping", "-c", count, "10.0.0.1"], stdout=loss_out)
@@ -109,12 +114,17 @@ class WifiAssistantTests(unittest.TestCase):
             returncode=0,
         )
         cfg = DiagnoseConfig(ping_targets=["1.1.1.1"], ping_count=12)
+
         def resolver(host):
             return DnsResult(host=host, success=True, addresses=["1.2.3.4"], elapsed_ms=5.0)
+
         def http_probe(url):
             return HttpResult(url=url, success=True, status=200, elapsed_ms=100.0, bytes_read=1024)
+
         report = run_diagnosis(cfg, runner=runner, resolver=resolver, http_probe_fn=http_probe)
-        self.assertTrue(any("ICMP" in f and "filtered" in f for f in report.findings), report.findings)
+        self.assertTrue(
+            any("ICMP" in f and "filtered" in f for f in report.findings), report.findings
+        )
         self.assertEqual(report.condition, "n/a (icmp filtered)")
 
 

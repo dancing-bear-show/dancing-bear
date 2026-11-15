@@ -56,9 +56,7 @@ class ReadFirstTests(IniTestBase):
 
     def test_skips_missing_file_and_continues(self):
         real = self._write("real.ini", "[mail]\ntoken = real\n")
-        path, _ = read_credential_ini_first(
-            search_paths=["/nonexistent/x.ini", real]
-        )
+        path, _ = read_credential_ini_first(search_paths=["/nonexistent/x.ini", real])
         self.assertEqual(path, real)
 
     def test_require_section_skips_file_lacking_section(self):
@@ -73,9 +71,7 @@ class ReadFirstTests(IniTestBase):
 
     def test_require_section_returns_none_when_absent_everywhere(self):
         a = self._write("a.ini", "[other]\nk = v\n")
-        path, sections = read_credential_ini_first(
-            search_paths=[a], require_section="missing"
-        )
+        path, sections = read_credential_ini_first(search_paths=[a], require_section="missing")
         self.assertIsNone(path)
         self.assertEqual(sections, {})
 
@@ -157,9 +153,7 @@ class ReadFirstTests(IniTestBase):
 
 class ReadMergedTests(IniTestBase):
     def test_empty_when_nothing_exists(self):
-        self.assertEqual(
-            read_credential_ini_merged(["/nonexistent/x.ini"]), {}
-        )
+        self.assertEqual(read_credential_ini_merged(["/nonexistent/x.ini"]), {})
 
     def test_first_path_wins_per_key(self):
         first = self._write("a.ini", "[mail]\ntoken = first\n")

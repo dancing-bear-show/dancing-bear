@@ -1,4 +1,5 @@
 """Tests for telemetry/otel/menubar_provider.py — OtelMenubarProvider."""
+
 from __future__ import annotations
 
 import tempfile
@@ -8,17 +9,17 @@ from pathlib import Path
 from unittest.mock import patch
 
 from telemetry.otel.menubar_dataclasses import (
+    CodeImpact,
+    HookHealth,
+    MetaStats,
     OtelDisplayData,
     OtelUsage,
-    MetaStats,
-    HookHealth,
-    ToolActivity,
-    CodeImpact,
-    Skills,
     SessionPatterns,
+    Skills,
+    ToolActivity,
 )
 from telemetry.otel.menubar_provider import OtelMenubarProvider
-from telemetry.otel.reader import OTLPDataDir, EVENTS_FILE, METRICS_FILE
+from telemetry.otel.reader import EVENTS_FILE, METRICS_FILE, OTLPDataDir
 
 
 def _make_data_dir(tmpdir: str) -> OTLPDataDir:
@@ -29,6 +30,7 @@ def _make_data_dir(tmpdir: str) -> OTLPDataDir:
 def _write_events(path: Path, records: list[dict]) -> None:
     """Write records as JSONL to events file."""
     import json
+
     with path.open("w") as fh:
         for rec in records:
             fh.write(json.dumps(rec) + "\n")
@@ -37,6 +39,7 @@ def _write_events(path: Path, records: list[dict]) -> None:
 def _write_metrics(path: Path, records: list[dict]) -> None:
     """Write records as JSONL to metrics file."""
     import json
+
     with path.open("w") as fh:
         for rec in records:
             fh.write(json.dumps(rec) + "\n")
@@ -60,15 +63,21 @@ def _make_event_record(event_type: str, attrs: dict | None = None, secs_ago: flo
         elif isinstance(v, bool):
             attr_list.append({"key": k, "value": {"boolValue": v}})
     return {
-        "resourceLogs": [{
-            "scopeLogs": [{
-                "logRecords": [{
-                    "timeUnixNano": str(_ts_nano(secs_ago)),
-                    "body": {"stringValue": event_type},
-                    "attributes": attr_list,
-                }]
-            }]
-        }]
+        "resourceLogs": [
+            {
+                "scopeLogs": [
+                    {
+                        "logRecords": [
+                            {
+                                "timeUnixNano": str(_ts_nano(secs_ago)),
+                                "body": {"stringValue": event_type},
+                                "attributes": attr_list,
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
     }
 
 
@@ -154,12 +163,20 @@ class TestParseEvents(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             data_dir = _make_data_dir(tmpdir)
             events_path = data_dir.path / EVENTS_FILE
-            _write_events(events_path, [
-                _make_event_record(
-                    "claude_code.hook_execution_complete",
-                    {"total_duration_ms": 150.0, "num_blocking": 1, "num_non_blocking_error": 0, "hook_name": "my-hook"},
-                )
-            ])
+            _write_events(
+                events_path,
+                [
+                    _make_event_record(
+                        "claude_code.hook_execution_complete",
+                        {
+                            "total_duration_ms": 150.0,
+                            "num_blocking": 1,
+                            "num_non_blocking_error": 0,
+                            "hook_name": "my-hook",
+                        },
+                    )
+                ],
+            )
             provider = OtelMenubarProvider(data_dir=data_dir)
             result = provider.get_display_data()
             self.assertTrue(result.available)
@@ -171,11 +188,20 @@ class TestParseEvents(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             data_dir = _make_data_dir(tmpdir)
             events_path = data_dir.path / EVENTS_FILE
-            _write_events(events_path, [
-                _make_event_record("claude_code.skill_activated", {"skill.name": "pr-assistant"}),
-                _make_event_record("claude_code.skill_activated", {"skill.name": "pr-assistant"}),
-                _make_event_record("claude_code.skill_activated", {"skill.name": "code-review"}),
-            ])
+            _write_events(
+                events_path,
+                [
+                    _make_event_record(
+                        "claude_code.skill_activated", {"skill.name": "pr-assistant"}
+                    ),
+                    _make_event_record(
+                        "claude_code.skill_activated", {"skill.name": "pr-assistant"}
+                    ),
+                    _make_event_record(
+                        "claude_code.skill_activated", {"skill.name": "code-review"}
+                    ),
+                ],
+            )
             provider = OtelMenubarProvider(data_dir=data_dir)
             result = provider.get_display_data()
             self.assertEqual(result.skills.skills_invoked_today, 3)
@@ -186,10 +212,13 @@ class TestParseEvents(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             data_dir = _make_data_dir(tmpdir)
             events_path = data_dir.path / EVENTS_FILE
-            _write_events(events_path, [
-                _make_event_record("claude_code.user_prompt"),
-                _make_event_record("claude_code.user_prompt"),
-            ])
+            _write_events(
+                events_path,
+                [
+                    _make_event_record("claude_code.user_prompt"),
+                    _make_event_record("claude_code.user_prompt"),
+                ],
+            )
             provider = OtelMenubarProvider(data_dir=data_dir)
             result = provider.get_display_data()
             self.assertEqual(result.session_patterns.prompts_today, 2)
@@ -198,11 +227,20 @@ class TestParseEvents(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             data_dir = _make_data_dir(tmpdir)
             events_path = data_dir.path / EVENTS_FILE
-            _write_events(events_path, [
-                _make_event_record("claude_code.tool_decision", {"tool_name": "Bash", "decision": "accept"}),
-                _make_event_record("claude_code.tool_decision", {"tool_name": "Read", "decision": "accept"}),
-                _make_event_record("claude_code.tool_decision", {"tool_name": "Edit", "decision": "reject"}),
-            ])
+            _write_events(
+                events_path,
+                [
+                    _make_event_record(
+                        "claude_code.tool_decision", {"tool_name": "Bash", "decision": "accept"}
+                    ),
+                    _make_event_record(
+                        "claude_code.tool_decision", {"tool_name": "Read", "decision": "accept"}
+                    ),
+                    _make_event_record(
+                        "claude_code.tool_decision", {"tool_name": "Edit", "decision": "reject"}
+                    ),
+                ],
+            )
             provider = OtelMenubarProvider(data_dir=data_dir)
             result = provider.get_display_data()
             ta = result.tool_activity
@@ -213,9 +251,14 @@ class TestParseEvents(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             data_dir = _make_data_dir(tmpdir)
             events_path = data_dir.path / EVENTS_FILE
-            _write_events(events_path, [
-                _make_event_record("claude_code.compaction", {"pre_tokens": 1000, "post_tokens": 200}),
-            ])
+            _write_events(
+                events_path,
+                [
+                    _make_event_record(
+                        "claude_code.compaction", {"pre_tokens": 1000, "post_tokens": 200}
+                    ),
+                ],
+            )
             provider = OtelMenubarProvider(data_dir=data_dir)
             result = provider.get_display_data()
             ci = result.code_impact
@@ -226,10 +269,18 @@ class TestParseEvents(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             data_dir = _make_data_dir(tmpdir)
             events_path = data_dir.path / EVENTS_FILE
-            _write_events(events_path, [
-                _make_event_record("claude_code.api_request", {"query_source": "agent:code-writer", "model": "sonnet"}),
-                _make_event_record("claude_code.api_request", {"query_source": "user", "model": "sonnet"}),
-            ])
+            _write_events(
+                events_path,
+                [
+                    _make_event_record(
+                        "claude_code.api_request",
+                        {"query_source": "agent:code-writer", "model": "sonnet"},
+                    ),
+                    _make_event_record(
+                        "claude_code.api_request", {"query_source": "user", "model": "sonnet"}
+                    ),
+                ],
+            )
             provider = OtelMenubarProvider(data_dir=data_dir)
             result = provider.get_display_data()
             sp = result.session_patterns
@@ -242,13 +293,23 @@ class TestComputeMetaStats(unittest.TestCase):
 
     def test_zero_active_hours_gives_zero_cost_per_hour(self) -> None:
         usage = OtelUsage(
-            cost_24h=5.0, cost_7d=0.0, input_tokens_24h=0, output_tokens_24h=0,
-            cache_read_tokens_24h=0, cache_creation_tokens_24h=0, total_tokens_24h=0,
-            active_hours_24h=0.0, model_cost_breakdown=[],
+            cost_24h=5.0,
+            cost_7d=0.0,
+            input_tokens_24h=0,
+            output_tokens_24h=0,
+            cache_read_tokens_24h=0,
+            cache_creation_tokens_24h=0,
+            total_tokens_24h=0,
+            active_hours_24h=0.0,
+            model_cost_breakdown=[],
         )
         code_impact = CodeImpact(
-            lines_added_today=0, lines_removed_today=0, top_languages=[],
-            commits_today=0, compaction_count=0, tokens_saved_by_compaction=0,
+            lines_added_today=0,
+            lines_removed_today=0,
+            top_languages=[],
+            commits_today=0,
+            compaction_count=0,
+            tokens_saved_by_compaction=0,
         )
         provider = self._provider()
         stats = provider._compute_meta_stats(usage, code_impact)
@@ -256,13 +317,23 @@ class TestComputeMetaStats(unittest.TestCase):
 
     def test_active_hours_gives_cost_per_hour(self) -> None:
         usage = OtelUsage(
-            cost_24h=4.0, cost_7d=0.0, input_tokens_24h=0, output_tokens_24h=0,
-            cache_read_tokens_24h=0, cache_creation_tokens_24h=0, total_tokens_24h=0,
-            active_hours_24h=2.0, model_cost_breakdown=[],
+            cost_24h=4.0,
+            cost_7d=0.0,
+            input_tokens_24h=0,
+            output_tokens_24h=0,
+            cache_read_tokens_24h=0,
+            cache_creation_tokens_24h=0,
+            total_tokens_24h=0,
+            active_hours_24h=2.0,
+            model_cost_breakdown=[],
         )
         code_impact = CodeImpact(
-            lines_added_today=0, lines_removed_today=0, top_languages=[],
-            commits_today=0, compaction_count=0, tokens_saved_by_compaction=0,
+            lines_added_today=0,
+            lines_removed_today=0,
+            top_languages=[],
+            commits_today=0,
+            compaction_count=0,
+            tokens_saved_by_compaction=0,
         )
         provider = self._provider()
         stats = provider._compute_meta_stats(usage, code_impact)
@@ -270,13 +341,23 @@ class TestComputeMetaStats(unittest.TestCase):
 
     def test_cache_hit_rate_computed(self) -> None:
         usage = OtelUsage(
-            cost_24h=0.0, cost_7d=0.0, input_tokens_24h=0, output_tokens_24h=0,
-            cache_read_tokens_24h=800, cache_creation_tokens_24h=200, total_tokens_24h=0,
-            active_hours_24h=0.0, model_cost_breakdown=[],
+            cost_24h=0.0,
+            cost_7d=0.0,
+            input_tokens_24h=0,
+            output_tokens_24h=0,
+            cache_read_tokens_24h=800,
+            cache_creation_tokens_24h=200,
+            total_tokens_24h=0,
+            active_hours_24h=0.0,
+            model_cost_breakdown=[],
         )
         code_impact = CodeImpact(
-            lines_added_today=0, lines_removed_today=0, top_languages=[],
-            commits_today=0, compaction_count=0, tokens_saved_by_compaction=0,
+            lines_added_today=0,
+            lines_removed_today=0,
+            top_languages=[],
+            commits_today=0,
+            compaction_count=0,
+            tokens_saved_by_compaction=0,
         )
         provider = self._provider()
         stats = provider._compute_meta_stats(usage, code_impact)
@@ -284,13 +365,23 @@ class TestComputeMetaStats(unittest.TestCase):
 
     def test_zero_cache_tokens_gives_zero_hit_rate(self) -> None:
         usage = OtelUsage(
-            cost_24h=0.0, cost_7d=0.0, input_tokens_24h=0, output_tokens_24h=0,
-            cache_read_tokens_24h=0, cache_creation_tokens_24h=0, total_tokens_24h=0,
-            active_hours_24h=0.0, model_cost_breakdown=[],
+            cost_24h=0.0,
+            cost_7d=0.0,
+            input_tokens_24h=0,
+            output_tokens_24h=0,
+            cache_read_tokens_24h=0,
+            cache_creation_tokens_24h=0,
+            total_tokens_24h=0,
+            active_hours_24h=0.0,
+            model_cost_breakdown=[],
         )
         code_impact = CodeImpact(
-            lines_added_today=0, lines_removed_today=0, top_languages=[],
-            commits_today=0, compaction_count=0, tokens_saved_by_compaction=0,
+            lines_added_today=0,
+            lines_removed_today=0,
+            top_languages=[],
+            commits_today=0,
+            compaction_count=0,
+            tokens_saved_by_compaction=0,
         )
         provider = self._provider()
         stats = provider._compute_meta_stats(usage, code_impact)
@@ -313,14 +404,28 @@ class TestComputeOtelUsageWithMetrics(unittest.TestCase):
             elif isinstance(v, int):
                 attr_list.append({"key": k, "value": {"intValue": v}})
         return {
-            "resourceMetrics": [{
-                "scopeMetrics": [{
-                    "metrics": [{
-                        "name": metric_name,
-                        "gauge": {"dataPoints": [{"timeUnixNano": str(ts_nano), "asDouble": value, "attributes": attr_list}]},
-                    }]
-                }]
-            }]
+            "resourceMetrics": [
+                {
+                    "scopeMetrics": [
+                        {
+                            "metrics": [
+                                {
+                                    "name": metric_name,
+                                    "gauge": {
+                                        "dataPoints": [
+                                            {
+                                                "timeUnixNano": str(ts_nano),
+                                                "asDouble": value,
+                                                "attributes": attr_list,
+                                            }
+                                        ]
+                                    },
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
         }
 
     def test_cost_metric_accumulated(self) -> None:
@@ -329,9 +434,12 @@ class TestComputeOtelUsageWithMetrics(unittest.TestCase):
             events_path = data_dir.path / EVENTS_FILE
             metrics_path = data_dir.path / METRICS_FILE
             _write_events(events_path, [_make_event_record("test.event")])
-            _write_metrics(metrics_path, [
-                self._make_metrics_record("claude_code.cost.usage", 2.5, {"model": "sonnet"}),
-            ])
+            _write_metrics(
+                metrics_path,
+                [
+                    self._make_metrics_record("claude_code.cost.usage", 2.5, {"model": "sonnet"}),
+                ],
+            )
             provider = OtelMenubarProvider(data_dir=data_dir)
             result = provider.get_display_data()
             self.assertAlmostEqual(result.otel_usage.cost_24h, 2.5)
@@ -342,10 +450,13 @@ class TestComputeOtelUsageWithMetrics(unittest.TestCase):
             events_path = data_dir.path / EVENTS_FILE
             metrics_path = data_dir.path / METRICS_FILE
             _write_events(events_path, [_make_event_record("test.event")])
-            _write_metrics(metrics_path, [
-                self._make_metrics_record("claude_code.token.usage", 1000.0, {"type": "input"}),
-                self._make_metrics_record("claude_code.token.usage", 500.0, {"type": "output"}),
-            ])
+            _write_metrics(
+                metrics_path,
+                [
+                    self._make_metrics_record("claude_code.token.usage", 1000.0, {"type": "input"}),
+                    self._make_metrics_record("claude_code.token.usage", 500.0, {"type": "output"}),
+                ],
+            )
             provider = OtelMenubarProvider(data_dir=data_dir)
             result = provider.get_display_data()
             self.assertEqual(result.otel_usage.input_tokens_24h, 1000)
@@ -357,9 +468,12 @@ class TestComputeOtelUsageWithMetrics(unittest.TestCase):
             events_path = data_dir.path / EVENTS_FILE
             metrics_path = data_dir.path / METRICS_FILE
             _write_events(events_path, [_make_event_record("test.event")])
-            _write_metrics(metrics_path, [
-                self._make_metrics_record("claude_code.active_time.total", 7200.0),  # 2 hours
-            ])
+            _write_metrics(
+                metrics_path,
+                [
+                    self._make_metrics_record("claude_code.active_time.total", 7200.0),  # 2 hours
+                ],
+            )
             provider = OtelMenubarProvider(data_dir=data_dir)
             result = provider.get_display_data()
             self.assertAlmostEqual(result.otel_usage.active_hours_24h, 2.0)
@@ -370,10 +484,15 @@ class TestComputeOtelUsageWithMetrics(unittest.TestCase):
             events_path = data_dir.path / EVENTS_FILE
             metrics_path = data_dir.path / METRICS_FILE
             _write_events(events_path, [_make_event_record("test.event")])
-            _write_metrics(metrics_path, [
-                self._make_metrics_record("claude_code.cost.usage", 1.0, {"model": "sonnet"}),
-                self._make_metrics_record("claude_code.token.usage", 500.0, {"model": "sonnet", "type": "input"}),
-            ])
+            _write_metrics(
+                metrics_path,
+                [
+                    self._make_metrics_record("claude_code.cost.usage", 1.0, {"model": "sonnet"}),
+                    self._make_metrics_record(
+                        "claude_code.token.usage", 500.0, {"model": "sonnet", "type": "input"}
+                    ),
+                ],
+            )
             provider = OtelMenubarProvider(data_dir=data_dir)
             result = provider.get_display_data()
             model_names = [m for m, _, _ in result.otel_models.model_rows]
@@ -387,20 +506,27 @@ class TestParseEventsBodyFormats(unittest.TestCase):
         """Events with a plain string body should still parse correctly."""
         with tempfile.TemporaryDirectory() as tmpdir:
             import json as _json
+
             data_dir = _make_data_dir(tmpdir)
             events_path = data_dir.path / EVENTS_FILE
             ts_nano = int(time.time() * 1e9)
             # Write a record with string body instead of dict body
             record = {
-                "resourceLogs": [{
-                    "scopeLogs": [{
-                        "logRecords": [{
-                            "timeUnixNano": str(ts_nano),
-                            "body": "claude_code.user_prompt",  # string, not dict
-                            "attributes": [],
-                        }]
-                    }]
-                }]
+                "resourceLogs": [
+                    {
+                        "scopeLogs": [
+                            {
+                                "logRecords": [
+                                    {
+                                        "timeUnixNano": str(ts_nano),
+                                        "body": "claude_code.user_prompt",  # string, not dict
+                                        "attributes": [],
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
             }
             with events_path.open("w") as fh:
                 fh.write(_json.dumps(record) + "\n")
@@ -415,10 +541,15 @@ class TestParseEventsBodyFormats(unittest.TestCase):
             data_dir = _make_data_dir(tmpdir)
             events_path = data_dir.path / EVENTS_FILE
             # Write a recent event (for freshness check) and an old event
-            _write_events(events_path, [
-                _make_event_record("claude_code.user_prompt", secs_ago=60.0),   # recent
-                _make_event_record("claude_code.user_prompt", secs_ago=90000.0),  # > 24h, excluded
-            ])
+            _write_events(
+                events_path,
+                [
+                    _make_event_record("claude_code.user_prompt", secs_ago=60.0),  # recent
+                    _make_event_record(
+                        "claude_code.user_prompt", secs_ago=90000.0
+                    ),  # > 24h, excluded
+                ],
+            )
             provider = OtelMenubarProvider(data_dir=data_dir)
             result = provider.get_display_data(window="24h")
             # Only the recent event should be counted
@@ -432,17 +563,26 @@ class TestToolResultEvents(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             data_dir = _make_data_dir(tmpdir)
             events_path = data_dir.path / EVENTS_FILE
-            _write_events(events_path, [
-                _make_event_record("claude_code.tool_result", {
-                    "tool_name": "Read",
-                    "tool_input_size_bytes": 100,
-                    "tool_result_size_bytes": 2000,
-                }),
-                _make_event_record("claude_code.tool_result", {
-                    "tool_name": "bash",
-                    "success": "false",
-                }),
-            ])
+            _write_events(
+                events_path,
+                [
+                    _make_event_record(
+                        "claude_code.tool_result",
+                        {
+                            "tool_name": "Read",
+                            "tool_input_size_bytes": 100,
+                            "tool_result_size_bytes": 2000,
+                        },
+                    ),
+                    _make_event_record(
+                        "claude_code.tool_result",
+                        {
+                            "tool_name": "bash",
+                            "success": "false",
+                        },
+                    ),
+                ],
+            )
             provider = OtelMenubarProvider(data_dir=data_dir)
             result = provider.get_display_data()
             ta = result.tool_activity

@@ -10,6 +10,7 @@ Defect 2 -- the raw search term was interpolated into the URL unencoded. The
 encoding contract is now: **callers pass RAW, unquoted terms**; ``_build_search_url``
 owns both the KQL quote-wrapping and the percent-encoding.
 """
+
 from __future__ import annotations
 
 import unittest
@@ -17,7 +18,6 @@ from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, urlparse
 
 from core.outlook.models import SearchParams
-
 from tests.core_tests.outlook_helpers import (
     FakeMailClient,
     iso_days_ago,
@@ -72,12 +72,14 @@ class TestClientSideDateFiltering(unittest.TestCase):
     def test_drops_messages_older_than_days_window(self, mock_requests_fn):
         mock_requests = MagicMock()
         mock_requests_fn.return_value = mock_requests
-        mock_requests.get.return_value = make_mock_response({
-            "value": [
-                {"id": "recent", "receivedDateTime": iso_days_ago(1)},
-                {"id": "stale", "receivedDateTime": iso_days_ago(90)},
-            ]
-        })
+        mock_requests.get.return_value = make_mock_response(
+            {
+                "value": [
+                    {"id": "recent", "receivedDateTime": iso_days_ago(1)},
+                    {"id": "stale", "receivedDateTime": iso_days_ago(90)},
+                ]
+            }
+        )
 
         result = FakeMailClient().search_inbox_messages(
             SearchParams(search_query="invoice", days=7, use_cache=False)
@@ -89,12 +91,14 @@ class TestClientSideDateFiltering(unittest.TestCase):
     def test_keeps_all_messages_when_days_absent(self, mock_requests_fn):
         mock_requests = MagicMock()
         mock_requests_fn.return_value = mock_requests
-        mock_requests.get.return_value = make_mock_response({
-            "value": [
-                {"id": "recent", "receivedDateTime": iso_days_ago(1)},
-                {"id": "stale", "receivedDateTime": iso_days_ago(900)},
-            ]
-        })
+        mock_requests.get.return_value = make_mock_response(
+            {
+                "value": [
+                    {"id": "recent", "receivedDateTime": iso_days_ago(1)},
+                    {"id": "stale", "receivedDateTime": iso_days_ago(900)},
+                ]
+            }
+        )
 
         result = FakeMailClient().search_inbox_messages(
             SearchParams(search_query="invoice", use_cache=False)
@@ -107,9 +111,7 @@ class TestClientSideDateFiltering(unittest.TestCase):
         """A message Graph returned without receivedDateTime must not be silently dropped."""
         mock_requests = MagicMock()
         mock_requests_fn.return_value = mock_requests
-        mock_requests.get.return_value = make_mock_response({
-            "value": [{"id": "no-date"}]
-        })
+        mock_requests.get.return_value = make_mock_response({"value": [{"id": "no-date"}]})
 
         result = FakeMailClient().search_inbox_messages(
             SearchParams(search_query="invoice", days=7, use_cache=False)

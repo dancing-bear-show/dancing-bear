@@ -1,4 +1,5 @@
 """Messages command orchestration helpers."""
+
 from __future__ import annotations
 
 import argparse
@@ -39,7 +40,9 @@ def select_message_id(args: argparse.Namespace, client) -> tuple[str | None, str
     if not q:
         return None, None
     crit = {"query": q}
-    q_built = build_gmail_query(crit, days=getattr(args, "days", None), only_inbox=getattr(args, "only_inbox", False))
+    q_built = build_gmail_query(
+        crit, days=getattr(args, "days", None), only_inbox=getattr(args, "only_inbox", False)
+    )
     ids = client.list_message_ids(query=q_built, max_pages=1, page_size=1)
     if not ids:
         return None, None
@@ -99,9 +102,9 @@ def run_messages_search(args) -> int:
     """Search for messages and list candidates."""
     from ..utils.cli_helpers import is_outlook_profile
     from .pipeline import (
+        MessagesSearchProducer,
         MessagesSearchRequest,
         MessagesSearchRequestConsumer,
-        MessagesSearchProducer,
     )
 
     profile = getattr(args, "profile", None)
@@ -134,9 +137,7 @@ def run_messages_search(args) -> int:
     if processor is None:
         return 1
 
-    envelope = processor.process(
-        MessagesSearchRequestConsumer(request).consume()
-    )
+    envelope = processor.process(MessagesSearchRequestConsumer(request).consume())
     MessagesSearchProducer(output_json=request.output_json).produce(envelope)
     return 0 if envelope.ok() else 1
 
@@ -145,10 +146,11 @@ def _run_outlook_summarize(args) -> int:
     """Summarize one Outlook message, resolving --id or --query."""
     import sys
 
+    from core.pipeline import ResultEnvelope
+
     from ..utils import cli_helpers
     from .outlook_text import outlook_message_text
-    from .pipeline import MessagesSummarizeResult, MessagesSummarizeProducer
-    from core.pipeline import ResultEnvelope
+    from .pipeline import MessagesSummarizeProducer, MessagesSummarizeResult
 
     try:
         client = cli_helpers.outlook_client_from_args(args)
@@ -200,10 +202,10 @@ def run_messages_summarize(args) -> int:
     """Summarize a message's content (Gmail or Outlook)."""
     from ..utils import cli_helpers
     from .pipeline import (
-        MessagesSummarizeRequest,
-        MessagesSummarizeRequestConsumer,
         MessagesSummarizeProcessor,
         MessagesSummarizeProducer,
+        MessagesSummarizeRequest,
+        MessagesSummarizeRequestConsumer,
     )
 
     # Dispatch before client construction; see run_messages_get.
@@ -269,6 +271,7 @@ def _fetch_message_record(client, msg_id: str) -> dict[str, str] | None:
         return None
 
     from ..gmail_api import GmailClient
+
     headers = GmailClient.headers_to_dict(msg)
     try:
         body = client.get_message_text(msg_id)
@@ -343,6 +346,7 @@ def _emit_get_records(records: list[dict[str, str]], *, fmt: str, single: bool) 
 def run_messages_get(args) -> int:
     """Fetch and print the full body of one or more messages (Gmail or Outlook)."""
     import sys
+
     from ..utils import cli_helpers
 
     if not _has_get_selector(args):

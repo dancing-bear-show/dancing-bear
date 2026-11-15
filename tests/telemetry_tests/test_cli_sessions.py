@@ -1,11 +1,12 @@
 """Tests for CLI session/agent/cost data-shaping helpers."""
+
 from __future__ import annotations
 
 import contextlib
 import io
 import json
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 from telemetry.cli import (
@@ -20,9 +21,10 @@ from telemetry.cli import (
     _sessions_json_payload,
     main,
 )
-
 from tests.telemetry_tests.shared_fixtures import (
     _make_agent_summary_cli as _make_agent_summary,
+)
+from tests.telemetry_tests.shared_fixtures import (
     _make_agent_token_row,
     _make_session_summary,
 )
@@ -39,6 +41,7 @@ def _run_main(argv: list[str]) -> tuple[int, str]:
 # ---------------------------------------------------------------------------
 # _session_to_dict
 # ---------------------------------------------------------------------------
+
 
 class TestSessionToDict(unittest.TestCase):
     def test_happy_path_with_agents(self):
@@ -66,6 +69,7 @@ class TestSessionToDict(unittest.TestCase):
 # _sessions_json_payload
 # ---------------------------------------------------------------------------
 
+
 class TestSessionsJsonPayload(unittest.TestCase):
     def test_payload_structure(self):
         s1 = _make_session_summary(total_cost=0.10)
@@ -86,21 +90,25 @@ class TestSessionsJsonPayload(unittest.TestCase):
 # _build_sessions_table
 # ---------------------------------------------------------------------------
 
+
 class TestBuildSessionsTable(unittest.TestCase):
     def test_returns_table(self):
         from rich.table import Table
+
         s = _make_session_summary()
         table = _build_sessions_table([s], "7d")
         self.assertIsInstance(table, Table)
 
     def test_project_path_short(self):
         from rich.table import Table
+
         s = _make_session_summary(project_path="/single")
         table = _build_sessions_table([s], "7d")
         self.assertIsInstance(table, Table)
 
     def test_project_path_none(self):
         from rich.table import Table
+
         s = _make_session_summary(project_path=None)
         table = _build_sessions_table([s], "7d")
         self.assertIsInstance(table, Table)
@@ -109,6 +117,7 @@ class TestBuildSessionsTable(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _agent_row_to_dict
 # ---------------------------------------------------------------------------
+
 
 class TestAgentRowToDict(unittest.TestCase):
     def test_returns_empty_for_non_row(self):
@@ -132,6 +141,7 @@ class TestAgentRowToDict(unittest.TestCase):
 # _print_agents_json
 # ---------------------------------------------------------------------------
 
+
 class TestPrintAgentsJson(unittest.TestCase):
     def test_outputs_valid_json(self):
         rows = [_make_agent_token_row()]
@@ -146,7 +156,9 @@ class TestPrintAgentsJson(unittest.TestCase):
 
     def test_direct_call_structure(self):
         rows = [_make_agent_token_row(agent="tester", est_cost=0.02)]
-        with patch("telemetry.providers.transcript.TranscriptProvider.aggregate_agents", return_value=rows):
+        with patch(
+            "telemetry.providers.transcript.TranscriptProvider.aggregate_agents", return_value=rows
+        ):
             rc, out = _run_main(["agents", "--format", "json", "--since", "7d"])
         self.assertEqual(rc, 0)
         payload = json.loads(out)
@@ -156,6 +168,7 @@ class TestPrintAgentsJson(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _print_agents_csv
 # ---------------------------------------------------------------------------
+
 
 class TestPrintAgentsCsv(unittest.TestCase):
     def test_csv_output_has_header_and_row(self):
@@ -181,15 +194,18 @@ class TestPrintAgentsCsv(unittest.TestCase):
 # _build_agents_table
 # ---------------------------------------------------------------------------
 
+
 class TestBuildAgentsTable(unittest.TestCase):
     def test_returns_table_with_rows(self):
         from rich.table import Table
+
         rows = [_make_agent_token_row()]
         table = _build_agents_table(rows, rows, "7d")
         self.assertIsInstance(table, Table)
 
     def test_empty_models_shows_dash(self):
         from rich.table import Table
+
         rows = [_make_agent_token_row(models=[])]
         table = _build_agents_table(rows, rows, "7d")
         self.assertIsInstance(table, Table)
@@ -198,6 +214,7 @@ class TestBuildAgentsTable(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _breakdown_by_agent
 # ---------------------------------------------------------------------------
+
 
 class TestBreakdownByAgent(unittest.TestCase):
     def test_returns_sorted_by_cost_descending(self):
@@ -226,9 +243,10 @@ class TestBreakdownByAgent(unittest.TestCase):
 # _breakdown_by_day
 # ---------------------------------------------------------------------------
 
+
 class TestBreakdownByDay(unittest.TestCase):
     def test_groups_by_day(self):
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         yesterday = now - timedelta(days=1)
         s1 = _make_session_summary(total_cost=0.10)
         s1.start_time = now
@@ -250,7 +268,7 @@ class TestBreakdownByDay(unittest.TestCase):
         self.assertIn("Warning", captured_stderr.getvalue())
 
     def test_aggregates_same_day_costs(self):
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         s1 = _make_session_summary(total_cost=0.10)
         s1.start_time = now
         s2 = _make_session_summary(total_cost=0.05, session_id="s2")
@@ -263,6 +281,7 @@ class TestBreakdownByDay(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _print_cost_csv
 # ---------------------------------------------------------------------------
+
 
 class TestPrintCostCsv(unittest.TestCase):
     def test_empty_rows_no_output(self):
@@ -294,15 +313,18 @@ class TestPrintCostCsv(unittest.TestCase):
 # _build_breakdown_table
 # ---------------------------------------------------------------------------
 
+
 class TestBuildBreakdownTable(unittest.TestCase):
     def test_agent_group_by(self):
         from rich.table import Table
+
         rows = [{"agent": "myagent", "calls": 3, "est_cost": 0.05}]
         table = _build_breakdown_table(rows, "agent", "7d")
         self.assertIsInstance(table, Table)
 
     def test_day_group_by(self):
         from rich.table import Table
+
         rows = [{"day": "2026-04-16", "est_cost": 0.10}]
         table = _build_breakdown_table(rows, "day", "7d")
         self.assertIsInstance(table, Table)

@@ -4,9 +4,7 @@ from __future__ import annotations
 def build_agentic_capsule() -> str:
     lines: list[str] = []
     lines.append("agentic: qlty")
-    lines.append(
-        "purpose: Merged qlty check+smells scanning with per-rule triage strategy"
-    )
+    lines.append("purpose: Merged qlty check+smells scanning with per-rule triage strategy")
     lines.append("commands:")
     lines.append("  - full scan: ./bin/qlty-assistant scan")
     lines.append("  - JSON scan: ./bin/qlty-assistant scan --format json")
@@ -17,7 +15,9 @@ def build_agentic_capsule() -> str:
     lines.append("  - scan merges `qlty check` and `qlty smells`; neither is a superset")
     lines.append("  - counts are per-run only; qlty caps issues, so totals are not completeness")
     lines.append("  - cap is nondeterministic: one clean run is NOT evidence of a clean repo")
-    lines.append("  - use --rescan-until-stable; a dry streak of 2 runs required before stable=True")
+    lines.append(
+        "  - use --rescan-until-stable; a dry streak of 2 runs required before stable=True"
+    )
     lines.append("  - do NOT use --filter to verify a finding is gone; --filter is unreliable")
     lines.append("  - tier D rules (return-statements, similar-code) are report-only")
     lines.append("  - --expect-min N exits nonzero on an implausibly small scan")

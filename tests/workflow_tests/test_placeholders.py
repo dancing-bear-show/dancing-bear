@@ -1,4 +1,4 @@
-"""Unit tests for workflow.placeholders.
+r"""Unit tests for workflow.placeholders.
 
 Grammar:
 - {ident} is a placeholder when ident is [A-Za-z_]\w* (ASCII).

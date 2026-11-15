@@ -3,7 +3,6 @@
 import unittest
 
 from tests.agentic_builder_contract import AgenticBuilderContractMixin
-
 from wifi.agentic import build_agentic_capsule, build_domain_map
 
 

@@ -16,6 +16,7 @@ The equivalence test below is the load-bearing one: it pins the two entry
 points to each other, so a guard added to one and not the other fails here
 rather than shipping.
 """
+
 from __future__ import annotations
 
 import os
@@ -106,6 +107,7 @@ class TestWriteResumeDocxSkipsEmptySections(_RenderHelpers, unittest.TestCase):
         not suppress populated ones.
         """
         from docx import Document
+
         from resume.docx_writer import write_resume_docx
         from resume.schema import Resume
 
@@ -125,9 +127,7 @@ class TestWriteResumeDocxSkipsEmptySections(_RenderHelpers, unittest.TestCase):
             out = os.path.join(tmpdir, "populated.docx")
             write_resume_docx(Resume.from_dict(data), _TEMPLATE, out)
 
-            self.assertEqual(
-                self._headings(out), ["Summary", "Skills", "Experience"]
-            )
+            self.assertEqual(self._headings(out), ["Summary", "Skills", "Experience"])
 
             # The bodies must be present too, not just the headings.
             body = "\n".join(p.text for p in Document(out).paragraphs)
@@ -143,9 +143,7 @@ class TestWriteResumeDocxSkipsEmptySections(_RenderHelpers, unittest.TestCase):
             "summary": ["Reliability engineer."],
             "education": [{"school": "Example University", "degree": "BSc"}],
         }
-        self.assertEqual(
-            self._render_via_writer(data, _TEMPLATE), ["Summary", "Education"]
-        )
+        self.assertEqual(self._render_via_writer(data, _TEMPLATE), ["Summary", "Education"])
 
 
 @unittest.skipUnless(_docx_available(), "python-docx not installed")
@@ -181,9 +179,7 @@ class TestEntryPointsAgree(_RenderHelpers, unittest.TestCase):
             "skills": ["Python"],
             "interests": ["Cycling"],
         }
-        self.assertEqual(
-            self._assert_entry_points_agree(data), ["Summary", "Skills", "Interests"]
-        )
+        self.assertEqual(self._assert_entry_points_agree(data), ["Summary", "Skills", "Interests"])
 
     def test_entry_points_agree_on_an_empty_scalar_summary(self):
         """The #290 case, now pinned on the path the CLI actually uses.
@@ -232,12 +228,8 @@ class TestUnrecognizedSectionKeysStillRender(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             out = os.path.join(tmpdir, "unmapped.docx")
 
-            with patch.dict(
-                "resume.docx_writer.SECTION_RENDERERS", patched, clear=True
-            ):
-                write_resume_docx(
-                    Resume.from_dict({"name": "Casey Synthetic"}), template, out
-                )
+            with patch.dict("resume.docx_writer.SECTION_RENDERERS", patched, clear=True):
+                write_resume_docx(Resume.from_dict({"name": "Casey Synthetic"}), template, out)
 
             from docx import Document
 
@@ -261,9 +253,7 @@ class TestUnrecognizedSectionKeysStillRender(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             out = os.path.join(tmpdir, "norenderer.docx")
-            write_resume_docx(
-                Resume.from_dict({"name": "Casey Synthetic"}), template, out
-            )
+            write_resume_docx(Resume.from_dict({"name": "Casey Synthetic"}), template, out)
 
             from docx import Document
 

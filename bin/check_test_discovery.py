@@ -23,6 +23,7 @@ Three failure modes, all silent by default and all seen in this repo:
 
 Exit 0 when every test directory is discoverable, 1 otherwise.
 """
+
 from __future__ import annotations
 
 import shutil
@@ -131,8 +132,7 @@ def main() -> int:
             print(f"  {rel(d)}/__init__.py", file=sys.stderr)
     if ignored:
         print(
-            "ERROR: test __init__.py files exist but are gitignored — they will "
-            "not reach CI:",
+            "ERROR: test __init__.py files exist but are gitignored — they will not reach CI:",
             file=sys.stderr,
         )
         for p in ignored:

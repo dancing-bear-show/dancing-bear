@@ -15,9 +15,10 @@ and other argv-flag calls are unaffected and still send their fields as
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from subprocess import CompletedProcess
-from typing import Any, Callable
+from typing import Any
 
 
 @dataclass
@@ -69,8 +70,12 @@ def _parse_argv_fields(call: GhCall, argv: list[str]) -> None:
 
 
 def parse_call(argv: list[str], kwargs: dict[str, Any]) -> GhCall:
-    call = GhCall(argv=list(argv), input=kwargs.get("input"), env=kwargs.get("env"),
-                  timeout=kwargs.get("timeout"))
+    call = GhCall(
+        argv=list(argv),
+        input=kwargs.get("input"),
+        env=kwargs.get("env"),
+        timeout=kwargs.get("timeout"),
+    )
     stdin_body = "--input" in argv
     if stdin_body and argv[:3] == ["gh", "api", "graphql"]:
         # {"query": ..., "variables": {...}} on stdin.
@@ -108,15 +113,22 @@ class FakeGh:
         return [c for c in self.calls if needle in c.query]
 
 
-def paged(items: list[Any], size: int, after: str | None, prefix: str) -> tuple[list[Any], dict[str, Any]]:
+def paged(
+    items: list[Any], size: int, after: str | None, prefix: str
+) -> tuple[list[Any], dict[str, Any]]:
     """Slice ``items`` like a GraphQL connection with cursors ``<prefix><offset>``."""
-    start = int(after[len(prefix):]) if after else 0
-    chunk = items[start:start + size]
+    start = int(after[len(prefix) :]) if after else 0
+    chunk = items[start : start + size]
     end = start + len(chunk)
-    return chunk, {"hasNextPage": end < len(items), "endCursor": f"{prefix}{end}" if chunk else None}
+    return chunk, {
+        "hasNextPage": end < len(items),
+        "endCursor": f"{prefix}{end}" if chunk else None,
+    }
 
 
-def comment_node(i: int, login: str = "rev", typename: str = "User", body: str | None = None) -> dict[str, Any]:
+def comment_node(
+    i: int, login: str = "rev", typename: str = "User", body: str | None = None
+) -> dict[str, Any]:
     return {
         "databaseId": 1000 + i,
         "author": {"login": login, "__typename": typename},

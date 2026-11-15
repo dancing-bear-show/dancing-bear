@@ -7,8 +7,8 @@ from unittest.mock import patch
 
 from worker._helpers import get_repo_root
 from worker.handlers import (
-    REGISTRY,
     _ALLOWED_BIN_NAMES,
+    REGISTRY,
     _is_allowed_bin,
     handle_workflow_stage,
 )
@@ -32,7 +32,9 @@ class TestHandlerRegistry(unittest.TestCase):
     def test_workflow_stage_invocation_returns_handler_result(self) -> None:
         job = _make_job({"script": "echo hello", "workspace_dir": ""})
 
-        with patch("worker.handlers.handle_run_shell", return_value=(True, {"returncode": 0})) as mock_shell:
+        with patch(
+            "worker.handlers.handle_run_shell", return_value=(True, {"returncode": 0})
+        ) as mock_shell:
             ok, result = REGISTRY["workflow_stage"](job)
 
         mock_shell.assert_called_once()
@@ -53,7 +55,9 @@ class TestHandleWorkflowStageScriptPath(unittest.TestCase):
     def test_delegates_to_run_shell_when_script_present(self) -> None:
         job = _make_job({"script": "echo hello", "workspace_dir": ""})
 
-        with patch("worker.handlers.handle_run_shell", return_value=(True, {"returncode": 0})) as mock_shell:
+        with patch(
+            "worker.handlers.handle_run_shell", return_value=(True, {"returncode": 0})
+        ) as mock_shell:
             ok, _ = handle_workflow_stage(job)
 
         mock_shell.assert_called_once()
@@ -89,8 +93,10 @@ class TestHandleWorkflowStageScriptPath(unittest.TestCase):
     def test_cli_commands_not_used_when_script_present(self) -> None:
         job = _make_job({"script": "echo hi", "cli_commands": ["./bin/worker status"]})
 
-        with patch("worker.handlers.handle_run_shell", return_value=(True, {})), \
-             patch("worker.handlers.handle_run_cli") as mock_cli:
+        with (
+            patch("worker.handlers.handle_run_shell", return_value=(True, {})),
+            patch("worker.handlers.handle_run_cli") as mock_cli,
+        ):
             handle_workflow_stage(job)
 
         mock_cli.assert_not_called()
@@ -107,7 +113,9 @@ class TestHandleWorkflowStageCLIPath(unittest.TestCase):
     def test_delegates_to_run_cli_when_no_script(self) -> None:
         job = _make_job({"cli_commands": ["./bin/worker status"], "workspace_dir": ""})
 
-        with patch("worker.handlers.handle_run_cli", return_value=(True, {"returncode": 0})) as mock_cli:
+        with patch(
+            "worker.handlers.handle_run_cli", return_value=(True, {"returncode": 0})
+        ) as mock_cli:
             ok, _ = handle_workflow_stage(job)
 
         mock_cli.assert_called_once()
@@ -120,7 +128,9 @@ class TestHandleWorkflowStageCLIPath(unittest.TestCase):
             handle_workflow_stage(job)
 
         cli_job = mock_cli.call_args_list[0][0][0]
-        self.assertEqual(cli_job["payload"]["cmd"], ["./bin/worker", "status", "--query", "some query"])
+        self.assertEqual(
+            cli_job["payload"]["cmd"], ["./bin/worker", "status", "--query", "some query"]
+        )
 
     def test_all_cli_commands_executed(self) -> None:
         job = _make_job({"cli_commands": ["./bin/worker status", "./bin/worker counts"]})
@@ -134,7 +144,9 @@ class TestHandleWorkflowStageCLIPath(unittest.TestCase):
     def test_cli_stops_on_first_failure(self) -> None:
         job = _make_job({"cli_commands": ["./bin/worker status", "./bin/worker counts"]})
 
-        with patch("worker.handlers.handle_run_cli", side_effect=[(False, "err"), (True, {})]) as mock_cli:
+        with patch(
+            "worker.handlers.handle_run_cli", side_effect=[(False, "err"), (True, {})]
+        ) as mock_cli:
             ok, _ = handle_workflow_stage(job)
 
         self.assertFalse(ok)
@@ -152,13 +164,23 @@ class TestHandleWorkflowStageCLIPath(unittest.TestCase):
     def test_cwd_honoured_by_handle_run_cli(self) -> None:
         """cwd from payload reaches _execute_subprocess, not just handle_workflow_stage."""
         from worker.handlers import handle_run_cli
-        job: dict[str, object] = {"id": "t", "type": "run_cli", "payload": {
-            "cmd": ["./bin/worker", "status"],
-            "cwd": "/tmp/custom-cwd",  # nosec B108 - test string only
-        }}
-        with patch("worker.handlers._execute_subprocess", return_value={"returncode": 0, "stdout": "", "stderr": ""}) as mock_exec, \
-             patch("worker.handlers._is_allowed_bin", return_value=True), \
-             patch("worker.handlers._build_command", return_value=["./bin/worker", "status"]):
+
+        job: dict[str, object] = {
+            "id": "t",
+            "type": "run_cli",
+            "payload": {
+                "cmd": ["./bin/worker", "status"],
+                "cwd": "/tmp/custom-cwd",  # nosec B108 - test string only
+            },
+        }
+        with (
+            patch(
+                "worker.handlers._execute_subprocess",
+                return_value={"returncode": 0, "stdout": "", "stderr": ""},
+            ) as mock_exec,
+            patch("worker.handlers._is_allowed_bin", return_value=True),
+            patch("worker.handlers._build_command", return_value=["./bin/worker", "status"]),
+        ):
             handle_run_cli(job)
 
         self.assertEqual(mock_exec.call_args.kwargs.get("cwd"), "/tmp/custom-cwd")  # nosec B108 - test string only

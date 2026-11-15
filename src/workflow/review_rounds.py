@@ -42,6 +42,7 @@ RECENT_MAX = 200
 # Internal data shapes
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class RoundEntry:
     round: int
@@ -92,6 +93,7 @@ class _ReviewScan:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _is_bot(author: Any) -> bool:
     """Classify with the shared helper, typed field first, never login alone."""
     from core.github.authors import classify_author
@@ -125,6 +127,7 @@ def _truncate(text: str, max_len: int) -> str:
 # ---------------------------------------------------------------------------
 # Fetch commit headlines (REST)
 # ---------------------------------------------------------------------------
+
 
 def _fetch_commit_headlines(
     gh: Any,
@@ -161,6 +164,7 @@ def _fetch_commit_headlines(
 # ---------------------------------------------------------------------------
 # Build PR rounds structure
 # ---------------------------------------------------------------------------
+
 
 def _record_round(seen_oids: dict[str, str], node: dict[str, Any]) -> None:
     """Keep the earliest submittedAt per reviewed commit OID."""
@@ -234,8 +238,7 @@ def _thread_entry(
         author_kind=_author_kind(comments),
         body=_truncate(first_comment.get("body") or "", _BODY_MAX),
         replies=[
-            _truncate(c.get("body") or "", _REPLY_MAX)
-            for c in comments[1 : 1 + _REPLY_COUNT]
+            _truncate(c.get("body") or "", _REPLY_MAX) for c in comments[1 : 1 + _REPLY_COUNT]
         ],
     )
 
@@ -293,14 +296,14 @@ def build_pr_rounds(
 # Serialisation
 # ---------------------------------------------------------------------------
 
+
 def _pr_to_json(result: PRRounds) -> dict[str, Any]:
     return {
         "pr": result.pr,
         "title": result.title,
         "truncated": result.truncated,
         "rounds": [
-            {"round": r.round, "commit": r.commit, "headline": r.headline}
-            for r in result.rounds
+            {"round": r.round, "commit": r.commit, "headline": r.headline} for r in result.rounds
         ],
         "threads": [
             {
@@ -326,9 +329,7 @@ def _pr_summary(result: PRRounds) -> dict[str, Any]:
     round0_threads = sum(1 for t in result.threads if t.round == 0)
     later_threads = sum(1 for t in result.threads if t.round is not None and t.round > 0)
     unplaced_threads = sum(1 for t in result.threads if t.round is None)
-    later_share = (
-        round(later_threads / total_threads, 3) if total_threads else 0.0
-    )
+    later_share = round(later_threads / total_threads, 3) if total_threads else 0.0
 
     per_round: dict[str, int] = {}
     for t in result.threads:
@@ -354,6 +355,7 @@ def _pr_summary(result: PRRounds) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Top-level entry point
 # ---------------------------------------------------------------------------
+
 
 def run_review_rounds(
     *,

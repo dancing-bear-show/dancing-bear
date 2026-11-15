@@ -1,17 +1,24 @@
 import unittest
 
-from tests.mail_tests.fixtures import FakeGmailClient, make_user_label, make_system_label
+from tests.mail_tests.fixtures import FakeGmailClient, make_system_label, make_user_label
 
 
 class TestUtilsFiltersMore(unittest.TestCase):
     def test_build_criteria_from_match(self):
         from mail.utils.filters import build_criteria_from_match
 
-        crit = build_criteria_from_match({
-            "from": "a@b", "to": "c@d", "subject": "Hello",
-            "query": "newsletter", "negatedQuery": "-spam",
-            "hasAttachment": True, "size": 1024, "sizeComparison": "larger"
-        })
+        crit = build_criteria_from_match(
+            {
+                "from": "a@b",
+                "to": "c@d",
+                "subject": "Hello",
+                "query": "newsletter",
+                "negatedQuery": "-spam",
+                "hasAttachment": True,
+                "size": 1024,
+                "sizeComparison": "larger",
+            }
+        )
         self.assertEqual(crit["from"], "a@b")
         self.assertEqual(crit["to"], "c@d")
         self.assertEqual(crit["subject"], "Hello")
@@ -24,11 +31,18 @@ class TestUtilsFiltersMore(unittest.TestCase):
     def test_build_gmail_query(self):
         from mail.utils.filters import build_gmail_query
 
-        q = build_gmail_query({
-            "from": "a@b", "to": "c@d", "subject": "hi there",
-            "query": "list:news", "negatedQuery": "promo",
-            "hasAttachment": True
-        }, days=7, only_inbox=True)
+        q = build_gmail_query(
+            {
+                "from": "a@b",
+                "to": "c@d",
+                "subject": "hi there",
+                "query": "list:news",
+                "negatedQuery": "promo",
+                "hasAttachment": True,
+            },
+            days=7,
+            only_inbox=True,
+        )
         self.assertIn("from:(a@b)", q)
         self.assertIn("to:(c@d)", q)
         self.assertIn('subject:"hi there"', q)
@@ -41,13 +55,14 @@ class TestUtilsFiltersMore(unittest.TestCase):
     def test_action_to_label_changes(self):
         from mail.utils.filters import action_to_label_changes
 
-        client = FakeGmailClient(labels=[
-            make_user_label("Work", "L1"),
-            make_system_label("INBOX"),
-        ])
+        client = FakeGmailClient(
+            labels=[
+                make_user_label("Work", "L1"),
+                make_system_label("INBOX"),
+            ]
+        )
         add_ids, rem_ids = action_to_label_changes(
-            client,
-            {"add": ["Work", "CATEGORY_PROMOTIONS"], "remove": ["INBOX", "Archive"]}
+            client, {"add": ["Work", "CATEGORY_PROMOTIONS"], "remove": ["INBOX", "Archive"]}
         )
         self.assertIn("L1", add_ids)
         self.assertIn("CATEGORY_PROMOTIONS", add_ids)

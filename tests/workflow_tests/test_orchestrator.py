@@ -22,7 +22,6 @@ from workflow.models import (
 )
 from workflow.orchestrator import OrchestratorConfig, WorkflowExecutionError, WorkflowOrchestrator
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -32,7 +31,8 @@ def _make_manifest(stage_names: tuple[str, ...], params: dict[str, str] | None =
     """Create a workflow manifest from a flat list of stage names (all in one group)."""
     stage_specs = [make_stage_spec(name=n) for n in stage_names]
     wf = make_workflow_definition(
-        stages=tuple(stage_specs), trigger=make_trigger_spec(params=params or {}),
+        stages=tuple(stage_specs),
+        trigger=make_trigger_spec(params=params or {}),
     )
     resolved = {
         n: make_resolved_stage(spec=make_stage_spec(name=n), index=i)
@@ -69,7 +69,6 @@ def _make_success_dispatcher(stage_names: tuple[str, ...]) -> MagicMock:
     dispatcher.dispatch.side_effect = _dispatch
     dispatcher.dispatch_group.side_effect = _dispatch_group
     return dispatcher
-
 
 
 def _make_orch(
@@ -172,7 +171,9 @@ class TestRunStageUnknown(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             manifest = _make_manifest(("gather",))
             orch = _make_orch(
-                manifest, tmp_dir, dry_run=False,
+                manifest,
+                tmp_dir,
+                dry_run=False,
                 dispatcher=_make_success_dispatcher(("gather",)),
             )
             with self.assertRaises(WorkflowExecutionError):
@@ -182,7 +183,9 @@ class TestRunStageUnknown(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             manifest = _make_manifest(("gather",))
             orch = _make_orch(
-                manifest, tmp_dir, dry_run=False,
+                manifest,
+                tmp_dir,
+                dry_run=False,
                 dispatcher=_make_success_dispatcher(("gather",)),
             )
             with self.assertRaises(WorkflowExecutionError) as ctx:
@@ -249,7 +252,9 @@ class TestOrchestratorRun(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             manifest = _make_manifest(("gather",))
             dispatcher = _make_success_dispatcher(("gather",))
-            orch = _make_orch(manifest, tmp_dir, run_id="r-001", dry_run=False, dispatcher=dispatcher)
+            orch = _make_orch(
+                manifest, tmp_dir, run_id="r-001", dry_run=False, dispatcher=dispatcher
+            )
             result = orch.run()
             self.assertEqual(result.status, StageStatus.success)
 
@@ -257,7 +262,9 @@ class TestOrchestratorRun(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             manifest = _make_manifest(("gather",))
             dispatcher = _make_success_dispatcher(("gather",))
-            orch = _make_orch(manifest, tmp_dir, run_id="r-002", dry_run=False, dispatcher=dispatcher)
+            orch = _make_orch(
+                manifest, tmp_dir, run_id="r-002", dry_run=False, dispatcher=dispatcher
+            )
             result = orch.run()
             self.assertIn("gather", result.stage_results)
 
@@ -265,7 +272,9 @@ class TestOrchestratorRun(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             manifest = _make_manifest(("gather",))
             dispatcher = _make_success_dispatcher(("gather",))
-            orch = _make_orch(manifest, tmp_dir, run_id="my-run", dry_run=False, dispatcher=dispatcher)
+            orch = _make_orch(
+                manifest, tmp_dir, run_id="my-run", dry_run=False, dispatcher=dispatcher
+            )
             result = orch.run()
             self.assertEqual(result.run_id, "my-run")
 
@@ -273,9 +282,7 @@ class TestOrchestratorRun(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             # Create a manifest where gather is required (default) and fails
             stage_spec = make_stage_spec(name="gather", required=True)
-            resolved = {
-                "gather": make_resolved_stage(spec=stage_spec, index=0)
-            }
+            resolved = {"gather": make_resolved_stage(spec=stage_spec, index=0)}
             wf = make_workflow_definition(stages=(stage_spec,))
             manifest = make_workflow_manifest(
                 definition=wf,
@@ -285,20 +292,22 @@ class TestOrchestratorRun(unittest.TestCase):
             dispatcher = MagicMock()
             dispatcher.dispatch_group.return_value = {
                 "gather": make_stage_result(
-                    stage_name="gather", stage_index=0, status=StageStatus.failed,
+                    stage_name="gather",
+                    stage_index=0,
+                    status=StageStatus.failed,
                     errors=["gather failed"],
                 )
             }
-            orch = _make_orch(manifest, tmp_dir, run_id="r-fail", dry_run=False, dispatcher=dispatcher)
+            orch = _make_orch(
+                manifest, tmp_dir, run_id="r-fail", dry_run=False, dispatcher=dispatcher
+            )
             result = orch.run()
             self.assertEqual(result.status, StageStatus.failed)
 
     def test_non_required_failure_does_not_stop_run(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             stage_spec = make_stage_spec(name="optional", required=False)
-            resolved = {
-                "optional": make_resolved_stage(spec=stage_spec, index=0)
-            }
+            resolved = {"optional": make_resolved_stage(spec=stage_spec, index=0)}
             wf = make_workflow_definition(stages=(stage_spec,))
             manifest = make_workflow_manifest(
                 definition=wf,
@@ -308,20 +317,22 @@ class TestOrchestratorRun(unittest.TestCase):
             dispatcher = MagicMock()
             dispatcher.dispatch_group.return_value = {
                 "optional": make_stage_result(
-                    stage_name="optional", stage_index=0, status=StageStatus.failed,
+                    stage_name="optional",
+                    stage_index=0,
+                    status=StageStatus.failed,
                     errors=["optional failed"],
                 )
             }
-            orch = _make_orch(manifest, tmp_dir, run_id="r-opt", dry_run=False, dispatcher=dispatcher)
+            orch = _make_orch(
+                manifest, tmp_dir, run_id="r-opt", dry_run=False, dispatcher=dispatcher
+            )
             result = orch.run()
             self.assertEqual(result.status, StageStatus.success)
 
     def test_human_gate_pauses_execution(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             gated_spec = make_stage_spec(name="review", human_gate=True)
-            resolved = {
-                "review": make_resolved_stage(spec=gated_spec, index=0)
-            }
+            resolved = {"review": make_resolved_stage(spec=gated_spec, index=0)}
             wf = make_workflow_definition(stages=(gated_spec,))
             manifest = make_workflow_manifest(
                 definition=wf,
@@ -331,10 +342,14 @@ class TestOrchestratorRun(unittest.TestCase):
             dispatcher = MagicMock()
             dispatcher.dispatch_group.return_value = {
                 "review": make_stage_result(
-                    stage_name="review", stage_index=0, status=StageStatus.success,
+                    stage_name="review",
+                    stage_index=0,
+                    status=StageStatus.success,
                 )
             }
-            orch = _make_orch(manifest, tmp_dir, run_id="r-gate", dry_run=False, dispatcher=dispatcher)
+            orch = _make_orch(
+                manifest, tmp_dir, run_id="r-gate", dry_run=False, dispatcher=dispatcher
+            )
             result = orch.run()
             self.assertEqual(result.status, StageStatus.awaiting_human)
 
@@ -398,9 +413,7 @@ class TestEvalWhen(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             orch = self._make_orch(tmp_dir)
             # {env} is a real placeholder; after substitution: "production" contains "prod"
-            result = orch._eval_when(
-                '"{env}" contains "prod"', {"env": "production"}
-            )
+            result = orch._eval_when('"{env}" contains "prod"', {"env": "production"})
             self.assertTrue(result)
 
     def test_double_brace_in_when_not_substituted(self) -> None:
@@ -408,9 +421,7 @@ class TestEvalWhen(unittest.TestCase):
             orch = self._make_orch(tmp_dir)
             # {{env}} is NOT a placeholder — it stays literal, so the expression
             # evaluates as: "{{env}}" contains "prod" → "prod" in "{{env}}" → False
-            result = orch._eval_when(
-                '"{{env}}" contains "prod"', {"env": "production"}
-            )
+            result = orch._eval_when('"{{env}}" contains "prod"', {"env": "production"})
             self.assertFalse(result)
 
     def test_unrecognised_expression_raises_execution_error(self) -> None:
@@ -428,6 +439,7 @@ class TestEvalWhen(unittest.TestCase):
 class TestWorkflowOrchestratorResume(unittest.TestCase):
     def test_resume_loads_existing_results(self) -> None:
         from workflow.persistence import write_stage_result
+
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
             manifest = _make_manifest(("gather", "propose"))
@@ -446,6 +458,7 @@ class TestWorkflowOrchestratorResume(unittest.TestCase):
 
     def test_resume_skips_failed_results(self) -> None:
         from workflow.persistence import write_stage_result
+
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
             manifest = _make_manifest(("gather",))
@@ -513,9 +526,7 @@ class TestSkipStage(unittest.TestCase):
                 name="conditional",
                 when='"never" contains "yes"',
             )
-            resolved = {
-                "conditional": make_resolved_stage(spec=stage_spec, index=0)
-            }
+            resolved = {"conditional": make_resolved_stage(spec=stage_spec, index=0)}
             wf = make_workflow_definition(stages=(stage_spec,))
             manifest = make_workflow_manifest(
                 definition=wf,
@@ -523,14 +534,14 @@ class TestSkipStage(unittest.TestCase):
                 resolved_stages=resolved,
             )
             dispatcher = _make_success_dispatcher(("conditional",))
-            orch = _make_orch(manifest, tmp_dir, run_id="r-skip", dry_run=False, dispatcher=dispatcher)
+            orch = _make_orch(
+                manifest, tmp_dir, run_id="r-skip", dry_run=False, dispatcher=dispatcher
+            )
             result = orch.run()
             # The stage should be skipped, overall run still succeeds
             self.assertEqual(result.status, StageStatus.success)
             self.assertIn("conditional", result.stage_results)
-            self.assertEqual(
-                result.stage_results["conditional"].status, StageStatus.skipped
-            )
+            self.assertEqual(result.stage_results["conditional"].status, StageStatus.skipped)
 
     def test_skip_sentinel_for_context_entry_lands_at_workspace_context(self) -> None:
         # Same resolution as the prompt builder: context/ is a workspace-root
@@ -549,7 +560,9 @@ class TestSkipStage(unittest.TestCase):
                 resolved_stages=resolved,
             )
             dispatcher = _make_success_dispatcher(("conditional",))
-            orch = _make_orch(manifest, tmp_dir, run_id="r-skip-ctx", dry_run=False, dispatcher=dispatcher)
+            orch = _make_orch(
+                manifest, tmp_dir, run_id="r-skip-ctx", dry_run=False, dispatcher=dispatcher
+            )
             orch.run()
             ws = Path(orch._workspace_dir)  # init_workspace nests the run dir under tmp_dir
             self.assertTrue((ws / "context" / "c.json").is_file())
@@ -560,17 +573,26 @@ class TestSkipStage(unittest.TestCase):
         """PR #454: a skipped large-path consolidate wrote {} over review-consolidated's report."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             writer = make_stage_spec(name="writer", writes_to=("consolidated.json",))
-            skipped = make_stage_spec(name="skipped", when='"never" contains "yes"',
-                                      writes_to=("consolidated.json", "only-mine.json"))
-            resolved = {"writer": make_resolved_stage(spec=writer, index=0),
-                        "skipped": make_resolved_stage(spec=skipped, index=1)}
+            skipped = make_stage_spec(
+                name="skipped",
+                when='"never" contains "yes"',
+                writes_to=("consolidated.json", "only-mine.json"),
+            )
+            resolved = {
+                "writer": make_resolved_stage(spec=writer, index=0),
+                "skipped": make_resolved_stage(spec=skipped, index=1),
+            }
             wf = make_workflow_definition(stages=(writer, skipped))
             manifest = make_workflow_manifest(
-                definition=wf, parallel_groups=(("writer",), ("skipped",)), resolved_stages=resolved,
+                definition=wf,
+                parallel_groups=(("writer",), ("skipped",)),
+                resolved_stages=resolved,
             )
             report = {"findings": [{"file": "a.py"}]}
             dispatcher = _make_success_dispatcher(("writer",))
-            orch = _make_orch(manifest, tmp_dir, run_id="r-skip-keep", dry_run=False, dispatcher=dispatcher)
+            orch = _make_orch(
+                manifest, tmp_dir, run_id="r-skip-keep", dry_run=False, dispatcher=dispatcher
+            )
             ws = Path(orch._workspace_dir)
             (ws / "outputs").mkdir(parents=True, exist_ok=True)
             (ws / "outputs" / "consolidated.json").write_text(json.dumps(report))
@@ -592,9 +614,13 @@ class TestDispatcherExceptionFallback(unittest.TestCase):
             # dispatch_group raises, individual dispatch succeeds
             dispatcher.dispatch_group.side_effect = RuntimeError("group dispatch failed")
             dispatcher.dispatch.return_value = make_stage_result(
-                stage_name="gather", stage_index=0, status=StageStatus.success,
+                stage_name="gather",
+                stage_index=0,
+                status=StageStatus.success,
             )
-            orch = _make_orch(manifest, tmp_dir, run_id="r-fallback", dry_run=False, dispatcher=dispatcher)
+            orch = _make_orch(
+                manifest, tmp_dir, run_id="r-fallback", dry_run=False, dispatcher=dispatcher
+            )
             result = orch.run()
             self.assertEqual(result.status, StageStatus.success)
 

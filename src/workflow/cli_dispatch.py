@@ -66,6 +66,7 @@ def _load_manifest(
 ) -> tuple[WorkflowDefinition, WorkflowManifest]:
     """Parse + compile a workflow, raising CLIError on failure."""
     from workflow.compiler import WorkflowCompileError, compile_workflow
+
     defn = _load_definition(path)
     try:
         return defn, compile_workflow(defn, trigger_params=trigger_params)
@@ -92,6 +93,7 @@ def _parse_params(raw: list[str]) -> tuple[dict[str, str], str | None]:
 def _build_resolved_params(path: str, cli_params: dict[str, str]) -> dict[str, str]:
     """Merge trigger-default and CLI params in priority order."""
     from workflow.param_rules import UnsafePathError, require_shell_safe_path
+
     defn_only = _parse_workflow_safe(path)
     trigger_defaults = defn_only.trigger.params if defn_only.trigger else {}
     work_dir = str(Path.cwd() / "out")
@@ -99,7 +101,9 @@ def _build_resolved_params(path: str, cli_params: dict[str, str]) -> dict[str, s
         # The default is substituted as {work_dir} into stage text agents run
         # as shell; an explicit value is checked by enforce_param_rules.
         try:
-            require_shell_safe_path(work_dir, "the current working directory (default work_dir is <cwd>/out)")
+            require_shell_safe_path(
+                work_dir, "the current working directory (default work_dir is <cwd>/out)"
+            )
         except UnsafePathError as exc:
             raise CLIError(
                 f"{exc}; run from another directory or pass --params work_dir=<path>",
@@ -127,6 +131,7 @@ def _resolve_base_dir(
             becomes part of ``{workspace}``; checked before anything is created.
     """
     from workflow.param_rules import UnsafePathError, require_shell_safe_path
+
     if override:
         base = os.path.expandvars(os.path.expanduser(override))
         what = "the --workspace/--base-dir path"
@@ -137,6 +142,7 @@ def _resolve_base_dir(
         what = "the workspace base dir resolved from the workflow's workspace_dir"
     else:
         import tempfile
+
         base = tempfile.gettempdir()
         what = "the system temp directory"
     try:
@@ -165,6 +171,7 @@ def _generate_run_id(workflow_name: str) -> str:
     """Generate a run ID from workflow name, current date, and a short random suffix."""
     import random
     import string
+
     from core.date_utils import iso_now
 
     date_part = iso_now()[:10].replace("-", "")
@@ -209,7 +216,12 @@ def _build_stage_row(name: str, status: StageStatus | None) -> dict[str, object]
     if status is None:
         return {"stage": name, "status": "-", "needs_run": "yes", "reason": "not yet attempted"}
     if status.value in _TERMINAL_SUCCESS:
-        return {"stage": name, "status": status.value, "needs_run": "no", "reason": "already complete"}
+        return {
+            "stage": name,
+            "status": status.value,
+            "needs_run": "no",
+            "reason": "already complete",
+        }
     reason = "previous attempt failed" if status == StageStatus.failed else f"status={status.value}"
     return {"stage": name, "status": status.value, "needs_run": "yes", "reason": reason}
 
@@ -255,20 +267,34 @@ def _build_plan_json(
 def _cmd_parse(args: argparse.Namespace) -> int:
     """Parse a workflow YAML and display its structure."""
     from workflow.cli import _emit_one
+
     if not check_workflow_path(args.path):
         return 1
     defn = _load_definition(args.path)
     summary = {
-        "name": defn.name, "version": defn.version, "description": defn.description,
-        "trigger_source": defn.trigger.source, "stage_count": len(defn.stages),
+        "name": defn.name,
+        "version": defn.version,
+        "description": defn.description,
+        "trigger_source": defn.trigger.source,
+        "stage_count": len(defn.stages),
     }
-    stages: list[dict[str, object]] = [{
-        "name": s.name, "kind": s.kind.value, "agent_role": s.agent.role,
-        "depends_on": ", ".join(s.depends_on) or "-", "required": s.required,
-    } for s in defn.stages]
+    stages: list[dict[str, object]] = [
+        {
+            "name": s.name,
+            "kind": s.kind.value,
+            "agent_role": s.agent.role,
+            "depends_on": ", ".join(s.depends_on) or "-",
+            "required": s.required,
+        }
+        for s in defn.stages
+    ]
     if args.format == "table":
         _emit_one(summary, fmt=args.format)
-        emit_rows(stages, fmt=args.format, headers=["name", "kind", "agent_role", "depends_on", "required"])
+        emit_rows(
+            stages,
+            fmt=args.format,
+            headers=["name", "kind", "agent_role", "depends_on", "required"],
+        )
     else:
         _emit_one({**summary, "stages": stages}, fmt=args.format)
     return 0
@@ -278,6 +304,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
     """Parse + compile + execute a workflow."""
     from workflow.cli import _emit_one
     from workflow.orchestrator import OrchestratorConfig, WorkflowOrchestrator
+
     if not check_workflow_path(args.path):
         return 1
     dry_run = not args.execute
@@ -301,7 +328,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
     existing_manifest = Path(workspace) / "manifest.json"
     if args.workspace and existing_manifest.exists():
         orchestrator = WorkflowOrchestrator.resume(
-            manifest=manifest, workspace_dir=workspace,
+            manifest=manifest,
+            workspace_dir=workspace,
             trigger_params=resolved_params or None,
         )
     else:
@@ -315,16 +343,27 @@ def _cmd_run(args: argparse.Namespace) -> int:
             )
         )
     result = orchestrator.run()
-    _emit_one({
-        "run_id": result.run_id, "status": result.status.value,
-        "workspace": result.workspace_dir, "started_at": result.started_at,
-        "dry_run": dry_run, "stages_completed": len(result.stage_results),
-        "stages_total": len(defn.stages),
-    }, fmt=args.format)
-    stage_rows: list[dict[str, object]] = [{
-        "stage": name, "status": sr.status.value,
-        "duration_ms": sr.duration_ms, "errors": "; ".join(sr.errors) or "-",
-    } for name, sr in result.stage_results.items()]
+    _emit_one(
+        {
+            "run_id": result.run_id,
+            "status": result.status.value,
+            "workspace": result.workspace_dir,
+            "started_at": result.started_at,
+            "dry_run": dry_run,
+            "stages_completed": len(result.stage_results),
+            "stages_total": len(defn.stages),
+        },
+        fmt=args.format,
+    )
+    stage_rows: list[dict[str, object]] = [
+        {
+            "stage": name,
+            "status": sr.status.value,
+            "duration_ms": sr.duration_ms,
+            "errors": "; ".join(sr.errors) or "-",
+        }
+        for name, sr in result.stage_results.items()
+    ]
     emit_rows(stage_rows, fmt=args.format, headers=["stage", "status", "duration_ms", "errors"])
     if dry_run or result.status in (StageStatus.success, StageStatus.awaiting_human):
         return 0
@@ -347,6 +386,7 @@ def _cmd_lint(args: argparse.Namespace) -> int:
 
     if args.strict and result.warnings:
         from workflow.linter import LintError
+
         for w in result.warnings:
             result.errors.append(LintError(stage=w.stage, field=w.field, message=w.message))
         result.warnings.clear()
@@ -360,6 +400,7 @@ def _cmd_lint(args: argparse.Namespace) -> int:
 def _cmd_validate_fragment(args: argparse.Namespace) -> int:
     """Validate a fragment YAML (must have top-level 'fragment: true' key)."""
     from workflow.cli import _emit_one
+
     path = Path(args.file)
     if not path.exists():
         result: dict = {
@@ -382,12 +423,7 @@ def _cmd_validate_fragment(args: argparse.Namespace) -> int:
         return 1
 
     stage_names = {s.name for s in stages}
-    dangling = [
-        dep
-        for s in stages
-        for dep in s.depends_on
-        if dep not in stage_names
-    ]
+    dangling = [dep for s in stages for dep in s.depends_on if dep not in stage_names]
 
     is_valid = not (args.strict and dangling)
     result = {
@@ -419,8 +455,15 @@ def _cmd_list(args: argparse.Namespace) -> int:
         rel = str(path.relative_to(Path.cwd()))
         try:
             defn = parse_workflow(path)
-            rows.append({"file": rel, "name": defn.name, "version": defn.version,
-                         "description": defn.description, "stages": len(defn.stages)})
+            rows.append(
+                {
+                    "file": rel,
+                    "name": defn.name,
+                    "version": defn.version,
+                    "description": defn.description,
+                    "stages": len(defn.stages),
+                }
+            )
         except ImportError as exc:
             # An import failure is an environment problem (e.g. missing PyYAML),
             # not a property of this file.  Surface it once as a hard error so
@@ -431,8 +474,15 @@ def _cmd_list(args: argparse.Namespace) -> int:
                 ExitCode.ERROR,
             ) from exc
         except Exception:  # noqa: BLE001 # nosec B110 - per-file parse resilience: skip malformed YAML and continue listing
-            rows.append({"file": rel, "name": "?", "version": "?",
-                         "description": "(parse error)", "stages": 0})
+            rows.append(
+                {
+                    "file": rel,
+                    "name": "?",
+                    "version": "?",
+                    "description": "(parse error)",
+                    "stages": 0,
+                }
+            )
 
     if not rows:
         print("No workflow YAML files found in workflows/.", file=sys.stderr)
@@ -444,6 +494,7 @@ def _cmd_list(args: argparse.Namespace) -> int:
 def _cmd_status(args: argparse.Namespace) -> int:
     """Show status of a workflow run from its workspace directory."""
     from workflow.persistence import list_stage_results
+
     workspace = Path(args.workspace_dir)
     if not workspace.is_dir():
         print(
@@ -456,10 +507,16 @@ def _cmd_status(args: argparse.Namespace) -> int:
     if not results:
         print(f"No stage results found in {workspace}.", file=sys.stderr)
         return 1
-    rows: list[dict[str, object]] = [{
-        "index": sr.stage_index, "stage": sr.stage_name, "status": sr.status.value,
-        "duration_ms": sr.duration_ms, "errors": "; ".join(sr.errors) or "-",
-    } for sr in results]
+    rows: list[dict[str, object]] = [
+        {
+            "index": sr.stage_index,
+            "stage": sr.stage_name,
+            "status": sr.status.value,
+            "duration_ms": sr.duration_ms,
+            "errors": "; ".join(sr.errors) or "-",
+        }
+        for sr in results
+    ]
     emit_rows(rows, fmt=args.format, headers=["index", "stage", "status", "duration_ms", "errors"])
     return 0
 
@@ -476,8 +533,8 @@ def create_run_workspace(
     Shared by ``init-workspace`` and ``fleet run``.  Raises CLIError on a
     parse/compile failure or an unsafe workspace path.
     """
-    from workflow.persistence import init_workspace, write_manifest
     from core.fileutil import atomic_write_json
+    from workflow.persistence import init_workspace, write_manifest
 
     resolved_params = _build_resolved_params(path, cli_params)
     defn, manifest = _load_manifest(path, trigger_params=resolved_params or None)
@@ -511,7 +568,10 @@ def _cmd_init_workspace(args: argparse.Namespace) -> int:
         return 1
 
     workspace = create_run_workspace(
-        args.path, params, run_id=args.run_id, base_dir=args.base_dir or None,
+        args.path,
+        params,
+        run_id=args.run_id,
+        base_dir=args.base_dir or None,
     )
     print(str(workspace))
     return 0
@@ -570,6 +630,7 @@ def _cmd_check_params(args: argparse.Namespace) -> int:
 def _cmd_resume(args: argparse.Namespace) -> int:
     """Show which stages need re-running in a workspace."""
     from workflow.persistence import list_stage_results, read_manifest
+
     workspace = Path(args.workspace_dir)
     if not workspace.is_dir():
         print(
@@ -591,10 +652,10 @@ def _cmd_resume(args: argparse.Namespace) -> int:
     if not stage_names:
         stage_names = sorted(existing.keys())
 
-    rows: list[dict[str, object]] = [_build_stage_row(name, existing.get(name)) for name in stage_names]
+    rows: list[dict[str, object]] = [
+        _build_stage_row(name, existing.get(name)) for name in stage_names
+    ]
     has_pending = any(r["needs_run"] == "yes" for r in rows)
 
     emit_rows(rows, fmt=args.format, headers=["stage", "status", "needs_run", "reason"])
     return 2 if has_pending else 0
-
-

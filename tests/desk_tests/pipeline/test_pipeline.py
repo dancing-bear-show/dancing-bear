@@ -2,23 +2,23 @@
 
 import os
 import unittest
-from unittest.mock import MagicMock, patch
 from io import StringIO
+from unittest.mock import MagicMock, patch
 
+from core.pipeline import ResultEnvelope
 from desk.pipeline import (
-    ScanRequest,
-    ScanRequestConsumer,
-    ScanProcessor,
-    PlanRequest,
-    PlanRequestConsumer,
-    PlanProcessor,
+    ApplyProcessor,
     ApplyRequest,
     ApplyRequestConsumer,
-    ApplyProcessor,
-    ReportProducer,
     ApplyResultProducer,
+    PlanProcessor,
+    PlanRequest,
+    PlanRequestConsumer,
+    ReportProducer,
+    ScanProcessor,
+    ScanRequest,
+    ScanRequestConsumer,
 )
-from core.pipeline import ResultEnvelope
 from tests.fixtures import TempDirMixin
 
 
@@ -137,7 +137,6 @@ class ApplyProcessorTests(unittest.TestCase):
 
 
 class ReportProducerTests(TempDirMixin, unittest.TestCase):
-
     def test_produce_to_stdout(self):
         producer = ReportProducer(out_path=None)
         envelope = ResultEnvelope(status="success", payload={"key": "value"})

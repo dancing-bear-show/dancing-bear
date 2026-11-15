@@ -17,6 +17,7 @@ _COL_EST_COST = "Est. Cost"
 def _agent_row_to_dict(r: object) -> dict[str, object]:
     """Serialize one AgentTokenRow to a JSON-safe dict."""
     from telemetry.models import AgentTokenRow
+
     if not isinstance(r, AgentTokenRow):
         return {}
     return {
@@ -31,9 +32,12 @@ def _agent_row_to_dict(r: object) -> dict[str, object]:
     }
 
 
-def _print_agents_json(all_rows: list[AgentTokenRow], rows: list[AgentTokenRow], since: str) -> None:
+def _print_agents_json(
+    all_rows: list[AgentTokenRow], rows: list[AgentTokenRow], since: str
+) -> None:
     """Emit agent data as JSON."""
     from core.cli_output import emit_one
+
     emit_one(
         {
             "agent_count": len(all_rows),
@@ -51,8 +55,14 @@ def _print_agents_csv(rows: list[AgentTokenRow]) -> None:
     from core.cli_output import emit_rows
 
     _HEADERS = [
-        "agent", "calls", "input_tokens", "output_tokens",
-        "cache_read_tokens", "cache_write_tokens", "models", "est_cost",
+        "agent",
+        "calls",
+        "input_tokens",
+        "output_tokens",
+        "cache_read_tokens",
+        "cache_write_tokens",
+        "models",
+        "est_cost",
     ]
     emit_rows(
         [
@@ -73,17 +83,31 @@ def _print_agents_csv(rows: list[AgentTokenRow]) -> None:
     )
 
 
-def _build_agents_table(all_rows: list[AgentTokenRow], rows: list[AgentTokenRow], since: str) -> Table:
+def _build_agents_table(
+    all_rows: list[AgentTokenRow], rows: list[AgentTokenRow], since: str
+) -> Table:
     """Build a Rich table of agent usage."""
-    table = Table(show_header=True, header_style="bold", title=f"Agent usage ({since})", show_footer=True)
+    table = Table(
+        show_header=True, header_style="bold", title=f"Agent usage ({since})", show_footer=True
+    )
     table.add_column("Agent", style="cyan", no_wrap=True, footer="TOTAL")
     table.add_column("Calls", justify="right", footer=str(sum(r.calls for r in all_rows)))
-    table.add_column("In", justify="right", footer=_fmt_tokens(sum(r.input_tokens for r in all_rows)))
-    table.add_column("Out", justify="right", footer=_fmt_tokens(sum(r.output_tokens for r in all_rows)))
-    table.add_column("Cache R", justify="right", footer=_fmt_tokens(sum(r.cache_read_tokens for r in all_rows)))
-    table.add_column("Cache W", justify="right", footer=_fmt_tokens(sum(r.cache_write_tokens for r in all_rows)))
+    table.add_column(
+        "In", justify="right", footer=_fmt_tokens(sum(r.input_tokens for r in all_rows))
+    )
+    table.add_column(
+        "Out", justify="right", footer=_fmt_tokens(sum(r.output_tokens for r in all_rows))
+    )
+    table.add_column(
+        "Cache R", justify="right", footer=_fmt_tokens(sum(r.cache_read_tokens for r in all_rows))
+    )
+    table.add_column(
+        "Cache W", justify="right", footer=_fmt_tokens(sum(r.cache_write_tokens for r in all_rows))
+    )
     table.add_column("Models")
-    table.add_column(_COL_EST_COST, justify="right", footer=f"${sum(r.est_cost for r in all_rows):.4f}")
+    table.add_column(
+        _COL_EST_COST, justify="right", footer=f"${sum(r.est_cost for r in all_rows):.4f}"
+    )
     for r in rows:
         table.add_row(
             r.agent,

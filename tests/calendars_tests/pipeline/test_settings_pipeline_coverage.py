@@ -17,13 +17,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from tests.fixtures import write_yaml
 from calendars.outlook_pipelines.settings import (
     OutlookSettingsProcessor,
     OutlookSettingsRequest,
     OutlookSettingsRequestConsumer,
     _SettingsProcessingContext,
 )
+from tests.fixtures import write_yaml
 
 
 def _make_request(cfg, svc, dry_run=False, calendar=None):
@@ -52,6 +52,7 @@ def _proc():
 # ---------------------------------------------------------------------------
 # _process_single_event early-exit branches
 # ---------------------------------------------------------------------------
+
 
 class TestProcessSingleEventEarlyExits(unittest.TestCase):
     """Cover the three return-0 branches in _process_single_event."""
@@ -108,6 +109,7 @@ class TestProcessSingleEventEarlyExits(unittest.TestCase):
 # _evaluate_config branches
 # ---------------------------------------------------------------------------
 
+
 class TestEvaluateConfig(unittest.TestCase):
     """Cover branch gaps in _evaluate_config."""
 
@@ -127,9 +129,7 @@ class TestEvaluateConfig(unittest.TestCase):
         p = OutlookSettingsProcessor()
         result = p._evaluate_config(
             defaults={},
-            rules=[
-                {"match": {"subject_contains": ["Swim"]}, "set": {"categories": ["Kids"]}}
-            ],
+            rules=[{"match": {"subject_contains": ["Swim"]}, "set": {"categories": ["Kids"]}}],
             event={"subject": "Meeting"},  # doesn't match
         )
         self.assertIsNone(result)
@@ -139,9 +139,7 @@ class TestEvaluateConfig(unittest.TestCase):
         p = OutlookSettingsProcessor()
         result = p._evaluate_config(
             defaults={"sensitivity": "normal"},
-            rules=[
-                {"match": {"subject_contains": ["Meeting"]}, "set": {}}
-            ],
+            rules=[{"match": {"subject_contains": ["Meeting"]}, "set": {}}],
             event={"subject": "Team Meeting"},
         )
         self.assertEqual(result, {"sensitivity": "normal"})
@@ -163,6 +161,7 @@ class TestEvaluateConfig(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _match_rule branches
 # ---------------------------------------------------------------------------
+
 
 class TestMatchRule(unittest.TestCase):
     """Cover the three negative branches in _match_rule."""
@@ -212,6 +211,7 @@ class TestMatchRule(unittest.TestCase):
 # _build_patch branches
 # ---------------------------------------------------------------------------
 
+
 class TestBuildPatch(unittest.TestCase):
     """Cover categories-as-list/tuple, categories=None, and rem_min parse error."""
 
@@ -256,6 +256,7 @@ class TestBuildPatch(unittest.TestCase):
 # _format_patch_log branches
 # ---------------------------------------------------------------------------
 
+
 class TestFormatPatchLog(unittest.TestCase):
     """Cover all five conditional branches in _format_patch_log."""
 
@@ -293,28 +294,52 @@ class TestFormatPatchLog(unittest.TestCase):
     def test_show_as_falsy_excluded(self):
         """Line 186→188: show_as is empty string → not included."""
         p = OutlookSettingsProcessor()
-        patch = {"categories": None, "show_as": "", "sensitivity": None, "is_reminder_on": None, "reminder_minutes": None}
+        patch = {
+            "categories": None,
+            "show_as": "",
+            "sensitivity": None,
+            "is_reminder_on": None,
+            "reminder_minutes": None,
+        }
         log = p._format_patch_log("E1", "X", patch)
         self.assertNotIn("showAs=", log)
 
     def test_sensitivity_none_excluded(self):
         """Line 189 conditional: sensitivity is None → not included."""
         p = OutlookSettingsProcessor()
-        patch = {"categories": ["A"], "show_as": None, "sensitivity": None, "is_reminder_on": None, "reminder_minutes": None}
+        patch = {
+            "categories": ["A"],
+            "show_as": None,
+            "sensitivity": None,
+            "is_reminder_on": None,
+            "reminder_minutes": None,
+        }
         log = p._format_patch_log("E1", "X", patch)
         self.assertNotIn("sensitivity=", log)
 
     def test_is_reminder_on_none_excluded(self):
         """Line 191 conditional: is_reminder_on is None → not included."""
         p = OutlookSettingsProcessor()
-        patch = {"categories": None, "show_as": None, "sensitivity": "normal", "is_reminder_on": None, "reminder_minutes": None}
+        patch = {
+            "categories": None,
+            "show_as": None,
+            "sensitivity": "normal",
+            "is_reminder_on": None,
+            "reminder_minutes": None,
+        }
         log = p._format_patch_log("E1", "X", patch)
         self.assertNotIn("isReminderOn=", log)
 
     def test_reminder_minutes_none_excluded(self):
         """Line 192→194: reminder_minutes is None → not included."""
         p = OutlookSettingsProcessor()
-        patch = {"categories": None, "show_as": None, "sensitivity": None, "is_reminder_on": False, "reminder_minutes": None}
+        patch = {
+            "categories": None,
+            "show_as": None,
+            "sensitivity": None,
+            "is_reminder_on": False,
+            "reminder_minutes": None,
+        }
         log = p._format_patch_log("E1", "X", patch)
         self.assertNotIn("reminderMinutes=", log)
         self.assertIn("isReminderOn=False", log)
@@ -324,6 +349,7 @@ class TestFormatPatchLog(unittest.TestCase):
 # _apply_event_patch exception path
 # ---------------------------------------------------------------------------
 
+
 class TestApplyEventPatch(unittest.TestCase):
     """Cover the exception handler in _apply_event_patch."""
 
@@ -331,10 +357,18 @@ class TestApplyEventPatch(unittest.TestCase):
         """Happy path: update_event_settings does not raise → (True, None)."""
         p = OutlookSettingsProcessor()
         svc = MagicMock()
-        ok, err = p._apply_event_patch(svc, "E1", None, {
-            "categories": ["Work"], "show_as": "busy",
-            "sensitivity": None, "is_reminder_on": None, "reminder_minutes": None,
-        })
+        ok, err = p._apply_event_patch(
+            svc,
+            "E1",
+            None,
+            {
+                "categories": ["Work"],
+                "show_as": "busy",
+                "sensitivity": None,
+                "is_reminder_on": None,
+                "reminder_minutes": None,
+            },
+        )
         self.assertTrue(ok)
         self.assertIsNone(err)
         svc.update_event_settings.assert_called_once()
@@ -344,10 +378,18 @@ class TestApplyEventPatch(unittest.TestCase):
         p = OutlookSettingsProcessor()
         svc = MagicMock()
         svc.update_event_settings.side_effect = RuntimeError("Graph API error")
-        ok, err = p._apply_event_patch(svc, "E1", None, {
-            "categories": None, "show_as": None,
-            "sensitivity": None, "is_reminder_on": None, "reminder_minutes": None,
-        })
+        ok, err = p._apply_event_patch(
+            svc,
+            "E1",
+            None,
+            {
+                "categories": None,
+                "show_as": None,
+                "sensitivity": None,
+                "is_reminder_on": None,
+                "reminder_minutes": None,
+            },
+        )
         self.assertFalse(ok)
         self.assertIsNotNone(err)
         self.assertIn("E1", err)
@@ -357,6 +399,7 @@ class TestApplyEventPatch(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _coerce_bool branches
 # ---------------------------------------------------------------------------
+
 
 class TestCoerceBool(unittest.TestCase):
     """Cover all _coerce_bool branches."""
@@ -402,6 +445,7 @@ class TestCoerceBool(unittest.TestCase):
 # _to_list branches
 # ---------------------------------------------------------------------------
 
+
 class TestToList(unittest.TestCase):
     """Cover _to_list branches."""
 
@@ -430,6 +474,7 @@ class TestToList(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Integration: processor apply with failed patch (error log propagates)
 # ---------------------------------------------------------------------------
+
 
 class TestSettingsProcessorApplyFailed(unittest.TestCase):
     """Cover _process_single_event → _apply_event_patch failure path end-to-end."""
@@ -481,6 +526,7 @@ class TestSettingsProcessorApplyFailed(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Integration: dry-run path with _format_patch_log
 # ---------------------------------------------------------------------------
+
 
 class TestSettingsProcessorDryRunLogging(unittest.TestCase):
     """Verify dry-run formats log lines from _format_patch_log."""

@@ -17,6 +17,7 @@ from pathlib import Path
 
 from core.cli_output import emit_one
 from core.paths import output_dir
+from memory.backup import backup_status, backup_stores
 from memory.commands._common import (
     ALL_STORES_ARG,
     STORE_ARG,
@@ -25,7 +26,6 @@ from memory.commands._common import (
     format_arg,
     validation_error,
 )
-from memory.backup import backup_status, backup_stores
 from memory.discovery import discover_stores, load_store
 
 
@@ -35,7 +35,10 @@ def default_backup_dest() -> Path:
 
 
 ARGUMENTS: list[ArgSpec] = [
-    (("--status",), {"action": "store_true", "help": "Report last backup and dirty state (read-only)"}),
+    (
+        ("--status",),
+        {"action": "store_true", "help": "Report last backup and dirty state (read-only)"},
+    ),
     STORE_ARG,
     ALL_STORES_ARG,
     (("--dest",), {"default": None, "help": "Backup repo (default: <data-home>/memory/backup)"}),
@@ -65,7 +68,7 @@ def run(args: argparse.Namespace) -> int:
     else:
         try:
             stores = (load_store(args.store),)
-        except Exception as exc:  # NOSONAR - CLI boundary: surface as a validation error, never a raw traceback
+        except (Exception) as exc:  # NOSONAR - CLI boundary: surface as a validation error, never a raw traceback  # fmt: skip
             return validation_error("--store", f"could not load store {args.store!r}: {exc}")
 
     if not stores:
@@ -74,7 +77,7 @@ def run(args: argparse.Namespace) -> int:
 
     try:
         result = backup_stores(stores, dest, message=args.message)
-    except Exception as exc:  # NOSONAR - CLI boundary: a failed backup must report, never crash with a traceback
+    except (Exception) as exc:  # NOSONAR - CLI boundary: a failed backup must report, never crash with a traceback  # fmt: skip
         print(f"Error: backup failed: {exc}", file=sys.stderr)
         return 1
 

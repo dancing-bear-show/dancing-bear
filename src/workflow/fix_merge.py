@@ -80,8 +80,9 @@ def _str_list(doc: dict[str, Any], key: str, label: str) -> list[str]:
     return list(values)
 
 
-def _object_list(doc: dict[str, Any], key: str, label: str,
-                 str_keys: tuple[str, ...]) -> list[dict[str, Any]]:
+def _object_list(
+    doc: dict[str, Any], key: str, label: str, str_keys: tuple[str, ...]
+) -> list[dict[str, Any]]:
     """A list of objects, each carrying a non-empty string at every ``str_keys``."""
     values = _field(doc, key, label, _LIST)
     for i, item in enumerate(values):
@@ -113,8 +114,7 @@ def _results(doc: dict[str, Any], label: str) -> list[dict[str, Any]]:
     return results
 
 
-def _files_changed(doc: dict[str, Any], label: str,
-                   results: list[dict[str, Any]]) -> list[str]:
+def _files_changed(doc: dict[str, Any], label: str, results: list[dict[str, Any]]) -> list[str]:
     files = _str_list(doc, "files_changed", label)
     claimed: set[str] = set()
     for result in results:
@@ -193,9 +193,7 @@ def _merged_results(primary: FixDoc, retry: FixDoc) -> list[dict[str, Any]]:
     retry_by_id = {r["id"]: r for r in retry.results}
     for i, rid in enumerate(retry_by_id):
         if rid not in known:
-            raise ValueError(
-                f"refix-results: 'results[{i}].id' is not a finding fix-results knows"
-            )
+            raise ValueError(f"refix-results: 'results[{i}].id' is not a finding fix-results knows")
     merged = [retry_by_id.pop(r["id"], r) for r in primary.results]
     # What remains retried a finding the primary pass reported missing.
     return merged + list(retry_by_id.values())
@@ -241,8 +239,11 @@ def merge_fix_docs(primary: FixDoc, retry: FixDoc) -> dict[str, Any]:
     """
     results = _merged_results(primary, retry)
     retried = {r["id"] for r in retry.results}
-    missing = [m for m in dict.fromkeys(primary.missing_results + retry.missing_results)
-               if m not in retried]
+    missing = [
+        m
+        for m in dict.fromkeys(primary.missing_results + retry.missing_results)
+        if m not in retried
+    ]
     return {
         "total_expected": primary.total_expected,
         "total_results": len(results),

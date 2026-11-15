@@ -1,4 +1,5 @@
 """Cache command group registration for Mail Assistant CLI."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -15,23 +16,38 @@ _CACHE_ARG: ArgSpec = (("--cache",), {"required": True, "help": "Cache directory
 def register_cache_commands(app: CLIApp) -> object:
     """Register all cache subcommands on app and return the cache group."""
     from ..config_cli.commands import (
-        run_cache_stats,
         run_cache_clear,
         run_cache_prune,
+        run_cache_stats,
     )
 
     # (subcommand, help, handler, args)
     specs: list[tuple[str, str, Any, list[ArgSpec]]] = [
-        ("stats", "Show cache stats", run_cache_stats, [
-            _CACHE_ARG,
-        ]),
-        ("clear", "Delete entire cache", run_cache_clear, [
-            _CACHE_ARG,
-        ]),
-        ("prune", "Prune files older than N days", run_cache_prune, [
-            _CACHE_ARG,
-            (("--days",), {"type": int, "required": True, "help": "Days threshold"}),
-        ]),
+        (
+            "stats",
+            "Show cache stats",
+            run_cache_stats,
+            [
+                _CACHE_ARG,
+            ],
+        ),
+        (
+            "clear",
+            "Delete entire cache",
+            run_cache_clear,
+            [
+                _CACHE_ARG,
+            ],
+        ),
+        (
+            "prune",
+            "Prune files older than N days",
+            run_cache_prune,
+            [
+                _CACHE_ARG,
+                (("--days",), {"type": int, "required": True, "help": "Days threshold"}),
+            ],
+        ),
     ]
 
     cache_group = app.group("cache", help="Manage local message cache")

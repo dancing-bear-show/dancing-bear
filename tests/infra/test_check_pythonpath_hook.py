@@ -88,12 +88,12 @@ def _make_third_party_checkout(root: Path) -> Path:
 # script path. Requiring that tail is what separates a real launch from a
 # `python3 -c` named inside a comment or a quoted warning message.
 _PY_INVOCATION = re.compile(
-    r"(?:^|[\s;&|(`$])"            # start, or a shell boundary
-    r"(?:env\s+(?:-\S+\s+)*)?"     # optional `env [-flags]`
-    r"(?:\.{0,2}[\w./-]*/)?"       # optional dir: /usr/bin/, ./.venv/bin/, ../x/
-    r"python(?:3(?:\.\d+)?)?"      # python | python3 | python3.11
-    r"((?:\s+-\S+)*)"              # captured: the flag run
-    r"\s+(?:-c|-m\b|\S+\.py\b)"    # the payload that proves a launch
+    r"(?:^|[\s;&|(`$])"  # start, or a shell boundary
+    r"(?:env\s+(?:-\S+\s+)*)?"  # optional `env [-flags]`
+    r"(?:\.{0,2}[\w./-]*/)?"  # optional dir: /usr/bin/, ./.venv/bin/, ../x/
+    r"python(?:3(?:\.\d+)?)?"  # python | python3 | python3.11
+    r"((?:\s+-\S+)*)"  # captured: the flag run
+    r"\s+(?:-c|-m\b|\S+\.py\b)"  # the payload that proves a launch
 )
 
 
@@ -242,9 +242,7 @@ class TestCheckPythonpathHook(unittest.TestCase):
         """
         with tempfile.TemporaryDirectory() as td:
             foreign = _make_fake_checkout(Path(td, "other-checkout"))
-            (foreign / "sitecustomize.py").write_text(
-                'import sys; sys.stderr.write("PWNED\\n")\n'
-            )
+            (foreign / "sitecustomize.py").write_text('import sys; sys.stderr.write("PWNED\\n")\n')
 
             proc = _run_hook(str(foreign))
 
@@ -383,9 +381,7 @@ class TestCheckPythonpathHook(unittest.TestCase):
             )
             pkg = foreign / "resume"
             pkg.mkdir()
-            (pkg / "__init__.py").write_text(
-                'import sys; sys.stderr.write("PWNED_IMPORT\\n")\n'
-            )
+            (pkg / "__init__.py").write_text('import sys; sys.stderr.write("PWNED_IMPORT\\n")\n')
 
             message = json.loads(_run_hook(str(foreign)).stdout)["systemMessage"]
             advised = next(
@@ -460,9 +456,7 @@ class TestCheckPythonpathHook(unittest.TestCase):
         test exists to prove that pin actually rejects a plausible tamper rather
         than merely being present.
         """
-        tampered = (
-            "python3 -I -S -c 'import os; os.system(\"echo PWNED_TAMPER\")'"
-        )
+        tampered = "python3 -I -S -c 'import os; os.system(\"echo PWNED_TAMPER\")'"
         argv = shlex.split(tampered)
 
         # The tamper clears every shape check the previous version relied on,
@@ -595,9 +589,7 @@ class TestCheckPythonpathHook(unittest.TestCase):
                     proc = _run_hook(str(foreign))
 
                     self.assertEqual(proc.returncode, 0, proc.stderr)
-                    self.assertNotEqual(
-                        proc.stdout.strip(), "", f"{label}: no warning emitted"
-                    )
+                    self.assertNotEqual(proc.stdout.strip(), "", f"{label}: no warning emitted")
                     payload = json.loads(proc.stdout)  # raises if malformed
                     self.assertIn("systemMessage", payload)
 
@@ -660,12 +652,8 @@ class TestDocsDoNotAdviseAnUnsafeDiagnostic(unittest.TestCase):
                         "which reports the same path without executing the "
                         "foreign tree",
                     )
-                advised = re.search(
-                    r"run\s+`python3 -c \"import resume", text
-                )
-                self.assertIsNone(
-                    advised, f"{rel} tells the reader to run the unsafe form"
-                )
+                advised = re.search(r"run\s+`python3 -c \"import resume", text)
+                self.assertIsNone(advised, f"{rel} tells the reader to run the unsafe form")
 
     def test_each_doc_warns_against_the_unsafe_form(self) -> None:
         """Absence is not enough — the trap should be named where it bites."""

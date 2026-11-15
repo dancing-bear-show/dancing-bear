@@ -14,18 +14,21 @@ class TestMainHelp(unittest.TestCase):
 
     def test_help_exits_zero(self):
         from mail.cli.main import main
+
         with self.assertRaises(SystemExit) as ctx:
             main(["--help"])
         self.assertEqual(ctx.exception.code, 0)
 
     def test_labels_help_exits_zero(self):
         from mail.cli.main import main
+
         with self.assertRaises(SystemExit) as ctx:
             main(["labels", "--help"])
         self.assertEqual(ctx.exception.code, 0)
 
     def test_filters_help_exits_zero(self):
         from mail.cli.main import main
+
         with self.assertRaises(SystemExit) as ctx:
             main(["filters", "--help"])
         self.assertEqual(ctx.exception.code, 0)
@@ -36,6 +39,7 @@ class TestMainUnknownSubcommand(unittest.TestCase):
 
     def test_unknown_top_level_command_exits_nonzero(self):
         from mail.cli.main import main
+
         with self.assertRaises(SystemExit) as ctx:
             main(["totally-unknown-subcommand"])
         self.assertNotEqual(ctx.exception.code, 0)
@@ -49,6 +53,7 @@ class TestInstallOutputMaskingHook(unittest.TestCase):
         with patch("mail.cli.main.app.run_with_assistant") as mock_run:
             mock_run.return_value = 0
             from mail.cli import main as main_module
+
             main_module.main([])
             # Verify pre_run_hook is the module-level _install_output_masking function
             _, kwargs = mock_run.call_args
@@ -58,6 +63,7 @@ class TestInstallOutputMaskingHook(unittest.TestCase):
         """pre_run_hook exceptions are swallowed by run_with_assistant."""
         with patch("mail.cli.main._install_output_masking", side_effect=RuntimeError("boom")):
             from mail.cli.main import main
+
             # run_with_assistant catches hook failures and continues; no subcommand prints help
             result = main([])
             # No subcommand -> prints help and returns 0
@@ -69,6 +75,7 @@ class TestParserSubcommandRegistration(unittest.TestCase):
 
     def setUp(self):
         from mail.cli.main import app
+
         self._app = app
 
     def _get_parser(self):
@@ -117,10 +124,13 @@ class TestSubcommandDispatch(unittest.TestCase):
 
     def _parse_args(self, *argv):
         from mail.cli.main import app
+
         parser = app.build_parser()
         from mail.cli.main import assistant
+
         assistant.add_agentic_flags(parser)
         from mail.cli.main import _add_common_args
+
         _add_common_args(parser)
         return parser.parse_args(list(argv))
 
@@ -167,6 +177,7 @@ class TestMainReturnCode(unittest.TestCase):
         """With no subcommand, run_with_assistant prints help and returns 0."""
         with patch("mail.cli.main._install_output_masking"):
             from mail.cli.main import main
+
             result = main([])
         self.assertEqual(result, 0)
 
@@ -176,6 +187,7 @@ class TestMainReturnCode(unittest.TestCase):
         with patch("mail.cli.main._install_output_masking"):
             with patch("mail.cli.main._lazy_emit_agentic", return_value=fake_emit):
                 from mail.cli.main import main
+
                 result = main(["--agentic"])
         self.assertEqual(result, 0)
         fake_emit.assert_called_once()

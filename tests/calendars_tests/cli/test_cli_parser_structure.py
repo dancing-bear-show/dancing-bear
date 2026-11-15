@@ -10,6 +10,7 @@ bug in src/calendars/agentic.py, out of scope for this test file — tracked
 separately. This file imports the parser directly from calendars.cli.main to
 stay independent of that bug.
 """
+
 from __future__ import annotations
 
 import unittest

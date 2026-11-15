@@ -1,4 +1,5 @@
 """Gmail calendar scan command implementations."""
+
 from __future__ import annotations
 
 import argparse
@@ -6,27 +7,27 @@ from pathlib import Path
 
 from core.pipeline import run_pipeline
 
-from ..pipeline_base import GmailAuth
+from ..gmail_pipeline_mail_list import (
+    GmailMailListProcessor,
+    GmailMailListProducer,
+    GmailMailListRequest,
+)
 from ..gmail_pipeline_receipts import (
-    GmailScanProducer,
     GmailReceiptsProcessor,
     GmailReceiptsRequest,
+    GmailScanProducer,
 )
 from ..gmail_pipeline_scan_classes import (
     GmailScanClassesProcessor,
     GmailScanClassesProducer,
     GmailScanClassesRequest,
 )
-from ..gmail_pipeline_mail_list import (
-    GmailMailListProcessor,
-    GmailMailListProducer,
-    GmailMailListRequest,
-)
 from ..gmail_pipeline_sweep_top import (
     GmailSweepTopProcessor,
     GmailSweepTopProducer,
     GmailSweepTopRequest,
 )
+from ..pipeline_base import GmailAuth
 
 
 def _auth_from_args(args: argparse.Namespace) -> GmailAuth:
@@ -63,7 +64,7 @@ def run_gmail_sweep_top(args: argparse.Namespace) -> int:
         page_size=int(getattr(args, "page_size", 100)),
         inbox_only=bool(getattr(args, "inbox_only", True)),
         top=int(getattr(args, "top", 10)),
-        out_path=Path(getattr(args, "out")) if getattr(args, "out", None) else None,
+        out_path=Path(args.out) if getattr(args, "out", None) else None,
     )
     return run_pipeline(request, GmailSweepTopProcessor, GmailSweepTopProducer)
 
@@ -79,7 +80,7 @@ def run_gmail_scan_classes(args: argparse.Namespace) -> int:
         page_size=int(getattr(args, "page_size", 100)),
         inbox_only=bool(getattr(args, "inbox_only", False)),
         calendar=getattr(args, "calendar", None),
-        out_path=Path(getattr(args, "out")) if getattr(args, "out", None) else None,
+        out_path=Path(args.out) if getattr(args, "out", None) else None,
     )
     return run_pipeline(request, GmailScanClassesProcessor, GmailScanClassesProducer)
 
@@ -94,7 +95,7 @@ def run_gmail_scan_receipts(args: argparse.Namespace) -> int:
         pages=int(getattr(args, "pages", 5)),
         page_size=int(getattr(args, "page_size", 100)),
         calendar=getattr(args, "calendar", None),
-        out_path=Path(getattr(args, "out")),
+        out_path=Path(args.out),
     )
     return run_pipeline(request, GmailReceiptsProcessor, GmailScanProducer)
 
@@ -117,5 +118,5 @@ def run_gmail_scan_activerh(args: argparse.Namespace) -> int:
         programs=None,
         from_text=getattr(args, "from_text", None),
     )
-    setattr(args, "query", q)
+    args.query = q
     return run_gmail_scan_receipts(args)

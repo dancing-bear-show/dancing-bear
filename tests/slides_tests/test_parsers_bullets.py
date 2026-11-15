@@ -2,13 +2,17 @@
 
 import unittest
 
-from slides._parse_bullets import _body_line_to_bullet, _body_to_bullets, _parse_bullets
-from slides._parse_bullets import _validate_bullet_level
-
+from slides._parse_bullets import (
+    _body_line_to_bullet,
+    _body_to_bullets,
+    _parse_bullets,
+    _validate_bullet_level,
+)
 
 # ---------------------------------------------------------------------------
 # _parse_bullets
 # ---------------------------------------------------------------------------
+
 
 class TestParseBullets(unittest.TestCase):
     """Tests for _parse_bullets helper — dict bold, list/tuple shorthand."""
@@ -72,11 +76,13 @@ class TestParseBullets(unittest.TestCase):
             _parse_bullets([["text", 1, "extra"]])
 
     def test_mixed_bullet_types(self):
-        result = _parse_bullets([
-            "plain",
-            {"text": "bold line", "bold": True},
-            ["indented", 1],
-        ])
+        result = _parse_bullets(
+            [
+                "plain",
+                {"text": "bold line", "bold": True},
+                ["indented", 1],
+            ]
+        )
         self.assertEqual(len(result), 3)
         self.assertEqual(result[0].text, "plain")
         self.assertFalse(result[0].bold)
@@ -125,6 +131,7 @@ class TestParseBullets(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _body_to_bullets
 # ---------------------------------------------------------------------------
+
 
 class TestBodyToBullets(unittest.TestCase):
     """Tests for _body_to_bullets helper — multiline body string to BulletItem list."""
@@ -234,6 +241,7 @@ class TestParseBulletsUnrecognizedType(unittest.TestCase):
 # _validate_bullet_level: bool and non-int-coercible rejection (lines 33, 36-37)
 # ---------------------------------------------------------------------------
 
+
 class TestValidateBulletLevel(unittest.TestCase):
     """Tests for _validate_bullet_level — rejects bools and non-coercible types."""
 
@@ -276,6 +284,7 @@ class TestValidateBulletLevel(unittest.TestCase):
 # _body_line_to_bullet: a prefix-only "- " line is rstrip()ed to "-", so it no
 # longer matches the sub-bullet prefix and comes back as a level-0 BulletItem.
 # ---------------------------------------------------------------------------
+
 
 class TestBodyLineToBullet(unittest.TestCase):
     """Tests for _body_line_to_bullet — edge cases."""
@@ -328,12 +337,14 @@ class TestParseBulletsNonDictNonStr(unittest.TestCase):
 
     def test_valid_types_all_parse(self) -> None:
         """str, dict, list, and tuple all parse successfully."""
-        result = _parse_bullets([
-            "valid string bullet",
-            {"text": "dict bullet"},
-            ["list bullet", 1],
-            ("tuple bullet", 0),
-        ])
+        result = _parse_bullets(
+            [
+                "valid string bullet",
+                {"text": "dict bullet"},
+                ["list bullet", 1],
+                ("tuple bullet", 0),
+            ]
+        )
         self.assertEqual(len(result), 4)
         self.assertEqual(result[0].text, "valid string bullet")
         self.assertEqual(result[1].text, "dict bullet")

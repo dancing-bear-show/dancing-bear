@@ -152,9 +152,7 @@ class SkillItemBoldNameTests(unittest.TestCase):
         self.assertEqual(runs[1], ("Kubernetes", True, None))
 
         # Everything after the name is plain, and reassembles the remainder.
-        self.assertEqual(
-            "".join(text for text, _, _ in runs[2:]), ": multi-cluster operations"
-        )
+        self.assertEqual("".join(text for text, _, _ in runs[2:]), ": multi-cluster operations")
         for text, bold, italic in runs[2:]:
             self.assertNotEqual(bold, True, f"run {text!r} must not be bold")
             self.assertNotEqual(italic, True, f"run {text!r} must not be italic")
@@ -233,16 +231,12 @@ class SkillItemBoldNameTests(unittest.TestCase):
             }
         ]
         paragraphs = _render(_resume(groups), _template(_BULLETED_DEFAULT_SEP))
-        bullet = _find(
-            paragraphs, f"{GLYPH}Kubernetes{DEFAULT_DESC_SEP}multi-cluster operations"
-        )
+        bullet = _find(paragraphs, f"{GLYPH}Kubernetes{DEFAULT_DESC_SEP}multi-cluster operations")
 
         runs = _runs(bullet)
         self.assertEqual(runs[0], (GLYPH, None, None))
         self.assertEqual(runs[1], ("Kubernetes", True, None))
-        self.assertEqual(
-            [text for text, bold, _ in runs if bold is True], ["Kubernetes"]
-        )
+        self.assertEqual([text for text, bold, _ in runs if bold is True], ["Kubernetes"])
         self.assertEqual(
             "".join(text for text, _, _ in runs[2:]),
             f"{DEFAULT_DESC_SEP}multi-cluster operations",
@@ -278,9 +272,7 @@ class SkillItemBoldNameTests(unittest.TestCase):
                 runs = _runs(bullet)
                 self.assertEqual(runs[0], (GLYPH, None, None))
                 self.assertEqual(runs[1], (name, True, None))
-                self.assertEqual(
-                    [text for text, bold, _ in runs if bold is True], [name]
-                )
+                self.assertEqual([text for text, bold, _ in runs if bold is True], [name])
 
 
 class SkillGroupTitleBoldTests(unittest.TestCase):
@@ -307,9 +299,7 @@ class SkillGroupTitleBoldTests(unittest.TestCase):
 
         for title in ("Platform", "Languages", "Practices"):
             with self.subTest(group=title):
-                self.assertEqual(
-                    _runs(_find(paragraphs, title)), [(title, True, None)]
-                )
+                self.assertEqual(_runs(_find(paragraphs, title)), [(title, True, None)])
 
     def test_group_title_is_bold_in_the_bulleted_branch_too(self):
         """Both skills branches weight the title the same way.
@@ -318,9 +308,7 @@ class SkillGroupTitleBoldTests(unittest.TestCase):
         different code paths, so each needs its own assertion or one of them
         can silently lose the weighting.
         """
-        groups = [
-            {"title": "Platform", "items": [{"name": "Kubernetes", "desc": "ops"}]}
-        ]
+        groups = [{"title": "Platform", "items": [{"name": "Kubernetes", "desc": "ops"}]}]
         paragraphs = _render(_resume(groups), _template(_BULLETED_SKILLS))
 
         runs = _runs(_find(paragraphs, "Platform"))
@@ -393,9 +381,7 @@ class SkillsBoldBlastRadiusTests(unittest.TestCase):
         for text in ("Platform", "• Kubernetes: multi-cluster operations"):
             with self.subTest(paragraph=text):
                 for run_text, _, italic in _runs(_find(paragraphs, text)):
-                    self.assertNotEqual(
-                        italic, True, f"run {run_text!r} must not be italic"
-                    )
+                    self.assertNotEqual(italic, True, f"run {run_text!r} must not be italic")
 
 
 if __name__ == "__main__":

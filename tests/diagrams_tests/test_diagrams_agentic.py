@@ -20,8 +20,8 @@ from unittest.mock import patch
 
 from tests.agentic_builder_contract import AgenticBuilderContractMixin
 from tests.agentic_cli_contract import AgenticCLIContractMixin
-from tests.cli_separator_contract import SeparatorContractMixin
 from tests.cli_no_subcommand_contract import NoSubcommandContractMixin
+from tests.cli_separator_contract import SeparatorContractMixin
 from tests.fixtures import capture_stdout
 
 
@@ -50,26 +50,32 @@ class TestDiagramsCapsuleContent(unittest.TestCase):
 
     def test_contains_from_yaml_command(self):
         from diagrams.agentic import build_agentic_capsule
+
         self.assertIn("from-yaml", build_agentic_capsule())
 
     def test_contains_render_command(self):
         from diagrams.agentic import build_agentic_capsule
+
         self.assertIn("render", build_agentic_capsule())
 
     def test_contains_validate_command(self):
         from diagrams.agentic import build_agentic_capsule
+
         self.assertIn("validate", build_agentic_capsule())
 
     def test_contains_embed_command(self):
         from diagrams.agentic import build_agentic_capsule
+
         self.assertIn("embed", build_agentic_capsule())
 
     def test_contains_telemetry_command(self):
         from diagrams.agentic import build_agentic_capsule
+
         self.assertIn("telemetry", build_agentic_capsule())
 
     def test_idempotent(self):
         from diagrams.agentic import build_agentic_capsule
+
         self.assertEqual(build_agentic_capsule(), build_agentic_capsule())
 
 
@@ -79,6 +85,7 @@ class TestDiagramsAgenticFlagExtra(unittest.TestCase):
     def test_agentic_flag_yaml_format(self):
         """YAML format output still announces the app."""
         from diagrams.cli import main
+
         with capture_stdout() as buf:
             rc = main(["--agentic", "--agentic-format", "yaml", "--agentic-compact"])
         self.assertEqual(rc, 0)
@@ -87,10 +94,10 @@ class TestDiagramsAgenticFlagExtra(unittest.TestCase):
     def test_no_subcommand_exits_zero(self):
         """Legacy exit code must remain 0 when no subcommand given."""
         from diagrams.cli import main
+
         with patch("sys.stdout", StringIO()):
             rc = main([])
         self.assertEqual(rc, 0)
-
 
 
 class TestDiagramsSeparatorCLI(SeparatorContractMixin, unittest.TestCase):
@@ -106,6 +113,7 @@ class TestDiagramsNoSubcommand(NoSubcommandContractMixin, unittest.TestCase):
     MODULE_PATH = "diagrams.cli"
     EXPECTED_RC = 0
     EXPECTED_STREAM = "stdout"
+
 
 if __name__ == "__main__":
     unittest.main()

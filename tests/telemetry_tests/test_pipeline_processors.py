@@ -9,6 +9,7 @@ Each pair has:
   - One sad-path test per distinct raise site in _process_safe, asserting the correct
     CLIError subtype or error envelope surfaces via ResultEnvelope.
 """
+
 from __future__ import annotations
 
 import io
@@ -31,9 +32,11 @@ if TYPE_CHECKING:
 # Shared helpers — use shared_fixtures where applicable, avoid local duplication
 # ---------------------------------------------------------------------------
 
+
 def _make_output_writer() -> tuple[OutputWriter, io.StringIO]:
     """Return an OutputWriter backed by a StringIO for inspection."""
     from core.cli_output import OutputConfig
+
     buf = io.StringIO()
     writer = OutputWriter(config=OutputConfig(file=buf))
     return writer, buf
@@ -43,12 +46,14 @@ def _make_output_writer() -> tuple[OutputWriter, io.StringIO]:
 # CostScanProcessor / CostScanProducer
 # ---------------------------------------------------------------------------
 
+
 class TestCostScanProcessorHappyPath(unittest.TestCase):
     """Consumer -> CostScanProcessor -> CostScanProducer happy path."""
 
-    def _make_request(self, data_dir_path: Path) -> "CostScanRequest":
+    def _make_request(self, data_dir_path: Path) -> CostScanRequest:
         from telemetry.otel.cli.cost import CostScanRequest
         from telemetry.otel.reader import OTLPDataDir
+
         return CostScanRequest(
             data_dir=OTLPDataDir(path=data_dir_path),
             since=None,
@@ -148,6 +153,7 @@ class TestCostScanProcessorHappyPath(unittest.TestCase):
 # TranscriptParseProcessor / TranscriptParseProducer
 # ---------------------------------------------------------------------------
 
+
 class TestTranscriptParseProcessorHappyPath(unittest.TestCase):
     """Consumer -> TranscriptParseProcessor -> TranscriptParseProducer happy path."""
 
@@ -167,7 +173,7 @@ class TestTranscriptParseProcessorHappyPath(unittest.TestCase):
                 f.write(json.dumps(rec) + "\n")
         return p
 
-    def _make_request(self, **kwargs: object) -> "TranscriptParseRequest":
+    def _make_request(self, **kwargs: object) -> TranscriptParseRequest:
         from telemetry.parse_transcripts import TranscriptParseRequest
 
         defaults = {
@@ -184,9 +190,9 @@ class TestTranscriptParseProcessorHappyPath(unittest.TestCase):
         """TranscriptParseProcessor returns a success envelope for valid input."""
         from telemetry.parse_transcripts import TranscriptParseProcessor, TranscriptParseResult
 
-        self._write_jsonl("proj/session1.jsonl", [
-            {"message": {"role": "user", "content": "Hello world"}}
-        ])
+        self._write_jsonl(
+            "proj/session1.jsonl", [{"message": {"role": "user", "content": "Hello world"}}]
+        )
         request = self._make_request()
         envelope = TranscriptParseProcessor().process(RequestConsumer(request).consume())
 

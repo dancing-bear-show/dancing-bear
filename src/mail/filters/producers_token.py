@@ -1,4 +1,5 @@
 """Token-update producers for mail filters pipelines."""
+
 from __future__ import annotations
 
 from core.cli_output import OutputWriter
@@ -40,7 +41,9 @@ def _produce_token_updates(
 class _TokenUpdateProducer(BaseProducer):
     """Shared wiring for the add/remove token producers."""
 
-    def __init__(self, client: BaseProvider, *, dry_run: bool = False, writer: OutputWriter | None = None):
+    def __init__(
+        self, client: BaseProvider, *, dry_run: bool = False, writer: OutputWriter | None = None
+    ):
         super().__init__(writer)
         self.client = client
         self.dry_run = dry_run

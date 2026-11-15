@@ -11,8 +11,8 @@ from dataclasses import dataclass, field
 
 __all__ = [
     "LintError",
-    "LintWarning",
     "LintResult",
+    "LintWarning",
 ]
 
 
@@ -52,8 +52,7 @@ class LintResult:
             "file": self.file,
             "valid": self.valid,
             "errors": [
-                {"stage": e.stage, "field": e.field, "message": e.message}
-                for e in self.errors
+                {"stage": e.stage, "field": e.field, "message": e.message} for e in self.errors
             ],
             "warnings": [
                 {"stage": w.stage, "field": w.field, "rule": w.rule, "message": w.message}

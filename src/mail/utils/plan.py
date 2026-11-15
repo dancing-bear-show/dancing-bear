@@ -1,6 +1,6 @@
 """Plan output helpers shared across assistants."""
-from __future__ import annotations
 
+from __future__ import annotations
 
 
 def print_plan_summary(

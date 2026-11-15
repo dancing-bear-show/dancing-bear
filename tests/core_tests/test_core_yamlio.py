@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core.yamlio import load_config, dump_config
+from core.yamlio import dump_config, load_config
 
 
 class TestLoadConfig(unittest.TestCase):
@@ -121,14 +121,7 @@ class TestDumpConfig(unittest.TestCase):
     def test_dump_nested_structure(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "nested.yaml"
-            data = {
-                "level1": {
-                    "level2": {
-                        "value": "deep"
-                    }
-                },
-                "list": [1, 2, 3]
-            }
+            data = {"level1": {"level2": {"value": "deep"}}, "list": [1, 2, 3]}
             dump_config(str(path), data)
             result = load_config(str(path))
             self.assertEqual(result, data)
@@ -164,7 +157,7 @@ class TestRoundTrip(unittest.TestCase):
                 "boolean": False,
                 "null": None,
                 "list": ["a", "b", "c"],
-                "nested": {"inner": "value"}
+                "nested": {"inner": "value"},
             }
             dump_config(str(path), original)
             loaded = load_config(str(path))

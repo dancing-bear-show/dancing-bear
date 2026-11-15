@@ -37,7 +37,7 @@ def _resolve_stores(
     if args.store:
         try:
             return (load_store(args.store),)
-        except Exception as exc:  # NOSONAR - CLI boundary: surface as a validation error, never a raw traceback
+        except (Exception) as exc:  # NOSONAR - CLI boundary: surface as a validation error, never a raw traceback  # fmt: skip
             return validation_error("--store", f"could not load store {args.store!r}: {exc}")
     if args.all_stores:
         return all_stores
@@ -180,9 +180,7 @@ def run(args: argparse.Namespace) -> int:
         return resolved
     stores = resolved
 
-    matches = _collect_matches(
-        stores, query=args.query, pattern=pattern, limit=args.limit
-    )
+    matches = _collect_matches(stores, query=args.query, pattern=pattern, limit=args.limit)
 
     return emit_rows(
         matches,

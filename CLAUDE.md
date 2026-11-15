@@ -235,6 +235,23 @@ Always pass `-t .` with `-s tests/<pkg>` (the repo requires it anyway:
 
 **Linting (ruff directly):**
 - Use `make lint` (or `make lint-fix`), never a bare `ruff check`
+- Format with `make fmt` (`make fmt-check` to verify). CI enforces formatting:
+  qlty's ruff plugin runs the `format` driver, and `qlty check` fails on `fmt`
+- Config lives in `[tool.ruff]` in `pyproject.toml` — read by `make`, the hook,
+  and qlty alike. Its `ignore` list has a **BURN-DOWN** block of pre-existing
+  findings: remove a code once fixed, never add one to dodge a new finding
+- `make hooks` activates `.githooks/pre-commit`, which runs `ruff check --fix`
+  and `ruff format` on staged `.py` files and re-stages them. A file with
+  unstaged edits is only checked, never rewritten
+- `RUF100` (unused-noqa) stays off: bare trailing `# noqa` is vulture's
+  line-scoped suppression, and ruff would strip it as unused
+- **The formatter can silently disarm a pragma.** When it wraps a long line,
+  the trailing comment lands on the closing-bracket row, but bandit
+  (`# nosec`), radarlint (`# NOSONAR`), mypy (`# type: ignore`) and coverage
+  report on the statement's first row (bandit 1.9 accepts any row inside the
+  flagged node). Put the pragma on the reported row, or keep the statement on
+  one line with a trailing `# fmt: skip` — the repo-wide reformat pinned ~90
+  statements that way
 - There is **no standalone `ruff` on PATH**. CI lints through `qlty check`, which
   runs ruff from qlty's own pinned tool cache — so `ruff check <file>` fails as
   "command not found", and a `pip install ruff` would drift from the version CI

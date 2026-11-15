@@ -1,13 +1,14 @@
 """Venue-specific website schedule parsers — dispatch facade."""
+
 from __future__ import annotations
 
 from .base import ScheduleParser
 from .model import ScheduleItem
+from .web_parser_vendors_aurora import AuroraAquaticsParser
 from .web_parser_vendors_rh import (
     RichmondHillSkatingParser,
     RichmondHillSwimmingParser,
 )
-from .web_parser_vendors_aurora import AuroraAquaticsParser
 
 
 class WebParser(ScheduleParser):
@@ -31,21 +32,23 @@ class WebParser(ScheduleParser):
         Raises:
             NotImplementedError: If website is not supported
         """
-        u = str(url or '')
+        u = str(url or "")
 
         # Richmond Hill Skating
-        if 'richmondhill.ca' in u and 'Skating.aspx' in u:
+        if "richmondhill.ca" in u and "Skating.aspx" in u:
             return RichmondHillSkatingParser().parse(u)
 
         # Richmond Hill Swimming
-        if 'richmondhill.ca' in u and 'Swimming.aspx' in u:
+        if "richmondhill.ca" in u and "Swimming.aspx" in u:
             return RichmondHillSwimmingParser().parse(u)
 
         # Aurora Aquatics
-        if 'aurora.ca' in u and 'aquatics-and-swim-programs' in u:
+        if "aurora.ca" in u and "aquatics-and-swim-programs" in u:
             return AuroraAquaticsParser().parse(u)
 
-        raise NotImplementedError("Website parsing not implemented for this source. Provide CSV/XLSX or known site.")
+        raise NotImplementedError(
+            "Website parsing not implemented for this source. Provide CSV/XLSX or known site."
+        )
 
 
 def parse_website(url: str) -> list[ScheduleItem]:

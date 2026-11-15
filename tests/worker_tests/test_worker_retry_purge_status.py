@@ -36,6 +36,7 @@ class TestWorkerRetryPurgeStatus(unittest.TestCase, QueueRootIsolationMixin):
 
     def _mk_error_job(self, jid="e1", *, updated_at=None, err="boom"):
         from worker import queue_ops as q
+
         q.QUEUE_ROOT = self.root / "queue"
         q._ensure_dirs(q.QUEUE_ROOT)
         p = q.QUEUE_ROOT / "error" / f"{jid}.json"
@@ -55,6 +56,7 @@ class TestWorkerRetryPurgeStatus(unittest.TestCase, QueueRootIsolationMixin):
         from worker import queue_ops as q
         from worker.cli import main
         from worker.queue_metrics import counts
+
         q.QUEUE_ROOT = self.root / "queue"
         self._mk_error_job("r1")
         rc, _ = _capture_stdout(main, ["retry", "r1", "--reset-attempts", "--delay", "1"])
@@ -68,6 +70,7 @@ class TestWorkerRetryPurgeStatus(unittest.TestCase, QueueRootIsolationMixin):
         from worker import queue_ops as q
         from worker.cli import main
         from worker.queue_metrics import counts
+
         q.QUEUE_ROOT = self.root / "queue"
         now = datetime.now(UTC)
         old_ts = (now - timedelta(minutes=10, seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -86,6 +89,7 @@ class TestWorkerRetryPurgeStatus(unittest.TestCase, QueueRootIsolationMixin):
     def test_purge_done_error(self):
         from worker import queue_ops as q
         from worker.cli import main
+
         q.QUEUE_ROOT = self.root / "queue"
         q._ensure_dirs(q.QUEUE_ROOT)
         done = q.QUEUE_ROOT / "done" / "d1.json"
@@ -102,8 +106,9 @@ class TestWorkerRetryPurgeStatus(unittest.TestCase, QueueRootIsolationMixin):
         self.assertGreaterEqual(res.get("error", 0), 1)
 
     def test_status_with_throughput(self):
-        from worker.cli import main
         from worker._helpers import DATE_FORMAT_YMD
+        from worker.cli import main
+
         cwd = os.getcwd()
         try:
             os.chdir(self.root)
@@ -111,8 +116,20 @@ class TestWorkerRetryPurgeStatus(unittest.TestCase, QueueRootIsolationMixin):
             p = self.root / "_data" / "logs" / f"perf-worker-{ymd}.jsonl"
             p.parent.mkdir(parents=True, exist_ok=True)
             entries = [
-                {"ts": "2025-01-01T00:00:00Z", "prog": "worker", "args": ["daemon", "run_cli", "ok"], "exit_code": 0, "duration_ms": 1000},
-                {"ts": "2025-01-01T00:01:00Z", "prog": "worker", "args": ["daemon", "run_cli", "ok"], "exit_code": 0, "duration_ms": 2000},
+                {
+                    "ts": "2025-01-01T00:00:00Z",
+                    "prog": "worker",
+                    "args": ["daemon", "run_cli", "ok"],
+                    "exit_code": 0,
+                    "duration_ms": 1000,
+                },
+                {
+                    "ts": "2025-01-01T00:01:00Z",
+                    "prog": "worker",
+                    "args": ["daemon", "run_cli", "ok"],
+                    "exit_code": 0,
+                    "duration_ms": 2000,
+                },
             ]
             with p.open("a", encoding="utf-8") as f:
                 for e in entries:

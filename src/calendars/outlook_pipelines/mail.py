@@ -6,12 +6,12 @@ operations. New mail-related pipelines should go in mail/outlook_pipelines/.
 """
 
 from ._base import (
-    dataclass,
     Any,
-    SafeProcessor,
     BaseProducer,
     RequestConsumer,
+    SafeProcessor,
     check_service_required,
+    dataclass,
 )
 
 
@@ -43,7 +43,9 @@ class OutlookMailListProcessor(SafeProcessor[OutlookMailListRequest, OutlookMail
 
 
 class OutlookMailListProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookMailListResult, diagnostics: dict[str, Any] | None) -> None:
+    def _produce_success(
+        self, payload: OutlookMailListResult, diagnostics: dict[str, Any] | None
+    ) -> None:
         msgs = payload.messages
         if not msgs:
             print("No messages.")
@@ -51,15 +53,15 @@ class OutlookMailListProducer(BaseProducer):
         for msg in msgs:
             sub = (msg.get("subject") or "").strip()
             recv = (msg.get("receivedDateTime") or "")[:19]
-            frm = (((msg.get("from") or {}).get("emailAddress") or {}).get("address") or "")
+            frm = ((msg.get("from") or {}).get("emailAddress") or {}).get("address") or ""
             print(f"- {recv} | {sub[:80]} | {frm}")
         print(f"Listed {len(msgs)} message(s).")
 
 
 __all__ = [
+    "OutlookMailListProcessor",
+    "OutlookMailListProducer",
     "OutlookMailListRequest",
     "OutlookMailListRequestConsumer",
     "OutlookMailListResult",
-    "OutlookMailListProcessor",
-    "OutlookMailListProducer",
 ]

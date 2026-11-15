@@ -20,20 +20,31 @@ _ROOT = Path(__file__).resolve().parents[2]
 _TIMEOUT = 60
 
 
-def _result(rid: str, action: str = "fixed", test_result: str = "pass",
-            tests: tuple[str, ...] = (), **extra: Any) -> dict[str, Any]:
+def _result(
+    rid: str,
+    action: str = "fixed",
+    test_result: str = "pass",
+    tests: tuple[str, ...] = (),
+    **extra: Any,
+) -> dict[str, Any]:
     out: dict[str, Any] = {
-        "id": rid, "thread_id": f"PRRT_{rid}", "action": action,
-        "files_changed": [f"src/{rid}.py"], "tests_added": list(tests),
+        "id": rid,
+        "thread_id": f"PRRT_{rid}",
+        "action": action,
+        "files_changed": [f"src/{rid}.py"],
+        "tests_added": list(tests),
         "test_result": test_result,
     }
     out.update(extra)
     return out
 
 
-def _doc(*results: dict[str, Any], missing: tuple[str, ...] = (),
-         mismatches: tuple[dict[str, Any], ...] = (),
-         total: int | None = None) -> dict[str, Any]:
+def _doc(
+    *results: dict[str, Any],
+    missing: tuple[str, ...] = (),
+    mismatches: tuple[dict[str, Any], ...] = (),
+    total: int | None = None,
+) -> dict[str, Any]:
     """A fix-results document exactly as aggregate-fix-results writes it."""
     ids = [r["id"] for r in results] + list(missing)
     return FixResults(
@@ -46,13 +57,18 @@ def _doc(*results: dict[str, Any], missing: tuple[str, ...] = (),
 
 
 def _mismatch(stem: str) -> dict[str, Any]:
-    return {"file": f"{stem}.json", "id_in_file": None, "thread_id_in_file": None,
-            "reason": "id field is missing"}
+    return {
+        "file": f"{stem}.json",
+        "id_in_file": None,
+        "thread_id_in_file": None,
+        "reason": "id field is missing",
+    }
 
 
 class MergeFixResultsCase(unittest.TestCase):
-    def run_merge(self, fr: object, rr: object, *, raw: str | None = None,
-                  drop_rr: bool = False) -> tuple[int, dict[str, Any] | None, str]:
+    def run_merge(
+        self, fr: object, rr: object, *, raw: str | None = None, drop_rr: bool = False
+    ) -> tuple[int, dict[str, Any] | None, str]:
         """Run the real CLI once; return (exit code, merged doc or None, stderr)."""
         with tempfile.TemporaryDirectory() as td:
             fr_path = Path(td) / "fix-results.json"
@@ -63,9 +79,15 @@ class MergeFixResultsCase(unittest.TestCase):
                 rr_path.write_text(raw if raw is not None else json.dumps(rr), encoding="utf-8")
             proc = subprocess.run(  # nosec B603 - fixed argv invoking the repo's own CLI
                 ["./bin/workflow", "merge-fix-results", str(fr_path), str(rr_path), str(out_path)],
-                capture_output=True, text=True, cwd=str(_ROOT), timeout=_TIMEOUT, check=False,
+                capture_output=True,
+                text=True,
+                cwd=str(_ROOT),
+                timeout=_TIMEOUT,
+                check=False,
             )
-            merged = json.loads(out_path.read_text(encoding="utf-8")) if out_path.is_file() else None
+            merged = (
+                json.loads(out_path.read_text(encoding="utf-8")) if out_path.is_file() else None
+            )
             return proc.returncode, merged, proc.stderr
 
     def merged_ok(self, fr: object, rr: object) -> dict[str, Any]:
@@ -95,8 +117,9 @@ class TestMergeSemantics(MergeFixResultsCase):
     def test_failing_retry_keeps_a_failed_test(self) -> None:
         fr = _doc(_result("x", test_result="pass"))
         merged = self.merged_ok(fr, _doc(_result("x", test_result="fail"), total=1))
-        self.assertEqual(merged["failed_tests"],
-                         [{"id": "x", "thread_id": "PRRT_x", "test_result": "fail"}])
+        self.assertEqual(
+            merged["failed_tests"], [{"id": "x", "thread_id": "PRRT_x", "test_result": "fail"}]
+        )
 
     def test_retry_tests_reach_tests_by_result_alongside_the_original(self) -> None:
         first = "tests/t/test_x.py::T::test_one"
@@ -120,19 +143,26 @@ class TestMergeSemantics(MergeFixResultsCase):
         fr = _doc(_result("x"), mismatches=(_mismatch("a"), _mismatch("b")))
         rr = _doc(mismatches=(_mismatch("c"),), total=0)
         merged = self.merged_ok(fr, rr)
-        self.assertEqual([m["file"] for m in merged["key_mismatches"]],
-                         ["a.json", "b.json", "c.json"])
+        self.assertEqual(
+            [m["file"] for m in merged["key_mismatches"]], ["a.json", "b.json", "c.json"]
+        )
 
     def test_out_of_scope_objects_merge_from_both_passes(self) -> None:
-        fr = _doc(_result("x", out_of_scope_requests=["edit .envrc"],
-                          files_changed=["src/x.py", "src/other.py"]))
+        fr = _doc(
+            _result(
+                "x",
+                out_of_scope_requests=["edit .envrc"],
+                files_changed=["src/x.py", "src/other.py"],
+            )
+        )
         rr = _doc(_result("x", out_of_scope_requests=["push to main"]), total=1)
         self.assertEqual(fr["out_of_scope_paths"], [{"id": "x", "path": "src/other.py"}])
         merged = self.merged_ok(fr, rr)
         self.assertEqual(merged["out_of_scope_paths"], [{"id": "x", "path": "src/other.py"}])
-        self.assertEqual(merged["out_of_scope_requests"],
-                         [{"id": "x", "request": "edit .envrc"},
-                          {"id": "x", "request": "push to main"}])
+        self.assertEqual(
+            merged["out_of_scope_requests"],
+            [{"id": "x", "request": "edit .envrc"}, {"id": "x", "request": "push to main"}],
+        )
         self.assertNotIn("src/other.py", merged["files_changed"])
 
     def test_absent_optional_keys_take_their_defaults(self) -> None:
@@ -151,12 +181,23 @@ class TestMergeRejectsMalformedInput(MergeFixResultsCase):
 
     def test_present_but_falsy_wrong_types_are_not_coerced(self) -> None:
         cases: list[tuple[str, object]] = [
-            ("results", None), ("results", ""), ("files_changed", 0),
-            ("files_changed", False), ("missing_results", ""), ("failed_tests", None),
-            ("key_mismatches", 0), ("tests_by_result", None), ("tests_by_result", ""),
-            ("out_of_scope_paths", False), ("out_of_scope_requests", None),
-            ("rejected_tests_added", ""), ("tests_added", None), ("by_action", []),
-            ("total_expected", True), ("total_expected", -1), ("total_results", "1"),
+            ("results", None),
+            ("results", ""),
+            ("files_changed", 0),
+            ("files_changed", False),
+            ("missing_results", ""),
+            ("failed_tests", None),
+            ("key_mismatches", 0),
+            ("tests_by_result", None),
+            ("tests_by_result", ""),
+            ("out_of_scope_paths", False),
+            ("out_of_scope_requests", None),
+            ("rejected_tests_added", ""),
+            ("tests_added", None),
+            ("by_action", []),
+            ("total_expected", True),
+            ("total_expected", -1),
+            ("total_results", "1"),
         ]
         for key, value in cases:
             with self.subTest(key=key, value=value):
@@ -224,12 +265,16 @@ class TestMergeRejectsMalformedInput(MergeFixResultsCase):
             fr_path.write_text(json.dumps(fr), encoding="utf-8")
             rr_path.write_bytes(b"\xff\xfe{not utf-8}")  # latin-1 BOM + garbage
             proc = subprocess.run(  # nosec B603 - fixed argv invoking the repo's own CLI
-                ["./bin/workflow", "merge-fix-results",
-                 str(fr_path), str(rr_path), str(out_path)],
-                capture_output=True, text=True, cwd=str(_ROOT), timeout=_TIMEOUT, check=False,
+                ["./bin/workflow", "merge-fix-results", str(fr_path), str(rr_path), str(out_path)],
+                capture_output=True,
+                text=True,
+                cwd=str(_ROOT),
+                timeout=_TIMEOUT,
+                check=False,
             )
-            self.assertEqual(proc.returncode, 1,
-                             f"expected exit 1 on non-UTF-8 input; stderr={proc.stderr!r}")
+            self.assertEqual(
+                proc.returncode, 1, f"expected exit 1 on non-UTF-8 input; stderr={proc.stderr!r}"
+            )
             self.assertFalse(out_path.is_file(), "merged output must not be written on error")
 
 

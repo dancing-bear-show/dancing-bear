@@ -1,10 +1,11 @@
 """OTEL collector lifecycle subcommands for bin/telemetry."""
+
 from __future__ import annotations
 
 import json
 import os
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from rich.console import Console
@@ -73,7 +74,8 @@ def _print_port_bindings(cid: str, env: dict[str, str]) -> None:
     """Print port bindings for a container from docker inspect."""
     inspect = run_binary(
         ["docker", "inspect", "--format", "{{json .NetworkSettings.Ports}}", cid],
-        env=env, timeout=_DOCKER_CMD_TIMEOUT_S,
+        env=env,
+        timeout=_DOCKER_CMD_TIMEOUT_S,
     )
     if inspect.timed_out:
         return
@@ -84,8 +86,8 @@ def _print_port_bindings(cid: str, env: dict[str, str]) -> None:
     except json.JSONDecodeError:
         return
     for port, bindings in (ports or {}).items():
-        for b in (bindings or []):
-            console.print(f"  [dim]{port}[/] → {b.get('HostIp', '0.0.0.0')}:{b.get('HostPort', '?')}")  # nosec B104 - display default, not a socket bind
+        for b in bindings or []:
+            console.print(f"  [dim]{port}[/] → {b.get('HostIp', '0.0.0.0')}:{b.get('HostPort', '?')}")  # nosec B104 - display default, not a socket bind  # fmt: skip
 
 
 def _print_container_details(cid: str, env: dict[str, str]) -> None:
@@ -94,7 +96,8 @@ def _print_container_details(cid: str, env: dict[str, str]) -> None:
 
     logs = run_binary(
         ["docker", "logs", "--tail", "5", cid],
-        env=env, timeout=_DOCKER_CMD_TIMEOUT_S,
+        env=env,
+        timeout=_DOCKER_CMD_TIMEOUT_S,
     )
     if logs.timed_out:
         return
@@ -133,7 +136,7 @@ def _parse_otlp_event(line: str) -> dict[str, object] | None:
         ts_ns = parse_unix_nano(record.get("timeUnixNano"))
         if not ts_ns:  # absent, zero, negative, oversized, or not numeric
             return None
-        timestamp = datetime.fromtimestamp(ts_ns / 1e9, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        timestamp = datetime.fromtimestamp(ts_ns / 1e9, tz=UTC).strftime("%Y-%m-%d %H:%M:%S")
         body = record.get("body", {}).get("stringValue")
         if body is None:
             return None
@@ -147,14 +150,25 @@ def _parse_otlp_event(line: str) -> dict[str, object] | None:
 def _print_docker_containers(env: dict[str, str]) -> None:
     """Print otel-collector container state via docker ps."""
     result = run_binary(
-        ["docker", "ps", "-a", "--filter", "name=otel-collector", "--format", "{{.ID}}\t{{.Status}}\t{{.Names}}"],
-        env=env, timeout=_DOCKER_CMD_TIMEOUT_S,
+        [
+            "docker",
+            "ps",
+            "-a",
+            "--filter",
+            "name=otel-collector",
+            "--format",
+            "{{.ID}}\t{{.Status}}\t{{.Names}}",
+        ],
+        env=env,
+        timeout=_DOCKER_CMD_TIMEOUT_S,
     )
     if _binary_missing(result):
         _err_console.print("[red]docker not found. Install Docker to use the collector.[/]")
         return
     if result.timed_out:
-        _err_console.print(f"[red]docker ps timed out after {_DOCKER_CMD_TIMEOUT_S}s (is Docker running?)[/]")
+        _err_console.print(
+            f"[red]docker ps timed out after {_DOCKER_CMD_TIMEOUT_S}s (is Docker running?)[/]"
+        )
         return
     if result.returncode != 0:
         _err_console.print(f"[red]docker ps failed: {result.stderr.strip() or 'unknown error'}[/]")
@@ -209,5 +223,3 @@ def _parse_event_lines(tail_lines: list[str]) -> tuple[list[dict[str, object]], 
         else:
             rows.append(parsed)
     return rows, skipped
-
-

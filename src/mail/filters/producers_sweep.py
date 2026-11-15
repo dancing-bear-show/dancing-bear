@@ -1,9 +1,9 @@
 """Sweep producers for mail filters pipelines."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import partial
-
 from typing import cast
 
 from core.cli_output import OutputWriter
@@ -11,11 +11,12 @@ from core.pipeline import BaseProducer
 
 from ..providers.base import BaseProvider
 from ..utils.batch import apply_in_chunks, delete_with_retry
-from ..utils.gmail_ops import list_message_ids as _list_message_ids_shared, MessageQueryParams, _ListMessagesClient
+from ..utils.gmail_ops import MessageQueryParams, _ListMessagesClient
+from ..utils.gmail_ops import list_message_ids as _list_message_ids_shared
 from .processors_sweep import (
     FiltersPruneResult,
-    FiltersSweepResult,
     FiltersSweepRangeResult,
+    FiltersSweepResult,
 )
 
 _EMPTY_QUERY = "(empty)"
@@ -36,7 +37,9 @@ class FiltersSweepProducer(BaseProducer):
 
     failure_message = "Filters sweep failed."
 
-    def __init__(self, client: BaseProvider, config: SweepProducerConfig, writer: OutputWriter | None = None):
+    def __init__(
+        self, client: BaseProvider, config: SweepProducerConfig, writer: OutputWriter | None = None
+    ):
         super().__init__(writer)
         self.client = client
         self.config = config
@@ -46,7 +49,9 @@ class FiltersSweepProducer(BaseProducer):
         for instruction in payload.instructions:
             ids = _list_message_ids_shared(
                 cast(_ListMessagesClient, self.client),
-                MessageQueryParams(query=instruction.query, pages=self.config.pages, max_msgs=self.config.max_msgs),
+                MessageQueryParams(
+                    query=instruction.query, pages=self.config.pages, max_msgs=self.config.max_msgs
+                ),
             )
             query_display = instruction.query if instruction.query else _EMPTY_QUERY
             if self.config.dry_run:
@@ -74,7 +79,9 @@ class FiltersSweepRangeProducer(BaseProducer):
 
     failure_message = "Filters sweep-range failed."
 
-    def __init__(self, client: BaseProvider, config: SweepProducerConfig, writer: OutputWriter | None = None):
+    def __init__(
+        self, client: BaseProvider, config: SweepProducerConfig, writer: OutputWriter | None = None
+    ):
         super().__init__(writer)
         self.client = client
         self.config = config
@@ -87,7 +94,11 @@ class FiltersSweepRangeProducer(BaseProducer):
             for instruction in window.instructions:
                 ids = _list_message_ids_shared(
                     cast(_ListMessagesClient, self.client),
-                    MessageQueryParams(query=instruction.query, pages=self.config.pages, max_msgs=self.config.max_msgs),
+                    MessageQueryParams(
+                        query=instruction.query,
+                        pages=self.config.pages,
+                        max_msgs=self.config.max_msgs,
+                    ),
                 )
                 if self.config.dry_run:
                     query_display = instruction.query if instruction.query else _EMPTY_QUERY
@@ -116,7 +127,9 @@ class FiltersPruneProducer(BaseProducer):
 
     failure_message = "Filters prune failed."
 
-    def __init__(self, client: BaseProvider, *, dry_run: bool = False, writer: OutputWriter | None = None):
+    def __init__(
+        self, client: BaseProvider, *, dry_run: bool = False, writer: OutputWriter | None = None
+    ):
         super().__init__(writer)
         self.client = client
         self.dry_run = dry_run
@@ -141,7 +154,9 @@ class FiltersPruneProducer(BaseProducer):
             return False
         deleted = delete_with_retry(
             partial(self.client.delete_filter, fid),
-            on_failure=lambda err: self._writer.print_warning(f"failed to delete filter id={fid}: {err}"),
+            on_failure=lambda err: self._writer.print_warning(
+                f"failed to delete filter id={fid}: {err}"
+            ),
         )
         if deleted:
             self._writer.print(f"Deleted filter id={fid}")

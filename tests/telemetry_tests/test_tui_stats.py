@@ -5,6 +5,7 @@ waiting/error states) and print_summary() (driven with patched
 TranscriptProvider, capturing stdout via contextlib.redirect_stdout).
 run_stats() is marked pragma: no cover and is not tested.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -21,7 +22,6 @@ from telemetry.blame import BlameEngine
 from telemetry.classify import ClassifyEngine
 from telemetry.providers.transcript import TranscriptProvider
 from telemetry.tui._stats import _StatsRenderer, print_summary
-
 from tests.telemetry_tests.shared_fixtures import (
     TempProjectsDirMixin,
     _write_jsonl,
@@ -29,10 +29,10 @@ from tests.telemetry_tests.shared_fixtures import (
     make_user_record,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_renderer(
     session_id: str | None = None,
@@ -57,6 +57,7 @@ def _make_renderer(
 # ---------------------------------------------------------------------------
 # _StatsRenderer.__init__ state
 # ---------------------------------------------------------------------------
+
 
 class TestStatsRendererInit(unittest.TestCase):
     def test_compact_flag_stored(self):
@@ -101,6 +102,7 @@ class TestStatsRendererInit(unittest.TestCase):
 # _StatsRenderer.build — waiting state (no session)
 # ---------------------------------------------------------------------------
 
+
 class TestStatsRendererBuildWaiting(unittest.TestCase):
     def test_returns_panel_when_no_session_file(self):
         r = _make_renderer()
@@ -138,6 +140,7 @@ class TestStatsRendererBuildWaiting(unittest.TestCase):
 # _StatsRenderer.build — lazy session discovery
 # ---------------------------------------------------------------------------
 
+
 class TestStatsRendererBuildLazyDiscovery(unittest.TestCase):
     # Note: the "no session id" -> discovery attempt is already covered by
     # TestStatsRendererBuildWaiting.test_resolve_session_called_on_build above.
@@ -162,6 +165,7 @@ class TestStatsRendererBuildLazyDiscovery(unittest.TestCase):
 # _StatsRenderer.build — error state (parse failure)
 # ---------------------------------------------------------------------------
 
+
 class TestStatsRendererBuildError(unittest.TestCase):
     def test_returns_red_panel_on_parse_exception(self):
         fake_path = Path("/nonexistent/bad.jsonl")
@@ -185,6 +189,7 @@ class TestStatsRendererBuildError(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _StatsRenderer.build — happy path (panel mode)
 # ---------------------------------------------------------------------------
+
 
 class TestStatsRendererBuildPanel(TempProjectsDirMixin, unittest.TestCase):
     def setUp(self):
@@ -225,6 +230,7 @@ class TestStatsRendererBuildPanel(TempProjectsDirMixin, unittest.TestCase):
 # print_summary — happy path
 # ---------------------------------------------------------------------------
 
+
 class TestPrintSummaryHappyPath(TempProjectsDirMixin, unittest.TestCase):
     def setUp(self):
         super().setUp()
@@ -256,10 +262,13 @@ class TestPrintSummaryHappyPath(TempProjectsDirMixin, unittest.TestCase):
         """Drive print_summary with a patched Console to capture Rich output."""
         buf = io.StringIO()
         from rich.console import Console
+
         fake_console = Console(file=buf, width=120, highlight=False)
 
-        with patch("telemetry.tui._stats.TranscriptProvider") as MockProv, \
-             patch("telemetry.tui._stats.Console", return_value=fake_console):
+        with (
+            patch("telemetry.tui._stats.TranscriptProvider") as MockProv,
+            patch("telemetry.tui._stats.Console", return_value=fake_console),
+        ):
             inst = MockProv.return_value
             inst.get_current_session_id.return_value = "psess"
             inst.find_session_file.return_value = self.session_file
@@ -272,10 +281,13 @@ class TestPrintSummaryHappyPath(TempProjectsDirMixin, unittest.TestCase):
     def test_print_summary_uses_provided_session_id(self):
         buf = io.StringIO()
         from rich.console import Console
+
         fake_console = Console(file=buf, width=120, highlight=False)
 
-        with patch("telemetry.tui._stats.TranscriptProvider") as MockProv, \
-             patch("telemetry.tui._stats.Console", return_value=fake_console):
+        with (
+            patch("telemetry.tui._stats.TranscriptProvider") as MockProv,
+            patch("telemetry.tui._stats.Console", return_value=fake_console),
+        ):
             inst = MockProv.return_value
             inst.find_session_file.return_value = self.session_file
             inst.parse_session_with_agents.return_value = ([], [])
@@ -288,13 +300,17 @@ class TestPrintSummaryHappyPath(TempProjectsDirMixin, unittest.TestCase):
 # print_summary — sad paths
 # ---------------------------------------------------------------------------
 
+
 class TestPrintSummarySadPaths(unittest.TestCase):
     def _capture(self, session_id=None, mock_setup=None):
         buf = io.StringIO()
         from rich.console import Console
+
         fake_console = Console(file=buf, width=120, highlight=False)
-        with patch("telemetry.tui._stats.TranscriptProvider") as MockProv, \
-             patch("telemetry.tui._stats.Console", return_value=fake_console):
+        with (
+            patch("telemetry.tui._stats.TranscriptProvider") as MockProv,
+            patch("telemetry.tui._stats.Console", return_value=fake_console),
+        ):
             inst = MockProv.return_value
             if mock_setup:
                 mock_setup(inst)
@@ -304,26 +320,32 @@ class TestPrintSummarySadPaths(unittest.TestCase):
     def test_no_active_session_prints_error(self):
         def setup(inst):
             inst.get_current_session_id.return_value = None
+
         output = self._capture(session_id=None, mock_setup=setup)
         self.assertIn("No active session", output)
 
     def test_session_file_not_found_prints_error(self):
         def setup(inst):
             inst.find_session_file.return_value = None
+
         output = self._capture(session_id="missing-id", mock_setup=setup)
         self.assertIn("Session file not found", output)
 
     def test_no_session_returns_early_without_parsing(self):
-        with patch("telemetry.tui._stats.TranscriptProvider") as MockProv, \
-             patch("telemetry.tui._stats.Console"):
+        with (
+            patch("telemetry.tui._stats.TranscriptProvider") as MockProv,
+            patch("telemetry.tui._stats.Console"),
+        ):
             inst = MockProv.return_value
             inst.get_current_session_id.return_value = None
             print_summary(session_id=None)
             inst.parse_session_with_agents.assert_not_called()
 
     def test_missing_file_returns_early_without_parsing(self):
-        with patch("telemetry.tui._stats.TranscriptProvider") as MockProv, \
-             patch("telemetry.tui._stats.Console"):
+        with (
+            patch("telemetry.tui._stats.TranscriptProvider") as MockProv,
+            patch("telemetry.tui._stats.Console"),
+        ):
             inst = MockProv.return_value
             inst.find_session_file.return_value = None
             print_summary(session_id="ghost-session")
@@ -334,6 +356,7 @@ class TestPrintSummarySadPaths(unittest.TestCase):
 # telemetry.tui lazy __getattr__ — routes names to the three submodules and
 # raises AttributeError for anything else.
 # ---------------------------------------------------------------------------
+
 
 class TestTuiLazyGetattr(unittest.TestCase):
     # The submodules are reached via importlib rather than

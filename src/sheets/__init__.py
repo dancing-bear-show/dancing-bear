@@ -3,8 +3,8 @@
 from sheets.constants import (
     DEFAULT_HEADER_BG_COLOR,
     DEFAULT_WORKBOOK_TITLE,
-    MIN_COLUMN_WIDTH,
     MAX_COLUMN_WIDTH,
+    MIN_COLUMN_WIDTH,
 )
 from sheets.generator import (
     SheetGenerator,

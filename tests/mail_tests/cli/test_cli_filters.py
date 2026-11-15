@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from tests.fixtures import has_pyyaml, capture_stdout, write_yaml
+from tests.fixtures import capture_stdout, has_pyyaml, write_yaml
 from tests.mail_tests.fixtures import (
     FakeGmailClient,
     make_args,
@@ -20,7 +20,13 @@ def _make_filters_client():
         filters=[
             {
                 "id": "F_EXIST_1",
-                "criteria": {"from": None, "to": None, "subject": "Weekly report", "query": None, "negatedQuery": None},
+                "criteria": {
+                    "from": None,
+                    "to": None,
+                    "subject": "Weekly report",
+                    "query": None,
+                    "negatedQuery": None,
+                },
                 "action": {"addLabelIds": ["LBL_REPORTS"]},
             }
         ],

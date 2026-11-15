@@ -1,7 +1,7 @@
 import unittest
 
-from mail.utils.filters import build_gmail_query, action_to_label_changes
-from tests.mail_tests.fixtures import FakeGmailClient, make_user_label, make_system_label
+from mail.utils.filters import action_to_label_changes, build_gmail_query
+from tests.mail_tests.fixtures import FakeGmailClient, make_system_label, make_user_label
 
 
 class TestBuildGmailQuery(unittest.TestCase):
@@ -18,10 +18,12 @@ class TestBuildGmailQuery(unittest.TestCase):
 
 class TestActionToLabelChanges(unittest.TestCase):
     def test_resolution(self):
-        client = FakeGmailClient(labels=[
-            make_user_label("Lists/Newsletters", "L1"),
-            make_system_label("INBOX"),
-        ])
+        client = FakeGmailClient(
+            labels=[
+                make_user_label("Lists/Newsletters", "L1"),
+                make_system_label("INBOX"),
+            ]
+        )
         add, rem = action_to_label_changes(
             client,
             {"add": ["Lists/Newsletters"], "remove": ["INBOX"]},

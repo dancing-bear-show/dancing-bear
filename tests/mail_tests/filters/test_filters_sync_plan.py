@@ -12,12 +12,11 @@ from unittest.mock import patch
 
 from mail.context import MailContext
 from mail.filters.commands import (
+    _run_filter_pipeline,
+    run_filters_export,
     run_filters_plan,
     run_filters_sync,
-    run_filters_export,
-    _run_filter_pipeline,
 )
-
 from tests.mail_tests.fixtures import FakeGmailClient, make_args
 
 
@@ -172,6 +171,7 @@ class TestRunFilterPipeline(unittest.TestCase):
 
     def test_successful_pipeline_returns_zero(self):
         """Test successful pipeline execution returns 0."""
+
         # Mock consumer
         class MockConsumer:
             def __init__(self, context):

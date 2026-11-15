@@ -36,6 +36,7 @@ SETTINGS_FILE = REPO_ROOT / ".claude" / "settings.json"
 # Snippet extraction
 # ---------------------------------------------------------------------------
 
+
 def _extract_snippet() -> str:
     """Extract the inline Python snippet from .claude/settings.json.
 
@@ -49,10 +50,8 @@ def _extract_snippet() -> str:
             cmd: str = hook.get("command", "")
             prefix = 'python3 -I -S -c "'
             if cmd.startswith(prefix) and cmd.endswith('"'):
-                return cmd[len(prefix):-1]
-    raise AssertionError(
-        "Could not find the python3 -I -S -c hook in .claude/settings.json"
-    )
+                return cmd[len(prefix) : -1]
+    raise AssertionError("Could not find the python3 -I -S -c hook in .claude/settings.json")
 
 
 SNIPPET = _extract_snippet()
@@ -61,6 +60,7 @@ SNIPPET = _extract_snippet()
 # ---------------------------------------------------------------------------
 # Subprocess helper
 # ---------------------------------------------------------------------------
+
 
 def _run_snippet(
     *,
@@ -118,6 +118,7 @@ def _add_worktree(main_repo: str, worktree_path: str, branch: str) -> None:
 # Tests
 # ---------------------------------------------------------------------------
 
+
 class TestSessionStartHookCompiles(unittest.TestCase):
     """The snippet extracted from settings.json must parse without error."""
 
@@ -127,8 +128,7 @@ class TestSessionStartHookCompiles(unittest.TestCase):
             compile(SNIPPET, "<string>", "exec")
         except SyntaxError as exc:
             self.fail(
-                f"The SessionStart hook snippet in .claude/settings.json "
-                f"does not compile: {exc}"
+                f"The SessionStart hook snippet in .claude/settings.json does not compile: {exc}"
             )
 
 
@@ -443,9 +443,7 @@ class TestSessionStartHookIdempotency(unittest.TestCase):
 
             for i in range(3):
                 proc = _run_snippet(cwd=wt, home=td)
-                self.assertEqual(
-                    proc.returncode, 0, f"run {i + 1} failed: {proc.stderr}"
-                )
+                self.assertEqual(proc.returncode, 0, f"run {i + 1} failed: {proc.stderr}")
 
     def test_three_consecutive_runs_all_emit_valid_json(self) -> None:
         """Three consecutive invocations each emit a valid JSON object."""

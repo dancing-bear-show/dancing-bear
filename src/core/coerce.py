@@ -1,4 +1,5 @@
 """Lenient type coercion for loosely typed input (YAML, JSON, CLI strings)."""
+
 from __future__ import annotations
 
 from typing import Any

@@ -8,8 +8,6 @@ from io import StringIO
 from unittest.mock import MagicMock, patch
 
 from core.outlook.mail import OutlookMailMixin
-
-
 from tests.mail_tests.outlook.fixtures import make_response
 
 
@@ -47,7 +45,9 @@ class TestRunOutlookMessagesSearchNewFlags(unittest.TestCase):
     def test_days_converts_to_after(self, mock_get_client):
         """--days N should compute --after as today minus N days."""
         import datetime
+
         from mail.outlook.commands import run_outlook_messages_search
+
         client = self._mock_client()
         mock_get_client.return_value = (client, 0)
 
@@ -62,6 +62,7 @@ class TestRunOutlookMessagesSearchNewFlags(unittest.TestCase):
     def test_days_ignored_when_after_already_set(self, mock_get_client):
         """--after takes precedence over --days."""
         from mail.outlook.commands import run_outlook_messages_search
+
         client = self._mock_client()
         mock_get_client.return_value = (client, 0)
 
@@ -75,6 +76,7 @@ class TestRunOutlookMessagesSearchNewFlags(unittest.TestCase):
     def test_only_inbox_passed_to_search(self, mock_get_client):
         """--only-inbox should be forwarded to search_messages."""
         from mail.outlook.commands import run_outlook_messages_search
+
         client = self._mock_client()
         mock_get_client.return_value = (client, 0)
 
@@ -88,7 +90,10 @@ class TestRunOutlookMessagesSearchNewFlags(unittest.TestCase):
     def test_only_inbox_uses_inbox_folder_path(self, mock_requests):
         """only_inbox=True should target mailFolders/inbox/messages URL."""
         client = MagicMock()
-        client._headers_search.return_value = {"Authorization": "Bearer token", "ConsistencyLevel": "eventual"}
+        client._headers_search.return_value = {
+            "Authorization": "Bearer token",
+            "ConsistencyLevel": "eventual",
+        }
         client.search_messages = OutlookMailMixin.search_messages.__get__(client)
 
         mock_requests.return_value.get.return_value = make_response([])
@@ -103,7 +108,10 @@ class TestRunOutlookMessagesSearchNewFlags(unittest.TestCase):
     def test_without_only_inbox_uses_all_messages_path(self, mock_requests):
         """only_inbox=False (default) should use /me/messages URL."""
         client = MagicMock()
-        client._headers_search.return_value = {"Authorization": "Bearer token", "ConsistencyLevel": "eventual"}
+        client._headers_search.return_value = {
+            "Authorization": "Bearer token",
+            "ConsistencyLevel": "eventual",
+        }
         client.search_messages = OutlookMailMixin.search_messages.__get__(client)
 
         mock_requests.return_value.get.return_value = make_response([])
@@ -147,12 +155,15 @@ class TestRunOutlookMessagesSummarize(unittest.TestCase):
             "from": {"emailAddress": {"name": "Sender", "address": "sender@example.com"}},
             "body": {"content": "<p>Hello world. This is a test message.</p>"},
         }
-        client.search_messages.return_value = search_results if search_results is not None else [{"id": "msg-1"}]
+        client.search_messages.return_value = (
+            search_results if search_results is not None else [{"id": "msg-1"}]
+        )
         return client
 
     @patch("mail.outlook.commands.get_outlook_client")
     def test_returns_nonzero_on_client_error(self, mock_get_client):
         from mail.outlook.commands import run_outlook_messages_summarize
+
         mock_get_client.return_value = (None, 2)
 
         result = run_outlook_messages_summarize(self._make_args())
@@ -161,6 +172,7 @@ class TestRunOutlookMessagesSummarize(unittest.TestCase):
     @patch("mail.outlook.commands.get_outlook_client")
     def test_returns_one_without_id_or_query(self, mock_get_client):
         from mail.outlook.commands import run_outlook_messages_summarize
+
         mock_get_client.return_value = (self._mock_client(), 0)
 
         with patch("sys.stdout", new_callable=StringIO):
@@ -170,6 +182,7 @@ class TestRunOutlookMessagesSummarize(unittest.TestCase):
     @patch("mail.outlook.commands.get_outlook_client")
     def test_summarizes_by_id(self, mock_get_client):
         from mail.outlook.commands import run_outlook_messages_summarize
+
         client = self._mock_client()
         mock_get_client.return_value = (client, 0)
 
@@ -183,6 +196,7 @@ class TestRunOutlookMessagesSummarize(unittest.TestCase):
     @patch("mail.outlook.commands.get_outlook_client")
     def test_summarizes_by_query(self, mock_get_client):
         from mail.outlook.commands import run_outlook_messages_summarize
+
         client = self._mock_client()
         mock_get_client.return_value = (client, 0)
 
@@ -197,6 +211,7 @@ class TestRunOutlookMessagesSummarize(unittest.TestCase):
     @patch("mail.outlook.commands.get_outlook_client")
     def test_returns_one_when_no_search_results(self, mock_get_client):
         from mail.outlook.commands import run_outlook_messages_summarize
+
         client = self._mock_client(search_results=[])
         mock_get_client.return_value = (client, 0)
 
@@ -207,11 +222,16 @@ class TestRunOutlookMessagesSummarize(unittest.TestCase):
     @patch("mail.outlook.commands.get_outlook_client")
     def test_strips_html_from_body(self, mock_get_client):
         from mail.outlook.commands import run_outlook_messages_summarize
-        client = self._mock_client(message={
-            "id": "m1", "subject": "HTML Test", "receivedDateTime": "2026-01-01T00:00:00Z",
-            "from": {"emailAddress": {"name": "A", "address": "a@b.com"}},
-            "body": {"content": "<html><body><p>Plain text content here.</p></body></html>"},
-        })
+
+        client = self._mock_client(
+            message={
+                "id": "m1",
+                "subject": "HTML Test",
+                "receivedDateTime": "2026-01-01T00:00:00Z",
+                "from": {"emailAddress": {"name": "A", "address": "a@b.com"}},
+                "body": {"content": "<html><body><p>Plain text content here.</p></body></html>"},
+            }
+        )
         mock_get_client.return_value = (client, 0)
 
         with patch("sys.stdout", new_callable=StringIO) as out:
@@ -243,6 +263,7 @@ class TestRunOutlookRulesPruneEmpty(unittest.TestCase):
     @patch("mail.outlook.commands.get_outlook_client")
     def test_returns_nonzero_on_client_error(self, mock_get_client):
         from mail.outlook.commands import run_outlook_rules_prune_empty
+
         mock_get_client.return_value = (None, 2)
 
         result = run_outlook_rules_prune_empty(self._make_args())
@@ -251,6 +272,7 @@ class TestRunOutlookRulesPruneEmpty(unittest.TestCase):
     @patch("mail.outlook.commands.get_outlook_client")
     def test_no_empty_rules_reports_zero_deleted(self, mock_get_client):
         from mail.outlook.commands import run_outlook_rules_prune_empty
+
         client = MagicMock()
         client.list_filters.return_value = [
             {"id": "r1", "criteria": {"from": "x@y.com"}, "action": {"addLabelIds": ["Label"]}},
@@ -267,6 +289,7 @@ class TestRunOutlookRulesPruneEmpty(unittest.TestCase):
     @patch("mail.outlook.commands.get_outlook_client")
     def test_deletes_empty_rules(self, mock_get_client):
         from mail.outlook.commands import run_outlook_rules_prune_empty
+
         client = MagicMock()
         client.list_filters.return_value = [
             {"id": "r1", "criteria": {}, "action": {}},
@@ -284,6 +307,7 @@ class TestRunOutlookRulesPruneEmpty(unittest.TestCase):
     @patch("mail.outlook.commands.get_outlook_client")
     def test_dry_run_does_not_delete(self, mock_get_client):
         from mail.outlook.commands import run_outlook_rules_prune_empty
+
         client = MagicMock()
         client.list_filters.return_value = [
             {"id": "r1", "criteria": {}, "action": {}},

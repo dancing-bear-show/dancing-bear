@@ -1,4 +1,5 @@
 """Tests for CLI framework components."""
+
 from __future__ import annotations
 
 import io
@@ -6,30 +7,30 @@ import unittest
 from dataclasses import dataclass
 from unittest.mock import patch
 
+from core.cli_args import (
+    add_date_range_args,
+    add_dry_run_args,
+    add_filter_args,
+    add_output_args,
+    add_profile_args,
+)
 from core.cli_errors import (
+    AuthError,
     CLIError,
     ConfigError,
-    AuthError,
+    ExitCode,
     NetworkError,
     NotFoundError,
     UsageError,
-    ExitCode,
     handle_error,
-)
-from core.cli_output import (
-    OutputConfig,
-    OutputFormat,
-    OutputWriter,
 )
 from core.cli_framework import CLIApp
 from core.cli_framework_group import quick_cli
 from core.cli_framework_parser import _HelpfulArgumentParser
-from core.cli_args import (
-    add_output_args,
-    add_dry_run_args,
-    add_date_range_args,
-    add_profile_args,
-    add_filter_args,
+from core.cli_output import (
+    OutputConfig,
+    OutputFormat,
+    OutputWriter,
 )
 
 
@@ -282,9 +283,7 @@ class TestNormalizeArgv(unittest.TestCase):
 
     def test_strips_first_bare_separator(self):
         argv = ["search", "--", "--contains", "test"]
-        self.assertEqual(
-            CLIApp.normalize_argv(argv), ["search", "--contains", "test"]
-        )
+        self.assertEqual(CLIApp.normalize_argv(argv), ["search", "--contains", "test"])
 
     def test_trailing_separator_preserved(self):
         argv = ["search", "--contains", "test", "--"]
@@ -313,9 +312,7 @@ class TestHelpfulArgumentParser(unittest.TestCase):
 
     def _make_parser(self):
         parser = _HelpfulArgumentParser(prog="test-app", add_help=False)
-        parser.add_argument(
-            "--agentic-format", choices=["text", "yaml", "json"], default="text"
-        )
+        parser.add_argument("--agentic-format", choices=["text", "yaml", "json"], default="text")
         sub = parser.add_subparsers(dest="command")
         sub.add_parser("search")
         sub.add_parser("send")
@@ -402,6 +399,7 @@ class TestArgumentHelpers(unittest.TestCase):
 
     def test_add_output_args(self):
         import argparse
+
         parser = argparse.ArgumentParser()
         add_output_args(parser)
         args = parser.parse_args(["--output", "json", "--verbose"])
@@ -410,6 +408,7 @@ class TestArgumentHelpers(unittest.TestCase):
 
     def test_add_dry_run_args(self):
         import argparse
+
         parser = argparse.ArgumentParser()
         add_dry_run_args(parser, include_force=True)
         args = parser.parse_args(["--dry-run", "--force"])
@@ -418,6 +417,7 @@ class TestArgumentHelpers(unittest.TestCase):
 
     def test_add_date_range_args(self):
         import argparse
+
         parser = argparse.ArgumentParser()
         add_date_range_args(parser)
         args = parser.parse_args(["--from-date", "2024-01-01", "--days-back", "60"])
@@ -426,6 +426,7 @@ class TestArgumentHelpers(unittest.TestCase):
 
     def test_add_profile_args(self):
         import argparse
+
         parser = argparse.ArgumentParser()
         add_profile_args(parser)
         args = parser.parse_args(["--profile", "work"])
@@ -433,6 +434,7 @@ class TestArgumentHelpers(unittest.TestCase):
 
     def test_add_filter_args(self):
         import argparse
+
         parser = argparse.ArgumentParser()
         add_filter_args(parser, include_offset=True)
         args = parser.parse_args(["--limit", "50", "--offset", "10"])
@@ -625,11 +627,16 @@ class TestCommandGroupRegister(unittest.TestCase):
         def _handler(args) -> int:
             return 0
 
-        group.register("cmd", "C", _handler, [
-            (("--first",), {"help": "f"}),
-            (("--second",), {"help": "s"}),
-            (("--third",), {"help": "t"}),
-        ])
+        group.register(
+            "cmd",
+            "C",
+            _handler,
+            [
+                (("--first",), {"help": "f"}),
+                (("--second",), {"help": "s"}),
+                (("--third",), {"help": "t"}),
+            ],
+        )
         return app
 
     def test_preserves_source_order(self):
@@ -651,11 +658,16 @@ class TestCommandGroupRegister(unittest.TestCase):
         def _handler(args) -> int:
             return 0
 
-        group.register("cmd", "C", _handler, [
-            (("--count",), {"type": int, "default": 7, "help": "n"}),
-            (("--flag",), {"action": "store_true", "help": "b"}),
-            (("--name",), {"required": True, "dest": "who", "help": "w"}),
-        ])
+        group.register(
+            "cmd",
+            "C",
+            _handler,
+            [
+                (("--count",), {"type": int, "default": 7, "help": "n"}),
+                (("--flag",), {"action": "store_true", "help": "b"}),
+                (("--name",), {"required": True, "dest": "who", "help": "w"}),
+            ],
+        )
         by_flag = {a.name_or_flags[0]: a.kwargs for a in app._commands["g.cmd"].arguments}
         self.assertEqual(by_flag["--count"]["type"], int)
         self.assertEqual(by_flag["--count"]["default"], 7)
@@ -664,8 +676,10 @@ class TestCommandGroupRegister(unittest.TestCase):
         self.assertEqual(by_flag["--name"]["dest"], "who")
 
     def test_parser_accepts_registered_arguments(self):
-        args = self._register_app().build_parser().parse_args(
-            ["g", "cmd", "--first", "a", "--second", "b", "--third", "c"]
+        args = (
+            self._register_app()
+            .build_parser()
+            .parse_args(["g", "cmd", "--first", "a", "--second", "b", "--third", "c"])
         )
         self.assertEqual((args.first, args.second, args.third), ("a", "b", "c"))
 

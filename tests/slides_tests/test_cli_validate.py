@@ -115,9 +115,7 @@ class TestCmdValidate(unittest.TestCase):
 
     @patch("slides.cli.load_deck_from_yaml")
     @patch("slides.cli.Path")
-    def test_validate_handles_none_optional_fields(
-        self, mock_path_class, mock_load_deck
-    ):
+    def test_validate_handles_none_optional_fields(self, mock_path_class, mock_load_deck):
         """cmd_validate handles None author, date, and template_path."""
         mock_path_class.return_value.exists.return_value = True
 
@@ -147,9 +145,7 @@ class TestCmdValidate(unittest.TestCase):
 
     @patch("slides.cli.load_deck_from_yaml")
     @patch("slides.cli.Path")
-    def test_validate_prints_error_on_exception(
-        self, mock_path_class, mock_load_deck
-    ):
+    def test_validate_prints_error_on_exception(self, mock_path_class, mock_load_deck):
         """cmd_validate prints the validation error to stderr."""
         mock_path_class.return_value.exists.return_value = True
         mock_load_deck.side_effect = RuntimeError("Parse error in YAML")
@@ -257,6 +253,7 @@ class TestCmdValidateLayoutChecks(unittest.TestCase):
 
         args = argparse.Namespace(yaml_file="deck.yaml")
         import io
+
         buf = io.StringIO()
         with patch("sys.stderr", buf):
             result = cmd_validate(args)
@@ -276,6 +273,7 @@ class TestCmdValidateLayoutChecks(unittest.TestCase):
 
         args = argparse.Namespace(yaml_file="deck.yaml")
         import io
+
         buf = io.StringIO()
         with patch("sys.stderr", buf):
             result = cmd_validate(args)
@@ -300,6 +298,7 @@ class TestCmdValidateLayoutChecks(unittest.TestCase):
 
         args = argparse.Namespace(yaml_file="deck.yaml")
         import io
+
         buf = io.StringIO()
         with patch("sys.stderr", buf):
             result = cmd_validate(args)

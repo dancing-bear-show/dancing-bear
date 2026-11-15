@@ -10,6 +10,7 @@ import unittest
 from collections.abc import Iterator
 from pathlib import Path
 
+from tests.workflow_tests.helpers.factories import make_stage_result
 from workflow.cli import main
 from workflow.models import StageStatus
 from workflow.persistence import list_stage_results, read_stage_result, write_stage_result
@@ -21,8 +22,6 @@ from workflow.set_state import (
     seed_pr_lifecycle,
     set_state,
 )
-
-from tests.workflow_tests.helpers.factories import make_stage_result
 
 _PLAN = ["build", "pr-open-pr", "pr-wait-for-ci", "pr-qlty-check", "pr-post-fix-review"]
 _PR_SUFFIXES = ("open-pr", "wait-for-ci", "qlty-check", "post-fix-review")
@@ -103,7 +102,9 @@ class SetStateFunctionTests(_WorkspaceCase):
         for name in ("../escape", "a/b", "", "-lead", "x.json", "a b"):
             with self.subTest(name=name), self.assertRaises(SeedError):
                 set_state(self.ws, name, SetStateRequest())
-        self.assertEqual(sorted(p.name for p in self.ws.rglob("*.json")), ["manifest.json", "plan.json"])
+        self.assertEqual(
+            sorted(p.name for p in self.ws.rglob("*.json")), ["manifest.json", "plan.json"]
+        )
         self.assertEqual(list((self.ws / "stages").iterdir()), [])
 
     def test_rejects_stage_outside_plan(self) -> None:
@@ -124,12 +125,18 @@ class SeedPrLifecycleFunctionTests(_WorkspaceCase):
     def test_seeds_every_stage_consecutively(self) -> None:
         write_stage_result(self.ws, make_stage_result(stage_name="build", stage_index=0))
         seeded = seed_pr_lifecycle(
-            self.ws, "pr", _PR_SUFFIXES, PrSeed(9, url="https://example.invalid/9"), _PLAN,
+            self.ws,
+            "pr",
+            _PR_SUFFIXES,
+            PrSeed(9, url="https://example.invalid/9"),
+            _PLAN,
         )
         self.assertEqual([s.stage_name for s in seeded], _PLAN[1:])
         self.assertEqual([s.stage_index for s in seeded], [1, 2, 3, 4])
         open_pr = json.loads(seeded[0].path.read_text())
-        self.assertEqual(open_pr["data"], {"pr": 9, "pr_number": 9, "url": "https://example.invalid/9"})
+        self.assertEqual(
+            open_pr["data"], {"pr": 9, "pr_number": 9, "url": "https://example.invalid/9"}
+        )
         wait = json.loads(seeded[1].path.read_text())
         self.assertEqual(wait["data"], {"pr": 9})
 
@@ -163,8 +170,15 @@ class SetStateCliTests(_WorkspaceCase):
     def test_happy_path_flips_resume_row(self) -> None:
         self.assertEqual(self._resume_rows()["build"]["needs_run"], "yes")
         code, out, err = _run(
-            "set-state", str(self.ws), "build", "--data", '{"pr": 711}',
-            "--note", "merged manually", "--format", "json",
+            "set-state",
+            str(self.ws),
+            "build",
+            "--data",
+            '{"pr": 711}',
+            "--note",
+            "merged manually",
+            "--format",
+            "json",
         )
         self.assertEqual(code, 0, err)
         payload = json.loads(out)
@@ -222,7 +236,13 @@ class SetStateCliTests(_WorkspaceCase):
 class SeedPrLifecycleCliTests(_WorkspaceCase):
     def test_default_fragment_seeds_shipped_stage_names(self) -> None:
         code, out, err = _run(
-            "seed-pr-lifecycle", str(self.ws), "pr", "--pr", "12", "--format", "json",
+            "seed-pr-lifecycle",
+            str(self.ws),
+            "pr",
+            "--pr",
+            "12",
+            "--format",
+            "json",
         )
         self.assertEqual(code, 0, err)
         self.assertEqual([r["stage"] for r in json.loads(out)], _PLAN[1:])
@@ -244,8 +264,13 @@ class SeedPrLifecycleCliTests(_WorkspaceCase):
 
     def test_missing_fragment(self) -> None:
         code, _, err = _run(
-            "seed-pr-lifecycle", str(self.ws), "pr", "--pr", "12",
-            "--fragment", str(self.ws / "nope.yaml"),
+            "seed-pr-lifecycle",
+            str(self.ws),
+            "pr",
+            "--pr",
+            "12",
+            "--fragment",
+            str(self.ws / "nope.yaml"),
         )
         self.assertEqual(code, 1)
         self.assertIn("fragment file not found", err)

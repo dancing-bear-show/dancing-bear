@@ -3,17 +3,76 @@ from __future__ import annotations
 import os
 import re
 from collections import Counter
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from .io_utils import read_text_any
 
-
 DEFAULT_STOPWORDS = {
-    "the","a","an","and","or","but","if","then","else","for","to","of","in","on","at","by","with",
-    "as","is","are","was","were","be","been","being","it","this","that","these","those","from","into",
-    "i","we","you","they","he","she","them","him","her","our","your","their","my","mine","ours","yours",
-    "not","no","yes","do","does","did","done","can","could","should","would","may","might","will","shall",
+    "the",
+    "a",
+    "an",
+    "and",
+    "or",
+    "but",
+    "if",
+    "then",
+    "else",
+    "for",
+    "to",
+    "of",
+    "in",
+    "on",
+    "at",
+    "by",
+    "with",
+    "as",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "been",
+    "being",
+    "it",
+    "this",
+    "that",
+    "these",
+    "those",
+    "from",
+    "into",
+    "i",
+    "we",
+    "you",
+    "they",
+    "he",
+    "she",
+    "them",
+    "him",
+    "her",
+    "our",
+    "your",
+    "their",
+    "my",
+    "mine",
+    "ours",
+    "yours",
+    "not",
+    "no",
+    "yes",
+    "do",
+    "does",
+    "did",
+    "done",
+    "can",
+    "could",
+    "should",
+    "would",
+    "may",
+    "might",
+    "will",
+    "shall",
 }
 
 
@@ -47,7 +106,7 @@ def build_style_profile(corpus_dir: str, top_n: int = 50) -> dict[str, Any]:
     words = [t.lower() for t in toks if t.lower() not in DEFAULT_STOPWORDS and len(t) > 2]
     unigram_counts = Counter(words)
     # bigrams
-    bigrams = [f"{words[i]} {words[i+1]}" for i in range(len(words) - 1)]
+    bigrams = [f"{words[i]} {words[i + 1]}" for i in range(len(words) - 1)]
     bigram_counts = Counter(bigrams)
     # avg sentence length
     sents = _sentences(all_text)
@@ -71,4 +130,3 @@ def extract_style_keywords(style_profile: dict[str, Any], limit: int = 20) -> li
         if bg not in kws:
             kws.append(bg)
     return kws[:limit]
-

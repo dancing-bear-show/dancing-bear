@@ -6,8 +6,6 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from tests.fixtures import TempDirMixin, write_yaml
-
 from core.cli_errors import NotFoundError
 from desk.planner import (
     MatchCriteria,
@@ -17,6 +15,7 @@ from desk.planner import (
     _scan_directory,
     plan_from_config,
 )
+from tests.fixtures import TempDirMixin, write_yaml
 
 
 class TestMatchCriteria(unittest.TestCase):
@@ -74,7 +73,9 @@ class TestFileMatchesCriteria(TempDirMixin, unittest.TestCase):
 
     def test_multiple_extensions(self):
         stat = self._create_file("test.log")
-        criteria = MatchCriteria(extensions=[".txt", ".log"], size_threshold=None, age_threshold=None)
+        criteria = MatchCriteria(
+            extensions=[".txt", ".log"], size_threshold=None, age_threshold=None
+        )
         self.assertTrue(_file_matches_criteria("test.log", stat, criteria))
 
     def test_size_threshold_passes(self):
@@ -138,7 +139,9 @@ class TestBuildOperation(unittest.TestCase):
         self.assertIsNone(op)
 
     def test_move_takes_precedence_over_trash(self):
-        op = _build_operation("/src/file.txt", "file.txt", {"move_to": "/dest", "trash": True}, "rule4")
+        op = _build_operation(
+            "/src/file.txt", "file.txt", {"move_to": "/dest", "trash": True}, "rule4"
+        )
         self.assertEqual(op["action"], "move")
 
     def test_move_to_expands_user(self):

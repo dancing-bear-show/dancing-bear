@@ -24,11 +24,11 @@ from tests.workflow_tests.helpers.shell_lint import (
     BARE_PYTHON,
     OLLAMA_PARAMS,
     OLLAMA_RULE,
-    _RuleCase,
     _fenced,
     _hits,
     _lint,
     _lint_text,
+    _RuleCase,
     _stage,
     _workflow,
 )
@@ -40,7 +40,6 @@ from workflow.linter_shell import (
     RULE_UNVALIDATED_PARAM,
     RULE_VALIDATE_WRITES_OUTPUT,
 )
-
 
 # ---------------------------------------------------------------------------
 # shell-unvalidated-param
@@ -76,7 +75,9 @@ class TestUnvalidatedParam(_RuleCase):
         self.assert_fires(_workflow(_stage(desc), params='job_type: "qwen_patch"'))
 
     def test_param_rules_entry_validates(self) -> None:
-        self.assert_silent(_workflow(_stage(_OLLAMA_PROBE), params=OLLAMA_PARAMS, rules=OLLAMA_RULE))
+        self.assert_silent(
+            _workflow(_stage(_OLLAMA_PROBE), params=OLLAMA_PARAMS, rules=OLLAMA_RULE)
+        )
 
     def test_check_params_in_same_stage_validates(self) -> None:
         self.assert_silent(_workflow(_stage(_CHECK_PARAMS + _OLLAMA_PROBE), params=OLLAMA_PARAMS))
@@ -110,7 +111,9 @@ class TestUnvalidatedParam(_RuleCase):
         # lines out of a description, decides what the call runs.
         for program in ("./bin/workflow", "/opt/repo/bin/workflow", "workflow"):
             with self.subTest(program=program):
-                desc = _fenced(f"{program} check-params m.json --check host=trusted\n\necho {{host}}")
+                desc = _fenced(
+                    f"{program} check-params m.json --check host=trusted\n\necho {{host}}"
+                )
                 self.assert_silent(_workflow(_stage(desc), params='host: "example.com"'))
 
     def test_check_params_in_a_child_shell_does_not_validate(self) -> None:
@@ -131,9 +134,17 @@ class TestUnvalidatedParam(_RuleCase):
     def test_check_params_whose_failure_is_masked_does_not_validate(self) -> None:
         # Same thread: credit only a check whose exit status can stop the stage.
         call = "./bin/workflow check-params m.json --check host=trusted"
-        for line in (f"{call} || true", f"! {call}", f"{call} | tee log", f"{call} &",
-                     f"if {call}; then :; fi", f"false || {call}", f"( {call} )",
-                     f"local H=$({call} --print host)", f"H=$({call} --print host; true)"):
+        for line in (
+            f"{call} || true",
+            f"! {call}",
+            f"{call} | tee log",
+            f"{call} &",
+            f"if {call}; then :; fi",
+            f"false || {call}",
+            f"( {call} )",
+            f"local H=$({call} --print host)",
+            f"H=$({call} --print host; true)",
+        ):
             with self.subTest(line=line):
                 desc = _fenced(f"{line}\n\necho {{host}}")
                 self.assert_fires(_workflow(_stage(desc), params='host: "example.com"'))
@@ -143,8 +154,13 @@ class TestUnvalidatedParam(_RuleCase):
         # and the capture idiom the qwen workflows use (an assignment-only
         # command exits with its substitution's status).
         call = "./bin/workflow check-params m.json --check host=trusted"
-        for line in (call, f"{call} && echo ok", f"{call} || exit 1",
-                     f"H=$({call} --print host) || exit 1", f"H=$({call} --print host)"):
+        for line in (
+            call,
+            f"{call} && echo ok",
+            f"{call} || exit 1",
+            f"H=$({call} --print host) || exit 1",
+            f"H=$({call} --print host)",
+        ):
             with self.subTest(line=line):
                 desc = _fenced(f"{line}\n\necho {{host}}")
                 self.assert_silent(_workflow(_stage(desc), params='host: "example.com"'))
@@ -235,8 +251,9 @@ class TestUnvalidatedParam(_RuleCase):
     def test_quoted_heredoc_body_placeholder_with_param_rule_is_silent(self) -> None:
         # Happy path: an engine-enforced rule constrains the value first.
         desc = "Write the file:\n\n  cat > \"$TMPDIR/notes.txt\" <<'EOF'\n  {host}\n  EOF\n"
-        self.assert_silent(_workflow(
-            _stage(desc), params='host: "example.com"', rules="host: '[a-z.]+'"))
+        self.assert_silent(
+            _workflow(_stage(desc), params='host: "example.com"', rules="host: '[a-z.]+'")
+        )
 
     def test_check_params_in_ancestor_stage_validates(self) -> None:
         yaml_text = _workflow(
@@ -266,7 +283,7 @@ class TestUnvalidatedParam(_RuleCase):
         # command's --check flag (here, after echo, joined by ';') could
         # donate a spec to an earlier, unrelated check-params invocation.
         desc = (
-            "  ./bin/workflow check-params \"{workspace}/manifest.json\"; "
+            '  ./bin/workflow check-params "{workspace}/manifest.json"; '
             "echo --check 'ollama_host=https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?/?'\n"
         ) + _OLLAMA_PROBE
         hits = self.assert_fires(_workflow(_stage(desc), params=OLLAMA_PARAMS))
@@ -282,9 +299,8 @@ class TestUnvalidatedParam(_RuleCase):
 
     def test_fragment_stage_judged_against_importer_rules(self) -> None:
         """A shared fragment's params are the importer's -- judge them there."""
-        fragment = (
-            "fragment: true\nstages:\n"
-            + _stage("Read the PR:\n\n  ./bin/github pr view --pr {pr_number}\n", name="fetch")
+        fragment = "fragment: true\nstages:\n" + _stage(
+            "Read the PR:\n\n  ./bin/github pr view --pr {pr_number}\n", name="fetch"
         )
         with tempfile.TemporaryDirectory() as tmp_dir:
             frag = Path(tmp_dir) / "frag.yaml"
@@ -293,7 +309,9 @@ class TestUnvalidatedParam(_RuleCase):
             own = _stage("Prepare.", name="prep")
             unruled = _lint_text(_workflow(own, params='pr_number: ""', tail=include), tmp_dir)
             ruled = _lint_text(
-                _workflow(own, params='pr_number: ""', rules="pr_number: '[1-9][0-9]*'", tail=include),
+                _workflow(
+                    own, params='pr_number: ""', rules="pr_number: '[1-9][0-9]*'", tail=include
+                ),
                 tmp_dir,
             )
             standalone = lint_workflow(frag)
@@ -349,10 +367,7 @@ class TestIncludedFragmentsAreLinted(unittest.TestCase):
     """
 
     def test_parent_lint_surfaces_fragment_context_free_findings(self) -> None:
-        fragment = (
-            "fragment: true\nstages:\n"
-            + _stage(BARE_PYTHON, name="probe")
-        )
+        fragment = "fragment: true\nstages:\n" + _stage(BARE_PYTHON, name="probe")
         with tempfile.TemporaryDirectory() as tmp_dir:
             frag = Path(tmp_dir) / "frag.yaml"
             frag.write_text(fragment, encoding="utf-8")
@@ -366,9 +381,8 @@ class TestIncludedFragmentsAreLinted(unittest.TestCase):
     def test_parent_lint_is_silent_when_fragment_has_no_findings(self) -> None:
         # Sad-path companion: a fragment with no context-free violation must
         # not manufacture a finding just because it is now linted.
-        fragment = (
-            "fragment: true\nstages:\n"
-            + _stage("Run:\n\n  python3 -I -S -c 'print(1)'\n", name="probe")
+        fragment = "fragment: true\nstages:\n" + _stage(
+            "Run:\n\n  python3 -I -S -c 'print(1)'\n", name="probe"
         )
         with tempfile.TemporaryDirectory() as tmp_dir:
             frag = Path(tmp_dir) / "frag.yaml"
@@ -528,7 +542,9 @@ class TestUnboundVariable(_RuleCase):
         self.assert_silent(_workflow(_stage(desc)))
 
     def test_prose_mention_is_silent(self) -> None:
-        self.assert_silent(_workflow(_stage("Compare the result against $THREAD_ID from the plan.")))
+        self.assert_silent(
+            _workflow(_stage("Compare the result against $THREAD_ID from the plan."))
+        )
 
     def test_escaped_dollar_is_silent(self) -> None:
         # Copilot PR #433 r4099834621: echo "\$NAME" is a literal $NAME in
@@ -544,7 +560,11 @@ class TestUnboundVariable(_RuleCase):
     def test_assignment_in_another_stage_does_not_bind(self) -> None:
         yaml_text = _workflow(
             _stage("Bind it:\n\n  THREAD_ID=$(jq -r .id f.json)\n", name="a"),
-            _stage('Use it:\n\n  ./bin/github threads reply --thread "$THREAD_ID"\n', name="b", depends_on="[a]"),
+            _stage(
+                'Use it:\n\n  ./bin/github threads reply --thread "$THREAD_ID"\n',
+                name="b",
+                depends_on="[a]",
+            ),
         )
         self.assertEqual([w.stage for w in self.assert_fires(yaml_text)], ["b"])
 
@@ -664,7 +684,7 @@ class TestUnboundVariable(_RuleCase):
         # quoted and bound nothing (qlty-complexity-sweep.yaml $PRE_SWEEP,
         # pr-thread-resolve.yaml $PLAN). Bindings now come from each parsed
         # segment, where prose quoting cannot reach.
-        desc = "Don't skip this.\n\n  PRIV=$(mktemp -d)\n  rm -rf \"$PRIV\"\n"
+        desc = 'Don\'t skip this.\n\n  PRIV=$(mktemp -d)\n  rm -rf "$PRIV"\n'
         self.assert_silent(_workflow(_stage(desc)))
 
     def test_read_as_an_argument_does_not_bind(self) -> None:
@@ -748,7 +768,9 @@ class TestValidateStageWritesOutput(_RuleCase):
         # Copilot PR #433 r4099834597: only Write/Save and five extensions
         # were recognised, so "Create ... result.json" passed silently.
         hits = self.assert_fires(
-            _workflow(_stage("Create {workspace}/outputs/result.json with the findings.", kind="validate"))
+            _workflow(
+                _stage("Create {workspace}/outputs/result.json with the findings.", kind="validate")
+            )
         )
         self.assertIn("outputs/result.json", hits[0].message)
 

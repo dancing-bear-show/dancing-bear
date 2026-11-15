@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Sequence
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from calendars.outlook_service import OutlookService
@@ -61,7 +62,7 @@ class ScheduleImportContext:
     Groups service, calendar, and logging state for event creation helpers.
     """
 
-    svc: "OutlookService"  # Outlook service instance for API calls
+    svc: OutlookService  # Outlook service instance for API calls
     cal_id: str  # Target calendar ID (already ensured to exist)
     cal_name: str  # Target calendar name for logging
     logs: list[str]  # Accumulated log messages
@@ -90,11 +91,11 @@ class VerificationContext:
 
 
 __all__ = [
-    "EventProcessingContext",
     "DedupSelectionContext",
-    "ReminderUpdateContext",
-    "EventMatchingCriteria",
-    "ScheduleImportContext",
     "EventClassification",
+    "EventMatchingCriteria",
+    "EventProcessingContext",
+    "ReminderUpdateContext",
+    "ScheduleImportContext",
     "VerificationContext",
 ]

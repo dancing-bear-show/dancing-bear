@@ -3,6 +3,7 @@
 Defines the structural contract that any Outlook backend must satisfy so
 callers can depend on the abstraction rather than the concrete client.
 """
+
 from __future__ import annotations
 
 from typing import Any, Protocol, runtime_checkable

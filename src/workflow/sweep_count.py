@@ -45,7 +45,9 @@ MAX_TOTAL_BYTES = 64_000_000
 MAX_LINE_CHARS = 2_000
 MAX_SECONDS = 30.0
 #: Never descended into: repository/tool state rather than source.
-_SKIP_DIRS = frozenset({".git", ".venv", "venv", "node_modules", "__pycache__", ".mypy_cache", ".ruff_cache"})
+_SKIP_DIRS = frozenset(
+    {".git", ".venv", "venv", "node_modules", "__pycache__", ".mypy_cache", ".ruff_cache"}
+)
 #: The matcher, run as its own interpreter so it can be killed mid-match.
 _WORKER = Path(__file__).with_name("_sweep_worker.py")
 #: Characters a single-quoted shell argument cannot carry intact.
@@ -126,8 +128,10 @@ def resolve_paths(root: Path, paths: list[str]) -> list[Path]:
         root_real = root.resolve(strict=True)
     except (OSError, RuntimeError) as exc:  # RuntimeError: a symlink loop in the root path
         raise SweepError(f"repository root is unusable: {exc}") from exc
-    return [_resolve_one(root_real, raw, normalised)
-            for raw, normalised in zip(paths, normalised_paths, strict=True)]
+    return [
+        _resolve_one(root_real, raw, normalised)
+        for raw, normalised in zip(paths, normalised_paths, strict=True)
+    ]
 
 
 def repo_root() -> Path:
@@ -159,7 +163,9 @@ def cli_root(raw: str | None) -> Path:
     except (OSError, RuntimeError) as exc:  # RuntimeError: a symlink loop in the root path
         raise SweepError(f"refused root: {raw!r} is unusable: {exc}") from exc
     if not real.is_dir() or not real.is_relative_to(anchor):
-        raise SweepError(f"refused root: {raw!r} is not the repository root or a directory inside it")
+        raise SweepError(
+            f"refused root: {raw!r} is not the repository root or a directory inside it"
+        )
     # Reject a root whose repo-relative path is itself protected, so that
     # --root .git --path config cannot bypass check_path.
     rel = real.relative_to(anchor)
@@ -219,14 +225,18 @@ def _iter_files(target: Path, root_real: Path, deadline: float) -> Iterator[Path
     if _is_regular(target, root_real):
         yield target
         return
-    for dirpath, dirnames, filenames in os.walk(target):  # followlinks=False: symlinked dirs are not entered
+    for dirpath, dirnames, filenames in os.walk(
+        target
+    ):  # followlinks=False: symlinked dirs are not entered
         # Checked once per directory, not only per yielded file: a tree of
         # empty or slow-to-list directories would otherwise never reach the
         # per-file check below and could walk past the deadline indefinitely.
         if time.monotonic() > deadline:
             raise _DeadlineExceeded
         base = Path(dirpath)
-        dirnames[:] = sorted(d for d in dirnames if d not in _SKIP_DIRS and _is_walkable_dir(base / d, root_real))
+        dirnames[:] = sorted(
+            d for d in dirnames if d not in _SKIP_DIRS and _is_walkable_dir(base / d, root_real)
+        )
         for name in sorted(filenames):
             candidate = base / name
             if _is_regular(candidate, root_real):
@@ -261,7 +271,9 @@ def count_sweep(pattern: str, paths: list[str], *, root: Path) -> SweepCount:
     try:
         for path in _unique_files(targets, root_real, deadline):
             if time.monotonic() > deadline:
-                return SweepCount(0, 0, truncated=True, reason="time bound reached while listing files")
+                return SweepCount(
+                    0, 0, truncated=True, reason="time bound reached while listing files"
+                )
             files.append(str(path))
     except _DeadlineExceeded:
         return SweepCount(0, 0, truncated=True, reason="time bound reached while listing files")
@@ -284,7 +296,11 @@ def _run_worker(job: dict[str, object], timeout: float) -> SweepCount:
     """
     argv = [sys.executable, "-I", "-S", str(_WORKER)]
     proc = subprocess.Popen(  # nosec B603 - fixed argv, no shell; the job is sent as data on stdin
-        argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        argv,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
     )
     try:
         out, err = proc.communicate(json.dumps(job), timeout=max(timeout, 0.0))
@@ -311,4 +327,6 @@ def _parse_worker_output(out: str, *, fallback_reason: str) -> SweepCount:
     hits, files = int(str(last.get("hits", 0))), int(str(last.get("files", 0)))
     if last.get("done") is True:
         return SweepCount(hits, files, truncated=False)
-    return SweepCount(hits, files, truncated=True, reason=str(last.get("reason") or fallback_reason))
+    return SweepCount(
+        hits, files, truncated=True, reason=str(last.get("reason") or fallback_reason)
+    )

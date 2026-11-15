@@ -12,6 +12,7 @@ Scoring:
 
 Flag suggestions use difflib.get_close_matches (cutoff 0.6, max 3).
 """
+
 from __future__ import annotations
 
 import difflib
@@ -20,6 +21,7 @@ import difflib
 def _word_parts(token: str) -> list[str]:
     """Split on '-' and '_' into lowercase parts."""
     import re
+
     return [p for p in re.split(r"[-_]", token.lower()) if p]
 
 

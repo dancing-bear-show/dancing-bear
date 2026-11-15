@@ -130,6 +130,7 @@ class LocalRenderer:
 
         if mmdc_path:
             import pathlib
+
             p = pathlib.Path(mmdc_path)
             if not p.exists():
                 raise LocalRendererError(f"mmdc not found at: {mmdc_path}")
@@ -149,6 +150,7 @@ class LocalRenderer:
     def is_available() -> bool:
         """Return True if mmdc is on PATH."""
         import shutil
+
         return shutil.which("mmdc") is not None
 
     def _get_mermaid_text(self, diagram: str | _Renderable) -> str:
@@ -176,6 +178,7 @@ class LocalRenderer:
 
     def _run(self, cmd: list[str]) -> None:
         import subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
+
         try:
             result = subprocess.run(  # nosec B603 B607 - mmdc_path resolved via shutil.which or validated on construction
                 cmd,
@@ -232,6 +235,7 @@ class LocalRenderer:
         mermaid_text = self._get_mermaid_text(diagram)
         if opts.theme == "dark":
             from .dark_mode import apply_dark_mode_fixes
+
             mermaid_text = apply_dark_mode_fixes(mermaid_text)
 
         if output_format not in {"svg", "png", "pdf"}:
@@ -284,6 +288,7 @@ class LocalRenderer:
         mermaid_text = self._get_mermaid_text(diagram)
         if opts.theme == "dark":
             from .dark_mode import apply_dark_mode_fixes
+
             mermaid_text = apply_dark_mode_fixes(mermaid_text)
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".mmd", delete=False) as f:

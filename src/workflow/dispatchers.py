@@ -83,17 +83,18 @@ def _dispatch_group_serial(
     workspace_dir: Path,
 ) -> dict[str, StageResult]:
     """Serial group dispatch — shared by all dispatcher implementations."""
-    return {
-        stage.spec.name: dispatcher.dispatch(stage, workspace_dir)
-        for stage in stages
-    }
+    return {stage.spec.name: dispatcher.dispatch(stage, workspace_dir) for stage in stages}
 
 
 def _run_cli_command(cmd: str, *, timeout: int = 300) -> dict[str, Any]:
     """Run a shell command and return a structured result dict."""
     try:
         proc = subprocess.run(  # nosec B602 - shell=True required for CLI pipes; commands from trusted workflow YAML
-            cmd, shell=True, capture_output=True, text=True, timeout=timeout,  # noqa: S602
+            cmd,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout,  # noqa: S602
         )
         return {
             "status": "ok" if proc.returncode == 0 else "error",
@@ -126,7 +127,9 @@ class LocalDispatcher:
         data, errors = self._run_outputs(stage)
         self._write_output_files(stage, data, workspace_dir)
         status = StageStatus.failed if errors else StageStatus.success
-        return make_stage_result(stage, started_at, status, StageResultExtras(data=data, errors=errors))
+        return make_stage_result(
+            stage, started_at, status, StageResultExtras(data=data, errors=errors)
+        )
 
     def _run_outputs(
         self,
@@ -156,7 +159,10 @@ class LocalDispatcher:
             elif output.mode == OutputMode.invoke:
                 logger.warning(
                     "Stage '%s' output '%s' is invoke but no CLI command available (cmd_idx=%d, commands=%d)",
-                    stage.spec.name, output.name, cmd_idx, len(stage.cli_commands),
+                    stage.spec.name,
+                    output.name,
+                    cmd_idx,
+                    len(stage.cli_commands),
                 )
                 data[output.name] = {"status": "error", "reason": "no_cli_command"}
             else:
@@ -178,7 +184,11 @@ class LocalDispatcher:
             dest = workspace_dir / writes_to_relpath(filename)
             dest.parent.mkdir(parents=True, exist_ok=True)
             file_data = data.get(outputs_list[i].name, data) if i < len(outputs_list) else data
-            content = file_data if isinstance(file_data, str) else json.dumps(file_data, indent=2, default=str)
+            content = (
+                file_data
+                if isinstance(file_data, str)
+                else json.dumps(file_data, indent=2, default=str)
+            )
             dest.write_text(content, encoding="utf-8")
 
     def dispatch_group(
@@ -214,7 +224,9 @@ class SkillDispatcher:
         started_at = iso_now()
 
         instruction = build_dispatch_instruction(
-            stage, self._workflow_name, workspace_dir,
+            stage,
+            self._workflow_name,
+            workspace_dir,
         )
         dispatch_dir = workspace_dir / "dispatch"
         dispatch_dir.mkdir(parents=True, exist_ok=True)
@@ -226,7 +238,9 @@ class SkillDispatcher:
             return existing
 
         return make_stage_result(
-            stage, started_at, StageStatus.pending,
+            stage,
+            started_at,
+            StageStatus.pending,
             StageResultExtras(data={"dispatch_file": str(path)}),
         )
 
@@ -266,6 +280,7 @@ class WorkerQueueDispatcher:
     def _sanitize_id_component(s: str) -> str:
         """Keep only alphanumerics, hyphens, and underscores — safe as a filename component."""
         import re
+
         return re.sub(r"[^A-Za-z0-9_-]", "-", s)
 
     def _make_job_id(self, stage: ResolvedStage) -> str:
@@ -301,7 +316,9 @@ class WorkerQueueDispatcher:
         logger.debug("Enqueued stage '%s' as job '%s'", stage.spec.name, job_id)
 
         return make_stage_result(
-            stage, started_at, StageStatus.pending,
+            stage,
+            started_at,
+            StageStatus.pending,
             StageResultExtras(data={"job_id": job_id, "job_type": self.JOB_TYPE}),
         )
 
@@ -342,10 +359,7 @@ class CompositeDispatcher:
         """True if any output requires agent work (generate/template) or stage is validate/sub-workflow."""
         if stage.spec.kind in (StageKind.validate, StageKind.sub_workflow):
             return True
-        return any(
-            o.mode in (OutputMode.generate, OutputMode.template)
-            for o in stage.spec.outputs
-        )
+        return any(o.mode in (OutputMode.generate, OutputMode.template) for o in stage.spec.outputs)
 
     def dispatch(
         self,

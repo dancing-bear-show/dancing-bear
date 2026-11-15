@@ -32,7 +32,6 @@ from tests.memory_tests.fixtures import (
     sample_bundle,
 )
 
-
 # ---------------------------------------------------------------------------
 # Symlink support check (platform guard)
 # ---------------------------------------------------------------------------
@@ -51,7 +50,9 @@ def _symlinks_supported() -> bool:
         return False
 
 
-_requires_symlinks = unittest.skipUnless(_symlinks_supported(), "symlinks not supported on this platform")
+_requires_symlinks = unittest.skipUnless(
+    _symlinks_supported(), "symlinks not supported on this platform"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -70,7 +71,9 @@ def _write_bundle_file(tmp_path: Path, bundle: MemoryBundle, *, fmt: str = "yaml
     return path
 
 
-def _store_with_index(tmp_path: Path, slug: str = "-Users-alice-code-indexed-project") -> MemoryStore:
+def _store_with_index(
+    tmp_path: Path, slug: str = "-Users-alice-code-indexed-project"
+) -> MemoryStore:
     """Build a store whose memory/ dir has a MEMORY.md, so index_path is set."""
     projects_dir = tmp_path / "indexed_projects"
     memory_dir = projects_dir / slug / "memory"
@@ -126,9 +129,7 @@ class TestExportSelectMemories(MemoryTestCase):
     def test_include_all_returns_every_memory(self) -> None:
         store = _store_from_slug(self.projects_root)
 
-        selected = export_cmd._select_memories(
-            store, slugs=None, types=None, include_all=True
-        )
+        selected = export_cmd._select_memories(store, slugs=None, types=None, include_all=True)
 
         self.assertEqual(selected, store.memories)
 
@@ -158,9 +159,7 @@ class TestExportSelectMemories(MemoryTestCase):
     def test_no_selectors_returns_empty(self) -> None:
         store = _store_from_slug(self.projects_root)
 
-        selected = export_cmd._select_memories(
-            store, slugs=None, types=None, include_all=False
-        )
+        selected = export_cmd._select_memories(store, slugs=None, types=None, include_all=False)
 
         self.assertEqual(selected, ())
 
@@ -486,7 +485,9 @@ class TestImportMainCli(MemoryTestCase):
         bundle_path = _write_bundle_file(self.tmp, bundle)
 
         with patch("memory.commands._common.discover_stores", return_value=(store,)):
-            rc, out, _ = _run_import([str(bundle_path), "--on-conflict", "skip", "--format", "json"])
+            rc, out, _ = _run_import(
+                [str(bundle_path), "--on-conflict", "skip", "--format", "json"]
+            )
 
         self.assertEqual(rc, 0)
         rows = json.loads(out)
@@ -502,7 +503,9 @@ class TestImportMainCli(MemoryTestCase):
         bundle_path = _write_bundle_file(self.tmp, bundle)
 
         with patch("memory.commands._common.discover_stores", return_value=(store,)):
-            rc, out, _ = _run_import([str(bundle_path), "--on-conflict", "rename", "--format", "json"])
+            rc, out, _ = _run_import(
+                [str(bundle_path), "--on-conflict", "rename", "--format", "json"]
+            )
 
         self.assertEqual(rc, 0)
         rows = json.loads(out)
@@ -519,7 +522,9 @@ class TestImportMainCli(MemoryTestCase):
         bundle_path = _write_bundle_file(self.tmp, bundle)
 
         with patch("memory.commands._common.discover_stores", return_value=(store,)):
-            rc, out, _ = _run_import([str(bundle_path), "--on-conflict", "overwrite", "--format", "json"])
+            rc, out, _ = _run_import(
+                [str(bundle_path), "--on-conflict", "overwrite", "--format", "json"]
+            )
 
         # emit_rows succeeds even though the row reports an error action
         self.assertEqual(rc, 0)
@@ -542,7 +547,9 @@ class TestImportMainCli(MemoryTestCase):
         bundle_path = _write_bundle_file(self.tmp, bundle)
 
         with patch("memory.commands._common.discover_stores", return_value=(store,)):
-            rc, out, _ = _run_import([str(bundle_path), "--on-conflict", "overwrite", "--format", "json"])
+            rc, out, _ = _run_import(
+                [str(bundle_path), "--on-conflict", "overwrite", "--format", "json"]
+            )
 
         self.assertEqual(rc, 0)
         rows = json.loads(out)
@@ -651,7 +658,9 @@ class TestImportMainCli(MemoryTestCase):
                 before = sorted(p for p in self.tmp.rglob("*") if p.is_file())
 
                 with patch("memory.commands._common.discover_stores", return_value=(store,)):
-                    rc, _, err = _run_import([str(bundle_path), "--prefix", prefix, "--format", "json"])
+                    rc, _, err = _run_import(
+                        [str(bundle_path), "--prefix", prefix, "--format", "json"]
+                    )
 
                 self.assertEqual(rc, 1, f"expected exit 1 for prefix={prefix!r}")
                 self.assertIn("--prefix", err)
@@ -858,7 +867,14 @@ class TestImportStoreTargeting(MemoryTestCase):
         target.write_text(native, encoding="utf-8")
 
         rc, out, _ = _run_import(
-            [str(self.bundle_path), f"--store={_LINUX_SLUG}", "--on-conflict", "overwrite", "--format", "json"]
+            [
+                str(self.bundle_path),
+                f"--store={_LINUX_SLUG}",
+                "--on-conflict",
+                "overwrite",
+                "--format",
+                "json",
+            ]
         )
 
         self.assertEqual(rc, 0)
@@ -882,13 +898,19 @@ class TestImportScansProvenance(MemoryTestCase):
     def test_blocking_secret_in_each_provenance_field_refuses_import(self) -> None:
         secret = "gh" + "p_" + "A" * 36
         fields = (
-            "origin_project_slug", "origin_repo", "origin_user", "origin_host",
-            "exported_by_version", "source_sha256",
+            "origin_project_slug",
+            "origin_repo",
+            "origin_user",
+            "origin_host",
+            "exported_by_version",
+            "source_sha256",
         )
         for field in fields:
             with self.subTest(field=field):
                 path = self._bundle_with_provenance(**{field: secret})
-                store = _store_with_index(self.tmp, slug=f"-Users-alice-code-prov-{field.replace('_', '-')}")
+                store = _store_with_index(
+                    self.tmp, slug=f"-Users-alice-code-prov-{field.replace('_', '-')}"
+                )
 
                 with patch("memory.commands.import_cmd.select_single_store", return_value=store):
                     rc, _, err = _run_import([str(path)])

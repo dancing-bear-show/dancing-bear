@@ -28,8 +28,8 @@ from .linter_types import LintResult, LintWarning
 __all__ = [
     "_check_agent_access",
     "_check_stage_access",
-    "_roles_that_cannot_write",
     "_role_is_defined",
+    "_roles_that_cannot_write",
 ]
 
 _AGENTS_DIR = Path(__file__).resolve().parents[2] / ".claude" / "agents"
@@ -147,10 +147,7 @@ def _read_only_reason(agent: AgentSpec, role: str, cannot_write: frozenset[str])
         and _role_is_defined(role)
         and role not in cannot_write
     ):
-        return (
-            f"declares no tools, which means ALL tools, and role '{role}' "
-            f"is permitted Write"
-        )
+        return f"declares no tools, which means ALL tools, and role '{role}' is permitted Write"
     return ""
 
 

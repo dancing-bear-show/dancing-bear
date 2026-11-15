@@ -1,4 +1,5 @@
 """Tests for calendars/model.py event normalization utilities."""
+
 import unittest
 
 from calendars.model import (

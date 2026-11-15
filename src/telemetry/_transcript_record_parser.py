@@ -69,12 +69,14 @@ def _append_prompt_entry(session_index: dict[str, object], prompt_index: int, te
     """Append one prompt entry to session_index["prompts"]."""
     prompts = session_index["prompts"]
     assert isinstance(prompts, list)  # nosec B101 - type narrowing; caller always initializes this list
-    prompts.append({
-        "prompt_index": prompt_index,
-        "text": text,
-        "token_estimate": _token_estimate(text),
-        "tool_calls_after": 0,
-    })
+    prompts.append(
+        {
+            "prompt_index": prompt_index,
+            "text": text,
+            "token_estimate": _token_estimate(text),
+            "tool_calls_after": 0,
+        }
+    )
 
 
 def _process_user_string_content(
@@ -130,7 +132,9 @@ def _process_user_role_record(
     content = msg.get("content") or record.get("content")
 
     if isinstance(content, str):
-        return _process_user_string_content(content, session_index, prompt_index_base, prompts_added)
+        return _process_user_string_content(
+            content, session_index, prompt_index_base, prompts_added
+        )
     if isinstance(content, list):
         return _process_user_list_content(content, session_index, prompt_index_base, prompts_added)
     return 0

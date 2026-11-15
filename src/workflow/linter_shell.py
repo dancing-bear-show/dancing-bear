@@ -150,10 +150,25 @@ _WORKFLOW_CLI = "workflow"  # the only program that runs check-params
 _WORKER_QUEUE = "worker_queue"  # FanOutMode.WORKER_QUEUE, and the executor of that name
 
 # Set by the shell, the OS, or the harness -- never assigned in stage text.
-_ENVIRONMENT_VARS: frozenset[str] = frozenset({
-    "HOME", "PWD", "OLDPWD", "PATH", "USER", "SHELL", "TMPDIR", "IFS",
-    "PYTHONPATH", "RANDOM", "LINENO", "SECONDS", "CI", "EDITOR", "LANG",
-})
+_ENVIRONMENT_VARS: frozenset[str] = frozenset(
+    {
+        "HOME",
+        "PWD",
+        "OLDPWD",
+        "PATH",
+        "USER",
+        "SHELL",
+        "TMPDIR",
+        "IFS",
+        "PYTHONPATH",
+        "RANDOM",
+        "LINENO",
+        "SECONDS",
+        "CI",
+        "EDITOR",
+        "LANG",
+    }
+)
 _ENVIRONMENT_PREFIXES = ("BASH_", "CLAUDE_", "GITHUB_", "GH_", "RUNNER_", "DANCING_BEAR_")
 
 # -I (isolated) and -E both make the interpreter ignore PYTHONPATH, which is
@@ -223,9 +238,12 @@ class _StageShell:
     @classmethod
     def parse(cls, stage: StageSpec) -> _StageShell:
         segments = tuple(
-            _ParsedSegment(seg, parse_shell(seg.text)) for seg in extract_shell_segments(stage.description)
+            _ParsedSegment(seg, parse_shell(seg.text))
+            for seg in extract_shell_segments(stage.description)
         )
-        labels = tuple(parse_shell(seg.text) for seg in extract_labelled_assignments(stage.description))
+        labels = tuple(
+            parse_shell(seg.text) for seg in extract_labelled_assignments(stage.description)
+        )
         scripts = tuple(
             (field, _ParsedSegment(ShellSegment(text, "script"), parse_shell(text)))
             for field, text in _worker_scripts(stage)
@@ -338,7 +356,7 @@ def _check_params_call(cmd: SimpleCommand) -> tuple[int, list[str]] | None:
 def _check_param_names(operands: list[str]) -> list[str]:
     """Param names named by every ``--check <spec>``/``--check=<spec>`` in *operands*."""
     specs = [nxt for tok, nxt in zip(operands, operands[1:]) if tok == "--check"]
-    specs += [tok[len("--check="):] for tok in operands if tok.startswith("--check=")]
+    specs += [tok[len("--check=") :] for tok in operands if tok.startswith("--check=")]
     names = []
     for spec in specs:
         name, sep, _ = spec.partition("=")
@@ -370,9 +388,12 @@ def _captured_status(script: ShellScript, cmd: SimpleCommand) -> SimpleCommand |
     body, offset = subs[-1]
     span = (offset, offset + len(body))
     inside = [
-        c for c in script.commands
-        if c.depth == cmd.depth + 1 and c.subshell is not None
-        and span[0] <= c.subshell[0] and c.subshell[1] <= span[1]
+        c
+        for c in script.commands
+        if c.depth == cmd.depth + 1
+        and c.subshell is not None
+        and span[0] <= c.subshell[0]
+        and c.subshell[1] <= span[1]
     ]
     last = max(inside, key=_command_start, default=None)
     if last is None or last.subshell != span or not last.unconditional:
@@ -493,7 +514,9 @@ def _unvalidated_params(
 def _is_worker_dispatched(stage: StageSpec) -> bool:
     """True when a worker runs *stage*'s scripts and no agent reads its description."""
     fan_out = stage.fan_out
-    return stage.executor == _WORKER_QUEUE or (fan_out is not None and fan_out.mode == _WORKER_QUEUE)
+    return stage.executor == _WORKER_QUEUE or (
+        fan_out is not None and fan_out.mode == _WORKER_QUEUE
+    )
 
 
 def _unquoted_fan_out_keys(item: _StageShell) -> list[LintWarning]:
@@ -506,12 +529,14 @@ def _unquoted_fan_out_keys(item: _StageShell) -> list[LintWarning]:
         ctx = seg.quote_context()
         for m in seg.live_matches(PLACEHOLDER_RE):
             if m.group(1) == fan_out.key and ctx[m.start()] == "":
-                return [_warn(
-                    item.stage.name,
-                    RULE_UNQUOTED_FAN_OUT_KEY,
-                    f"fan-out key '{{{fan_out.key}}}' is prior-stage data, unquoted in "
-                    f"shell (`{_snippet(seg.text)}`); quote it or read it from the file",
-                )]
+                return [
+                    _warn(
+                        item.stage.name,
+                        RULE_UNQUOTED_FAN_OUT_KEY,
+                        f"fan-out key '{{{fan_out.key}}}' is prior-stage data, unquoted in "
+                        f"shell (`{_snippet(seg.text)}`); quote it or read it from the file",
+                    )
+                ]
     return []
 
 
@@ -529,15 +554,17 @@ def _worker_key_references(item: _StageShell, key: str) -> list[LintWarning]:
     for field, seg in item.scripts:
         count = sum(1 for m in PLACEHOLDER_RE.finditer(seg.text) if m.group(1) == key)
         if count:
-            warnings.append(_warn(
-                item.stage.name,
-                RULE_UNQUOTED_FAN_OUT_KEY,
-                f"fan-out key '{{{key}}}' is interpolated into a worker script {count} time(s) "
-                f"(`{_snippet(seg.text)}`); it is not allowlisted before worker dispatch and is "
-                f"substituted before bash parses the script, so quoting and comments do not "
-                f"contain it -- pass it as data (read it from a file or environment variable)",
-                field,
-            ))
+            warnings.append(
+                _warn(
+                    item.stage.name,
+                    RULE_UNQUOTED_FAN_OUT_KEY,
+                    f"fan-out key '{{{key}}}' is interpolated into a worker script {count} time(s) "
+                    f"(`{_snippet(seg.text)}`); it is not allowlisted before worker dispatch and is "
+                    f"substituted before bash parses the script, so quoting and comments do not "
+                    f"contain it -- pass it as data (read it from a file or environment variable)",
+                    field,
+                )
+            )
     return warnings
 
 
@@ -718,13 +745,15 @@ def _unisolated_pythons(item: _StageShell) -> list[LintWarning]:
     for unit in item.units():
         offender = next((o for seg in unit.segments for o in _python_offenders(seg.script)), None)
         if offender is not None:
-            warnings.append(_warn(
-                item.stage.name,
-                RULE_PYTHON_NOT_ISOLATED,
-                f"`{_snippet(offender)}` lacks -I; a foreign PYTHONPATH "
-                f"sitecustomize runs at startup (use python3 -I -S)",
-                unit.field,
-            ))
+            warnings.append(
+                _warn(
+                    item.stage.name,
+                    RULE_PYTHON_NOT_ISOLATED,
+                    f"`{_snippet(offender)}` lacks -I; a foreign PYTHONPATH "
+                    f"sitecustomize runs at startup (use python3 -I -S)",
+                    unit.field,
+                )
+            )
     return warnings
 
 
@@ -737,16 +766,20 @@ def _guard_refused(item: _StageShell) -> list[LintWarning]:
     """At most one warning per unit: its first refused construct."""
     warnings = []
     for unit in item.units():
-        hit = next(((what, seg) for seg in unit.segments if (what := refused_construct(seg.script))), None)
+        hit = next(
+            ((what, seg) for seg in unit.segments if (what := refused_construct(seg.script))), None
+        )
         if hit is not None:
             what, seg = hit
-            warnings.append(_warn(
-                item.stage.name,
-                RULE_GUARD_REFUSED,
-                f"{what} in shell (`{_snippet(seg.text)}`) is refused by the Bash guard "
-                f"hook; use a script file or one command per call",
-                unit.field,
-            ))
+            warnings.append(
+                _warn(
+                    item.stage.name,
+                    RULE_GUARD_REFUSED,
+                    f"{what} in shell (`{_snippet(seg.text)}`) is refused by the Bash guard "
+                    f"hook; use a script file or one command per call",
+                    unit.field,
+                )
+            )
     return warnings
 
 
@@ -763,9 +796,11 @@ def _validate_writes_output(stage: StageSpec) -> list[LintWarning]:
     m = _WRITE_INSTRUCTION_RE.search(stage.description)
     if m is None:
         return []
-    return [_warn(
-        stage.name,
-        RULE_VALIDATE_WRITES_OUTPUT,
-        f"kind: validate drops the description, so `{_snippet(m.group(0))}` never "
-        f"reaches the agent; use kind: execute",
-    )]
+    return [
+        _warn(
+            stage.name,
+            RULE_VALIDATE_WRITES_OUTPUT,
+            f"kind: validate drops the description, so `{_snippet(m.group(0))}` never "
+            f"reaches the agent; use kind: execute",
+        )
+    ]

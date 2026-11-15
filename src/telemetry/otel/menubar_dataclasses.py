@@ -1,4 +1,5 @@
 """Frozen dataclasses and zero-constructors extracted from menubar_provider.py."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -40,9 +41,9 @@ class MetaStats:
     """Derived efficiency ratios."""
 
     cost_per_active_hour: float  # 0.0 if active_hours == 0
-    cost_per_loc_added: float    # 0.0 if lines_added == 0
-    cost_per_commit: float       # 0.0 if commits == 0
-    cache_hit_rate_pct: float    # 0.0 if no cache tokens
+    cost_per_loc_added: float  # 0.0 if lines_added == 0
+    cost_per_commit: float  # 0.0 if commits == 0
+    cache_hit_rate_pct: float  # 0.0 if no cache tokens
     total_tokens_24h: int
 
 
@@ -118,10 +119,14 @@ class OtelDisplayData:
 
 def _zero_usage() -> OtelUsage:
     return OtelUsage(
-        cost_24h=0.0, cost_7d=0.0,
-        input_tokens_24h=0, output_tokens_24h=0,
-        cache_read_tokens_24h=0, cache_creation_tokens_24h=0,
-        total_tokens_24h=0, active_hours_24h=0.0,
+        cost_24h=0.0,
+        cost_7d=0.0,
+        input_tokens_24h=0,
+        output_tokens_24h=0,
+        cache_read_tokens_24h=0,
+        cache_creation_tokens_24h=0,
+        total_tokens_24h=0,
+        active_hours_24h=0.0,
         model_cost_breakdown=[],
     )
 
@@ -141,15 +146,32 @@ def _zero_meta(total_tokens: int = 0) -> MetaStats:
 
 
 def _zero_hook_health() -> HookHealth:
-    return HookHealth(hooks_fired_today=0, avg_hook_latency_ms=0.0, blocking_count=0, error_count=0, hook_names=[])
+    return HookHealth(
+        hooks_fired_today=0, avg_hook_latency_ms=0.0, blocking_count=0, error_count=0, hook_names=[]
+    )
 
 
 def _zero_tool_activity() -> ToolActivity:
-    return ToolActivity(tool_calls_today=0, accept_rate_pct=0.0, top_tools=[], tool_error_count=0, bash_error_rate_pct=0.0, avg_input_bytes=0.0, avg_output_bytes=0.0)
+    return ToolActivity(
+        tool_calls_today=0,
+        accept_rate_pct=0.0,
+        top_tools=[],
+        tool_error_count=0,
+        bash_error_rate_pct=0.0,
+        avg_input_bytes=0.0,
+        avg_output_bytes=0.0,
+    )
 
 
 def _zero_code_impact() -> CodeImpact:
-    return CodeImpact(lines_added_today=0, lines_removed_today=0, top_languages=[], commits_today=0, compaction_count=0, tokens_saved_by_compaction=0)
+    return CodeImpact(
+        lines_added_today=0,
+        lines_removed_today=0,
+        top_languages=[],
+        commits_today=0,
+        compaction_count=0,
+        tokens_saved_by_compaction=0,
+    )
 
 
 def _zero_skills() -> Skills:

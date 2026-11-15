@@ -10,8 +10,13 @@ from core.textio import write_text
 from ..io_utils import write_yaml_or_json
 from ..summarizer import build_summary
 from ..templating import parse_seed_criteria
-from .args import PROFILE_HELP_DATA, OUT_DIR_HELP, DATA_HELP, EXT_YAML, EXT_JSON
-from .helpers import _load_candidate_data, _apply_filter_pipeline, _extend_seed_with_style, _resolve_out
+from .args import DATA_HELP, EXT_JSON, EXT_YAML, OUT_DIR_HELP, PROFILE_HELP_DATA
+from .helpers import (
+    _apply_filter_pipeline,
+    _extend_seed_with_style,
+    _load_candidate_data,
+    _resolve_out,
+)
 
 
 def cmd_summarize(args: argparse.Namespace) -> int:
@@ -45,7 +50,10 @@ def register_summarize_commands(app: CLIApp) -> None:
     """Register the summarize command on app."""
     _ARGS = [
         (("--data",), {"help": DATA_HELP}),
-        (("--seed",), {"help": "Seed criteria as JSON string or KEY=VALUE pairs (comma-separated)"}),
+        (
+            ("--seed",),
+            {"help": "Seed criteria as JSON string or KEY=VALUE pairs (comma-separated)"},
+        ),
         (("--style-profile",), {"help": "Style profile JSON from 'style build' (optional)"}),
         (("--filter-skills-alignment",), {"help": "Alignment JSON to filter Skills"}),
         (("--filter-skills-job",), {"help": "Job YAML/JSON to supplement synonyms"}),

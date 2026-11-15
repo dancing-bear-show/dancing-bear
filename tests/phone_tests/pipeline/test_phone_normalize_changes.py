@@ -14,10 +14,8 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from core.cli_errors import CLIError
-from core.cli_output import OutputWriter, OutputConfig
+from core.cli_output import OutputConfig, OutputWriter
 from core.pipeline import ResultEnvelope
-
-
 
 # ---------------------------------------------------------------------------
 # C5: LayoutLoadError subclasses CLIError

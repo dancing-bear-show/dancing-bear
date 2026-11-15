@@ -6,6 +6,7 @@ same two things: a renderer whose mmdc lookup is stubbed, and MagicMock
 subprocess results. Both live here so the mmdc path stays fake in exactly
 one place — no test may invoke the real binary, which is absent on CI.
 """
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch

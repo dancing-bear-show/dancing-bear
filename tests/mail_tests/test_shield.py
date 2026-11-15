@@ -10,17 +10,20 @@ class TestMaskStr(unittest.TestCase):
 
     def test_short_value_returns_stars(self):
         from mail.utils.shield import _mask_str
+
         result = _mask_str("abc")
         self.assertEqual(result, "***")
 
     def test_exact_head_plus_tail_returns_stars(self):
         from mail.utils.shield import _mask_str
+
         # head=4, tail=4, so exactly 8 chars => "***"
         result = _mask_str("12345678")
         self.assertEqual(result, "***")
 
     def test_long_value_shows_head_and_tail(self):
         from mail.utils.shield import _mask_str
+
         result = _mask_str("abcde12345fghij")
         self.assertIn("abcd", result)
         self.assertIn("ghij", result)
@@ -28,6 +31,7 @@ class TestMaskStr(unittest.TestCase):
 
     def test_custom_head_tail(self):
         from mail.utils.shield import _mask_str
+
         result = _mask_str("ABCDEFGHIJKLMN", head=2, tail=2)
         self.assertIn("AB", result)
         self.assertIn("MN", result)
@@ -38,6 +42,7 @@ class TestContainsSecretishValue(unittest.TestCase):
 
     def _check(self, value: str) -> bool:
         from mail.utils.shield import _contains_secretish_value
+
         return _contains_secretish_value(value)
 
     # --- GitHub personal access token ---
@@ -114,6 +119,7 @@ class TestMaskValue(unittest.TestCase):
 
     def _mask(self, key: str, val: str) -> str:
         from mail.utils.shield import mask_value
+
         return mask_value(key, val)
 
     # --- Path detection ---
@@ -164,10 +170,24 @@ class TestMaskValue(unittest.TestCase):
     # Every key name the pre-composition SECRET_KEYS tuple masked, plus
     # compound and mixed-case spellings it caught through substring matching.
     _PREVIOUSLY_MASKED_KEYS = (
-        "token", "secret", "password", "api_key", "apikey", "access_key",
-        "access_token", "refresh_token", "client_secret", "authorization",
-        "bearer", "key", "sort_key", "outlook_token", "X-Auth-Token",
-        "Authorization", "MY_API_KEY", "db_password_hash",
+        "token",
+        "secret",
+        "password",
+        "api_key",
+        "apikey",
+        "access_key",
+        "access_token",
+        "refresh_token",
+        "client_secret",
+        "authorization",
+        "bearer",
+        "key",
+        "sort_key",
+        "outlook_token",
+        "X-Auth-Token",
+        "Authorization",
+        "MY_API_KEY",
+        "db_password_hash",
     )
 
     def test_keys_masked_before_core_composition_are_still_masked(self):
@@ -202,6 +222,7 @@ class TestMaskValue(unittest.TestCase):
 
     def test_empty_value_non_sensitive_key(self):
         from mail.utils.shield import mask_value
+
         # mask_value converts None-ish by using `val or ""`
         result = mask_value("email", "")
         self.assertEqual(result, "")
@@ -212,6 +233,7 @@ class TestShieldDict(unittest.TestCase):
 
     def _shield(self, data):
         from mail.utils.shield import shield_dict
+
         return shield_dict(data)
 
     def test_empty_dict_returns_empty(self):

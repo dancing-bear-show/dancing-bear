@@ -3,6 +3,7 @@
 Shared by the compiler (parallel groups; a cycle is fatal) and the linter
 (DAG depth; a cycle is reported elsewhere, so the walk must not raise).
 """
+
 from __future__ import annotations
 
 from collections.abc import Collection, Mapping

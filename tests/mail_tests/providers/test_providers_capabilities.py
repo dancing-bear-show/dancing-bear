@@ -23,4 +23,3 @@ class TestProviderCapabilities(unittest.TestCase):
         self.assertNotIn("sweep", caps)
         self.assertNotIn("forwarding", caps)
         self.assertNotIn("signatures", caps)
-

@@ -61,7 +61,12 @@ class _Base(unittest.TestCase, QueueRootIsolationMixin):
         self.paths = q._ensure_dirs(self.root)
 
     def _plant_processing(self, job_id: str, token: str | None, **extra: Any) -> Path:
-        record: dict[str, Any] = {"id": job_id, "type": "noop", "payload": {}, "status": "processing"}
+        record: dict[str, Any] = {
+            "id": job_id,
+            "type": "noop",
+            "payload": {},
+            "status": "processing",
+        }
         if token is not None:
             record[q.CLAIM_TOKEN_FIELD] = token
         record.update(extra)
@@ -86,7 +91,10 @@ class TestMarkerRecoveryIsolatesUnlinkFailures(_Base):
         self._plant_processing("live1", _TOK_B)
         self._marker("live1", _TOK_B).touch()
 
-        with _unlink_failing_for(stuck.name), self.assertLogs("worker.queue_ops", "WARNING") as logs:
+        with (
+            _unlink_failing_for(stuck.name),
+            self.assertLogs("worker.queue_ops", "WARNING") as logs,
+        ):
             recovered = q.recover_shutdown_timeout_markers(root=self.root)
 
         self.assertEqual(recovered, ["live1"])
@@ -102,7 +110,10 @@ class TestMarkerRecoveryIsolatesUnlinkFailures(_Base):
         self._plant_processing("second", _TOK_B)
         self._marker("second", _TOK_B).touch()
 
-        with _unlink_failing_for(first_marker.name), self.assertLogs("worker.queue_ops", "WARNING") as logs:
+        with (
+            _unlink_failing_for(first_marker.name),
+            self.assertLogs("worker.queue_ops", "WARNING") as logs,
+        ):
             recovered = q.recover_shutdown_timeout_markers(root=self.root)
 
         self.assertEqual(sorted(recovered), ["first", "second"])
@@ -117,7 +128,10 @@ class TestMarkerRecoveryIsolatesUnlinkFailures(_Base):
 class TestStagedRecoveryLogsAndContinues(_Base):
     def test_one_failing_staged_file_is_logged_and_the_rest_publish(self) -> None:
         for job_id in ("s1", "s2"):
-            _write(self.paths["processing"] / f"{job_id}.json.requeue", {"id": job_id, "status": "pending"})
+            _write(
+                self.paths["processing"] / f"{job_id}.json.requeue",
+                {"id": job_id, "status": "pending"},
+            )
         real_publish = q._publish_no_clobber
 
         def _publish(staged: Path, dest: Path) -> bool:
@@ -389,7 +403,9 @@ class TestDrainProbesEveryClaimWithinTheDeadline(_Base):
             patch.object(jr, "_write_shutdown_timeout_marker", side_effect=_slow_write),
             patch.object(q, "requeue_processing", side_effect=_capture),
         ):
-            runner._drain_one_stem("slowfs1", runner._live_threads["slowfs1"][1], time.monotonic() + self._GRACE / 2)
+            runner._drain_one_stem(
+                "slowfs1", runner._live_threads["slowfs1"][1], time.monotonic() + self._GRACE / 2
+            )
         self.assertEqual(budgets, [0.0])
 
 

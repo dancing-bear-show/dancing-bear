@@ -15,10 +15,10 @@ from resume.parsing_experience_pdf import (
     parse_resume_pdf,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _find(lines):
     """Return (section_indices, sorted_sections) for the given lines."""
@@ -33,6 +33,7 @@ def _summary(lines, has_name=True):
 # ---------------------------------------------------------------------------
 # _pdf_extract_summary — branch 96->97 (first_section_idx <= start_idx)
 # ---------------------------------------------------------------------------
+
 
 class TestPdfExtractSummaryBranches(unittest.TestCase):
     """Cover the branch where the first section starts at or before the name+headline offset."""
@@ -61,6 +62,7 @@ class TestPdfExtractSummaryBranches(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _pdf_extract_experience — branches 119->113 and 121->113 (empty bullet)
 # ---------------------------------------------------------------------------
+
 
 class TestPdfExtractExperienceBullets(unittest.TestCase):
     """Cover bullet-filtering branches in _pdf_extract_experience."""
@@ -110,6 +112,7 @@ class TestPdfExtractExperienceBullets(unittest.TestCase):
 # _pdf_extract_education — branch 134->132 (entry is None/falsy)
 # ---------------------------------------------------------------------------
 
+
 class TestPdfExtractEducationFalsyEntry(unittest.TestCase):
     """Cover the branch where _parse_education_entry returns None."""
 
@@ -145,6 +148,7 @@ class TestPdfExtractEducationFalsyEntry(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # parse_resume_pdf — lines 141-170
 # ---------------------------------------------------------------------------
+
 
 class TestParseResumePdfMissingDependency(unittest.TestCase):
     """parse_resume_pdf raises RuntimeError when pdfminer.six is absent."""
@@ -193,23 +197,25 @@ class TestParseResumePdfEmptyText(unittest.TestCase):
 class TestParseResumePdfFullParse(unittest.TestCase):
     """parse_resume_pdf correctly assembles a result from a synthetic text block."""
 
-    _RESUME_TEXT = "\n".join([
-        "Jane Smith",
-        "Staff Engineer",
-        "jane@example.com",
-        "415-555-0100",
-        "San Francisco, CA",
-        "Summary",
-        "Builds distributed systems at scale.",
-        "Employment",
-        "Staff Engineer at CloudCo (2020 - 2023)",
-        "• Architected distributed systems",
-        "• Mentored junior engineers",
-        "Education",
-        "B.S. Computer Science, Stanford, 2012",
-        "Skills",
-        "Python, Go, Kubernetes",
-    ])
+    _RESUME_TEXT = "\n".join(
+        [
+            "Jane Smith",
+            "Staff Engineer",
+            "jane@example.com",
+            "415-555-0100",
+            "San Francisco, CA",
+            "Summary",
+            "Builds distributed systems at scale.",
+            "Employment",
+            "Staff Engineer at CloudCo (2020 - 2023)",
+            "• Architected distributed systems",
+            "• Mentored junior engineers",
+            "Education",
+            "B.S. Computer Science, Stanford, 2012",
+            "Skills",
+            "Python, Go, Kubernetes",
+        ]
+    )
 
     def _run(self) -> dict:
         mock_extract_text = MagicMock(return_value=self._RESUME_TEXT)
@@ -262,20 +268,34 @@ class TestParseResumePdfFullParse(unittest.TestCase):
 
     def test_result_has_all_required_keys(self):
         result = self._run()
-        for key in ("name", "headline", "email", "phone", "location", "linkedin",
-                    "github", "website", "summary", "skills", "experience", "education"):
+        for key in (
+            "name",
+            "headline",
+            "email",
+            "phone",
+            "location",
+            "linkedin",
+            "github",
+            "website",
+            "summary",
+            "skills",
+            "experience",
+            "education",
+        ):
             self.assertIn(key, result)
 
 
 class TestParseResumePdfNoSections(unittest.TestCase):
     """parse_resume_pdf handles a PDF with content but no recognisable section headings."""
 
-    _TEXT = "\n".join([
-        "Alex Jones",
-        "Data Scientist",
-        "alex@example.com",
-        "Built models for recommendation engines",
-    ])
+    _TEXT = "\n".join(
+        [
+            "Alex Jones",
+            "Data Scientist",
+            "alex@example.com",
+            "Built models for recommendation engines",
+        ]
+    )
 
     def _run(self) -> dict:
         mock_extract_text = MagicMock(return_value=self._TEXT)

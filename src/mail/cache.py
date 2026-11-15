@@ -40,4 +40,3 @@ class MailCache:
     def put_full(self, msg_id: str, data: dict[str, Any]) -> None:
         p = self._path("full", msg_id)
         atomic_write_json(p, data)
-

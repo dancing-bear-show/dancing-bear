@@ -40,6 +40,7 @@ handled the same way -- an assertion with an actionable message.
 PyMuPDF ships in the ``[pdf]`` extra, installed by ``make test`` (Makefile)
 and by CI's ``tests`` job (.github/workflows/ci.yml).
 """
+
 from __future__ import annotations
 
 import pathlib
@@ -65,7 +66,7 @@ _MISSING_FITZ = (
     "PyMuPDF is not installed, so these round-trip tests cannot run. This is a "
     "failure rather than a skip: a skipped run reports green while exercising "
     "none of the real-document behaviour, which is the regression this suite "
-    "exists to catch. Install it with `pip install -e \".[pdf]\"` -- `make test` "
+    'exists to catch. Install it with `pip install -e ".[pdf]"` -- `make test` '
     "and CI both request the extra."
 )
 
@@ -296,9 +297,7 @@ class CheckboxSiblingPairTests(unittest.TestCase):
         self.addCleanup(self.doc.close)
 
         self.xrefs = [
-            w.xref
-            for pno in range(self.doc.page_count)
-            for w in (self.doc[pno].widgets() or [])
+            w.xref for pno in range(self.doc.page_count) for w in (self.doc[pno].widgets() or [])
         ]
         _kind, val = self.doc.xref_get_key(self.xrefs[1], "AP/N")
         self.doc.xref_set_key(self.xrefs[1], "AP/N", val.replace("/Yes ", "/No "))

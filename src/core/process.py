@@ -19,15 +19,16 @@ So this returns a result and never raises on a non-zero exit; each caller keeps
 its own translation. ``check=True``-style behaviour stays at the call site,
 where the error message can say what the failure meant.
 """
+
 from __future__ import annotations
 
 import errno
 import subprocess  # nosec B404 - deliberate; the single call site below is B603-reviewed
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Mapping, Sequence
 
-__all__ = ["CompletedRun", "RC_NOT_FOUND", "RC_TIMEOUT", "run_binary"]
+__all__ = ["RC_NOT_FOUND", "RC_TIMEOUT", "CompletedRun", "run_binary"]
 
 # Shell conventions: 124 is timeout(1)'s exit status, 127 is "command not found".
 RC_TIMEOUT = 124

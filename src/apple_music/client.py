@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 from core.cli_errors import CLIError
 from core.http import HttpClient, HttpRequestBody
@@ -57,7 +57,9 @@ class AppleMusicClient:
         path = self._make_path(path)
         try:
             req_body = HttpRequestBody(json=json_body) if json_body is not None else None
-            resp = self._http.request(method, path, params=params, headers=self._auth_headers(), body=req_body)
+            resp = self._http.request(
+                method, path, params=params, headers=self._auth_headers(), body=req_body
+            )
         except _requests.exceptions.HTTPError as exc:
             r = exc.response
             status = r.status_code if r is not None else "?"
@@ -90,7 +92,11 @@ class AppleMusicClient:
             next_params = None  # next already encodes params
 
     def list_library_playlists(self, limit: int | None = None) -> list[dict]:
-        return list(self._paginate("me/library/playlists", params={"limit": limit} if limit else None, limit=limit))
+        return list(
+            self._paginate(
+                "me/library/playlists", params={"limit": limit} if limit else None, limit=limit
+            )
+        )
 
     def list_playlist_tracks(self, playlist_id: str, limit: int | None = None) -> list[dict]:
         path = f"me/library/playlists/{playlist_id}/tracks"
@@ -102,9 +108,16 @@ class AppleMusicClient:
 
     def search_songs(self, term: str, storefront: str, limit: int = 5) -> list[dict]:
         params = {"term": term, "types": "songs", "limit": limit}
-        return self._get(f"catalog/{storefront}/search", params=params).get("results", {}).get("songs", {}).get("data", [])
+        return (
+            self._get(f"catalog/{storefront}/search", params=params)
+            .get("results", {})
+            .get("songs", {})
+            .get("data", [])
+        )
 
-    def create_playlist(self, name: str, tracks: list[dict], description: str | None = None) -> dict:
+    def create_playlist(
+        self, name: str, tracks: list[dict], description: str | None = None
+    ) -> dict:
         attrs: dict[str, str] = {"name": name}
         if description:
             attrs["description"] = description

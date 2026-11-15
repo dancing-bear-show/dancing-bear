@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import re
 import time
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from core.fileutil import atomic_write_json, safe_load_json
@@ -22,9 +22,9 @@ def _queue_path() -> Path:
 @dataclass
 class ScheduledItem:
     provider: str  # e.g., 'gmail'
-    profile: str   # e.g., 'gmail_personal'
-    due_at: int    # epoch seconds (local time interpreted when parsed)
-    raw_b64: str   # base64-encoded EmailMessage bytes
+    profile: str  # e.g., 'gmail_personal'
+    due_at: int  # epoch seconds (local time interpreted when parsed)
+    raw_b64: str  # base64-encoded EmailMessage bytes
     thread_id: str | None = None
     to: str | None = None
     subject: str | None = None
@@ -51,7 +51,9 @@ def enqueue(item: ScheduledItem) -> None:
     _save_queue(items)
 
 
-def pop_due(now_ts: int | None = None, *, profile: str | None = None, limit: int | None = None) -> list[dict]:
+def pop_due(
+    now_ts: int | None = None, *, profile: str | None = None, limit: int | None = None
+) -> list[dict]:
     now = int(now_ts or time.time())
     items = _load_queue()
     due: list[dict] = []
@@ -79,6 +81,7 @@ def parse_send_at(s: str | None) -> int | None:
         return None
     s = s.strip()
     from datetime import datetime
+
     fmts = [
         "%Y-%m-%d %H:%M",
         "%Y-%m-%d %H:%M:%S",

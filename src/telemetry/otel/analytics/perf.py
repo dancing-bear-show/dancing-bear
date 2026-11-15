@@ -35,9 +35,7 @@ def _parse_token_attribute(attr: OTLPAttribute, event_dict: dict) -> None:
         pass
 
 
-def _process_api_request(
-    event: OTLPEvent, sid: str, acc: dict, api_requests: list[dict]
-) -> None:
+def _process_api_request(event: OTLPEvent, sid: str, acc: dict, api_requests: list[dict]) -> None:
     """Process an api_request event for cost and perf data."""
     event_dict = {
         "timestamp": event.timestamp,
@@ -98,11 +96,7 @@ def _new_perf_accumulator() -> dict:
 
 def get_session_id(event: OTLPEvent) -> str:
     """Extract session ID from an event."""
-    return (
-        event.get_attr("session.id")
-        or event.get_attr("session_id")
-        or "unknown"
-    )
+    return event.get_attr("session.id") or event.get_attr("session_id") or "unknown"
 
 
 def _process_user_prompt(acc: dict) -> None:
@@ -118,9 +112,7 @@ _EVENT_DISPATCH = {
 }
 
 
-def _dispatch_event(
-    event: OTLPEvent, sid: str, acc: dict, api_requests: list[dict]
-) -> None:
+def _dispatch_event(event: OTLPEvent, sid: str, acc: dict, api_requests: list[dict]) -> None:
     """Dispatch a single event to the appropriate handler."""
     body = event.body
     for key, handler in _EVENT_DISPATCH.items():

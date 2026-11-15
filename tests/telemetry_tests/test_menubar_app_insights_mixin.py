@@ -3,6 +3,7 @@
 All assertions pin formatted output strings on SimpleNamespace row objects.
 No mock call counts; no network access.
 """
+
 from __future__ import annotations
 
 import unittest
@@ -93,26 +94,30 @@ class TestRenderInsightsWithProjectPath(unittest.TestCase):
 
     def test_header_includes_project_label(self):
         host = _make_host()
-        host._render_insights({
-            "project_path": "/Users/user/projects/my-project",
-            "efficiency_score": 78.5,
-            "waste_summary": {"avoidable": 3, "review": 5},
-            "cost_usd": 1.234,
-            "cost_is_estimated": False,
-            "tips": [],
-        })
+        host._render_insights(
+            {
+                "project_path": "/Users/user/projects/my-project",
+                "efficiency_score": 78.5,
+                "waste_summary": {"avoidable": 3, "review": 5},
+                "cost_usd": 1.234,
+                "cost_is_estimated": False,
+                "tips": [],
+            }
+        )
         self.assertEqual(host._hdr_insights.title, "-- Insights (project) --")
 
     def test_summary_line_format(self):
         host = _make_host()
-        host._render_insights({
-            "project_path": "/Users/user/projects/my-project",
-            "efficiency_score": 78.5,
-            "waste_summary": {"avoidable": 3, "review": 5},
-            "cost_usd": 1.234,
-            "cost_is_estimated": False,
-            "tips": [],
-        })
+        host._render_insights(
+            {
+                "project_path": "/Users/user/projects/my-project",
+                "efficiency_score": 78.5,
+                "waste_summary": {"avoidable": 3, "review": 5},
+                "cost_usd": 1.234,
+                "cost_is_estimated": False,
+                "tips": [],
+            }
+        )
         self.assertEqual(
             host._info_insights_summary.title,
             "  Eff 78%  |  3 avoid / 5 review  |  $1.23",
@@ -124,26 +129,30 @@ class TestRenderInsightsNoProjectPath(unittest.TestCase):
 
     def test_header_shows_current_session(self):
         host = _make_host()
-        host._render_insights({
-            "project_path": None,
-            "efficiency_score": 50.0,
-            "waste_summary": {"avoidable": 1, "review": 2},
-            "cost_usd": 0.5,
-            "cost_is_estimated": True,
-            "tips": [],
-        })
+        host._render_insights(
+            {
+                "project_path": None,
+                "efficiency_score": 50.0,
+                "waste_summary": {"avoidable": 1, "review": 2},
+                "cost_usd": 0.5,
+                "cost_is_estimated": True,
+                "tips": [],
+            }
+        )
         self.assertEqual(host._hdr_insights.title, "-- Insights (current session) --")
 
     def test_summary_estimated_cost_prefix(self):
         host = _make_host()
-        host._render_insights({
-            "project_path": None,
-            "efficiency_score": 50.0,
-            "waste_summary": {"avoidable": 1, "review": 2},
-            "cost_usd": 0.5,
-            "cost_is_estimated": True,
-            "tips": [],
-        })
+        host._render_insights(
+            {
+                "project_path": None,
+                "efficiency_score": 50.0,
+                "waste_summary": {"avoidable": 1, "review": 2},
+                "cost_usd": 0.5,
+                "cost_is_estimated": True,
+                "tips": [],
+            }
+        )
         # _format_cost prepends '~' for estimated costs
         self.assertIn("~$0.50", host._info_insights_summary.title)
 
@@ -167,67 +176,129 @@ class TestRenderInsightsTips(unittest.TestCase):
         return host
 
     def test_avoidable_severity_uses_x_icon(self):
-        host = self._host_with_tips([
-            {"severity": "avoidable", "count": 5, "waste_reason": "re-reads",
-             "cost_impact": 0.12, "claude_rule": "", "fix_hint": ""},
-        ])
+        host = self._host_with_tips(
+            [
+                {
+                    "severity": "avoidable",
+                    "count": 5,
+                    "waste_reason": "re-reads",
+                    "cost_impact": 0.12,
+                    "claude_rule": "",
+                    "fix_hint": "",
+                },
+            ]
+        )
         self.assertIn("✗", host._insights_tip_rows[0].title)
 
     def test_non_avoidable_severity_uses_warning_icon(self):
-        host = self._host_with_tips([
-            {"severity": "warning", "count": 3, "waste_reason": "long chains",
-             "cost_impact": 0.05, "claude_rule": "", "fix_hint": ""},
-        ])
+        host = self._host_with_tips(
+            [
+                {
+                    "severity": "warning",
+                    "count": 3,
+                    "waste_reason": "long chains",
+                    "cost_impact": 0.05,
+                    "claude_rule": "",
+                    "fix_hint": "",
+                },
+            ]
+        )
         self.assertIn("⚠", host._insights_tip_rows[0].title)
 
     def test_tip_row_title_format(self):
-        host = self._host_with_tips([
-            {"severity": "avoidable", "count": 5, "waste_reason": "redundant re-reads",
-             "cost_impact": 0.12, "claude_rule": "Always read before write", "fix_hint": ""},
-        ])
+        host = self._host_with_tips(
+            [
+                {
+                    "severity": "avoidable",
+                    "count": 5,
+                    "waste_reason": "redundant re-reads",
+                    "cost_impact": 0.12,
+                    "claude_rule": "Always read before write",
+                    "fix_hint": "",
+                },
+            ]
+        )
         self.assertEqual(
             host._insights_tip_rows[0].title,
             "  ✗ 5× redundant re-reads  ·  saves ~$0.12",
         )
 
     def test_tip_row_not_hidden_when_data_present(self):
-        host = self._host_with_tips([
-            {"severity": "avoidable", "count": 1, "waste_reason": "x", "cost_impact": 0.0,
-             "claude_rule": "", "fix_hint": ""},
-        ])
+        host = self._host_with_tips(
+            [
+                {
+                    "severity": "avoidable",
+                    "count": 1,
+                    "waste_reason": "x",
+                    "cost_impact": 0.0,
+                    "claude_rule": "",
+                    "fix_hint": "",
+                },
+            ]
+        )
         self.assertFalse(host._insights_tip_rows[0].hidden)
 
     def test_extra_tip_rows_hidden(self):
-        host = self._host_with_tips([
-            {"severity": "avoidable", "count": 1, "waste_reason": "x", "cost_impact": 0.0,
-             "claude_rule": "", "fix_hint": ""},
-        ])
+        host = self._host_with_tips(
+            [
+                {
+                    "severity": "avoidable",
+                    "count": 1,
+                    "waste_reason": "x",
+                    "cost_impact": 0.0,
+                    "claude_rule": "",
+                    "fix_hint": "",
+                },
+            ]
+        )
         # Rows beyond the single tip should be hidden
         for i in range(1, _NUM_TIPS):
             with self.subTest(row=i):
                 self.assertTrue(host._insights_tip_rows[i].hidden)
 
     def test_tip_hints_populated_for_present_rows(self):
-        host = self._host_with_tips([
-            {"severity": "avoidable", "count": 5, "waste_reason": "re-reads",
-             "cost_impact": 0.12, "claude_rule": "Read rule", "fix_hint": "hint text"},
-        ])
+        host = self._host_with_tips(
+            [
+                {
+                    "severity": "avoidable",
+                    "count": 5,
+                    "waste_reason": "re-reads",
+                    "cost_impact": 0.12,
+                    "claude_rule": "Read rule",
+                    "fix_hint": "hint text",
+                },
+            ]
+        )
         hint = host._insights_tip_hints[0]
         self.assertEqual(hint["waste_reason"], "re-reads")
         self.assertEqual(hint["claude_rule"], "Read rule")
         self.assertEqual(hint["fix_hint"], "hint text")
 
     def test_tip_hints_empty_for_absent_rows(self):
-        host = self._host_with_tips([
-            {"severity": "avoidable", "count": 1, "waste_reason": "x",
-             "cost_impact": 0.0, "claude_rule": "", "fix_hint": ""},
-        ])
+        host = self._host_with_tips(
+            [
+                {
+                    "severity": "avoidable",
+                    "count": 1,
+                    "waste_reason": "x",
+                    "cost_impact": 0.0,
+                    "claude_rule": "",
+                    "fix_hint": "",
+                },
+            ]
+        )
         self.assertEqual(host._insights_tip_hints[1], {})
 
     def test_max_tips_limits_rendered_count(self):
         tips = [
-            {"severity": "warning", "count": i, "waste_reason": f"reason{i}",
-             "cost_impact": 0.01, "claude_rule": "", "fix_hint": ""}
+            {
+                "severity": "warning",
+                "count": i,
+                "waste_reason": f"reason{i}",
+                "cost_impact": 0.01,
+                "claude_rule": "",
+                "fix_hint": "",
+            }
             for i in range(_NUM_TIPS)
         ]
         host = self._host_with_tips(tips, max_tips=3)
@@ -250,14 +321,16 @@ class TestRenderInsightsWasteSummaryNotDict(unittest.TestCase):
 
     def test_non_dict_waste_summary_defaults_to_zero_counts(self):
         host = _make_host()
-        host._render_insights({
-            "project_path": None,
-            "efficiency_score": 40.0,
-            "waste_summary": "invalid",
-            "cost_usd": 0.0,
-            "cost_is_estimated": False,
-            "tips": [],
-        })
+        host._render_insights(
+            {
+                "project_path": None,
+                "efficiency_score": 40.0,
+                "waste_summary": "invalid",
+                "cost_usd": 0.0,
+                "cost_is_estimated": False,
+                "tips": [],
+            }
+        )
         self.assertIn("0 avoid / 0 review", host._info_insights_summary.title)
 
 
@@ -332,6 +405,7 @@ class TestMakeTipClickHandler(unittest.TestCase):
     def test_rule_present_shows_alert_and_copies_on_confirm(self):
         """When claude_rule is set, handler shows a rumps alert; user clicks Copy."""
         from unittest.mock import MagicMock
+
         host = _make_host()
         host._insights_tip_hints = [
             {"waste_reason": "re-reads", "claude_rule": "Always read once", "fix_hint": ""},
@@ -355,6 +429,7 @@ class TestMakeTipClickHandler(unittest.TestCase):
     def test_rule_present_no_copy_on_cancel(self):
         """When the user dismisses the alert (response != 1), nothing is copied."""
         from unittest.mock import MagicMock
+
         host = _make_host()
         host._insights_tip_hints = [
             {"waste_reason": "re-reads", "claude_rule": "Always read once", "fix_hint": ""},

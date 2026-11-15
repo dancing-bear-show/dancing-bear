@@ -32,9 +32,7 @@ def find_cfgutil_path() -> str:
     alt = "/Applications/Apple Configurator.app/Contents/MacOS/cfgutil"
     if Path(alt).exists():
         return alt
-    raise FileNotFoundError(
-        "cfgutil not found; install Apple Configurator or add cfgutil to PATH"
-    )
+    raise FileNotFoundError("cfgutil not found; install Apple Configurator or add cfgutil to PATH")
 
 
 def _extract_ecid_from_parts(parts: list[str]) -> str:
@@ -55,9 +53,7 @@ def _extract_ecid_from_parts(parts: list[str]) -> str:
 def map_udid_to_ecid(cfgutil: str, udid: str) -> str:
     """Map a device UDID to its ECID via cfgutil list."""
     try:
-        out = subprocess.check_output(
-            [cfgutil, "list"], stderr=subprocess.STDOUT, text=True
-        )  # nosec B603 - cfgutil from find_cfgutil_path()
+        out = subprocess.check_output([cfgutil, "list"], stderr=subprocess.STDOUT, text=True)  # nosec B603 - cfgutil from find_cfgutil_path()
     except Exception as e:
         raise RuntimeError(f"cfgutil list failed: {e}")
     for line in out.splitlines():
@@ -147,11 +143,7 @@ def _parse_plist_page_item(it: Any) -> tuple[str | None, dict[str, Any] | None]:
     """
     if isinstance(it, dict) and "iconLists" in it and "displayName" in it:
         name = it.get("displayName") or "Folder"
-        flist = [
-            bid
-            for sub in (it.get("iconLists") or [[]])[0]
-            if (bid := _get_bundle_id(sub))
-        ]
+        flist = [bid for sub in (it.get("iconLists") or [[]])[0] if (bid := _get_bundle_id(sub))]
         return None, {"name": name, "apps": flist}
     bid = _get_bundle_id(it)
     return (bid, None) if bid else (None, None)
@@ -175,11 +167,7 @@ def _parse_one_page(
 def _parse_list_format(data: list) -> dict[str, Any]:
     """Parse cfgutil JSON list format: [dock, page1, page2, ...]."""
     dock = [s for s in (data[0] or []) if isinstance(s, str)]
-    pages = [
-        _parse_one_page(page, _parse_page_item)
-        for page in data[1:]
-        if isinstance(page, list)
-    ]
+    pages = [_parse_one_page(page, _parse_page_item) for page in data[1:] if isinstance(page, list)]
     return {"dock": dock, "pages": pages}
 
 
@@ -187,8 +175,7 @@ def _parse_plist_format(data: dict) -> dict[str, Any]:
     """Parse cfgutil plist format with buttonBar/iconLists keys."""
     dock = [bid for it in (data.get("buttonBar") or []) if (bid := _get_bundle_id(it))]
     pages = [
-        _parse_one_page(page or [], _parse_plist_page_item)
-        for page in data.get("iconLists") or []
+        _parse_one_page(page or [], _parse_plist_page_item) for page in data.get("iconLists") or []
     ]
     return {"dock": dock, "pages": pages}
 

@@ -15,19 +15,21 @@ from core.cache import ConfigCacheMixin
 if TYPE_CHECKING:
     import msal as _msal_types
 from core.constants import (
+    DEFAULT_REQUEST_TIMEOUT,
     GRAPH_API_URL,
     GRAPH_DEFAULT_SCOPE,
-    DEFAULT_REQUEST_TIMEOUT,
 )
 
 # Lazy optional deps: avoid importing on --help to prevent warnings/overhead
 msal = None
 requests = None
 
+
 def _msal():
     global msal
     if msal is None:  # pragma: no cover - optional import
         import msal as _msal
+
         msal = _msal
     return msal
 
@@ -72,6 +74,7 @@ def _requests():
     global requests, _requests_wrapper
     if _requests_wrapper is None:  # pragma: no cover - optional import
         import requests as _req
+
         requests = _req
         _requests_wrapper = _TimeoutRequestsWrapper(_req, DEFAULT_REQUEST_TIMEOUT)
     return _requests_wrapper
@@ -123,8 +126,7 @@ class OutlookClientBase(ConfigCacheMixin):
                 self._token = tok
                 self._cache = cache
                 self._app = _msal().PublicClientApplication(
-                    self.client_id,
-                    authority=f"https://login.microsoftonline.com/{self.tenant}"
+                    self.client_id, authority=f"https://login.microsoftonline.com/{self.tenant}"
                 )
                 return True
         except Exception:  # nosec B110 - malformed legacy token, fall through
@@ -145,7 +147,7 @@ class OutlookClientBase(ConfigCacheMixin):
         if result and "access_token" in result:
             self._token = {
                 "access_token": result["access_token"],
-                "expires_at": time.time() + int(result.get("expires_in", 3600))
+                "expires_at": time.time() + int(result.get("expires_in", 3600)),
             }
             self._cache = cache
             self._app = app
@@ -165,7 +167,7 @@ class OutlookClientBase(ConfigCacheMixin):
         if not (self.token_path and os.path.exists(self.token_path)):
             return False
         try:
-            with open(self.token_path, "r", encoding="utf-8") as f:
+            with open(self.token_path, encoding="utf-8") as f:
                 data = f.read()
             try:
                 cache.deserialize(data)
@@ -186,7 +188,7 @@ class OutlookClientBase(ConfigCacheMixin):
             raise RuntimeError(f"Device flow failed: {result}")
         self._token = {
             "access_token": result["access_token"],
-            "expires_at": time.time() + int(result.get("expires_in", 3600))
+            "expires_at": time.time() + int(result.get("expires_in", 3600)),
         }
         self._cache = cache
         self._app = app
@@ -220,7 +222,7 @@ class OutlookClientBase(ConfigCacheMixin):
             if res and "access_token" in res:
                 self._token = {
                     "access_token": res["access_token"],
-                    "expires_at": time.time() + int(res.get("expires_in", 3600))
+                    "expires_at": time.time() + int(res.get("expires_in", 3600)),
                 }
                 if self._cache:
                     self._save_token_cache(self._cache)
@@ -233,7 +235,7 @@ class OutlookClientBase(ConfigCacheMixin):
         self._refresh_token_silent()
         return {
             "Authorization": f"Bearer {self._token['access_token']}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
 
     def _headers_search(self) -> dict[str, str]:

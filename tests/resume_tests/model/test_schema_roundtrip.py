@@ -27,7 +27,6 @@ from resume.schema import (
     SkillGroup,
     SkillGroupItem,
 )
-
 from tests.resume_tests.fixtures import (
     SAMPLE_CANDIDATE_WITH_GROUPS,
     make_candidate,
@@ -68,17 +67,13 @@ class TestSectionRoundTrip(RoundTripMixin, unittest.TestCase):
     """Each section survives dict -> dataclass -> dict unchanged."""
 
     def test_experience_section_round_trips(self):
-        data = make_candidate(
-            experience=[make_experience_entry(bullets=[{"text": "Shipped it"}])]
-        )
+        data = make_candidate(experience=[make_experience_entry(bullets=[{"text": "Shipped it"}])])
         resume = self.assert_round_trips(data)
         self.assertIsInstance(resume.experience[0], ExperienceEntry)
         self.assertEqual(resume.experience[0].company, "TechCorp")
 
     def test_skills_groups_section_round_trips(self):
-        data = make_candidate(
-            skills_groups=[make_skills_group(items=[{"name": "Python"}])]
-        )
+        data = make_candidate(skills_groups=[make_skills_group(items=[{"name": "Python"}])])
         resume = self.assert_round_trips(data)
         self.assertIsInstance(resume.skills_groups[0], SkillGroup)
         self.assertIsInstance(resume.skills_groups[0].items[0], SkillGroupItem)
@@ -94,9 +89,7 @@ class TestSectionRoundTrip(RoundTripMixin, unittest.TestCase):
         self.assertEqual(out["name"], data["name"])
         self.assertEqual(out["skills_groups"], data["skills_groups"])
         for emitted, source in zip(out["experience"], data["experience"], strict=True):
-            self.assertEqual(
-                emitted["bullets"], [{"text": b} for b in source["bullets"]]
-            )
+            self.assertEqual(emitted["bullets"], [{"text": b} for b in source["bullets"]])
             self.assertEqual(
                 {k: v for k, v in emitted.items() if k != "bullets"},
                 {k: v for k, v in source.items() if k != "bullets"},
@@ -111,9 +104,7 @@ class TestSectionRoundTrip(RoundTripMixin, unittest.TestCase):
 
     def test_presentations_section_round_trips(self):
         data = {
-            "presentations": [
-                {"title": "A Talk", "event": "ConfX", "authors": "A, B", "link": "u"}
-            ]
+            "presentations": [{"title": "A Talk", "event": "ConfX", "authors": "A, B", "link": "u"}]
         }
         resume = self.assert_round_trips(data)
         self.assertEqual(resume.presentations[0].event, "ConfX")
@@ -173,9 +164,7 @@ class TestUnknownKeyPreservation(RoundTripMixin, unittest.TestCase):
                     "bullets": [{"text": "b", "bullet_unknown": 3}],
                 }
             ],
-            "skills_groups": [
-                {"title": "G", "items": [{"name": "P", "item_unknown": 4}]}
-            ],
+            "skills_groups": [{"title": "G", "items": [{"name": "P", "item_unknown": 4}]}],
         }
         self.assert_round_trips(data)
 
@@ -204,8 +193,7 @@ class TestKeyOrderAndPresence(RoundTripMixin, unittest.TestCase):
         """Real skills_groups items vary in carrying ``priority``."""
         data = {
             "skills_groups": [
-                {"title": "G", "items": [{"name": "With", "priority": 2.0},
-                                         {"name": "Without"}]}
+                {"title": "G", "items": [{"name": "With", "priority": 2.0}, {"name": "Without"}]}
             ]
         }
         resume = self.assert_round_trips(data)
@@ -235,11 +223,7 @@ class TestAlternateSpellings(RoundTripMixin, unittest.TestCase):
         self.assertEqual(resume.interests[0].text, "Cycling")
 
     def test_skill_group_item_accepts_title_and_label_spellings(self):
-        data = {
-            "skills_groups": [
-                {"title": "G", "items": [{"title": "Alpha"}, {"label": "Beta"}]}
-            ]
-        }
+        data = {"skills_groups": [{"title": "G", "items": [{"title": "Alpha"}, {"label": "Beta"}]}]}
         resume = self.assert_round_trips(data)
         names = [i.name for i in resume.skills_groups[0].items]
         self.assertEqual(names, ["Alpha", "Beta"])
@@ -272,9 +256,9 @@ class TestSectionSpecificNameSpellings(RoundTripMixin, unittest.TestCase):
         self.assertEqual(resume.languages[0].name, "Spanish")
 
     def test_language_spelling_replays_as_language_not_name(self):
-        emitted = Resume.from_dict(
-            {"languages": [{"language": "Spanish"}]}
-        ).to_dict()["languages"][0]
+        emitted = Resume.from_dict({"languages": [{"language": "Spanish"}]}).to_dict()["languages"][
+            0
+        ]
         self.assertIn("language", emitted)
         self.assertNotIn("name", emitted)
 
@@ -359,14 +343,10 @@ class TestLegacyUpgrades(unittest.TestCase):
         """
         resume = Resume.from_dict({"summary": [{"text": "One line of summary."}]})
         self.assertFalse(resume.summary_is_scalar)
-        self.assertEqual(
-            resume.to_dict(), {"summary": [{"text": "One line of summary."}]}
-        )
+        self.assertEqual(resume.to_dict(), {"summary": [{"text": "One line of summary."}]})
 
     def test_string_bullets_become_priority_items(self):
-        data = make_candidate(
-            experience=[make_experience_entry(bullets=["Shipped X", "Fixed Y"])]
-        )
+        data = make_candidate(experience=[make_experience_entry(bullets=["Shipped X", "Fixed Y"])])
         resume = Resume.from_dict(data)
         bullets = resume.experience[0].bullets
         self.assertIsInstance(bullets[0], PriorityItem)
@@ -376,9 +356,7 @@ class TestLegacyUpgrades(unittest.TestCase):
     def test_upgraded_bullets_emit_text_only(self):
         """The default priority is not invented onto an upgraded bullet."""
         resume = Resume.from_dict({"experience": [{"bullets": ["only text"]}]})
-        self.assertEqual(
-            resume.to_dict(), {"experience": [{"bullets": [{"text": "only text"}]}]}
-        )
+        self.assertEqual(resume.to_dict(), {"experience": [{"bullets": [{"text": "only text"}]}]})
 
 
 class TestContactPromotion(unittest.TestCase):
@@ -806,9 +784,7 @@ class TestRejectsAmbiguousSpellings(RoundTripMixin, unittest.TestCase):
 
     def test_rejects_skill_item_carrying_name_title_and_label(self):
         data = {
-            "skills_groups": [
-                {"title": "G", "items": [{"name": "N", "title": "T", "label": "L"}]}
-            ]
+            "skills_groups": [{"title": "G", "items": [{"name": "N", "title": "T", "label": "L"}]}]
         }
         resume = self.assert_round_trips(data)
         item = resume.skills_groups[0].items[0]

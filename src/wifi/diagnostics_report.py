@@ -1,4 +1,5 @@
 """Wifi diagnostic report derivation and rendering."""
+
 from __future__ import annotations
 
 import dataclasses
@@ -64,20 +65,26 @@ def _check_gateway_health(gateway_ping: PingResult | None, icmp_filtered: bool) 
     if gateway_ping is None:
         return ["Gateway not detected; verify you are connected to Wi-Fi."]
     if gateway_ping.loss_pct is None or gateway_ping.loss_pct >= 20:
-        return [f"Wi-Fi link looks unstable ({gateway_ping.loss_pct or 100:.1f}% loss to gateway). Check interference or move closer."]
+        return [
+            f"Wi-Fi link looks unstable ({gateway_ping.loss_pct or 100:.1f}% loss to gateway). Check interference or move closer."
+        ]
     if gateway_ping.avg_ms and gateway_ping.avg_ms > 50:
         return [f"Wi-Fi link latency is high (avg {gateway_ping.avg_ms:.1f} ms to gateway)."]
     return []
 
 
-def _check_upstream_health(upstream: list[PingResult], gateway_ping: PingResult | None) -> list[str]:
+def _check_upstream_health(
+    upstream: list[PingResult], gateway_ping: PingResult | None
+) -> list[str]:
     """Check upstream ping health, return findings."""
     if not upstream:
         return []
     worst = max(upstream, key=lambda p: p.loss_pct or -1)
     gateway_ok = gateway_ping and (gateway_ping.loss_pct or 0) < 5
     if worst.loss_pct is not None and worst.loss_pct >= 10 and gateway_ok:
-        return [f"Backhaul/ISP loss detected ({worst.loss_pct:.1f}% to {worst.label}). Gateway looks fine, so upstream is suspect."]
+        return [
+            f"Backhaul/ISP loss detected ({worst.loss_pct:.1f}% to {worst.label}). Gateway looks fine, so upstream is suspect."
+        ]
     gateway_latency_ok = not gateway_ping or not gateway_ping.avg_ms or gateway_ping.avg_ms < 50
     if worst.avg_ms and worst.avg_ms > 120 and gateway_latency_ok:
         return [f"High internet latency (avg {worst.avg_ms:.1f} ms to {worst.label})."]
@@ -111,7 +118,9 @@ def derive_findings(results: DiagnoseResults) -> list[str]:
 
     findings: list[str] = []
     if results.icmp_filtered:
-        findings.append("Gateway ICMP likely filtered; judging health via trace/HTTP instead of ping loss.")
+        findings.append(
+            "Gateway ICMP likely filtered; judging health via trace/HTTP instead of ping loss."
+        )
 
     findings.extend(_check_gateway_health(gateway_ping, results.icmp_filtered))
     findings.extend(_check_upstream_health(upstream, gateway_ping))
@@ -173,7 +182,11 @@ def _detect_icmp_filtered(survey_results: list[PingResult], trace: TraceResult |
     survey_upstream = [p for p in survey_results if not p.label.startswith("survey-gateway")]
     gateway_loss = survey_gateway.loss_pct if survey_gateway else None
     upstream_any_ok = any((p.loss_pct is None or p.loss_pct < 80) for p in survey_upstream)
-    if gateway_loss is not None and gateway_loss >= 90 and (upstream_any_ok or (trace and trace.success)):
+    if (
+        gateway_loss is not None
+        and gateway_loss >= 90
+        and (upstream_any_ok or (trace and trace.success))
+    ):
         return True
     return False
 

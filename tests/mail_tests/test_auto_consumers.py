@@ -101,9 +101,7 @@ class TestAutoSummaryConsumer(unittest.TestCase):
     """Tests for AutoSummaryConsumer."""
 
     def _write_proposal(self, data: dict) -> Path:
-        tmp = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False, encoding="utf-8"
-        )
+        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8")
         json.dump(data, tmp)
         tmp.close()
         path = Path(tmp.name)
@@ -144,9 +142,7 @@ class TestAutoApplyConsumer(unittest.TestCase):
         return make_mock_mail_context()
 
     def _write_proposal(self, data: dict) -> Path:
-        tmp = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False, encoding="utf-8"
-        )
+        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8")
         json.dump(data, tmp)
         tmp.close()
         path = Path(tmp.name)

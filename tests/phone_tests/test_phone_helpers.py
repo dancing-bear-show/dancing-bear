@@ -1,4 +1,5 @@
 """Tests for phone/helpers.py — layout load helpers."""
+
 from __future__ import annotations
 
 import tempfile
@@ -104,7 +105,9 @@ class TestLayoutFromExport(unittest.TestCase):
 
         export = {
             "dock": [None, "com.dock", 7],
-            "pages": [{"apps": ["", "com.app1", 3], "folders": [{"name": "W", "apps": [None, "com.w"]}]}],
+            "pages": [
+                {"apps": ["", "com.app1", 3], "folders": [{"name": "W", "apps": [None, "com.w"]}]}
+            ],
         }
         layout = _layout_from_export(export)
         self.assertEqual(layout.dock, ["com.dock"])
@@ -125,7 +128,10 @@ class TestLayoutFromExport(unittest.TestCase):
         self.assertEqual(layout.dock, ["com.example.dock"])
         self.assertEqual(
             layout.pages[0],
-            [{"kind": "app", "id": "com.example.app"}, {"kind": "folder", "name": "W", "apps": ["com.w"]}],
+            [
+                {"kind": "app", "id": "com.example.app"},
+                {"kind": "folder", "name": "W", "apps": ["com.w"]},
+            ],
         )
 
     def test_layout_from_export_non_sequence_scalars_read_as_empty(self):
@@ -174,13 +180,15 @@ class TestLoadLayout(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as tmp:
             layout_file = Path(tmp) / "layout.yaml"
-            layout_file.write_text("dock:\n  - com.apple.safari\npages:\n  - apps:\n      - com.app1\n    folders: []\n")
+            layout_file.write_text(
+                "dock:\n  - com.apple.safari\npages:\n  - apps:\n      - com.app1\n    folders: []\n"
+            )
             with patch("phone.helpers._load_yaml", return_value=export_data):
                 layout = load_layout(str(layout_file), None)
                 self.assertEqual(layout.dock, ["com.apple.safari"])
 
     def test_load_layout_no_backup_raises(self):
-        from phone.helpers import load_layout, LayoutLoadError
+        from phone.helpers import LayoutLoadError, load_layout
 
         with patch("phone.helpers.find_latest_backup_dir", return_value=None):
             with self.assertRaises(LayoutLoadError) as ctx:
@@ -188,7 +196,7 @@ class TestLoadLayout(unittest.TestCase):
             self.assertEqual(ctx.exception.code, 2)
 
     def test_load_layout_backup_not_found_raises(self):
-        from phone.helpers import load_layout, LayoutLoadError
+        from phone.helpers import LayoutLoadError, load_layout
 
         fake_dir = Path("/nonexistent/backup")
         with patch("phone.helpers.find_latest_backup_dir", return_value=fake_dir):
@@ -197,12 +205,14 @@ class TestLoadLayout(unittest.TestCase):
             self.assertEqual(ctx.exception.code, 2)
 
     def test_load_layout_no_iconstate_file_raises(self):
-        from phone.helpers import load_layout, LayoutLoadError
+        from phone.helpers import LayoutLoadError, load_layout
 
         with tempfile.TemporaryDirectory() as tmp:
             backup_dir = Path(tmp)
-            with patch("phone.helpers.find_latest_backup_dir", return_value=backup_dir), \
-                 patch("phone.helpers.find_iconstate_file", return_value=None):
+            with (
+                patch("phone.helpers.find_latest_backup_dir", return_value=backup_dir),
+                patch("phone.helpers.find_iconstate_file", return_value=None),
+            ):
                 with self.assertRaises(LayoutLoadError) as ctx:
                     load_layout(None, None)
                 self.assertEqual(ctx.exception.code, 3)
@@ -216,10 +226,12 @@ class TestLoadLayout(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             backup_dir = Path(tmp)
-            with patch("phone.helpers.find_latest_backup_dir", return_value=backup_dir), \
-                 patch("phone.helpers.find_iconstate_file", return_value=mock_iconfile), \
-                 patch("phone.helpers.load_plist", return_value={}), \
-                 patch("phone.helpers.normalize_iconstate", return_value=mock_layout):
+            with (
+                patch("phone.helpers.find_latest_backup_dir", return_value=backup_dir),
+                patch("phone.helpers.find_iconstate_file", return_value=mock_iconfile),
+                patch("phone.helpers.load_plist", return_value={}),
+                patch("phone.helpers.normalize_iconstate", return_value=mock_layout),
+            ):
                 result = load_layout(None, None)
                 self.assertIs(result, mock_layout)
 

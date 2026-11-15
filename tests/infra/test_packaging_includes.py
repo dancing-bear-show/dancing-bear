@@ -50,10 +50,7 @@ class TestPackagingIncludeCoversAllSrcPackages(unittest.TestCase):
         for package in packages:
             # find's include patterns are fnmatch-style ("name*"); a bare
             # "name" or "name*" entry both cover the top-level package dir.
-            covered = any(
-                pattern == package or pattern == f"{package}*"
-                for pattern in include
-            )
+            covered = any(pattern == package or pattern == f"{package}*" for pattern in include)
             if not covered:
                 missing.add(package)
 

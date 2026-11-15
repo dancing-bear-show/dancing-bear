@@ -17,6 +17,7 @@ class TestDeskAgenticContract(AgenticBuilderContractMixin, unittest.TestCase):
 class TestEmitAgenticContext(unittest.TestCase):
     def test_compact_returns_0(self):
         from desk.agentic import emit_agentic_context
+
         with capture_stdout():
             rc = emit_agentic_context("text", True)
         self.assertEqual(rc, 0)
@@ -28,6 +29,7 @@ class TestEmitAgenticContext(unittest.TestCase):
         BaseAssistant's blind `except TypeError: emit_func()` retry.
         """
         from desk.agentic import emit_agentic_context
+
         for fmt in ("text", "yaml", "json"):
             with capture_stdout():
                 self.assertEqual(emit_agentic_context(fmt, False), 0)
@@ -38,6 +40,7 @@ class TestDeskCapsuleContent(unittest.TestCase):
 
     def test_contains_commands(self):
         from desk.agentic import build_agentic_capsule
+
         result = build_agentic_capsule()
         self.assertIn("scan", result)
         self.assertIn("plan", result)
@@ -45,11 +48,13 @@ class TestDeskCapsuleContent(unittest.TestCase):
 
     def test_contains_purpose(self):
         from desk.agentic import build_agentic_capsule
+
         result = build_agentic_capsule()
         self.assertIn("macOS", result)
 
     def test_advertises_the_bin_wrapper(self):
         from desk.agentic import build_agentic_capsule
+
         result = build_agentic_capsule()
         # `./bin/desk-assistant` never existed; `./bin/desk` is the router
         # wrapper, which repairs a foreign PYTHONPATH like every other app's.
@@ -63,6 +68,7 @@ class TestDeskDomainMapContent(unittest.TestCase):
 
     def test_contains_top_level_files(self):
         from desk.agentic import build_domain_map
+
         result = build_domain_map()
         self.assertIn("desk/scan.py", result)
         self.assertIn("desk/planner.py", result)
@@ -71,6 +77,7 @@ class TestDeskDomainMapContent(unittest.TestCase):
 class TestFlowMap(unittest.TestCase):
     def test_flow_map_returns_string(self):
         from desk.agentic import _flow_map
+
         result = _flow_map()
         self.assertIsInstance(result, str)
 
@@ -78,6 +85,7 @@ class TestFlowMap(unittest.TestCase):
         # desk.cli has no build_parser(), so _get_parser() returns None and
         # _cli_path_exists always returns False → flow map is empty by default
         from desk.agentic import _flow_map
+
         with patch("desk.agentic._cli_path_exists", return_value=False):
             result = _flow_map()
         self.assertEqual(result, "")
@@ -106,6 +114,7 @@ class TestFlowMap(unittest.TestCase):
 class TestCliTree(unittest.TestCase):
     def test_cli_tree_returns_string(self):
         from desk.agentic import _cli_tree
+
         result = _cli_tree()
         self.assertIsInstance(result, str)
 
@@ -114,18 +123,22 @@ class TestCliTree(unittest.TestCase):
         # assertion that the capsule ships WITHOUT its CLI Tree. The empty
         # string was the symptom of a swallowed AttributeError, not a contract.
         from desk.agentic import _cli_tree
+
         self.assertIn("scan", _cli_tree())
 
     def test_cli_tree_is_empty_when_parser_is_none(self):
         # The genuine None-handling contract, which the test above was
         # accidentally standing in for.
         from desk.agentic import _cli_tree
+
         with patch("desk.agentic._get_parser", return_value=None):
             self.assertEqual(_cli_tree(), "")
 
     def test_cli_tree_non_empty_when_parser_provided(self):
         import argparse
+
         from desk.agentic import _cli_tree
+
         fake_parser = argparse.ArgumentParser(prog="desk-assistant")
         fake_parser.add_subparsers().add_parser("scan")
         with patch("desk.agentic._get_parser", return_value=fake_parser):
@@ -142,21 +155,26 @@ class TestCliPathExists(unittest.TestCase):
         # check failed and the capsule silently shipped without its CLI Tree
         # and Flow Map. `scan` is a real desk subcommand and must be found.
         from desk.agentic import _cli_path_exists
+
         self.assertTrue(_cli_path_exists(["scan"]))
 
     def test_returns_false_for_unknown_subcommand(self):
         from desk.agentic import _cli_path_exists
+
         self.assertFalse(_cli_path_exists(["definitely-not-a-command"]))
 
     def test_returns_false_with_explicit_none_parser(self):
         from desk.agentic import _cli_path_exists
+
         with patch("desk.agentic._get_parser", return_value=None):
             result = _cli_path_exists(["scan"])
         self.assertFalse(result)
 
     def test_returns_true_when_path_found_in_parser(self):
         import argparse
+
         from desk.agentic import _cli_path_exists
+
         parser = argparse.ArgumentParser()
         parser.add_subparsers().add_parser("scan")
         with patch("desk.agentic._get_parser", return_value=parser):

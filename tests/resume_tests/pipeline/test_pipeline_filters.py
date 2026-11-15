@@ -93,11 +93,12 @@ class TestFilterPipelineChaining(unittest.TestCase):
     def test_full_chain(self):
         """Full method chain works."""
         pipeline = FilterPipeline(Resume.from_dict({"name": "Test"}))
-        with patch("resume.pipeline.apply_profile_overlays", return_value={"name": "Test"}), \
-             patch("resume.pipeline.filter_by_min_priority", return_value={"name": "Test"}):
+        with (
+            patch("resume.pipeline.apply_profile_overlays", return_value={"name": "Test"}),
+            patch("resume.pipeline.filter_by_min_priority", return_value={"name": "Test"}),
+        ):
             result = (
-                pipeline
-                .with_profile_overlays("profile")
+                pipeline.with_profile_overlays("profile")
                 .with_skill_filter(None)
                 .with_experience_filter(None)
                 .with_priority_filter(0.5)
@@ -194,9 +195,7 @@ class TestWithSkillFilter(unittest.TestCase):
     @patch("resume.pipeline.filter_skills_by_keywords")
     def test_filters_skills_by_alignment(self, mock_filter, mock_read):
         """Filters skills using alignment keywords."""
-        mock_read.return_value = {
-            "matched_keywords": [{"skill": "Python"}, {"skill": "AWS"}]
-        }
+        mock_read.return_value = {"matched_keywords": [{"skill": "Python"}, {"skill": "AWS"}]}
         mock_filter.return_value = {"skills": ["Python", "AWS"]}
 
         pipeline = FilterPipeline(Resume.from_dict({"skills": ["Python", "AWS", "Java"]}))
@@ -256,12 +255,12 @@ class TestWithExperienceFilter(unittest.TestCase):
     @patch("resume.pipeline.filter_experience_by_keywords")
     def test_filters_experience_by_alignment(self, mock_filter, mock_read):
         """Filters experience using alignment keywords."""
-        mock_read.return_value = {
-            "matched_keywords": [{"skill": "Python"}]
-        }
+        mock_read.return_value = {"matched_keywords": [{"skill": "Python"}]}
         mock_filter.return_value = {"experience": [{"title": "Python Dev"}]}
 
-        pipeline = FilterPipeline(Resume.from_dict({"experience": [{"title": "Dev"}, {"title": "Python Dev"}]}))
+        pipeline = FilterPipeline(
+            Resume.from_dict({"experience": [{"title": "Dev"}, {"title": "Python Dev"}]})
+        )
         pipeline.with_experience_filter("/alignment.json")
 
         mock_filter.assert_called_once()
@@ -271,6 +270,7 @@ class TestWithExperienceFilter(unittest.TestCase):
     def test_passes_optional_params(self, mock_filter, mock_read):
         """Passes optional params to filter function via ExperienceFilterConfig."""
         from resume.render_config import ExperienceFilterConfig
+
         mock_read.return_value = {"matched_keywords": [{"skill": "Python"}]}
         mock_filter.return_value = {"experience": []}
 

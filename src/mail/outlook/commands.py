@@ -1,81 +1,82 @@
 """Convenience orchestration helpers for Outlook commands."""
+
 from __future__ import annotations
 
 from .auth_commands import (
     run_outlook_auth_device_code,
-    run_outlook_auth_poll,
     run_outlook_auth_ensure,
+    run_outlook_auth_poll,
     run_outlook_auth_validate,
 )
-from .executor import OutlookCommandExecutor
-from .helpers import get_outlook_client, resolve_outlook_args
+
 # The pipeline classes below are referenced by name through _PIPELINES and
 # resolved via globals(), so ruff cannot see the usage. They must stay imported:
 # the table depends on them, as do tests patching mail.outlook.commands.<Class>.
 from .consumers import (  # noqa: F401
-    OutlookRulesListConsumer,
-    OutlookRulesExportConsumer,
-    OutlookRulesSyncConsumer,
-    OutlookRulesPlanConsumer,
-    OutlookRulesDeleteConsumer,
-    OutlookRulesSweepConsumer,
-    OutlookCategoriesListConsumer,
-    OutlookCategoriesExportConsumer,
-    OutlookFoldersSyncConsumer,
     OutlookCalendarAddConsumer,
-    OutlookCalendarAddRecurringConsumer,
     OutlookCalendarAddFromConfigConsumer,
+    OutlookCalendarAddRecurringConsumer,
+    OutlookCategoriesExportConsumer,
+    OutlookCategoriesListConsumer,
+    OutlookFoldersSyncConsumer,
+    OutlookRulesDeleteConsumer,
+    OutlookRulesExportConsumer,
+    OutlookRulesListConsumer,
+    OutlookRulesPlanConsumer,
+    OutlookRulesSweepConsumer,
+    OutlookRulesSyncConsumer,
+)
+from .executor import OutlookCommandExecutor
+from .helpers import get_outlook_client, resolve_outlook_args
+from .processors_calendar import (  # noqa: F401 — resolved by name via _PIPELINES
+    OutlookCalendarAddFromConfigProcessor,
+    OutlookCalendarAddProcessor,
+    OutlookCalendarAddRecurringProcessor,
+    OutlookCategoriesExportProcessor,
+    OutlookCategoriesListProcessor,
+    OutlookFoldersSyncProcessor,
 )
 from .processors_rules import (  # noqa: F401 — resolved by name via _PIPELINES
-    OutlookRulesListProcessor,
     OutlookRulesExportProcessor,
-)
-from .processors_rules_write import (  # noqa: F401 — resolved by name via _PIPELINES
-    OutlookRulesSyncProcessor,
-    OutlookRulesDeleteProcessor,
-    OutlookRulesSweepProcessor,
+    OutlookRulesListProcessor,
 )
 from .processors_rules_plan import (  # noqa: F401 — resolved by name via _PIPELINES
     OutlookRulesPlanProcessor,
 )
-from .processors_calendar import (  # noqa: F401 — resolved by name via _PIPELINES
-    OutlookCategoriesListProcessor,
-    OutlookCategoriesExportProcessor,
-    OutlookFoldersSyncProcessor,
-    OutlookCalendarAddProcessor,
-    OutlookCalendarAddRecurringProcessor,
-    OutlookCalendarAddFromConfigProcessor,
+from .processors_rules_write import (  # noqa: F401 — resolved by name via _PIPELINES
+    OutlookRulesDeleteProcessor,
+    OutlookRulesSweepProcessor,
+    OutlookRulesSyncProcessor,
 )
 from .producers import (  # noqa: F401 — resolved by name via _PIPELINES
-    OutlookRulesListProducer,
-    OutlookRulesExportProducer,
-    OutlookRulesSyncProducer,
-    OutlookRulesPlanProducer,
-    OutlookRulesDeleteProducer,
-    OutlookRulesSweepProducer,
-    OutlookCategoriesListProducer,
-    OutlookCategoriesExportProducer,
-    OutlookFoldersSyncProducer,
+    OutlookCalendarAddFromConfigProducer,
     OutlookCalendarAddProducer,
     OutlookCalendarAddRecurringProducer,
-    OutlookCalendarAddFromConfigProducer,
+    OutlookCategoriesExportProducer,
+    OutlookCategoriesListProducer,
+    OutlookFoldersSyncProducer,
+    OutlookRulesDeleteProducer,
+    OutlookRulesExportProducer,
+    OutlookRulesListProducer,
+    OutlookRulesPlanProducer,
+    OutlookRulesSweepProducer,
+    OutlookRulesSyncProducer,
 )
-
 
 # Re-export auth commands
 __all__ = [
-    'run_outlook_auth_device_code',
-    'run_outlook_auth_poll',
-    'run_outlook_auth_ensure',
-    'run_outlook_auth_validate',
+    "run_outlook_auth_device_code",
+    "run_outlook_auth_ensure",
+    "run_outlook_auth_poll",
+    "run_outlook_auth_validate",
 ]
 
 
 def _cache_kwargs(args) -> dict:
     """Consumer kwargs shared by every cache-aware read command."""
     return {
-        'use_cache': getattr(args, 'use_cache', False),
-        'cache_ttl': getattr(args, 'cache_ttl', 600),
+        "use_cache": getattr(args, "use_cache", False),
+        "cache_ttl": getattr(args, "cache_ttl", 600),
     }
 
 
@@ -83,18 +84,66 @@ def _cache_kwargs(args) -> dict:
 # strings and resolved through globals() at call time so that tests patching
 # `mail.outlook.commands.<Class>` still take effect.
 _PIPELINES: dict[str, tuple[str, str, str]] = {
-    'rules_list': ('OutlookRulesListConsumer', 'OutlookRulesListProcessor', 'OutlookRulesListProducer'),
-    'rules_export': ('OutlookRulesExportConsumer', 'OutlookRulesExportProcessor', 'OutlookRulesExportProducer'),
-    'rules_sync': ('OutlookRulesSyncConsumer', 'OutlookRulesSyncProcessor', 'OutlookRulesSyncProducer'),
-    'rules_plan': ('OutlookRulesPlanConsumer', 'OutlookRulesPlanProcessor', 'OutlookRulesPlanProducer'),
-    'rules_delete': ('OutlookRulesDeleteConsumer', 'OutlookRulesDeleteProcessor', 'OutlookRulesDeleteProducer'),
-    'rules_sweep': ('OutlookRulesSweepConsumer', 'OutlookRulesSweepProcessor', 'OutlookRulesSweepProducer'),
-    'categories_list': ('OutlookCategoriesListConsumer', 'OutlookCategoriesListProcessor', 'OutlookCategoriesListProducer'),
-    'categories_export': ('OutlookCategoriesExportConsumer', 'OutlookCategoriesExportProcessor', 'OutlookCategoriesExportProducer'),
-    'folders_sync': ('OutlookFoldersSyncConsumer', 'OutlookFoldersSyncProcessor', 'OutlookFoldersSyncProducer'),
-    'calendar_add': ('OutlookCalendarAddConsumer', 'OutlookCalendarAddProcessor', 'OutlookCalendarAddProducer'),
-    'calendar_add_recurring': ('OutlookCalendarAddRecurringConsumer', 'OutlookCalendarAddRecurringProcessor', 'OutlookCalendarAddRecurringProducer'),
-    'calendar_add_from_config': ('OutlookCalendarAddFromConfigConsumer', 'OutlookCalendarAddFromConfigProcessor', 'OutlookCalendarAddFromConfigProducer'),
+    "rules_list": (
+        "OutlookRulesListConsumer",
+        "OutlookRulesListProcessor",
+        "OutlookRulesListProducer",
+    ),
+    "rules_export": (
+        "OutlookRulesExportConsumer",
+        "OutlookRulesExportProcessor",
+        "OutlookRulesExportProducer",
+    ),
+    "rules_sync": (
+        "OutlookRulesSyncConsumer",
+        "OutlookRulesSyncProcessor",
+        "OutlookRulesSyncProducer",
+    ),
+    "rules_plan": (
+        "OutlookRulesPlanConsumer",
+        "OutlookRulesPlanProcessor",
+        "OutlookRulesPlanProducer",
+    ),
+    "rules_delete": (
+        "OutlookRulesDeleteConsumer",
+        "OutlookRulesDeleteProcessor",
+        "OutlookRulesDeleteProducer",
+    ),
+    "rules_sweep": (
+        "OutlookRulesSweepConsumer",
+        "OutlookRulesSweepProcessor",
+        "OutlookRulesSweepProducer",
+    ),
+    "categories_list": (
+        "OutlookCategoriesListConsumer",
+        "OutlookCategoriesListProcessor",
+        "OutlookCategoriesListProducer",
+    ),
+    "categories_export": (
+        "OutlookCategoriesExportConsumer",
+        "OutlookCategoriesExportProcessor",
+        "OutlookCategoriesExportProducer",
+    ),
+    "folders_sync": (
+        "OutlookFoldersSyncConsumer",
+        "OutlookFoldersSyncProcessor",
+        "OutlookFoldersSyncProducer",
+    ),
+    "calendar_add": (
+        "OutlookCalendarAddConsumer",
+        "OutlookCalendarAddProcessor",
+        "OutlookCalendarAddProducer",
+    ),
+    "calendar_add_recurring": (
+        "OutlookCalendarAddRecurringConsumer",
+        "OutlookCalendarAddRecurringProcessor",
+        "OutlookCalendarAddRecurringProducer",
+    ),
+    "calendar_add_from_config": (
+        "OutlookCalendarAddFromConfigConsumer",
+        "OutlookCalendarAddFromConfigProcessor",
+        "OutlookCalendarAddFromConfigProducer",
+    ),
 }
 
 
@@ -136,79 +185,81 @@ def _run_pipeline(
 
 
 def run_outlook_rules_list(args) -> int:
-    return _run_pipeline('rules_list', args, _cache_kwargs(args))
+    return _run_pipeline("rules_list", args, _cache_kwargs(args))
 
 
 def run_outlook_rules_export(args) -> int:
-    return _run_pipeline('rules_export', args, {'out_path': args.out, **_cache_kwargs(args)})
+    return _run_pipeline("rules_export", args, {"out_path": args.out, **_cache_kwargs(args)})
 
 
 def run_outlook_rules_sync(args) -> int:
-    if getattr(args, 'verbose', False):
+    if getattr(args, "verbose", False):
         client_id, tenant, token_path, cache_dir = resolve_outlook_args(args)
-        print(f"[outlook rules] client_id={client_id} tenant={tenant} token={token_path or '<memory>'} cache_dir={cache_dir or ''} dry_run={bool(args.dry_run)}")
+        print(
+            f"[outlook rules] client_id={client_id} tenant={tenant} token={token_path or '<memory>'} cache_dir={cache_dir or ''} dry_run={bool(args.dry_run)}"
+        )
 
-    dry_run = getattr(args, 'dry_run', False)
-    delete_missing = getattr(args, 'delete_missing', False)
-    reconcile = getattr(args, 'reconcile', False)
+    dry_run = getattr(args, "dry_run", False)
+    delete_missing = getattr(args, "delete_missing", False)
+    reconcile = getattr(args, "reconcile", False)
     return _run_pipeline(
-        'rules_sync',
+        "rules_sync",
         args,
         {
-            'config_path': args.config,
-            'dry_run': dry_run,
-            'delete_missing': delete_missing,
-            'move_to_folders': getattr(args, 'move_to_folders', False),
-            'verbose': getattr(args, 'verbose', False),
-            'reconcile': reconcile,
+            "config_path": args.config,
+            "dry_run": dry_run,
+            "delete_missing": delete_missing,
+            "move_to_folders": getattr(args, "move_to_folders", False),
+            "verbose": getattr(args, "verbose", False),
+            "reconcile": reconcile,
         },
-        {'dry_run': dry_run, 'delete_missing': delete_missing, 'reconcile': reconcile},
+        {"dry_run": dry_run, "delete_missing": delete_missing, "reconcile": reconcile},
     )
 
 
 def run_outlook_rules_plan(args) -> int:
-    reconcile = getattr(args, 'reconcile', False)
+    reconcile = getattr(args, "reconcile", False)
     return _run_pipeline(
-        'rules_plan',
+        "rules_plan",
         args,
         {
-            'config_path': args.config,
-            'move_to_folders': getattr(args, 'move_to_folders', False),
-            'reconcile': reconcile,
+            "config_path": args.config,
+            "move_to_folders": getattr(args, "move_to_folders", False),
+            "reconcile": reconcile,
             **_cache_kwargs(args),
         },
-        {'reconcile': reconcile},
+        {"reconcile": reconcile},
     )
 
 
 def run_outlook_rules_delete(args) -> int:
-    return _run_pipeline('rules_delete', args, {'rule_id': args.id})
+    return _run_pipeline("rules_delete", args, {"rule_id": args.id})
 
 
 def run_outlook_rules_sweep(args) -> int:
-    dry_run = getattr(args, 'dry_run', False)
+    dry_run = getattr(args, "dry_run", False)
     return _run_pipeline(
-        'rules_sweep',
+        "rules_sweep",
         args,
         {
-            'config_path': args.config,
-            'dry_run': dry_run,
-            'move_to_folders': getattr(args, 'move_to_folders', False),
-            'clear_cache': getattr(args, 'clear_cache', False),
-            'days': getattr(args, 'days', 30),
-            'top': getattr(args, 'top', 25),
-            'pages': getattr(args, 'pages', 2),
+            "config_path": args.config,
+            "dry_run": dry_run,
+            "move_to_folders": getattr(args, "move_to_folders", False),
+            "clear_cache": getattr(args, "clear_cache", False),
+            "days": getattr(args, "days", 30),
+            "top": getattr(args, "top", 25),
+            "pages": getattr(args, "pages", 2),
         },
-        {'dry_run': dry_run},
+        {"dry_run": dry_run},
     )
 
 
 def run_outlook_categories_list(args) -> int:
-    return _run_pipeline('categories_list', args, _cache_kwargs(args))
+    return _run_pipeline("categories_list", args, _cache_kwargs(args))
 
 
 def run_outlook_categories_export(args) -> int:
-    return _run_pipeline('categories_export', args, {'out_path': args.out, **_cache_kwargs(args)})
+    return _run_pipeline("categories_export", args, {"out_path": args.out, **_cache_kwargs(args)})
 
 
 def _create_category(client, spec: dict, name: str, dry_run: bool) -> None:
@@ -251,6 +302,7 @@ def run_outlook_categories_sync(args) -> int:
         return err
 
     from core.yamlio import load_config
+
     from ..dsl import normalize_labels_for_outlook
 
     doc = load_config(args.config)
@@ -270,29 +322,29 @@ def run_outlook_categories_sync(args) -> int:
 
 
 def run_outlook_folders_sync(args) -> int:
-    dry_run = getattr(args, 'dry_run', False)
+    dry_run = getattr(args, "dry_run", False)
     return _run_pipeline(
-        'folders_sync',
+        "folders_sync",
         args,
-        {'config_path': args.config, 'dry_run': dry_run},
-        {'dry_run': dry_run},
+        {"config_path": args.config, "dry_run": dry_run},
+        {"dry_run": dry_run},
     )
 
 
 def run_outlook_calendar_add(args) -> int:
     return _run_pipeline(
-        'calendar_add',
+        "calendar_add",
         args,
         {
-            'subject': args.subject,
-            'start_iso': args.start,
-            'end_iso': args.end,
-            'calendar_name': getattr(args, "calendar", None),
-            'tz': getattr(args, "tz", None),
-            'body_html': getattr(args, "body_html", None),
-            'all_day': getattr(args, "all_day", False),
-            'location': getattr(args, "location", None),
-            'no_reminder': getattr(args, "no_reminder", False),
+            "subject": args.subject,
+            "start_iso": args.start,
+            "end_iso": args.end,
+            "calendar_name": getattr(args, "calendar", None),
+            "tz": getattr(args, "tz", None),
+            "body_html": getattr(args, "body_html", None),
+            "all_day": getattr(args, "all_day", False),
+            "location": getattr(args, "location", None),
+            "no_reminder": getattr(args, "no_reminder", False),
         },
     )
 
@@ -307,27 +359,30 @@ def run_outlook_calendar_add_recurring(args) -> int:
 
     byday = None
     if getattr(args, "byday", None):
-        byday = [s.strip() for s in str(args.byday).split(',') if s.strip()]
+        byday = [s.strip() for s in str(args.byday).split(",") if s.strip()]
 
     return _run_pipeline(
-        'calendar_add_recurring',
+        "calendar_add_recurring",
         args,
         {
-            'subject': args.subject,
-            'start_time': args.start_time,
-            'end_time': args.end_time,
-            'repeat': args.repeat,
-            'range_start': args.range_start,
-            'calendar_name': getattr(args, "calendar", None),
-            'tz': getattr(args, "tz", None),
-            'interval': getattr(args, "interval", 1),
-            'byday': byday,
-            'until': getattr(args, "until", None),
-            'count': getattr(args, "count", None),
-            'body_html': getattr(args, "body_html", None),
-            'location': getattr(args, "location", None),
-            'exdates': [s.strip() for s in str(getattr(args, 'exdates', '') or '').split(',') if s.strip()] or None,
-            'no_reminder': getattr(args, "no_reminder", False),
+            "subject": args.subject,
+            "start_time": args.start_time,
+            "end_time": args.end_time,
+            "repeat": args.repeat,
+            "range_start": args.range_start,
+            "calendar_name": getattr(args, "calendar", None),
+            "tz": getattr(args, "tz", None),
+            "interval": getattr(args, "interval", 1),
+            "byday": byday,
+            "until": getattr(args, "until", None),
+            "count": getattr(args, "count", None),
+            "body_html": getattr(args, "body_html", None),
+            "location": getattr(args, "location", None),
+            "exdates": [
+                s.strip() for s in str(getattr(args, "exdates", "") or "").split(",") if s.strip()
+            ]
+            or None,
+            "no_reminder": getattr(args, "no_reminder", False),
         },
     )
 
@@ -344,6 +399,7 @@ def _resolve_after_date(days, after) -> str:
     """Compute 'after' ISO date from days offset if not already set."""
     if days and not after:
         import datetime
+
         return (datetime.date.today() - datetime.timedelta(days=int(days))).isoformat()
     return after
 
@@ -365,10 +421,13 @@ def run_outlook_messages_search(args) -> int:
         print("Provide --query or --sender to filter messages")
         return 1
 
-    msgs = client.search_messages(query=query, top=top, pages=pages, after=after, sender=sender, only_inbox=only_inbox)
+    msgs = client.search_messages(
+        query=query, top=top, pages=pages, after=after, sender=sender, only_inbox=only_inbox
+    )
 
     if as_json:
         from core.cli_output import emit_one
+
         emit_one(msgs)
     else:
         for m in msgs:
@@ -469,6 +528,7 @@ def run_outlook_messages_summarize(args) -> int:
     text = _extract_summarize_body_text(msg)
 
     from ..llm_adapter import summarize_text
+
     summary = summarize_text(text, max_words=max_words)
 
     output = _format_summarize_output(msg, summary)
@@ -483,10 +543,10 @@ def run_outlook_messages_summarize(args) -> int:
 
 def run_outlook_calendar_add_from_config(args) -> int:
     return _run_pipeline(
-        'calendar_add_from_config',
+        "calendar_add_from_config",
         args,
         {
-            'config_path': args.config,
-            'no_reminder': getattr(args, "no_reminder", False),
+            "config_path": args.config,
+            "no_reminder": getattr(args, "no_reminder", False),
         },
     )

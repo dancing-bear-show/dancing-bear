@@ -7,9 +7,10 @@ with properly constructed request objects from args.
 from __future__ import annotations
 
 import unittest
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 from phone.cli.main import (
@@ -168,7 +169,9 @@ CASES: list[PipelineDelegationCase] = [
         name="unused",
         patch_target="phone.cli.cmd_layout.run_pipeline",
         command=cmd_unused,
-        args=make_unused_args(layout="export.yaml", keep="/path/to/keep.txt", limit=30, format="csv"),
+        args=make_unused_args(
+            layout="export.yaml", keep="/path/to/keep.txt", limit=30, format="csv"
+        ),
         check_request=_check_unused,
     ),
     PipelineDelegationCase(

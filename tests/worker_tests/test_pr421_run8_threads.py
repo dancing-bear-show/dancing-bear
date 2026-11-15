@@ -69,8 +69,10 @@ class TestMarkerCleanupFailureDoesNotAbortRecovery(_Base):
         stale_name = self._marker_name("stale1", stale_token)
         _, token = self._claimed_with_marker("live1")
 
-        with patch.object(Path, "unlink", _fail_for(stale_name, _REAL_UNLINK)), \
-                self.assertLogs(q.__name__, "WARNING") as logs:
+        with (
+            patch.object(Path, "unlink", _fail_for(stale_name, _REAL_UNLINK)),
+            self.assertLogs(q.__name__, "WARNING") as logs,
+        ):
             requeued = q.recover_shutdown_timeout_markers(root=self.root)
 
         self.assertIn(stale_name, "\n".join(logs.output))
@@ -87,8 +89,10 @@ class TestMarkerCleanupFailureDoesNotAbortRecovery(_Base):
         self._claimed_with_marker("job2")
         name1 = self._marker_name("job1", tok1)
 
-        with patch.object(Path, "unlink", _fail_for(name1, _REAL_UNLINK)), \
-                self.assertLogs(q.__name__, "WARNING") as logs:
+        with (
+            patch.object(Path, "unlink", _fail_for(name1, _REAL_UNLINK)),
+            self.assertLogs(q.__name__, "WARNING") as logs,
+        ):
             requeued = q.recover_shutdown_timeout_markers(root=self.root)
 
         self.assertIn(name1, "\n".join(logs.output))
@@ -108,8 +112,10 @@ class TestMarkerCleanupFailureDoesNotAbortRecovery(_Base):
         p1, tok1 = self._claimed_with_marker("probe1")
         self._claimed_with_marker("probe2")
 
-        with patch.object(Path, "exists", _fail_for(p1.name, _REAL_EXISTS)), \
-                self.assertLogs(q.__name__, "WARNING") as logs:
+        with (
+            patch.object(Path, "exists", _fail_for(p1.name, _REAL_EXISTS)),
+            self.assertLogs(q.__name__, "WARNING") as logs,
+        ):
             requeued = q.recover_shutdown_timeout_markers(root=self.root)
 
         self.assertIn("probe1", "\n".join(logs.output))

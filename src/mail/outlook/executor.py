@@ -1,17 +1,19 @@
 """Base command executor for Outlook pipeline operations."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from typing import Any, Type
+    from typing import Any
+
     from ..providers.base import BaseProvider as BaseMailProvider
 
 
 class OutlookCommandExecutor:
     """Executes Outlook commands using the consumer-processor-producer pipeline pattern."""
 
-    def __init__(self, consumer_cls: Type, processor_cls: Type, producer_cls: Type):
+    def __init__(self, consumer_cls: type, processor_cls: type, producer_cls: type):
         """Initialize executor with pipeline component classes.
 
         Args:
@@ -41,10 +43,7 @@ class OutlookCommandExecutor:
         Returns:
             Exit code (0 for success, >0 for error)
         """
-        consumer = self.consumer_cls(
-            client=client,
-            **(consumer_kwargs or {})
-        )
+        consumer = self.consumer_cls(client=client, **(consumer_kwargs or {}))
         processor = self.processor_cls(**(processor_kwargs or {}))
         producer = self.producer_cls(**(producer_kwargs or {}))
 

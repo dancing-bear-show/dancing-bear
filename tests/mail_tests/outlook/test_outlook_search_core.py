@@ -8,7 +8,6 @@ import unittest
 from io import StringIO
 from unittest.mock import MagicMock, Mock, patch
 
-
 from tests.mail_tests.outlook.fixtures import make_graph_message, make_response
 
 
@@ -17,8 +16,12 @@ class TestSearchMessages(unittest.TestCase):
 
     def _make_client(self):
         from core.outlook.mail import OutlookMailMixin
+
         client = MagicMock()
-        client._headers_search.return_value = {"Authorization": "Bearer token", "ConsistencyLevel": "eventual"}
+        client._headers_search.return_value = {
+            "Authorization": "Bearer token",
+            "ConsistencyLevel": "eventual",
+        }
         client.GRAPH = "https://graph.microsoft.com/v1.0"
         client.search_messages = OutlookMailMixin.search_messages.__get__(client)
         return client
@@ -49,9 +52,13 @@ class TestSearchMessages(unittest.TestCase):
     def test_result_fields_mapped_correctly(self, mock_requests):
         client = self._make_client()
         msg = make_graph_message(
-            id="abc", subject="Test", received="2026-03-01T21:00:00Z",
-            from_name="BrightCHAMPS", from_addr="noreply@brightchamps.com",
-            preview="Hello", has_attachments=True,
+            id="abc",
+            subject="Test",
+            received="2026-03-01T21:00:00Z",
+            from_name="BrightCHAMPS",
+            from_addr="noreply@brightchamps.com",
+            preview="Hello",
+            has_attachments=True,
         )
         mock_requests.return_value.get.return_value = make_response([msg])
 
@@ -88,7 +95,9 @@ class TestSearchMessages(unittest.TestCase):
         new_msg = make_graph_message(id="new", received="2026-01-15T20:00:00Z")
         mock_requests.return_value.get.return_value = make_response([old_msg, new_msg])
 
-        results = client.search_messages(query="", sender="example.com", top=10, pages=1, after="2026-01-01")
+        results = client.search_messages(
+            query="", sender="example.com", top=10, pages=1, after="2026-01-01"
+        )
 
         ids = [r["id"] for r in results]
         self.assertNotIn("old", ids)
@@ -103,7 +112,9 @@ class TestSearchMessages(unittest.TestCase):
 
         mock_get = mock_requests.return_value.get
         mock_get.side_effect = [
-            make_response([page1_msg], next_link="https://graph.microsoft.com/v1.0/me/messages?$skip=10"),
+            make_response(
+                [page1_msg], next_link="https://graph.microsoft.com/v1.0/me/messages?$skip=10"
+            ),
             make_response([page2_msg]),
         ]
 
@@ -195,23 +206,38 @@ class TestRunOutlookMessagesSearch(unittest.TestCase):
     @patch("mail.outlook.commands.get_outlook_client")
     def test_passes_query_and_sender_to_search(self, mock_get_client):
         from mail.outlook.commands import run_outlook_messages_search
+
         client = self._mock_client()
         mock_get_client.return_value = (client, 0)
 
-        args = self._make_args(query="hello", sender="example.com", top=5, pages=2, after="2026-01-01")
+        args = self._make_args(
+            query="hello", sender="example.com", top=5, pages=2, after="2026-01-01"
+        )
         run_outlook_messages_search(args)
 
         client.search_messages.assert_called_once_with(
-            query="hello", top=5, pages=2, after="2026-01-01", sender="example.com", only_inbox=False
+            query="hello",
+            top=5,
+            pages=2,
+            after="2026-01-01",
+            sender="example.com",
+            only_inbox=False,
         )
 
     @patch("mail.outlook.commands.get_outlook_client")
     def test_plain_output_formats_messages(self, mock_get_client):
         from mail.outlook.commands import run_outlook_messages_search
-        msgs = [{
-            "id": "1", "subject": "Class reminder", "from": "BC <noreply@brightchamps.com>",
-            "received": "2026-03-01T20:00:00Z", "snippet": "Class in 1 hour", "has_attachments": False,
-        }]
+
+        msgs = [
+            {
+                "id": "1",
+                "subject": "Class reminder",
+                "from": "BC <noreply@brightchamps.com>",
+                "received": "2026-03-01T20:00:00Z",
+                "snippet": "Class in 1 hour",
+                "has_attachments": False,
+            }
+        ]
         mock_get_client.return_value = (self._mock_client(msgs), 0)
 
         with patch("sys.stdout", new_callable=StringIO) as out:
@@ -225,8 +251,17 @@ class TestRunOutlookMessagesSearch(unittest.TestCase):
     @patch("mail.outlook.commands.get_outlook_client")
     def test_json_output(self, mock_get_client):
         from mail.outlook.commands import run_outlook_messages_search
-        msgs = [{"id": "1", "subject": "Test", "from": "X <x@x.com>",
-                 "received": "2026-01-01T00:00:00Z", "snippet": "", "has_attachments": False}]
+
+        msgs = [
+            {
+                "id": "1",
+                "subject": "Test",
+                "from": "X <x@x.com>",
+                "received": "2026-01-01T00:00:00Z",
+                "snippet": "",
+                "has_attachments": False,
+            }
+        ]
         mock_get_client.return_value = (self._mock_client(msgs), 0)
 
         with patch("sys.stdout", new_callable=StringIO) as out:
@@ -238,8 +273,17 @@ class TestRunOutlookMessagesSearch(unittest.TestCase):
     @patch("mail.outlook.commands.get_outlook_client")
     def test_attachment_indicator_in_plain_output(self, mock_get_client):
         from mail.outlook.commands import run_outlook_messages_search
-        msgs = [{"id": "1", "subject": "With attachment", "from": "X <x@x.com>",
-                 "received": "2026-01-01T00:00:00Z", "snippet": "", "has_attachments": True}]
+
+        msgs = [
+            {
+                "id": "1",
+                "subject": "With attachment",
+                "from": "X <x@x.com>",
+                "received": "2026-01-01T00:00:00Z",
+                "snippet": "",
+                "has_attachments": True,
+            }
+        ]
         mock_get_client.return_value = (self._mock_client(msgs), 0)
 
         with patch("sys.stdout", new_callable=StringIO) as out:
@@ -250,6 +294,7 @@ class TestRunOutlookMessagesSearch(unittest.TestCase):
     @patch("mail.outlook.commands.get_outlook_client")
     def test_returns_nonzero_on_client_error(self, mock_get_client):
         from mail.outlook.commands import run_outlook_messages_search
+
         mock_get_client.return_value = (None, 2)
 
         result = run_outlook_messages_search(self._make_args())
@@ -259,6 +304,7 @@ class TestRunOutlookMessagesSearch(unittest.TestCase):
     @patch("mail.outlook.commands.get_outlook_client")
     def test_returns_zero_on_success(self, mock_get_client):
         from mail.outlook.commands import run_outlook_messages_search
+
         mock_get_client.return_value = (self._mock_client(), 0)
 
         result = run_outlook_messages_search(self._make_args())
@@ -269,6 +315,7 @@ class TestRunOutlookMessagesSearch(unittest.TestCase):
     def test_returns_one_when_no_query_or_sender(self, mock_get_client):
         """Both --query and --sender absent should return exit code 1."""
         from mail.outlook.commands import run_outlook_messages_search
+
         mock_get_client.return_value = (self._mock_client(), 0)
 
         result = run_outlook_messages_search(self._make_args(query="", sender=None))

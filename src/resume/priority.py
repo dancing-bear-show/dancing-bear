@@ -18,7 +18,7 @@ def _item_priority(it: Any) -> float:
 
 def _filter_items(items: list[Any] | None, cutoff: float) -> list[Any]:
     out = []
-    for it in (items or []):
+    for it in items or []:
         if isinstance(it, dict):
             if _item_priority(it) >= cutoff:
                 out.append(it)
@@ -83,7 +83,16 @@ def filter_by_min_priority(data: dict[str, Any], min_prio: float) -> dict[str, A
     if isinstance(d.get("skills_groups"), list):
         d["skills_groups"] = _filter_skills_groups(d["skills_groups"], min_prio)
 
-    for key in ("technologies", "interests", "presentations", "languages", "coursework", "summary", "teaching", "certifications"):
+    for key in (
+        "technologies",
+        "interests",
+        "presentations",
+        "languages",
+        "coursework",
+        "summary",
+        "teaching",
+        "certifications",
+    ):
         if isinstance(d.get(key), list):
             d[key] = _filter_items(d[key], min_prio)
 
@@ -94,4 +103,3 @@ def filter_by_min_priority(data: dict[str, Any], min_prio: float) -> dict[str, A
         d["projects"] = _filter_projects(d["projects"], min_prio)
 
     return d
-

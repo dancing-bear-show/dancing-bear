@@ -5,6 +5,7 @@ top-level) are covered by TestPhoneAgenticContract in
 test_phone_agentic_coverage.py. This file retains the helper-function tests
 that are not part of that contract.
 """
+
 from __future__ import annotations
 
 import unittest

@@ -5,30 +5,34 @@ from __future__ import annotations
 import time
 from typing import Any, Protocol
 
-from .client import _requests
 from core.constants import GRAPH_API_URL
 
+from .client import _requests
 
 #: Graph rule condition keys ``_map_rule`` can represent, and
 #: ``_build_rule_conditions`` can write back. Any other condition on a live rule
 #: is lost on a delete+create round trip, so ``_map_rule`` reports the remainder
 #: as ``unmappedConditions`` and reconcile refuses to rewrite those rules.
-_MAPPED_CONDITION_KEYS = frozenset({
-    "senderContains",
-    "recipientContains",
-    "subjectContains",
-})
+_MAPPED_CONDITION_KEYS = frozenset(
+    {
+        "senderContains",
+        "recipientContains",
+        "subjectContains",
+    }
+)
 
 #: Graph rule ACTION keys ``_map_rule`` can represent, and
 #: ``_build_rule_actions`` can write back. The same hazard as conditions, and a
 #: sharper one: a rule that categorises AND deletes would be recreated as
 #: categorise-only, or a ``markAsRead`` silently lost. Reported alongside
 #: unmapped conditions so reconcile refuses those rules too.
-_MAPPED_ACTION_KEYS = frozenset({
-    "assignCategories",
-    "forwardTo",
-    "moveToFolder",
-})
+_MAPPED_ACTION_KEYS = frozenset(
+    {
+        "assignCategories",
+        "forwardTo",
+        "moveToFolder",
+    }
+)
 
 
 class _LabelsHost(Protocol):
@@ -46,7 +50,9 @@ class _LabelsHost(Protocol):
 
     # --- LabelsFiltersMixin's own sibling methods ---
     def list_labels(self, use_cache: bool = ..., ttl: int = ...) -> list[dict[str, Any]]: ...
-    def create_label(self, name: str, color: dict[str, Any] | None = ..., **_kwargs: Any) -> dict[str, Any]: ...
+    def create_label(
+        self, name: str, color: dict[str, Any] | None = ..., **_kwargs: Any
+    ) -> dict[str, Any]: ...
     def get_label_id_map(self) -> dict[str, str]: ...
     def _fetch_inbox_rules_raw(self) -> list[dict[str, Any]]: ...
     def _map_rule(self, ru: dict[str, Any]) -> dict[str, Any]: ...
@@ -62,7 +68,7 @@ class LabelsFiltersMixin:
 
     # -------------------- Categories (labels) --------------------
     def list_labels(
-        self: "_LabelsHost",
+        self: _LabelsHost,
         use_cache: bool = False,
         ttl: int = 300,
     ) -> list[dict[str, Any]]:
@@ -71,12 +77,16 @@ class LabelsFiltersMixin:
             if isinstance(cached, list):
                 cats = cached
             else:
-                r = _requests().get(f"{GRAPH_API_URL}/me/outlook/masterCategories", headers=self._headers())
+                r = _requests().get(
+                    f"{GRAPH_API_URL}/me/outlook/masterCategories", headers=self._headers()
+                )
                 r.raise_for_status()
                 cats = r.json().get("value", [])
                 self.cfg_put_json("categories", cats)
         else:
-            r = _requests().get(f"{GRAPH_API_URL}/me/outlook/masterCategories", headers=self._headers())
+            r = _requests().get(
+                f"{GRAPH_API_URL}/me/outlook/masterCategories", headers=self._headers()
+            )
             r.raise_for_status()
             cats = r.json().get("value", [])
         out = []
@@ -91,7 +101,7 @@ class LabelsFiltersMixin:
         return out
 
     def create_label(
-        self: "_LabelsHost",
+        self: _LabelsHost,
         name: str,
         color: dict[str, Any] | None = None,
         **_kwargs: Any,
@@ -99,13 +109,15 @@ class LabelsFiltersMixin:
         body: dict[str, Any] = {"displayName": name}
         if color and isinstance(color, dict) and color.get("name"):
             body["color"] = color.get("name")
-        r = _requests().post(f"{GRAPH_API_URL}/me/outlook/masterCategories", headers=self._headers(), json=body)
+        r = _requests().post(
+            f"{GRAPH_API_URL}/me/outlook/masterCategories", headers=self._headers(), json=body
+        )
         r.raise_for_status()
         c = r.json()
         return {"id": c.get("id"), "name": c.get("displayName")}
 
     def update_label(
-        self: "_LabelsHost",
+        self: _LabelsHost,
         label_id: str,
         body: dict[str, Any],
     ) -> dict[str, Any]:
@@ -124,17 +136,17 @@ class LabelsFiltersMixin:
         r.raise_for_status()
         return r.json() if r.text else {}
 
-    def delete_label(self: "_LabelsHost", label_id: str) -> None:
+    def delete_label(self: _LabelsHost, label_id: str) -> None:
         r = _requests().delete(
             f"{GRAPH_API_URL}/me/outlook/masterCategories/{label_id}",
             headers=self._headers(),
         )
         r.raise_for_status()
 
-    def get_label_id_map(self: "_LabelsHost") -> dict[str, str]:
+    def get_label_id_map(self: _LabelsHost) -> dict[str, str]:
         return {lbl.get("name", ""): lbl.get("id", "") for lbl in self.list_labels()}
 
-    def ensure_label(self: "_LabelsHost", name: str, **kwargs: Any) -> str:
+    def ensure_label(self: _LabelsHost, name: str, **kwargs: Any) -> str:
         m = self.get_label_id_map()
         if name in m:
             return m[name]
@@ -142,7 +154,7 @@ class LabelsFiltersMixin:
         return created.get("id", "")
 
     # -------------------- Rules (filters) --------------------
-    def _fetch_inbox_rules_raw(self: "_LabelsHost") -> list[dict[str, Any]]:
+    def _fetch_inbox_rules_raw(self: _LabelsHost) -> list[dict[str, Any]]:
         """Fetch raw inbox rules from Graph API."""
         r = _requests().get(
             f"{GRAPH_API_URL}/me/mailFolders/inbox/messageRules",
@@ -151,7 +163,7 @@ class LabelsFiltersMixin:
         r.raise_for_status()
         return r.json().get("value", [])
 
-    def _map_rule(self: "_LabelsHost", ru: dict[str, Any]) -> dict[str, Any]:
+    def _map_rule(self: _LabelsHost, ru: dict[str, Any]) -> dict[str, Any]:
         """Map a raw Graph rule to the internal filter format.
 
         Preserves ``sequence`` and ``stopProcessingRules`` from the Graph API
@@ -222,7 +234,7 @@ class LabelsFiltersMixin:
         }
 
     def list_filters(
-        self: "_LabelsHost",
+        self: _LabelsHost,
         use_cache: bool = False,
         ttl: int = 300,
     ) -> list[dict[str, Any]]:
@@ -235,7 +247,7 @@ class LabelsFiltersMixin:
             rules = self._fetch_inbox_rules_raw()
         return [self._map_rule(ru) for ru in rules]
 
-    def _build_rule_conditions(self: "_LabelsHost", criteria: dict[str, Any]) -> dict[str, Any]:
+    def _build_rule_conditions(self: _LabelsHost, criteria: dict[str, Any]) -> dict[str, Any]:
         """Convert filter criteria dict to Graph API conditions format."""
         cond: dict[str, Any] = {}
         if criteria.get("from"):
@@ -246,7 +258,7 @@ class LabelsFiltersMixin:
             cond["subjectContains"] = [s.strip() for s in str(criteria["subject"]).split("OR")]
         return cond
 
-    def _build_rule_actions(self: "_LabelsHost", action: dict[str, Any]) -> dict[str, Any]:
+    def _build_rule_actions(self: _LabelsHost, action: dict[str, Any]) -> dict[str, Any]:
         """Convert filter action dict to Graph API actions format."""
         act: dict[str, Any] = {}
         if action.get("addLabelIds"):
@@ -259,7 +271,7 @@ class LabelsFiltersMixin:
         return act
 
     def create_filter(
-        self: "_LabelsHost",
+        self: _LabelsHost,
         criteria: dict[str, Any],
         action: dict[str, Any],
         sequence: int | None = None,
@@ -291,7 +303,9 @@ class LabelsFiltersMixin:
             "isEnabled": is_enabled if is_enabled is not None else True,
             "conditions": self._build_rule_conditions(criteria),
             "actions": self._build_rule_actions(action),
-            "stopProcessingRules": stop_processing_rules if stop_processing_rules is not None else True,
+            "stopProcessingRules": stop_processing_rules
+            if stop_processing_rules is not None
+            else True,
         }
         r = _requests().post(
             f"{GRAPH_API_URL}/me/mailFolders/inbox/messageRules",
@@ -301,7 +315,7 @@ class LabelsFiltersMixin:
         r.raise_for_status()
         return r.json()
 
-    def delete_filter(self: "_LabelsHost", filter_id: str) -> None:
+    def delete_filter(self: _LabelsHost, filter_id: str) -> None:
         r = _requests().delete(
             f"{GRAPH_API_URL}/me/mailFolders/inbox/messageRules/{filter_id}",
             headers=self._headers(),

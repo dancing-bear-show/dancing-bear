@@ -6,7 +6,7 @@ import io
 import json
 import re
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 from telemetry.otel.cli.events_search import (
@@ -26,7 +26,7 @@ def _make_event(
 ) -> MagicMock:
     evt = MagicMock()
     evt.body = body
-    evt.timestamp = timestamp or datetime(2026, 4, 16, 10, 0, 0, tzinfo=timezone.utc)
+    evt.timestamp = timestamp or datetime(2026, 4, 16, 10, 0, 0, tzinfo=UTC)
     evt.get_attr.side_effect = lambda k: session_id if "session" in k else None
 
     if attributes is not None:

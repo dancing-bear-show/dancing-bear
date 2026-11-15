@@ -222,9 +222,7 @@ class TestGuardHookSuites(unittest.TestCase):
         An empty derivation -- a renamed YAML key, a moved file -- would make the
         by-name half of ``_assert_left_nothing`` vacuous while it stayed green.
         """
-        self.assertLessEqual(
-            {"analysis", "out", "workspace", "outputs"}, _contract_root_dirs()
-        )
+        self.assertLessEqual({"analysis", "out", "workspace", "outputs"}, _contract_root_dirs())
 
     def test_guard_contract_cleans_up_after_a_setup_failure(self) -> None:
         """A FATAL exit mid-setup must still remove what setup created.
@@ -245,8 +243,12 @@ class TestGuardHookSuites(unittest.TestCase):
         try:
             proc = subprocess.run(  # nosec B603 B607 - trusted in-repo script, see _run_suite
                 ["bash", str(TESTS_DIR / "guard-contract.test.sh")],
-                capture_output=True, text=True, encoding="utf-8", errors="replace",
-                cwd=str(root), timeout=180,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                cwd=str(root),
+                timeout=180,
             )
         finally:
             (blocker_dir / "srclink").unlink()
@@ -326,8 +328,12 @@ class TestGuardContractCleanupHermetic(unittest.TestCase):
     def _run_suite(self) -> subprocess.CompletedProcess[str]:
         return subprocess.run(  # nosec B603 B607 - trusted in-repo script, see TestGuardHookSuites
             ["bash", str(self.repo / ".claude" / "hooks" / "tests" / "guard-contract.test.sh")],
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-            cwd=str(self.repo), timeout=180,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=str(self.repo),
+            timeout=180,
         )
 
     def _left_behind(self) -> list[str]:
@@ -476,7 +482,7 @@ class TestGuardHooksAreWired(unittest.TestCase):
             token = tokens[index]
             if Path(token).name not in {"bash", "sh", "zsh"}:
                 continue
-            operand = self._first_operand(tokens[index + 1:])
+            operand = self._first_operand(tokens[index + 1 :])
             if operand is not None:
                 pairs.append((token, operand))
         return pairs
@@ -635,10 +641,7 @@ class TestGuardHooksAreWired(unittest.TestCase):
         if isinstance(value, str):
             return value.format(repo_root=repo, home=home)
         if isinstance(value, dict):
-            return {
-                k: TestGuardHooksAreWired._substitute(v, repo, home)
-                for k, v in value.items()
-            }
+            return {k: TestGuardHooksAreWired._substitute(v, repo, home) for k, v in value.items()}
         return value
 
     def test_wired_commands_actually_block(self) -> None:
@@ -715,9 +718,7 @@ class TestGuardHooksAreWired(unittest.TestCase):
             ),
         )
 
-    def _assert_command_blocks(
-        self, script: str, command: str, payload: str, repo: str
-    ) -> None:
+    def _assert_command_blocks(self, script: str, command: str, payload: str, repo: str) -> None:
         """Run the command string AS CONFIGURED and require exit 2.
 
         Run through the shell rather than tokenised and exec'd, because the point

@@ -41,16 +41,16 @@ DEFAULT_HEADER_BOLD = True
 # Column and Row Dimensions (characters / points)
 # =============================================================================
 
-MIN_COLUMN_WIDTH = 8       # auto-fit lower bound
-MAX_COLUMN_WIDTH = 50      # auto-fit upper bound
+MIN_COLUMN_WIDTH = 8  # auto-fit lower bound
+MAX_COLUMN_WIDTH = 50  # auto-fit upper bound
 
 
 # =============================================================================
 # Freeze Panes
 # =============================================================================
 
-DEFAULT_FREEZE_ROWS = 1   # Freeze the header row by default
-DEFAULT_FREEZE_COLS = 0   # No column freeze by default
+DEFAULT_FREEZE_ROWS = 1  # Freeze the header row by default
+DEFAULT_FREEZE_COLS = 0  # No column freeze by default
 
 
 # =============================================================================

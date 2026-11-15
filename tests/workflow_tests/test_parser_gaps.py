@@ -7,10 +7,10 @@ import unittest
 from workflow.models import WorkflowDefinition
 from workflow.parser import WorkflowParseError, parse_workflow_str
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _wf(stages: str) -> str:
     """Wrap a stages block into a minimal valid workflow YAML string."""

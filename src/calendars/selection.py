@@ -3,12 +3,14 @@
 Pure functions to compute calendar windows and filter Outlook events
 by weekday/time. Dependency-light and easily unit testable.
 """
+
 from __future__ import annotations
 
-from typing import Any, Iterable
 import datetime as _dt
+from collections.abc import Iterable
+from typing import Any
 
-from core.constants import DAY_START_TIME, DAY_END_TIME
+from core.constants import DAY_END_TIME, DAY_START_TIME
 
 #: Zone used to interpret plan wall-clock times when the caller names none.
 #: Matches the export pipeline's ``_TZ_FALLBACK``.
@@ -153,9 +155,7 @@ def is_one_off_event(ev: dict[str, Any]) -> bool:
     return etype == "singleinstance" or not ev.get("seriesMasterId")
 
 
-def _as_local(
-    iso: str, graph_tz: str | None, target: _dt.tzinfo | None
-) -> _dt.datetime | None:
+def _as_local(iso: str, graph_tz: str | None, target: _dt.tzinfo | None) -> _dt.datetime | None:
     """Return the event instant expressed in ``target``, or None if unparseable.
 
     Resolution order for the source zone:
@@ -188,12 +188,12 @@ def _as_utc(iso: str, tz_name: str | None = None) -> _dt.datetime | None:
     UTC, and occurrences come back in UTC unless a ``Prefer`` header asks
     otherwise.
     """
-    dt = _as_local(iso, tz_name, _dt.timezone.utc)
+    dt = _as_local(iso, tz_name, _dt.UTC)
     if dt is None:
         return None
     if dt.tzinfo is None:
-        return dt.replace(tzinfo=_dt.timezone.utc)
-    return dt.astimezone(_dt.timezone.utc)
+        return dt.replace(tzinfo=_dt.UTC)
+    return dt.astimezone(_dt.UTC)
 
 
 def window_bounds_utc(start_iso: str, end_iso: str) -> tuple[_dt.datetime, _dt.datetime] | None:
@@ -291,9 +291,7 @@ def filter_events_by_day_time(
         if not st:
             continue
         start_dt = _as_local(st, start_block.get("timeZone"), target)
-        end_dt = _as_local(
-            end_block.get("dateTime") or "", end_block.get("timeZone"), target
-        )
+        end_dt = _as_local(end_block.get("dateTime") or "", end_block.get("timeZone"), target)
         if _event_matches_filters(start_dt, end_dt, want_days, start_time, end_time):
             out.append(ex)
     return out

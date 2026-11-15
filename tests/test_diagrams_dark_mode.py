@@ -6,11 +6,11 @@ import unittest
 
 from diagrams.dark_mode import (
     RECT_ALPHA,
-    apply_dark_mode_fixes,
     _has_init_directive,
     _inject_timeline_palette,
     _is_timeline,
     _rewrite_rect_rgb_to_rgba,
+    apply_dark_mode_fixes,
 )
 
 

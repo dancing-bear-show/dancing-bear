@@ -8,13 +8,14 @@ Extracted from docx_sidebar. Provides:
   - _render_main_section_heading: section heading in main column
   - _render_edu_meta: institution and year secondary paragraph
 """
+
 from __future__ import annotations
 
 from typing import Any
 
-from docx.shared import Pt, Inches, RGBColor
-from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+from docx.shared import Inches, Pt, RGBColor
 
 from .docx_styles import _parse_hex_color, _tight_paragraph
 from .render_config import IndentedRunStyle
@@ -27,8 +28,8 @@ def _set_cell_shading(cell, hex_color: str) -> None:
         return
     tc = cell._tc
     tc_pr = tc.get_or_add_tcPr()
-    shd = OxmlElement('w:shd')
-    shd.set(qn('w:fill'), hex_color.lstrip('#'))
+    shd = OxmlElement("w:shd")
+    shd.set(qn("w:fill"), hex_color.lstrip("#"))
     tc_pr.append(shd)
 
 
@@ -36,15 +37,17 @@ def _remove_cell_borders(cell) -> None:
     """Remove all borders from a table cell."""
     tc = cell._tc
     tc_pr = tc.get_or_add_tcPr()
-    tc_borders = OxmlElement('w:tcBorders')
-    for border_name in ['top', 'left', 'bottom', 'right']:
-        border = OxmlElement(f'w:{border_name}')
-        border.set(qn('w:val'), 'nil')
+    tc_borders = OxmlElement("w:tcBorders")
+    for border_name in ["top", "left", "bottom", "right"]:
+        border = OxmlElement(f"w:{border_name}")
+        border.set(qn("w:val"), "nil")
         tc_borders.append(border)
     tc_pr.append(tc_borders)
 
 
-def _add_indented_run(cell, text: str, page_cfg: dict[str, Any], style: IndentedRunStyle | None = None):
+def _add_indented_run(
+    cell, text: str, page_cfg: dict[str, Any], style: IndentedRunStyle | None = None
+):
     """Add an indented paragraph with styled run."""
     s = style or IndentedRunStyle()
     p = cell.add_paragraph()
@@ -60,7 +63,9 @@ def _add_indented_run(cell, text: str, page_cfg: dict[str, Any], style: Indented
     return p
 
 
-def _render_sidebar_section(cell, title: str, items: list[str], page_cfg: dict[str, Any], bulleted: bool = True) -> None:
+def _render_sidebar_section(
+    cell, title: str, items: list[str], page_cfg: dict[str, Any], bulleted: bool = True
+) -> None:
     """Render a generic section in sidebar with optional bullets."""
     h1_color = page_cfg.get("h1_color", "#D4A84B")
     text_color = page_cfg.get("sidebar_text_color", "#333333")

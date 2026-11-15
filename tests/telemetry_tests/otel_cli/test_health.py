@@ -17,7 +17,6 @@ from telemetry.otel.cli.health import (
 )
 from telemetry.otel.reader import OTLPDataDir
 
-
 # ---------------------------------------------------------------------------
 # _output_json
 # ---------------------------------------------------------------------------
@@ -27,7 +26,7 @@ class TestOutputJson(unittest.TestCase):
     def test_missing_file_has_missing_key(self):
         with tempfile.TemporaryDirectory() as td:
             data_dir = OTLPDataDir(path=Path(td))
-            file_exists = {f: False for f in DATA_FILES}
+            file_exists = dict.fromkeys(DATA_FILES, False)
             buf = io.StringIO()
             with patch("sys.stdout", buf):
                 _output_json(data_dir, file_exists)
@@ -52,7 +51,7 @@ class TestOutputJson(unittest.TestCase):
     def test_status_is_healthy(self):
         with tempfile.TemporaryDirectory() as td:
             data_dir = OTLPDataDir(path=Path(td))
-            file_exists = {f: False for f in DATA_FILES}
+            file_exists = dict.fromkeys(DATA_FILES, False)
             buf = io.StringIO()
             with patch("sys.stdout", buf):
                 _output_json(data_dir, file_exists)
@@ -82,7 +81,7 @@ class TestOutputText(unittest.TestCase):
     def test_missing_file_shows_not_created(self):
         with tempfile.TemporaryDirectory() as td:
             data_dir = OTLPDataDir(path=Path(td))
-            file_exists = {f: False for f in DATA_FILES}
+            file_exists = dict.fromkeys(DATA_FILES, False)
             buf = io.StringIO()
             with patch("sys.stdout", buf):
                 _output_text(data_dir, file_exists)
@@ -109,7 +108,9 @@ class TestHealthMain(unittest.TestCase):
             (p / "metrics.jsonl").write_text('{"x":1}\n')
             data_dir = OTLPDataDir(path=p)
             with patch("telemetry.otel.cli.health.OTLPDataDir.from_env", return_value=data_dir):
-                with patch("telemetry.otel.cli.health.check_otel_infrastructure", return_value=True):
+                with patch(
+                    "telemetry.otel.cli.health.check_otel_infrastructure", return_value=True
+                ):
                     buf = io.StringIO()
                     with patch("sys.stdout", buf):
                         result = main(["--format", "text"])
@@ -122,7 +123,9 @@ class TestHealthMain(unittest.TestCase):
             (p / "events.jsonl").write_text('{"y":2}\n')
             data_dir = OTLPDataDir(path=p)
             with patch("telemetry.otel.cli.health.OTLPDataDir.from_env", return_value=data_dir):
-                with patch("telemetry.otel.cli.health.check_otel_infrastructure", return_value=True):
+                with patch(
+                    "telemetry.otel.cli.health.check_otel_infrastructure", return_value=True
+                ):
                     buf = io.StringIO()
                     with patch("sys.stdout", buf):
                         result = main(["--format", "json"])

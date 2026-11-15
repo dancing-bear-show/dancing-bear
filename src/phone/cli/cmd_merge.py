@@ -40,11 +40,7 @@ def cmd_merge_folders(args) -> int:
     dump_csv = getattr(args, "dump_folder_names", "") or ""
 
     keep = [s.strip() for s in keep_csv.split(",") if s.strip()] if keep_csv else []
-    dump_folders = (
-        [s.strip() for s in dump_csv.split(",") if s.strip()]
-        if dump_csv
-        else ["Other"]
-    )
+    dump_folders = [s.strip() for s in dump_csv.split(",") if s.strip()] if dump_csv else ["Other"]
 
     if not layout_path.exists():
         print(f"Error: layout not found: {layout_path}", file=sys.stderr)
@@ -119,7 +115,9 @@ def cmd_reorg(args) -> int:
         return rc
 
     keep_csv = getattr(args, "keep", "") or ""
-    out_profile = Path(getattr(args, "out", None) or output_dir("phone") / "ios.merged.mobileconfig")
+    out_profile = Path(
+        getattr(args, "out", None) or output_dir("phone") / "ios.merged.mobileconfig"
+    )
 
     layout_path = output_dir("phone") / "ios.IconState.yaml"
     plan_path = output_dir("phone") / "ios.plan.merged.yaml"
@@ -208,8 +206,7 @@ def _reorg_merge(layout_path: Path, plan_path: Path, keep: list[str]):
 
     dump_eliminated = "Other" not in plan_obj.folders
     loose_filed = sum(
-        1 for bid in _collect_loose_page2plus(layout)
-        if bid not in (plan_obj.pins or [])
+        1 for bid in _collect_loose_page2plus(layout) if bid not in (plan_obj.pins or [])
     )
     print(
         f"  folders: {len(plan_obj.folders)}, Other eliminated: {'yes' if dump_eliminated else 'no'}"
@@ -228,11 +225,17 @@ def _reorg_build_profile(
         return 0
     out_profile.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
-        "./bin/phone-assistant", "profile", "build",
-        "--plan", str(plan_path),
-        "--layout", str(layout_path),
-        "--folder-page-size", "9",
-        "--out", str(out_profile),
+        "./bin/phone-assistant",
+        "profile",
+        "build",
+        "--plan",
+        str(plan_path),
+        "--layout",
+        str(layout_path),
+        "--folder-page-size",
+        "9",
+        "--out",
+        str(out_profile),
     ]
     result = subprocess.run(cmd, capture_output=False)  # nosec B603 B607 - fixed bin/phone-assistant command; list-form, no shell
     if result.returncode != 0:
@@ -240,9 +243,7 @@ def _reorg_build_profile(
     return result.returncode
 
 
-def _reorg_install(
-    dry_run: bool, no_install: bool, out_profile: Path, udid: str
-) -> int:
+def _reorg_install(dry_run: bool, no_install: bool, out_profile: Path, udid: str) -> int:
     """Step 4: copy profile to device."""
     print("=== reorg: step 4/4 — install profile ===")
     if dry_run or no_install:
@@ -282,16 +283,15 @@ def _reorg_install(
     # message text, not the process exit code (which is 1). Match the specific
     # phrases — a bare "625" substring could collide with unrelated numbers.
     lowered = combined.lower()
-    pending_tap = (
-        "user interaction on the device is required" in lowered
-        or "code: 625" in lowered
-    )
+    pending_tap = "user interaction on the device is required" in lowered or "code: 625" in lowered
     if result.returncode == 0 or pending_tap:
         # Success: suppress cfgutil's raw "error:" line (misleading here) and
         # print a clear instruction instead.
         print("✓ Profile copied to device.")
-        print("Open Settings -> General -> VPN & Device Management -> "
-              "tap the pending profile -> Install.")
+        print(
+            "Open Settings -> General -> VPN & Device Management -> "
+            "tap the pending profile -> Install."
+        )
         return 0
     # Genuine failure: surface cfgutil's actual output for diagnosis.
     print(combined, end="", file=sys.stderr)
@@ -354,7 +354,10 @@ def _reorg_summary(summary: ReorgSummary) -> None:
 def _run_export_device(udid: str, layout_path: Path) -> int:
     """Run export-device via subprocess to avoid circular imports."""
     cmd = [
-        "./bin/phone-assistant", "export-device", "--out", str(layout_path),
+        "./bin/phone-assistant",
+        "export-device",
+        "--out",
+        str(layout_path),
     ]
     if udid:
         cmd += ["--udid", udid]
@@ -366,7 +369,7 @@ def _collect_loose_page2plus(layout: dict) -> list[str]:
     """Collect loose app bundle IDs from pages >= 2 (index >= 1)."""
     result = []
     for page in (layout.get("pages") or [])[1:]:
-        for bid in (page.get("apps") or []):
+        for bid in page.get("apps") or []:
             if bid:
                 result.append(bid)
     return result

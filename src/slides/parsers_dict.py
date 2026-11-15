@@ -53,7 +53,9 @@ def _parse_slide(slide_data: dict[str, Any]) -> SlideContent:
         raw_bullets = []
     elif not isinstance(raw_bullets, list):
         slide_title = slide_data.get(YAML_TITLE)
-        context = f" for slide {slide_title!r}" if isinstance(slide_title, str) and slide_title else ""
+        context = (
+            f" for slide {slide_title!r}" if isinstance(slide_title, str) and slide_title else ""
+        )
         raise ValueError(
             f"{YAML_BULLETS} must be a list, got {type(raw_bullets).__name__}{context}"
         )
@@ -104,21 +106,15 @@ def _parse_layout_map(raw: dict[str, object] | None) -> dict[str, int] | None:
     if raw is None:
         return None
     if not isinstance(raw, dict):
-        raise ValueError(
-            f"layout_map must be a mapping, got {type(raw).__name__}"
-        )
+        raise ValueError(f"layout_map must be a mapping, got {type(raw).__name__}")
     _RESERVED_KEYS = {RESERVED_LAYOUT_KEY}
     result: dict[str, int] = {}
     for key, val in raw.items():
         str_key = str(key)
         if str_key in _RESERVED_KEYS:
-            raise ValueError(
-                f"layout_map key {str_key!r} is reserved and cannot be used"
-            )
+            raise ValueError(f"layout_map key {str_key!r} is reserved and cannot be used")
         if not isinstance(val, int) or isinstance(val, bool) or val < 0:
-            raise ValueError(
-                f"layout_map[{key!r}] must be a non-negative integer, got {val!r}"
-            )
+            raise ValueError(f"layout_map[{key!r}] must be a non-negative integer, got {val!r}")
         result[str_key] = val
     return result
 

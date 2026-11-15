@@ -7,32 +7,32 @@ Coverage targets:
   C3 – CalendarProvider protocol conformance for both Gmail and Outlook stubs
   C5 – CalendarNotFoundError isinstance(NotFoundError) check
 """
+
 from __future__ import annotations
 
 import io
 import unittest
 from contextlib import redirect_stdout
 from dataclasses import dataclass, field
-from typing import List
 from unittest.mock import MagicMock, patch
 
 from core.pipeline import ResultEnvelope
-
 
 # ---------------------------------------------------------------------------
 # Shared fake — minimal Outlook service for scan operations
 # (search_inbox_messages + get_message not in FakeCalendarService; add stub)
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class FakeScanService:
     """Minimal Outlook service stub for OutlookScanProcessor tests."""
 
-    message_ids: List[str] = field(default_factory=list)
+    message_ids: list[str] = field(default_factory=list)
     messages: dict = field(default_factory=dict)
     raise_on_get: str | None = None  # message id that causes get_message to raise
 
-    def search_inbox_messages(self, query: str, *, days: int, top: int, pages: int) -> List[str]:  # noqa: ARG002
+    def search_inbox_messages(self, query: str, *, days: int, top: int, pages: int) -> list[str]:  # noqa: ARG002
         return list(self.message_ids)
 
     def get_message(self, mid: str, *, select_body: bool = False) -> dict:  # noqa: ARG002
@@ -45,11 +45,13 @@ class FakeScanService:
 # C8 – OutlookScanProcessor / OutlookScanProducer
 # ---------------------------------------------------------------------------
 
+
 class TestOutlookScanProcessorHappyPath(unittest.TestCase):
     """Happy-path: consumer → processor → producer round-trip for scan classes."""
 
     def _make_request(self, svc):
         from calendars.outlook.commands import OutlookScanRequest
+
         return OutlookScanRequest(
             service=svc,
             from_text="trainer@example.com",
@@ -63,6 +65,7 @@ class TestOutlookScanProcessorHappyPath(unittest.TestCase):
     def test_returns_success_envelope_with_no_messages(self):
         """No matching messages → success envelope with empty events list."""
         from calendars.outlook.commands import OutlookScanProcessor, OutlookScanResult
+
         svc = FakeScanService(message_ids=[])
         request = self._make_request(svc)
         envelope = OutlookScanProcessor().process(request)
@@ -75,10 +78,8 @@ class TestOutlookScanProcessorHappyPath(unittest.TestCase):
     def test_returns_success_envelope_with_schedule_email(self):
         """A message containing a schedule pattern → events list populated."""
         from calendars.outlook.commands import OutlookScanProcessor, OutlookScanResult
-        msg_body = (
-            "Monday from 9:00am to 10:00am – Swimming\n"
-            "Please register by the date shown."
-        )
+
+        msg_body = "Monday from 9:00am to 10:00am – Swimming\nPlease register by the date shown."
         svc = FakeScanService(
             message_ids=["msg-1"],
             messages={
@@ -105,6 +106,7 @@ class TestOutlookScanProcessorHappyPath(unittest.TestCase):
     def test_producer_no_messages_found(self):
         """Producer prints 'No matching messages' when message_count is 0."""
         from calendars.outlook.commands import OutlookScanProducer, OutlookScanResult
+
         payload = OutlookScanResult(events=[], message_count=0, extracted=[], out=None)
         env = ResultEnvelope(status="success", payload=payload)
         buf = io.StringIO()
@@ -115,6 +117,7 @@ class TestOutlookScanProcessorHappyPath(unittest.TestCase):
     def test_producer_messages_but_no_schedule_lines(self):
         """Producer prints schedule-not-found message when events list is empty but messages exist."""
         from calendars.outlook.commands import OutlookScanProducer, OutlookScanResult
+
         payload = OutlookScanResult(events=[], message_count=3, extracted=[], out=None)
         env = ResultEnvelope(status="success", payload=payload)
         buf = io.StringIO()
@@ -125,6 +128,7 @@ class TestOutlookScanProcessorHappyPath(unittest.TestCase):
     def test_producer_with_events_prints_count_and_entries(self):
         """Producer lists events and prints candidate count when events are present."""
         from calendars.outlook.commands import OutlookScanProducer, OutlookScanResult
+
         events = [
             {
                 "subject": "Swim Class",
@@ -140,18 +144,21 @@ class TestOutlookScanProcessorHappyPath(unittest.TestCase):
         with redirect_stdout(buf):
             OutlookScanProducer().produce(env)
         output = buf.getvalue()
-        self.assertIn("1", output)       # event count
+        self.assertIn("1", output)  # event count
         self.assertIn("Swim Class", output)
-        self.assertIn("--out", output)   # usage hint
+        self.assertIn("--out", output)  # usage hint
 
     def test_producer_with_out_path_writes_yaml(self):
         """Producer writes YAML when out path is set and prints confirmation."""
         from calendars.outlook.commands import OutlookScanProducer, OutlookScanResult
+
         events = [{"subject": "Swim", "byday": ["WE"], "start_time": "09:00", "end_time": "10:00"}]
         payload = OutlookScanResult(events=events, message_count=1, extracted=[], out="plan.yaml")
         env = ResultEnvelope(status="success", payload=payload)
         io.StringIO()
-        with patch("calendars.outlook.commands.OutlookScanProducer._produce_success") as mock_produce:
+        with patch(
+            "calendars.outlook.commands.OutlookScanProducer._produce_success"
+        ) as mock_produce:
             # Patch _produce_success directly to avoid real filesystem writes
             mock_produce.return_value = None
             OutlookScanProducer().produce(env)
@@ -162,11 +169,13 @@ class TestOutlookScanProcessorHappyPath(unittest.TestCase):
 # C8 sad-paths – one test per distinct raise site in _process_safe
 # ---------------------------------------------------------------------------
 
+
 class TestOutlookScanProcessorSadPaths(unittest.TestCase):
     """Sad-path tests for OutlookScanProcessor._process_safe raise sites."""
 
     def _make_request(self, svc):
         from calendars.outlook.commands import OutlookScanRequest
+
         return OutlookScanRequest(
             service=svc,
             from_text="trainer@example.com",
@@ -215,6 +224,7 @@ class TestOutlookScanProcessorSadPaths(unittest.TestCase):
 # C3 – CalendarProvider Protocol conformance
 # ---------------------------------------------------------------------------
 
+
 class TestCalendarProviderProtocol(unittest.TestCase):
     """Verify Protocol conformance for both Gmail and Outlook stubs.
 
@@ -250,18 +260,20 @@ class TestCalendarProviderProtocol(unittest.TestCase):
 
     def test_gmail_backend_satisfies_protocol(self):
         from calendars.importer.base import CalendarProvider
+
         backend = self._make_gmail_conformant()
         self.assertIsInstance(backend, CalendarProvider)
 
     def test_outlook_backend_satisfies_protocol(self):
         from calendars.importer.base import CalendarProvider
+
         backend = self._make_outlook_conformant()
         self.assertIsInstance(backend, CalendarProvider)
 
     def test_missing_list_events_does_not_satisfy_protocol(self):
         """Object missing list_events must not satisfy CalendarProvider."""
-        from calendars.importer.base import CalendarProvider
         from calendars.gmail_types import CalendarEvent
+        from calendars.importer.base import CalendarProvider
 
         class MissingListEvents:
             def add_event(self, event: CalendarEvent) -> CalendarEvent:
@@ -286,35 +298,41 @@ class TestCalendarProviderProtocol(unittest.TestCase):
 # C5 – CalendarNotFoundError error hierarchy
 # ---------------------------------------------------------------------------
 
+
 class TestCalendarNotFoundErrorHierarchy(unittest.TestCase):
     """CalendarNotFoundError must subclass NotFoundError (not bare ValueError)."""
 
     def test_isinstance_of_not_found_error(self):
-        from core.cli_errors import NotFoundError
         from calendars.outlook_pipelines.locations import CalendarNotFoundError
+        from core.cli_errors import NotFoundError
+
         err = CalendarNotFoundError("My Calendar")
         self.assertIsInstance(err, NotFoundError)
 
     def test_message_contains_calendar_name(self):
         from calendars.outlook_pipelines.locations import CalendarNotFoundError
+
         err = CalendarNotFoundError("Summer Schedule")
         self.assertIn("Summer Schedule", str(err))
 
     def test_calendar_name_attribute(self):
         from calendars.outlook_pipelines.locations import CalendarNotFoundError
+
         err = CalendarNotFoundError("Work")
         self.assertEqual(err.calendar_name, "Work")
 
     def test_not_isinstance_of_plain_value_error(self):
         """CalendarNotFoundError must no longer subclass ValueError after C5 fix."""
         from calendars.outlook_pipelines.locations import CalendarNotFoundError
+
         err = CalendarNotFoundError("Test")
         self.assertNotIsInstance(err, ValueError)
 
     def test_not_found_error_subclasses_cli_error(self):
         """NotFoundError itself subclasses CLIError — confirm the full chain."""
-        from core.cli_errors import CLIError, NotFoundError
         from calendars.outlook_pipelines.locations import CalendarNotFoundError
+        from core.cli_errors import CLIError, NotFoundError
+
         err = CalendarNotFoundError("Chain")
         self.assertIsInstance(err, CLIError)
         self.assertIsInstance(err, NotFoundError)

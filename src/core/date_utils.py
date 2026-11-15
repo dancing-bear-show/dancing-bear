@@ -3,11 +3,12 @@
 Provides day-of-week parsing, month parsing, and ISO date conversions
 used across multiple modules.
 """
+
 from __future__ import annotations
 
 import datetime as _dt
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any
 
 from .constants import FMT_DATETIME_SEC, FMT_DAY_END, FMT_DAY_START
@@ -60,7 +61,7 @@ for _name, _code in DAY_MAP.items():
 del _name, _code
 
 # Day name sequence for iteration (abbreviated, lowercase)
-DAY_NAMES = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+DAY_NAMES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 
 # RRULE code -> Python weekday index, matching datetime.date.weekday()
 # (Monday = 0). Derived from DAY_NAMES so the ordering has one source.
@@ -69,17 +70,32 @@ RRULE_CODE_TO_WEEKDAY: dict[str, int] = {
 }
 
 # Month name to number mapping (1-12)
-MONTH_MAP = {m.lower(): i for i, m in enumerate(
-    ["January", "February", "March", "April", "May", "June",
-     "July", "August", "September", "October", "November", "December"],
-    start=1,
-)}
+MONTH_MAP = {
+    m.lower(): i
+    for i, m in enumerate(
+        [
+            "January",
+            "February",
+            "March",
+            "April",
+            "May",
+            "June",
+            "July",
+            "August",
+            "September",
+            "October",
+            "November",
+            "December",
+        ],
+        start=1,
+    )
+}
 MONTH_MAP.update({k[:3]: v for k, v in list(MONTH_MAP.items())})
 
 
 def normalize_day(day_name: str) -> str:
     """Convert day name to two-letter RRULE code (e.g., 'Monday' -> 'MO')."""
-    return DAY_MAP.get(day_name.lower().strip(), '')
+    return DAY_MAP.get(day_name.lower().strip(), "")
 
 
 def normalize_days(spec: str | None) -> list[str]:
@@ -94,20 +110,22 @@ def normalize_days(spec: str | None) -> list[str]:
         'Mon & Wed' -> ['MO', 'WE']
         'Sat-Sun' -> ['SA', 'SU']
     """
-    s = (spec or '').lower().replace('&', ' & ').replace('to', ' to ').replace('&amp;', '&')
+    s = (spec or "").lower().replace("&", " & ").replace("to", " to ").replace("&amp;", "&")
     out: list[str] = []
 
     # Check for ranges like "Mon to Fri" or "Mon-Fri"
-    m = re.search(r'\b(mon|tue|wed|thu|fri|sat|sun)\w*\b\s*(?:-|to)\s*\b(mon|tue|wed|thu|fri|sat|sun)\w*\b', s)
+    m = re.search(
+        r"\b(mon|tue|wed|thu|fri|sat|sun)\w*\b\s*(?:-|to)\s*\b(mon|tue|wed|thu|fri|sat|sun)\w*\b", s
+    )
     if m:
         a, b = m.group(1), m.group(2)
         i1, i2 = DAY_NAMES.index(a), DAY_NAMES.index(b)
-        rng = DAY_NAMES[i1:i2+1] if i1 <= i2 else (DAY_NAMES[i1:] + DAY_NAMES[:i2+1])
+        rng = DAY_NAMES[i1 : i2 + 1] if i1 <= i2 else (DAY_NAMES[i1:] + DAY_NAMES[: i2 + 1])
         return [DAY_MAP[d] for d in rng]
 
     # Check for individual days (supports both abbreviated and full names)
     for d in DAY_NAMES:
-        if re.search(rf'\b{d}\w*\b', s):
+        if re.search(rf"\b{d}\w*\b", s):
             c = DAY_MAP[d]
             if c not in out:
                 out.append(c)
@@ -172,12 +190,12 @@ def day_range_to_iso(from_date: str, to_date: str) -> tuple[str, str]:
 
 def now_utc() -> datetime:
     """Return the current UTC datetime."""
-    return datetime.now(tz=timezone.utc)
+    return datetime.now(tz=_dt.UTC)
 
 
 def iso_now() -> str:
     """Return the current UTC time as an ISO 8601 string (e.g. '2024-01-15T10:30:00Z')."""
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(_dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def parse_iso_utc_strict(ts: str) -> datetime:
@@ -203,6 +221,7 @@ def parse_window(win: str, default_unit: str = "hours") -> timedelta:
     Supported units: s (seconds), m (minutes), h (hours), d (days), w (weeks).
     """
     import re as _re
+
     win = win.strip().lower()
     m = _re.fullmatch(r"(\d+)([smhdw]?)", win)
     if not m:
@@ -222,7 +241,7 @@ def parse_window(win: str, default_unit: str = "hours") -> timedelta:
     raise ValueError(f"Unknown time unit in window: {win!r}")
 
 
-def parse_iso_utc(value: str | None) -> "datetime | None":
+def parse_iso_utc(value: str | None) -> datetime | None:
     """Parse an ISO 8601 string to a UTC-aware datetime, or None on failure."""
     if not value:
         return None
@@ -237,9 +256,9 @@ def parse_iso_utc(value: str | None) -> "datetime | None":
             s = s[:-1] + "+00:00"
         dt = datetime.fromisoformat(s)
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.replace(tzinfo=_dt.UTC)
         else:
-            dt = dt.astimezone(timezone.utc)
+            dt = dt.astimezone(_dt.UTC)
         return dt
     except (ValueError, AttributeError):
         return None

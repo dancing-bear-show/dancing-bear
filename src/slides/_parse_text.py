@@ -65,19 +65,22 @@ def _parse_bullet_line(line: str) -> BulletItem | None:
 
 
 def _split_slide_into_chunks(
-    slide: SlideContent, bullet_limit: int,
+    slide: SlideContent,
+    bullet_limit: int,
 ) -> list[SlideContent]:
     """Split a single slide into continuation slides at the bullet limit."""
     chunks: list[SlideContent] = []
     for i in range(0, len(slide.bullets), bullet_limit):
         is_first = i == 0
-        chunks.append(SlideContent(
-            title=slide.title if is_first else f"{slide.title} (cont.)",
-            subtitle=slide.subtitle if is_first else None,
-            bullets=slide.bullets[i : i + bullet_limit],
-            notes=slide.notes if is_first else None,
-            layout=slide.layout,
-        ))
+        chunks.append(
+            SlideContent(
+                title=slide.title if is_first else f"{slide.title} (cont.)",
+                subtitle=slide.subtitle if is_first else None,
+                bullets=slide.bullets[i : i + bullet_limit],
+                notes=slide.notes if is_first else None,
+                layout=slide.layout,
+            )
+        )
     return chunks
 
 

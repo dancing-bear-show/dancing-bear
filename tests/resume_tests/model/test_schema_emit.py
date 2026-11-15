@@ -31,9 +31,7 @@ class TestEmitSchemaDocument(unittest.TestCase):
         self.schema = emit_schema()
 
     def test_declares_draft_07(self):
-        self.assertEqual(
-            self.schema["$schema"], "http://json-schema.org/draft-07/schema#"
-        )
+        self.assertEqual(self.schema["$schema"], "http://json-schema.org/draft-07/schema#")
 
     def test_titles_the_root_class(self):
         self.assertEqual(self.schema["title"], "Resume")
@@ -71,9 +69,7 @@ class TestEmittedPropertyTypes(unittest.TestCase):
             self.assertEqual(self.props[name], {"type": "string"}, name)
 
     def test_list_of_strings_is_typed_array_of_string(self):
-        self.assertEqual(
-            self.props["skills"], {"type": "array", "items": {"type": "string"}}
-        )
+        self.assertEqual(self.props["skills"], {"type": "array", "items": {"type": "string"}})
 
     def test_optional_contact_is_nullable_object(self):
         self.assertEqual(self.props["contact"], {"type": ["object", "null"]})
@@ -100,15 +96,11 @@ class TestNestedDataclassRecursion(unittest.TestCase):
     def test_experience_bullets_recurse_two_levels_deep(self):
         bullets = self.props["experience"]["items"]["properties"]["bullets"]
         self.assertEqual(bullets["type"], "array")
-        self.assertEqual(
-            sorted(bullets["items"]["properties"]), ["desc", "priority", "text"]
-        )
+        self.assertEqual(sorted(bullets["items"]["properties"]), ["desc", "priority", "text"])
 
     def test_skills_groups_recurse_into_skill_group_items(self):
         items = self.props["skills_groups"]["items"]["properties"]["items"]
-        self.assertEqual(
-            sorted(items["items"]["properties"]), ["desc", "name", "priority"]
-        )
+        self.assertEqual(sorted(items["items"]["properties"]), ["desc", "name", "priority"])
 
     def test_priority_field_is_typed_number(self):
         bullets = self.props["experience"]["items"]["properties"]["bullets"]

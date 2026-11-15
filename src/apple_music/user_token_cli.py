@@ -16,16 +16,38 @@ from apple_music.token_helpers import build_data_url, build_html
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Generate a data URL to obtain Music User Token via browser.")
-    parser.add_argument("--profile", default=DEFAULT_PROFILE, help="credentials.ini section (default: musickit.personal)")
+    parser = argparse.ArgumentParser(
+        description="Generate a data URL to obtain Music User Token via browser."
+    )
+    parser.add_argument(
+        "--profile",
+        default=DEFAULT_PROFILE,
+        help="credentials.ini section (default: musickit.personal)",
+    )
     parser.add_argument("--config", help="Path to credentials.ini (optional)")
-    parser.add_argument("--developer-token", help="Developer token (overrides credentials.ini / env)")
-    parser.add_argument("--serve", action="store_true", help="Serve a local HTML page on localhost instead of a data URL")
+    parser.add_argument(
+        "--developer-token", help="Developer token (overrides credentials.ini / env)"
+    )
+    parser.add_argument(
+        "--serve",
+        action="store_true",
+        help="Serve a local HTML page on localhost instead of a data URL",
+    )
     parser.add_argument("--port", type=int, default=0, help="Port for --serve (default: auto)")
-    parser.add_argument("--timeout", type=int, default=300, help="Seconds to wait for authorization with --serve")
-    parser.add_argument("--save", action="store_true", help="Write the captured token to credentials.ini (--serve only)")
-    parser.add_argument("--open", action="store_true", help="Open the data URL in your default browser")
-    parser.add_argument("--no-open", action="store_true", help="Do not open browser (print URL only)")
+    parser.add_argument(
+        "--timeout", type=int, default=300, help="Seconds to wait for authorization with --serve"
+    )
+    parser.add_argument(
+        "--save",
+        action="store_true",
+        help="Write the captured token to credentials.ini (--serve only)",
+    )
+    parser.add_argument(
+        "--open", action="store_true", help="Open the data URL in your default browser"
+    )
+    parser.add_argument(
+        "--no-open", action="store_true", help="Do not open browser (print URL only)"
+    )
     return parser
 
 
@@ -35,6 +57,7 @@ def _serve_once(html: str, port: int = 0) -> tuple[http.server.HTTPServer, str]:
     The captured token is stored on the server as ``captured_token``. Serving stays
     up across multiple requests (favicon probes, reloads) until the POST arrives.
     """
+
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # pragma: no cover - exercised interactively
             if self.path.startswith("/favicon.ico"):
@@ -138,7 +161,10 @@ def main(argv: list[str] | None = None) -> int:
         or profile_cfg.get("developer_token")
     )
     if not developer_token:
-        print("Missing developer token. Provide --developer-token, APPLE_MUSIC_DEVELOPER_TOKEN, or set developer_token in credentials.ini.", file=sys.stderr)
+        print(
+            "Missing developer token. Provide --developer-token, APPLE_MUSIC_DEVELOPER_TOKEN, or set developer_token in credentials.ini.",
+            file=sys.stderr,
+        )
         return 2
 
     if args.serve:
@@ -147,7 +173,9 @@ def main(argv: list[str] | None = None) -> int:
     url = build_data_url(developer_token)
     if args.open and not args.no_open:
         webbrowser.open(url)
-        print("Opened browser for Music User Token capture. If it did not open, paste this URL manually:\n")
+        print(
+            "Opened browser for Music User Token capture. If it did not open, paste this URL manually:\n"
+        )
     print(url)
     return 0
 

@@ -1,4 +1,5 @@
 """Data models for Outlook calendar and mail operations."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -55,11 +56,15 @@ class EventCreationParams:
         """Handle legacy field initialization."""
         # Convert legacy calendar fields to new structure if needed
         if self.calendar_ref is None and (self.calendar_id or self.calendar_name):
-            self.calendar_ref = CalendarRef(calendar_id=self.calendar_id, calendar_name=self.calendar_name)
+            self.calendar_ref = CalendarRef(
+                calendar_id=self.calendar_id, calendar_name=self.calendar_name
+            )
 
         # Convert legacy reminder fields to new structure if needed
         if self.reminder is None and (self.no_reminder or self.reminder_minutes):
-            self.reminder = ReminderSettings(no_reminder=self.no_reminder, reminder_minutes=self.reminder_minutes)
+            self.reminder = ReminderSettings(
+                no_reminder=self.no_reminder, reminder_minutes=self.reminder_minutes
+            )
 
 
 @dataclass
@@ -113,11 +118,15 @@ class RecurringEventCreationParams:
         """Handle legacy field initialization."""
         # Convert legacy calendar fields to new structure if needed
         if self.calendar_ref is None and (self.calendar_id or self.calendar_name):
-            self.calendar_ref = CalendarRef(calendar_id=self.calendar_id, calendar_name=self.calendar_name)
+            self.calendar_ref = CalendarRef(
+                calendar_id=self.calendar_id, calendar_name=self.calendar_name
+            )
 
         # Convert legacy reminder fields to new structure if needed
         if self.reminder is None and (self.no_reminder or self.reminder_minutes):
-            self.reminder = ReminderSettings(no_reminder=self.no_reminder, reminder_minutes=self.reminder_minutes)
+            self.reminder = ReminderSettings(
+                no_reminder=self.no_reminder, reminder_minutes=self.reminder_minutes
+            )
 
 
 @dataclass
@@ -143,7 +152,9 @@ class EventSettingsPatch:
         """Handle legacy field initialization."""
         # Convert legacy calendar fields to new structure if needed
         if self.calendar_ref is None and (self.calendar_id or self.calendar_name):
-            self.calendar_ref = CalendarRef(calendar_id=self.calendar_id, calendar_name=self.calendar_name)
+            self.calendar_ref = CalendarRef(
+                calendar_id=self.calendar_id, calendar_name=self.calendar_name
+            )
 
 
 @dataclass
@@ -174,7 +185,9 @@ class ListEventsRequest:
             self.date_range = DateRange(start_iso=self.start_iso, end_iso=self.end_iso)
 
         if self.calendar_ref is None and (self.calendar_id or self.calendar_name):
-            self.calendar_ref = CalendarRef(calendar_id=self.calendar_id, calendar_name=self.calendar_name)
+            self.calendar_ref = CalendarRef(
+                calendar_id=self.calendar_id, calendar_name=self.calendar_name
+            )
 
 
 @dataclass
@@ -197,7 +210,9 @@ class UpdateEventReminderRequest:
         """Handle legacy field initialization."""
         # Convert legacy calendar fields to new structure if needed
         if self.calendar_ref is None and (self.calendar_id or self.calendar_name):
-            self.calendar_ref = CalendarRef(calendar_id=self.calendar_id, calendar_name=self.calendar_name)
+            self.calendar_ref = CalendarRef(
+                calendar_id=self.calendar_id, calendar_name=self.calendar_name
+            )
 
 
 @dataclass

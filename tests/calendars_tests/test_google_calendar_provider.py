@@ -10,6 +10,7 @@ Covers:
 - Scope regression: calendar scope present in SCOPES
 - Stale-scope detection: stored token missing calendar scope -> clear message
 """
+
 from __future__ import annotations
 
 import io
@@ -21,10 +22,10 @@ from dataclasses import dataclass, field
 from typing import Any
 from unittest.mock import patch
 
-
 # ---------------------------------------------------------------------------
 # Fake GoogleCalendarService
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class _FakeSvc:
@@ -52,6 +53,7 @@ class _FakeSvc:
 # ---------------------------------------------------------------------------
 # Helpers to build Google Calendar API event dicts
 # ---------------------------------------------------------------------------
+
 
 def _timed_event(
     ev_id: str,
@@ -98,12 +100,13 @@ def _allday_event(ev_id: str, summary: str, date: str, days: int = 1) -> dict[st
 # Tests
 # ---------------------------------------------------------------------------
 
+
 class TestGoogleCalendarProviderConformance(unittest.TestCase):
     """Verify CalendarProvider protocol conformance."""
 
     def test_isinstance_calendar_provider(self) -> None:
-        from calendars.importer.google_provider import GoogleCalendarProvider
         from calendars.importer.base import CalendarProvider
+        from calendars.importer.google_provider import GoogleCalendarProvider
 
         svc = _FakeSvc()
         provider = GoogleCalendarProvider(svc=svc)
@@ -113,6 +116,7 @@ class TestGoogleCalendarProviderConformance(unittest.TestCase):
 class TestListEventsNonRecurring(unittest.TestCase):
     def _make_provider(self, events: list[dict[str, Any]]):
         from calendars.importer.google_provider import GoogleCalendarProvider
+
         svc = _FakeSvc(events=events)
         return GoogleCalendarProvider(svc=svc, calendar_id="primary")
 
@@ -146,7 +150,9 @@ class TestListEventsNonRecurring(unittest.TestCase):
         self.assertIsNone(ce.repeat)
 
     def test_event_with_location(self) -> None:
-        ev = _timed_event("e3", "Gym", "2026-03-01T09:00:00", "2026-03-01T10:00:00", location="The Gym")
+        ev = _timed_event(
+            "e3", "Gym", "2026-03-01T09:00:00", "2026-03-01T10:00:00", location="The Gym"
+        )
         provider = self._make_provider([ev])
         results = provider.list_events(("2026-03-01", "2026-04-01"))
         self.assertEqual(results[0].location, "The Gym")
@@ -157,13 +163,16 @@ class TestRRULEParsing(unittest.TestCase):
 
     def _provider_with(self, ev: dict[str, Any]):
         from calendars.importer.google_provider import GoogleCalendarProvider
+
         svc = _FakeSvc(events=[ev])
         return GoogleCalendarProvider(svc=svc, calendar_id="primary")
 
     def test_weekly_byday_interval_until(self) -> None:
         ev = _timed_event(
-            "r1", "Class",
-            "2026-01-05T09:00:00", "2026-01-05T10:00:00",
+            "r1",
+            "Class",
+            "2026-01-05T09:00:00",
+            "2026-01-05T10:00:00",
             recurrence=["RRULE:FREQ=WEEKLY;BYDAY=MO,WE;INTERVAL=2;UNTIL=20260630T235959Z"],
         )
         provider = self._provider_with(ev)
@@ -173,7 +182,7 @@ class TestRRULEParsing(unittest.TestCase):
         ce = results[0]
         self.assertEqual(ce.repeat, "weekly")
         self.assertEqual(ce.byday, ["MO", "WE"])  # uppercase 2-char
-        self.assertEqual(ce.interval, 2)           # > 1, so set
+        self.assertEqual(ce.interval, 2)  # > 1, so set
         self.assertIsNotNone(ce.range)
         self.assertEqual(ce.range["until"], "2026-06-30")
         self.assertIsNone(ce.count)
@@ -183,8 +192,10 @@ class TestRRULEParsing(unittest.TestCase):
     def test_weekly_no_interval_uses_none(self) -> None:
         """interval=1 must produce None, not 1."""
         ev = _timed_event(
-            "r2", "Standup",
-            "2026-02-02T14:00:00", "2026-02-02T14:30:00",
+            "r2",
+            "Standup",
+            "2026-02-02T14:00:00",
+            "2026-02-02T14:30:00",
             recurrence=["RRULE:FREQ=WEEKLY;BYDAY=MO;INTERVAL=1"],
         )
         provider = self._provider_with(ev)
@@ -198,8 +209,10 @@ class TestRRULEParsing(unittest.TestCase):
 
     def test_daily_no_byday(self) -> None:
         ev = _timed_event(
-            "r3", "Morning Run",
-            "2026-04-01T07:00:00", "2026-04-01T07:30:00",
+            "r3",
+            "Morning Run",
+            "2026-04-01T07:00:00",
+            "2026-04-01T07:30:00",
             recurrence=["RRULE:FREQ=DAILY;COUNT=10"],
         )
         provider = self._provider_with(ev)
@@ -215,8 +228,10 @@ class TestRRULEParsing(unittest.TestCase):
 
     def test_monthly_with_until(self) -> None:
         ev = _timed_event(
-            "r4", "Monthly Review",
-            "2026-01-15T13:00:00", "2026-01-15T14:00:00",
+            "r4",
+            "Monthly Review",
+            "2026-01-15T13:00:00",
+            "2026-01-15T14:00:00",
             recurrence=["RRULE:FREQ=MONTHLY;UNTIL=20261215T235959Z"],
         )
         provider = self._provider_with(ev)
@@ -233,8 +248,10 @@ class TestRRULEParsing(unittest.TestCase):
     def test_byday_values_are_uppercase(self) -> None:
         """RRULE already uses uppercase; verify we don't accidentally lowercase them."""
         ev = _timed_event(
-            "r5", "Triathlon Prep",
-            "2026-05-01T06:00:00", "2026-05-01T07:00:00",
+            "r5",
+            "Triathlon Prep",
+            "2026-05-01T06:00:00",
+            "2026-05-01T07:00:00",
             recurrence=["RRULE:FREQ=WEEKLY;BYDAY=TU,TH,SA"],
         )
         provider = self._provider_with(ev)
@@ -249,6 +266,7 @@ class TestUnrepresentableRRULEsSkipped(unittest.TestCase):
 
     def _provider_with(self, ev: dict[str, Any]):
         from calendars.importer.google_provider import GoogleCalendarProvider
+
         svc = _FakeSvc(events=[ev])
         return GoogleCalendarProvider(svc=svc, calendar_id="primary")
 
@@ -256,11 +274,14 @@ class TestUnrepresentableRRULEsSkipped(unittest.TestCase):
         provider = self._provider_with(ev)
         results = provider.list_events(("2026-01-01", "2026-12-31"))
         self.assertEqual(results, [], "Unrepresentable event must not be returned")
-        self.assertEqual(len(provider.skipped), 1, "Unrepresentable event must be recorded in skipped")
+        self.assertEqual(
+            len(provider.skipped), 1, "Unrepresentable event must be recorded in skipped"
+        )
         skip = provider.skipped[0]
         self.assertIn("reason", skip, "skipped entry must have a 'reason' key")
         self.assertIn(
-            reason_fragment.lower(), skip["reason"].lower(),
+            reason_fragment.lower(),
+            skip["reason"].lower(),
             f"Expected {reason_fragment!r} in reason {skip['reason']!r}",
         )
 
@@ -271,67 +292,106 @@ class TestUnrepresentableRRULEsSkipped(unittest.TestCase):
         INTERVAL=abc exported as an ordinary weekly event — a wrong plan that
         still passes every count-based check.
         """
-        ev = _timed_event("s10", "Class",
-                          "2026-01-05T09:00:00", "2026-01-05T10:00:00",
-                          recurrence=["RRULE:FREQ=WEEKLY;BYDAY=MO;INTERVAL=abc"])
+        ev = _timed_event(
+            "s10",
+            "Class",
+            "2026-01-05T09:00:00",
+            "2026-01-05T10:00:00",
+            recurrence=["RRULE:FREQ=WEEKLY;BYDAY=MO;INTERVAL=abc"],
+        )
         self._assert_skipped_not_returned(ev, "malformed_interval")
 
     def test_malformed_count_skipped_not_silently_dropped(self) -> None:
         """A non-integer COUNT must skip, not turn a bounded series unbounded."""
-        ev = _timed_event("s11", "Standup",
-                          "2026-02-02T14:00:00", "2026-02-02T14:30:00",
-                          recurrence=["RRULE:FREQ=DAILY;COUNT=xyz"])
+        ev = _timed_event(
+            "s11",
+            "Standup",
+            "2026-02-02T14:00:00",
+            "2026-02-02T14:30:00",
+            recurrence=["RRULE:FREQ=DAILY;COUNT=xyz"],
+        )
         self._assert_skipped_not_returned(ev, "malformed_count")
 
     def test_valid_interval_and_count_still_parse(self) -> None:
         """The skip must not fire on well-formed values — no regression."""
-        provider = self._provider_with(_timed_event(
-            "ok1", "Class", "2026-01-05T09:00:00", "2026-01-05T10:00:00",
-            recurrence=["RRULE:FREQ=WEEKLY;BYDAY=MO;INTERVAL=3"],
-        ))
+        provider = self._provider_with(
+            _timed_event(
+                "ok1",
+                "Class",
+                "2026-01-05T09:00:00",
+                "2026-01-05T10:00:00",
+                recurrence=["RRULE:FREQ=WEEKLY;BYDAY=MO;INTERVAL=3"],
+            )
+        )
         results = provider.list_events(("2026-01-01", "2026-12-31"))
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0].interval, 3)
         self.assertEqual(provider.skipped, [])
 
     def test_freq_yearly_skipped(self) -> None:
-        ev = _timed_event("s1", "Anniversary",
-                          "2026-06-15T12:00:00", "2026-06-15T13:00:00",
-                          recurrence=["RRULE:FREQ=YEARLY"])
+        ev = _timed_event(
+            "s1",
+            "Anniversary",
+            "2026-06-15T12:00:00",
+            "2026-06-15T13:00:00",
+            recurrence=["RRULE:FREQ=YEARLY"],
+        )
         self._assert_skipped_not_returned(ev, "yearly")
 
     def test_bysetpos_skipped(self) -> None:
-        ev = _timed_event("s2", "Third Monday",
-                          "2026-03-16T09:00:00", "2026-03-16T10:00:00",
-                          recurrence=["RRULE:FREQ=MONTHLY;BYDAY=MO;BYSETPOS=3"])
+        ev = _timed_event(
+            "s2",
+            "Third Monday",
+            "2026-03-16T09:00:00",
+            "2026-03-16T10:00:00",
+            recurrence=["RRULE:FREQ=MONTHLY;BYDAY=MO;BYSETPOS=3"],
+        )
         self._assert_skipped_not_returned(ev, "bysetpos")
 
     def test_bymonthday_skipped(self) -> None:
-        ev = _timed_event("s3", "15th of Month",
-                          "2026-01-15T10:00:00", "2026-01-15T11:00:00",
-                          recurrence=["RRULE:FREQ=MONTHLY;BYMONTHDAY=15"])
+        ev = _timed_event(
+            "s3",
+            "15th of Month",
+            "2026-01-15T10:00:00",
+            "2026-01-15T11:00:00",
+            recurrence=["RRULE:FREQ=MONTHLY;BYMONTHDAY=15"],
+        )
         self._assert_skipped_not_returned(ev, "bymonthday")
 
     def test_multiple_rrules_skipped(self) -> None:
-        ev = _timed_event("s4", "Complex Recur",
-                          "2026-02-02T08:00:00", "2026-02-02T09:00:00",
-                          recurrence=[
-                              "RRULE:FREQ=WEEKLY;BYDAY=MO",
-                              "RRULE:FREQ=MONTHLY;BYMONTHDAY=1",
-                          ])
+        ev = _timed_event(
+            "s4",
+            "Complex Recur",
+            "2026-02-02T08:00:00",
+            "2026-02-02T09:00:00",
+            recurrence=[
+                "RRULE:FREQ=WEEKLY;BYDAY=MO",
+                "RRULE:FREQ=MONTHLY;BYMONTHDAY=1",
+            ],
+        )
         self._assert_skipped_not_returned(ev, "multiple_rrules")
 
     def test_rdate_skipped(self) -> None:
-        ev = _timed_event("s5", "One-off Extra",
-                          "2026-03-01T10:00:00", "2026-03-01T11:00:00",
-                          recurrence=["RDATE;TZID=America/Toronto:20260301T100000"])
+        ev = _timed_event(
+            "s5",
+            "One-off Extra",
+            "2026-03-01T10:00:00",
+            "2026-03-01T11:00:00",
+            recurrence=["RDATE;TZID=America/Toronto:20260301T100000"],
+        )
         self._assert_skipped_not_returned(ev, "rdate")
 
     def test_skipped_is_reset_on_each_list_events_call(self) -> None:
         """provider.skipped resets each call — stale skip data must not accumulate."""
         from calendars.importer.google_provider import GoogleCalendarProvider
-        ev_bad = _timed_event("s6", "Yearly", "2026-01-01T00:00:00", "2026-01-01T01:00:00",
-                              recurrence=["RRULE:FREQ=YEARLY"])
+
+        ev_bad = _timed_event(
+            "s6",
+            "Yearly",
+            "2026-01-01T00:00:00",
+            "2026-01-01T01:00:00",
+            recurrence=["RRULE:FREQ=YEARLY"],
+        )
         ev_ok = _timed_event("s7", "Good", "2026-01-01T00:00:00", "2026-01-01T01:00:00")
         svc = _FakeSvc(events=[ev_bad])
         provider = GoogleCalendarProvider(svc=svc)
@@ -349,9 +409,12 @@ class TestEXDATEParsing(unittest.TestCase):
 
     def test_exdate_single(self) -> None:
         from calendars.importer.google_provider import GoogleCalendarProvider
+
         ev = _timed_event(
-            "ex1", "Weekly",
-            "2026-05-04T09:00:00", "2026-05-04T10:00:00",
+            "ex1",
+            "Weekly",
+            "2026-05-04T09:00:00",
+            "2026-05-04T10:00:00",
             recurrence=[
                 "RRULE:FREQ=WEEKLY;BYDAY=MO",
                 "EXDATE;TZID=America/Toronto:20260511T090000",
@@ -367,9 +430,12 @@ class TestEXDATEParsing(unittest.TestCase):
 
     def test_exdate_multiple(self) -> None:
         from calendars.importer.google_provider import GoogleCalendarProvider
+
         ev = _timed_event(
-            "ex2", "Daily",
-            "2026-06-01T08:00:00", "2026-06-01T09:00:00",
+            "ex2",
+            "Daily",
+            "2026-06-01T08:00:00",
+            "2026-06-01T09:00:00",
             recurrence=[
                 "RRULE:FREQ=DAILY",
                 "EXDATE:20260603,20260610",
@@ -390,11 +456,13 @@ class TestAddEvent(unittest.TestCase):
 
     def _provider(self):
         from calendars.importer.google_provider import GoogleCalendarProvider
+
         svc = _FakeSvc()
         return GoogleCalendarProvider(svc=svc, calendar_id="primary"), svc
 
     def test_add_single_timed_event(self) -> None:
         from calendars.gmail_types import CalendarEvent
+
         provider, svc = self._provider()
         event = CalendarEvent(
             id="",
@@ -424,6 +492,7 @@ class TestAddEvent(unittest.TestCase):
 
     def test_add_recurring_weekly_emits_rrule(self) -> None:
         from calendars.gmail_types import CalendarEvent
+
         provider, svc = self._provider()
         event = CalendarEvent(
             id="",
@@ -450,7 +519,9 @@ class TestAddEvent(unittest.TestCase):
         self.assertEqual(len(svc.inserted), 1)
         _cal_id, body = svc.inserted[0]
         recurrence = body.get("recurrence", [])
-        self.assertTrue(any("RRULE:" in r for r in recurrence), "RRULE must be present in recurrence")
+        self.assertTrue(
+            any("RRULE:" in r for r in recurrence), "RRULE must be present in recurrence"
+        )
         rrule_line = next(r for r in recurrence if "RRULE:" in r)
         self.assertIn("FREQ=WEEKLY", rrule_line)
         self.assertIn("BYDAY=MO,WE,FR", rrule_line)
@@ -460,6 +531,7 @@ class TestAddEvent(unittest.TestCase):
 
     def test_add_recurring_daily_with_count(self) -> None:
         from calendars.gmail_types import CalendarEvent
+
         provider, svc = self._provider()
         event = CalendarEvent(
             id="",
@@ -480,6 +552,7 @@ class TestAddEvent(unittest.TestCase):
 
     def test_add_event_with_interval_gt_1(self) -> None:
         from calendars.gmail_types import CalendarEvent
+
         provider, svc = self._provider()
         event = CalendarEvent(
             id="",
@@ -511,8 +584,12 @@ class TestBuildRruleRefusesUnknownRepeat(unittest.TestCase):
         from calendars.importer.google_provider import _build_rrule
 
         event = CalendarEvent(
-            id="", subject="Anniversary", start="2026-06-15T12:00:00",
-            end="2026-06-15T13:00:00", calendar="primary", repeat="yearly",
+            id="",
+            subject="Anniversary",
+            start="2026-06-15T12:00:00",
+            end="2026-06-15T13:00:00",
+            calendar="primary",
+            repeat="yearly",
         )
         with self.assertRaises(ValueError) as ctx:
             _build_rrule(event)
@@ -525,8 +602,12 @@ class TestBuildRruleRefusesUnknownRepeat(unittest.TestCase):
         for repeat, freq in (("daily", "DAILY"), ("weekly", "WEEKLY"), ("monthly", "MONTHLY")):
             with self.subTest(repeat=repeat):
                 event = CalendarEvent(
-                    id="", subject="X", start="2026-06-15T12:00:00",
-                    end="2026-06-15T13:00:00", calendar="primary", repeat=repeat,
+                    id="",
+                    subject="X",
+                    start="2026-06-15T12:00:00",
+                    end="2026-06-15T13:00:00",
+                    calendar="primary",
+                    repeat=repeat,
                 )
                 self.assertIn(f"FREQ={freq}", _build_rrule(event))
 
@@ -541,6 +622,7 @@ class TestTimezoneResolution(unittest.TestCase):
     def _provider(self, calendar_tz: str | None = "America/Vancouver") -> tuple[Any, Any]:
         """Return (provider, svc) with an optional calendar timezone lookup stub."""
         from calendars.importer.google_provider import GoogleCalendarProvider
+
         svc = _FakeSvc(_calendar_tz=calendar_tz)
         return GoogleCalendarProvider(svc=svc, calendar_id="primary"), svc
 
@@ -551,11 +633,15 @@ class TestTimezoneResolution(unittest.TestCase):
     def test_explicit_event_tz_is_used(self) -> None:
         """event.tz, when set, takes priority over any calendar lookup."""
         from calendars.gmail_types import CalendarEvent
+
         provider, svc = self._provider(calendar_tz="America/Vancouver")
         event = CalendarEvent(
-            id="", subject="Meeting",
-            start="2026-09-01T10:00:00", end="2026-09-01T11:00:00",
-            calendar="primary", tz="America/New_York",
+            id="",
+            subject="Meeting",
+            start="2026-09-01T10:00:00",
+            end="2026-09-01T11:00:00",
+            calendar="primary",
+            tz="America/New_York",
         )
         provider.add_event(event)
         _, body = svc.inserted[0]
@@ -565,11 +651,15 @@ class TestTimezoneResolution(unittest.TestCase):
     def test_explicit_event_tz_is_used_even_when_calendar_api_differs(self) -> None:
         """Caller's tz is not overridden by the calendar API result."""
         from calendars.gmail_types import CalendarEvent
+
         provider, svc = self._provider(calendar_tz="Europe/London")
         event = CalendarEvent(
-            id="", subject="Standup",
-            start="2026-09-02T14:00:00", end="2026-09-02T14:30:00",
-            calendar="primary", tz="America/Toronto",
+            id="",
+            subject="Standup",
+            start="2026-09-02T14:00:00",
+            end="2026-09-02T14:30:00",
+            calendar="primary",
+            tz="America/Toronto",
         )
         provider.add_event(event)
         _, body = svc.inserted[0]
@@ -582,10 +672,13 @@ class TestTimezoneResolution(unittest.TestCase):
     def test_absent_tz_resolves_calendar_api(self) -> None:
         """When event.tz is None the calendar's own timezone is used."""
         from calendars.gmail_types import CalendarEvent
+
         provider, svc = self._provider(calendar_tz="America/Vancouver")
         event = CalendarEvent(
-            id="", subject="Yoga",
-            start="2026-09-03T07:00:00", end="2026-09-03T08:00:00",
+            id="",
+            subject="Yoga",
+            start="2026-09-03T07:00:00",
+            end="2026-09-03T08:00:00",
             calendar="primary",
             # tz intentionally omitted — CalendarEvent.tz defaults to None
         )
@@ -596,6 +689,7 @@ class TestTimezoneResolution(unittest.TestCase):
     def test_calendar_api_is_called_only_once(self) -> None:
         """The calendar timezone lookup is cached — not repeated per event."""
         from calendars.gmail_types import CalendarEvent
+
         provider, _svc = self._provider(calendar_tz="America/Chicago")
         call_count = [0]
         original = _svc.get_calendar_timezone
@@ -608,8 +702,10 @@ class TestTimezoneResolution(unittest.TestCase):
 
         for i in range(3):
             event = CalendarEvent(
-                id="", subject=f"Event {i}",
-                start="2026-09-01T10:00:00", end="2026-09-01T11:00:00",
+                id="",
+                subject=f"Event {i}",
+                start="2026-09-01T10:00:00",
+                end="2026-09-01T11:00:00",
                 calendar="primary",
             )
             provider.add_event(event)
@@ -623,10 +719,13 @@ class TestTimezoneResolution(unittest.TestCase):
     def test_fallback_when_calendar_api_returns_none(self) -> None:
         """When the API returns None, fall back to America/Toronto — not UTC."""
         from calendars.gmail_types import CalendarEvent
+
         provider, svc = self._provider(calendar_tz=None)
         event = CalendarEvent(
-            id="", subject="Fallback Event",
-            start="2026-09-04T17:00:00", end="2026-09-04T18:00:00",
+            id="",
+            subject="Fallback Event",
+            start="2026-09-04T17:00:00",
+            end="2026-09-04T18:00:00",
             calendar="primary",
         )
         provider.add_event(event)
@@ -645,17 +744,21 @@ class TestTimezoneResolution(unittest.TestCase):
         5:00 pm America/Toronto event to 9:00 pm UTC in the stored calendar.
         """
         from calendars.gmail_types import CalendarEvent
+
         provider, svc = self._provider(calendar_tz="America/Toronto")
         event = CalendarEvent(
-            id="", subject="Doctor Appointment",
-            start="2026-10-01T17:00:00", end="2026-10-01T17:30:00",
+            id="",
+            subject="Doctor Appointment",
+            start="2026-10-01T17:00:00",
+            end="2026-10-01T17:30:00",
             calendar="primary",
             # tz is unset — this was the bug trigger
         )
         provider.add_event(event)
         _, body = svc.inserted[0]
         self.assertNotEqual(
-            body["start"]["timeZone"], "UTC",
+            body["start"]["timeZone"],
+            "UTC",
             "body timeZone must not be UTC when the calendar is America/Toronto and event.tz is unset",
         )
         self.assertEqual(body["start"]["timeZone"], "America/Toronto")
@@ -667,10 +770,13 @@ class TestTimezoneResolution(unittest.TestCase):
     def test_all_day_event_has_no_timezone(self) -> None:
         """All-day events use date (not dateTime) and must have no timeZone field."""
         from calendars.gmail_types import CalendarEvent
+
         provider, svc = self._provider(calendar_tz="America/Toronto")
         event = CalendarEvent(
-            id="", subject="Holiday",
-            start="2026-12-25", end="2026-12-25",
+            id="",
+            subject="Holiday",
+            start="2026-12-25",
+            end="2026-12-25",
             calendar="primary",
         )
         provider.add_event(event)
@@ -710,6 +816,7 @@ class TestScopeRegression(unittest.TestCase):
 
     def test_calendar_scope_in_scopes(self) -> None:
         from mail.gmail_api import SCOPES
+
         self.assertIn(
             "https://www.googleapis.com/auth/calendar",
             SCOPES,

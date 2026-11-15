@@ -43,11 +43,7 @@ class TestRealFiltersAreNotTracked(unittest.TestCase):
         tracked = _tracked_files()
         if not tracked:
             self.skipTest("git not available")
-        offenders = [
-            p
-            for p in tracked
-            if Path(p).name == UNIFIED_FILTERS_NAME
-        ]
+        offenders = [p for p in tracked if Path(p).name == UNIFIED_FILTERS_NAME]
         self.assertEqual(
             [],
             offenders,
@@ -71,9 +67,7 @@ class TestRealFiltersAreNotTracked(unittest.TestCase):
             timeout=30,
             check=False,
         )
-        self.assertEqual(
-            0, result.returncode, f"config/{UNIFIED_FILTERS_NAME} is not gitignored"
-        )
+        self.assertEqual(0, result.returncode, f"config/{UNIFIED_FILTERS_NAME} is not gitignored")
 
 
 class TestExampleIsSynthetic(unittest.TestCase):

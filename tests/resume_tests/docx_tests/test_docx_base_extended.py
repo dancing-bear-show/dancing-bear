@@ -5,9 +5,8 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock
 
-from tests.resume_tests.fixtures import mock_docx_modules
-
 from resume.schema import Resume
+from tests.resume_tests.fixtures import mock_docx_modules
 
 
 def _make_compact_doc():
@@ -35,6 +34,7 @@ class TestApplyPageStylesCompact(unittest.TestCase):
 
     def _get_writer(self, page_cfg):
         from resume.docx_base import create_resume_writer
+
         writer = create_resume_writer(Resume.from_dict({"name": "Test"}), {"page": page_cfg})
         writer.doc = _make_compact_doc()
         return writer
@@ -102,6 +102,7 @@ class TestSetDocumentMetadataExtended(unittest.TestCase):
 
     def _get_writer(self, data, page_cfg=None):
         from resume.docx_base import create_resume_writer
+
         writer = create_resume_writer(Resume.from_dict(data), {"page": page_cfg or {}})
         writer.doc = _make_compact_doc()
         return writer
@@ -127,7 +128,7 @@ class TestSetDocumentMetadataExtended(unittest.TestCase):
                 "email": "bob@example.com",
                 "phone": "555-0000",
                 "location": "Portland, OR",
-            }
+            },
         }
         writer = self._get_writer(data)
         writer._set_document_metadata()
@@ -140,7 +141,7 @@ class TestSetDocumentMetadataExtended(unittest.TestCase):
             "experience": [
                 {"location": "Seattle, WA"},
                 {"location": "Denver, CO"},
-            ]
+            ],
         }
         writer = self._get_writer(data, page_cfg={"metadata_include_locations": True})
         writer._set_document_metadata()
@@ -161,6 +162,7 @@ class TestSetDocumentMetadataExtended(unittest.TestCase):
     def test_metadata_handles_exception(self):
         """Test that metadata setting handles exceptions gracefully."""
         from resume.docx_base import create_resume_writer
+
         writer = create_resume_writer(Resume.from_dict({"name": "Test"}), {})
         # doc with broken core_properties
         writer.doc = MagicMock()
@@ -181,6 +183,7 @@ class TestAddColoredRun(unittest.TestCase):
 
     def _get_writer(self):
         from resume.docx_base import create_resume_writer
+
         return create_resume_writer(Resume.from_dict({"name": "Test"}), {})
 
     def test_adds_run_with_text(self):
@@ -242,14 +245,17 @@ class TestExtractExperienceLocationsBase(unittest.TestCase):
 
     def _get_writer(self, data):
         from resume.docx_base import create_resume_writer
+
         return create_resume_writer(Resume.from_dict(data), {})
 
     def test_extracts_unique_ordered(self):
-        data = {"experience": [
-            {"location": "NYC"},
-            {"location": "LA"},
-            {"location": "NYC"},  # duplicate
-        ]}
+        data = {
+            "experience": [
+                {"location": "NYC"},
+                {"location": "LA"},
+                {"location": "NYC"},  # duplicate
+            ]
+        }
         writer = self._get_writer(data)
         result = writer._extract_experience_locations()
         self.assertEqual(result, ["NYC", "LA"])
@@ -257,11 +263,13 @@ class TestExtractExperienceLocationsBase(unittest.TestCase):
     def test_skips_empty_locations(self):
         # `location` is declared str, but an explicit null in the source file
         # survives as None -- blank and null must both be skipped, not crash.
-        data = {"experience": [
-            {"location": ""},
-            {"location": "Boston, MA"},
-            {"location": None},
-        ]}
+        data = {
+            "experience": [
+                {"location": ""},
+                {"location": "Boston, MA"},
+                {"location": None},
+            ]
+        }
         writer = self._get_writer(data)
         result = writer._extract_experience_locations()
         self.assertEqual(result, ["Boston, MA"])
@@ -285,6 +293,7 @@ class TestFitProperty(unittest.TestCase):
 
     def _fit(self, *args, **kwargs):
         from resume.docx_base import _fit_property
+
         return _fit_property(*args, **kwargs)
 
     def test_short_list_joins_all_items(self):
@@ -335,6 +344,7 @@ class TestMetadataOptions(unittest.TestCase):
     def _set(self, data, page_cfg):
         from resume.docx_base import set_document_metadata_on_doc
         from resume.schema import Resume
+
         doc = MagicMock()
         doc.core_properties = MagicMock()
         set_document_metadata_on_doc(doc, Resume.from_dict(data), page_cfg)

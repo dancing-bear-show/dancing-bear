@@ -15,18 +15,17 @@ Commands:
 from __future__ import annotations
 
 from core.assistant import BaseAssistant
-from ..meta import META
 from core.cli_framework import CLIApp
 
-
-from .cmd_extract import register_extract_commands
-from .cmd_summarize import register_summarize_commands
-from .cmd_render import register_render_commands
+from ..meta import META
 from .cmd_align import register_align_commands
-from .cmd_style import register_style_commands
-from .cmd_files import register_files_commands
-from .cmd_experience import register_experience_commands
 from .cmd_docx import register_docx_commands
+from .cmd_experience import register_experience_commands
+from .cmd_extract import register_extract_commands
+from .cmd_files import register_files_commands
+from .cmd_render import register_render_commands
+from .cmd_style import register_style_commands
+from .cmd_summarize import register_summarize_commands
 
 assistant = BaseAssistant(META.app_id, META.agentic_fallback)
 
@@ -39,6 +38,7 @@ app = CLIApp(
 
 def _emit_agentic(fmt: str, compact: bool) -> int:
     from ..agentic import emit_agentic_context
+
     return emit_agentic_context(fmt, compact)
 
 

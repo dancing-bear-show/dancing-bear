@@ -5,21 +5,21 @@ from __future__ import annotations
 import io
 import sys
 from pathlib import Path
-from unittest import TestCase, main as unittest_main
+from unittest import TestCase
+from unittest import main as unittest_main
 from unittest.mock import MagicMock, patch
 
 from calendars.outlook_pipelines.locations import (
-    OutlookLocationsEnrichRequest,
-    OutlookLocationsEnrichResult,
+    OutlookLocationsApplyProcessor,
     OutlookLocationsEnrichProcessor,
     OutlookLocationsEnrichProducer,
+    OutlookLocationsEnrichRequest,
+    OutlookLocationsEnrichResult,
+    OutlookLocationsProducer,
     OutlookLocationsRequest,
     OutlookLocationsResult,
     OutlookLocationsUpdateProcessor,
-    OutlookLocationsApplyProcessor,
-    OutlookLocationsProducer,
 )
-
 
 # =============================================================================
 # OutlookLocationsEnrichProcessor Tests
@@ -32,7 +32,9 @@ class TestOutlookLocationsEnrichProcessor(TestCase):
     def _make_processor(self, today_factory=None, enricher=None):
         return OutlookLocationsEnrichProcessor(today_factory=today_factory, enricher=enricher)
 
-    def _make_request(self, service="DEFAULT", calendar="Test", from_date=None, to_date=None, dry_run=False):
+    def _make_request(
+        self, service="DEFAULT", calendar="Test", from_date=None, to_date=None, dry_run=False
+    ):
         svc = MagicMock() if service == "DEFAULT" else service
         return OutlookLocationsEnrichRequest(
             service=svc,
@@ -121,8 +123,18 @@ class TestOutlookLocationsEnrichProcessor(TestCase):
         svc = MagicMock()
         svc.find_calendar_id.return_value = "cal-123"
         svc.list_events_in_range.return_value = [
-            {"id": "e1", "seriesMasterId": "master-1", "subject": "Public Skating", "location": {"displayName": "Rink"}},
-            {"id": "e2", "seriesMasterId": "master-1", "subject": "Public Skating", "location": {"displayName": "Rink"}},
+            {
+                "id": "e1",
+                "seriesMasterId": "master-1",
+                "subject": "Public Skating",
+                "location": {"displayName": "Rink"},
+            },
+            {
+                "id": "e2",
+                "seriesMasterId": "master-1",
+                "subject": "Public Skating",
+                "location": {"displayName": "Rink"},
+            },
         ]
         req = self._make_request(service=svc, dry_run=False)
         result = proc.process(req)
@@ -245,7 +257,9 @@ class TestOutlookLocationsUpdateProcessor(TestCase):
     def _make_processor(self, config_loader=None):
         return OutlookLocationsUpdateProcessor(config_loader=config_loader)
 
-    def _make_request(self, config_path="/path/to/config.yaml", calendar=None, dry_run=False, service=None):
+    def _make_request(
+        self, config_path="/path/to/config.yaml", calendar=None, dry_run=False, service=None
+    ):
         return OutlookLocationsRequest(
             config_path=Path(config_path),
             calendar=calendar,
@@ -312,7 +326,14 @@ class TestOutlookLocationsApplyProcessor(TestCase):
     def _make_processor(self, config_loader=None):
         return OutlookLocationsApplyProcessor(config_loader=config_loader)
 
-    def _make_request(self, config_path="/path/to/config.yaml", calendar=None, dry_run=False, all_occurrences=False, service=None):
+    def _make_request(
+        self,
+        config_path="/path/to/config.yaml",
+        calendar=None,
+        dry_run=False,
+        all_occurrences=False,
+        service=None,
+    ):
         return OutlookLocationsRequest(
             config_path=Path(config_path),
             calendar=calendar,

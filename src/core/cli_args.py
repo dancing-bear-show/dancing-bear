@@ -6,11 +6,12 @@ Provides reusable argument groups for:
 - Date ranges (--from-date, --to-date, --days-back)
 - Operation modes (--dry-run, --force)
 """
+
 from __future__ import annotations
 
+import argparse
 from dataclasses import dataclass
 from typing import Any
-import argparse
 
 
 @dataclass
@@ -147,23 +148,28 @@ def add_output_args(parser, config: OutputFormatConfig | None = None):
     if config is None:
         config = OutputFormatConfig()
 
-    output_formats = config.formats if config.formats is not None else ["text", "json", "yaml", "table"]
+    output_formats = (
+        config.formats if config.formats is not None else ["text", "json", "yaml", "table"]
+    )
 
     parser.add_argument(
-        "--output", "-o",
+        "--output",
+        "-o",
         choices=output_formats,
         default=config.default_format,
         help=f"Output format (default: {config.default_format})",
     )
     if config.include_verbose:
         parser.add_argument(
-            "--verbose", "-v",
+            "--verbose",
+            "-v",
             action="store_true",
             help="Enable verbose output",
         )
     if config.include_quiet:
         parser.add_argument(
-            "--quiet", "-q",
+            "--quiet",
+            "-q",
             action="store_true",
             help="Suppress non-essential output",
         )
@@ -191,7 +197,8 @@ def add_dry_run_args(
     )
     if include_force:
         parser.add_argument(
-            "--force", "-f",
+            "--force",
+            "-f",
             action="store_true",
             help="Force operation without confirmation",
         )
@@ -251,7 +258,8 @@ def add_profile_args(
         The parser for chaining.
     """
     parser.add_argument(
-        "--profile", "-p",
+        "--profile",
+        "-p",
         help=profile_help or "Credentials profile name",
     )
     return parser
@@ -277,7 +285,8 @@ def add_filter_args(
     """
     if include_limit:
         parser.add_argument(
-            "--limit", "-n",
+            "--limit",
+            "-n",
             type=int,
             default=default_limit,
             help=f"Maximum number of results (default: {default_limit})",

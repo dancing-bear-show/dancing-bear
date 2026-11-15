@@ -6,22 +6,36 @@ render and structure share the structure-loading helpers, so they live together.
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from core.cli_errors import CLIError, ExitCode
 from core.cli_framework import CLIApp
 from core.paths import output_dir
 
+from ..docx_standard import _SECTION_DATA_KEYS, _section_has_data
+from ..docx_writer import write_resume_docx
 from ..io_utils import read_yaml_or_json, write_yaml_or_json
 from ..overlays import resolve_profile_dir
 from ..schema import Resume
-from ..templating import load_template, parse_seed_criteria
-from ..docx_writer import write_resume_docx
-from ..docx_standard import _section_has_data, _SECTION_DATA_KEYS
 from ..structure import infer_structure_from_docx
-from .args import PROFILE_HELP_DATA, PROFILE_HELP_OUT, OUT_DIR_HELP, DATA_HELP, EXT_JSON, EXT_YAML, OUT_DIR_DOMAIN
-from .helpers import _load_candidate_data, _apply_filter_pipeline, _extend_seed_with_style, _resolve_out
+from ..templating import load_template, parse_seed_criteria
+from .args import (
+    DATA_HELP,
+    EXT_JSON,
+    EXT_YAML,
+    OUT_DIR_DOMAIN,
+    OUT_DIR_HELP,
+    PROFILE_HELP_DATA,
+    PROFILE_HELP_OUT,
+)
+from .helpers import (
+    _apply_filter_pipeline,
+    _extend_seed_with_style,
+    _load_candidate_data,
+    _resolve_out,
+)
 
 
 def _try_load_structure(path: Path) -> dict | None:
@@ -40,7 +54,7 @@ def _find_first_structure(
     """Try each (out_dir, extension) combination via path_for until a structure loads."""
     for out_dir in out_dirs:
         for ext in extensions:
-            if (structure := _try_load_structure(path_for(out_dir, ext))):
+            if structure := _try_load_structure(path_for(out_dir, ext)):
                 return structure
     return None
 
@@ -130,7 +144,10 @@ def cmd_render(args: argparse.Namespace) -> int:
     out_docx = _resolve_out(args, ".docx", kind="resume")
     out_suf = out_docx.suffix.lower()
     if out_suf == ".pdf":
-        raise CLIError("render writes .docx only; use 'resume export-pdf --docx <path>' to convert.", ExitCode.USAGE)
+        raise CLIError(
+            "render writes .docx only; use 'resume export-pdf --docx <path>' to convert.",
+            ExitCode.USAGE,
+        )
     # Guard: refuse to write a completely empty resume (exit 0 with a blank docx
     # was the original bug — an unknown profile + no base data produces nothing).
     if not _has_resume_content(resume):
@@ -166,21 +183,49 @@ def register_render_commands(app: CLIApp) -> None:
     """Register the render and structure commands on app."""
     _RENDER_ARGS: list[tuple[tuple[str, ...], dict[str, Any]]] = [
         (("--data",), {"help": DATA_HELP}),
-        (("--template",), {"help": "Template config (YAML/JSON); defaults to summary/skills/experience/education"}),
-        (("--seed",), {"help": "Seed criteria as JSON string or KEY=VALUE pairs (comma-separated)"}),
+        (
+            ("--template",),
+            {
+                "help": "Template config (YAML/JSON); defaults to summary/skills/experience/education"
+            },
+        ),
+        (
+            ("--seed",),
+            {"help": "Seed criteria as JSON string or KEY=VALUE pairs (comma-separated)"},
+        ),
         (("--style-profile",), {"help": "Style profile JSON from 'style build' (optional)"}),
-        (("--filter-skills-alignment",), {"help": "Alignment JSON to filter Skills to matched keywords"}),
+        (
+            ("--filter-skills-alignment",),
+            {"help": "Alignment JSON to filter Skills to matched keywords"},
+        ),
         (("--filter-skills-job",), {"help": "Job YAML/JSON to supplement synonyms for filtering"}),
-        (("--filter-exp-alignment",), {"help": "Alignment JSON to filter Experience to matched keywords"}),
-        (("--filter-exp-job",), {"help": "Job YAML/JSON to supplement synonyms for experience filter"}),
-        (("--structure-from",), {"help": "Reference DOCX resume to mimic section order and headings"}),
-        (("--min-priority",), {"type": float, "help": "Filter Skills/Technologies items by priority (keep >= cutoff)"}),
+        (
+            ("--filter-exp-alignment",),
+            {"help": "Alignment JSON to filter Experience to matched keywords"},
+        ),
+        (
+            ("--filter-exp-job",),
+            {"help": "Job YAML/JSON to supplement synonyms for experience filter"},
+        ),
+        (
+            ("--structure-from",),
+            {"help": "Reference DOCX resume to mimic section order and headings"},
+        ),
+        (
+            ("--min-priority",),
+            {
+                "type": float,
+                "help": "Filter Skills/Technologies items by priority (keep >= cutoff)",
+            },
+        ),
         (("--out",), {"help": "Output file path (overrides --profile)"}),
         (("--profile",), {"help": PROFILE_HELP_DATA}),
         (("--out-dir",), {"help": OUT_DIR_HELP}),
     ]
     app.add_arguments(_RENDER_ARGS)
-    app.command("render", help="Render a DOCX resume from unified data with a YAML/JSON template")(cmd_render)
+    app.command("render", help="Render a DOCX resume from unified data with a YAML/JSON template")(
+        cmd_render
+    )
 
     _STRUCTURE_ARGS: list[tuple[tuple[str, ...], dict[str, Any]]] = [
         (("--source",), {"required": True, "help": "Reference .docx file"}),
@@ -189,4 +234,6 @@ def register_render_commands(app: CLIApp) -> None:
         (("--out-dir",), {"help": OUT_DIR_HELP}),
     ]
     app.add_arguments(_STRUCTURE_ARGS)
-    app.command("structure", help="Infer section order and headings from a reference DOCX resume")(cmd_structure)
+    app.command("structure", help="Infer section order and headings from a reference DOCX resume")(
+        cmd_structure
+    )

@@ -50,7 +50,7 @@ class CoreTextIOTests(unittest.TestCase):
 
 class CoreCliArgsTests(unittest.TestCase):
     def test_add_outlook_auth_args_tenant_none(self):
-        from core.cli_args import add_outlook_auth_args, OutlookAuthConfig
+        from core.cli_args import OutlookAuthConfig, add_outlook_auth_args
 
         parser = argparse.ArgumentParser()
         add_outlook_auth_args(parser, OutlookAuthConfig(include_profile=True, tenant_default=None))
@@ -59,7 +59,7 @@ class CoreCliArgsTests(unittest.TestCase):
         self.assertIsNone(args.profile)
 
     def test_add_gmail_auth_args_includes_cache(self):
-        from core.cli_args import add_gmail_auth_args, GmailAuthConfig
+        from core.cli_args import GmailAuthConfig, add_gmail_auth_args
 
         parser = argparse.ArgumentParser()
         add_gmail_auth_args(parser, GmailAuthConfig(include_cache=True))
@@ -138,10 +138,14 @@ class CoreAuthTests(unittest.TestCase):
                 "MAIL_ASSISTANT_OUTLOOK_TENANT": "env_tenant",
             },
         ):
-            with patch("mail.config_resolver.get_outlook_client_id", return_value="profile_client"), \
-                 patch("mail.config_resolver.get_outlook_tenant", return_value="profile_tenant"), \
-                 patch("mail.config_resolver.get_outlook_token_path", return_value="~/token.json"):
-                client, tenant, token = core_auth.resolve_outlook_credentials(None, None, None, None)
+            with (
+                patch("mail.config_resolver.get_outlook_client_id", return_value="profile_client"),
+                patch("mail.config_resolver.get_outlook_tenant", return_value="profile_tenant"),
+                patch("mail.config_resolver.get_outlook_token_path", return_value="~/token.json"),
+            ):
+                client, tenant, token = core_auth.resolve_outlook_credentials(
+                    None, None, None, None
+                )
 
         self.assertEqual(client, "env_client")
         self.assertEqual(tenant, "env_tenant")
@@ -157,11 +161,16 @@ class CoreAuthTests(unittest.TestCase):
                 "MAIL_ASSISTANT_OUTLOOK_TENANT": "env_tenant",
             },
         ):
-            with patch("mail.config_resolver.get_outlook_client_id", return_value="profile_client"), \
-                 patch("mail.config_resolver.get_outlook_tenant", return_value="profile_tenant"), \
-                 patch("mail.config_resolver.get_outlook_token_path", return_value="~/token.json"):
+            with (
+                patch("mail.config_resolver.get_outlook_client_id", return_value="profile_client"),
+                patch("mail.config_resolver.get_outlook_tenant", return_value="profile_tenant"),
+                patch("mail.config_resolver.get_outlook_token_path", return_value="~/token.json"),
+            ):
                 client, tenant, token = core_auth.resolve_outlook_credentials(
-                    "profile", "cli_client", "cli_tenant", test_path("token.json")  # noqa: S108 - test fixture path
+                    "profile",
+                    "cli_client",
+                    "cli_tenant",
+                    test_path("token.json"),  # noqa: S108 - test fixture path
                 )
 
         self.assertEqual(client, "cli_client")
@@ -182,8 +191,10 @@ class CoreAuthTests(unittest.TestCase):
             def __init__(self, ctx):
                 self.ctx = ctx
 
-        args = SimpleNamespace(profile="profile", client_id="cli_id", tenant="cli_tenant", token="cli_token")  # noqa: S106  # nosec B106 - test fixture path
-        with patch("core.auth.resolve_outlook_credentials", return_value=("cid", "ten", "tok")) as mocked:
+        args = SimpleNamespace(profile="profile", client_id="cli_id", tenant="cli_tenant", token="cli_token")  # noqa: S106  # nosec B106 - test fixture path  # fmt: skip
+        with patch(
+            "core.auth.resolve_outlook_credentials", return_value=("cid", "ten", "tok")
+        ) as mocked:
             svc = core_auth.build_outlook_service_from_args(
                 args,
                 context_cls=DummyContext,

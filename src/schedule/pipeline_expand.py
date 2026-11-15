@@ -1,4 +1,5 @@
 """Recurrence expansion logic for the schedule pipeline."""
+
 from __future__ import annotations
 
 import datetime as _dt
@@ -6,7 +7,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from core.constants import FMT_DATETIME
-from core.date_utils import RRULE_CODE_TO_WEEKDAY, to_iso_str as _to_iso_str
+from core.date_utils import RRULE_CODE_TO_WEEKDAY
+from core.date_utils import to_iso_str as _to_iso_str
 
 
 @dataclass
@@ -125,13 +127,19 @@ def _expand_weekly(config: RecurrenceExpansionConfig) -> list[tuple[str, str]]:
     out: list[tuple[str, str]] = []
     d = config.start_date
     while d <= config.end_date:
-        if config.weekdays and d.weekday() in config.weekdays and d.isoformat() not in config.excluded_dates:
+        if (
+            config.weekdays
+            and d.weekday() in config.weekdays
+            and d.isoformat() not in config.excluded_dates
+        ):
             out.append(_make_occurrence(d, config.start_time, config.end_time))
         d = d + _dt.timedelta(days=1)
     return out
 
 
-def _extract_event_times(ev: dict[str, Any], win_from: str, win_to: str) -> tuple[str, str, str, str] | None:
+def _extract_event_times(
+    ev: dict[str, Any], win_from: str, win_to: str
+) -> tuple[str, str, str, str] | None:
     """Extract and validate time fields from event.
 
     Returns (start_time, end_time, range_start, range_until) or None if invalid.
@@ -186,7 +194,9 @@ def _expand_weekly_occurrences(
     return _expand_weekly(week_config)
 
 
-def _expand_recurring_occurrences(ev: dict[str, Any], win_from: str, win_to: str) -> list[tuple[str, str]]:
+def _expand_recurring_occurrences(
+    ev: dict[str, Any], win_from: str, win_to: str
+) -> list[tuple[str, str]]:
     """Expand recurring event (weekly/daily) to list of (start_iso, end_iso) within window."""
     rpt = (ev.get("repeat") or "").strip().lower()
     if rpt not in ("daily", "weekly"):
@@ -207,13 +217,16 @@ def _expand_recurring_occurrences(ev: dict[str, Any], win_from: str, win_to: str
     if rpt == "daily":
         return _expand_daily(start_date, end_date, start_time, end_time, ex_set)
 
-    return _expand_weekly_occurrences(ev, RecurrenceExpansionConfig(
-        start_date=start_date,
-        end_date=end_date,
-        start_time=start_time,
-        end_time=end_time,
-        excluded_dates=ex_set,
-    ))
+    return _expand_weekly_occurrences(
+        ev,
+        RecurrenceExpansionConfig(
+            start_date=start_date,
+            end_date=end_date,
+            start_time=start_time,
+            end_time=end_time,
+            excluded_dates=ex_set,
+        ),
+    )
 
 
 def _ensure_calendar_id(service: Any, calendar_name: str | None) -> Any:
@@ -227,7 +240,9 @@ def _ensure_calendar_id(service: Any, calendar_name: str | None) -> Any:
 
 
 def _create_recurring_or_single(
-    service: Any, ev: dict[str, Any], params: EventCreateParams,
+    service: Any,
+    ev: dict[str, Any],
+    params: EventCreateParams,
 ) -> Any | None:
     """Create recurring or single event. Returns result dict or None if skipped."""
     ev_range = ev.get("range") or {}

@@ -6,12 +6,12 @@ import argparse
 
 from core.cli_framework import CLIApp
 
-from ..schema import CandidateData
-from ..parsing_linkedin import parse_linkedin_text
-from ..parsing_experience_text import merge_profiles
 from ..io_utils import read_text_any, write_yaml_or_json
-from .args import PROFILE_HELP_OUT, OUT_DIR_HELP, EXT_JSON
-from .helpers import _read_linkedin_text, _parse_resume_source, _resolve_out
+from ..parsing_experience_text import merge_profiles
+from ..parsing_linkedin import parse_linkedin_text
+from ..schema import CandidateData
+from .args import EXT_JSON, OUT_DIR_HELP, PROFILE_HELP_OUT
+from .helpers import _parse_resume_source, _read_linkedin_text, _resolve_out
 
 
 def cmd_extract(args: argparse.Namespace) -> int:
@@ -35,4 +35,6 @@ def register_extract_commands(app: CLIApp) -> None:
         (("--out-dir",), {"help": OUT_DIR_HELP}),
     ]
     app.add_arguments(_ARGS)
-    app.command("extract", help="Parse LinkedIn and resume sources and produce unified data (YAML/JSON)")(cmd_extract)
+    app.command(
+        "extract", help="Parse LinkedIn and resume sources and produce unified data (YAML/JSON)"
+    )(cmd_extract)

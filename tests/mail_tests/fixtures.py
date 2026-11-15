@@ -6,9 +6,10 @@ Gmail client fakes and CLI arg helpers.
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from types import SimpleNamespace
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 from unittest.mock import MagicMock
 
 # Re-export FakeGmailClient from centralized fakes module
@@ -89,7 +90,7 @@ class FakeMailContext:
         context = FakeMailContext(gmail_client=client)
     """
 
-    def __init__(self, gmail_client: Optional[Any] = None):
+    def __init__(self, gmail_client: Any | None = None):
         self._gmail_client = gmail_client
 
     def get_gmail_client(self):
@@ -110,39 +111,41 @@ class FakeForwardingClient:
         )
     """
 
-    forwarding_addresses: List[Dict[str, Any]] = field(default_factory=list)
+    forwarding_addresses: list[dict[str, Any]] = field(default_factory=list)
     verified_addresses: set = field(default_factory=set)
-    auto_forwarding: Dict[str, Any] = field(default_factory=dict)
-    created_addresses: List[str] = field(default_factory=list)
-    forwarding_settings: List[Dict] = field(default_factory=list)
+    auto_forwarding: dict[str, Any] = field(default_factory=dict)
+    created_addresses: list[str] = field(default_factory=list)
+    forwarding_settings: list[dict] = field(default_factory=list)
 
     def authenticate(self) -> None:
         """No-op for fake client."""
 
-    def list_forwarding_addresses_info(self) -> List[Dict[str, Any]]:
+    def list_forwarding_addresses_info(self) -> list[dict[str, Any]]:
         return list(self.forwarding_addresses)
 
-    def list_forwarding_addresses(self) -> List[Dict]:
-        return [{"forwardingEmail": addr, "verificationStatus": "accepted"}
-                for addr in self.verified_addresses]
+    def list_forwarding_addresses(self) -> list[dict]:
+        return [
+            {"forwardingEmail": addr, "verificationStatus": "accepted"}
+            for addr in self.verified_addresses
+        ]
 
     def get_verified_forwarding_addresses(self) -> set:
         return set(self.verified_addresses)
 
-    def create_forwarding_address(self, email: str) -> Dict[str, Any]:
+    def create_forwarding_address(self, email: str) -> dict[str, Any]:
         self.created_addresses.append(email)
         return {"forwardingEmail": email, "verificationStatus": "pending"}
 
-    def get_auto_forwarding(self) -> Dict[str, Any]:
+    def get_auto_forwarding(self) -> dict[str, Any]:
         return dict(self.auto_forwarding)
 
     def set_auto_forwarding(
         self,
         enabled: bool,
-        email: Optional[str] = None,
-        disposition: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        settings: Dict[str, Any] = {"enabled": enabled}
+        email: str | None = None,
+        disposition: str | None = None,
+    ) -> dict[str, Any]:
+        settings: dict[str, Any] = {"enabled": enabled}
         if email:
             settings["emailAddress"] = email
         if disposition:
@@ -181,10 +184,10 @@ def make_pipeline_client() -> FakeGmailClient:
 
 def make_user_label(
     name: str,
-    label_id: Optional[str] = None,
+    label_id: str | None = None,
     messages: int = 0,
     **kwargs,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Create a user label dict for testing.
 
     Args:
@@ -206,7 +209,7 @@ def make_user_label(
     }
 
 
-def make_system_label(name: str, messages: int = 0) -> Dict[str, Any]:
+def make_system_label(name: str, messages: int = 0) -> dict[str, Any]:
     """Create a system label dict for testing.
 
     Args:
@@ -221,9 +224,9 @@ def make_system_label(name: str, messages: int = 0) -> Dict[str, Any]:
 
 def make_label_with_visibility(
     name: str,
-    label_id: Optional[str] = None,
+    label_id: str | None = None,
     **kwargs,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Create a user label with default visibility settings.
 
     Args:
@@ -243,9 +246,9 @@ def make_label_with_visibility(
 
 def make_message(
     msg_id: str,
-    label_ids: Optional[List[str]] = None,
+    label_ids: list[str] | None = None,
     **kwargs,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Create a message dict for testing.
 
     Args:
@@ -261,11 +264,11 @@ def make_message(
 
 def make_message_with_headers(
     msg_id: str,
-    headers: Dict[str, str],
-    label_ids: Optional[List[str]] = None,
-    internal_date: Optional[int] = None,
+    headers: dict[str, str],
+    label_ids: list[str] | None = None,
+    internal_date: int | None = None,
     **kwargs,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Create a Gmail message dict with headers for testing.
 
     Args:
@@ -319,7 +322,7 @@ def make_success_envelope(payload: Any = None, **kwargs) -> MagicMock:
     return envelope
 
 
-def make_error_envelope(diagnostics: Optional[Dict[str, Any]] = None, **kwargs) -> MagicMock:
+def make_error_envelope(diagnostics: dict[str, Any] | None = None, **kwargs) -> MagicMock:
     """Create a mock error ResultEnvelope.
 
     Args:
@@ -374,10 +377,9 @@ def make_mock_mail_context(
 
 def noop_handler(*_args, **_kwargs):
     """No-op handler for CLI registration tests."""
-    pass
 
 
-def make_noop_handlers(*names: str) -> Dict[str, Callable]:
+def make_noop_handlers(*names: str) -> dict[str, Callable]:
     """Create a dict of noop handlers for CLI registration.
 
     Args:
@@ -390,7 +392,7 @@ def make_noop_handlers(*names: str) -> Dict[str, Callable]:
         handlers = make_noop_handlers("f_list", "f_export", "f_sync")
         register(subparsers, **handlers)
     """
-    return {name: noop_handler for name in names}
+    return dict.fromkeys(names, noop_handler)
 
 
 class CLIRegisterTestCase:

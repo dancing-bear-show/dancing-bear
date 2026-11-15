@@ -23,10 +23,10 @@ from workflow.cli_dispatch import (
 from workflow.cli_helpers import check_workflow_path
 from workflow.cli_lifecycle import _planned_stages
 from workflow.fleet import (
+    MARK_STATUSES,
     FleetError,
     ItemRecord,
     ItemStatus,
-    MARK_STATUSES,
     Ledger,
     enumerate_items,
     ledger_path,
@@ -49,7 +49,15 @@ FILTER_CHOICES = [FILTER_ALL, *(s.value for s in ItemStatus)]
 MARK_CHOICES = [s.value for s in MARK_STATUSES]
 
 _STATUS_HEADERS = ["item", "status", "started", "completed", "workspace", "error"]
-_REPORT_HEADERS = ["item", "status", "stages_done", "stages_total", "completed", "workspace", "error"]
+_REPORT_HEADERS = [
+    "item",
+    "status",
+    "stages_done",
+    "stages_total",
+    "completed",
+    "workspace",
+    "error",
+]
 _RUN_HEADERS = ["item", "status", "workspace", "params"]
 
 
@@ -119,20 +127,31 @@ def _reusable_workspace(rec: ItemRecord) -> Path | None:
     return ws if (ws / "manifest.json").is_file() else None
 
 
-def _start_item(args: argparse.Namespace, slug: str, item: str, rec: ItemRecord) -> dict[str, object]:
+def _start_item(
+    args: argparse.Namespace, slug: str, item: str, rec: ItemRecord
+) -> dict[str, object]:
     """Create (or reuse) the item's workspace and mark it running; mark it failed on error."""
     params = _item_params(args, item)
     shown = " ".join(f"{k}={v}" for k, v in params.items())
     try:
         workspace = _reusable_workspace(rec) or create_run_workspace(
-            args.path, params, base_dir=args.base_dir or None,
+            args.path,
+            params,
+            base_dir=args.base_dir or None,
         )
     except (CLIError, UnsafePathError, OSError) as exc:
-        update_item(slug, item, status=ItemStatus.failed.value, error=str(exc), completed_at=iso_now())
+        update_item(
+            slug, item, status=ItemStatus.failed.value, error=str(exc), completed_at=iso_now()
+        )
         return {"item": item, "status": "failed", "workspace": f"- ({exc})", "params": shown}
     update_item(
-        slug, item, status=ItemStatus.running.value, workspace=str(workspace),
-        started_at=iso_now(), completed_at=None, error=None,
+        slug,
+        item,
+        status=ItemStatus.running.value,
+        workspace=str(workspace),
+        started_at=iso_now(),
+        completed_at=None,
+        error=None,
     )
     return {"item": item, "status": "running", "workspace": str(workspace), "params": shown}
 
@@ -147,8 +166,11 @@ def _cmd_fleet_run(args: argparse.Namespace) -> int:
         for item in items:  # reject a malformed --param/--fan-param before any write
             _item_params(args, item)
         ledger = load_ledger(slug) or Ledger(
-            workflow=slug, workflow_path=args.path, fan_over=args.fan_over,
-            created_at=iso_now(), last_updated=iso_now(),
+            workflow=slug,
+            workflow_path=args.path,
+            fan_over=args.fan_over,
+            created_at=iso_now(),
+            last_updated=iso_now(),
         )
     except FleetError as exc:
         print(f"Error: {exc}", file=sys.stderr)
@@ -159,11 +181,17 @@ def _cmd_fleet_run(args: argparse.Namespace) -> int:
 
     if args.dry_run:
         rows: list[dict[str, object]] = [
-            {"item": i, "status": ledger.items[i].status.value, "workspace": "-",
-             "params": " ".join(f"{k}={v}" for k, v in _item_params(args, i).items())}
+            {
+                "item": i,
+                "status": ledger.items[i].status.value,
+                "workspace": "-",
+                "params": " ".join(f"{k}={v}" for k, v in _item_params(args, i).items()),
+            }
             for i in batch
         ]
-        print(f"dry-run: {added} new, {len(forced)} reset, {len(batch)} would start", file=sys.stderr)
+        print(
+            f"dry-run: {added} new, {len(forced)} reset, {len(batch)} would start", file=sys.stderr
+        )
         emit_rows(rows, fmt=args.format, headers=_RUN_HEADERS, empty_msg="Nothing to start.")
         return ExitCode.SUCCESS
 
@@ -208,14 +236,22 @@ def _cmd_fleet_status(args: argparse.Namespace) -> int:
         print(f"progress:  {_progress_bar(ledger.counts()[ItemStatus.done], len(ledger.items))}")
     rows: list[dict[str, object]] = [
         {
-            "item": name, "status": rec.status.value, "started": _short_ts(rec.started_at),
-            "completed": _short_ts(rec.completed_at), "workspace": rec.workspace or "-",
+            "item": name,
+            "status": rec.status.value,
+            "started": _short_ts(rec.started_at),
+            "completed": _short_ts(rec.completed_at),
+            "workspace": rec.workspace or "-",
             "error": rec.error or "-",
         }
         for name, rec in sorted(ledger.items.items())
         if _matches(rec, args.filter)
     ]
-    emit_rows(rows, fmt=args.format, headers=_STATUS_HEADERS, empty_msg=f"No items with status={args.filter}.")
+    emit_rows(
+        rows,
+        fmt=args.format,
+        headers=_STATUS_HEADERS,
+        empty_msg=f"No items with status={args.filter}.",
+    )
     return ExitCode.SUCCESS
 
 
@@ -228,7 +264,9 @@ def _cmd_fleet_reset(args: argparse.Namespace) -> int:
     if loaded is None:
         return ExitCode.ERROR
     _, ledger = loaded
-    targets = [n for n, r in sorted(ledger.items.items()) if args.filter and _matches(r, args.filter)]
+    targets = [
+        n for n, r in sorted(ledger.items.items()) if args.filter and _matches(r, args.filter)
+    ]
     named = [x.strip() for x in (args.items or "").split(",") if x.strip()]
     unknown = [n for n in named if n not in ledger.items]
     if unknown:
@@ -243,10 +281,12 @@ def _cmd_fleet_reset(args: argparse.Namespace) -> int:
 def _report_row(name: str, rec: ItemRecord) -> dict[str, object]:
     progress = stage_progress(rec.workspace)
     return {
-        "item": name, "status": rec.status.value,
+        "item": name,
+        "status": rec.status.value,
         "stages_done": progress.done if progress else "-",
         "stages_total": progress.total if progress else "-",
-        "completed": _short_ts(rec.completed_at), "workspace": rec.workspace or "-",
+        "completed": _short_ts(rec.completed_at),
+        "workspace": rec.workspace or "-",
         "error": rec.error or "-",
     }
 
@@ -258,7 +298,12 @@ def _cmd_fleet_report(args: argparse.Namespace) -> int:
         return ExitCode.ERROR
     _, ledger = loaded
     rows = [_report_row(n, r) for n, r in sorted(ledger.items.items()) if _matches(r, args.filter)]
-    emit_rows(rows, fmt=args.format, headers=_REPORT_HEADERS, empty_msg=f"No items with status={args.filter}.")
+    emit_rows(
+        rows,
+        fmt=args.format,
+        headers=_REPORT_HEADERS,
+        empty_msg=f"No items with status={args.filter}.",
+    )
     if args.format == "table":
         counts = ledger.counts()
         print("TOTAL  " + " ".join(f"{s.value}={counts[s]}" for s in ItemStatus))

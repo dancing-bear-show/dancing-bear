@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import unittest
-from typing import Any, Dict, List, Optional
+from typing import Any
 from unittest.mock import MagicMock, patch
-
 
 # ---------------------------------------------------------------------------
 # Minimal concrete subclass used throughout the tests
 # ---------------------------------------------------------------------------
+
 
 def _make_concrete_class():  # NOSONAR S1142 - returns counted across nested stubs implementing every BaseProvider abstract method; the count is the interface size
     """Import BaseProvider and return a concrete implementation."""
@@ -21,19 +21,19 @@ def _make_concrete_class():  # NOSONAR S1142 - returns counted across nested stu
         def authenticate(self) -> None:
             pass  # no-op: required by abstract interface
 
-        def get_profile(self) -> Dict[str, Any]:
+        def get_profile(self) -> dict[str, Any]:
             return {"email": "test@example.com"}
 
-        def list_labels(self, use_cache: bool = False, ttl: int = 300) -> List[Dict[str, Any]]:
+        def list_labels(self, use_cache: bool = False, ttl: int = 300) -> list[dict[str, Any]]:
             return []
 
-        def get_label_id_map(self) -> Dict[str, str]:
+        def get_label_id_map(self) -> dict[str, str]:
             return {}
 
-        def create_label(self, **body: Any) -> Dict[str, Any]:
+        def create_label(self, **body: Any) -> dict[str, Any]:
             return {}
 
-        def update_label(self, label_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
+        def update_label(self, label_id: str, body: dict[str, Any]) -> dict[str, Any]:
             return {}
 
         def ensure_label(self, name: str, **kwargs: Any) -> str:
@@ -42,42 +42,42 @@ def _make_concrete_class():  # NOSONAR S1142 - returns counted across nested stu
         def delete_label(self, label_id: str) -> None:
             pass  # no-op: required by abstract interface
 
-        def list_filters(self, use_cache: bool = False, ttl: int = 300) -> List[Dict[str, Any]]:
+        def list_filters(self, use_cache: bool = False, ttl: int = 300) -> list[dict[str, Any]]:
             return []
 
-        def create_filter(self, criteria: Dict[str, Any], action: Dict[str, Any]) -> Dict[str, Any]:
+        def create_filter(self, criteria: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
             return {}
 
         def delete_filter(self, filter_id: str) -> None:
             pass  # no-op: required by abstract interface
 
-        def list_forwarding_addresses_info(self) -> List[Dict[str, Any]]:
+        def list_forwarding_addresses_info(self) -> list[dict[str, Any]]:
             return []
 
-        def get_verified_forwarding_addresses(self) -> List[str]:
+        def get_verified_forwarding_addresses(self) -> list[str]:
             return []
 
         def list_message_ids(
             self,
-            query: Optional[str] = None,
-            label_ids: Optional[List[str]] = None,
+            query: str | None = None,
+            label_ids: list[str] | None = None,
             max_pages: int = 1,
             page_size: int = 500,
-        ) -> List[str]:
+        ) -> list[str]:
             return []
 
         def batch_modify_messages(
             self,
-            ids: List[str],
-            add_label_ids: Optional[List[str]] = None,
-            remove_label_ids: Optional[List[str]] = None,
+            ids: list[str],
+            add_label_ids: list[str] | None = None,
+            remove_label_ids: list[str] | None = None,
         ) -> None:
             pass  # no-op: required by abstract interface
 
-        def list_signatures(self) -> List[Dict[str, Any]]:
+        def list_signatures(self) -> list[dict[str, Any]]:
             return []
 
-        def update_signature(self, send_as_email: str, signature_html: str) -> Dict[str, Any]:
+        def update_signature(self, send_as_email: str, signature_html: str) -> dict[str, Any]:
             return {}
 
     return ConcreteProvider
@@ -86,6 +86,7 @@ def _make_concrete_class():  # NOSONAR S1142 - returns counted across nested stu
 # ---------------------------------------------------------------------------
 # CacheMixin tests
 # ---------------------------------------------------------------------------
+
 
 class TestCacheMixin(unittest.TestCase):
     """Tests for the CacheMixin class."""
@@ -138,6 +139,7 @@ class TestCacheMixin(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # BaseProvider construction tests
 # ---------------------------------------------------------------------------
+
 
 class TestBaseProviderInit(unittest.TestCase):
     """Tests for BaseProvider.__init__ and attribute storage."""
@@ -199,6 +201,7 @@ class TestBaseProviderInit(unittest.TestCase):
         class PartialProvider(BaseProvider):
             def authenticate(self) -> None:
                 pass
+
             # remaining abstract methods left unimplemented
 
         with self.assertRaises(TypeError):
@@ -208,6 +211,7 @@ class TestBaseProviderInit(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # BaseProvider.capabilities tests
 # ---------------------------------------------------------------------------
+
 
 class TestBaseProviderCapabilities(unittest.TestCase):
     """Tests for BaseProvider.capabilities default and override."""
@@ -248,6 +252,7 @@ class TestBaseProviderCapabilities(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # BaseProvider abstract interface tests
 # ---------------------------------------------------------------------------
+
 
 class TestConcreteProviderInterface(unittest.TestCase):
     """Smoke-tests that all abstract methods are callable on a concrete subclass."""
@@ -352,6 +357,7 @@ class TestConcreteProviderInterface(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _provider_name class attribute
 # ---------------------------------------------------------------------------
+
 
 class TestProviderNameClassAttribute(unittest.TestCase):
     """Tests for _provider_name default and subclass override."""

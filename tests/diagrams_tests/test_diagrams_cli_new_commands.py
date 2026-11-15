@@ -13,7 +13,6 @@ from io import StringIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-
 # ---------------------------------------------------------------------------
 # _read_input
 # ---------------------------------------------------------------------------
@@ -291,7 +290,9 @@ class TestCmdHealth(unittest.TestCase):
         from diagrams.cli import cmd_health
         from diagrams.renderers import LocalRendererError
 
-        with patch("diagrams.renderers.LocalRenderer", side_effect=LocalRendererError("mmdc not found")):
+        with patch(
+            "diagrams.renderers.LocalRenderer", side_effect=LocalRendererError("mmdc not found")
+        ):
             rc = cmd_health(self._make_args(skip_render=False))
         self.assertEqual(rc, 1)
 

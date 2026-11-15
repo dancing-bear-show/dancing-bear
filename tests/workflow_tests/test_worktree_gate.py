@@ -32,14 +32,16 @@ from workflow.worktree_gate import (
 
 class TestParsePorcelainZ(unittest.TestCase):
     def test_modified_and_untracked(self) -> None:
-        self.assertEqual(parse_porcelain_z(" M src/a.py\0?? tests/test_a.py\0"),
-                         {"src/a.py", "tests/test_a.py"})
+        self.assertEqual(
+            parse_porcelain_z(" M src/a.py\0?? tests/test_a.py\0"), {"src/a.py", "tests/test_a.py"}
+        )
 
     def test_rename_yields_both_paths(self) -> None:
         """The origin is a separate NUL field; skipping it would misread it as
         an entry and drop its first three characters."""
-        self.assertEqual(parse_porcelain_z("R  new.py\0old.py\0 M x.py\0"),
-                         {"new.py", "old.py", "x.py"})
+        self.assertEqual(
+            parse_porcelain_z("R  new.py\0old.py\0 M x.py\0"), {"new.py", "old.py", "x.py"}
+        )
 
     def test_paths_with_spaces_are_kept_whole(self) -> None:
         self.assertEqual(parse_porcelain_z("?? a dir/b c.py\0"), {"a dir/b c.py"})
@@ -50,8 +52,9 @@ class TestParsePorcelainZ(unittest.TestCase):
 
 class TestUnlistedChanges(unittest.TestCase):
     def test_new_unlisted_file_is_reported(self) -> None:
-        self.assertEqual(unlisted_changes({}, {"src/a.py": "1", "tests/t.py": "2"}, ["src/a.py"]),
-                         ["tests/t.py"])
+        self.assertEqual(
+            unlisted_changes({}, {"src/a.py": "1", "tests/t.py": "2"}, ["src/a.py"]), ["tests/t.py"]
+        )
 
     def test_preexisting_dirt_from_another_session_is_ignored(self) -> None:
         self.assertEqual(unlisted_changes({"notes.md": "1"}, {"notes.md": "1"}, []), [])
@@ -94,8 +97,18 @@ class _Repo(unittest.TestCase):
         self.ws = Path(tmp.name) / "ws"
         self.ws.mkdir()
         _git(self.repo, "init", "-q")
-        _git(self.repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
-             "--allow-empty", "-m", "init")
+        _git(
+            self.repo,
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "init",
+        )
         (self.repo / "src").mkdir()
         (self.repo / "src/a.py").write_text("a = 1\n")
         _git(self.repo, "add", "src/a.py")
@@ -122,7 +135,9 @@ class _Repo(unittest.TestCase):
         record that as dirty_baseline_sha256. Pass sha256 to plant a wrong
         value for the tamper sad-path tests.
         """
-        digest = sha256 if sha256 is not None else hashlib.sha256(baseline_path.read_bytes()).hexdigest()
+        digest = (
+            sha256 if sha256 is not None else hashlib.sha256(baseline_path.read_bytes()).hexdigest()
+        )
         context_path = baseline_path.parent / "pr-context.json"
         context_path.write_text(json.dumps({"dirty_baseline_sha256": digest}))
         return context_path
@@ -140,8 +155,11 @@ class TestCheckUnlistedCLI(_Repo):
         (self.repo / "src/a.py").write_text("a = 2\n")
         (self.repo / "tests").mkdir()
         (self.repo / "tests/test_a.py").write_text("pass\n")
-        rc, out, _ = self._run_cmd(_cmd_check_unlisted, baseline=str(baseline),
-                                   fix_results=str(self._results(["src/a.py"])))
+        rc, out, _ = self._run_cmd(
+            _cmd_check_unlisted,
+            baseline=str(baseline),
+            fix_results=str(self._results(["src/a.py"])),
+        )
         self.assertEqual((rc, out), (1, "UNLISTED: tests/test_a.py\n"))
 
     def test_every_edit_listed_passes(self) -> None:
@@ -149,16 +167,22 @@ class TestCheckUnlistedCLI(_Repo):
         (self.repo / "src/a.py").write_text("a = 2\n")
         (self.repo / "tests").mkdir()
         (self.repo / "tests/test_a.py").write_text("pass\n")
-        rc, out, _ = self._run_cmd(_cmd_check_unlisted, baseline=str(baseline),
-                                   fix_results=str(self._results(["src/a.py", "tests/test_a.py"])))
+        rc, out, _ = self._run_cmd(
+            _cmd_check_unlisted,
+            baseline=str(baseline),
+            fix_results=str(self._results(["src/a.py", "tests/test_a.py"])),
+        )
         self.assertEqual((rc, out), (0, ""))
 
     def test_other_sessions_untouched_dirt_passes(self) -> None:
         (self.repo / "scratch.txt").write_text("someone else's\n")
         baseline = self._snapshot()
         (self.repo / "src/a.py").write_text("a = 2\n")
-        rc, _, _ = self._run_cmd(_cmd_check_unlisted, baseline=str(baseline),
-                                 fix_results=str(self._results(["src/a.py"])))
+        rc, _, _ = self._run_cmd(
+            _cmd_check_unlisted,
+            baseline=str(baseline),
+            fix_results=str(self._results(["src/a.py"])),
+        )
         self.assertEqual(rc, 0)
 
     def test_unlisted_protected_edit_is_reported(self) -> None:
@@ -166,19 +190,23 @@ class TestCheckUnlistedCLI(_Repo):
         baseline = self._snapshot()
         (self.repo / ".claude").mkdir()
         (self.repo / ".claude/settings.json").write_text("{}\n")
-        rc, out, _ = self._run_cmd(_cmd_check_unlisted, baseline=str(baseline),
-                                   fix_results=str(self._results([])))
+        rc, out, _ = self._run_cmd(
+            _cmd_check_unlisted, baseline=str(baseline), fix_results=str(self._results([]))
+        )
         self.assertEqual((rc, out), (1, "UNLISTED: .claude/settings.json\n"))
 
     def test_bad_inputs_fail_closed(self) -> None:
         baseline = self._snapshot()
         cases = {
-            "missing baseline": dict(baseline=str(self.ws / "nope.json"),
-                                     fix_results=str(self._results([]))),
-            "files_changed not a list": dict(baseline=str(baseline),
-                                             fix_results=str(self._results("src/a.py"))),
-            "files_changed holds a non-string": dict(baseline=str(baseline),
-                                                     fix_results=str(self._results([1]))),
+            "missing baseline": dict(
+                baseline=str(self.ws / "nope.json"), fix_results=str(self._results([]))
+            ),
+            "files_changed not a list": dict(
+                baseline=str(baseline), fix_results=str(self._results("src/a.py"))
+            ),
+            "files_changed holds a non-string": dict(
+                baseline=str(baseline), fix_results=str(self._results([1]))
+            ),
         }
         for name, kwargs in cases.items():
             with self.subTest(name):
@@ -190,8 +218,9 @@ class TestCheckUnlistedCLI(_Repo):
         bad = self.ws / "bad.json"
         bad.write_text(json.dumps({"paths": []}))
         self._write_pr_context(bad)
-        rc, _, err = self._run_cmd(_cmd_check_unlisted, baseline=str(bad),
-                                   fix_results=str(self._results([])))
+        rc, _, err = self._run_cmd(
+            _cmd_check_unlisted, baseline=str(bad), fix_results=str(self._results([]))
+        )
         self.assertEqual(rc, 1)
         self.assertIn("no 'dirty' object", err)
 
@@ -201,8 +230,9 @@ class TestCheckUnlistedCLI(_Repo):
         bad = self.ws / "nohead.json"
         bad.write_text(json.dumps({"dirty": {}}))
         self._write_pr_context(bad)
-        rc, _, err = self._run_cmd(_cmd_check_unlisted, baseline=str(bad),
-                                   fix_results=str(self._results([])))
+        rc, _, err = self._run_cmd(
+            _cmd_check_unlisted, baseline=str(bad), fix_results=str(self._results([]))
+        )
         self.assertEqual(rc, 1)
         self.assertIn("no 'head' commit", err)
 
@@ -217,8 +247,9 @@ class TestCheckUnlistedBaselineProvenance(_Repo):
         or dropping its own unlisted entry) after init recorded its hash."""
         baseline = self._snapshot()
         baseline.write_text(json.dumps({"dirty": {}, "head": "0" * 40}))
-        rc, out, err = self._run_cmd(_cmd_check_unlisted, baseline=str(baseline),
-                                     fix_results=str(self._results([])))
+        rc, out, err = self._run_cmd(
+            _cmd_check_unlisted, baseline=str(baseline), fix_results=str(self._results([]))
+        )
         self.assertEqual(rc, 1)
         self.assertEqual(out, "")
         self.assertIn("does not match dirty_baseline_sha256", err)
@@ -230,8 +261,9 @@ class TestCheckUnlistedBaselineProvenance(_Repo):
         path = self.ws / "baseline.json"
         rc, _, err = self._run_cmd(_cmd_snapshot_dirty, out=str(path))
         self.assertEqual(rc, 0, err)
-        rc, out, err = self._run_cmd(_cmd_check_unlisted, baseline=str(path),
-                                     fix_results=str(self._results([])))
+        rc, out, err = self._run_cmd(
+            _cmd_check_unlisted, baseline=str(path), fix_results=str(self._results([]))
+        )
         self.assertEqual(rc, 1)
         self.assertEqual(out, "")
         self.assertIn("pr-context.json not found", err)
@@ -239,8 +271,9 @@ class TestCheckUnlistedBaselineProvenance(_Repo):
     def test_pr_context_missing_hash_field_is_rejected(self) -> None:
         baseline = self._snapshot()
         (self.ws / "pr-context.json").write_text(json.dumps({"number": 406}))
-        rc, out, err = self._run_cmd(_cmd_check_unlisted, baseline=str(baseline),
-                                     fix_results=str(self._results([])))
+        rc, out, err = self._run_cmd(
+            _cmd_check_unlisted, baseline=str(baseline), fix_results=str(self._results([]))
+        )
         self.assertEqual(rc, 1)
         self.assertEqual(out, "")
         self.assertIn("no 'dirty_baseline_sha256' string", err)
@@ -248,8 +281,9 @@ class TestCheckUnlistedBaselineProvenance(_Repo):
     def test_pr_context_non_string_hash_field_is_rejected(self) -> None:
         baseline = self._snapshot()
         (self.ws / "pr-context.json").write_text(json.dumps({"dirty_baseline_sha256": 12345}))
-        rc, _, err = self._run_cmd(_cmd_check_unlisted, baseline=str(baseline),
-                                   fix_results=str(self._results([])))
+        rc, _, err = self._run_cmd(
+            _cmd_check_unlisted, baseline=str(baseline), fix_results=str(self._results([]))
+        )
         self.assertEqual(rc, 1)
         self.assertIn("no 'dirty_baseline_sha256' string", err)
 
@@ -258,8 +292,11 @@ class TestCheckUnlistedBaselineProvenance(_Repo):
         with no unlisted edits still passes."""
         baseline = self._snapshot()
         (self.repo / "src/a.py").write_text("a = 2\n")
-        rc, out, _ = self._run_cmd(_cmd_check_unlisted, baseline=str(baseline),
-                                   fix_results=str(self._results(["src/a.py"])))
+        rc, out, _ = self._run_cmd(
+            _cmd_check_unlisted,
+            baseline=str(baseline),
+            fix_results=str(self._results(["src/a.py"])),
+        )
         self.assertEqual((rc, out), (0, ""))
 
     def test_baseline_is_not_reread_after_hash_verification(self) -> None:
@@ -290,8 +327,11 @@ class TestCheckUnlistedBaselineProvenance(_Repo):
 
         (self.repo / "src/a.py").write_text("a = 2\n")
         with patch.object(Path, "read_bytes", racing_read_bytes):
-            rc, out, err = self._run_cmd(_cmd_check_unlisted, baseline=str(baseline),
-                                         fix_results=str(self._results(["src/a.py"])))
+            rc, out, err = self._run_cmd(
+                _cmd_check_unlisted,
+                baseline=str(baseline),
+                fix_results=str(self._results(["src/a.py"])),
+            )
         # Exactly one read of the baseline's bytes: the hash-and-parse read.
         # If check-unlisted still re-read the file afterwards (the old bug),
         # that second read would see the tampered content instead.
@@ -310,8 +350,9 @@ class TestCheckUnlistedBaselineProvenance(_Repo):
         path = self.ws / "baseline.json"
         path.write_text(json.dumps(["not", "an", "object"]))
         self._write_pr_context(path)
-        rc, out, err = self._run_cmd(_cmd_check_unlisted, baseline=str(path),
-                                     fix_results=str(self._results([])))
+        rc, out, err = self._run_cmd(
+            _cmd_check_unlisted, baseline=str(path), fix_results=str(self._results([]))
+        )
         self.assertEqual(rc, 1)
         self.assertEqual(out, "")
         self.assertIn("baseline is not a JSON object", err)
@@ -330,8 +371,17 @@ class TestHeadCommitAndCommittedSince(_Repo):
         baseline_head = head_commit(self.repo)
         (self.repo / "src/sneaky.py").write_text("x = 1\n")
         _git(self.repo, "add", "src/sneaky.py")
-        _git(self.repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
-             "-m", "sneaky commit")
+        _git(
+            self.repo,
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-q",
+            "-m",
+            "sneaky commit",
+        )
         self.assertEqual(committed_since(self.repo, baseline_head), {"src/sneaky.py"})
 
     def test_committed_since_empty_when_no_new_commits(self) -> None:
@@ -363,15 +413,34 @@ class TestHeadCommitAndCommittedSince(_Repo):
         baseline_head = head_commit(self.repo)
         (self.repo / "src/sneaky.py").write_text("x = 1\n")
         _git(self.repo, "add", "src/sneaky.py")
-        _git(self.repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
-             "-m", "add sneaky")
+        _git(
+            self.repo,
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-q",
+            "-m",
+            "add sneaky",
+        )
         _git(self.repo, "rm", "-q", "src/sneaky.py")
-        _git(self.repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
-             "-m", "revert sneaky")
+        _git(
+            self.repo,
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-q",
+            "-m",
+            "revert sneaky",
+        )
         # Sanity: the naive two-tree diff really does net to nothing.
         two_tree = run_binary(
             ("git", "diff", "--name-only", "-z", f"{baseline_head}..HEAD"),
-            cwd=self.repo, timeout=_GIT_STATUS_TIMEOUT,
+            cwd=self.repo,
+            timeout=_GIT_STATUS_TIMEOUT,
         )
         self.assertEqual(two_tree.stdout, "")
         self.assertEqual(committed_since(self.repo, baseline_head), {"src/sneaky.py"})
@@ -382,16 +451,35 @@ class TestHeadCommitAndCommittedSince(_Repo):
         source from check-paths. Both names must be reported."""
         (self.repo / "src/protected.py").write_text("p = 1\n")
         _git(self.repo, "add", "src/protected.py")
-        _git(self.repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
-             "-m", "add protected")
+        _git(
+            self.repo,
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-q",
+            "-m",
+            "add protected",
+        )
         baseline_head = head_commit(self.repo)
         _git(self.repo, "mv", "src/protected.py", "src/renamed.py")
-        _git(self.repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
-             "-m", "rename protected")
+        _git(
+            self.repo,
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-q",
+            "-m",
+            "rename protected",
+        )
         # Sanity: default rename detection really does drop the source name.
         with_renames = run_binary(
             ("git", "diff", "--name-only", "-z", f"{baseline_head}..HEAD"),
-            cwd=self.repo, timeout=_GIT_STATUS_TIMEOUT,
+            cwd=self.repo,
+            timeout=_GIT_STATUS_TIMEOUT,
         )
         self.assertEqual(with_renames.stdout.split("\0"), ["src/renamed.py", ""])
         self.assertEqual(
@@ -408,37 +496,89 @@ class TestHeadCommitAndCommittedSince(_Repo):
         clean once committed."""
         baseline_head = head_commit(self.repo)
         main_branch = subprocess.run(  # nosec B603 B607 - fixed argv, temp repo
-            ["git", "branch", "--show-current"], cwd=self.repo, check=True,
-            capture_output=True, text=True,
+            ["git", "branch", "--show-current"],
+            cwd=self.repo,
+            check=True,
+            capture_output=True,
+            text=True,
         ).stdout.strip()
         _git(self.repo, "checkout", "-q", "-b", "feature")
         (self.repo / "f.txt").write_text("f\n")
         _git(self.repo, "add", "f.txt")
-        _git(self.repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
-             "-m", "feature adds f.txt")
+        _git(
+            self.repo,
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-q",
+            "-m",
+            "feature adds f.txt",
+        )
         _git(self.repo, "checkout", "-q", main_branch)
         (self.repo / "m.txt").write_text("m\n")
         _git(self.repo, "add", "m.txt")
-        _git(self.repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
-             "-m", "master adds m.txt")
-        _git(self.repo, "-c", "user.email=t@t", "-c", "user.name=t", "merge", "-q",
-             "--no-edit", "feature")
+        _git(
+            self.repo,
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-q",
+            "-m",
+            "master adds m.txt",
+        )
+        _git(
+            self.repo,
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "merge",
+            "-q",
+            "--no-edit",
+            "feature",
+        )
         (self.repo / "src/sneaky.py").write_text("x = 1\n")
         _git(self.repo, "add", "src/sneaky.py")
-        _git(self.repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
-             "--amend", "--no-edit")
+        _git(
+            self.repo,
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-q",
+            "--amend",
+            "--no-edit",
+        )
         # Sanity: prove the gap the fix closes -- the default (no -m) walk
         # really does miss the merge-only file, so this test would fail to
         # demonstrate anything if the repo fixture behaved differently.
         without_m = run_binary(
-            ("git", "log", "--name-only", "--no-renames", "-z", "--pretty=format:",
-             f"{baseline_head}..HEAD"),
-            cwd=self.repo, timeout=_GIT_STATUS_TIMEOUT,
+            (
+                "git",
+                "log",
+                "--name-only",
+                "--no-renames",
+                "-z",
+                "--pretty=format:",
+                f"{baseline_head}..HEAD",
+            ),
+            cwd=self.repo,
+            timeout=_GIT_STATUS_TIMEOUT,
         )
         self.assertNotIn("src/sneaky.py", without_m.stdout.split("\0"))
-        self.assertEqual(committed_since(self.repo, baseline_head), {
-            "f.txt", "m.txt", "src/sneaky.py",
-        })
+        self.assertEqual(
+            committed_since(self.repo, baseline_head),
+            {
+                "f.txt",
+                "m.txt",
+                "src/sneaky.py",
+            },
+        )
 
     def test_check_unlisted_catches_a_staged_and_committed_file(self) -> None:
         """End-to-end: a fixer stages and commits an unlisted file before
@@ -447,8 +587,17 @@ class TestHeadCommitAndCommittedSince(_Repo):
         baseline_head = head_commit(self.repo)
         (self.repo / "src/sneaky.py").write_text("x = 1\n")
         _git(self.repo, "add", "src/sneaky.py")
-        _git(self.repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
-             "-m", "sneaky commit")
+        _git(
+            self.repo,
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-q",
+            "-m",
+            "sneaky commit",
+        )
         current = snapshot_dirty(self.repo)
         self.assertNotIn("src/sneaky.py", current)  # git status can't see it
         committed = committed_since(self.repo, baseline_head)
@@ -464,10 +613,20 @@ class TestCheckUnlistedCLICommittedSince(_Repo):
         baseline = self._snapshot()
         (self.repo / "src/sneaky.py").write_text("x = 1\n")
         _git(self.repo, "add", "src/sneaky.py")
-        _git(self.repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
-             "-m", "sneaky commit")
-        rc, out, _ = self._run_cmd(_cmd_check_unlisted, baseline=str(baseline),
-                                   fix_results=str(self._results([])))
+        _git(
+            self.repo,
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-q",
+            "-m",
+            "sneaky commit",
+        )
+        rc, out, _ = self._run_cmd(
+            _cmd_check_unlisted, baseline=str(baseline), fix_results=str(self._results([]))
+        )
         self.assertEqual((rc, out), (1, "UNLISTED: src/sneaky.py\n"))
 
     def test_staged_and_committed_listed_file_passes_via_cli(self) -> None:
@@ -475,10 +634,22 @@ class TestCheckUnlistedCLICommittedSince(_Repo):
         baseline = self._snapshot()
         (self.repo / "src/sneaky.py").write_text("x = 1\n")
         _git(self.repo, "add", "src/sneaky.py")
-        _git(self.repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
-             "-m", "sneaky commit")
-        rc, out, _ = self._run_cmd(_cmd_check_unlisted, baseline=str(baseline),
-                                   fix_results=str(self._results(["src/sneaky.py"])))
+        _git(
+            self.repo,
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-q",
+            "-m",
+            "sneaky commit",
+        )
+        rc, out, _ = self._run_cmd(
+            _cmd_check_unlisted,
+            baseline=str(baseline),
+            fix_results=str(self._results(["src/sneaky.py"])),
+        )
         self.assertEqual((rc, out), (0, ""))
 
 
@@ -488,9 +659,7 @@ class TestSnapshotDirtyTimeout(_Repo):
         the default-unbounded run_binary call the reviewer flagged."""
         from workflow.worktree_gate import run_binary as real_run_binary
 
-        with patch(
-            "workflow.worktree_gate.run_binary", side_effect=real_run_binary
-        ) as mock_run:
+        with patch("workflow.worktree_gate.run_binary", side_effect=real_run_binary) as mock_run:
             snapshot_dirty(self.repo)
         _, kwargs = mock_run.call_args
         self.assertEqual(kwargs.get("timeout"), _GIT_STATUS_TIMEOUT)
@@ -499,8 +668,10 @@ class TestSnapshotDirtyTimeout(_Repo):
     def test_hung_git_status_fails_closed(self) -> None:
         """A git process that exceeds the timeout must raise, not hang or
         report the tree clean."""
-        with patch("workflow.worktree_gate._GIT_STATUS_TIMEOUT", 0.05), \
-             patch("workflow.worktree_gate._STATUS_CMD", ("sleep", "5")):
+        with (
+            patch("workflow.worktree_gate._GIT_STATUS_TIMEOUT", 0.05),
+            patch("workflow.worktree_gate._STATUS_CMD", ("sleep", "5")),
+        ):
             with self.assertRaises(RuntimeError) as ctx:
                 snapshot_dirty(self.repo)
         self.assertIn("git status failed", str(ctx.exception))

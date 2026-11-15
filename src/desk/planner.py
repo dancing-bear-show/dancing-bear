@@ -13,6 +13,7 @@ from .utils import expand_paths, parse_duration, parse_size
 @dataclass
 class MatchCriteria:
     """Criteria for matching files against a rule."""
+
     extensions: list[str]
     size_threshold: int | None
     age_threshold: int | None
@@ -60,7 +61,7 @@ def _build_operation(
             "dest": os.path.join(dest_dir, filename),
             "rule": rule_name,
         }
-    elif trash:
+    if trash:
         return {
             "action": "trash",
             "src": src,

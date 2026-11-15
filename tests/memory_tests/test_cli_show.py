@@ -23,7 +23,6 @@ from memory.commands import show
 from memory.discovery import load_store, resolve_current_store
 from memory.models import Memory
 from memory.parser import normalize_slug
-
 from tests.memory_tests.fixtures import (
     CURRENT_FORMAT_MEMORY,
     SLUG_MAIN,
@@ -32,7 +31,6 @@ from tests.memory_tests.fixtures import (
     MemoryTestCase,
     make_projects_root,
 )
-
 
 # ---------------------------------------------------------------------------
 # TestFindMemory — unit coverage for _find_memory
@@ -114,9 +112,7 @@ class TestRenderText(MemoryTestCase):
         memory = store.memories[0]
 
         # Synthesize wikilinks to exercise both [ok] and [broken] branches.
-        linked_memory = dataclasses.replace(
-            memory, wikilinks=("known_slug", "missing_slug")
-        )
+        linked_memory = dataclasses.replace(memory, wikilinks=("known_slug", "missing_slug"))
         text = show._render_text(linked_memory, known_slugs={"known_slug"})
 
         self.assertIn("[[known_slug]] [ok]", text)
@@ -192,9 +188,7 @@ class TestBuildStructured(MemoryTestCase):
         store = load_store(SLUG_MAIN, projects_root=projects_dir)
         memory = store.memories[0]
 
-        linked_memory = dataclasses.replace(
-            memory, wikilinks=("known_slug", "missing_slug")
-        )
+        linked_memory = dataclasses.replace(memory, wikilinks=("known_slug", "missing_slug"))
         structured = show._build_structured(linked_memory, known_slugs={"known_slug"})
 
         links_by_slug = {link["slug"]: link["resolved"] for link in structured["links"]}

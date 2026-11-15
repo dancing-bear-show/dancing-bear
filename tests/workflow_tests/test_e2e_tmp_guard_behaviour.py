@@ -49,10 +49,21 @@ def _rendered_snippet() -> str:
 
 
 def _git(*args: str, cwd: Path) -> None:
-    env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_AUTHOR_NAME": "t",
-           "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
-    subprocess.run(["git", *args], cwd=cwd, env=env, check=True,  # nosec B603 B607 - fixed git argv
-                   capture_output=True)
+    env = {
+        **os.environ,
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@t",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@t",
+    }
+    subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        env=env,
+        check=True,  # nosec B603 B607 - fixed git argv
+        capture_output=True,
+    )
 
 
 def _case_insensitive(directory: Path) -> bool:
@@ -111,7 +122,12 @@ class _SnippetHarness(unittest.TestCase):
         if path_prefix:
             env["PATH"] = f"{path_prefix}{os.pathsep}{env.get('PATH', '')}"
         proc = subprocess.run(  # nosec B603 - shell from a fixed allowlist, trusted body
-            [shell, str(body)], cwd=cwd, env=env, capture_output=True, text=True, timeout=60,
+            [shell, str(body)],
+            cwd=cwd,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
         return proc.returncode, proc.stdout + proc.stderr
 
@@ -173,8 +189,12 @@ class _SnippetHarness(unittest.TestCase):
         fake_awk.chmod(0o755)
         for shell in self.shells:
             with self.subTest(sh=shell):
-                rc, out = self._run(shell, self.other / "tmp", self.linked, path_prefix=str(fakebin))
-                self.assertNotIn(_PROCEED, out, msg=f"a partial root list let the run proceed:\n{out}")
+                rc, out = self._run(
+                    shell, self.other / "tmp", self.linked, path_prefix=str(fakebin)
+                )
+                self.assertNotIn(
+                    _PROCEED, out, msg=f"a partial root list let the run proceed:\n{out}"
+                )
                 self.assertNotEqual(rc, 0)
                 self.assertEqual(self._leaks(self.other / "tmp"), [])
 
@@ -198,8 +218,12 @@ class _SnippetHarness(unittest.TestCase):
         where.mkdir(exist_ok=True)
         with self.subTest(sh=shell, sig=sig.name):
             proc = subprocess.Popen(  # nosec B603 - allowlisted shell, trusted body
-                [shell, str(body)], cwd=self.linked, stdout=subprocess.PIPE, text=True,
-                env={**os.environ, "TMPDIR": str(where)}, start_new_session=True,
+                [shell, str(body)],
+                cwd=self.linked,
+                stdout=subprocess.PIPE,
+                text=True,
+                env={**os.environ, "TMPDIR": str(where)},
+                start_new_session=True,
             )
             stdout = proc.stdout
             if stdout is None:
@@ -216,8 +240,9 @@ class _SnippetHarness(unittest.TestCase):
             deadline = time.monotonic() + 5
             while self._leaks(where) and time.monotonic() < deadline:
                 time.sleep(0.05)
-            self.assertEqual(self._leaks(where), [],
-                             msg=f"{shell}: {sig.name} left the PII scratch dir behind")
+            self.assertEqual(
+                self._leaks(where), [], msg=f"{shell}: {sig.name} left the PII scratch dir behind"
+            )
 
 
 class TestGuardUnderBash(_SnippetHarness):
@@ -233,4 +258,3 @@ class TestGuardUnderBash(_SnippetHarness):
 @unittest.skipIf(shutil.which("zsh") is None, "zsh not installed; it is not a CI dependency")
 class TestGuardUnderZsh(_SnippetHarness):
     shells = ("zsh",)
-

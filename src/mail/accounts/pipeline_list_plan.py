@@ -1,4 +1,5 @@
 """Plan labels and filters pipeline implementations for accounts commands."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -59,8 +60,8 @@ def _classify_label_specs(target: list, existing: dict, provider: str) -> tuple[
 
 def _plan_labels_for_account(a: dict, base: list) -> LabelsPlanInfo:
     """Build the labels plan for a single account."""
-    from .helpers import build_provider_for_account
     from ..dsl import normalize_labels_for_outlook
+    from .helpers import build_provider_for_account
 
     provider = (a.get("provider") or "").lower()
     client = build_provider_for_account(a)
@@ -78,18 +79,20 @@ def _plan_labels_for_account(a: dict, base: list) -> LabelsPlanInfo:
     )
 
 
-class AccountsPlanLabelsProcessor(SafeProcessor[AccountsPlanLabelsRequest, AccountsPlanLabelsResult]):
+class AccountsPlanLabelsProcessor(
+    SafeProcessor[AccountsPlanLabelsRequest, AccountsPlanLabelsResult]
+):
     def _process_safe(self, payload: AccountsPlanLabelsRequest) -> AccountsPlanLabelsResult:
-        from .helpers import load_accounts, iter_accounts
         from core.yamlio import load_config
+
+        from .helpers import iter_accounts, load_accounts
 
         accts = load_accounts(payload.config_path)
         desired_doc = load_config(payload.labels_path)
         base = desired_doc.get("labels") or []
 
         plans = [
-            _plan_labels_for_account(a, base)
-            for a in iter_accounts(accts, payload.accounts_filter)
+            _plan_labels_for_account(a, base) for a in iter_accounts(accts, payload.accounts_filter)
         ]
         return AccountsPlanLabelsResult(plans=plans)
 
@@ -97,7 +100,9 @@ class AccountsPlanLabelsProcessor(SafeProcessor[AccountsPlanLabelsRequest, Accou
 class AccountsPlanLabelsProducer(AccountsResultProducer[AccountsPlanLabelsResult]):
     def _produce_items(self, payload: AccountsPlanLabelsResult) -> None:
         for plan in payload.plans:
-            self._writer.print(f"[plan-labels] {plan.account_name} provider={plan.provider} create={plan.to_create} update={plan.to_update}")
+            self._writer.print(
+                f"[plan-labels] {plan.account_name} provider={plan.provider} create={plan.to_create} update={plan.to_update}"
+            )
 
 
 # -----------------------------------------------------------------------------
@@ -133,11 +138,14 @@ class AccountsPlanFiltersResult:
 AccountsPlanFiltersRequestConsumer = SimpleConsumer[AccountsPlanFiltersRequest]
 
 
-class AccountsPlanFiltersProcessor(SafeProcessor[AccountsPlanFiltersRequest, AccountsPlanFiltersResult]):
+class AccountsPlanFiltersProcessor(
+    SafeProcessor[AccountsPlanFiltersRequest, AccountsPlanFiltersResult]
+):
     def _process_safe(self, payload: AccountsPlanFiltersRequest) -> AccountsPlanFiltersResult:
-        from .helpers import load_accounts, iter_accounts, build_provider_for_account
         from core.yamlio import load_config
+
         from ..dsl import normalize_filters_for_outlook
+        from .helpers import build_provider_for_account, iter_accounts, load_accounts
 
         accts = load_accounts(payload.config_path)
         desired_doc = load_config(payload.filters_path)
@@ -151,22 +159,26 @@ class AccountsPlanFiltersProcessor(SafeProcessor[AccountsPlanFiltersRequest, Acc
             existing = client.list_filters(use_cache=True)
 
             if provider not in ("gmail", "outlook"):
-                plans.append(FiltersPlanInfo(
-                    account_name=a.get("name", "account"),
-                    provider=provider,
-                    to_create=-1,  # unsupported
-                ))
+                plans.append(
+                    FiltersPlanInfo(
+                        account_name=a.get("name", "account"),
+                        provider=provider,
+                        to_create=-1,  # unsupported
+                    )
+                )
                 continue
 
             desired_filters = normalize_filters_for_outlook(base) if provider == "outlook" else base
             ex_keys = {canonicalize_filter(f) for f in existing}
             to_create = sum(1 for f in desired_filters if canonicalize_filter(f) not in ex_keys)
 
-            plans.append(FiltersPlanInfo(
-                account_name=a.get("name", "account"),
-                provider=provider,
-                to_create=to_create,
-            ))
+            plans.append(
+                FiltersPlanInfo(
+                    account_name=a.get("name", "account"),
+                    provider=provider,
+                    to_create=to_create,
+                )
+            )
 
         return AccountsPlanFiltersResult(plans=plans)
 
@@ -175,9 +187,13 @@ class AccountsPlanFiltersProducer(AccountsResultProducer[AccountsPlanFiltersResu
     def _produce_items(self, payload: AccountsPlanFiltersResult) -> None:
         for plan in payload.plans:
             if plan.to_create < 0:
-                self._writer.print(f"[plan-filters] {plan.account_name} provider={plan.provider} not supported")
+                self._writer.print(
+                    f"[plan-filters] {plan.account_name} provider={plan.provider} not supported"
+                )
             else:
-                self._writer.print(f"[plan-filters] {plan.account_name} provider={plan.provider} create={plan.to_create}")
+                self._writer.print(
+                    f"[plan-filters] {plan.account_name} provider={plan.provider} create={plan.to_create}"
+                )
 
 
 # -----------------------------------------------------------------------------

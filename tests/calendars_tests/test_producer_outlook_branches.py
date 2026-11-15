@@ -1,4 +1,5 @@
 """Tests for uncovered Outlook producer output branches and helper functions."""
+
 from __future__ import annotations
 
 import os
@@ -21,9 +22,11 @@ class TestOutlookContextEnsureClient(unittest.TestCase):
         try:
             os.environ["MAIL_ASSISTANT_OUTLOOK_CLIENT_ID"] = "ENV_CLIENT"
             os.environ["MAIL_ASSISTANT_OUTLOOK_TENANT"] = "common"
-            with patch("mail.config_resolver.get_outlook_client_id", return_value=None), \
-                 patch("mail.config_resolver.get_outlook_tenant", return_value=None), \
-                 patch("mail.config_resolver.get_outlook_token_path", return_value=None):
+            with (
+                patch("mail.config_resolver.get_outlook_client_id", return_value=None),
+                patch("mail.config_resolver.get_outlook_tenant", return_value=None),
+                patch("mail.config_resolver.get_outlook_token_path", return_value=None),
+            ):
                 ctx = OutlookContext()
                 client_id, tenant, token_path = ctx.resolve()
             self.assertEqual(client_id, "ENV_CLIENT")

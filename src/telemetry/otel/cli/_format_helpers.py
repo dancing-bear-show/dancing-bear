@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from pathlib import Path
 
 from telemetry.otel.analytics.health_score import calculate_health_score
@@ -63,9 +63,7 @@ def add_since_argument(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def resolve_data_dir(
-    args: argparse.Namespace, *, allow_none: bool = False
-) -> OTLPDataDir | None:
+def resolve_data_dir(args: argparse.Namespace, *, allow_none: bool = False) -> OTLPDataDir | None:
     """Build OTLPDataDir from parsed args.
 
     When *allow_none* is True, returns None if --data-dir was not given
@@ -126,9 +124,7 @@ def sort_sessions(sessions: list, sort_key: str) -> list:
     if sort_key == "errors":
         return sorted(
             sessions,
-            key=lambda s: (
-                (s.perf.error_count + s.perf.tool_failures) if s.perf else 0
-            ),
+            key=lambda s: ((s.perf.error_count + s.perf.tool_failures) if s.perf else 0),
             reverse=True,
         )
     if sort_key == "health":

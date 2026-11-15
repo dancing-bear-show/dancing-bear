@@ -165,7 +165,12 @@ class TestGmailClientWithMockedService(_GmailClientTestBase):
     def test_list_signatures(self):
         self.mock_service.users().settings().sendAs().list().execute.return_value = {
             "sendAs": [
-                {"sendAsEmail": "user@example.com", "isPrimary": True, "signature": "<p>Sig</p>", "displayName": "User"},
+                {
+                    "sendAsEmail": "user@example.com",
+                    "isPrimary": True,
+                    "signature": "<p>Sig</p>",
+                    "displayName": "User",
+                },
             ]
         }
         result = self.client.list_signatures()
@@ -251,9 +256,7 @@ class TestGmailClientEnsureLabel(_GmailClientTestBase):
         self.mock_service.users().labels().create.assert_not_called()
 
     def test_ensure_label_creates_new(self):
-        self.mock_service.users().labels().list().execute.return_value = {
-            "labels": []
-        }
+        self.mock_service.users().labels().list().execute.return_value = {"labels": []}
         self.mock_service.users().labels().create().execute.return_value = {
             "id": "NEW_LBL",
             "name": "NewLabel",
@@ -576,7 +579,9 @@ class TestGmailClientCaching(_GmailClientTestBase):
 
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()
-        self.client = GmailClient("/fake/creds.json", "/fake/token.json", cache_dir=self.tmpdir.name)
+        self.client = GmailClient(
+            "/fake/creds.json", "/fake/token.json", cache_dir=self.tmpdir.name
+        )
         self.mock_service = MagicMock()
         self.client._service = self.mock_service
 
@@ -627,7 +632,9 @@ class TestGmailClientCaching(_GmailClientTestBase):
 
         self.assertEqual(result1, result2)
         # API should only be called once
-        self.assertEqual(self.mock_service.users().settings().filters().list().execute.call_count, 1)
+        self.assertEqual(
+            self.mock_service.users().settings().filters().list().execute.call_count, 1
+        )
 
 
 class TestGmailClientGetAttachment(_GmailClientTestBase):

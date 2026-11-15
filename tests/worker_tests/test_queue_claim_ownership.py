@@ -85,7 +85,9 @@ class _RuntimeTestBase(unittest.TestCase, QueueRootIsolationMixin):
             if t not in self._threads_before and t.ident is not None:
                 t.join(timeout=10)
 
-    def _handlers(self, mapping: dict[str, Callable[[dict[str, object]], tuple[bool, object]]]) -> None:
+    def _handlers(
+        self, mapping: dict[str, Callable[[dict[str, object]], tuple[bool, object]]]
+    ) -> None:
         self.stack.enter_context(patch.dict("worker.job_runtime.HANDLERS", mapping))
 
 
@@ -199,7 +201,9 @@ class TestTransitionsRefuseMissingSource(unittest.TestCase, QueueRootIsolationMi
         new = q.retry(proc, delay_sec=0, root=self.root, claim_token=token)
         self.assertEqual(new, self.pending)
         data = _read(self.pending)
-        self.assertEqual((data["attempts"], data["payload"], data["status"]), (4, {"k": 1}, "pending"))
+        self.assertEqual(
+            (data["attempts"], data["payload"], data["status"]), (4, {"k": 1}, "pending")
+        )
         self.assertNotIn(q.CLAIM_TOKEN_FIELD, data)
         self.assertEqual(_names(self.root / "processing"), [])
 
@@ -214,7 +218,9 @@ class TestPublishWithoutHardLinks(unittest.TestCase, QueueRootIsolationMixin):
         self.setup_queue_root()
         paths = q._ensure_dirs(self.root)
         self.staged = paths["processing"] / "p1.json.requeue"
-        self.staged.write_text(json.dumps({"id": "p1", "payload": {"mine": True}}), encoding="utf-8")
+        self.staged.write_text(
+            json.dumps({"id": "p1", "payload": {"mine": True}}), encoding="utf-8"
+        )
         self.dest = paths["pending"] / "p1.json"
         self.rival = json.dumps({"id": "p1", "payload": {"theirs": True}})
         link = patch("worker.queue_ops.os.link", side_effect=OSError(errno.EPERM, "no links"))
@@ -244,7 +250,9 @@ class TestPublishWithoutHardLinks(unittest.TestCase, QueueRootIsolationMixin):
         # (the tmp file), not an empty placeholder.
         q._copy_exclusive(self.staged, self.dest)
         data = _read(self.dest)
-        self.assertEqual(data["payload"], {"mine": True}, "dest must hold our fully-written content")
+        self.assertEqual(
+            data["payload"], {"mine": True}, "dest must hold our fully-written content"
+        )
 
     def test_publishes_when_dest_is_free(self) -> None:
         self.assertTrue(q._publish_no_clobber(self.staged, self.dest))
@@ -327,8 +335,10 @@ class TestThreadStartFailure(_RuntimeTestBase):
     def test_tick_requeues_claim_when_start_fails(self) -> None:
         runner = _make_runner(self.root, max_per_tick=1)
         enqueue(Job(id="t1", type="fast", payload={"k": 1}, attempts=1), root=self.root)
-        with patch.object(threading.Thread, "start", _start_failing_on({1})), \
-                self.assertLogs("worker.job_runtime", "ERROR"):
+        with (
+            patch.object(threading.Thread, "start", _start_failing_on({1})),
+            self.assertLogs("worker.job_runtime", "ERROR"),
+        ):
             self.assertEqual(runner.tick(), 0)
         self.assertEqual(runner._live_threads, {})
         self.assertEqual(_names(self.root / "processing"), [])
@@ -358,8 +368,10 @@ class TestThreadStartFailure(_RuntimeTestBase):
         runner = _make_runner(self.root, max_per_tick=2)
         enqueue(Job(id="a", type="fast", payload={}, priority=1), root=self.root)
         enqueue(Job(id="b", type="fast", payload={}, priority=2), root=self.root)
-        with patch.object(threading.Thread, "start", _start_failing_on({2})), \
-                self.assertLogs("worker.job_runtime", "ERROR"):
+        with (
+            patch.object(threading.Thread, "start", _start_failing_on({2})),
+            self.assertLogs("worker.job_runtime", "ERROR"),
+        ):
             self.assertEqual(runner.run_once(), 0)
         self.assertEqual(_names(self.root / "done"), ["a.json"], "started job was not joined")
         self.assertEqual(_names(self.root / "processing"), [])
@@ -386,12 +398,15 @@ class TestStartProcessingHoldsLock(unittest.TestCase, QueueRootIsolationMixin):
         until start_processing releases it; start_processing itself must hold the
         lock across the entire rename+write pair."""
         lock_was_held_at_write: list[bool] = []
-        real_atomic_write = __import__("core.fileutil", fromlist=["atomic_write_json"]).atomic_write_json
+        real_atomic_write = __import__(
+            "core.fileutil", fromlist=["atomic_write_json"]
+        ).atomic_write_json
 
         def _spy_write(path: Any, data: Any) -> Any:
             # If the lock is held by start_processing, trying to acquire it
             # from this thread will block.  We use non-blocking to detect it.
             import fcntl
+
             lock_path = q._q(self.root) / q._TRANSITION_LOCK_NAME
             lock_path.parent.mkdir(parents=True, exist_ok=True)
             with lock_path.open("a") as fh:
@@ -407,7 +422,9 @@ class TestStartProcessingHoldsLock(unittest.TestCase, QueueRootIsolationMixin):
             result = q.start_processing(self.pending, self.root)
 
         self.assertIsNotNone(result)
-        self.assertEqual(lock_was_held_at_write, [True], "lock was not held during atomic_write_json")
+        self.assertEqual(
+            lock_was_held_at_write, [True], "lock was not held during atomic_write_json"
+        )
 
     def test_reaper_cannot_observe_processing_record_without_start_time(self) -> None:
         """After start_processing returns, the processing/ record has
@@ -418,7 +435,9 @@ class TestStartProcessingHoldsLock(unittest.TestCase, QueueRootIsolationMixin):
         assert result is not None  # nosec B101 - narrows Optional for type checker
         proc, _tok = result
         data = _read(proc)
-        self.assertIn("processing_started_at", data, "processing_started_at missing after start_processing")
+        self.assertIn(
+            "processing_started_at", data, "processing_started_at missing after start_processing"
+        )
         self.assertIn(q.CLAIM_TOKEN_FIELD, data, "claim_token missing after start_processing")
         self.assertEqual(data["status"], "processing")
 
@@ -479,7 +498,7 @@ class TestCopyExclusiveTempPublish(unittest.TestCase, QueueRootIsolationMixin):
 
         def _exploding_fdopen(fd: int, mode: str) -> Any:
             fh = real_fdopen(fd, mode)
-            fh.write = lambda _b: (_ for _ in ()).throw(IOError("disk full"))  # type: ignore[assignment]
+            fh.write = lambda _b: (_ for _ in ()).throw(OSError("disk full"))  # type: ignore[assignment]
             return fh
 
         pending_dir = self.dest.parent
@@ -541,8 +560,11 @@ class TestCopyExclusiveNoEmptyPlaceholder(unittest.TestCase, QueueRootIsolationM
             q._copy_exclusive(self.staged, self.dest)
 
         # If any True appears, an empty placeholder was visible at replace time.
-        self.assertNotIn(True, empty_visible_during_replace,
-                         "dest was visible as an empty file before tmp.replace(dest)")
+        self.assertNotIn(
+            True,
+            empty_visible_during_replace,
+            "dest was visible as an empty file before tmp.replace(dest)",
+        )
         # Dest must hold the fully-written content after the call.
         self.assertTrue(self.dest.exists())
         self.assertEqual(json.loads(self.dest.read_text(encoding="utf-8")), self.payload)
@@ -653,8 +675,10 @@ class TestReaperTokenRevalidation(unittest.TestCase, QueueRootIsolationMixin):
         self.assertTrue((self.processing / "stale-sad.json").exists())
         self.assertFalse((self.processing / "stale-sad.json.requeue").exists())
         # The pending/ directory must NOT have received a copy.
-        self.assertFalse((self.pending / "stale-sad.json").exists(),
-                         "reaper must not publish a reclaimed job to pending/")
+        self.assertFalse(
+            (self.pending / "stale-sad.json").exists(),
+            "reaper must not publish a reclaimed job to pending/",
+        )
 
 
 if __name__ == "__main__":

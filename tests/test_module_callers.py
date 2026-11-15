@@ -23,16 +23,11 @@ import io
 import json
 import sys
 import textwrap
+import unittest
 from pathlib import Path
 
-import unittest
-
 _SCRIPT = (
-    Path(__file__).resolve().parents[1]
-    / "workflows"
-    / "code"
-    / "scripts"
-    / "module_callers.py"
+    Path(__file__).resolve().parents[1] / "workflows" / "code" / "scripts" / "module_callers.py"
 )
 
 
@@ -134,9 +129,7 @@ class CallerDetectionTests(TreeMixin):
 
     def test_plain_import_found(self):
         self._write("tests/plain.py", "import pkg.sub.target\n")
-        self.assertIn(
-            "tests/plain.py", self._callers("pkg.sub.target", ["src", "tests"])
-        )
+        self.assertIn("tests/plain.py", self._callers("pkg.sub.target", ["src", "tests"]))
 
     def test_unrelated_module_not_reported(self):
         self._write("tests/other.py", "import pkg.sub\n")
@@ -161,9 +154,7 @@ class CallerDetectionTests(TreeMixin):
                 return pkg.sub.target.thing()
             """,
         )
-        self.assertEqual(
-            self._callers("pkg.sub.target", ["tests"]), ["tests/twice.py"]
-        )
+        self.assertEqual(self._callers("pkg.sub.target", ["tests"]), ["tests/twice.py"])
 
     def test_unparseable_file_is_reported_not_silently_skipped(self):
         # The scan continues past a broken file — one bad file must not abort
@@ -211,7 +202,8 @@ class AncestorImportTests(TreeMixin):
         self._write("tests/deep3.py", "import pkg.sub.target\n")
         targets = module_callers._targets_in("tests/deep3.py", "src")
         self.assertEqual(
-            {"pkg", "pkg.sub", "pkg.sub.target"} - targets, set(),
+            {"pkg", "pkg.sub", "pkg.sub.target"} - targets,
+            set(),
             "every ancestor package is imported at runtime",
         )
 
@@ -224,9 +216,7 @@ class PackageInitTests(TreeMixin):
         # pkg.sub.target. Treating the file as a member of `pkg` resolved it
         # to pkg.target and missed the caller entirely.
         self._write("src/pkg/sub/__init__.py", "from .target import thing\n")
-        self.assertIn(
-            "src/pkg/sub/__init__.py", self._callers("pkg.sub.target", ["src"])
-        )
+        self.assertIn("src/pkg/sub/__init__.py", self._callers("pkg.sub.target", ["src"]))
 
     def test_initializer_does_not_resolve_into_the_parent(self):
         self._write("src/pkg/sub/__init__.py", "from .target import thing\n")
@@ -291,9 +281,7 @@ class AliasIsNotAlwaysAModuleTests(TreeMixin):
         # The true-positive this line exists for must survive: target.py is a
         # real file, so `from pkg.sub import target` is a caller of it.
         self._write("tests/uses_submodule.py", "from pkg.sub import target\n")
-        self.assertIn(
-            "tests/uses_submodule.py", self._callers("pkg.sub.target", ["src", "tests"])
-        )
+        self.assertIn("tests/uses_submodule.py", self._callers("pkg.sub.target", ["src", "tests"]))
 
     def test_package_submodule_alias_is_still_reported(self):
         self._write("src/pkg/sub/deep/__init__.py", "")
@@ -480,17 +468,13 @@ class CliTests(TreeMixin):
 
     def test_zero_callers_still_exits_zero(self):
         # "no callers" is a real answer, not an error.
-        self.assertEqual(
-            module_callers.main(["--module", "pkg.sub.target", "--roots", "src"]), 0
-        )
+        self.assertEqual(module_callers.main(["--module", "pkg.sub.target", "--roots", "src"]), 0)
 
     def test_unparseable_file_exits_two(self):
         # Distinct from 0: a workflow reading the exit code must be able to
         # tell "zero callers, scan complete" from "zero callers, scan partial".
         self._write("tests/broken.py", "def unterminated(\n")
-        self.assertEqual(
-            module_callers.main(["--module", "pkg.sub.target", "--roots", "tests"]), 2
-        )
+        self.assertEqual(module_callers.main(["--module", "pkg.sub.target", "--roots", "tests"]), 2)
 
     def test_unparseable_paths_named_on_stderr(self):
         self._write("tests/broken.py", "def unterminated(\n")

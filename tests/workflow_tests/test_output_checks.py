@@ -14,7 +14,6 @@ import unittest
 from workflow.models import OutputCheck
 from workflow.output_checks import CheckResult, run_output_checks
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -74,7 +73,7 @@ class TestIsDict(unittest.TestCase):
 
     def test_list_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            _write(tmp_dir, "out.json", '[1, 2]')
+            _write(tmp_dir, "out.json", "[1, 2]")
             results = _check(tmp_dir, "out.json", "is_dict")
             self.assertFalse(results[0].passed)
             self.assertIn("list", results[0].message)
@@ -88,7 +87,7 @@ class TestIsDict(unittest.TestCase):
 class TestIsList(unittest.TestCase):
     def test_list_passes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            _write(tmp_dir, "out.json", '[1, 2, 3]')
+            _write(tmp_dir, "out.json", "[1, 2, 3]")
             results = _check(tmp_dir, "out.json", "is_list")
             self.assertTrue(results[0].passed)
 
@@ -113,19 +112,19 @@ class TestNonEmpty(unittest.TestCase):
 
     def test_empty_dict_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            _write(tmp_dir, "out.json", '{}')
+            _write(tmp_dir, "out.json", "{}")
             results = _check(tmp_dir, "out.json", "non_empty")
             self.assertFalse(results[0].passed)
 
     def test_non_empty_list_passes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            _write(tmp_dir, "out.json", '[1]')
+            _write(tmp_dir, "out.json", "[1]")
             results = _check(tmp_dir, "out.json", "non_empty")
             self.assertTrue(results[0].passed)
 
     def test_empty_list_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            _write(tmp_dir, "out.json", '[]')
+            _write(tmp_dir, "out.json", "[]")
             results = _check(tmp_dir, "out.json", "non_empty")
             self.assertFalse(results[0].passed)
 
@@ -151,7 +150,7 @@ class TestHasKey(unittest.TestCase):
 
     def test_requires_dict_not_list(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            _write(tmp_dir, "out.json", '[1, 2]')
+            _write(tmp_dir, "out.json", "[1, 2]")
             results = _check(tmp_dir, "out.json", "has_key:status")
             self.assertFalse(results[0].passed)
 

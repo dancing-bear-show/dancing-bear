@@ -49,7 +49,7 @@ _YAML = (
     "stages:\n"
     "  - name: s1\n"
     "    kind: gather\n"
-    "    description: \"pr={pr_number} slug=[a-z]{2,40} undeclared={ghost} wd={work_dir}\"\n"
+    '    description: "pr={pr_number} slug=[a-z]{2,40} undeclared={ghost} wd={work_dir}"\n'
     "    agent: {role: researcher}\n"
 )
 
@@ -84,7 +84,10 @@ class _TmpMixin(unittest.TestCase):
     def wrapper(self, *argv: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
         return subprocess.run(  # nosec B603 - fixed argv, no shell, repo-owned binary
             [_WRAPPER, *argv],
-            capture_output=True, text=True, cwd=str(cwd or _REPO_ROOT), check=False,
+            capture_output=True,
+            text=True,
+            cwd=str(cwd or _REPO_ROOT),
+            check=False,
             timeout=_WRAPPER_TIMEOUT_S,
         )
 
@@ -133,7 +136,9 @@ class TestUndeclaredOverrideKeys(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            manifest = compile_workflow(parse_workflow(str(wf)), trigger_params={"frag_param": "yes"})
+            manifest = compile_workflow(
+                parse_workflow(str(wf)), trigger_params={"frag_param": "yes"}
+            )
         frag_stage = next(n for n in manifest.resolved_stages if n != "s1")
         self.assertIn("frag=yes", _desc(manifest, frag_stage))
 
@@ -152,10 +157,14 @@ class TestUndeclaredOverrideKeys(unittest.TestCase):
         manifest = compile_workflow(parse_workflow_str(_YAML))
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(WorkflowExecutionError) as ctx:
-                WorkflowOrchestrator(OrchestratorConfig(
-                    manifest=manifest, workspace_dir=tmp, dry_run=True,
-                    trigger_params={"2,40": _SECRET_VALUE},
-                ))
+                WorkflowOrchestrator(
+                    OrchestratorConfig(
+                        manifest=manifest,
+                        workspace_dir=tmp,
+                        dry_run=True,
+                        trigger_params={"2,40": _SECRET_VALUE},
+                    )
+                )
             self.assertEqual(list(Path(tmp).iterdir()), [])
         self.assertNotIn(_SECRET_VALUE, str(ctx.exception))
         self.assertNotIn("2,40", str(ctx.exception))
@@ -175,15 +184,25 @@ class TestUndeclaredKeyThroughWrapper(_TmpMixin):
         self.assertNotIn(_SECRET_VALUE, out)
 
     def test_compile_subcommand_rejects_quantifier_key(self) -> None:
-        self._assert_rejected(self.wrapper(
-            "compile", str(self.wf), "--no-compile-cache", "--params", f"2,40={_SECRET_VALUE}",
-        ))
+        self._assert_rejected(
+            self.wrapper(
+                "compile",
+                str(self.wf),
+                "--no-compile-cache",
+                "--params",
+                f"2,40={_SECRET_VALUE}",
+            )
+        )
 
     def test_init_workspace_rejects_quantifier_key_and_writes_nothing(self) -> None:
         base = self.tmp / "base"
         proc = self.wrapper(
-            "init-workspace", str(self.wf), "--base-dir", str(base),
-            "--params", f"2,40={_SECRET_VALUE}",
+            "init-workspace",
+            str(self.wf),
+            "--base-dir",
+            str(base),
+            "--params",
+            f"2,40={_SECRET_VALUE}",
         )
         self._assert_rejected(proc)
         self.assertFalse(base.exists())
@@ -192,7 +211,9 @@ class TestUndeclaredKeyThroughWrapper(_TmpMixin):
         base = self.tmp / "base"
         proc = self.wrapper("init-workspace", str(self.wf), "--base-dir", str(base))
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        manifest = json.loads((Path(proc.stdout.strip()) / "manifest.json").read_text(encoding="utf-8"))
+        manifest = json.loads(
+            (Path(proc.stdout.strip()) / "manifest.json").read_text(encoding="utf-8")
+        )
         self.assertEqual(manifest["trigger_params"]["work_dir"], str(_REPO_ROOT / "out"))
 
 
@@ -213,7 +234,7 @@ class TestUnsafeWorkspacePathUnits(unittest.TestCase):
             self.assertNotIn(seg, str(ctx.exception))
 
     def test_resolve_base_dir_rejects_unsafe_workspace_dir_template(self) -> None:
-        defn = parse_workflow_str(_YAML + "workspace_dir: \"{pr_number}/run\"\n")
+        defn = parse_workflow_str(_YAML + 'workspace_dir: "{pr_number}/run"\n')
         with self.assertRaises(CLIError) as ctx:
             _resolve_base_dir(None, defn, {"pr_number": "a b"})
         self.assertIn("workspace_dir", str(ctx.exception))
@@ -246,7 +267,9 @@ class TestUnsafeWorkspaceThroughWrapper(_TmpMixin):
             "ws\ndir",
         )
 
-    def _assert_rejected(self, proc: subprocess.CompletedProcess[str], seg: str, marker: Path) -> None:
+    def _assert_rejected(
+        self, proc: subprocess.CompletedProcess[str], seg: str, marker: Path
+    ) -> None:
         self.assertNotEqual(proc.returncode, 0, proc.stdout)
         out = proc.stdout + proc.stderr
         self.assertIn("unsafe for shell rendering", out)
@@ -260,7 +283,9 @@ class TestUnsafeWorkspaceThroughWrapper(_TmpMixin):
         marker = self.tmp / "PWNED"
         for seg in self._unsafe_paths(marker):
             with self.subTest(seg=seg):
-                proc = self.wrapper("init-workspace", str(self.wf), "--base-dir", str(self.tmp / seg))
+                proc = self.wrapper(
+                    "init-workspace", str(self.wf), "--base-dir", str(self.tmp / seg)
+                )
                 self._assert_rejected(proc, seg, marker)
 
     def test_run_rejects_unsafe_workspace(self) -> None:
@@ -274,7 +299,12 @@ class TestUnsafeWorkspaceThroughWrapper(_TmpMixin):
         marker = self.tmp / "PWNED"
         seg = f"r$(touch {marker})"
         proc = self.wrapper(
-            "run", str(self.wf), "--workspace", str(self.tmp / "ok"), "--run-id", seg,
+            "run",
+            str(self.wf),
+            "--workspace",
+            str(self.tmp / "ok"),
+            "--run-id",
+            seg,
         )
         self.assertNotEqual(proc.returncode, 0, proc.stdout)
         self.assertIn("unsafe for shell rendering", proc.stdout + proc.stderr)
@@ -294,7 +324,11 @@ class TestUnsafeWorkspaceThroughWrapper(_TmpMixin):
         spaced = self.tmp / "has space"
         spaced.mkdir()
         proc = self.wrapper(
-            "init-workspace", str(self.wf), "--base-dir", str(self.tmp / "b"), cwd=spaced,
+            "init-workspace",
+            str(self.wf),
+            "--base-dir",
+            str(self.tmp / "b"),
+            cwd=spaced,
         )
         self.assertNotEqual(proc.returncode, 0, proc.stdout)
         self.assertIn("current working directory", proc.stderr)

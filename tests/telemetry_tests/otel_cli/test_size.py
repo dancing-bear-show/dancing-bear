@@ -67,6 +67,7 @@ class TestSizeMain(unittest.TestCase):
 
     def test_data_dir_flag(self):
         import tempfile
+
         with tempfile.TemporaryDirectory() as td:
             with patch("telemetry.otel.cli.size.OTLPReader", return_value=_make_reader()):
                 with patch("telemetry.otel.cli.size.emit_rows", return_value=0):

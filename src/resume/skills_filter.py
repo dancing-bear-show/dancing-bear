@@ -2,9 +2,11 @@
 
 Uses KeywordMatcher for consistent matching behavior across the codebase.
 """
+
 from __future__ import annotations
 
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 from .keyword_matcher import KeywordMatcher
 
@@ -24,7 +26,7 @@ def _flatten_tier_keywords(spec: dict[str, Any]) -> list[str]:
     out: list[str] = []
     for tier in ("required", "preferred", "nice"):
         for item in spec.get(tier, []) or []:
-            if (name := _extract_item_name(item)):
+            if name := _extract_item_name(item):
                 out.append(name)
     return out
 
@@ -33,9 +35,9 @@ def _flatten_category_keywords(spec: dict[str, Any]) -> list[str]:
     """Extract keywords from category sections."""
     out: list[str] = []
     cats = spec.get("categories") or {}
-    for _, lst in (cats.items() if isinstance(cats, dict) else []):
+    for _, lst in cats.items() if isinstance(cats, dict) else []:
         for item in lst or []:
-            if (name := _extract_item_name(item)):
+            if name := _extract_item_name(item):
                 out.append(name)
     return out
 
@@ -78,8 +80,7 @@ def filter_skills_by_keywords(
     else:
         skills = [str(s) for s in (data.get("skills") or [])]
         out["skills"] = [
-            s for s in skills
-            if matcher.matches_any(s, expanded, expand_synonyms=False)
+            s for s in skills if matcher.matches_any(s, expanded, expand_synonyms=False)
         ]
 
     return out
@@ -94,14 +95,17 @@ def _item_text(it: Any) -> str:
     return str(it)
 
 
-def _filter_skill_groups(groups: list[Any], matcher: "KeywordMatcher", expanded: list[str]) -> list[dict[str, Any]]:
+def _filter_skill_groups(
+    groups: list[Any], matcher: KeywordMatcher, expanded: list[str]
+) -> list[dict[str, Any]]:
     """Filter skill groups to only items matching expanded keywords."""
     new_groups = []
     for g in groups:
         title = g.get("title")
         items = g.get("items") or []
         keep_items = [
-            it for it in items
+            it
+            for it in items
             if matcher.matches_any(_item_text(it), expanded, expand_synonyms=False)
         ]
         if keep_items:

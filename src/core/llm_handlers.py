@@ -13,21 +13,22 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from core.textio import read_text as _read_text, write_text as _write_text
 from core.llm_builders import (
+    _DEFAULT_POLICIES_YAML,
+    _DOMAIN_MAP_UNAVAILABLE,
     DEFAULT_AGENTIC_FILENAME,
     DEFAULT_DOMAIN_MAP_FILENAME,
     DEFAULT_FAMILIAR_FILENAME,
     DEFAULT_INVENTORY_FILENAME,
     DEFAULT_POLICIES_FILENAME,
-    _DOMAIN_MAP_UNAVAILABLE,
-    _DEFAULT_POLICIES_YAML,
 )
 from core.llm_staleness import (
     _handle_check,
     _handle_deps,
     _handle_stale,
 )
+from core.textio import read_text as _read_text
+from core.textio import write_text as _write_text
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -109,6 +110,7 @@ _NO_AGENTIC_CLIS: frozenset[str] = frozenset()
 # App-arg extraction and dispatch
 # ---------------------------------------------------------------------------
 
+
 def _extract_app_arg(argv: list[str]) -> tuple[str | None, list[str]]:
     app: str | None = None
     cleaned: list[str] = []
@@ -141,6 +143,7 @@ def _run_app_cli(app: str, argv: list[str]) -> int:
         return module.main(argv)
     if hasattr(module, "CONFIG"):
         from core.llm_cli import run
+
         return run(module.CONFIG, argv)
     raise RuntimeError(f"App module {module_name} missing an entry point")
 
@@ -149,12 +152,15 @@ def _run_app_cli(app: str, argv: list[str]) -> int:
 # Mail helpers (lazy-imported)
 # ---------------------------------------------------------------------------
 
+
 def _mail_agentic_capsule(compact: bool = False) -> str:
     try:
         from mail.agentic import build_agentic_capsule
+
         return build_agentic_capsule(compact=compact)
     except Exception as exc:  # nosec B110 - fallback on import/build failure
         import logging
+
         logging.getLogger(__name__).warning("_mail_agentic_capsule failed: %s", exc)
         return "agentic: mail\n(pending capsule)"
 
@@ -162,6 +168,7 @@ def _mail_agentic_capsule(compact: bool = False) -> str:
 def _mail_domain_map() -> str:
     try:
         from mail.agentic import build_domain_map
+
         return build_domain_map()
     except Exception:  # nosec B110 - fallback on import/build failure
         return _DOMAIN_MAP_UNAVAILABLE
@@ -170,9 +177,11 @@ def _mail_domain_map() -> str:
 def _mail_flows() -> list[dict[str, Any]]:
     try:
         from mail.agentic import build_flows
+
         return build_flows()
     except Exception as exc:  # nosec B110 - fallback on import/build failure
         import logging
+
         logging.getLogger(__name__).warning("_mail_flows failed: %s", exc)
         return []
 
@@ -180,6 +189,7 @@ def _mail_flows() -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 # Content builders
 # ---------------------------------------------------------------------------
+
 
 def _repo_root() -> Path:
     # llm_handlers.py lives at <root>/src/core/; two parents up is <root>.
@@ -190,18 +200,22 @@ def _inventory_data() -> dict[str, Any]:
     """Collect inventory facts from the canonical registries, not a hardcoded list."""
     root = _repo_root()
     bin_dir = root / "bin"
-    wrappers = sorted(
-        f"bin/{p.name}"
-        for p in bin_dir.iterdir()
-        if p.is_file() and not p.name.startswith("_") and not p.suffix
-    ) if bin_dir.is_dir() else []
+    wrappers = (
+        sorted(
+            f"bin/{p.name}"
+            for p in bin_dir.iterdir()
+            if p.is_file() and not p.name.startswith("_") and not p.suffix
+        )
+        if bin_dir.is_dir()
+        else []
+    )
 
     src_dir = root / "src"
-    packages = sorted(
-        p.name
-        for p in src_dir.iterdir()
-        if p.is_dir() and (p / "__init__.py").exists()
-    ) if src_dir.is_dir() else []
+    packages = (
+        sorted(p.name for p in src_dir.iterdir() if p.is_dir() and (p / "__init__.py").exists())
+        if src_dir.is_dir()
+        else []
+    )
 
     return {
         "wrappers": wrappers,
@@ -295,6 +309,7 @@ def _familiar_content(verbose: bool, compact: bool = False) -> str:
 # Emit helper
 # ---------------------------------------------------------------------------
 
+
 def _emit_content(content: str, write_path: str | None, stdout: bool) -> None:
     if write_path:
         target = Path(write_path)
@@ -321,6 +336,7 @@ def _write_and_print(content: str, args: argparse.Namespace, default_target: Pat
 # ---------------------------------------------------------------------------
 # Repo-level argument parser
 # ---------------------------------------------------------------------------
+
 
 def _build_repo_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="llm", description="Unified LLM utilities")
@@ -390,6 +406,7 @@ def _build_repo_parser() -> argparse.ArgumentParser:
 # Command handlers
 # ---------------------------------------------------------------------------
 
+
 def _handle_inventory(args: argparse.Namespace, llm_dir: Path) -> int:
     """Handle inventory command."""
     if getattr(args, "format", "md") == "json":
@@ -443,16 +460,18 @@ def _render_flow_content(flow: dict[str, Any], fmt: str) -> str:
         return json.dumps(flow, indent=2)
     if fmt == "yaml":
         import yaml
+
         return yaml.safe_dump(flow, sort_keys=False)
     return (
         f"id: {flow.get('id')}\n"
         f"title: {flow.get('title')}\n"
-        f"tags: {', '.join(flow.get('tags') or [])}\n"
-        + "\n".join(flow.get("commands") or [])
+        f"tags: {', '.join(flow.get('tags') or [])}\n" + "\n".join(flow.get("commands") or [])
     )
 
 
-def _filter_flows_by_tags(flows: list[dict[str, Any]], tags_arg: str | None) -> list[dict[str, Any]]:
+def _filter_flows_by_tags(
+    flows: list[dict[str, Any]], tags_arg: str | None
+) -> list[dict[str, Any]]:
     """Filter flows to those whose tags include every comma-separated tag in tags_arg."""
     if not tags_arg:
         return flows
@@ -516,6 +535,7 @@ def _handle_derive_all(args: argparse.Namespace, llm_dir: Path) -> int:
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
+
 
 def main(argv: list[str] | None = None) -> int:
     """Main entry point for LLM CLI.

@@ -9,12 +9,13 @@ Covers the lines not reached by test_sessions.py:
 
 All OTLPReader interactions are mocked. No network or real file I/O.
 """
+
 from __future__ import annotations
 
 import io
 import unittest
 from contextlib import redirect_stdout
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace as NS
 from unittest.mock import MagicMock, patch
 
@@ -25,10 +26,10 @@ from telemetry.otel.cli.sessions_timeline import (
     _sum_token_attrs,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_attr(key: str, value: str) -> NS:
     """Build a minimal OTLP attribute-like object."""
@@ -48,7 +49,7 @@ def _make_event(
     """Build a mock OTLP event object."""
     event = MagicMock()
     event.body = body
-    event.timestamp = timestamp or datetime.now(timezone.utc)
+    event.timestamp = timestamp or datetime.now(UTC)
     event.attributes = attrs if attrs is not None else []
 
     if get_attr_side_effect is not None:
@@ -59,6 +60,7 @@ def _make_event(
             if key in ("session.id", "session_id"):
                 return session_id
             return None
+
         event.get_attr.side_effect = _default_get_attr
 
     if get_attr_as_float_side_effect is not None:
@@ -77,6 +79,7 @@ def _make_record(events: list) -> NS:
 # ---------------------------------------------------------------------------
 # _sum_token_attrs
 # ---------------------------------------------------------------------------
+
 
 class TestSumTokenAttrs(unittest.TestCase):
     """Tests for _sum_token_attrs — covers the inner loop and exception swallows."""
@@ -129,7 +132,9 @@ class TestSumTokenAttrs(unittest.TestCase):
     def test_type_error_value_is_skipped(self) -> None:
         """TypeError from as_str() raising is swallowed; rest of attrs still counted."""
         event = MagicMock()
-        bad_attr = NS(key="input_tokens", value=NS(as_str=lambda: (_ for _ in ()).throw(TypeError("oops"))))
+        bad_attr = NS(
+            key="input_tokens", value=NS(as_str=lambda: (_ for _ in ()).throw(TypeError("oops")))
+        )
         good_attr = _make_attr("output_tokens", "30")
         event.attributes = [bad_attr, good_attr]
         result = _sum_token_attrs(event)
@@ -140,12 +145,13 @@ class TestSumTokenAttrs(unittest.TestCase):
 # _event_to_timeline_entry
 # ---------------------------------------------------------------------------
 
+
 class TestEventToTimelineEntry(unittest.TestCase):
     """Tests for _event_to_timeline_entry — covers lines 85-86."""
 
     def test_returns_dict_with_timestamp_eventtype_detail(self) -> None:
         """Happy path: output dict contains expected keys."""
-        ts = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        ts = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
         event = _make_event(body="claude_code.api_request", timestamp=ts)
         event.get_attr.return_value = "claude-sonnet-4-6"
 
@@ -177,6 +183,7 @@ class TestEventToTimelineEntry(unittest.TestCase):
 # _output_timeline
 # ---------------------------------------------------------------------------
 
+
 class TestOutputTimeline(unittest.TestCase):
     """Tests for _output_timeline — covers lines 117-143."""
 
@@ -206,7 +213,7 @@ class TestOutputTimeline(unittest.TestCase):
 
     def test_events_for_different_session_are_filtered(self) -> None:
         """Events belonging to a different session_id are excluded."""
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         event = _make_event(session_id="other-session", timestamp=ts)
         record = _make_record([event])
         output = self._run(records=[record], session_id="target-session")
@@ -214,7 +221,7 @@ class TestOutputTimeline(unittest.TestCase):
 
     def test_matching_events_are_displayed(self) -> None:
         """Events with matching session_id are displayed."""
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         event = _make_event(body="claude_code.api_request", session_id="sess-abc", timestamp=ts)
         event.get_attr.return_value = "claude-sonnet-4-6"
         event.get_attr_as_float.return_value = None
@@ -225,14 +232,18 @@ class TestOutputTimeline(unittest.TestCase):
 
     def test_since_filter_excludes_old_events(self) -> None:
         """Events before the 'since' cutoff are excluded."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         old_ts = now - timedelta(hours=2)
         new_ts = now
         since = now - timedelta(hours=1)
 
         old_event = _make_event(session_id="sess-abc", timestamp=old_ts)
-        new_event = _make_event(body="claude_code.user_prompt", session_id="sess-abc", timestamp=new_ts)
-        new_event.get_attr.side_effect = lambda k: "sess-abc" if k in ("session.id", "session_id") else "500"
+        new_event = _make_event(
+            body="claude_code.user_prompt", session_id="sess-abc", timestamp=new_ts
+        )
+        new_event.get_attr.side_effect = (
+            lambda k: "sess-abc" if k in ("session.id", "session_id") else "500"
+        )
 
         record = _make_record([old_event, new_event])
         output = self._run(records=[record], session_id="sess-abc", since=since)
@@ -243,7 +254,7 @@ class TestOutputTimeline(unittest.TestCase):
 
     def test_since_none_includes_all_events(self) -> None:
         """When since is None, all events for the session are shown."""
-        ts = datetime.now(timezone.utc) - timedelta(days=10)
+        ts = datetime.now(UTC) - timedelta(days=10)
         event = _make_event(body="claude_code.api_request", session_id="sess-abc", timestamp=ts)
         event.get_attr.return_value = "claude-sonnet-4-6"
         record = _make_record([event])
@@ -253,7 +264,7 @@ class TestOutputTimeline(unittest.TestCase):
 
     def test_events_sorted_by_timestamp(self) -> None:
         """Multiple events are output in ascending timestamp order."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         ts1 = now - timedelta(minutes=5)
         ts2 = now
 
@@ -262,11 +273,18 @@ class TestOutputTimeline(unittest.TestCase):
         event1.get_attr_as_float.return_value = None
 
         event2 = _make_event(body="claude_code.user_prompt", session_id="sess-abc", timestamp=ts2)
-        event2.get_attr.side_effect = lambda k: "sess-abc" if k in ("session.id", "session_id") else "100"
+        event2.get_attr.side_effect = (
+            lambda k: "sess-abc" if k in ("session.id", "session_id") else "100"
+        )
 
         # Supply events in reverse order to confirm sorting
         record = _make_record([event2, event1])
-        output = self._run(records=[record, ], session_id="sess-abc")
+        output = self._run(
+            records=[
+                record,
+            ],
+            session_id="sess-abc",
+        )
 
         lines = [ln for ln in output.splitlines() if "[" in ln]
         self.assertEqual(len(lines), 2)
@@ -275,14 +293,19 @@ class TestOutputTimeline(unittest.TestCase):
 
     def test_multiple_records_are_all_read(self) -> None:
         """Events across multiple records are all collected."""
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         event1 = _make_event(body="claude_code.api_request", session_id="sess-abc", timestamp=ts)
         event1.get_attr.return_value = "claude-sonnet-4-6"
         event1.get_attr_as_float.return_value = None
 
-        event2 = _make_event(body="claude_code.user_prompt", session_id="sess-abc",
-                             timestamp=ts + timedelta(seconds=1))
-        event2.get_attr.side_effect = lambda k: "sess-abc" if k in ("session.id", "session_id") else "200"
+        event2 = _make_event(
+            body="claude_code.user_prompt",
+            session_id="sess-abc",
+            timestamp=ts + timedelta(seconds=1),
+        )
+        event2.get_attr.side_effect = (
+            lambda k: "sess-abc" if k in ("session.id", "session_id") else "200"
+        )
 
         record1 = _make_record([event1])
         record2 = _make_record([event2])
@@ -291,12 +314,13 @@ class TestOutputTimeline(unittest.TestCase):
 
     def test_session_id_resolved_via_session_id_key(self) -> None:
         """session_id attribute key is used as fallback when session.id is missing."""
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         event = MagicMock()
         event.body = "claude_code.api_request"
         event.timestamp = ts
         event.attributes = []
         event.get_attr_as_float.return_value = None
+
         # session.id returns None, session_id returns "target"
         def _sid(k):
             if k == "session.id":
@@ -304,6 +328,7 @@ class TestOutputTimeline(unittest.TestCase):
             if k == "session_id":
                 return "target"
             return "claude-sonnet-4-6"
+
         event.get_attr.side_effect = _sid
 
         record = _make_record([event])
@@ -312,7 +337,7 @@ class TestOutputTimeline(unittest.TestCase):
 
     def test_unknown_session_id_falls_back_to_unknown(self) -> None:
         """When neither session.id nor session_id is present, sid becomes 'unknown'."""
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         event = MagicMock()
         event.body = "some_event"
         event.timestamp = ts
@@ -335,6 +360,7 @@ class TestOutputTimeline(unittest.TestCase):
 # _format_timeline_entry — edge cases not covered in test_sessions.py
 # ---------------------------------------------------------------------------
 
+
 class TestFormatTimelineEntry(unittest.TestCase):
     """Edge cases for _format_timeline_entry."""
 
@@ -346,7 +372,7 @@ class TestFormatTimelineEntry(unittest.TestCase):
 
     def test_event_type_with_dot_shows_last_segment(self) -> None:
         """Event type 'foo.bar.baz' is shortened to 'baz'."""
-        ts = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        ts = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
         entry = {"timestamp": ts, "event_type": "foo.bar.baz", "detail": ""}
         result = _format_timeline_entry(entry)
         self.assertIn("baz", result)
@@ -354,21 +380,21 @@ class TestFormatTimelineEntry(unittest.TestCase):
 
     def test_event_type_without_dot_shown_as_is(self) -> None:
         """Event type without dots is emitted as-is."""
-        ts = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        ts = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
         entry = {"timestamp": ts, "event_type": "plain_event", "detail": ""}
         result = _format_timeline_entry(entry)
         self.assertIn("plain_event", result)
 
     def test_detail_present_included_in_output(self) -> None:
         """When detail is non-empty, it is wrapped in parentheses."""
-        ts = datetime(2026, 1, 1, 9, 30, 0, tzinfo=timezone.utc)
+        ts = datetime(2026, 1, 1, 9, 30, 0, tzinfo=UTC)
         entry = {"timestamp": ts, "event_type": "some.event", "detail": "info here"}
         result = _format_timeline_entry(entry)
         self.assertIn("(info here)", result)
 
     def test_no_detail_omits_parentheses(self) -> None:
         """When detail is empty, no parentheses appear."""
-        ts = datetime(2026, 1, 1, 9, 30, 0, tzinfo=timezone.utc)
+        ts = datetime(2026, 1, 1, 9, 30, 0, tzinfo=UTC)
         entry = {"timestamp": ts, "event_type": "some.event", "detail": ""}
         result = _format_timeline_entry(entry)
         self.assertNotIn("(", result)

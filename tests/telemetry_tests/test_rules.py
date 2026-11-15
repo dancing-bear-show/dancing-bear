@@ -1,4 +1,5 @@
 """Gap-fill tests for telemetry/rules.py — _deep_merge, validate_rules, load_rules."""
+
 from __future__ import annotations
 
 import builtins
@@ -16,6 +17,7 @@ _real_import = builtins.__import__
 # ---------------------------------------------------------------------------
 # _deep_merge
 # ---------------------------------------------------------------------------
+
 
 class TestDeepMerge(unittest.TestCase):
     def test_override_flat_key_wins(self):
@@ -74,6 +76,7 @@ class TestDeepMerge(unittest.TestCase):
 # validate_rules
 # ---------------------------------------------------------------------------
 
+
 class TestValidateRules(unittest.TestCase):
     def test_valid_default_rules_no_errors(self):
         errors = validate_rules(deepcopy(DEFAULT_RULES))
@@ -89,12 +92,14 @@ class TestValidateRules(unittest.TestCase):
     def test_schema_load_failure_returns_error_string(self):
         # Force jsonschema to be importable but schema read to fail
         import types
+
         fake_jsonschema = types.ModuleType("jsonschema")
 
         class _FakeDraft7Validator:
             def __init__(self, schema):
                 # stub: no schema setup needed for this fake
                 pass
+
             def iter_errors(self, rules):
                 return []
 
@@ -110,6 +115,7 @@ class TestValidateRules(unittest.TestCase):
 
     def test_validate_rules_with_mock_validator_returns_errors(self):
         import types
+
         fake_jsonschema = types.ModuleType("jsonschema")
 
         class _FakeError:
@@ -121,6 +127,7 @@ class TestValidateRules(unittest.TestCase):
             def __init__(self, schema):
                 # stub: no schema setup needed for this fake
                 pass
+
             def iter_errors(self, rules):
                 return [_FakeError(["avoidable", "bash-as-grep", "enabled"], "must be boolean")]
 
@@ -143,6 +150,7 @@ def _make_import_error_for_jsonschema(name, *args, **kwargs):
 # ---------------------------------------------------------------------------
 # load_rules
 # ---------------------------------------------------------------------------
+
 
 class TestLoadRules(unittest.TestCase):
     def setUp(self):

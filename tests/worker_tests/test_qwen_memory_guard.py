@@ -11,15 +11,15 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
 import subprocess  # nosec B404 - only CompletedProcess/TimeoutExpired values, nothing is executed
+import tempfile
 import unittest
-import urllib.error
 import unittest.mock as mock
+import urllib.error
 from pathlib import Path
 
-from worker import qwen
 from tests.worker_tests.qwen_fixtures import GIB, MODEL, QwenHandlerCase
+from worker import qwen
 
 # vm_stat as measured on a healthy 32 GB Apple silicon Mac (2026-09-23).
 _PAGE = 16384
@@ -62,7 +62,9 @@ class QwenMemoryMeasurementTests(unittest.TestCase):
 
     def test_todays_reading_passes_where_vm_stat_alone_deferred(self) -> None:
         old_vm_stat_reading = (_FREE + _INACTIVE + _SPECULATIVE) * _PAGE
-        self.assertLess(old_vm_stat_reading, FULL_REQUIREMENT, "the old formula is why the guard deferred")
+        self.assertLess(
+            old_vm_stat_reading, FULL_REQUIREMENT, "the old formula is why the guard deferred"
+        )
 
         available = self.measure(MEMORY_PRESSURE_TODAY, VM_STAT_TODAY)
 
@@ -92,7 +94,9 @@ class QwenMemoryMeasurementTests(unittest.TestCase):
                 self.assertEqual(self.measure(garbage, VM_STAT_TODAY), VM_STAT_FALLBACK)
 
     def test_unknown_total_memory_falls_back_to_vm_stat(self) -> None:
-        self.assertEqual(self.measure(MEMORY_PRESSURE_TODAY, VM_STAT_TODAY, total=None), VM_STAT_FALLBACK)
+        self.assertEqual(
+            self.measure(MEMORY_PRESSURE_TODAY, VM_STAT_TODAY, total=None), VM_STAT_FALLBACK
+        )
 
     def test_zero_percent_free_is_a_reading_not_a_fallback(self) -> None:
         zero = "System-wide memory free percentage: 0%\n"
@@ -118,14 +122,22 @@ class QwenMemoryMeasurementTests(unittest.TestCase):
             ("ok", None, done([], 0, stdout="out", stderr=""), "out"),
         )
         for name, error, completed, expected in cases:
-            with self.subTest(name), mock.patch("subprocess.run", side_effect=error, return_value=completed) as run:
+            with (
+                self.subTest(name),
+                mock.patch("subprocess.run", side_effect=error, return_value=completed) as run,
+            ):
                 self.assertEqual(qwen._run_probe(["memory_pressure", "-Q"]), expected)
                 self.assertEqual(run.call_args.args[0], ["memory_pressure", "-Q"])
                 # A lost timeout would let the probe block the worker, a lost
                 # text/capture would starve the parser, and shell=True must never appear.
                 kwargs = run.call_args.kwargs
                 self.assertEqual(
-                    (kwargs["timeout"], kwargs["capture_output"], kwargs["text"], kwargs.get("shell", False)),
+                    (
+                        kwargs["timeout"],
+                        kwargs["capture_output"],
+                        kwargs["text"],
+                        kwargs.get("shell", False),
+                    ),
                     (5, True, True, False),
                 )
 
@@ -133,7 +145,9 @@ class QwenMemoryMeasurementTests(unittest.TestCase):
         with mock.patch("worker.qwen._run_probe", return_value="x") as probe:
             qwen._memory_pressure_output()
             qwen._vm_stat_output()
-        self.assertEqual([c.args[0] for c in probe.call_args_list], [["memory_pressure", "-Q"], ["vm_stat"]])
+        self.assertEqual(
+            [c.args[0] for c in probe.call_args_list], [["memory_pressure", "-Q"], ["vm_stat"]]
+        )
 
     def test_total_memory_is_page_size_times_physical_pages(self) -> None:
         sizes = {"SC_PAGE_SIZE": _PAGE, "SC_PHYS_PAGES": 2097152}
@@ -231,7 +245,9 @@ class QwenWarmModelTests(QwenHandlerCase):
     def ps_requests(self) -> list[str]:
         return [r[0] for r in self.requests if r[0].endswith("/api/ps")]
 
-    def run_with_memory(self, available: int | None, payload: dict[str, object] | None = None) -> tuple[bool, object]:
+    def run_with_memory(
+        self, available: int | None, payload: dict[str, object] | None = None
+    ) -> tuple[bool, object]:
         with mock.patch("worker.qwen._available_memory_bytes", return_value=available):
             return self.run_handler(payload)
 
@@ -282,7 +298,9 @@ class QwenWarmModelTests(QwenHandlerCase):
 
         ok, report = self.run_with_memory(self.FIVE_GIB, {"model": "llama3:8b", "explain": True})
         self.assertTrue(ok)
-        self.assertEqual(self.as_dict(self.as_dict(report)["memory_detail"])["requirement"], "margin_only")
+        self.assertEqual(
+            self.as_dict(self.as_dict(report)["memory_detail"])["requirement"], "margin_only"
+        )
 
         ok, _ = self.run_with_memory(self.FIVE_GIB, {"model": "llama3:8b"})
 
@@ -296,7 +314,9 @@ class QwenWarmModelTests(QwenHandlerCase):
         ok, out = self.run_with_memory(3 * GIB)
 
         self.assertEqual((ok, out), (False, "deferred-low-memory"))
-        self.assertEqual(self.ps_requests(), [], "below the margin, whether the model is loaded cannot matter")
+        self.assertEqual(
+            self.ps_requests(), [], "below the margin, whether the model is loaded cannot matter"
+        )
 
     def test_ample_memory_does_not_query_ps(self) -> None:
         ok, _ = self.run_with_memory(64 * GIB)
@@ -313,28 +333,52 @@ class QwenWarmModelTests(QwenHandlerCase):
         just_short_gb = just_short * 100 // GIB / 100
         self.assertLess(just_short_gb, full_gb)
         cases: tuple[tuple[str, int | None, dict[str, object], str, dict[str, object]], ...] = (
-            ("warm", self.FIVE_GIB, warm, "pass", {"requirement": "margin_only", "required_gb": 4, "available_gb": 5.0}),
+            (
+                "warm",
+                self.FIVE_GIB,
+                warm,
+                "pass",
+                {"requirement": "margin_only", "required_gb": 4, "available_gb": 5.0},
+            ),
             (
                 "cold",
                 self.FIVE_GIB,
                 {"models": []},
                 "deferred-low-memory",
-                {"requirement": "model_resident+margin", "required_gb": full_gb, "available_gb": 5.0},
+                {
+                    "requirement": "model_resident+margin",
+                    "required_gb": full_gb,
+                    "available_gb": 5.0,
+                },
             ),
             (
                 "ample",
                 64 * GIB,
                 {"models": []},
                 "pass",
-                {"requirement": "model_resident+margin", "required_gb": full_gb, "available_gb": 64.0},
+                {
+                    "requirement": "model_resident+margin",
+                    "required_gb": full_gb,
+                    "available_gb": 64.0,
+                },
             ),
-            ("unreadable", None, {"models": []}, "pass", {"requirement": "unguarded", "required_gb": None, "available_gb": None}),
+            (
+                "unreadable",
+                None,
+                {"models": []},
+                "pass",
+                {"requirement": "unguarded", "required_gb": None, "available_gb": None},
+            ),
             (
                 "cold-boundary",
                 just_short,
                 {"models": []},
                 "deferred-low-memory",
-                {"requirement": "model_resident+margin", "required_gb": full_gb, "available_gb": just_short_gb},
+                {
+                    "requirement": "model_resident+margin",
+                    "required_gb": full_gb,
+                    "available_gb": just_short_gb,
+                },
             ),
             (
                 "cold-exact",
@@ -364,7 +408,6 @@ class QwenWarmModelTests(QwenHandlerCase):
                 self.deferral_file().unlink(missing_ok=True)
 
 
-
 class QwenPostLockMemoryRecheckTests(QwenHandlerCase):
     """The pre-lock memory check is a snapshot; it is repeated once the lock is held.
 
@@ -387,8 +430,12 @@ class QwenPostLockMemoryRecheckTests(QwenHandlerCase):
         ok, out = self.run_with(available=[five, five], loaded=[True, False])
 
         self.assertEqual((ok, out), (False, "deferred-low-memory"))
-        self.assertEqual(self.generate_requests(), [], "the model must not be called after it went cold")
-        self.assertFalse(self.lock_path.exists(), "the lock must be released on the post-lock deferral")
+        self.assertEqual(
+            self.generate_requests(), [], "the model must not be called after it went cold"
+        )
+        self.assertFalse(
+            self.lock_path.exists(), "the lock must be released on the post-lock deferral"
+        )
         self.assertEqual(json.loads(self.deferral_file().read_text(encoding="utf-8"))["count"], 1)
 
     def test_headroom_that_drops_during_the_wait_defers(self) -> None:
@@ -402,7 +449,9 @@ class QwenPostLockMemoryRecheckTests(QwenHandlerCase):
 
         self.assertTrue(ok)
         self.assertEqual(len(self.generate_requests()), 1)
-        self.assertEqual(self.memory_reads, 2, "memory must be read before the lock and again after it")
+        self.assertEqual(
+            self.memory_reads, 2, "memory must be read before the lock and again after it"
+        )
 
 
 if __name__ == "__main__":

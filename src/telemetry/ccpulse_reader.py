@@ -1,4 +1,5 @@
 """Reader for ccpulse session insights."""
+
 from __future__ import annotations
 
 import json

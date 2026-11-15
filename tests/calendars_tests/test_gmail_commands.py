@@ -1,4 +1,5 @@
 """Tests for calendars/gmail/commands.py — argument-to-request builders."""
+
 import os
 import tempfile
 import unittest
@@ -7,10 +8,10 @@ from unittest.mock import MagicMock, patch
 
 from calendars.gmail.commands import (
     run_gmail_mail_list,
-    run_gmail_sweep_top,
+    run_gmail_scan_activerh,
     run_gmail_scan_classes,
     run_gmail_scan_receipts,
-    run_gmail_scan_activerh,
+    run_gmail_sweep_top,
 )
 from tests.fakes.gmail import FakeGmailClient
 from tests.fixtures import capture_stdout
@@ -51,8 +52,15 @@ class TestRunGmailMailList(unittest.TestCase):
         with patcher:
             # 'days' not set — should fallback to int(getattr(..., "days", 7))
             args = SimpleNamespace(
-                profile=None, credentials=None, token=None, cache=None,
-                query=None, from_text=None, pages=1, page_size=10, inbox_only=False,
+                profile=None,
+                credentials=None,
+                token=None,
+                cache=None,
+                query=None,
+                from_text=None,
+                pages=1,
+                page_size=10,
+                inbox_only=False,
             )
             run_gmail_mail_list(args)
         req = mock_rp.call_args[0][0]
@@ -64,9 +72,17 @@ class TestRunGmailSweepTop(unittest.TestCase):
         patcher, mock_rp = _mock_run_pipeline()
         with patcher:
             args = SimpleNamespace(
-                profile=None, credentials=None, token=None, cache=None,
-                query=None, from_text="newsletter",
-                days=10, pages=5, page_size=100, inbox_only=True, top=10,
+                profile=None,
+                credentials=None,
+                token=None,
+                cache=None,
+                query=None,
+                from_text="newsletter",
+                days=10,
+                pages=5,
+                page_size=100,
+                inbox_only=True,
+                top=10,
                 out="out/sweep.yaml",
             )
             rc = run_gmail_sweep_top(args)
@@ -80,9 +96,17 @@ class TestRunGmailSweepTop(unittest.TestCase):
         patcher, mock_rp = _mock_run_pipeline()
         with patcher:
             args = SimpleNamespace(
-                profile=None, credentials=None, token=None, cache=None,
-                query=None, from_text=None,
-                days=10, pages=5, page_size=100, inbox_only=True, top=10,
+                profile=None,
+                credentials=None,
+                token=None,
+                cache=None,
+                query=None,
+                from_text=None,
+                days=10,
+                pages=5,
+                page_size=100,
+                inbox_only=True,
+                top=10,
                 out=None,
             )
             run_gmail_sweep_top(args)
@@ -95,10 +119,18 @@ class TestRunGmailScanClasses(unittest.TestCase):
         patcher, mock_rp = _mock_run_pipeline()
         with patcher:
             args = SimpleNamespace(
-                profile=None, credentials=None, token=None, cache=None,
-                query="from:school", from_text=None,
-                days=60, pages=5, page_size=100, inbox_only=False,
-                calendar="Family", out=None,
+                profile=None,
+                credentials=None,
+                token=None,
+                cache=None,
+                query="from:school",
+                from_text=None,
+                days=60,
+                pages=5,
+                page_size=100,
+                inbox_only=False,
+                calendar="Family",
+                out=None,
             )
             rc = run_gmail_scan_classes(args)
         self.assertEqual(rc, 0)
@@ -111,10 +143,18 @@ class TestRunGmailScanClasses(unittest.TestCase):
         patcher, mock_rp = _mock_run_pipeline()
         with patcher:
             args = SimpleNamespace(
-                profile=None, credentials=None, token=None, cache=None,
-                query=None, from_text=None,
-                days=60, pages=5, page_size=100, inbox_only=False,
-                calendar=None, out="out/classes.yaml",
+                profile=None,
+                credentials=None,
+                token=None,
+                cache=None,
+                query=None,
+                from_text=None,
+                days=60,
+                pages=5,
+                page_size=100,
+                inbox_only=False,
+                calendar=None,
+                out="out/classes.yaml",
             )
             run_gmail_scan_classes(args)
         req = mock_rp.call_args[0][0]
@@ -126,10 +166,17 @@ class TestRunGmailScanReceipts(unittest.TestCase):
         patcher, mock_rp = _mock_run_pipeline()
         with patcher:
             args = SimpleNamespace(
-                profile=None, credentials=None, token=None, cache=None,
-                query=None, from_text=None,
-                days=365, pages=5, page_size=100,
-                calendar=None, out="receipts.yaml",
+                profile=None,
+                credentials=None,
+                token=None,
+                cache=None,
+                query=None,
+                from_text=None,
+                days=365,
+                pages=5,
+                page_size=100,
+                calendar=None,
+                out="receipts.yaml",
             )
             rc = run_gmail_scan_receipts(args)
         self.assertEqual(rc, 0)
@@ -143,11 +190,17 @@ class TestRunGmailScanActiverh(unittest.TestCase):
         patcher, mock_rp = _mock_run_pipeline()
         with patcher:
             args = SimpleNamespace(
-                profile=None, credentials=None, token=None, cache=None,
+                profile=None,
+                credentials=None,
+                token=None,
+                cache=None,
                 query="from:activerh@example.com",
                 from_text=None,
-                days=365, pages=5, page_size=100,
-                calendar=None, out="out.yaml",
+                days=365,
+                pages=5,
+                page_size=100,
+                calendar=None,
+                out="out.yaml",
             )
             rc = run_gmail_scan_activerh(args)
         self.assertEqual(rc, 0)
@@ -157,15 +210,25 @@ class TestRunGmailScanActiverh(unittest.TestCase):
     def test_without_query_builds_activerh_query(self):
         patcher_rp, mock_rp = _mock_run_pipeline()
         # GmailService is imported locally inside run_gmail_scan_activerh, patch at source
-        with patcher_rp, patch(
-            "calendars.gmail_service.GmailService.build_activerh_query",
-            return_value="from:activerh subject:receipt",
-        ) as mock_bq:
+        with (
+            patcher_rp,
+            patch(
+                "calendars.gmail_service.GmailService.build_activerh_query",
+                return_value="from:activerh subject:receipt",
+            ) as mock_bq,
+        ):
             args = SimpleNamespace(
-                profile=None, credentials=None, token=None, cache=None,
-                query=None, from_text=None,
-                days=365, pages=5, page_size=100,
-                calendar=None, out="out.yaml",
+                profile=None,
+                credentials=None,
+                token=None,
+                cache=None,
+                query=None,
+                from_text=None,
+                days=365,
+                pages=5,
+                page_size=100,
+                calendar=None,
+                out="out.yaml",
             )
             rc = run_gmail_scan_activerh(args)
 
@@ -184,12 +247,14 @@ class TestGmailScanCommandsEndToEnd(unittest.TestCase):
     """
 
     def test_scan_receipts_extracts_event(self):
-        text = "\n".join([
-            "Enrollment in Swim Kids 5 (RH)",
-            "Meeting Dates: From January 1, 2025 to March 1, 2025",
-            "Each Monday from 5:00 pm to 5:30 pm",
-            "Location: Elgin West Community Centre",
-        ])
+        text = "\n".join(
+            [
+                "Enrollment in Swim Kids 5 (RH)",
+                "Meeting Dates: From January 1, 2025 to March 1, 2025",
+                "Each Monday from 5:00 pm to 5:30 pm",
+                "Location: Elgin West Community Centre",
+            ]
+        )
         fake = FakeGmailClient(
             message_ids_by_query={"richmondhill": ["m1"]},
             messages={"m1": {"text": text}},
@@ -198,8 +263,17 @@ class TestGmailScanCommandsEndToEnd(unittest.TestCase):
         tf.close()
         try:
             args = SimpleNamespace(
-                from_text="richmondhill.ca", days=365, pages=1, page_size=10, query=None, out=tf.name,
-                profile=None, credentials=None, token=None, cache=None, calendar=None,
+                from_text="richmondhill.ca",
+                days=365,
+                pages=1,
+                page_size=10,
+                query=None,
+                out=tf.name,
+                profile=None,
+                credentials=None,
+                token=None,
+                cache=None,
+                calendar=None,
             )
             with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=fake):
                 with capture_stdout() as buf:
@@ -211,19 +285,31 @@ class TestGmailScanCommandsEndToEnd(unittest.TestCase):
             os.unlink(tf.name)
 
     def test_scan_classes_extracts_schedule_lines(self):
-        body = "\n".join([
-            "Student: Bruce Sherwin",
-            "Schedule: lesson",
-            "Monday 5:00 pm to 5:30 pm",
-            "Wednesday 6:00 pm to 6:30 pm",
-        ])
+        body = "\n".join(
+            [
+                "Student: Bruce Sherwin",
+                "Schedule: lesson",
+                "Monday 5:00 pm to 5:30 pm",
+                "Wednesday 6:00 pm to 6:30 pm",
+            ]
+        )
         fake = FakeGmailClient(
             message_ids_by_query={"active": ["m1"]},
             messages={"m1": {"text": body}},
         )
         args = SimpleNamespace(
-            from_text="active rh", days=60, pages=1, page_size=10, query=None, inbox_only=False, out=None,
-            profile=None, credentials=None, token=None, cache=None, calendar=None,
+            from_text="active rh",
+            days=60,
+            pages=1,
+            page_size=10,
+            query=None,
+            inbox_only=False,
+            out=None,
+            profile=None,
+            credentials=None,
+            token=None,
+            cache=None,
+            calendar=None,
         )
         with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=fake):
             with capture_stdout() as buf:
@@ -233,12 +319,14 @@ class TestGmailScanCommandsEndToEnd(unittest.TestCase):
         self.assertIn("candidate recurring", out)
 
     def test_scan_activerh_builds_query_delegates(self):
-        text = "\n".join([
-            "Enrollment in Swim Kids 2",
-            "Meeting Dates: From January 5, 2025 to March 5, 2025",
-            "Each Monday from 5:00 pm to 5:30 pm",
-            "Location: Bayview Hill Community Centre",
-        ])
+        text = "\n".join(
+            [
+                "Enrollment in Swim Kids 2",
+                "Meeting Dates: From January 5, 2025 to March 5, 2025",
+                "Each Monday from 5:00 pm to 5:30 pm",
+                "Location: Bayview Hill Community Centre",
+            ]
+        )
         # Empty key matches any query (activerh builds its own custom query).
         fake = FakeGmailClient(
             message_ids_by_query={"": ["m1"]},
@@ -248,8 +336,17 @@ class TestGmailScanCommandsEndToEnd(unittest.TestCase):
         tf.close()
         try:
             args = SimpleNamespace(
-                days=365, pages=1, page_size=10, query=None, out=tf.name,
-                profile=None, credentials=None, token=None, cache=None, calendar=None, from_text=None,
+                days=365,
+                pages=1,
+                page_size=10,
+                query=None,
+                out=tf.name,
+                profile=None,
+                credentials=None,
+                token=None,
+                cache=None,
+                calendar=None,
+                from_text=None,
             )
             with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=fake):
                 with capture_stdout() as buf:

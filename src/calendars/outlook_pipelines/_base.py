@@ -5,17 +5,13 @@ from __future__ import annotations
 import datetime as _dt
 import re
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Sequence
-
-from core.pipeline import ResultEnvelope, SafeProcessor
-from core.yamlio import load_config as _load_yaml
-
-from calendars.model import normalize_event
-from calendars.selection import compute_window, filter_events_by_day_time
+from typing import Any
 
 from calendars.location_sync import LocationSync
+from calendars.model import normalize_event
 from calendars.pipeline_base import (
     BaseProducer,
     DateWindowResolver,
@@ -23,6 +19,9 @@ from calendars.pipeline_base import (
     check_service_required,
     to_iso_str,
 )
+from calendars.selection import compute_window, filter_events_by_day_time
+from core.pipeline import ResultEnvelope, SafeProcessor
+from core.yamlio import load_config as _load_yaml
 
 # Error message constants
 ERR_CONFIG_MUST_CONTAIN_EVENTS = "Config must contain events: [] list"
@@ -117,7 +116,6 @@ __all__ = [
     "Sequence",
     "ResultEnvelope",
     "SafeProcessor",
-
     "_load_yaml",
     "normalize_event",
     "compute_window",

@@ -4,6 +4,7 @@ These cover the parser in isolation. The renderer-level tests that prove the
 markup reaches each candidate prose field live in
 ``tests/resume_tests/docx_tests/test_docx_inline_markup.py``.
 """
+
 from __future__ import annotations
 
 import unittest
@@ -147,14 +148,10 @@ class TestUnderscoresAreNotMarkup(unittest.TestCase):
         self.assertEqual(flatten("__init__"), [("__init__", False, False)])
 
     def test_snake_case_identifier_is_literal(self):
-        self.assertEqual(
-            flatten("some_function_name"), [("some_function_name", False, False)]
-        )
+        self.assertEqual(flatten("some_function_name"), [("some_function_name", False, False)])
 
     def test_underscored_filename_is_literal(self):
-        self.assertEqual(
-            flatten("docx_renderers.py"), [("docx_renderers.py", False, False)]
-        )
+        self.assertEqual(flatten("docx_renderers.py"), [("docx_renderers.py", False, False)])
 
 
 class TestNestingDegradesPredictably(unittest.TestCase):

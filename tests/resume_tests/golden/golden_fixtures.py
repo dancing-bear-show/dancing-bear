@@ -96,7 +96,11 @@ def candidate_dict_bullets() -> dict[str, Any]:
             }
         ],
         "education": [
-            {"degree": "BSc Imaginary Computing", "institution": "Invented University", "year": 2015}
+            {
+                "degree": "BSc Imaginary Computing",
+                "institution": "Invented University",
+                "year": 2015,
+            }
         ],
         "certifications": [{"name": "Certified Fictional Operator", "year": 2022}],
     }
@@ -125,7 +129,11 @@ def candidate_string_bullets() -> dict[str, Any]:
             }
         ],
         "education": [
-            {"degree": "MSc Fictional Studies", "institution": "Placeholder College", "year": "2012"}
+            {
+                "degree": "MSc Fictional Studies",
+                "institution": "Placeholder College",
+                "year": "2012",
+            }
         ],
         "teaching": ["Intro to Nothing (Placeholder College)"],
     }
@@ -268,7 +276,11 @@ def candidate_mixed_shapes() -> dict[str, Any]:
                 "start": "2022",
                 "end": "",
                 "bullets": [
-                    {"text": "Dict bullet with priority and desc.", "priority": 1, "desc": "Detail."},
+                    {
+                        "text": "Dict bullet with priority and desc.",
+                        "priority": 1,
+                        "desc": "Detail.",
+                    },
                     "Bare string bullet.",
                     {"line": "Alias bullet without priority."},
                 ],
@@ -283,9 +295,7 @@ def candidate_mixed_shapes() -> dict[str, Any]:
         ],
         "presentations": [{"title": "Mixed Talk", "event": "Mixed Conf", "year": 2023}],
         "teaching": ["Advanced Placeholding (Mixed University)"],
-        "education": [
-            {"degree": "BSc Mixed", "institution": "Mixed University", "year": 2014}
-        ],
+        "education": [{"degree": "BSc Mixed", "institution": "Mixed University", "year": 2014}],
         "certifications": [{"name": "Mixed Certification", "year": 2021}],
     }
 

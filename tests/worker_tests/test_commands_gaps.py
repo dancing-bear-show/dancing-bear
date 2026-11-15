@@ -16,10 +16,10 @@ from unittest.mock import MagicMock, patch
 
 from tests.worker_tests.helpers import QueueRootIsolationMixin
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_args(**kwargs) -> argparse.Namespace:
     defaults = {
@@ -38,9 +38,11 @@ def _make_args(**kwargs) -> argparse.Namespace:
 # WorkerConfig
 # ---------------------------------------------------------------------------
 
+
 class TestWorkerConfig(unittest.TestCase):
     def test_defaults(self):
         from worker.job_runtime import WorkerConfig
+
         cfg = WorkerConfig()
         self.assertEqual(cfg.backoff, 60)
         self.assertEqual(cfg.max_per_tick, 3)
@@ -50,6 +52,7 @@ class TestWorkerConfig(unittest.TestCase):
 
     def test_custom_values(self):
         from worker.job_runtime import WorkerConfig
+
         cfg = WorkerConfig(backoff=30, max_per_tick=10, max_inflight=5)
         self.assertEqual(cfg.backoff, 30)
         self.assertEqual(cfg.max_per_tick, 10)
@@ -60,9 +63,11 @@ class TestWorkerConfig(unittest.TestCase):
 # JobContext
 # ---------------------------------------------------------------------------
 
+
 class TestJobContext(unittest.TestCase):
     def test_from_item_parses_job_data(self):
         from worker.job_runtime import JobContext
+
         job_data = {"type": "run_cli", "attempts": 1, "max_attempts": 5}
         ctx = JobContext.from_item(Path("/tmp/x.json"), job_data)  # nosec B108
         self.assertEqual(ctx.job_type, "run_cli")
@@ -71,6 +76,7 @@ class TestJobContext(unittest.TestCase):
 
     def test_from_item_defaults_on_missing_fields(self):
         from worker.job_runtime import JobContext
+
         ctx = JobContext.from_item(Path("/tmp/x.json"), {})  # nosec B108
         self.assertEqual(ctx.job_type, "")
         self.assertEqual(ctx.attempts, 0)
@@ -81,17 +87,21 @@ class TestJobContext(unittest.TestCase):
 # _handle_outcome
 # ---------------------------------------------------------------------------
 
+
 class TestHandleOutcome(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
         self.setup_queue_root()
         # Import the real (unpatched) functions before any patching occurs
-        from worker.queue_ops import finish as _real_finish, retry as _real_retry
+        from worker.queue_ops import finish as _real_finish
+        from worker.queue_ops import retry as _real_retry
+
         self._real_finish = _real_finish
         self._real_retry = _real_retry
 
     def _make_proc_path(self, job_id: str) -> Path:
-        from worker.queue_ops import Job, enqueue, start_processing
         from worker import queue_ops as q
+        from worker.queue_ops import Job, enqueue, start_processing
+
         q.QUEUE_ROOT = self.root
         job = Job(id=job_id, type="noop", payload={})
         pending = enqueue(job, root=self.root)
@@ -102,6 +112,7 @@ class TestHandleOutcome(unittest.TestCase, QueueRootIsolationMixin):
 
     def _make_ctx(self, job_id: str, attempts: int = 0, max_attempts: int = 3):
         from worker.job_runtime import JobContext
+
         return JobContext(
             job_path=Path(f"/tmp/{job_id}.json"),  # nosec B108
             job_data={"id": job_id},
@@ -112,10 +123,12 @@ class TestHandleOutcome(unittest.TestCase, QueueRootIsolationMixin):
 
     def _make_config(self):
         from worker.job_runtime import WorkerConfig
+
         return WorkerConfig(backoff=0)
 
     def _make_outcome_ctx(self, proc_path, ctx):
         from worker.job_runtime import OutcomeContext
+
         return OutcomeContext(
             proc_path=proc_path,
             ctx=ctx,
@@ -136,48 +149,63 @@ class TestHandleOutcome(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_success_moves_job_to_done(self):
         from worker.job_runtime import _handle_outcome
+
         proc = self._make_proc_path("h_ok")
         ctx = self._make_ctx("h_ok")
-        with patch("worker.job_runtime.log_perf_jsonl"), \
-             patch("worker.job_runtime.q.finish", side_effect=self._patched_finish):
+        with (
+            patch("worker.job_runtime.log_perf_jsonl"),
+            patch("worker.job_runtime.q.finish", side_effect=self._patched_finish),
+        ):
             _handle_outcome(self._make_outcome_ctx(proc, ctx), True, {"ok": True})
         self.assertTrue((self.root / "done" / "h_ok.json").exists())
 
     def test_deferred_outcome_moves_job_back_to_pending(self):
         from worker.job_runtime import _handle_outcome
+
         proc = self._make_proc_path("h_defer")
         ctx = self._make_ctx("h_defer")
-        with patch("worker.job_runtime.log_perf_jsonl"), \
-             patch("worker.job_runtime.q.retry", side_effect=self._patched_retry):
+        with (
+            patch("worker.job_runtime.log_perf_jsonl"),
+            patch("worker.job_runtime.q.retry", side_effect=self._patched_retry),
+        ):
             _handle_outcome(self._make_outcome_ctx(proc, ctx), False, "deferred-needs-resource")
         self.assertTrue((self.root / "pending" / "h_defer.json").exists())
 
     def test_terminal_failure_moves_to_error(self):
         from worker.job_runtime import _handle_outcome
+
         proc = self._make_proc_path("h_term")
         ctx = self._make_ctx("h_term")
-        with patch("worker.job_runtime.log_perf_jsonl"), \
-             patch("worker.job_runtime.q.finish", side_effect=self._patched_finish):
+        with (
+            patch("worker.job_runtime.log_perf_jsonl"),
+            patch("worker.job_runtime.q.finish", side_effect=self._patched_finish),
+        ):
             _handle_outcome(self._make_outcome_ctx(proc, ctx), False, "terminal-unrecoverable")
         self.assertTrue((self.root / "error" / "h_term.json").exists())
 
     def test_retry_exhausted_moves_to_error(self):
         from worker.job_runtime import _handle_outcome
+
         proc = self._make_proc_path("h_exhaust")
         # attempts=2, max_attempts=3: attempts+1=3 >= max_attempts -> error
         ctx = self._make_ctx("h_exhaust", attempts=2, max_attempts=3)
-        with patch("worker.job_runtime.log_perf_jsonl"), \
-             patch("worker.job_runtime.q.finish", side_effect=self._patched_finish):
+        with (
+            patch("worker.job_runtime.log_perf_jsonl"),
+            patch("worker.job_runtime.q.finish", side_effect=self._patched_finish),
+        ):
             _handle_outcome(self._make_outcome_ctx(proc, ctx), False, "some error")
         self.assertTrue((self.root / "error" / "h_exhaust.json").exists())
 
     def test_retry_not_exhausted_moves_back_to_pending(self):
         from worker.job_runtime import _handle_outcome
+
         proc = self._make_proc_path("h_retry")
         # attempts=0, max_attempts=3: can retry
         ctx = self._make_ctx("h_retry", attempts=0, max_attempts=3)
-        with patch("worker.job_runtime.log_perf_jsonl"), \
-             patch("worker.job_runtime.q.retry", side_effect=self._patched_retry):
+        with (
+            patch("worker.job_runtime.log_perf_jsonl"),
+            patch("worker.job_runtime.q.retry", side_effect=self._patched_retry),
+        ):
             _handle_outcome(self._make_outcome_ctx(proc, ctx), False, "transient error")
         self.assertTrue((self.root / "pending" / "h_retry.json").exists())
 
@@ -186,17 +214,22 @@ class TestHandleOutcome(unittest.TestCase, QueueRootIsolationMixin):
 # JobProcessor
 # ---------------------------------------------------------------------------
 
+
 class TestJobProcessor(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
         self.setup_queue_root()
         # Capture real functions before any patching
-        from worker.queue_ops import finish as _real_finish, retry as _real_retry, start_processing as _real_start
+        from worker.queue_ops import finish as _real_finish
+        from worker.queue_ops import retry as _real_retry
+        from worker.queue_ops import start_processing as _real_start
+
         self._real_finish = _real_finish
         self._real_retry = _real_retry
         self._real_start = _real_start
 
     def _make_config(self, **kwargs):
         from worker.job_runtime import WorkerConfig
+
         return WorkerConfig(**kwargs)
 
     def _patched_finish(self, job_path, success, **kwargs):
@@ -211,9 +244,10 @@ class TestJobProcessor(unittest.TestCase, QueueRootIsolationMixin):
         return self._real_start(job_path, self.root)
 
     def test_process_one_unknown_handler_moves_to_error(self):
-        from worker.queue_ops import Job, enqueue, _ensure_dirs
-        from worker.job_runtime import JobProcessor
         from worker import queue_ops as q
+        from worker.job_runtime import JobProcessor
+        from worker.queue_ops import Job, _ensure_dirs, enqueue
+
         q.QUEUE_ROOT = self.root
         _ensure_dirs(self.root)
         job = Job(id="proc_unk", type="unknown_type_xyz", payload={})
@@ -221,18 +255,21 @@ class TestJobProcessor(unittest.TestCase, QueueRootIsolationMixin):
         job_data = json.loads(pending.read_text())
 
         processor = JobProcessor(self._make_config(), "daemon")
-        with patch("worker.job_runtime.log_perf_jsonl"), \
-             patch("worker.job_runtime.q.start_processing", side_effect=self._patched_start), \
-             patch("worker.job_runtime.q.finish", side_effect=self._patched_finish):
+        with (
+            patch("worker.job_runtime.log_perf_jsonl"),
+            patch("worker.job_runtime.q.start_processing", side_effect=self._patched_start),
+            patch("worker.job_runtime.q.finish", side_effect=self._patched_finish),
+        ):
             result = processor.process_one(pending, job_data)
 
         self.assertEqual(result, 1)
         self.assertTrue((self.root / "error" / "proc_unk.json").exists())
 
     def test_process_one_success_moves_to_done(self):
-        from worker.queue_ops import Job, enqueue, _ensure_dirs
-        from worker.job_runtime import JobProcessor
         from worker import queue_ops as q
+        from worker.job_runtime import JobProcessor
+        from worker.queue_ops import Job, _ensure_dirs, enqueue
+
         q.QUEUE_ROOT = self.root
         _ensure_dirs(self.root)
         job = Job(id="proc_ok", type="workflow_stage", payload={"cli_commands": []})
@@ -240,19 +277,24 @@ class TestJobProcessor(unittest.TestCase, QueueRootIsolationMixin):
         job_data = json.loads(pending.read_text())
 
         processor = JobProcessor(self._make_config(), "daemon")
-        with patch("worker.job_runtime.HANDLERS", {"workflow_stage": lambda j: (True, {"ok": True})}), \
-             patch("worker.job_runtime.log_perf_jsonl"), \
-             patch("worker.job_runtime.q.start_processing", side_effect=self._patched_start), \
-             patch("worker.job_runtime.q.finish", side_effect=self._patched_finish):
+        with (
+            patch(
+                "worker.job_runtime.HANDLERS", {"workflow_stage": lambda j: (True, {"ok": True})}
+            ),
+            patch("worker.job_runtime.log_perf_jsonl"),
+            patch("worker.job_runtime.q.start_processing", side_effect=self._patched_start),
+            patch("worker.job_runtime.q.finish", side_effect=self._patched_finish),
+        ):
             result = processor.process_one(pending, job_data)
 
         self.assertEqual(result, 1)
         self.assertTrue((self.root / "done" / "proc_ok.json").exists())
 
     def test_process_one_returns_zero_when_already_claimed(self):
-        from worker.queue_ops import Job, enqueue, _ensure_dirs
-        from worker.job_runtime import JobProcessor
         from worker import queue_ops as q
+        from worker.job_runtime import JobProcessor
+        from worker.queue_ops import Job, _ensure_dirs, enqueue
+
         q.QUEUE_ROOT = self.root
         _ensure_dirs(self.root)
         job = Job(id="proc_claim", type="noop", payload={})
@@ -267,9 +309,10 @@ class TestJobProcessor(unittest.TestCase, QueueRootIsolationMixin):
         self.assertEqual(result, 0)
 
     def test_process_one_exception_in_handler_causes_retry(self):
-        from worker.queue_ops import Job, enqueue, _ensure_dirs
-        from worker.job_runtime import JobProcessor
         from worker import queue_ops as q
+        from worker.job_runtime import JobProcessor
+        from worker.queue_ops import Job, _ensure_dirs, enqueue
+
         q.QUEUE_ROOT = self.root
         _ensure_dirs(self.root)
         job = Job(id="proc_exc", type="bang", payload={}, max_attempts=3)
@@ -280,10 +323,12 @@ class TestJobProcessor(unittest.TestCase, QueueRootIsolationMixin):
             raise RuntimeError("unexpected error")
 
         processor = JobProcessor(self._make_config(backoff=0), "daemon")
-        with patch("worker.job_runtime.HANDLERS", {"bang": _boom}), \
-             patch("worker.job_runtime.log_perf_jsonl"), \
-             patch("worker.job_runtime.q.start_processing", side_effect=self._patched_start), \
-             patch("worker.job_runtime.q.retry", side_effect=self._patched_retry):
+        with (
+            patch("worker.job_runtime.HANDLERS", {"bang": _boom}),
+            patch("worker.job_runtime.log_perf_jsonl"),
+            patch("worker.job_runtime.q.start_processing", side_effect=self._patched_start),
+            patch("worker.job_runtime.q.retry", side_effect=self._patched_retry),
+        ):
             result = processor.process_one(pending, job_data)
 
         self.assertEqual(result, 1)
@@ -291,9 +336,10 @@ class TestJobProcessor(unittest.TestCase, QueueRootIsolationMixin):
         self.assertTrue((self.root / "pending" / "proc_exc.json").exists())
 
     def test_process_one_exception_exhausted_moves_to_error(self):
-        from worker.queue_ops import Job, enqueue, _ensure_dirs
-        from worker.job_runtime import JobProcessor
         from worker import queue_ops as q
+        from worker.job_runtime import JobProcessor
+        from worker.queue_ops import Job, _ensure_dirs, enqueue
+
         q.QUEUE_ROOT = self.root
         _ensure_dirs(self.root)
         job = Job(id="proc_exc2", type="bang2", payload={}, attempts=2, max_attempts=3)
@@ -305,19 +351,22 @@ class TestJobProcessor(unittest.TestCase, QueueRootIsolationMixin):
             raise RuntimeError("boom")
 
         processor = JobProcessor(self._make_config(backoff=0), "daemon")
-        with patch("worker.job_runtime.HANDLERS", {"bang2": _boom}), \
-             patch("worker.job_runtime.log_perf_jsonl"), \
-             patch("worker.job_runtime.q.start_processing", side_effect=self._patched_start), \
-             patch("worker.job_runtime.q.finish", side_effect=self._patched_finish):
+        with (
+            patch("worker.job_runtime.HANDLERS", {"bang2": _boom}),
+            patch("worker.job_runtime.log_perf_jsonl"),
+            patch("worker.job_runtime.q.start_processing", side_effect=self._patched_start),
+            patch("worker.job_runtime.q.finish", side_effect=self._patched_finish),
+        ):
             result = processor.process_one(pending, job_data)
 
         self.assertEqual(result, 1)
         self.assertTrue((self.root / "error" / "proc_exc2.json").exists())
 
     def test_process_one_applies_job_timeout_to_payload(self):
-        from worker.queue_ops import Job, enqueue, _ensure_dirs
-        from worker.job_runtime import JobProcessor
         from worker import queue_ops as q
+        from worker.job_runtime import JobProcessor
+        from worker.queue_ops import Job, _ensure_dirs, enqueue
+
         q.QUEUE_ROOT = self.root
         _ensure_dirs(self.root)
         job = Job(id="proc_to", type="with_timeout", payload={"x": 1})
@@ -331,18 +380,21 @@ class TestJobProcessor(unittest.TestCase, QueueRootIsolationMixin):
             return True, "ok"
 
         processor = JobProcessor(self._make_config(job_timeout=30), "daemon")
-        with patch("worker.job_runtime.HANDLERS", {"with_timeout": _handler}), \
-             patch("worker.job_runtime.log_perf_jsonl"), \
-             patch("worker.job_runtime.q.start_processing", side_effect=self._patched_start), \
-             patch("worker.job_runtime.q.finish", side_effect=self._patched_finish):
+        with (
+            patch("worker.job_runtime.HANDLERS", {"with_timeout": _handler}),
+            patch("worker.job_runtime.log_perf_jsonl"),
+            patch("worker.job_runtime.q.start_processing", side_effect=self._patched_start),
+            patch("worker.job_runtime.q.finish", side_effect=self._patched_finish),
+        ):
             processor.process_one(pending, job_data)
 
         self.assertEqual(captured["payload"].get("timeout"), 30)
 
     def _process_with_payload(self, job_id, payload, **config):
-        from worker.queue_ops import Job, enqueue, _ensure_dirs
-        from worker.job_runtime import JobProcessor
         from worker import queue_ops as q
+        from worker.job_runtime import JobProcessor
+        from worker.queue_ops import Job, _ensure_dirs, enqueue
+
         q.QUEUE_ROOT = self.root
         _ensure_dirs(self.root)
         pending = enqueue(Job(id=job_id, type="guarded", payload=payload), root=self.root)
@@ -350,11 +402,13 @@ class TestJobProcessor(unittest.TestCase, QueueRootIsolationMixin):
         handler = MagicMock(return_value=(True, "ok"))
 
         processor = JobProcessor(self._make_config(**config), "daemon")
-        with patch("worker.job_runtime.HANDLERS", {"guarded": handler}), \
-             patch("worker.job_runtime.log_perf_jsonl"), \
-             patch("worker.job_runtime.q.start_processing", side_effect=self._patched_start), \
-             patch("worker.job_runtime.q.finish", side_effect=self._patched_finish), \
-             patch("worker.job_runtime.q.retry", side_effect=self._patched_retry):
+        with (
+            patch("worker.job_runtime.HANDLERS", {"guarded": handler}),
+            patch("worker.job_runtime.log_perf_jsonl"),
+            patch("worker.job_runtime.q.start_processing", side_effect=self._patched_start),
+            patch("worker.job_runtime.q.finish", side_effect=self._patched_finish),
+            patch("worker.job_runtime.q.retry", side_effect=self._patched_retry),
+        ):
             result = processor.process_one(pending, job_data)
         return result, handler
 
@@ -366,7 +420,9 @@ class TestJobProcessor(unittest.TestCase, QueueRootIsolationMixin):
             for timeout in (0, 30):
                 job_id = f"bad_{name}_{timeout}"
                 with self.subTest(payload=payload, job_timeout=timeout):
-                    result, handler = self._process_with_payload(job_id, payload, job_timeout=timeout)
+                    result, handler = self._process_with_payload(
+                        job_id, payload, job_timeout=timeout
+                    )
                     self.assertEqual(result, 1)
                     handler.assert_not_called()
                     err = self.root / "error" / f"{job_id}.json"
@@ -394,13 +450,15 @@ class TestJobProcessor(unittest.TestCase, QueueRootIsolationMixin):
 # DaemonRunner
 # ---------------------------------------------------------------------------
 
+
 class TestDaemonRunnerTick(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
         self.setup_queue_root()
 
     def _make_runner(self, **config_kwargs):
-        from worker.job_runtime import DaemonRunner, JobProcessor, WorkerConfig
         from worker import queue_ops as q
+        from worker.job_runtime import DaemonRunner, JobProcessor, WorkerConfig
+
         q.QUEUE_ROOT = self.root
         cfg = WorkerConfig(**config_kwargs)
         proc = MagicMock(spec=JobProcessor)
@@ -409,26 +467,32 @@ class TestDaemonRunnerTick(unittest.TestCase, QueueRootIsolationMixin):
         return runner, proc
 
     def test_tick_returns_zero_on_empty_queue(self):
-        from worker.queue_ops import _ensure_dirs
         from worker import queue_ops as q
+        from worker.queue_ops import _ensure_dirs
+
         q.QUEUE_ROOT = self.root
         _ensure_dirs(self.root)
         runner, _ = self._make_runner()
-        with patch("worker.job_runtime._reap_stale_unowned"), \
-             patch("worker.job_runtime.q.list_pending", return_value=[]):
+        with (
+            patch("worker.job_runtime._reap_stale_unowned"),
+            patch("worker.job_runtime.q.list_pending", return_value=[]),
+        ):
             result = runner.tick()
         self.assertEqual(result, 0)
 
     def test_tick_processes_pending_job(self):
-        from worker.queue_ops import Job, enqueue
         from worker import queue_ops as q
+        from worker.queue_ops import Job, enqueue
+
         q.QUEUE_ROOT = self.root
         pending_path = enqueue(Job(id="tick1", type="noop", payload={}), root=self.root)
         job_data = json.loads(pending_path.read_text())
         runner, mock_proc = self._make_runner()
         # Patch list_pending to use test root so tick finds the job
-        with patch("worker.job_runtime._reap_stale_unowned"), \
-             patch("worker.job_runtime.q.list_pending", return_value=[(pending_path, job_data)]):
+        with (
+            patch("worker.job_runtime._reap_stale_unowned"),
+            patch("worker.job_runtime.q.list_pending", return_value=[(pending_path, job_data)]),
+        ):
             result = runner.tick()
         # tick() returns before its threads run; join them before asserting.
         _join_live_threads(self, runner)
@@ -441,8 +505,9 @@ class TestDaemonRunnerTick(unittest.TestCase, QueueRootIsolationMixin):
         mock_proc.process_one.assert_not_called()
 
     def test_run_once_returns_zero(self):
-        from worker.queue_ops import _ensure_dirs
         from worker import queue_ops as q
+        from worker.queue_ops import _ensure_dirs
+
         q.QUEUE_ROOT = self.root
         _ensure_dirs(self.root)
         runner, _ = self._make_runner()
@@ -457,6 +522,7 @@ class TestDaemonRunnerTick(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_calculate_allowed_jobs_with_inflight_cap(self):
         from worker import queue_ops as q
+
         q.QUEUE_ROOT = self.root
         runner, _ = self._make_runner(max_per_tick=5, max_inflight=3)
         # No jobs in processing, so all 3 slots available (min of 5 and 3-0=3)
@@ -466,6 +532,7 @@ class TestDaemonRunnerTick(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_calculate_allowed_jobs_inflight_cap_at_limit(self):
         from worker import queue_ops as q
+
         q.QUEUE_ROOT = self.root
         runner, _ = self._make_runner(max_per_tick=5, max_inflight=3)
         # 3 already processing, so 0 slots
@@ -474,16 +541,19 @@ class TestDaemonRunnerTick(unittest.TestCase, QueueRootIsolationMixin):
         self.assertEqual(result, 0)
 
     def test_tick_respects_allowed_cap(self):
-        from worker.queue_ops import Job, enqueue
         from worker import queue_ops as q
+        from worker.queue_ops import Job, enqueue
+
         q.QUEUE_ROOT = self.root
         paths_and_data = []
         for i in range(5):
             p = enqueue(Job(id=f"cap{i}", type="noop", payload={}), root=self.root)
             paths_and_data.append((p, json.loads(p.read_text())))
         runner, mock_proc = self._make_runner(max_per_tick=2)
-        with patch("worker.job_runtime._reap_stale_unowned"), \
-             patch("worker.job_runtime.q.list_pending", return_value=paths_and_data):
+        with (
+            patch("worker.job_runtime._reap_stale_unowned"),
+            patch("worker.job_runtime.q.list_pending", return_value=paths_and_data),
+        ):
             result = runner.tick()
         # Join before asserting, or a count of 0 (threads not yet run) passes.
         _join_live_threads(self, runner)
@@ -503,9 +573,10 @@ class TestDaemonRunnerProcessBatch(unittest.TestCase, QueueRootIsolationMixin):
         self.setup_queue_root()
 
     def test_process_batch_runs_in_threads(self):
-        from worker.queue_ops import Job, enqueue, _ensure_dirs
-        from worker.job_runtime import DaemonRunner, JobProcessor, WorkerConfig
         from worker import queue_ops as q
+        from worker.job_runtime import DaemonRunner, JobProcessor, WorkerConfig
+        from worker.queue_ops import Job, _ensure_dirs, enqueue
+
         q.QUEUE_ROOT = self.root
         _ensure_dirs(self.root)
 
@@ -517,15 +588,18 @@ class TestDaemonRunnerProcessBatch(unittest.TestCase, QueueRootIsolationMixin):
         mock_proc.process_one.return_value = 1
         runner = DaemonRunner(cfg, mock_proc)
 
-        items = [(Path(self.root / "pending" / "th1.json"), {"id": "th1"}),
-                 (Path(self.root / "pending" / "th2.json"), {"id": "th2"})]
+        items = [
+            (Path(self.root / "pending" / "th1.json"), {"id": "th1"}),
+            (Path(self.root / "pending" / "th2.json"), {"id": "th2"}),
+        ]
         result = runner._process_batch(items)
         self.assertEqual(result, 2)
 
     def test_process_batch_with_per_job_timeout(self):
-        from worker.queue_ops import _ensure_dirs
-        from worker.job_runtime import DaemonRunner, JobProcessor, WorkerConfig
         from worker import queue_ops as q
+        from worker.job_runtime import DaemonRunner, JobProcessor, WorkerConfig
+        from worker.queue_ops import _ensure_dirs
+
         q.QUEUE_ROOT = self.root
         _ensure_dirs(self.root)
 
@@ -544,8 +618,9 @@ class TestDaemonRunnerDaemon(unittest.TestCase, QueueRootIsolationMixin):
         self.setup_queue_root()
 
     def test_run_daemon_stops_on_keyboard_interrupt(self):
-        from worker.job_runtime import DaemonRunner, JobProcessor, WorkerConfig
         from worker import queue_ops as q
+        from worker.job_runtime import DaemonRunner, JobProcessor, WorkerConfig
+
         q.QUEUE_ROOT = self.root
 
         cfg = WorkerConfig(interval=0.01)
@@ -561,25 +636,30 @@ class TestDaemonRunnerDaemon(unittest.TestCase, QueueRootIsolationMixin):
                 raise KeyboardInterrupt()
             return 0
 
-        with patch.object(runner, "tick", side_effect=_tick_raising), \
-             patch("worker.job_runtime.get_repo_root", return_value=Path(self.tmp.name)), \
-             patch("os.chdir"):
+        with (
+            patch.object(runner, "tick", side_effect=_tick_raising),
+            patch("worker.job_runtime.get_repo_root", return_value=Path(self.tmp.name)),
+            patch("os.chdir"),
+        ):
             result = runner.run_daemon()
 
         self.assertEqual(result, 0)
 
     def test_run_daemon_chdirs_to_repo_root(self):
-        from worker.job_runtime import DaemonRunner, JobProcessor, WorkerConfig
         from worker import queue_ops as q
+        from worker.job_runtime import DaemonRunner, JobProcessor, WorkerConfig
+
         q.QUEUE_ROOT = self.root
 
         cfg = WorkerConfig(interval=0.01)
         mock_proc = MagicMock(spec=JobProcessor)
         runner = DaemonRunner(cfg, mock_proc)
 
-        with patch.object(runner, "tick", side_effect=KeyboardInterrupt), \
-             patch("worker.job_runtime.get_repo_root", return_value=Path("/fake/repo")), \
-             patch("os.chdir") as mock_chdir:
+        with (
+            patch.object(runner, "tick", side_effect=KeyboardInterrupt),
+            patch("worker.job_runtime.get_repo_root", return_value=Path("/fake/repo")),
+            patch("os.chdir") as mock_chdir,
+        ):
             runner.run_daemon()
 
         mock_chdir.assert_called_once_with("/fake/repo")
@@ -589,13 +669,15 @@ class TestDaemonRunnerDaemon(unittest.TestCase, QueueRootIsolationMixin):
 # EnqueueCommand
 # ---------------------------------------------------------------------------
 
+
 class TestEnqueueCommand(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
         self.setup_queue_root()
 
     def test_enqueue_command_creates_job(self):
-        from worker.commands import EnqueueCommand
         from worker import queue_ops as q
+        from worker.commands import EnqueueCommand
+
         q.QUEUE_ROOT = self.root
         args = _make_args(type="run_cli", payload_json='{"cmd": ["echo"]}')
         with patch("worker.commands.emit_one"):
@@ -603,16 +685,18 @@ class TestEnqueueCommand(unittest.TestCase, QueueRootIsolationMixin):
         self.assertEqual(rc, 0)
 
     def test_enqueue_command_invalid_json_returns_2(self):
-        from worker.commands import EnqueueCommand
         from worker import queue_ops as q
+        from worker.commands import EnqueueCommand
+
         q.QUEUE_ROOT = self.root
         args = _make_args(payload_json="not-valid-json")
         rc = EnqueueCommand.run(args)
         self.assertEqual(rc, 2)
 
     def test_enqueue_command_non_object_json_returns_2(self):
-        from worker.commands import EnqueueCommand
         from worker import queue_ops as q
+        from worker.commands import EnqueueCommand
+
         q.QUEUE_ROOT = self.root
         for raw in ('"bad"', "123", '[["message", "x"]]', "null"):
             with self.subTest(payload_json=raw), patch("worker.commands.emit_one") as emit:
@@ -622,8 +706,9 @@ class TestEnqueueCommand(unittest.TestCase, QueueRootIsolationMixin):
         self.assertEqual(list(self.root.rglob("*.json")), [])
 
     def test_enqueue_command_uses_provided_job_id(self):
-        from worker.commands import EnqueueCommand
         from worker import queue_ops as q
+        from worker.commands import EnqueueCommand
+
         q.QUEUE_ROOT = self.root
         args = _make_args(job_id="my-custom-id")
 
@@ -638,8 +723,9 @@ class TestEnqueueCommand(unittest.TestCase, QueueRootIsolationMixin):
         self.assertEqual(emitted["id"], "my-custom-id")
 
     def test_enqueue_command_generates_job_id_when_empty(self):
-        from worker.commands import EnqueueCommand
         from worker import queue_ops as q
+        from worker.commands import EnqueueCommand
+
         q.QUEUE_ROOT = self.root
         args = _make_args(job_id="")
 
@@ -654,8 +740,9 @@ class TestEnqueueCommand(unittest.TestCase, QueueRootIsolationMixin):
         self.assertTrue(emitted["id"])  # non-empty UUID
 
     def test_enqueue_command_emits_enqueued_true(self):
-        from worker.commands import EnqueueCommand
         from worker import queue_ops as q
+        from worker.commands import EnqueueCommand
+
         q.QUEUE_ROOT = self.root
         args = _make_args()
 
@@ -674,21 +761,24 @@ class TestEnqueueCommand(unittest.TestCase, QueueRootIsolationMixin):
 # ListCommand
 # ---------------------------------------------------------------------------
 
+
 class TestListCommand(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
         self.setup_queue_root()
 
     def test_list_command_returns_zero(self):
-        from worker.commands import ListCommand
         from worker import queue_ops as q
+        from worker.commands import ListCommand
+
         q.QUEUE_ROOT = self.root
         with patch("worker.commands.emit_one"):
             rc = ListCommand.run(argparse.Namespace())
         self.assertEqual(rc, 0)
 
     def test_list_command_emits_counts(self):
-        from worker.commands import ListCommand
         from worker import queue_ops as q
+        from worker.commands import ListCommand
+
         q.QUEUE_ROOT = self.root
 
         emitted = {}
@@ -707,21 +797,24 @@ class TestListCommand(unittest.TestCase, QueueRootIsolationMixin):
 # StatusCommand
 # ---------------------------------------------------------------------------
 
+
 class TestStatusCommand(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
         self.setup_queue_root()
 
     def test_status_command_returns_zero(self):
-        from worker.commands import StatusCommand
         from worker import queue_ops as q
+        from worker.commands import StatusCommand
+
         q.QUEUE_ROOT = self.root
         with patch("worker.commands.emit_one"):
             rc = StatusCommand.run(argparse.Namespace(text=False, json=False))
         self.assertEqual(rc, 0)
 
     def test_status_command_json_output(self):
-        from worker.commands import StatusCommand
         from worker import queue_ops as q
+        from worker.commands import StatusCommand
+
         q.QUEUE_ROOT = self.root
 
         emitted = {}
@@ -735,10 +828,12 @@ class TestStatusCommand(unittest.TestCase, QueueRootIsolationMixin):
         self.assertIn("counts", emitted)
 
     def test_status_command_text_output(self):
-        import io
         import contextlib
-        from worker.commands import StatusCommand
+        import io
+
         from worker import queue_ops as q
+        from worker.commands import StatusCommand
+
         q.QUEUE_ROOT = self.root
 
         args = argparse.Namespace(text=True, json=False, with_throughput=False)
@@ -750,10 +845,12 @@ class TestStatusCommand(unittest.TestCase, QueueRootIsolationMixin):
         self.assertIn("Queue root", buf.getvalue())
 
     def test_status_command_text_with_throughput_no_logfile(self):
-        import io
         import contextlib
-        from worker.commands import StatusCommand
+        import io
+
         from worker import queue_ops as q
+        from worker.commands import StatusCommand
+
         q.QUEUE_ROOT = self.root
 
         args = argparse.Namespace(text=True, json=False, with_throughput=True)
@@ -767,8 +864,9 @@ class TestStatusCommand(unittest.TestCase, QueueRootIsolationMixin):
         self.assertNotIn("Throughput", buf.getvalue())
 
     def test_calculate_throughput_returns_string_with_log(self):
-        from worker.commands import StatusCommand
         from worker._helpers import DATE_FORMAT_YMD
+        from worker.commands import StatusCommand
+
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             log_dir = root / "_data" / "logs"
@@ -780,8 +878,10 @@ class TestStatusCommand(unittest.TestCase, QueueRootIsolationMixin):
                 ts = f"2026-07-29T10:0{i}:00Z"
                 with log_path.open("a", encoding="utf-8") as fh:
                     fh.write(
-                        json.dumps({"ts": ts, "args": ["daemon", "run_cli", "ok"],
-                                    "duration_ms": 1000}) + "\n"
+                        json.dumps(
+                            {"ts": ts, "args": ["daemon", "run_cli", "ok"], "duration_ms": 1000}
+                        )
+                        + "\n"
                     )
             with patch("worker.commands.Path.cwd", return_value=root):
                 result = StatusCommand._calculate_throughput()
@@ -790,8 +890,9 @@ class TestStatusCommand(unittest.TestCase, QueueRootIsolationMixin):
         self.assertIn("Throughput", result)
 
     def test_calculate_throughput_returns_none_no_matching_rows(self):
-        from worker.commands import StatusCommand
         from worker._helpers import DATE_FORMAT_YMD
+        from worker.commands import StatusCommand
+
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             log_dir = root / "_data" / "logs"
@@ -800,7 +901,8 @@ class TestStatusCommand(unittest.TestCase, QueueRootIsolationMixin):
             log_path = log_dir / f"perf-worker-{ymd}.jsonl"
             # Write rows that don't match ["daemon", "run_cli", "ok"]
             log_path.write_text(
-                json.dumps({"ts": "2026-07-29T10:00:00Z", "args": ["other"], "duration_ms": 100}) + "\n"
+                json.dumps({"ts": "2026-07-29T10:00:00Z", "args": ["other"], "duration_ms": 100})
+                + "\n"
             )
             with patch("worker.commands.Path.cwd", return_value=root):
                 result = StatusCommand._calculate_throughput()
@@ -808,8 +910,9 @@ class TestStatusCommand(unittest.TestCase, QueueRootIsolationMixin):
         self.assertIsNone(result)
 
     def test_print_text_status_shows_all_sections(self):
-        import io
         import contextlib
+        import io
+
         from worker.commands import StatusCommand
 
         status_data = {
@@ -837,16 +940,19 @@ class TestStatusCommand(unittest.TestCase, QueueRootIsolationMixin):
 # ShowCommand
 # ---------------------------------------------------------------------------
 
+
 class TestShowCommand(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
         self.setup_queue_root()
 
     def test_show_found_job_prints_content(self):
-        import io
         import contextlib
+        import io
+
+        from worker import queue_ops as q
         from worker.commands import ShowCommand
         from worker.queue_ops import Job, enqueue
-        from worker import queue_ops as q
+
         q.QUEUE_ROOT = self.root
         enqueue(Job(id="show1", type="noop", payload={}), root=self.root)
 
@@ -859,10 +965,11 @@ class TestShowCommand(unittest.TestCase, QueueRootIsolationMixin):
         self.assertIn("show1", buf.getvalue())
 
     def test_show_missing_job_raises_cli_error(self):
+        from core.cli_errors import CLIError
+        from worker import queue_ops as q
         from worker.commands import ShowCommand
         from worker.queue_ops import _ensure_dirs
-        from worker import queue_ops as q
-        from core.cli_errors import CLIError
+
         q.QUEUE_ROOT = self.root
         _ensure_dirs(self.root)
 
@@ -875,35 +982,46 @@ class TestShowCommand(unittest.TestCase, QueueRootIsolationMixin):
 # RequeueErrorsCommand
 # ---------------------------------------------------------------------------
 
+
 class TestRequeueErrorsCommand(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
         self.setup_queue_root()
 
-    def _make_error_job(self, job_id: str, updated_at: str | None = None, error: str = "boom") -> Path:
-        from worker.queue_ops import _ensure_dirs
+    def _make_error_job(
+        self, job_id: str, updated_at: str | None = None, error: str = "boom"
+    ) -> Path:
         from worker import queue_ops as q
+        from worker.queue_ops import _ensure_dirs
+
         q.QUEUE_ROOT = self.root
         _ensure_dirs(self.root)
         p = self.root / "error" / f"{job_id}.json"
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps({
-            "id": job_id, "type": "noop", "payload": {},
-            "status": "error",
-            "updated_at": updated_at or "2025-01-01T00:00:00Z",
-            "error": error,
-        }), encoding="utf-8")
+        p.write_text(
+            json.dumps(
+                {
+                    "id": job_id,
+                    "type": "noop",
+                    "payload": {},
+                    "status": "error",
+                    "updated_at": updated_at or "2025-01-01T00:00:00Z",
+                    "error": error,
+                }
+            ),
+            encoding="utf-8",
+        )
         return p
 
     def test_requeue_errors_all(self):
-        from worker.commands import RequeueErrorsCommand
         from worker import queue_ops as q
+        from worker.commands import RequeueErrorsCommand
+
         q.QUEUE_ROOT = self.root
         self._make_error_job("e1")
         self._make_error_job("e2")
 
         args = argparse.Namespace(
-            limit=None, delay=0, reset_attempts=False,
-            new_max_attempts=None, since=None, match=[]
+            limit=None, delay=0, reset_attempts=False, new_max_attempts=None, since=None, match=[]
         )
         with patch("worker.commands.emit_one") as mock_emit:
             rc = RequeueErrorsCommand.run(args)
@@ -914,16 +1032,16 @@ class TestRequeueErrorsCommand(unittest.TestCase, QueueRootIsolationMixin):
         self.assertEqual(emitted["requeued"], 2)
 
     def test_requeue_errors_with_limit(self):
-        from worker.commands import RequeueErrorsCommand
         from worker import queue_ops as q
+        from worker.commands import RequeueErrorsCommand
+
         q.QUEUE_ROOT = self.root
         self._make_error_job("e3")
         self._make_error_job("e4")
         self._make_error_job("e5")
 
         args = argparse.Namespace(
-            limit=1, delay=0, reset_attempts=False,
-            new_max_attempts=None, since=None, match=[]
+            limit=1, delay=0, reset_attempts=False, new_max_attempts=None, since=None, match=[]
         )
         with patch("worker.commands.emit_one") as mock_emit:
             RequeueErrorsCommand.run(args)
@@ -933,6 +1051,7 @@ class TestRequeueErrorsCommand(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_apply_since_filter_passes_recent(self):
         from worker.commands import RequeueErrorsCommand
+
         recent_ts = (datetime.now(UTC) - timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
         items = [(Path("/tmp/x.json"), {"updated_at": recent_ts})]  # nosec B108
         result = RequeueErrorsCommand._apply_since_filter(items, "9m")
@@ -940,6 +1059,7 @@ class TestRequeueErrorsCommand(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_apply_since_filter_excludes_old(self):
         from worker.commands import RequeueErrorsCommand
+
         old_ts = (datetime.now(UTC) - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
         items = [(Path("/tmp/x.json"), {"updated_at": old_ts})]  # nosec B108
         result = RequeueErrorsCommand._apply_since_filter(items, "9m")
@@ -947,14 +1067,16 @@ class TestRequeueErrorsCommand(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_apply_since_filter_no_since_returns_all(self):
         from worker.commands import RequeueErrorsCommand
+
         items = [(Path("/tmp/x.json"), {"updated_at": "2025-01-01T00:00:00Z"})]  # nosec B108
         result = RequeueErrorsCommand._apply_since_filter(items, None)
         self.assertEqual(len(result), 1)
 
     def test_apply_match_filter_matches_content(self):
         from worker.commands import RequeueErrorsCommand
+
         items = [
-            (Path("/tmp/a.json"), {"error": "timeout error"}),   # nosec B108
+            (Path("/tmp/a.json"), {"error": "timeout error"}),  # nosec B108
             (Path("/tmp/b.json"), {"error": "connection refused"}),  # nosec B108
         ]
         result = RequeueErrorsCommand._apply_match_filter(items, ["timeout"])
@@ -963,27 +1085,34 @@ class TestRequeueErrorsCommand(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_apply_match_filter_no_match_terms_returns_all(self):
         from worker.commands import RequeueErrorsCommand
+
         items = [(Path("/tmp/x.json"), {"error": "anything"})]  # nosec B108
         result = RequeueErrorsCommand._apply_match_filter(items, [])
         self.assertEqual(len(result), 1)
 
     def test_apply_since_filter_bad_window_returns_all(self):
         from worker.commands import RequeueErrorsCommand
+
         items = [(Path("/tmp/x.json"), {"updated_at": "2025-01-01T00:00:00Z"})]  # nosec B108
         # parse_window will raise on "invalid", so returns all
         result = RequeueErrorsCommand._apply_since_filter(items, "invalid-window")
         self.assertEqual(len(result), 1)
 
     def test_requeue_errors_with_match(self):
-        from worker.commands import RequeueErrorsCommand
         from worker import queue_ops as q
+        from worker.commands import RequeueErrorsCommand
+
         q.QUEUE_ROOT = self.root
         self._make_error_job("em1", error="timeout error")
         self._make_error_job("em2", error="connection failed")
 
         args = argparse.Namespace(
-            limit=None, delay=0, reset_attempts=False,
-            new_max_attempts=None, since=None, match=["timeout"]
+            limit=None,
+            delay=0,
+            reset_attempts=False,
+            new_max_attempts=None,
+            since=None,
+            match=["timeout"],
         )
         with patch("worker.commands.emit_one") as mock_emit:
             RequeueErrorsCommand.run(args)
@@ -996,26 +1125,37 @@ class TestRequeueErrorsCommand(unittest.TestCase, QueueRootIsolationMixin):
 # RetryCommand
 # ---------------------------------------------------------------------------
 
+
 class TestRetryCommand(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
         self.setup_queue_root()
 
     def _make_error_job(self, job_id: str) -> Path:
-        from worker.queue_ops import _ensure_dirs
         from worker import queue_ops as q
+        from worker.queue_ops import _ensure_dirs
+
         q.QUEUE_ROOT = self.root
         _ensure_dirs(self.root)
         p = self.root / "error" / f"{job_id}.json"
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps({
-            "id": job_id, "type": "noop", "payload": {},
-            "status": "error", "error": "boom",
-        }), encoding="utf-8")
+        p.write_text(
+            json.dumps(
+                {
+                    "id": job_id,
+                    "type": "noop",
+                    "payload": {},
+                    "status": "error",
+                    "error": "boom",
+                }
+            ),
+            encoding="utf-8",
+        )
         return p
 
     def test_retry_command_success(self):
-        from worker.commands import RetryCommand
         from worker import queue_ops as q
+        from worker.commands import RetryCommand
+
         q.QUEUE_ROOT = self.root
         self._make_error_job("retry1")
 
@@ -1027,34 +1167,41 @@ class TestRetryCommand(unittest.TestCase, QueueRootIsolationMixin):
         self.assertTrue((self.root / "pending" / "retry1.json").exists())
 
     def test_retry_command_job_not_in_error_raises_cli_error(self):
-        from worker.commands import RetryCommand
-        from worker.queue_ops import Job, enqueue, _ensure_dirs
-        from worker import queue_ops as q
         from core.cli_errors import CLIError
+        from worker import queue_ops as q
+        from worker.commands import RetryCommand
+        from worker.queue_ops import Job, _ensure_dirs, enqueue
+
         q.QUEUE_ROOT = self.root
         _ensure_dirs(self.root)
         # Job is in pending, not error
         enqueue(Job(id="notinerr", type="noop", payload={}), root=self.root)
 
-        args = argparse.Namespace(id="notinerr", delay=0, reset_attempts=False, new_max_attempts=None)
+        args = argparse.Namespace(
+            id="notinerr", delay=0, reset_attempts=False, new_max_attempts=None
+        )
         with self.assertRaises(CLIError):
             RetryCommand.run(args)
 
     def test_retry_command_missing_job_raises_cli_error(self):
+        from core.cli_errors import CLIError
+        from worker import queue_ops as q
         from worker.commands import RetryCommand
         from worker.queue_ops import _ensure_dirs
-        from worker import queue_ops as q
-        from core.cli_errors import CLIError
+
         q.QUEUE_ROOT = self.root
         _ensure_dirs(self.root)
 
-        args = argparse.Namespace(id="no-such-job", delay=0, reset_attempts=False, new_max_attempts=None)
+        args = argparse.Namespace(
+            id="no-such-job", delay=0, reset_attempts=False, new_max_attempts=None
+        )
         with self.assertRaises(CLIError):
             RetryCommand.run(args)
 
     def test_retry_command_emits_requeued(self):
-        from worker.commands import RetryCommand
         from worker import queue_ops as q
+        from worker.commands import RetryCommand
+
         q.QUEUE_ROOT = self.root
         self._make_error_job("retry2")
 
@@ -1075,13 +1222,15 @@ class TestRetryCommand(unittest.TestCase, QueueRootIsolationMixin):
 # PurgeCommand
 # ---------------------------------------------------------------------------
 
+
 class TestPurgeCommand(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
         self.setup_queue_root()
 
     def test_purge_command_returns_zero(self):
-        from worker.commands import PurgeCommand
         from worker import queue_ops as q
+        from worker.commands import PurgeCommand
+
         q.QUEUE_ROOT = self.root
 
         args = argparse.Namespace(older_than="30d", folders="done,error")
@@ -1091,8 +1240,9 @@ class TestPurgeCommand(unittest.TestCase, QueueRootIsolationMixin):
         self.assertEqual(rc, 0)
 
     def test_purge_command_emits_counts(self):
-        from worker.commands import PurgeCommand
         from worker import queue_ops as q
+        from worker.commands import PurgeCommand
+
         q.QUEUE_ROOT = self.root
 
         emitted = {}
@@ -1107,8 +1257,9 @@ class TestPurgeCommand(unittest.TestCase, QueueRootIsolationMixin):
         self.assertIn("done", emitted)
 
     def test_purge_command_parses_folder_list(self):
-        from worker.commands import PurgeCommand
         from worker import queue_ops as q
+        from worker.commands import PurgeCommand
+
         q.QUEUE_ROOT = self.root
 
         called_with = {}
@@ -1118,8 +1269,10 @@ class TestPurgeCommand(unittest.TestCase, QueueRootIsolationMixin):
             return {"done": 0, "error": 0}
 
         args = argparse.Namespace(older_than="7d", folders="done,error")
-        with patch("worker.commands.q.purge", side_effect=_fake_purge), \
-             patch("worker.commands.emit_one"):
+        with (
+            patch("worker.commands.q.purge", side_effect=_fake_purge),
+            patch("worker.commands.emit_one"),
+        ):
             PurgeCommand.run(args)
 
         self.assertIn("done", called_with["folders"])
@@ -1131,9 +1284,16 @@ class TestPurgeCommand(unittest.TestCase, QueueRootIsolationMixin):
         from worker.commands import PurgeCommand
 
         emitted: dict = {}
-        with patch("worker.commands.q.purge", side_effect=lambda secs, root, folders, dry_run: dict.fromkeys(folders or ["done", "error"], 0)) as purge, \
-             patch("worker.qwen.prune_responses", return_value=3) as prune, \
-             patch("worker.commands.emit_one", side_effect=emitted.update):
+        with (
+            patch(
+                "worker.commands.q.purge",
+                side_effect=lambda secs, root, folders, dry_run: dict.fromkeys(
+                    folders or ["done", "error"], 0
+                ),
+            ) as purge,
+            patch("worker.qwen.prune_responses", return_value=3) as prune,
+            patch("worker.commands.emit_one", side_effect=emitted.update),
+        ):
             rc = PurgeCommand.run(argparse.Namespace(**kwargs))
         self.assertEqual(rc, 0)
         return emitted, purge, prune
@@ -1155,7 +1315,9 @@ class TestPurgeCommand(unittest.TestCase, QueueRootIsolationMixin):
         self.assertEqual(emitted, {"done": 0, "qwen-responses": 3})
 
     def test_purge_dry_run_reaches_both_purges(self):
-        emitted, purge, prune = self._run_purge(older_than="7d", folders="done,qwen-responses", dry_run=True)
+        emitted, purge, prune = self._run_purge(
+            older_than="7d", folders="done,qwen-responses", dry_run=True
+        )
 
         prune.assert_called_once_with(7 * 86400, dry_run=True)
         purge.assert_called_once()
@@ -1173,9 +1335,14 @@ class TestPurgeCommand(unittest.TestCase, QueueRootIsolationMixin):
         from core.cli_errors import CLIError
         from worker.commands import PurgeCommand
 
-        with patch("worker.commands.q.purge") as purge, \
-             patch("worker.qwen.prune_responses", side_effect=OSError("not a directory owned by this user")), \
-             patch("worker.commands.emit_one") as emit:
+        with (
+            patch("worker.commands.q.purge") as purge,
+            patch(
+                "worker.qwen.prune_responses",
+                side_effect=OSError("not a directory owned by this user"),
+            ),
+            patch("worker.commands.emit_one") as emit,
+        ):
             with self.assertRaises(CLIError):
                 PurgeCommand.run(argparse.Namespace(older_than="14d", folders="qwen-responses"))
 
@@ -1188,9 +1355,11 @@ class TestPurgeCommand(unittest.TestCase, QueueRootIsolationMixin):
         from worker.cli import main
 
         buf = io.StringIO()
-        with patch("worker.commands.q.purge") as purge, \
-             patch("worker.qwen.prune_responses", return_value=2) as prune, \
-             redirect_stdout(buf):
+        with (
+            patch("worker.commands.q.purge") as purge,
+            patch("worker.qwen.prune_responses", return_value=2) as prune,
+            redirect_stdout(buf),
+        ):
             rc = main(["purge", "--folders", "qwen-responses", "--older-than", "14d"])
 
         self.assertEqual(rc, 0)
@@ -1202,9 +1371,11 @@ class TestPurgeCommand(unittest.TestCase, QueueRootIsolationMixin):
         from worker.cli import main
 
         buf = io.StringIO()
-        with patch("worker.commands.q.purge") as purge, \
-             patch("worker.qwen.prune_responses", return_value=4) as prune, \
-             redirect_stdout(buf):
+        with (
+            patch("worker.commands.q.purge") as purge,
+            patch("worker.qwen.prune_responses", return_value=4) as prune,
+            redirect_stdout(buf),
+        ):
             rc = main(["purge", "--folders", "qwen-responses", "--older-than", "14d", "--dry-run"])
 
         self.assertEqual(rc, 0)
@@ -1217,13 +1388,15 @@ class TestPurgeCommand(unittest.TestCase, QueueRootIsolationMixin):
 # _join_with_timeout
 # ---------------------------------------------------------------------------
 
+
 class TestJoinWithTimeout(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
         self.setup_queue_root()
 
     def test_join_threads_with_zero_timeout(self):
-        from worker.job_runtime import DaemonRunner, JobProcessor, WorkerConfig
         from worker import queue_ops as q
+        from worker.job_runtime import DaemonRunner, JobProcessor, WorkerConfig
+
         q.QUEUE_ROOT = self.root
 
         cfg = WorkerConfig()
@@ -1245,8 +1418,9 @@ class TestJoinWithTimeout(unittest.TestCase, QueueRootIsolationMixin):
         self.assertEqual(len(done_events), 3)
 
     def test_join_threads_with_positive_timeout(self):
-        from worker.job_runtime import DaemonRunner, JobProcessor, WorkerConfig
         from worker import queue_ops as q
+        from worker.job_runtime import DaemonRunner, JobProcessor, WorkerConfig
+
         q.QUEUE_ROOT = self.root
 
         cfg = WorkerConfig()

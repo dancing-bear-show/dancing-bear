@@ -1,54 +1,54 @@
 """Extended tests for the mail/outlook/processors_*.py modules."""
 
-from tests.fixtures import test_path
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock
 
-from mail.outlook.processors_rules_helpers import _canon_rule
+from mail.outlook.consumers import (
+    OutlookCalendarAddPayload,
+    OutlookCategoriesListPayload,
+    OutlookRulesDeletePayload,
+    OutlookRulesExportPayload,
+    OutlookRulesListPayload,
+    OutlookRulesPlanPayload,
+    OutlookRulesSyncPayload,
+)
+from mail.outlook.processors_calendar import (
+    OutlookCalendarAddFromConfigResult,
+    OutlookCalendarAddProcessor,
+    OutlookCalendarAddRecurringResult,
+    OutlookCalendarAddResult,
+    OutlookCategoriesExportResult,
+    OutlookCategoriesListProcessor,
+    OutlookCategoriesListResult,
+    OutlookCategoriesSyncResult,
+    OutlookFoldersSyncResult,
+)
 from mail.outlook.processors_rules import (
-    OutlookRulesListResult,
+    OutlookRulesExportProcessor,
     OutlookRulesExportResult,
     OutlookRulesListProcessor,
-    OutlookRulesExportProcessor,
+    OutlookRulesListResult,
+)
+from mail.outlook.processors_rules_helpers import _canon_rule
+from mail.outlook.processors_rules_plan import (
+    OutlookRulesPlanProcessor,
+    OutlookRulesPlanResult,
 )
 from mail.outlook.processors_rules_write import (
-    OutlookRulesSyncResult,
+    OutlookRulesDeleteProcessor,
     OutlookRulesDeleteResult,
     OutlookRulesSweepResult,
     OutlookRulesSyncProcessor,
-    OutlookRulesDeleteProcessor,
+    OutlookRulesSyncResult,
 )
-from mail.outlook.processors_rules_plan import (
-    OutlookRulesPlanResult,
-    OutlookRulesPlanProcessor,
-)
-from mail.outlook.processors_calendar import (
-    OutlookCategoriesListResult,
-    OutlookCategoriesExportResult,
-    OutlookCategoriesSyncResult,
-    OutlookFoldersSyncResult,
-    OutlookCalendarAddResult,
-    OutlookCalendarAddRecurringResult,
-    OutlookCalendarAddFromConfigResult,
-    OutlookCategoriesListProcessor,
-    OutlookCalendarAddProcessor,
-)
-from mail.outlook.consumers import (
-    OutlookRulesListPayload,
-    OutlookRulesExportPayload,
-    OutlookRulesSyncPayload,
-    OutlookRulesPlanPayload,
-    OutlookRulesDeletePayload,
-    OutlookCategoriesListPayload,
-    OutlookCalendarAddPayload,
-)
-
+from tests.fixtures import test_path
 
 # =============================================================================
 # Result Dataclass Tests
 # =============================================================================
+
 
 class TestOutlookRulesListResult(unittest.TestCase):
     """Tests for OutlookRulesListResult dataclass."""
@@ -147,9 +147,7 @@ class TestOutlookCategoriesListResult(unittest.TestCase):
         self.assertEqual(result.categories, [])
 
     def test_custom_values(self):
-        result = OutlookCategoriesListResult(
-            categories=[{"name": "Work", "color": "blue"}]
-        )
+        result = OutlookCategoriesListResult(categories=[{"name": "Work", "color": "blue"}])
         self.assertEqual(len(result.categories), 1)
 
 
@@ -215,6 +213,7 @@ class TestOutlookCalendarAddFromConfigResult(unittest.TestCase):
 # Helper Function Tests
 # =============================================================================
 
+
 class TestCanonRule(unittest.TestCase):
     """Tests for _canon_rule helper function."""
 
@@ -279,6 +278,7 @@ class TestCanonRule(unittest.TestCase):
 # Processor Tests
 # =============================================================================
 
+
 class TestOutlookRulesListProcessor(unittest.TestCase):
     """Tests for OutlookRulesListProcessor."""
 
@@ -290,9 +290,7 @@ class TestOutlookRulesListProcessor(unittest.TestCase):
         mock_client.get_label_id_map.return_value = {"Work": "cat-1"}
         mock_client.get_folder_path_map.return_value = {"Inbox/Work": "folder-1"}
 
-        payload = OutlookRulesListPayload(
-            client=mock_client, use_cache=False, cache_ttl=600
-        )
+        payload = OutlookRulesListPayload(client=mock_client, use_cache=False, cache_ttl=600)
         processor = OutlookRulesListProcessor()
         result = processor.process(payload)
 
@@ -431,9 +429,7 @@ class TestOutlookCategoriesListProcessor(unittest.TestCase):
         mock_client = Mock()
         mock_client.list_labels.return_value = []
 
-        payload = OutlookCategoriesListPayload(
-            client=mock_client, use_cache=True, cache_ttl=300
-        )
+        payload = OutlookCategoriesListPayload(client=mock_client, use_cache=True, cache_ttl=300)
         processor = OutlookCategoriesListProcessor()
         processor.process(payload)
 
@@ -521,12 +517,13 @@ class TestOutlookCalendarAddProcessor(unittest.TestCase):
 # Integration-style Tests (with temp files)
 # =============================================================================
 
+
 class TestOutlookCategoriesExportProcessor(unittest.TestCase):
     """Tests for OutlookCategoriesExportProcessor with temp files."""
 
     def test_export_creates_file(self):
-        from mail.outlook.processors_calendar import OutlookCategoriesExportProcessor
         from mail.outlook.consumers import OutlookCategoriesExportPayload
+        from mail.outlook.processors_calendar import OutlookCategoriesExportProcessor
 
         mock_client = Mock()
         mock_client.list_labels.return_value = [
@@ -535,9 +532,7 @@ class TestOutlookCategoriesExportProcessor(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             out_path = Path(tmpdir) / "categories.yaml"
-            payload = OutlookCategoriesExportPayload(
-                client=mock_client, out_path=str(out_path)
-            )
+            payload = OutlookCategoriesExportPayload(client=mock_client, out_path=str(out_path))
             processor = OutlookCategoriesExportProcessor()
             result = processor.process(payload)
 

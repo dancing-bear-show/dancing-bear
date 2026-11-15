@@ -14,7 +14,6 @@ from pathlib import Path
 from workflow.models import AgentSpec, StageKind
 from workflow.parser import WorkflowParseError, parse_workflow, parse_workflow_str
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -293,7 +292,9 @@ stages:
     depends_on: [gather-a]
     reads_from: [gather-b]
 """
-        with self.assertRaisesRegex(WorkflowParseError, "reads_from 'gather-b'.*not a transitive dependency"):
+        with self.assertRaisesRegex(
+            WorkflowParseError, "reads_from 'gather-b'.*not a transitive dependency"
+        ):
             parse_workflow_str(yaml_str)
 
 
@@ -415,8 +416,7 @@ def _fan_out_two_stage_yaml(fan_out_extra: str = "") -> str:
         "    writes_to:\n      - items.json\n"
         "  - name: fan-stage\n    kind: execute\n    description: Process\n"
         "    depends_on: [gather]\n    reads_from: [gather]\n    agent:\n      role: r\n"
-        "    fan_out:\n      source: gather\n      field: items\n      key: team\n"
-        + fan_out_extra
+        "    fan_out:\n      source: gather\n      field: items\n      key: team\n" + fan_out_extra
     )
 
 
@@ -600,6 +600,7 @@ class TestParseAgentIsolation(unittest.TestCase):
 
     def _parse_agent(self, data: dict) -> AgentSpec:
         from workflow.parser_fields import _parse_agent
+
         return _parse_agent(data, source="test.yaml")
 
     def test_unhashable_isolation_raises_parse_error(self) -> None:

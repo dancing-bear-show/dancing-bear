@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from core.date_utils import now_utc, parse_iso_utc
-from typing import Any, Iterator
-
 from telemetry.providers.transcript_parse import extract_cache_creation, message_key
-
 
 PROJECTS_DIR = Path.home() / ".claude" / "projects"
 
@@ -41,8 +40,12 @@ class SessionStats:
 
     @property
     def total_tokens(self) -> int:
-        return (self.input_tokens + self.output_tokens +
-                self.cache_read_tokens + self.cache_create_tokens)
+        return (
+            self.input_tokens
+            + self.output_tokens
+            + self.cache_read_tokens
+            + self.cache_create_tokens
+        )
 
     def accumulate_usage(
         self, usage: dict[str, Any] | None, key: tuple[str, str | None] | None = None
@@ -85,7 +88,7 @@ def iter_session_files(days: int = 7) -> Iterator[Path]:
         if not proj.is_dir():
             continue
         for jl in proj.glob("*.jsonl"):
-            mtime = datetime.fromtimestamp(jl.stat().st_mtime, tz=timezone.utc)
+            mtime = datetime.fromtimestamp(jl.stat().st_mtime, tz=UTC)
             if mtime >= cutoff:
                 yield jl
 
@@ -152,7 +155,7 @@ def parse_session(path: Path) -> SessionStats:
     """Parse a single JSONL session file into stats."""
     stats = SessionStats(session_id=path.stem, path=path)
 
-    with open(path, "r", encoding="utf-8", errors="replace") as f:
+    with open(path, encoding="utf-8", errors="replace") as f:
         for line in f:
             _parse_session_line(stats, line)
 

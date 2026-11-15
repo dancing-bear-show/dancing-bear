@@ -63,7 +63,9 @@ def _parse_trigger(data: dict[str, Any], source: str) -> TriggerSpec:
         raise WorkflowParseError(f"{source}: trigger missing required key 'source'")
     params = data.get("params") or {}
     if not isinstance(params, dict):
-        raise WorkflowParseError(f"{source}: trigger 'params' must be a mapping, got {type(params).__name__}")
+        raise WorkflowParseError(
+            f"{source}: trigger 'params' must be a mapping, got {type(params).__name__}"
+        )
     return TriggerSpec(
         source=data["source"],
         params={str(k): _param_default(str(k), v, source) for k, v in params.items()},
@@ -82,7 +84,9 @@ def _parse_agent(data: dict[str, Any], source: str) -> AgentSpec:
         raise WorkflowParseError(f"{source}: agent missing required key 'role'")
     tools = data.get("tools") or []
     if tools and not isinstance(tools, (list, tuple)):
-        raise WorkflowParseError(f"{source}: agent 'tools' must be a list, got {type(tools).__name__}")
+        raise WorkflowParseError(
+            f"{source}: agent 'tools' must be a list, got {type(tools).__name__}"
+        )
     access_declared = "access" in data
     access_str = data.get("access", AgentAccess.read_only.value)
     try:
@@ -111,10 +115,8 @@ def _parse_agent(data: dict[str, Any], source: str) -> AgentSpec:
         # sort by str: YAML permits non-string keys, so a block mixing `1:` and
         # `timeout:` would make a bare sorted() raise TypeError instead of the
         # parse error this branch promises.
-        listed = sorted((str(k) for k in unknown))
-        raise WorkflowParseError(
-            f"{source}: agent has unknown key(s) {listed} (valid: {known})"
-        )
+        listed = sorted(str(k) for k in unknown)
+        raise WorkflowParseError(f"{source}: agent has unknown key(s) {listed} (valid: {known})")
     return AgentSpec(
         role=data["role"],
         model=data.get("model"),
@@ -139,8 +141,7 @@ def _parse_output(data: dict[str, Any], source: str) -> OutputSpec:
     except ValueError:
         valid = ", ".join(m.value for m in OutputMode)
         raise WorkflowParseError(
-            f"{source}: output '{data['name']}' has invalid mode '{mode_str}' "
-            f"(valid: {valid})"
+            f"{source}: output '{data['name']}' has invalid mode '{mode_str}' (valid: {valid})"
         ) from None
 
     input_mapping = data.get("input_mapping") or {}
@@ -207,8 +208,7 @@ def _parse_validation(data: dict[str, Any], source: str) -> ValidationSpec:
     except ValueError:
         valid = ", ".join(s.value for s in ValidationStrategy)
         raise WorkflowParseError(
-            f"{source}: validation has invalid strategy '{strategy_str}' "
-            f"(valid: {valid})"
+            f"{source}: validation has invalid strategy '{strategy_str}' (valid: {valid})"
         ) from None
 
     raw_rules = data.get("domain_rules") or []
@@ -292,9 +292,7 @@ def _parse_fan_out(data: dict[str, Any], source: str, stage_name: str) -> FanOut
     )
 
 
-def _parse_executor(
-    data: dict[str, Any], source: str, stage_name: str
-) -> tuple[str, str]:
+def _parse_executor(data: dict[str, Any], source: str, stage_name: str) -> tuple[str, str]:
     """Parse and validate the executor + script pair from a stage block."""
     executor = str(data.get("executor", "agent"))
     if executor not in ("agent", "worker_queue", "inline"):
@@ -305,8 +303,7 @@ def _parse_executor(
     script = str(data.get("script") or "")
     if executor == "worker_queue" and not script.strip():
         raise WorkflowParseError(
-            f"{source}: stage '{stage_name}' has executor='worker_queue' but "
-            f"missing/empty 'script'"
+            f"{source}: stage '{stage_name}' has executor='worker_queue' but missing/empty 'script'"
         )
     return executor, script
 
@@ -327,7 +324,7 @@ def _check_sub_workflow_consistency(
         )
 
 
-def _parse_stage(data: dict[str, Any], source: str) -> StageSpec:  # NOSONAR - sequential guard clauses
+def _parse_stage(data: dict[str, Any], source: str) -> StageSpec:  # NOSONAR - sequential guard clauses  # fmt: skip
     if not isinstance(data, dict):
         raise WorkflowParseError(f"{source}: stage entry must be a mapping")
     for key in ("name", "kind", "description"):
@@ -345,8 +342,7 @@ def _parse_stage(data: dict[str, Any], source: str) -> StageSpec:  # NOSONAR - s
     except ValueError:
         valid = ", ".join(k.value for k in StageKind)
         raise WorkflowParseError(
-            f"{source}: stage '{stage_name}' has invalid kind '{kind_str}' "
-            f"(valid: {valid})"
+            f"{source}: stage '{stage_name}' has invalid kind '{kind_str}' (valid: {valid})"
         ) from None
 
     if "agent" in data:

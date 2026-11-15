@@ -11,10 +11,10 @@ from core.preflight import (
     evaluate_invariants,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helper check functions used across test cases
 # ---------------------------------------------------------------------------
+
 
 def _always_pass(changes, baseline):
     return "always_pass", []
@@ -40,6 +40,7 @@ def _no_new_labels(changes, baseline):
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestAllChecksPass(unittest.TestCase):
     def test_passed_true_when_all_clear(self):
@@ -91,9 +92,7 @@ class TestOneFailingCheck(unittest.TestCase):
             [_deletes_more_than_half],
             messages={"deletes_more_than_half": "Too many deletes — check your plan."},
         )
-        self.assertEqual(
-            report.violations[0].message, "Too many deletes — check your plan."
-        )
+        self.assertEqual(report.violations[0].message, "Too many deletes — check your plan.")
 
     def test_tallies_violation_count(self):
         changes = self._make_changes()
@@ -313,9 +312,7 @@ class TestSummaryPluralization(unittest.TestCase):
     def test_sample_count_is_pluralized(self):
         one = evaluate_invariants([{"id": "1"}], {}, [self._fail_check])
         self.assertIn("(1 sample)", one.summary())
-        two = evaluate_invariants(
-            [{"id": "1"}, {"id": "2"}], {}, [self._fail_check]
-        )
+        two = evaluate_invariants([{"id": "1"}, {"id": "2"}], {}, [self._fail_check])
         self.assertIn("(2 samples)", two.summary())
 
 
@@ -441,10 +438,18 @@ class TestSensitiveKeyMasking(unittest.TestCase):
 
     def test_common_sensitive_keys_are_redacted(self):
         for key in (
-            "api_key", "apikey", "api-key", "API_KEY",
-            "token", "access_token", "refresh_token",
-            "password", "secret", "client_secret",
-            "authorization", "Authorization",
+            "api_key",
+            "apikey",
+            "api-key",
+            "API_KEY",
+            "token",
+            "access_token",
+            "refresh_token",
+            "password",
+            "secret",
+            "client_secret",
+            "authorization",
+            "Authorization",
             "aws_secret_access_key",
         ):
             with self.subTest(key=key):
@@ -509,10 +514,12 @@ class TestOffendingSampleMasking(unittest.TestCase):
         self.assertNotIn(self.TOKEN, report.violations[0].samples[0]["url"])
 
     def test_nested_structures_are_masked(self):
-        changes = [{
-            "meta": {"headers": {"Authorization": f"Bearer {self.TOKEN}"}},
-            "items": [f"token={self.TOKEN}"],
-        }]
+        changes = [
+            {
+                "meta": {"headers": {"Authorization": f"Bearer {self.TOKEN}"}},
+                "items": [f"token={self.TOKEN}"],
+            }
+        ]
         report = evaluate_invariants(changes, {}, [self._flag_all])
         self.assertNotIn(self.TOKEN, json.dumps(report.to_dict()))
 
@@ -553,9 +560,7 @@ class TestApiKeyMasking(unittest.TestCase):
     def test_json_field_is_masked(self):
         from core.secrets import mask_text
 
-        self.assertNotIn(
-            self.SECRET, mask_text(f'{{"api_key": "{self.SECRET}"}}')
-        )
+        self.assertNotIn(self.SECRET, mask_text(f'{{"api_key": "{self.SECRET}"}}'))
 
     def test_previously_covered_params_still_masked(self):
         from core.secrets import mask_text
@@ -598,9 +603,7 @@ class TestApiKeyMasking(unittest.TestCase):
                     "mask_headers leaked",
                 )
                 report = evaluate_invariants([{key: secret}], {}, [flag_all])
-                self.assertNotIn(
-                    secret, json.dumps(report.to_dict()), "preflight leaked"
-                )
+                self.assertNotIn(secret, json.dumps(report.to_dict()), "preflight leaked")
 
     def test_every_bare_pair_spelling_is_also_masked_in_urls(self):
         """The two masking paths must agree on what counts as a secret.
@@ -615,8 +618,12 @@ class TestApiKeyMasking(unittest.TestCase):
         from core.secrets import mask_text, mask_url
 
         for spelling in (
-            "api_key", "apikey", "api-key",
-            "api_secret", "apisecret", "api-secret",
+            "api_key",
+            "apikey",
+            "api-key",
+            "api_secret",
+            "apisecret",
+            "api-secret",
             "token",
         ):
             with self.subTest(spelling=spelling):
@@ -632,9 +639,7 @@ class TestApiKeyMasking(unittest.TestCase):
 
         for param in ("api_key", "apikey", "api-key", "API_KEY", "api_secret"):
             with self.subTest(param=param):
-                self.assertNotIn(
-                    self.SECRET, mask_text(f"{param}={self.SECRET}")
-                )
+                self.assertNotIn(self.SECRET, mask_text(f"{param}={self.SECRET}"))
 
     def test_bare_pair_masked_inside_a_sentence(self):
         from core.secrets import mask_text
@@ -757,9 +762,7 @@ class TestCheckErrorMasking(unittest.TestCase):
     TOKEN = "ghp_CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"  # nosec B105 - synthetic fixture, not a real credential - the masking tests need it to look like a secret
 
     def _raising_check(self, changes, baseline):
-        raise RuntimeError(
-            f"HTTP 401 for https://api.example.com?access_token={self.TOKEN}"
-        )
+        raise RuntimeError(f"HTTP 401 for https://api.example.com?access_token={self.TOKEN}")
 
     def test_error_text_is_masked(self):
         report = evaluate_invariants([{"id": "1"}], {}, [self._raising_check])

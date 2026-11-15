@@ -1,4 +1,5 @@
 """Tests for phone/yamlio.py wrapper functions."""
+
 import tempfile
 import unittest
 from pathlib import Path
@@ -16,28 +17,28 @@ class TestLoadConfig(unittest.TestCase):
 
     def test_load_config_with_valid_yaml(self):
         """load_config should load YAML file."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
-            f.write('key: value\nlist:\n  - item1\n  - item2\n')
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write("key: value\nlist:\n  - item1\n  - item2\n")
             f.flush()
             path = f.name
 
         try:
             result = load_config(path)
-            self.assertEqual(result['key'], 'value')
-            self.assertEqual(result['list'], ['item1', 'item2'])
+            self.assertEqual(result["key"], "value")
+            self.assertEqual(result["list"], ["item1", "item2"])
         finally:
             Path(path).unlink()
 
     def test_load_config_with_path_object(self):
         """load_config should accept Path objects."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
-            f.write('test: data\n')
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write("test: data\n")
             f.flush()
             path = Path(f.name)
 
         try:
             result = load_config(path)
-            self.assertEqual(result['test'], 'data')
+            self.assertEqual(result["test"], "data")
         finally:
             path.unlink()
 
@@ -47,11 +48,11 @@ class TestDumpConfig(unittest.TestCase):
 
     def test_dump_config_creates_yaml_file(self):
         """dump_config should write YAML to file."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             path = f.name
 
         try:
-            data = {'key': 'value', 'list': ['a', 'b', 'c']}
+            data = {"key": "value", "list": ["a", "b", "c"]}
             dump_config(path, data)
 
             # Verify file was created and contains correct data
@@ -62,11 +63,11 @@ class TestDumpConfig(unittest.TestCase):
 
     def test_dump_config_with_path_object(self):
         """dump_config should accept Path objects."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             path = Path(f.name)
 
         try:
-            data = {'test': 'value'}
+            data = {"test": "value"}
             dump_config(path, data)
 
             result = load_config(path)
@@ -77,9 +78,9 @@ class TestDumpConfig(unittest.TestCase):
     def test_dump_config_creates_parent_directories(self):
         """dump_config should create parent directories if needed."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / 'nested' / 'dir' / 'config.yaml'
+            path = Path(tmpdir) / "nested" / "dir" / "config.yaml"
 
-            data = {'nested': 'config'}
+            data = {"nested": "config"}
             dump_config(path, data)
 
             self.assertTrue(path.exists())
@@ -87,5 +88,5 @@ class TestDumpConfig(unittest.TestCase):
             self.assertEqual(result, data)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

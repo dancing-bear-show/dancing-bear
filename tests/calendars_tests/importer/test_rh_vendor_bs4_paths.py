@@ -19,19 +19,8 @@ Covers:
 All tests patch ``calendars.importer.web_parser_vendors_rh._fetch_html``
 to avoid any network activity.
 """
+
 from __future__ import annotations
-
-import sys
-import types
-import unittest
-from contextlib import contextmanager
-from unittest.mock import patch
-
-from calendars.importer.web_parser_vendors_rh import (
-    RichmondHillSkatingParser,
-)
-from calendars.importer.model import ScheduleItem
-
 
 # ---------------------------------------------------------------------------
 # Fake bs4 injection
@@ -57,8 +46,17 @@ from calendars.importer.model import ScheduleItem
 # The implementation shells out to the stdlib html.parser and builds a
 # lightweight node tree that is good enough for the parsers' traversal
 # patterns without re-implementing a full DOM.
-
 import html.parser as _html_parser
+import sys
+import types
+import unittest
+from contextlib import contextmanager
+from unittest.mock import patch
+
+from calendars.importer.model import ScheduleItem
+from calendars.importer.web_parser_vendors_rh import (
+    RichmondHillSkatingParser,
+)
 
 
 class _Tag:
@@ -122,7 +120,7 @@ class _Tag:
         return getattr(self, "_prev_sibling_match", lambda t, a: None)(tag_name, attrs)
 
     @staticmethod
-    def _matches(node: "_Tag", tag_name, attrs) -> bool:
+    def _matches(node: _Tag, tag_name, attrs) -> bool:
         if tag_name and node.name != tag_name:
             return False
         if attrs:
@@ -138,6 +136,7 @@ class _Tag:
     def select(self, selector: str) -> list:
         """Extremely limited CSS selector: supports ``[attr="val"]`` and ``tag``."""
         import re
+
         m = re.match(r'\[([^=\]]+)=["\']?([^"\'=\]]*)["\']?\]$', selector)
         if m:
             attr, val = m.group(1), m.group(2)
@@ -192,7 +191,7 @@ class _Soup(_Tag):
         tag_siblings = [s for s in siblings if isinstance(s, _Tag)]
         for i, tag in enumerate(tag_siblings):
             prev_tags = tag_siblings[:i]
-            next_tags = tag_siblings[i + 1:]
+            next_tags = tag_siblings[i + 1 :]
 
             def _next(tag_name, attrs, _next_tags=next_tags):
                 for sib in _next_tags:
@@ -327,6 +326,7 @@ _UNPARSEABLE_TIME_HTML = """<html><body>
 # Tests for parse() using bs4 path (line 28, 34-59)
 # ---------------------------------------------------------------------------
 
+
 class TestRichmondHillSkatingParserBs4Paths(unittest.TestCase):
     """Drive the bs4 code path via fake bs4 injection."""
 
@@ -391,21 +391,24 @@ class TestRichmondHillSkatingParserBs4Paths(unittest.TestCase):
 # Tests for _find_public_skating_row directly (lines 63-67)
 # ---------------------------------------------------------------------------
 
+
 class TestFindPublicSkatingRowDirect(unittest.TestCase):
     """Direct unit tests for _find_public_skating_row using fake bs4."""
 
     def _make_table(self, html: str):
         with _inject_bs4():
             from bs4 import BeautifulSoup
+
             return BeautifulSoup(html, "html.parser").find("table")
 
     def test_returns_none_when_no_matching_row(self):
         """Table with no 'Public Skating' td returns None. (line 67)"""
         with _inject_bs4():
             from bs4 import BeautifulSoup
-            table = BeautifulSoup(
-                "<table><tr><td>Hockey</td></tr></table>", "html.parser"
-            ).find("table")
+
+            table = BeautifulSoup("<table><tr><td>Hockey</td></tr></table>", "html.parser").find(
+                "table"
+            )
             result = RichmondHillSkatingParser()._find_public_skating_row(table)
         self.assertIsNone(result)
 
@@ -413,6 +416,7 @@ class TestFindPublicSkatingRowDirect(unittest.TestCase):
         """Table with a 'Public Skating' td returns that row. (lines 63-66)"""
         with _inject_bs4():
             from bs4 import BeautifulSoup
+
             table = BeautifulSoup(
                 "<table><tr><td>Public Skating</td></tr></table>", "html.parser"
             ).find("table")
@@ -423,6 +427,7 @@ class TestFindPublicSkatingRowDirect(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Tests for _extract_weekdays_from_cells (lines 71-76)
 # ---------------------------------------------------------------------------
+
 
 class TestExtractWeekdaysFromCellsDirect(unittest.TestCase):
     """_extract_weekdays_from_cells returns cells whose text is in the weekday set."""
@@ -456,31 +461,31 @@ class TestExtractWeekdaysFromCellsDirect(unittest.TestCase):
 # Tests for _extract_day_headers (lines 80-92)
 # ---------------------------------------------------------------------------
 
+
 class TestExtractDayHeadersDirect(unittest.TestCase):
     """_extract_day_headers returns day names from a table, with fallback logic."""
 
     @staticmethod
     def _first_match(siblings: list[_Tag]):
         """Return a sibling-match callable scanning `siblings` in order."""
+
         def _find(tag_name, attrs, _sibs=siblings):
             for sib in _sibs:
                 if _Tag._matches(sib, tag_name, attrs):
                     return sib
             return None
+
         return _find
 
     def _wire_siblings(self, rows: list[_Tag]) -> None:
         """Give each row prev/next sibling-match callables over its neighbours."""
         for i, row in enumerate(rows):
             row._prev_sibling_match = self._first_match(list(reversed(rows[:i])))
-            row._next_sibling_match = self._first_match(rows[i + 1:])
+            row._next_sibling_match = self._first_match(rows[i + 1 :])
 
     def _make_table_with_rows(self, row_texts: list[list[str]]) -> _Tag:
         """Build a fake table with given row/cell text structure."""
-        rows = [
-            _Tag("tr", {}, [_Tag("td", {}, [c]) for c in cells])
-            for cells in row_texts
-        ]
+        rows = [_Tag("tr", {}, [_Tag("td", {}, [c]) for c in cells]) for cells in row_texts]
         table = _Tag("table", {}, rows)
         self._wire_siblings(rows)
         return table
@@ -498,10 +503,9 @@ class TestExtractDayHeadersDirect(unittest.TestCase):
     def test_fewer_than_needed_defaults_to_weekdays_slice(self):
         """Table with 0 weekday cells falls back to WEEKDAYS[:needed]. (line 92)"""
         from calendars.importer.web_parser_base import WEEKDAYS
+
         parser = RichmondHillSkatingParser()
-        table = self._make_table_with_rows([
-            ["Public Skating", "Time1", "Time2"]
-        ])
+        table = self._make_table_with_rows([["Public Skating", "Time1", "Time2"]])
         row = table._children[0]
         result = parser._extract_day_headers(table, row, 2)
         self.assertEqual(result, WEEKDAYS[:2])
@@ -510,6 +514,7 @@ class TestExtractDayHeadersDirect(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Tests for _parse_time_cells extra-cells guard (line 102)
 # ---------------------------------------------------------------------------
+
 
 class TestParseTimeCellsExtraCells(unittest.TestCase):
     """_parse_time_cells skips cells at indices beyond the day list length."""
@@ -529,6 +534,7 @@ class TestParseTimeCellsExtraCells(unittest.TestCase):
 
     def test_unparseable_time_cell_skipped(self):
         """Cell whose text parse_time_range cannot parse yields no item. (branch 104->97)"""
+
         class _BadCell:
             def get_text(self, *_a, **_kw):
                 return "CLOSED"

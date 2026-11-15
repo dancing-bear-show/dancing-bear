@@ -8,7 +8,6 @@ import sys
 from typing import Any, overload
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
-
 SENSITIVE_PARAM_KEYS = {
     "token",
     "api_token",
@@ -58,6 +57,7 @@ SENSITIVE_PARAM_KEYS = {
 # string should use this rather than re-typing the literal, so the marker
 # can change in one place.
 REDACTED = "***REDACTED***"
+
 
 # SENSITIVE_PARAM_KEYS with -/_ folded together, so header names
 # ("X-Auth-Token") and query/body names ("x_auth_token") resolve to the
@@ -292,7 +292,9 @@ _MAPPING_FIELD_RE = re.compile(
 def mask_text(text: str | None) -> str:
     s = text or ""
     # Authorization: Scheme token
-    s = re.sub(r"(?i)(Authorization\s*:\s*)(Bearer|Basic|Token)\s+[^\s]+", r"\1\2 ***REDACTED***", s)
+    s = re.sub(
+        r"(?i)(Authorization\s*:\s*)(Bearer|Basic|Token)\s+[^\s]+", r"\1\2 ***REDACTED***", s
+    )
     # Common header variants
     s = re.sub(r"(?i)(X-API-KEY\s*:\s*)(\S+)", _REDACTED, s)
     s = re.sub(r"(?i)(X-Auth-Token\s*:\s*)(\S+)", _REDACTED, s)
@@ -350,7 +352,11 @@ def mask_text(text: str | None) -> str:
     s = re.sub(r"(?i)(aws_session_token\s*[:=]\s*)(\S+)", _REDACTED, s)
     s = re.sub(r"(?i)(aws_access_key_id\s*[:=]\s*)(\S+)", _REDACTED, s)
     # URL query tokens
-    s = re.sub(r"(?i)([?&](?:" + "|".join(map(re.escape, SENSITIVE_PARAM_KEYS)) + ")=)([^&\s]+)", _REDACTED, s)
+    s = re.sub(
+        r"(?i)([?&](?:" + "|".join(map(re.escape, SENSITIVE_PARAM_KEYS)) + r")=)([^&\s]+)",
+        _REDACTED,
+        s,
+    )
     # Basic base64 creds
     s = re.sub(r"(?i)(Authorization\s*:\s*Basic\s+)[\w+/=]+", _REDACTED, s)
     return s
@@ -442,10 +448,9 @@ def install_output_masking_from_env() -> None:
         val = (os.getenv("SRE_MASK_OUTPUTS", "1") or "").strip().lower()
         if val in {"", "0", "false", "no"}:
             return
-        if not isinstance(getattr(sys, "stdout"), MaskingWriter):
-            sys.stdout = MaskingWriter(getattr(sys, "stdout"))
-        if not isinstance(getattr(sys, "stderr"), MaskingWriter):
-            sys.stderr = MaskingWriter(getattr(sys, "stderr"))
+        if not isinstance(sys.stdout, MaskingWriter):
+            sys.stdout = MaskingWriter(sys.stdout)
+        if not isinstance(sys.stderr, MaskingWriter):
+            sys.stderr = MaskingWriter(sys.stderr)
     except Exception:
         return
-

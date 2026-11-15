@@ -111,7 +111,7 @@ class QwenTelemetryExportNonFatalTests(unittest.TestCase):
         ) as mock_post:
             try:
                 export_job_span(attrs, 0, 1_000_000_000)
-            except Exception as exc:  # pragma: no cover - defensive; test must fail loudly if this fires
+            except (Exception) as exc:  # pragma: no cover - defensive; test must fail loudly if this fires  # fmt: skip
                 self.fail(f"export_job_span raised despite being best-effort: {exc!r}")
 
         mock_post.assert_called_once()
@@ -170,7 +170,9 @@ class QwenTelemetryMetricsShapeTests(_OtelEnvIsolationMixin, unittest.TestCase):
     def test_round_trips_through_otlp_metrics_record(self) -> None:
         from worker.qwen_telemetry import build_job_metrics
 
-        payload = build_job_metrics(_METRIC_ATTRS, duration_ms=1234.5, prompt_tokens=84, completion_tokens=57)
+        payload = build_job_metrics(
+            _METRIC_ATTRS, duration_ms=1234.5, prompt_tokens=84, completion_tokens=57
+        )
 
         record = OTLPMetricsRecord.from_dict(payload)
 
@@ -184,7 +186,9 @@ class QwenTelemetryMetricsShapeTests(_OtelEnvIsolationMixin, unittest.TestCase):
     def test_metric_values_and_attributes_round_trip(self) -> None:
         from worker.qwen_telemetry import build_job_metrics
 
-        payload = build_job_metrics(_METRIC_ATTRS, duration_ms=1234.5, prompt_tokens=84, completion_tokens=57)
+        payload = build_job_metrics(
+            _METRIC_ATTRS, duration_ms=1234.5, prompt_tokens=84, completion_tokens=57
+        )
         record = OTLPMetricsRecord.from_dict(payload)
 
         by_name = {m.name: m for m in record.metrics}
@@ -224,7 +228,9 @@ class QwenTelemetryMetricsShapeTests(_OtelEnvIsolationMixin, unittest.TestCase):
     def test_token_metrics_absent_when_ollama_gave_no_counts(self) -> None:
         from worker.qwen_telemetry import build_job_metrics
 
-        payload = build_job_metrics(_METRIC_ATTRS, duration_ms=500.0, prompt_tokens=None, completion_tokens=None)
+        payload = build_job_metrics(
+            _METRIC_ATTRS, duration_ms=500.0, prompt_tokens=None, completion_tokens=None
+        )
         record = OTLPMetricsRecord.from_dict(payload)
 
         names = {m.name for m in record.metrics}
@@ -235,7 +241,9 @@ class QwenTelemetryMetricsShapeTests(_OtelEnvIsolationMixin, unittest.TestCase):
     def test_token_metrics_present_with_exact_values_when_ollama_gave_counts(self) -> None:
         from worker.qwen_telemetry import build_job_metrics
 
-        payload = build_job_metrics(_METRIC_ATTRS, duration_ms=500.0, prompt_tokens=12, completion_tokens=34)
+        payload = build_job_metrics(
+            _METRIC_ATTRS, duration_ms=500.0, prompt_tokens=12, completion_tokens=34
+        )
         record = OTLPMetricsRecord.from_dict(payload)
 
         by_name = {m.name: m for m in record.metrics}
@@ -246,7 +254,9 @@ class QwenTelemetryMetricsShapeTests(_OtelEnvIsolationMixin, unittest.TestCase):
         """contract.json's telemetry.emits_cost is false — enforce it on metrics too."""
         from worker.qwen_telemetry import build_job_metrics
 
-        payload = build_job_metrics(_METRIC_ATTRS, duration_ms=500.0, prompt_tokens=12, completion_tokens=34)
+        payload = build_job_metrics(
+            _METRIC_ATTRS, duration_ms=500.0, prompt_tokens=12, completion_tokens=34
+        )
         serialized = json.dumps(payload).lower()
 
         self.assertNotIn("cost", serialized)
@@ -340,7 +350,7 @@ class QwenTelemetryMetricsExportNonFatalTests(_OtelEnvIsolationMixin, unittest.T
         ) as mock_post:
             try:
                 export_job_metrics(_METRIC_ATTRS, 500.0, 12, 34)
-            except Exception as exc:  # pragma: no cover - defensive; test must fail loudly if this fires
+            except (Exception) as exc:  # pragma: no cover - defensive; test must fail loudly if this fires  # fmt: skip
                 self.fail(f"export_job_metrics raised despite being best-effort: {exc!r}")
 
         mock_post.assert_called_once()
@@ -402,9 +412,11 @@ class QwenTelemetryBackgroundExportTests(unittest.TestCase):
             qwen_telemetry.export_job_span(_METRIC_ATTRS, 0, 1)
             qwen_telemetry.export_job_metrics(_METRIC_ATTRS, 1.0, None, None)
 
-        self.assertEqual({c.kwargs["timeout"] for c in mock_post.call_args_list}, {qwen_telemetry.EXPORT_TIMEOUT_SEC})
+        self.assertEqual(
+            {c.kwargs["timeout"] for c in mock_post.call_args_list},
+            {qwen_telemetry.EXPORT_TIMEOUT_SEC},
+        )
         self.assertLessEqual(qwen_telemetry.EXPORT_TIMEOUT_SEC, 2.0)
-
 
 
 _ENDPOINT_PASSWORD = "s3cret-collector-pw"  # nosec B105 - fake secret planted to prove masking
@@ -435,8 +447,11 @@ class QwenTelemetryFailureLoggingTests(_OtelEnvIsolationMixin, unittest.TestCase
             lambda: qwen_telemetry.export_job_metrics({"qwen.job_id": "j"}, 1.0, 1, 1),
         )
         for call in calls:
-            with self.subTest(call=call), mock.patch.object(qwen_telemetry, "_post", side_effect=error), \
-                    self.assertLogs("worker.qwen_telemetry", level="DEBUG") as logs:
+            with (
+                self.subTest(call=call),
+                mock.patch.object(qwen_telemetry, "_post", side_effect=error),
+                self.assertLogs("worker.qwen_telemetry", level="DEBUG") as logs,
+            ):
                 call()
             self._assert_logged_safely(logs.output)
 

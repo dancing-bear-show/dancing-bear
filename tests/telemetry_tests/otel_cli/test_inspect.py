@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 from telemetry.otel.cli.inspect import (
@@ -14,7 +14,7 @@ from telemetry.otel.cli.inspect import (
 
 
 def _make_timestamp(year: int = 2026, month: int = 4, day: int = 16) -> datetime:
-    return datetime(year, month, day, 10, 0, 0, tzinfo=timezone.utc)
+    return datetime(year, month, day, 10, 0, 0, tzinfo=UTC)
 
 
 def _make_metric_record():
@@ -110,7 +110,9 @@ class TestBuildTableRows(unittest.TestCase):
 class TestInspectMain(unittest.TestCase):
     def _make_reader(self, metrics=None, events=None, spans=None):
         reader = MagicMock()
-        reader.read_metrics.return_value = metrics if metrics is not None else [_make_metric_record()]
+        reader.read_metrics.return_value = (
+            metrics if metrics is not None else [_make_metric_record()]
+        )
         reader.read_events.return_value = events if events is not None else [_make_event_record()]
         reader.read_spans.return_value = spans if spans is not None else [_make_span_record()]
         return reader
@@ -156,6 +158,7 @@ class TestInspectMain(unittest.TestCase):
 
     def test_data_dir_flag(self):
         import tempfile
+
         with tempfile.TemporaryDirectory() as td:
             with patch("telemetry.otel.cli.inspect.OTLPReader", return_value=self._make_reader()):
                 with patch("telemetry.otel.cli.inspect.emit_rows", return_value=0):

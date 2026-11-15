@@ -119,8 +119,10 @@ def parse_comment(body: str) -> dict | None:
 
 def find_summary_comment(owner_repo: str, pr: int) -> dict | None:
     """Return the swarm summary comment for a PR, checking both comment APIs."""
-    for endpoint in (f"repos/{owner_repo}/pulls/{pr}/comments",
-                     f"repos/{owner_repo}/issues/{pr}/comments"):
+    for endpoint in (
+        f"repos/{owner_repo}/pulls/{pr}/comments",
+        f"repos/{owner_repo}/issues/{pr}/comments",
+    ):
         try:
             comments = _gh_json(["api", endpoint, "--paginate"])
         except RuntimeError:
@@ -247,19 +249,18 @@ def main(argv: list[str] | None = None) -> int:
 
     owner_repo = args.repo
     if not owner_repo:
-        owner_repo = cast(dict, _gh_json(["repo", "view", "--json", "nameWithOwner"]))["nameWithOwner"]
+        owner_repo = cast(dict, _gh_json(["repo", "view", "--json", "nameWithOwner"]))[
+            "nameWithOwner"
+        ]
 
     log_path = Path(args.log_path).expanduser()
     already = set() if args.force else existing_pr_numbers(log_path)
 
-    prs = _gh_json(
-        ["pr", "list", "--state", "merged", "--limit", "300", "--json", "number"]
-    )
+    prs = _gh_json(["pr", "list", "--state", "merged", "--limit", "300", "--json", "number"])
     numbers = sorted(
         p["number"]
         for p in prs
-        if p["number"] >= args.since_pr
-        and (args.until_pr is None or p["number"] <= args.until_pr)
+        if p["number"] >= args.since_pr and (args.until_pr is None or p["number"] <= args.until_pr)
     )
 
     scan = scan_prs(owner_repo, numbers, already)

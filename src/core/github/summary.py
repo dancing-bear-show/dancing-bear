@@ -106,9 +106,13 @@ def fetch_pr_summary(gh: GhCLI, owner: str, repo: str, pr: int) -> PRSummary:
         node = pull
 
     raw_files, reported = paginate_connection(
-        gh, PR_DETAIL_QUERY, {"owner": owner, "name": repo, "pr": int(pr)},
-        ("repository", "pullRequest", "files"), what=f"PR #{pr} files",
-        parent_what=f"PR #{pr}", on_page=_keep_node,
+        gh,
+        PR_DETAIL_QUERY,
+        {"owner": owner, "name": repo, "pr": int(pr)},
+        ("repository", "pullRequest", "files"),
+        what=f"PR #{pr} files",
+        parent_what=f"PR #{pr}",
+        on_page=_keep_node,
     )
     files = [
         FileChange(
@@ -137,7 +141,11 @@ def _path_matches(path: str, pattern: str, mode: str) -> bool:
 
 
 def matches_paths(
-    paths: Iterable[str], *, include: Iterable[str] = (), exclude: Iterable[str] = (), mode: str = "prefix",
+    paths: Iterable[str],
+    *,
+    include: Iterable[str] = (),
+    exclude: Iterable[str] = (),
+    mode: str = "prefix",
 ) -> bool:
     """True when any path hits ``include`` (or include is empty) and none hits ``exclude``."""
     paths = list(paths)

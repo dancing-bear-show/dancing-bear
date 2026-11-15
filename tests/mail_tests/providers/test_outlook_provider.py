@@ -6,12 +6,15 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 
-def _make_provider(client_id="dummy-client-id", tenant="consumers", token_path=None, cache_dir=None):
+def _make_provider(
+    client_id="dummy-client-id", tenant="consumers", token_path=None, cache_dir=None
+):
     """Return an OutlookProvider with a mocked OutlookClient."""
     with patch("mail.providers.outlook.OutlookClient") as mock_cls:
         mock_client = MagicMock()
         mock_cls.return_value = mock_client
         from mail.providers.outlook import OutlookProvider
+
         provider = OutlookProvider(
             client_id=client_id,
             tenant=tenant,
@@ -29,6 +32,7 @@ class TestOutlookProviderInit(unittest.TestCase):
         with patch("mail.providers.outlook.OutlookClient") as mock_cls:
             mock_cls.return_value = MagicMock()
             from mail.providers.outlook import OutlookProvider
+
             OutlookProvider(client_id="my-id", tenant="consumers", token_path="/t.json")  # nosec B106 - test fixture path
         mock_cls.assert_called_once_with(
             client_id="my-id",
@@ -41,6 +45,7 @@ class TestOutlookProviderInit(unittest.TestCase):
         with patch("mail.providers.outlook.OutlookClient") as mock_cls:
             mock_cls.return_value = MagicMock()
             from mail.providers.outlook import OutlookProvider
+
             OutlookProvider(client_id="cid")
         call_kwargs = mock_cls.call_args.kwargs
         self.assertEqual(call_kwargs["tenant"], "consumers")
@@ -49,29 +54,36 @@ class TestOutlookProviderInit(unittest.TestCase):
         with patch("mail.providers.outlook.OutlookClient") as mock_cls:
             mock_cls.return_value = MagicMock()
             from mail.providers.outlook import OutlookProvider
+
             OutlookProvider(client_id="cid")
         call_kwargs = mock_cls.call_args.kwargs
         self.assertIsNone(call_kwargs["token_path"])
 
     def test_cache_dir_forwarded(self):
         import tempfile
+
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("mail.providers.outlook.OutlookClient") as mock_cls:
                 mock_cls.return_value = MagicMock()
                 from mail.providers.outlook import OutlookProvider
+
                 OutlookProvider(client_id="cid", cache_dir=tmpdir)
             call_kwargs = mock_cls.call_args.kwargs
             self.assertEqual(call_kwargs["cache_dir"], tmpdir)
 
     def test_provider_name_is_outlook(self):
         from mail.providers.outlook import OutlookProvider
+
         self.assertEqual(OutlookProvider._provider_name, "outlook")
 
     def test_propagates_client_construction_failure(self):
         with patch("mail.providers.outlook.OutlookClient") as mock_cls:
             mock_cls.side_effect = RuntimeError("Failed to start device flow for Microsoft Graph")
             from mail.providers.outlook import OutlookProvider
-            with self.assertRaisesRegex(RuntimeError, "Failed to start device flow for Microsoft Graph"):
+
+            with self.assertRaisesRegex(
+                RuntimeError, "Failed to start device flow for Microsoft Graph"
+            ):
                 OutlookProvider(client_id="cid")
 
 
@@ -124,6 +136,7 @@ class TestOutlookProviderListLabels(unittest.TestCase):
 
     def test_propagates_client_http_error(self):
         import requests
+
         provider, mock_client = _make_provider()
         mock_client.list_labels.side_effect = requests.HTTPError("500 Server Error")
         with self.assertRaises(requests.HTTPError):
@@ -200,6 +213,7 @@ class TestOutlookProviderCreateLabel(unittest.TestCase):
 
     def test_propagates_client_http_error(self):
         import requests
+
         provider, mock_client = _make_provider()
         mock_client.create_label.side_effect = requests.HTTPError("409 Conflict")
         with self.assertRaises(requests.HTTPError):
@@ -235,6 +249,7 @@ class TestOutlookProviderEnsureLabel(unittest.TestCase):
 
     def test_propagates_client_http_error(self):
         import requests
+
         provider, mock_client = _make_provider()
         mock_client.ensure_label.side_effect = requests.HTTPError("500 Server Error")
         with self.assertRaises(requests.HTTPError):

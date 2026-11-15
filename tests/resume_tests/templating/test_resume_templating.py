@@ -92,7 +92,7 @@ class TestParseSeedCriteria(unittest.TestCase):
         self.assertEqual(result["role"], "manager")
 
     def test_returns_empty_dict_for_invalid_json(self):
-        seed = '{invalid json}'
+        seed = "{invalid json}"
         result = parse_seed_criteria(seed)
         self.assertEqual(result, {})
 

@@ -5,7 +5,9 @@ from typing import Any
 from .keyword_normalize import item_text
 
 
-def build_experience_summary(data: dict[str, Any], max_bullets: int | None = None) -> dict[str, Any]:
+def build_experience_summary(
+    data: dict[str, Any], max_bullets: int | None = None
+) -> dict[str, Any]:
     roles_out: list[dict[str, Any]] = []
     for e in data.get("experience") or []:
         # item_text, not str(): a bullet is a dict ({"text": ..., "priority": ...})
@@ -13,7 +15,7 @@ def build_experience_summary(data: dict[str, Any], max_bullets: int | None = Non
         # -- braces, quotes and the priority number -- into the exported summary.
         bullets = [t for b in (e.get("bullets") or []) if (t := item_text(b))]
         if max_bullets is not None:
-            bullets = bullets[: max_bullets]
+            bullets = bullets[:max_bullets]
         roles_out.append(
             {
                 "title": e.get("title", ""),
@@ -30,4 +32,3 @@ def build_experience_summary(data: dict[str, Any], max_bullets: int | None = Non
         "experience": roles_out,
     }
     return summary
-

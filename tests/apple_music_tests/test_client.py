@@ -95,7 +95,7 @@ class TestRequestMethod(unittest.TestCase):
         fake_session = unittest.mock.MagicMock()
         fake_resp = unittest.mock.MagicMock()
         fake_resp.status_code = 204
-        fake_resp.content = b'{}'
+        fake_resp.content = b"{}"
         fake_resp.headers = {}
         fake_resp.json.return_value = {}
         fake_session.request.return_value = fake_resp
@@ -123,7 +123,9 @@ class TestRequestMethod(unittest.TestCase):
 class TestPaginate(unittest.TestCase):
     def test_pagination_with_next_link(self):
         responses = [
-            FakeResponse({"data": [{"id": "1"}, {"id": "2"}], "next": "/v1/me/library/playlists?offset=2"}),
+            FakeResponse(
+                {"data": [{"id": "1"}, {"id": "2"}], "next": "/v1/me/library/playlists?offset=2"}
+            ),
             FakeResponse({"data": [{"id": "3"}]}),
         ]
         session = FakeSession(responses)
@@ -133,7 +135,12 @@ class TestPaginate(unittest.TestCase):
 
     def test_pagination_respects_limit(self):
         responses = [
-            FakeResponse({"data": [{"id": "1"}, {"id": "2"}, {"id": "3"}], "next": "/v1/me/playlists?offset=3"}),
+            FakeResponse(
+                {
+                    "data": [{"id": "1"}, {"id": "2"}, {"id": "3"}],
+                    "next": "/v1/me/playlists?offset=3",
+                }
+            ),
         ]
         session = FakeSession(responses)
         client = AppleMusicClient("dev", "user", session=session)
@@ -154,7 +161,7 @@ def _make_fake_session(json_body: dict, status: int = 200):
     fake_session = unittest.mock.MagicMock()
     fake_resp = unittest.mock.MagicMock()
     fake_resp.status_code = status
-    fake_resp.content = b'{}'
+    fake_resp.content = b"{}"
     fake_resp.headers = {}
     fake_resp.json.return_value = json_body
     fake_session.request.return_value = fake_resp
@@ -192,7 +199,9 @@ class TestHighLevelMethods(unittest.TestCase):
         self.assertEqual(result["data"][0]["id"], "us")
 
     def test_search_songs(self):
-        body = {"results": {"songs": {"data": [{"id": "song1", "attributes": {"name": "Test Song"}}]}}}
+        body = {
+            "results": {"songs": {"data": [{"id": "song1", "attributes": {"name": "Test Song"}}]}}
+        }
         fake_session, _ = _make_fake_session(body)
         client = AppleMusicClient("dev", "user", session=fake_session)
         result = client.search_songs("Test Song", "us", limit=1)

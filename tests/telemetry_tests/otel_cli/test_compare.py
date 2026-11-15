@@ -119,7 +119,9 @@ class TestCompareMain(unittest.TestCase):
 
     def test_compare_error_returns_1(self):
         with patch("telemetry.otel.cli.compare.OTLPDataDir.from_env"):
-            with patch("telemetry.otel.cli.compare.compare_sessions", side_effect=ValueError("not found")):
+            with patch(
+                "telemetry.otel.cli.compare.compare_sessions", side_effect=ValueError("not found")
+            ):
                 buf = io.StringIO()
                 with patch("sys.stderr", buf):
                     result = main(["session-a", "session-b"])
@@ -133,6 +135,7 @@ class TestCompareMain(unittest.TestCase):
 
     def test_data_dir_flag(self):
         import tempfile
+
         comp = _make_comparison()
         with tempfile.TemporaryDirectory() as td:
             with patch("telemetry.otel.cli.compare.compare_sessions", return_value=comp):

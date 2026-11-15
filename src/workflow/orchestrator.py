@@ -14,6 +14,7 @@ from pathlib import Path
 
 from core.date_utils import iso_now
 from core.fileutil import atomic_write_json
+from workflow.compiler import WorkflowCompileError, enforce_param_rules, match_when_expression
 from workflow.dispatch import writes_to_relpath
 from workflow.dispatchers import (
     CompositeDispatcher,
@@ -28,7 +29,6 @@ from workflow.models import (
     WorkflowRun,
     make_stage_result,
 )
-from workflow.compiler import WorkflowCompileError, enforce_param_rules, match_when_expression
 from workflow.param_rules import UnsafePathError, require_shell_safe_path
 from workflow.persistence import (
     init_workspace,
@@ -107,7 +107,8 @@ class WorkflowOrchestrator:
         )
 
         self._dispatcher: StageDispatcher = dispatcher or CompositeDispatcher(
-            name, trigger_params=self._trigger_params,
+            name,
+            trigger_params=self._trigger_params,
         )
 
         self._stages_by_name: dict[str, ResolvedStage] = config.manifest.resolved_stages
@@ -143,14 +144,13 @@ class WorkflowOrchestrator:
         orch._run_id = f"{name}-resumed-{uuid.uuid4().hex[:8]}"
         orch._workspace_dir = Path(workspace_dir)
         orch._dispatcher = dispatcher or CompositeDispatcher(
-            name, trigger_params=orch._trigger_params,
+            name,
+            trigger_params=orch._trigger_params,
         )
         orch._stages_by_name = manifest.resolved_stages
 
         existing = list_stage_results(Path(workspace_dir))
-        orch._results = {
-            r.stage_name: r for r in existing if r.status == StageStatus.success
-        }
+        orch._results = {r.stage_name: r for r in existing if r.status == StageStatus.success}
         return orch
 
     def run(self) -> WorkflowRun:
@@ -184,8 +184,7 @@ class WorkflowOrchestrator:
         """
         if stage_name not in self._stages_by_name:
             raise WorkflowExecutionError(
-                f"Unknown stage '{stage_name}' — "
-                f"known stages: {sorted(self._stages_by_name)}"
+                f"Unknown stage '{stage_name}' — known stages: {sorted(self._stages_by_name)}"
             )
 
         resolved = self._stages_by_name[stage_name]
@@ -193,7 +192,9 @@ class WorkflowOrchestrator:
 
         if self._dry_run:
             return make_stage_result(
-                resolved, started_at, StageStatus.skipped,
+                resolved,
+                started_at,
+                StageStatus.skipped,
                 StageResultExtras(
                     data={"dry_run": True},
                     metadata={"run_id": self._run_id, "dry_run": self._dry_run},
@@ -202,12 +203,15 @@ class WorkflowOrchestrator:
 
         try:
             result = self._dispatcher.dispatch(
-                resolved, self._workspace_dir,
+                resolved,
+                self._workspace_dir,
             )
         except (OSError, ValueError, KeyError, RuntimeError, WorkflowExecutionError) as exc:
             logger.warning("Stage '%s' failed: %s", stage_name, exc)
             result = make_stage_result(
-                resolved, started_at, StageStatus.failed,
+                resolved,
+                started_at,
+                StageStatus.failed,
                 StageResultExtras(
                     errors=[f"Stage execution failed: {exc}"],
                     metadata={"run_id": self._run_id, "dry_run": self._dry_run},
@@ -247,17 +251,11 @@ class WorkflowOrchestrator:
             stage = self._stages_by_name.get(name)
             if stage is None:
                 continue
-            if (
-                stage.spec.human_gate
-                and group_results[name].status == StageStatus.success
-            ):
+            if stage.spec.human_gate and group_results[name].status == StageStatus.success:
                 self._status = StageStatus.awaiting_human
                 return self._build_run(started_at)
 
-        if any(
-            group_results[name].status == StageStatus.pending
-            for name in group
-        ):
+        if any(group_results[name].status == StageStatus.pending for name in group):
             self._status = StageStatus.pending
             return self._build_run(started_at)
 
@@ -316,9 +314,13 @@ class WorkflowOrchestrator:
                 # the real report (PR #454 review).
                 if not target.exists():
                     atomic_write_json(target, {})
-        logger.info("Stage '%s' skipped — when condition false: %r", stage.spec.name, stage.spec.when)
+        logger.info(
+            "Stage '%s' skipped — when condition false: %r", stage.spec.name, stage.spec.when
+        )
         return make_stage_result(
-            stage, started_at, StageStatus.skipped,
+            stage,
+            started_at,
+            StageStatus.skipped,
             StageResultExtras(data={"skipped_by_when": stage.spec.when}),
         )
 
@@ -340,7 +342,9 @@ class WorkflowOrchestrator:
                 to_dispatch.append(stage)
 
         if self._dry_run:
-            results.update({stage.spec.name: self.run_stage(stage.spec.name) for stage in to_dispatch})
+            results.update(
+                {stage.spec.name: self.run_stage(stage.spec.name) for stage in to_dispatch}
+            )
             return results
 
         if not to_dispatch:
@@ -348,7 +352,8 @@ class WorkflowOrchestrator:
 
         try:
             dispatched = self._dispatcher.dispatch_group(
-                to_dispatch, self._workspace_dir,
+                to_dispatch,
+                self._workspace_dir,
             )
         except (OSError, ValueError, KeyError, RuntimeError, WorkflowExecutionError):
             dispatched = {stage.spec.name: self.run_stage(stage.spec.name) for stage in to_dispatch}

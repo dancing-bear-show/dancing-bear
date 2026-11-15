@@ -15,7 +15,6 @@ from pathlib import Path
 
 from core.cli_errors import CLIError, ExitCode
 
-
 # ---------------------------------------------------------------------------
 # parse-overview helpers
 # ---------------------------------------------------------------------------
@@ -32,8 +31,7 @@ def _require_object_list(path: Path, data: dict, key: str) -> None:
         )
     if not isinstance(data[key], list):
         raise CLIError(
-            f"{path} has a malformed '{key}': expected a list, got "
-            f"{type(data[key]).__name__}.",
+            f"{path} has a malformed '{key}': expected a list, got {type(data[key]).__name__}.",
             ExitCode.USAGE,
         )
     for index, element in enumerate(data[key]):
@@ -546,6 +544,7 @@ def _cmd_count_blocking(args: argparse.Namespace) -> int:
     unreadable file); else 0.
     """
     from workflow.count_blocking import cmd_count_blocking
+
     return cmd_count_blocking(args.findings)
 
 
@@ -568,8 +567,9 @@ def _cmd_merge_fix_results(args: argparse.Namespace) -> int:
     if not (ok_primary and ok_retry):
         return int(ExitCode.ERROR)
     try:
-        merged = merge_fix_docs(parse_fix_doc(primary, "fix-results"),
-                                parse_fix_doc(retry, "refix-results"))
+        merged = merge_fix_docs(
+            parse_fix_doc(primary, "fix-results"), parse_fix_doc(retry, "refix-results")
+        )
     except ValueError as exc:
         print(f"merge-fix-results: {exc}", file=sys.stderr)
         return int(ExitCode.USAGE)

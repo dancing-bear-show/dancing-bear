@@ -47,6 +47,7 @@ class TestGenerateRouter(unittest.TestCase):
     def test_generate_router_standard_module(self):
         """Router contains the non-dotted dispatch branch for standard modules."""
         import sys
+
         sys.path.insert(0, str(repo_root() / "bin"))
         from _gen_wrappers import generate_router
 
@@ -60,6 +61,7 @@ class TestGenerateRouter(unittest.TestCase):
     def test_generate_router_core_module(self):
         """Router contains the dotted dispatch branch for core.* modules."""
         import sys
+
         sys.path.insert(0, str(repo_root() / "bin"))
         from _gen_wrappers import generate_router
 
@@ -76,6 +78,7 @@ class TestRenderQltyConfig(unittest.TestCase):
 
     def _render(self, existing, names):
         import sys
+
         sys.path.insert(0, str(repo_root() / "bin"))
         from _gen_wrappers import render_qlty_config
 
@@ -118,11 +121,12 @@ class TestRenderQltyConfig(unittest.TestCase):
     def test_raises_when_exclude_patterns_missing(self):
         """A config without exclude_patterns fails loudly rather than silently."""
         with self.assertRaises(SystemExit):
-            self._render("[smells]\nmode = \"comment\"\n", ["mail"])
+            self._render('[smells]\nmode = "comment"\n', ["mail"])
 
     def test_live_config_matches_wrappers_yaml(self):
         """The committed qlty.toml lists exactly the generated wrapper symlinks."""
         import sys
+
         sys.path.insert(0, str(repo_root() / "bin"))
         from _gen_wrappers import load_config
 
@@ -138,6 +142,7 @@ class TestLoadConfig(unittest.TestCase):
     def test_load_config_has_python_section(self):
         """Verify config loads with python section."""
         import sys
+
         sys.path.insert(0, str(repo_root() / "bin"))
         from _gen_wrappers import load_config
 
@@ -149,6 +154,7 @@ class TestLoadConfig(unittest.TestCase):
     def test_load_config_no_bash_section(self):
         """Verify bash section was removed (shortcuts deleted)."""
         import sys
+
         sys.path.insert(0, str(repo_root() / "bin"))
         from _gen_wrappers import load_config
 
@@ -164,6 +170,7 @@ class TestUpdateFile(unittest.TestCase):
     def test_update_file_creates_new(self):
         """Test creating a new file."""
         import sys
+
         sys.path.insert(0, str(repo_root() / "bin"))
         from _gen_wrappers import _update_file
 
@@ -180,6 +187,7 @@ class TestUpdateFile(unittest.TestCase):
     def test_update_file_unchanged(self):
         """Test file unchanged when content matches."""
         import sys
+
         sys.path.insert(0, str(repo_root() / "bin"))
         from _gen_wrappers import _update_file
 
@@ -192,6 +200,7 @@ class TestUpdateFile(unittest.TestCase):
     def test_update_file_changed(self):
         """Test file updated when content differs."""
         import sys
+
         sys.path.insert(0, str(repo_root() / "bin"))
         from _gen_wrappers import _update_file
 
@@ -205,6 +214,7 @@ class TestUpdateFile(unittest.TestCase):
     def test_update_file_check_mode_no_write(self):
         """Test check mode doesn't write files."""
         import sys
+
         sys.path.insert(0, str(repo_root() / "bin"))
         from _gen_wrappers import _update_file
 
@@ -221,6 +231,7 @@ class TestParseSimpleYaml(unittest.TestCase):
     def test_parse_python_entries(self):
         """Test parsing python entries."""
         import sys
+
         sys.path.insert(0, str(repo_root() / "bin"))
         from _gen_wrappers import _parse_simple_yaml
 
@@ -246,21 +257,40 @@ class TestWrappersExist(unittest.TestCase):
 
     def test_primary_wrappers_exist(self):
         """Test that primary Python wrappers exist."""
-        for name in ["mail", "phone", "calendar", "schedule", "whatsapp", "wifi", "maker", "assistant"]:
+        for name in [
+            "mail",
+            "phone",
+            "calendar",
+            "schedule",
+            "whatsapp",
+            "wifi",
+            "maker",
+            "assistant",
+        ]:
             path = bin_path(name)
             self.assertTrue(path.exists(), f"Missing wrapper: {name}")
 
     def test_legacy_aliases_exist(self):
         """Test that legacy -assistant aliases exist."""
-        for name in ["mail-assistant", "phone-assistant", "calendar-assistant", "schedule-assistant", "wifi-assistant"]:
+        for name in [
+            "mail-assistant",
+            "phone-assistant",
+            "calendar-assistant",
+            "schedule-assistant",
+            "wifi-assistant",
+        ]:
             path = bin_path(name)
             self.assertTrue(path.exists(), f"Missing legacy alias: {name}")
 
     def test_bash_shortcuts_removed(self):
         """Verify bash shortcuts were removed."""
         removed = [
-            "gmail-auth", "gmail-filters-export", "outlook-rules-sync",
-            "ios-plan", "ios-analyze", "outlook-auth-device-code"
+            "gmail-auth",
+            "gmail-filters-export",
+            "outlook-rules-sync",
+            "ios-plan",
+            "ios-analyze",
+            "outlook-auth-device-code",
         ]
         for name in removed:
             path = bin_path(name)

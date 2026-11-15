@@ -28,8 +28,7 @@ if _SRC.is_dir():
     # already present, then prepend the local src so this tree wins regardless
     # of sys.path ordering.
     sys.path[:] = [
-        p for p in sys.path
-        if p != _src_str and not (p.endswith("/src") and "/dancing-bear/" in p)
+        p for p in sys.path if p != _src_str and not (p.endswith("/src") and "/dancing-bear/" in p)
     ]
     sys.path.insert(0, _src_str)
 

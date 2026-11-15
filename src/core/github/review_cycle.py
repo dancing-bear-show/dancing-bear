@@ -97,7 +97,9 @@ def _outcome(entry: dict[str, Any], status: str) -> ThreadOutcome:
 
 
 def _already_replied(entry: dict[str, Any], run_id: str | None, actor: str | None) -> bool:
-    return bool(run_id and actor and has_run_marker(entry.get("comments") or [], run_id, actor=actor))
+    return bool(
+        run_id and actor and has_run_marker(entry.get("comments") or [], run_id, actor=actor)
+    )
 
 
 def _only_own_replies(entry: dict[str, Any], run_id: str | None, actor: str | None) -> bool:
@@ -113,7 +115,11 @@ def _only_own_replies(entry: dict[str, Any], run_id: str | None, actor: str | No
 
 
 def _settle_thread(
-    gh: GhCLI, entry: dict[str, Any], body: str, run_id: str | None, actor: str | None,
+    gh: GhCLI,
+    entry: dict[str, Any],
+    body: str,
+    run_id: str | None,
+    actor: str | None,
 ) -> ThreadOutcome:
     """Reply (unless this run already did), then resolve after a verified reply."""
     tid = str(entry["thread_id"])
@@ -150,7 +156,9 @@ class CycleOptions:
     dry_run: bool = False
 
 
-def _maybe_request(gh: GhCLI, owner: str, repo: str, result: ReviewCycleResult, request: bool) -> None:
+def _maybe_request(
+    gh: GhCLI, owner: str, repo: str, result: ReviewCycleResult, request: bool
+) -> None:
     if not request:
         result.re_review_skip_reason = SKIP_NOT_ASKED
         return
@@ -179,7 +187,9 @@ def _maybe_request(gh: GhCLI, owner: str, repo: str, result: ReviewCycleResult, 
     result.re_review_requested = True
 
 
-def run_review_cycle(gh: GhCLI, owner: str, repo: str, pr: int, opts: CycleOptions) -> ReviewCycleResult:
+def run_review_cycle(
+    gh: GhCLI, owner: str, repo: str, pr: int, opts: CycleOptions
+) -> ReviewCycleResult:
     """Reply to and resolve unresolved Copilot-opened threads, then re-request review.
 
     Selects unresolved threads Copilot opened where every comment is by a bot.
@@ -203,7 +213,9 @@ def run_review_cycle(gh: GhCLI, owner: str, repo: str, pr: int, opts: CycleOptio
     result.skipped_human_reply = [str(e["thread_id"]) for e in skipped if e not in retries]
     for entry in selected:
         if opts.dry_run:
-            status = "already_replied" if _already_replied(entry, opts.run_id, actor) else "would_reply"
+            status = (
+                "already_replied" if _already_replied(entry, opts.run_id, actor) else "would_reply"
+            )
             result.threads.append(_outcome(entry, status))
         else:
             result.threads.append(_settle_thread(gh, entry, marked, opts.run_id, actor))

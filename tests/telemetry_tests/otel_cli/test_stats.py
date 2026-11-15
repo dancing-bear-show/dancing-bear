@@ -39,7 +39,9 @@ def _make_spans_record(service: str = "claude", span_count: int = 1):
     return record
 
 
-def _make_metric_record_with_service(service: str = "claude", name: str = "cpu.usage", data_points_count: int = 3):
+def _make_metric_record_with_service(
+    service: str = "claude", name: str = "cpu.usage", data_points_count: int = 3
+):
     record = _make_metric_record(name, data_points_count)
     record.resource.service_name = service
     return record
@@ -156,6 +158,7 @@ class TestStatsMain(unittest.TestCase):
 
     def test_data_dir_flag(self):
         import tempfile
+
         with tempfile.TemporaryDirectory() as td:
             with patch("telemetry.otel.cli.stats.OTLPReader", return_value=self._make_reader()):
                 result = main(["--data-dir", td])

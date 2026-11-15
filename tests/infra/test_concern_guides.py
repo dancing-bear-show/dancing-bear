@@ -1,4 +1,5 @@
 """Verify concerns/*.md contains no repo-path:line citations that will drift."""
+
 import re
 import unittest
 from pathlib import Path
@@ -16,16 +17,12 @@ _REPO_DIRS = frozenset(
 # extension is any dotted suffix, not a hardcoded list, so a citation to a
 # non-.py/.yaml/.yml/.sh/.md path (e.g. src/data.json:12) is still caught.
 _DIR_PREFIX = re.compile(
-    r"`?(?:"
-    + "|".join(re.escape(d) for d in sorted(_REPO_DIRS))
-    + r")/[^:]+\.[A-Za-z0-9]+:\d+"
+    r"`?(?:" + "|".join(re.escape(d) for d in sorted(_REPO_DIRS)) + r")/[^:]+\.[A-Za-z0-9]+:\d+"
     r"`?"
 )
 
 # Any <name>.<ext>:N, including a bare filename with no leading directory.
-_BARE_FILE_PATTERN = re.compile(
-    r"`?[A-Za-z0-9_.\-]+\.[A-Za-z0-9]+:\d+`?"
-)
+_BARE_FILE_PATTERN = re.compile(r"`?[A-Za-z0-9_.\-]+\.[A-Za-z0-9]+:\d+`?")
 
 
 class TestConcernGuideCitations(unittest.TestCase):

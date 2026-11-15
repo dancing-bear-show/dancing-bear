@@ -49,6 +49,7 @@ class TestParseXValues(unittest.TestCase):
 
         series = self._make_series("ts", ["2024-01-15", "2024-01-16"])
         import numpy as np  # needed by the function
+
         with patch.dict("sys.modules", {"numpy": np}):
             result, is_dates = _parse_x_values(series, "ts")
         self.assertTrue(is_dates)
@@ -60,6 +61,7 @@ class TestParseXValues(unittest.TestCase):
 
         series = self._make_series("x", ["1", "2", "3"])
         import numpy as np
+
         with patch.dict("sys.modules", {"numpy": np}):
             result, is_dates = _parse_x_values(series, "x")
         self.assertFalse(is_dates)
@@ -71,6 +73,7 @@ class TestParseXValues(unittest.TestCase):
 
         series = self._make_series("x", ["alpha", "beta", "gamma"])
         import numpy as np
+
         with patch.dict("sys.modules", {"numpy": np}):
             result, is_dates = _parse_x_values(series, "x")
         self.assertFalse(is_dates)
@@ -82,6 +85,7 @@ class TestParseXValues(unittest.TestCase):
 
         series = [SeriesSpec(name="s", data=[])]
         import numpy as np
+
         with patch.dict("sys.modules", {"numpy": np}):
             result, is_dates = _parse_x_values(series, "ts")
         self.assertEqual(result, [])
@@ -96,6 +100,7 @@ class TestNormalizeAxesGrid(unittest.TestCase):
 
         mock_ax = MagicMock()
         import numpy as np
+
         with patch.dict("sys.modules", {"numpy": np}):
             result = _normalize_axes_grid(mock_ax, rows=1, cols=1)
         self.assertEqual(result, [[mock_ax]])
@@ -105,6 +110,7 @@ class TestNormalizeAxesGrid(unittest.TestCase):
 
         ax1, ax2, ax3 = MagicMock(), MagicMock(), MagicMock()
         import numpy as np
+
         with patch.dict("sys.modules", {"numpy": np}):
             result = _normalize_axes_grid([ax1, ax2, ax3], rows=1, cols=3)
         self.assertEqual(result, [[ax1, ax2, ax3]])
@@ -114,6 +120,7 @@ class TestNormalizeAxesGrid(unittest.TestCase):
 
         ax1, ax2, ax3 = MagicMock(), MagicMock(), MagicMock()
         import numpy as np
+
         with patch.dict("sys.modules", {"numpy": np}):
             result = _normalize_axes_grid([ax1, ax2, ax3], rows=3, cols=1)
         self.assertEqual(result, [[ax1], [ax2], [ax3]])
@@ -124,6 +131,7 @@ class TestNormalizeAxesGrid(unittest.TestCase):
         ax1, ax2, ax3, ax4 = MagicMock(), MagicMock(), MagicMock(), MagicMock()
         grid = [[ax1, ax2], [ax3, ax4]]
         import numpy as np
+
         with patch.dict("sys.modules", {"numpy": np}):
             result = _normalize_axes_grid(grid, rows=2, cols=2)
         self.assertEqual(result, [[ax1, ax2], [ax3, ax4]])

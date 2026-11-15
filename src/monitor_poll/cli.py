@@ -30,9 +30,10 @@ import argparse
 import json
 import math
 import sys
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from functools import lru_cache
-from typing import Any, Callable
+from typing import Any
 
 from core.assistant import BaseAssistant
 from core.cli_errors import CLIError, ExitCode, NotFoundError
@@ -93,10 +94,22 @@ def _positive(raw: str) -> float:
 
 
 _POLL_ARGS: tuple[tuple[tuple[str, ...], dict[str, Any]], ...] = (
-    (("--timeout",), {"type": _non_negative, "default": DEFAULT_TIMEOUT,
-                      "help": f"Max seconds to wait; 0 = check once (default: {DEFAULT_TIMEOUT:g})"}),
-    (("--interval",), {"type": _positive, "default": DEFAULT_INTERVAL,
-                       "help": f"Seconds between checks (default: {DEFAULT_INTERVAL:g})"}),
+    (
+        ("--timeout",),
+        {
+            "type": _non_negative,
+            "default": DEFAULT_TIMEOUT,
+            "help": f"Max seconds to wait; 0 = check once (default: {DEFAULT_TIMEOUT:g})",
+        },
+    ),
+    (
+        ("--interval",),
+        {
+            "type": _positive,
+            "default": DEFAULT_INTERVAL,
+            "help": f"Seconds between checks (default: {DEFAULT_INTERVAL:g})",
+        },
+    ),
     (("--ticks",), {"action": "store_true", "help": "Print one NDJSON line per check"}),
     (("--format",), {"choices": ("json", "text"), "default": "json", "help": "Output format"}),
 )
@@ -139,7 +152,9 @@ class PollRecord:
 def _emit(record: dict[str, Any], fmt: str) -> None:
     """Print one record; text mode is ``key=value`` pairs on one line."""
     if fmt == "json":
-        print(json.dumps(record, separators=(",", ":"), ensure_ascii=False, default=str), flush=True)
+        print(
+            json.dumps(record, separators=(",", ":"), ensure_ascii=False, default=str), flush=True
+        )
     else:
         print(" ".join(f"{k}={v}" for k, v in record.items() if v != ""), flush=True)
 
@@ -149,15 +164,29 @@ def _run_spec(args: argparse.Namespace, spec: PollSpec) -> int:
 
     def on_tick(polls: int, probe: Probe, elapsed: float) -> None:
         if args.ticks:
-            _emit({"poll": polls, "outcome": probe.outcome.value,
-                   "elapsed_s": round(elapsed, 1), "detail": probe.detail}, fmt)
+            _emit(
+                {
+                    "poll": polls,
+                    "outcome": probe.outcome.value,
+                    "elapsed_s": round(elapsed, 1),
+                    "detail": probe.detail,
+                },
+                fmt,
+            )
 
     with state.tracked_poll(spec.name, spec.summary) as poll_state:
-        result = run_poll(spec.condition, timeout=args.timeout, interval=args.interval,
-                          on_tick=on_tick)
+        result = run_poll(
+            spec.condition, timeout=args.timeout, interval=args.interval, on_tick=on_tick
+        )
         poll_state.status = _VERDICT_STATUS[result.verdict]
-    record = PollRecord(spec.name, result.verdict.value, result.polls,
-                        round(result.elapsed_s, 1), result.detail, poll_state.poll_id)
+    record = PollRecord(
+        spec.name,
+        result.verdict.value,
+        result.polls,
+        round(result.elapsed_s, 1),
+        result.detail,
+        poll_state.poll_id,
+    )
     _emit(asdict(record), fmt)
     if result.verdict is Verdict.ERROR:
         print(f"error: {result.detail}", file=sys.stderr)
@@ -169,12 +198,17 @@ def _run_spec(args: argparse.Namespace, spec: PollSpec) -> int:
 
 @_poll_command("cmd", "Poll until COMMAND exits with --expect-rc")
 @app.argument("--expect-rc", type=int, default=0, help="Exit code that means done (default: 0)")
-@app.argument("--attempt-timeout", type=_positive, default=conditions.DEFAULT_ATTEMPT_TIMEOUT,
-              help="Per-attempt command timeout, seconds")
+@app.argument(
+    "--attempt-timeout",
+    type=_positive,
+    default=conditions.DEFAULT_ATTEMPT_TIMEOUT,
+    help="Per-attempt command timeout, seconds",
+)
 @app.argument("argv", nargs=argparse.REMAINDER, help="Command and args (options go before it)")
 def cmd_cmd(args: argparse.Namespace) -> int:
     condition = conditions.command_condition(
-        args.argv, expect_rc=args.expect_rc, attempt_timeout=args.attempt_timeout)
+        args.argv, expect_rc=args.expect_rc, attempt_timeout=args.attempt_timeout
+    )
     summary = {"command": args.argv[0] if args.argv else "", "expect_rc": args.expect_rc}
     return _run_spec(args, PollSpec("cmd", summary, condition))
 
@@ -182,13 +216,17 @@ def cmd_cmd(args: argparse.Namespace) -> int:
 @_poll_command("output", "Poll until COMMAND stdout matches --match")
 @app.argument("--match", required=True, help="Regex that means done (re.search)")
 @app.argument("--fail-match", help="Regex that means failed (checked first)")
-@app.argument("--attempt-timeout", type=_positive, default=conditions.DEFAULT_ATTEMPT_TIMEOUT,
-              help="Per-attempt command timeout, seconds")
+@app.argument(
+    "--attempt-timeout",
+    type=_positive,
+    default=conditions.DEFAULT_ATTEMPT_TIMEOUT,
+    help="Per-attempt command timeout, seconds",
+)
 @app.argument("argv", nargs=argparse.REMAINDER, help="Command and args (options go before it)")
 def cmd_output(args: argparse.Namespace) -> int:
     condition = conditions.output_condition(
-        args.argv, args.match, fail_pattern=args.fail_match,
-        attempt_timeout=args.attempt_timeout)
+        args.argv, args.match, fail_pattern=args.fail_match, attempt_timeout=args.attempt_timeout
+    )
     summary = {"command": args.argv[0] if args.argv else "", "match": args.match}
     return _run_spec(args, PollSpec("output", summary, condition))
 
@@ -205,12 +243,17 @@ def cmd_file(args: argparse.Namespace) -> int:
 @_poll_command("http", "Poll until GET URL returns --status")
 @app.argument("--status", type=int, default=200, help="Expected HTTP status (default: 200)")
 @app.argument("--match", help="Regex the response body must also match")
-@app.argument("--attempt-timeout", type=_positive, default=10.0,
-              help="Per-request timeout, seconds (default: 10)")
+@app.argument(
+    "--attempt-timeout",
+    type=_positive,
+    default=10.0,
+    help="Per-request timeout, seconds (default: 10)",
+)
 @app.argument("url", help="http or https URL")
 def cmd_http(args: argparse.Namespace) -> int:
     condition = conditions.http_condition(
-        args.url, status=args.status, match=args.match, attempt_timeout=args.attempt_timeout)
+        args.url, status=args.status, match=args.match, attempt_timeout=args.attempt_timeout
+    )
     summary = {"url": mask_url(args.url), "status": args.status}
     return _run_spec(args, PollSpec("http", summary, condition))
 
@@ -248,14 +291,16 @@ def cmd_status(args: argparse.Namespace) -> int:
     for entry in state.load_states(root):
         alive = state.is_pid_alive(entry.pid)
         effective = "stale" if entry.status == state.STATUS_RUNNING and not alive else entry.status
-        rows.append({
-            "poll_id": entry.poll_id,
-            "condition": entry.condition,
-            "pid": entry.pid,
-            "status": effective,
-            "started_at": entry.started_at,
-            "args": ", ".join(f"{k}={v}" for k, v in entry.args.items()),
-        })
+        rows.append(
+            {
+                "poll_id": entry.poll_id,
+                "condition": entry.condition,
+                "pid": entry.pid,
+                "status": effective,
+                "started_at": entry.started_at,
+                "args": ", ".join(f"{k}={v}" for k, v in entry.args.items()),
+            }
+        )
     if not rows and args.format == "json":
         print("[]")
         return int(ExitCode.SUCCESS)
@@ -271,7 +316,9 @@ def cmd_cancel(args: argparse.Namespace) -> int:
     root = state.state_dir()
     entry = state.find_state(state.load_states(root), args.poll_id, args.pid)
     if entry is None:
-        raise NotFoundError(f"no poll found for {'poll_id=' + args.poll_id if args.poll_id else f'pid={args.pid}'}")
+        raise NotFoundError(
+            f"no poll found for {'poll_id=' + args.poll_id if args.poll_id else f'pid={args.pid}'}"
+        )
     reason = state.skip_signal_reason(entry)
     error = None if reason else state.send_sigterm(entry.pid)
     cancelled = reason is None and error is None
@@ -279,8 +326,10 @@ def cmd_cancel(args: argparse.Namespace) -> int:
         entry.status = state.STATUS_CANCELLED
         state.write_state(entry, root)
     detail = reason or error or "SIGTERM sent"
-    emit_one({"poll_id": entry.poll_id, "pid": entry.pid, "cancelled": cancelled, "detail": detail},
-             "jsonl")
+    emit_one(
+        {"poll_id": entry.poll_id, "pid": entry.pid, "cancelled": cancelled, "detail": detail},
+        "jsonl",
+    )
     return int(ExitCode.ERROR) if error else int(ExitCode.SUCCESS)
 
 

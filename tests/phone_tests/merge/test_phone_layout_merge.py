@@ -11,7 +11,6 @@ from phone.layout_merge import (
     verify_conservation,
 )
 
-
 # Minimal synthetic layout fixture
 FIXTURE_LAYOUT = {
     "dock": ["com.dock.app1", "com.dock.app2"],
@@ -115,9 +114,7 @@ class TestMergeFoldersLooseApps(unittest.TestCase):
         # com.theathletic.news should land in a folder (not a pin, not loose)
         self.assertNotIn("com.theathletic.news", plan.pins)
         # Must be in some folder
-        all_foldered = {
-            bid for apps in plan.folders.values() for bid in apps
-        }
+        all_foldered = {bid for apps in plan.folders.values() for bid in apps}
         self.assertIn("com.theathletic.news", all_foldered)
 
     def test_page1_pins_preserved(self):
@@ -125,9 +122,7 @@ class TestMergeFoldersLooseApps(unittest.TestCase):
         self.assertIn("com.apple.mobilesafari", plan.pins)
         self.assertIn("com.apple.Preferences", plan.pins)
         # Page-1 apps must NOT be in any folder
-        all_foldered = {
-            bid for apps in plan.folders.values() for bid in apps
-        }
+        all_foldered = {bid for apps in plan.folders.values() for bid in apps}
         self.assertNotIn("com.apple.mobilesafari", all_foldered)
         self.assertNotIn("com.apple.Preferences", all_foldered)
 

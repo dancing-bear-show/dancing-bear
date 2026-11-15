@@ -20,7 +20,9 @@ class TestValidateImports(unittest.TestCase):
         self.assertEqual([s["status"] for s in result["symbols"]], ["PASS", "PASS"])
 
     def test_missing_symbol_fails_only_that_symbol(self):
-        result = run_json(["validate-imports", "--module", "os.path", "--symbols", "join,no_such_name"])
+        result = run_json(
+            ["validate-imports", "--module", "os.path", "--symbols", "join,no_such_name"]
+        )
         self.assertEqual(result["overall"], "FAIL")
         by_name = {s["name"]: s for s in result["symbols"]}
         self.assertEqual(by_name["join"]["status"], "PASS")
@@ -28,7 +30,9 @@ class TestValidateImports(unittest.TestCase):
         self.assertIn("no_such_name", by_name["no_such_name"]["error"])
 
     def test_unimportable_module_fails_every_symbol(self):
-        result = run_json(["validate-imports", "--module", "no_such_module_xyz", "--symbols", "a,b"])
+        result = run_json(
+            ["validate-imports", "--module", "no_such_module_xyz", "--symbols", "a,b"]
+        )
         self.assertEqual(result["overall"], "FAIL")
         self.assertEqual(len(result["symbols"]), 2)
         self.assertTrue(all("ModuleNotFoundError" in s["error"] for s in result["symbols"]))
@@ -107,7 +111,9 @@ class TestParseAllNames(unittest.TestCase):
             diff_path = f.name
         try:
             ast_result = run_json(["validate-ast", "--file", py_path, "--all-exported"])
-            patch_result = run_json(["analyze-patch", "--patch", diff_path, "--extract", "all-list"])
+            patch_result = run_json(
+                ["analyze-patch", "--patch", diff_path, "--extract", "all-list"]
+            )
             self.assertEqual(sorted(ast_result["all_list"]), sorted(patch_result["results"]))
         finally:
             os.unlink(py_path)
@@ -291,7 +297,9 @@ class TestValidateAst(TempDirMixin, unittest.TestCase):
 
     def test_all_exported_and_function_are_mutually_exclusive(self):
         path = write(self.tmpdir, "f.py", "x = 1\n")
-        rc, out, _err = run_main(["validate-ast", "--file", path, "--all-exported", "--function", "f"])
+        rc, out, _err = run_main(
+            ["validate-ast", "--file", path, "--all-exported", "--function", "f"]
+        )
         self.assertEqual((rc, out), (2, ""))
 
     def test_unknown_function_fails(self):
@@ -322,7 +330,9 @@ class TestValidateAst(TempDirMixin, unittest.TestCase):
 class TestValidateJson(TempDirMixin, unittest.TestCase):
     def test_keys_and_count(self):
         path = write(self.tmpdir, "f.json", '{"status": "ok", "results": [1, 2, 3]}')
-        result = run_json(["validate-json", "--file", path, "--keys", "status,results", "--count", "results"])
+        result = run_json(
+            ["validate-json", "--file", path, "--keys", "status,results", "--count", "results"]
+        )
         self.assertTrue(result["valid"])
         self.assertEqual(result["keys"], ["status", "results"])
         self.assertEqual(result["counts"], {"results": 3})

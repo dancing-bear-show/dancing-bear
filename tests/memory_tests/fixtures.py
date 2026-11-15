@@ -186,10 +186,14 @@ def sample_bundle() -> MemoryBundle:
         body="**Why:** Testing.\n\n**How to apply:** Use in tests.",
         provenance=provenance,
         redactions=(
-            Redaction(rule_id="abs-home-path", severity="scrub", line_no=1, matched="~/", replacement="~/"),
+            Redaction(
+                rule_id="abs-home-path", severity="scrub", line_no=1, matched="~/", replacement="~/"
+            ),
         ),
     )
-    return MemoryBundle(bundle_version=BUNDLE_VERSION, created_at=now, memories=(em,), notes="test bundle")
+    return MemoryBundle(
+        bundle_version=BUNDLE_VERSION, created_at=now, memories=(em,), notes="test bundle"
+    )
 
 
 def dirty_memory_text() -> str:

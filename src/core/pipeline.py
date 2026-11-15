@@ -1,4 +1,5 @@
 """Shared consumer/processor/producer scaffolding."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -6,7 +7,6 @@ from typing import Any, Generic, Protocol, TypeVar
 
 from core.cli_errors import CLIError
 from core.cli_output import OutputWriter
-
 
 ResultT = TypeVar("ResultT")
 RequestT = TypeVar("RequestT")
@@ -53,18 +53,15 @@ class ResultEnvelope(Generic[ResultT]):
 
 
 class Consumer(Protocol[_PayloadCov]):
-    def consume(self) -> _PayloadCov:
-        ...
+    def consume(self) -> _PayloadCov: ...
 
 
 class Processor(Protocol[_PayloadContra, _ResultCov]):
-    def process(self, payload: _PayloadContra) -> _ResultCov:
-        ...
+    def process(self, payload: _PayloadContra) -> _ResultCov: ...
 
 
 class Producer(Protocol[_ResultContra]):
-    def produce(self, result: _ResultContra) -> None:
-        ...
+    def produce(self, result: _ResultContra) -> None: ...
 
 
 class RequestConsumer(Generic[RequestT], Consumer[RequestT]):
@@ -155,7 +152,9 @@ class SafeProcessor(Generic[T, R]):
             result = self._process_safe(payload)
             return ResultEnvelope(status="success", payload=result)
         except CLIError as e:
-            return ResultEnvelope(status="error", diagnostics={"message": str(e), "code": int(e.code)})
+            return ResultEnvelope(
+                status="error", diagnostics={"message": str(e), "code": int(e.code)}
+            )
         except Exception as e:
             return ResultEnvelope(status="error", diagnostics={"message": str(e)})
 

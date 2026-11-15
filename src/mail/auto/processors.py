@@ -1,4 +1,5 @@
 """Processors for auto pipelines."""
+
 from __future__ import annotations
 
 import time
@@ -9,11 +10,19 @@ from typing import Any
 
 from core.pipeline import SafeProcessor
 
-from .consumers import AutoProposePayload, AutoSummaryPayload, AutoApplyPayload
 from ..utils.senders import is_protected_sender
+from .consumers import AutoApplyPayload, AutoProposePayload, AutoSummaryPayload
 
-
-_PROMO_KEYWORDS = ["sale", "% off", "percent off", "deal", "promo", "clearance", "free shipping", "coupon"]
+_PROMO_KEYWORDS = [
+    "sale",
+    "% off",
+    "percent off",
+    "deal",
+    "promo",
+    "clearance",
+    "free shipping",
+    "coupon",
+]
 
 
 def _detect_low_interest_reasons(hdrs: dict, label_ids: set, subject: str) -> list[str]:
@@ -92,7 +101,9 @@ class AutoApplyResult:
 
     total_modified: int = 0
     dry_run: bool = False
-    groups: list[tuple[int, list[str], list[str]]] = field(default_factory=list)  # (count, add_ids, rem_ids)
+    groups: list[tuple[int, list[str], list[str]]] = field(
+        default_factory=list
+    )  # (count, add_ids, rem_ids)
 
 
 class AutoProposeProcessor(SafeProcessor[AutoProposePayload, AutoProposeResult]):
@@ -142,6 +153,7 @@ class AutoProposeProcessor(SafeProcessor[AutoProposePayload, AutoProposeResult])
             }
 
             from core.fileutil import atomic_write_json
+
             atomic_write_json(payload.out_path, doc)
 
             logger.end(sid, status="ok")
@@ -199,7 +211,9 @@ class AutoApplyProcessor(SafeProcessor[AutoApplyPayload, AutoApplyResult]):
         from ..applog import AppLogger
 
         logger = AppLogger(payload.log_path)
-        sid = logger.start("auto_apply", {"dry_run": payload.dry_run, "batch_size": payload.batch_size})
+        sid = logger.start(
+            "auto_apply", {"dry_run": payload.dry_run, "batch_size": payload.batch_size}
+        )
         try:
             msgs = payload.proposal.get("messages") or []
             client = payload.context.get_gmail_client()

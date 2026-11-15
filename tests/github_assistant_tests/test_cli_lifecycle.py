@@ -24,13 +24,33 @@ REPO = ["--repo", "octo-org/demo-repo"]
 
 
 def _pr_detail(number: int, paths: list[str]) -> str:
-    return json.dumps({"data": {"repository": {"pullRequest": {
-        "number": number, "title": f"PR {number}", "state": "MERGED", "url": f"https://example.invalid/{number}",
-        "mergedAt": None, "closedAt": None, "baseRefName": "main", "headRefName": f"feat/{number}",
-        "additions": 1, "deletions": 0, "changedFiles": len(paths), "author": {"login": "alice"},
-        "files": {"totalCount": len(paths), "pageInfo": {"hasNextPage": False, "endCursor": None},
-                  "nodes": [{"path": p, "additions": 1, "deletions": 0} for p in paths]},
-    }}}})
+    return json.dumps(
+        {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "number": number,
+                        "title": f"PR {number}",
+                        "state": "MERGED",
+                        "url": f"https://example.invalid/{number}",
+                        "mergedAt": None,
+                        "closedAt": None,
+                        "baseRefName": "main",
+                        "headRefName": f"feat/{number}",
+                        "additions": 1,
+                        "deletions": 0,
+                        "changedFiles": len(paths),
+                        "author": {"login": "alice"},
+                        "files": {
+                            "totalCount": len(paths),
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            "nodes": [{"path": p, "additions": 1, "deletions": 0} for p in paths],
+                        },
+                    }
+                }
+            }
+        }
+    )
 
 
 class TestPrSummary(unittest.TestCase):
@@ -65,8 +85,19 @@ class TestPrSummary(unittest.TestCase):
             return fake(cmd, **kwargs)
 
         with patch("github_assistant.cli.client", return_value=GhCLI(run_func=routed)):
-            rc, out, _ = _run_cli(["pr", "summary", *REPO, "--author", "@me", "--limit", "2",
-                                   "--include-path", "src/"])
+            rc, out, _ = _run_cli(
+                [
+                    "pr",
+                    "summary",
+                    *REPO,
+                    "--author",
+                    "@me",
+                    "--limit",
+                    "2",
+                    "--include-path",
+                    "src/",
+                ]
+            )
         self.assertEqual(rc, 0)
         self.assertEqual([r["number"] for r in json.loads(out)], [2])
         listing = next(c.argv for c in fake.calls if c.argv[1:3] == ["pr", "list"])
@@ -76,10 +107,23 @@ class TestPrSummary(unittest.TestCase):
     def test_path_mode_glob_filters_correctly(self):
         """``--path-mode glob`` must wire through to fnmatch; a mis-wired mode would fail."""
         fake = FakeGhRunner()
-        fake.add(["graphql", "files(first"], stdout=_pr_detail(1, ["src/core/foo.py", "docs/bar.md"]))
+        fake.add(
+            ["graphql", "files(first"], stdout=_pr_detail(1, ["src/core/foo.py", "docs/bar.md"])
+        )
         with _install_client(fake):
-            rc, out, _ = _run_cli(["pr", "summary", *REPO, "--pr", "1",
-                                   "--include-path", "src/**", "--path-mode", "glob"])
+            rc, out, _ = _run_cli(
+                [
+                    "pr",
+                    "summary",
+                    *REPO,
+                    "--pr",
+                    "1",
+                    "--include-path",
+                    "src/**",
+                    "--path-mode",
+                    "glob",
+                ]
+            )
         self.assertEqual(rc, 0)
         self.assertEqual([r["number"] for r in json.loads(out)], [1])
 
@@ -88,8 +132,19 @@ class TestPrSummary(unittest.TestCase):
         fake = FakeGhRunner()
         fake.add(["graphql", "files(first"], stdout=_pr_detail(2, ["src/core/foo.py"]))
         with _install_client(fake):
-            rc, out, _ = _run_cli(["pr", "summary", *REPO, "--pr", "2",
-                                   "--include-path", r"^src/", "--path-mode", "regex"])
+            rc, out, _ = _run_cli(
+                [
+                    "pr",
+                    "summary",
+                    *REPO,
+                    "--pr",
+                    "2",
+                    "--include-path",
+                    r"^src/",
+                    "--path-mode",
+                    "regex",
+                ]
+            )
         self.assertEqual(rc, 0)
         self.assertEqual([r["number"] for r in json.loads(out)], [2])
 
@@ -97,8 +152,9 @@ class TestPrSummary(unittest.TestCase):
         fake = FakeGhRunner()
         fake.add(["graphql", "files(first"], stdout=_pr_detail(5, ["docs/x.md"]))
         with _install_client(fake):
-            rc, out, _ = _run_cli(["pr", "summary", *REPO, "--pr", "5", "--exclude-path", "docs/",
-                                   "--format", "text"])
+            rc, out, _ = _run_cli(
+                ["pr", "summary", *REPO, "--pr", "5", "--exclude-path", "docs/", "--format", "text"]
+            )
         self.assertEqual(rc, 0)
         self.assertIn("No matching pull requests.", out)
 
@@ -135,25 +191,57 @@ class TestActivity(unittest.TestCase):
 
 
 def _threads_doc_responses(fake: FakeGhRunner, nodes: list[dict[str, Any]]) -> None:
-    fake.add(["graphql", "reviewThreads"], stdout=json.dumps({"data": {"repository": {"pullRequest": {
-        "reviewThreads": {"totalCount": len(nodes), "pageInfo": {"hasNextPage": False, "endCursor": None},
-                          "nodes": nodes}}}}}))
+    fake.add(
+        ["graphql", "reviewThreads"],
+        stdout=json.dumps(
+            {
+                "data": {
+                    "repository": {
+                        "pullRequest": {
+                            "reviewThreads": {
+                                "totalCount": len(nodes),
+                                "pageInfo": {"hasNextPage": False, "endCursor": None},
+                                "nodes": nodes,
+                            }
+                        }
+                    }
+                }
+            }
+        ),
+    )
     fake.add(["--paginate"], stdout="[[]]")
 
 
 def _copilot_node(tid: str) -> dict[str, Any]:
-    return {"id": tid, "isResolved": False, "isOutdated": False, "path": "a.py", "line": 1,
-            "comments": {"totalCount": 1, "pageInfo": {"hasNextPage": False, "endCursor": None},
-                         "nodes": [{"databaseId": 1, "author": {"login": "copilot-pull-request-reviewer",
-                                                                 "__typename": "Bot"},
-                                    "body": "nit", "createdAt": "t", "url": "u"}]}}
+    return {
+        "id": tid,
+        "isResolved": False,
+        "isOutdated": False,
+        "path": "a.py",
+        "line": 1,
+        "comments": {
+            "totalCount": 1,
+            "pageInfo": {"hasNextPage": False, "endCursor": None},
+            "nodes": [
+                {
+                    "databaseId": 1,
+                    "author": {"login": "copilot-pull-request-reviewer", "__typename": "Bot"},
+                    "body": "nit",
+                    "createdAt": "t",
+                    "url": "u",
+                }
+            ],
+        },
+    }
 
 
 @patch.dict(os.environ, {COPILOT_REVIEW_ENV: ""})
 class TestCopilotGroup(unittest.TestCase):
     def test_request_posts_and_reports(self):
         fake = FakeGhRunner()
-        fake.add(["requested_reviewers"], stdout=json.dumps({"number": 7, "requested_reviewers": []}))
+        fake.add(
+            ["requested_reviewers"], stdout=json.dumps({"number": 7, "requested_reviewers": []})
+        )
         with _install_client(fake):
             rc, out, _ = _run_cli(["copilot", "request", *REPO, "--pr", "7"])
         self.assertEqual(rc, 0)
@@ -169,7 +257,10 @@ class TestCopilotGroup(unittest.TestCase):
         self.assertEqual(rc, 1)
 
     def test_request_dry_run_and_kill_switch_post_nothing(self):
-        for argv, env, reason in ((["--dry-run"], "", None), ([], "off", "copilot review disabled")):
+        for argv, env, reason in (
+            (["--dry-run"], "", None),
+            ([], "off", "copilot review disabled"),
+        ):
             fake = FakeGhRunner()
             with _install_client(fake), patch.dict(os.environ, {COPILOT_REVIEW_ENV: env}):
                 rc, out, _ = _run_cli(["copilot", "request", *REPO, "--pr", "7", *argv])
@@ -194,26 +285,42 @@ class TestCopilotGroup(unittest.TestCase):
             body = os.path.join(tmp, "reply.md")
             with open(body, "w", encoding="utf-8") as fh:
                 fh.write("Fixed.\n")
-            rc, out, _ = _run_cli(["copilot", "cycle", *REPO, "--pr", "7", "--body-file", body, "--dry-run"])
+            rc, out, _ = _run_cli(
+                ["copilot", "cycle", *REPO, "--pr", "7", "--body-file", body, "--dry-run"]
+            )
         self.assertEqual(rc, 0)
         data = json.loads(out)
         self.assertEqual([t["status"] for t in data["threads"]], ["would_reply"])
-        self.assertFalse(any("mutation" in c.query_text or "requested_reviewers" in c.all_text()
-                             for c in fake.calls))
+        self.assertFalse(
+            any(
+                "mutation" in c.query_text or "requested_reviewers" in c.all_text()
+                for c in fake.calls
+            )
+        )
 
     def test_cycle_no_request_flag_skips_request(self):
         """``--no-request`` must wire to ``request=False``; re-review is never posted."""
         fake = FakeGhRunner()
         _threads_doc_responses(fake, [_copilot_node("CP1")])
-        fake.add(["addPullRequestReviewThreadReply"],
-                 stdout=json.dumps({"data": {"addPullRequestReviewThreadReply": {"comment": {"id": "C1", "url": "u"}}}}))
-        fake.add(["resolveReviewThread"],
-                 stdout=json.dumps({"data": {"resolveReviewThread": {"thread": {"id": "CP1", "isResolved": True}}}}))
+        fake.add(
+            ["addPullRequestReviewThreadReply"],
+            stdout=json.dumps(
+                {"data": {"addPullRequestReviewThreadReply": {"comment": {"id": "C1", "url": "u"}}}}
+            ),
+        )
+        fake.add(
+            ["resolveReviewThread"],
+            stdout=json.dumps(
+                {"data": {"resolveReviewThread": {"thread": {"id": "CP1", "isResolved": True}}}}
+            ),
+        )
         with TemporaryDirectory() as tmp, _install_client(fake):
             body = os.path.join(tmp, "reply.md")
             with open(body, "w", encoding="utf-8") as fh:
                 fh.write("Fixed.\n")
-            rc, out, _ = _run_cli(["copilot", "cycle", *REPO, "--pr", "7", "--body-file", body, "--no-request"])
+            rc, out, _ = _run_cli(
+                ["copilot", "cycle", *REPO, "--pr", "7", "--body-file", body, "--no-request"]
+            )
         self.assertEqual(rc, 0)
         self.assertEqual(json.loads(out)["re_review_skip_reason"], "not requested")
         self.assertFalse(any("requested_reviewers" in c.all_text() for c in fake.calls))
@@ -223,17 +330,28 @@ class TestCopilotGroup(unittest.TestCase):
         fake = FakeGhRunner()
         _threads_doc_responses(fake, [_copilot_node("CP1")])
         fake.add(["graphql", "viewer"], stdout=json.dumps({"data": {"viewer": {"login": "alice"}}}))
-        fake.add(["addPullRequestReviewThreadReply"],
-                 stdout=json.dumps({"data": {"addPullRequestReviewThreadReply": {"comment": {"id": "C1", "url": "u"}}}}))
-        fake.add(["resolveReviewThread"],
-                 stdout=json.dumps({"data": {"resolveReviewThread": {"thread": {"id": "CP1", "isResolved": True}}}}))
-        fake.add(["requested_reviewers"],
-                 stdout=json.dumps({"number": 7, "requested_reviewers": []}))
+        fake.add(
+            ["addPullRequestReviewThreadReply"],
+            stdout=json.dumps(
+                {"data": {"addPullRequestReviewThreadReply": {"comment": {"id": "C1", "url": "u"}}}}
+            ),
+        )
+        fake.add(
+            ["resolveReviewThread"],
+            stdout=json.dumps(
+                {"data": {"resolveReviewThread": {"thread": {"id": "CP1", "isResolved": True}}}}
+            ),
+        )
+        fake.add(
+            ["requested_reviewers"], stdout=json.dumps({"number": 7, "requested_reviewers": []})
+        )
         with TemporaryDirectory() as tmp, _install_client(fake):
             body = os.path.join(tmp, "reply.md")
             with open(body, "w", encoding="utf-8") as fh:
                 fh.write("Fixed.\n")
-            rc, _, _ = _run_cli(["copilot", "cycle", *REPO, "--pr", "7", "--body-file", body, "--run-id", "myrun42"])
+            rc, _, _ = _run_cli(
+                ["copilot", "cycle", *REPO, "--pr", "7", "--body-file", body, "--run-id", "myrun42"]
+            )
         self.assertEqual(rc, 0)
         reply_calls = [c for c in fake.calls if "addPullRequestReviewThreadReply" in c.query_text]
         self.assertTrue(reply_calls, "expected at least one reply call")
@@ -244,10 +362,18 @@ class TestCopilotGroup(unittest.TestCase):
         """A failed resolve must cause exit 1."""
         fake = FakeGhRunner()
         _threads_doc_responses(fake, [_copilot_node("CP1")])
-        fake.add(["addPullRequestReviewThreadReply"],
-                 stdout=json.dumps({"data": {"addPullRequestReviewThreadReply": {"comment": {"id": "C1", "url": "u"}}}}))
-        fake.add(["resolveReviewThread"],
-                 stdout=json.dumps({"data": {"resolveReviewThread": {"thread": {"id": "CP1", "isResolved": False}}}}))
+        fake.add(
+            ["addPullRequestReviewThreadReply"],
+            stdout=json.dumps(
+                {"data": {"addPullRequestReviewThreadReply": {"comment": {"id": "C1", "url": "u"}}}}
+            ),
+        )
+        fake.add(
+            ["resolveReviewThread"],
+            stdout=json.dumps(
+                {"data": {"resolveReviewThread": {"thread": {"id": "CP1", "isResolved": False}}}}
+            ),
+        )
         with TemporaryDirectory() as tmp, _install_client(fake):
             body = os.path.join(tmp, "reply.md")
             with open(body, "w", encoding="utf-8") as fh:
@@ -258,8 +384,10 @@ class TestCopilotGroup(unittest.TestCase):
     def test_cycle_reply_failure_exits_1(self):
         fake = FakeGhRunner()
         _threads_doc_responses(fake, [_copilot_node("CP1")])
-        fake.add(["addPullRequestReviewThreadReply"],
-                 stdout=json.dumps({"data": None, "errors": [{"message": "nope"}]}))
+        fake.add(
+            ["addPullRequestReviewThreadReply"],
+            stdout=json.dumps({"data": None, "errors": [{"message": "nope"}]}),
+        )
         with TemporaryDirectory() as tmp, _install_client(fake):
             body = os.path.join(tmp, "reply.md")
             with open(body, "w", encoding="utf-8") as fh:

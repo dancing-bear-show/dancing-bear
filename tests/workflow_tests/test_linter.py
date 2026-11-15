@@ -8,9 +8,9 @@ variable-reference warnings, and CLI command validation).
 from __future__ import annotations
 
 import tempfile
-from typing import cast
 import unittest
 from pathlib import Path
+from typing import cast
 
 from workflow.linter import (
     LintError,
@@ -21,7 +21,6 @@ from workflow.linter import (
     lint_workflow,
 )
 from workflow.linter_access import _roles_that_cannot_write
-
 
 # ---------------------------------------------------------------------------
 # Minimal workflow YAML helpers
@@ -103,7 +102,9 @@ class TestLintResultAsDict(unittest.TestCase):
 
     def test_warnings_serialised(self) -> None:
         r = LintResult(file="wf.yaml")
-        r.warnings.append(LintWarning(stage="gather", field="description", message="undeclared {foo}"))
+        r.warnings.append(
+            LintWarning(stage="gather", field="description", message="undeclared {foo}")
+        )
         d = r.as_dict()
         warnings = cast(list[dict[str, str]], d["warnings"])
         self.assertEqual(len(warnings), 1)
@@ -151,9 +152,8 @@ class TestExtractVarRefs(unittest.TestCase):
 class TestComputeDagDepth(unittest.TestCase):
     def _make_stages(self, names_deps: list[tuple[str, list[str]]]):
         from types import SimpleNamespace
-        return tuple(
-            SimpleNamespace(name=n, depends_on=d) for n, d in names_deps
-        )
+
+        return tuple(SimpleNamespace(name=n, depends_on=d) for n, d in names_deps)
 
     def test_empty_returns_zero(self) -> None:
         self.assertEqual(_compute_dag_depth(()), 0)
@@ -163,11 +163,13 @@ class TestComputeDagDepth(unittest.TestCase):
         self.assertEqual(_compute_dag_depth(stages), 1)
 
     def test_serial_chain_depth_equals_length(self) -> None:
-        stages = self._make_stages([
-            ("a", []),
-            ("b", ["a"]),
-            ("c", ["b"]),
-        ])
+        stages = self._make_stages(
+            [
+                ("a", []),
+                ("b", ["a"]),
+                ("c", ["b"]),
+            ]
+        )
         self.assertEqual(_compute_dag_depth(stages), 3)
 
     def test_parallel_stages_depth_one(self) -> None:
@@ -175,12 +177,14 @@ class TestComputeDagDepth(unittest.TestCase):
         self.assertEqual(_compute_dag_depth(stages), 1)
 
     def test_diamond_depth_three(self) -> None:
-        stages = self._make_stages([
-            ("root", []),
-            ("left", ["root"]),
-            ("right", ["root"]),
-            ("merge", ["left", "right"]),
-        ])
+        stages = self._make_stages(
+            [
+                ("root", []),
+                ("left", ["root"]),
+                ("right", ["root"]),
+                ("merge", ["left", "right"]),
+            ]
+        )
         self.assertEqual(_compute_dag_depth(stages), 3)
 
 
@@ -312,9 +316,7 @@ class TestRolesThatCannotWrite(unittest.TestCase):
 
     def test_missing_directory_returns_empty(self) -> None:
         # Linting from outside a checkout must degrade to "no warnings", not raise.
-        self.assertEqual(
-            _roles_that_cannot_write(Path("/no/such/agents/dir")), frozenset()
-        )
+        self.assertEqual(_roles_that_cannot_write(Path("/no/such/agents/dir")), frozenset())
 
 
 def _access_yaml(*, role: str, tools: str, access: str = "") -> str:
@@ -359,9 +361,7 @@ class TestCheckAgentAccess(unittest.TestCase):
         self.assertTrue(result.valid)
 
     def test_read_only_listing_edit_warns(self) -> None:
-        result = self._lint(
-            _access_yaml(role="reviewer", tools="Read, Edit", access="read-only")
-        )
+        result = self._lint(_access_yaml(role="reviewer", tools="Read, Edit", access="read-only"))
         self.assertEqual(len(self._access_warnings(result)), 1)
 
     def test_read_write_listing_write_is_clean(self) -> None:
@@ -381,9 +381,7 @@ class TestCheckAgentAccess(unittest.TestCase):
         self.assertEqual(self._access_warnings(result), [])
 
     def test_read_only_without_write_tools_is_clean(self) -> None:
-        result = self._lint(
-            _access_yaml(role="researcher", tools="Bash, Read", access="read-only")
-        )
+        result = self._lint(_access_yaml(role="researcher", tools="Bash, Read", access="read-only"))
         self.assertEqual(self._access_warnings(result), [])
 
     def test_read_write_on_role_that_cannot_write_warns(self) -> None:
@@ -392,9 +390,7 @@ class TestCheckAgentAccess(unittest.TestCase):
         Explore still disallows Write, so a stage assigning it read-write is
         declaring a capability the role does not have.
         """
-        result = self._lint(
-            _access_yaml(role="Explore", tools="Read", access="read-write")
-        )
+        result = self._lint(_access_yaml(role="Explore", tools="Read", access="read-write"))
         warnings = self._access_warnings(result)
         self.assertEqual(len(warnings), 1)
         self.assertIn("cannot produce its outputs", warnings[0].message)
@@ -404,9 +400,7 @@ class TestCheckAgentAccess(unittest.TestCase):
         result = self._lint(
             _access_yaml(role="researcher", tools="Read, Write", access="read-only")
         )
-        self.assertIn(
-            ".claude/agents/researcher.md", self._access_warnings(result)[0].message
-        )
+        self.assertIn(".claude/agents/researcher.md", self._access_warnings(result)[0].message)
 
     def test_fragment_stages_are_checked(self) -> None:
         """Fragments get the same check as full workflows.
@@ -441,7 +435,7 @@ class TestCheckAgentAccess(unittest.TestCase):
         available there unless the role's frontmatter withholds it.
         """
         result = self._lint(
-            "name: t\nversion: \"1.0\"\ndescription: d\n"
+            'name: t\nversion: "1.0"\ndescription: d\n'
             "trigger:\n  source: manual\n"
             "stages:\n  - name: s\n    kind: gather\n    description: d\n"
             "    agent:\n      role: researcher\n      access: read-only\n"
@@ -452,9 +446,7 @@ class TestCheckAgentAccess(unittest.TestCase):
 
     def test_read_only_with_explicit_empty_tools_warns(self) -> None:
         """`tools: []` is the same all-tools case written out."""
-        result = self._lint(
-            _access_yaml(role="researcher", tools="", access="read-only")
-        )
+        result = self._lint(_access_yaml(role="researcher", tools="", access="read-only"))
         self.assertEqual(len(self._access_warnings(result)), 1)
 
     def test_read_only_no_tools_on_write_blocked_role_is_clean(self) -> None:
@@ -464,7 +456,7 @@ class TestCheckAgentAccess(unittest.TestCase):
         an accurate declaration there rather than a misleading one.
         """
         result = self._lint(
-            "name: t\nversion: \"1.0\"\ndescription: d\n"
+            'name: t\nversion: "1.0"\ndescription: d\n'
             "trigger:\n  source: manual\n"
             "stages:\n  - name: s\n    kind: gather\n    description: d\n"
             "    agent:\n      role: Explore\n      access: read-only\n"
@@ -481,7 +473,7 @@ class TestCheckAgentAccess(unittest.TestCase):
         why `AgentSpec.access_declared` now records the difference.
         """
         result = self._lint(
-            "name: t\nversion: \"1.0\"\ndescription: d\n"
+            'name: t\nversion: "1.0"\ndescription: d\n'
             "trigger:\n  source: manual\n"
             "stages:\n  - name: s\n    kind: gather\n    description: d\n"
             "    agent:\n      role: researcher\n"
@@ -496,8 +488,7 @@ class TestCheckAgentAccess(unittest.TestCase):
             text = (
                 'name: t\nversion: "1.0"\ndescription: d\n'
                 "trigger:\n  source: manual\n"
-                "stages:\n  - name: s\n    kind: gather\n    description: d\n"
-                + agent_block
+                "stages:\n  - name: s\n    kind: gather\n    description: d\n" + agent_block
             )
             return parse_workflow_str(text, source="t").stages[0].agent
 
@@ -516,7 +507,7 @@ class TestCheckAgentAccess(unittest.TestCase):
         does not exist -- two false positives in the real tree.
         """
         result = self._lint(
-            "name: t\nversion: \"1.0\"\ndescription: d\n"
+            'name: t\nversion: "1.0"\ndescription: d\n'
             "trigger:\n  source: manual\n"
             "stages:\n  - name: s\n    kind: gather\n    description: d\n"
             "    agent:\n      role: inline\n      access: read-only\n"
@@ -568,8 +559,14 @@ class TestRefusedOutputNames(unittest.TestCase):
         return [e for e in result.errors if e.field == "writes_to"]
 
     def test_each_refused_name_is_an_error_in_any_directory_and_case(self) -> None:
-        for output in ("report.md", "outputs/report.md", "validation/summary.md",
-                       "findings.md", "outputs/REPORT.md", '"{workspace}/report.md"'):
+        for output in (
+            "report.md",
+            "outputs/report.md",
+            "validation/summary.md",
+            "findings.md",
+            "outputs/REPORT.md",
+            '"{workspace}/report.md"',
+        ):
             with self.subTest(output=output):
                 result = self._lint(_output_yaml(output))
                 self.assertFalse(result.valid)
@@ -580,8 +577,14 @@ class TestRefusedOutputNames(unittest.TestCase):
 
     def test_names_the_harness_accepts_are_clean(self) -> None:
         # Each of these was written successfully by a subagent in the probe.
-        for output in ("run-report.md", "outputs/final-report.md", "outputs/run-summary.md",
-                       "outputs/report.json", "outputs/results.md", "ci-debug-report.md"):
+        for output in (
+            "run-report.md",
+            "outputs/final-report.md",
+            "outputs/run-summary.md",
+            "outputs/report.json",
+            "outputs/results.md",
+            "ci-debug-report.md",
+        ):
             with self.subTest(output=output):
                 result = self._lint(_output_yaml(output))
                 self.assertEqual(self._refusals(result), [])
@@ -589,7 +592,9 @@ class TestRefusedOutputNames(unittest.TestCase):
 
     def test_inline_stage_is_exempt(self) -> None:
         """The orchestrator writes an inline stage's outputs itself; no subagent is refused."""
-        result = self._lint(_output_yaml("outputs/report.md", executor_line="    executor: inline\n"))
+        result = self._lint(
+            _output_yaml("outputs/report.md", executor_line="    executor: inline\n")
+        )
         self.assertEqual(self._refusals(result), [])
 
     def test_fragment_stages_are_checked_and_invalidate(self) -> None:

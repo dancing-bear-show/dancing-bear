@@ -9,7 +9,7 @@ class TestScheduleImporterCLI(unittest.TestCase):
         # schedule-import is now under the outlook subgroup
         root = Path(__file__).resolve().parents[3]
         wrapper = root / "bin" / "assistant"
-        out = subprocess.check_output([sys.executable, str(wrapper), "calendar", "outlook", "--help"], text=True)  # nosec B603 - test code with literal args
+        out = subprocess.check_output([sys.executable, str(wrapper), "calendar", "outlook", "--help"], text=True)  # nosec B603 - test code with literal args  # fmt: skip
         self.assertIn("schedule-import", out)
 
 

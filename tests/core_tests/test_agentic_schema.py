@@ -1,4 +1,5 @@
 """Tests for core/agentic_schema.py — auto-derived CLI schema engine."""
+
 from __future__ import annotations
 
 import argparse
@@ -6,12 +7,12 @@ import json
 import unittest
 
 from core.agentic_schema import (
-    build_schema_json,
-    build_schema_yaml,
     _extract_options,
     _hoist_inherited_options,
-    _yaml_scalar,
     _needs_quoting,
+    _yaml_scalar,
+    build_schema_json,
+    build_schema_yaml,
 )
 
 
@@ -259,8 +260,18 @@ class TestHoistInheritedOptions(unittest.TestCase):
             "prog": "root",
             "options": [],
             "subcommands": [
-                {"name": "a", "prog": "a", "options": [{"name": "x", "flags": []}], "subcommands": []},
-                {"name": "b", "prog": "b", "options": [{"name": "y", "flags": []}], "subcommands": []},
+                {
+                    "name": "a",
+                    "prog": "a",
+                    "options": [{"name": "x", "flags": []}],
+                    "subcommands": [],
+                },
+                {
+                    "name": "b",
+                    "prog": "b",
+                    "options": [{"name": "y", "flags": []}],
+                    "subcommands": [],
+                },
             ],
         }
         hoisted = _hoist_inherited_options(node)

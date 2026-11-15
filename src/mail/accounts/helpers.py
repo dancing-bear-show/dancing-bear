@@ -1,20 +1,22 @@
 """Helper utilities for accounts commands."""
+
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
+from core.yamlio import load_config
 
 from ..config_resolver import (
     default_gmail_credentials_path,
     default_gmail_token_path,
     expand_path,
 )
-from core.yamlio import load_config
 
 
 def _lazy_gmail_client():
     """Lazy import of GmailClient to avoid import-time dependencies."""
     from ..gmail_api import GmailClient
+
     return GmailClient
 
 
@@ -36,7 +38,7 @@ def iter_accounts(accts: list[dict], names: str | list[str] | None) -> Iterable[
         if isinstance(names, list):
             allow = {n.strip() for n in names if n.strip()}
         else:
-            allow = {n.strip() for n in names.split(',') if n.strip()}
+            allow = {n.strip() for n in names.split(",") if n.strip()}
     for a in accts:
         if allow and a.get("name") not in allow:
             continue
@@ -74,7 +76,9 @@ def build_client_for_account(acc: dict):
         except Exception as e:
             raise SystemExit(f"Outlook provider unavailable: {e}")
         return OutlookClient(**_outlook_client_kwargs(acc))
-    raise SystemExit(f"Unsupported provider: {provider or '<missing>'} for account {acc.get('name')}")
+    raise SystemExit(
+        f"Unsupported provider: {provider or '<missing>'} for account {acc.get('name')}"
+    )
 
 
 def build_provider_for_account(acc: dict):
@@ -87,6 +91,7 @@ def build_provider_for_account(acc: dict):
     provider = str(acc.get("provider") or "").lower()
     if provider == "gmail":
         from ..providers.gmail import GmailProvider
+
         creds = expand_path(acc.get("credentials") or default_gmail_credentials_path())
         token = expand_path(acc.get("token") or default_gmail_token_path())
         return GmailProvider(
@@ -100,4 +105,6 @@ def build_provider_for_account(acc: dict):
         except Exception as e:
             raise SystemExit(f"Outlook provider unavailable: {e}")
         return OutlookProvider(**_outlook_client_kwargs(acc))
-    raise SystemExit(f"Unsupported provider: {provider or '<missing>'} for account {acc.get('name')}")
+    raise SystemExit(
+        f"Unsupported provider: {provider or '<missing>'} for account {acc.get('name')}"
+    )

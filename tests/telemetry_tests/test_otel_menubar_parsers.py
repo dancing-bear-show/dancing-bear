@@ -1,4 +1,5 @@
 """Tests for telemetry/otel/menubar_parsers.py — parsing and accumulation helpers."""
+
 from __future__ import annotations
 
 import collections
@@ -9,6 +10,7 @@ from pathlib import Path
 from typing import cast
 
 from telemetry.otel.menubar_parsers import (
+    _MAX_ATTR_LEN,
     _accumulate_compaction_events,
     _accumulate_cost_metric,
     _accumulate_loc_metrics,
@@ -21,10 +23,9 @@ from telemetry.otel.menubar_parsers import (
     _process_tool_result_event,
     _read_datapoint,
     _read_rotated_jsonl,
-    parse_metric_points,
     _top_n,
     _trunc,
-    _MAX_ATTR_LEN,
+    parse_metric_points,
 )
 
 # _safe_float/_safe_int now live in telemetry._menubar_budget; menubar_parsers.py
@@ -117,7 +118,9 @@ class TestIsEventSuccess(unittest.TestCase):
 
 class TestParseAttrs(unittest.TestCase):
     def test_string_value(self) -> None:
-        attrs: list[dict[str, object]] = [{"key": "model", "value": {"stringValue": "claude-sonnet"}}]
+        attrs: list[dict[str, object]] = [
+            {"key": "model", "value": {"stringValue": "claude-sonnet"}}
+        ]
         result = _parse_attrs(attrs)
         self.assertEqual(result["model"], "claude-sonnet")
 
@@ -172,13 +175,13 @@ class TestIterLogRecords(unittest.TestCase):
         self.assertEqual(list(_iter_log_records([])), [])
 
     def test_yields_log_records(self) -> None:
-        raw: list[dict[str, object]] = [{
-            "resourceLogs": [{
-                "scopeLogs": [{
-                    "logRecords": [{"body": "event1"}, {"body": "event2"}]
-                }]
-            }]
-        }]
+        raw: list[dict[str, object]] = [
+            {
+                "resourceLogs": [
+                    {"scopeLogs": [{"logRecords": [{"body": "event1"}, {"body": "event2"}]}]}
+                ]
+            }
+        ]
         records = list(_iter_log_records(raw))
         self.assertEqual(len(records), 2)
 
@@ -199,14 +202,20 @@ class TestIterLogRecords(unittest.TestCase):
 class TestIterMetricDatapoints(unittest.TestCase):
     def test_yields_name_and_dp(self) -> None:
         raw: dict[str, object] = {
-            "resourceMetrics": [{
-                "scopeMetrics": [{
-                    "metrics": [{
-                        "name": "claude_code.cost.usage",
-                        "gauge": {"dataPoints": [{"asDouble": 1.5}]},
-                    }]
-                }]
-            }]
+            "resourceMetrics": [
+                {
+                    "scopeMetrics": [
+                        {
+                            "metrics": [
+                                {
+                                    "name": "claude_code.cost.usage",
+                                    "gauge": {"dataPoints": [{"asDouble": 1.5}]},
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
         }
         results = list(_iter_metric_datapoints(raw))
         self.assertEqual(len(results), 1)
@@ -217,28 +226,43 @@ class TestIterMetricDatapoints(unittest.TestCase):
 
     def test_sum_data_points_used(self) -> None:
         raw: dict[str, object] = {
-            "resourceMetrics": [{
-                "scopeMetrics": [{
-                    "metrics": [{
-                        "name": "claude_code.token.usage",
-                        "sum": {"dataPoints": [{"asInt": 100}]},
-                    }]
-                }]
-            }]
+            "resourceMetrics": [
+                {
+                    "scopeMetrics": [
+                        {
+                            "metrics": [
+                                {
+                                    "name": "claude_code.token.usage",
+                                    "sum": {"dataPoints": [{"asInt": 100}]},
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
         }
         results = list(_iter_metric_datapoints(raw))
         self.assertEqual(len(results), 1)
 
     def test_cumulative_temporality_flagged(self) -> None:
         raw: dict[str, object] = {
-            "resourceMetrics": [{
-                "scopeMetrics": [{
-                    "metrics": [{
-                        "name": "claude_code.token.usage",
-                        "sum": {"aggregationTemporality": 2, "dataPoints": [{"asInt": "100"}]},
-                    }]
-                }]
-            }]
+            "resourceMetrics": [
+                {
+                    "scopeMetrics": [
+                        {
+                            "metrics": [
+                                {
+                                    "name": "claude_code.token.usage",
+                                    "sum": {
+                                        "aggregationTemporality": 2,
+                                        "dataPoints": [{"asInt": "100"}],
+                                    },
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
         }
         [(_, is_cumulative, _)] = list(_iter_metric_datapoints(raw))
         self.assertTrue(is_cumulative)
@@ -275,7 +299,9 @@ class TestReadDatapoint(unittest.TestCase):
     def test_asint_used_when_asdouble_is_null(self) -> None:
         cutoff = time.time() - 3600
         dp: dict[str, object] = {
-            "timeUnixNano": self._future_ts_nano(), "asDouble": None, "asInt": 7,
+            "timeUnixNano": self._future_ts_nano(),
+            "asDouble": None,
+            "asInt": 7,
         }
         _, value, _ = cast(tuple, _read_datapoint(dp, cutoff))
         self.assertEqual(value, 7.0)
@@ -305,24 +331,32 @@ class TestReadDatapoint(unittest.TestCase):
 def _metrics_line(temporality: int, points: list[tuple[int, float, str]]) -> dict[str, object]:
     """One metrics JSONL record of ``claude_code.cost.usage`` with (ts_nano, value, model) points."""
     return {
-        "resourceMetrics": [{
-            "scopeMetrics": [{
-                "metrics": [{
-                    "name": "claude_code.cost.usage",
-                    "sum": {
-                        "aggregationTemporality": temporality,
-                        "dataPoints": [
+        "resourceMetrics": [
+            {
+                "scopeMetrics": [
+                    {
+                        "metrics": [
                             {
-                                "timeUnixNano": ts,
-                                "asDouble": value,
-                                "attributes": [{"key": "model", "value": {"stringValue": model}}],
+                                "name": "claude_code.cost.usage",
+                                "sum": {
+                                    "aggregationTemporality": temporality,
+                                    "dataPoints": [
+                                        {
+                                            "timeUnixNano": ts,
+                                            "asDouble": value,
+                                            "attributes": [
+                                                {"key": "model", "value": {"stringValue": model}}
+                                            ],
+                                        }
+                                        for ts, value, model in points
+                                    ],
+                                },
                             }
-                            for ts, value, model in points
-                        ],
-                    },
-                }]
-            }]
-        }]
+                        ]
+                    }
+                ]
+            }
+        ]
     }
 
 
@@ -438,19 +472,25 @@ class TestAccumulateLocMetrics(unittest.TestCase):
 
     def test_lines_added(self) -> None:
         counters = self._make_counters()
-        metrics: list[tuple[str, float, dict[str, object]]] = [("claude_code.lines_of_code.count", 10.0, {"type": "added"})]
+        metrics: list[tuple[str, float, dict[str, object]]] = [
+            ("claude_code.lines_of_code.count", 10.0, {"type": "added"})
+        ]
         _accumulate_loc_metrics(metrics, counters)
         self.assertEqual(counters["lines_added"], 10)
 
     def test_lines_removed(self) -> None:
         counters = self._make_counters()
-        metrics: list[tuple[str, float, dict[str, object]]] = [("claude_code.lines_of_code.count", 5.0, {"type": "removed"})]
+        metrics: list[tuple[str, float, dict[str, object]]] = [
+            ("claude_code.lines_of_code.count", 5.0, {"type": "removed"})
+        ]
         _accumulate_loc_metrics(metrics, counters)
         self.assertEqual(counters["lines_removed"], 5)
 
     def test_commit_count(self) -> None:
         counters = self._make_counters()
-        metrics: list[tuple[str, float, dict[str, object]]] = [("claude_code.commit.count", 3.0, {})]
+        metrics: list[tuple[str, float, dict[str, object]]] = [
+            ("claude_code.commit.count", 3.0, {})
+        ]
         _accumulate_loc_metrics(metrics, counters)
         self.assertEqual(counters["commits_today"], 3)
 
@@ -476,19 +516,25 @@ class TestAccumulateCompactionEvents(unittest.TestCase):
 
     def test_compaction_event_counted(self) -> None:
         counters = self._make_counters()
-        events: list[tuple[str, float, dict[str, object]]] = [("claude_code.compaction", 0.0, {"pre_tokens": 1000, "post_tokens": 200})]
+        events: list[tuple[str, float, dict[str, object]]] = [
+            ("claude_code.compaction", 0.0, {"pre_tokens": 1000, "post_tokens": 200})
+        ]
         _accumulate_compaction_events(events, counters)
         self.assertEqual(counters["compaction_count"], 1)
 
     def test_tokens_saved_computed(self) -> None:
         counters = self._make_counters()
-        events: list[tuple[str, float, dict[str, object]]] = [("claude_code.compaction", 0.0, {"pre_tokens": 1000, "post_tokens": 200})]
+        events: list[tuple[str, float, dict[str, object]]] = [
+            ("claude_code.compaction", 0.0, {"pre_tokens": 1000, "post_tokens": 200})
+        ]
         _accumulate_compaction_events(events, counters)
         self.assertEqual(counters["tokens_saved"], 800)
 
     def test_negative_savings_clamped_to_zero(self) -> None:
         counters = self._make_counters()
-        events: list[tuple[str, float, dict[str, object]]] = [("claude_code.compaction", 0.0, {"pre_tokens": 100, "post_tokens": 500})]
+        events: list[tuple[str, float, dict[str, object]]] = [
+            ("claude_code.compaction", 0.0, {"pre_tokens": 100, "post_tokens": 500})
+        ]
         _accumulate_compaction_events(events, counters)
         self.assertEqual(counters["tokens_saved"], 0)
 
@@ -542,11 +588,14 @@ class TestProcessToolResultEvent(unittest.TestCase):
 
     def test_byte_sizes_accumulated(self) -> None:
         state = self._make_state()
-        _process_tool_result_event({
-            "tool_name": "Read",
-            "tool_input_size_bytes": 500,
-            "tool_result_size_bytes": 1500,
-        }, state)
+        _process_tool_result_event(
+            {
+                "tool_name": "Read",
+                "tool_input_size_bytes": 500,
+                "tool_result_size_bytes": 1500,
+            },
+            state,
+        )
         self.assertEqual(state["total_input_bytes"], 500.0)
         self.assertEqual(state["total_output_bytes"], 1500.0)
 

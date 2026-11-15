@@ -228,11 +228,7 @@ class TypedDomainGetBoundaryTest(unittest.TestCase):
     def _candidate_data_calls(self, module: str) -> list[GetCall]:
         path = RESUME_SRC / module
         self.assertTrue(path.exists(), f"missing typed-domain module: {path}")
-        return [
-            call
-            for call in _scan_get_calls(path)
-            if call.receiver in CANDIDATE_DATA_RECEIVERS
-        ]
+        return [call for call in _scan_get_calls(path) if call.receiver in CANDIDATE_DATA_RECEIVERS]
 
     def test_every_receiver_is_classified(self) -> None:
         """Fail loudly on a receiver nobody has classified yet.
@@ -288,7 +284,7 @@ class TypedDomainGetBoundaryTest(unittest.TestCase):
             "\n\nBOUNDARY VIOLATION - new `.get()` on candidate data in the render path.\n"
             + "\n".join(regressions)
             + "\n\nRender modules read candidate data off the typed schema, so use\n"
-            "attribute access (`entry.title`) instead of `.get(\"title\")`.\n"
+            'attribute access (`entry.title`) instead of `.get("title")`.\n'
             "Config receivers (page_cfg, template, cfg, ...) stay dicts and are\n"
             "not flagged - if you believe this receiver is config, classify it in\n"
             "tests/resume_tests/boundary/receivers.py rather than raising the\n"

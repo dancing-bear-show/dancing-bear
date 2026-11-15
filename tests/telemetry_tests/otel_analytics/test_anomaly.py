@@ -1,24 +1,23 @@
 """Tests for telemetry/otel/analytics/anomaly.py."""
 
 import unittest
+from datetime import UTC
 from unittest import mock
 
 from telemetry.otel.analytics.anomaly import _detect_from_metrics
 from telemetry.otel.cost_models import AnomalyFlag, SessionCost
-
 from tests.telemetry_tests.otel_analytics._shared_helpers import (
     _make_cost_metrics,
     _make_perf,
     _make_session_cost,
 )
 
-
 # ---------------------------------------------------------------------------
 # _detect_from_metrics — fewer than 3 sessions
 # ---------------------------------------------------------------------------
 
-class TestDetectFromMetricsFewerThan3(unittest.TestCase):
 
+class TestDetectFromMetricsFewerThan3(unittest.TestCase):
     def test_empty_sessions_returns_empty(self):
         metrics = _make_cost_metrics([])
         result = _detect_from_metrics(metrics, threshold=2.0)
@@ -43,8 +42,8 @@ class TestDetectFromMetricsFewerThan3(unittest.TestCase):
 # _detect_from_metrics — all-identical values (zero std_dev)
 # ---------------------------------------------------------------------------
 
-class TestDetectFromMetricsZeroStdDev(unittest.TestCase):
 
+class TestDetectFromMetricsZeroStdDev(unittest.TestCase):
     def test_all_identical_cost_no_flags(self):
         sessions = [_make_session_cost(f"s{i}", cost=5.0) for i in range(5)]
         metrics = _make_cost_metrics(sessions)
@@ -56,8 +55,7 @@ class TestDetectFromMetricsZeroStdDev(unittest.TestCase):
     def test_all_identical_tokens_no_flags(self):
         # All have same billable_tokens (same input/output/cache_creation)
         sessions = [
-            _make_session_cost(f"s{i}", input_tokens=100, output_tokens=50)
-            for i in range(5)
+            _make_session_cost(f"s{i}", input_tokens=100, output_tokens=50) for i in range(5)
         ]
         metrics = _make_cost_metrics(sessions)
         result = _detect_from_metrics(metrics, threshold=2.0)
@@ -69,14 +67,13 @@ class TestDetectFromMetricsZeroStdDev(unittest.TestCase):
 # _detect_from_metrics — outlier detection
 # ---------------------------------------------------------------------------
 
-class TestDetectFromMetricsOutlierDetection(unittest.TestCase):
 
+class TestDetectFromMetricsOutlierDetection(unittest.TestCase):
     def _make_outlier_sessions(self) -> list[SessionCost]:
         """10 normal sessions + 1 extreme cost outlier (z > 3.0 with population std_dev)."""
-        return [
-            _make_session_cost(f"normal-{i}", cost=1.0)
-            for i in range(10)
-        ] + [_make_session_cost("outlier", cost=1000.0)]
+        return [_make_session_cost(f"normal-{i}", cost=1.0) for i in range(10)] + [
+            _make_session_cost("outlier", cost=1000.0)
+        ]
 
     def test_cost_outlier_flagged(self):
         metrics = _make_cost_metrics(self._make_outlier_sessions())
@@ -115,9 +112,9 @@ class TestDetectFromMetricsOutlierDetection(unittest.TestCase):
 
     def test_flag_is_anomaly_flag_instance(self):
         # 10 normal + 1 extreme outlier ensures z > 2.0 so flags are produced
-        sessions = [
-            _make_session_cost(f"n{i}", cost=1.0) for i in range(10)
-        ] + [_make_session_cost("out", cost=1000.0)]
+        sessions = [_make_session_cost(f"n{i}", cost=1.0) for i in range(10)] + [
+            _make_session_cost("out", cost=1000.0)
+        ]
         metrics = _make_cost_metrics(sessions)
         result = _detect_from_metrics(metrics, threshold=2.0)
         self.assertGreater(len(result), 0)
@@ -129,8 +126,8 @@ class TestDetectFromMetricsOutlierDetection(unittest.TestCase):
 # _detect_from_metrics — latency metric
 # ---------------------------------------------------------------------------
 
-class TestDetectFromMetricsLatency(unittest.TestCase):
 
+class TestDetectFromMetricsLatency(unittest.TestCase):
     def test_latency_outlier_flagged_when_perf_available(self):
         # 10 normal + 1 extreme slow to get z > 2.0 with population std_dev
         sessions = [
@@ -175,15 +172,14 @@ class TestDetectFromMetricsLatency(unittest.TestCase):
 # _detect_from_metrics — token metric
 # ---------------------------------------------------------------------------
 
-class TestDetectFromMetricsTokens(unittest.TestCase):
 
+class TestDetectFromMetricsTokens(unittest.TestCase):
     def test_token_outlier_flagged(self):
         # billable_tokens = input + output + cache_creation.
         # Need 10 normal + 1 extreme outlier so z > 2.0 (with population std_dev,
         # 3 normal + 1 outlier only achieves z ≈ 1.73 which is below threshold).
         sessions = [
-            _make_session_cost(f"n{i}", input_tokens=100, output_tokens=50)
-            for i in range(10)
+            _make_session_cost(f"n{i}", input_tokens=100, output_tokens=50) for i in range(10)
         ] + [_make_session_cost("big", input_tokens=100000, output_tokens=50000)]
         metrics = _make_cost_metrics(sessions)
         result = _detect_from_metrics(metrics, threshold=2.0)
@@ -212,8 +208,8 @@ class TestDetectFromMetricsTokens(unittest.TestCase):
 # detect_anomalies — integration test via mock
 # ---------------------------------------------------------------------------
 
-class TestDetectAnomaliesIntegration(unittest.TestCase):
 
+class TestDetectAnomaliesIntegration(unittest.TestCase):
     @mock.patch("telemetry.otel.analytics.anomaly.get_all_costs")
     def test_calls_get_all_costs_with_data_dir_and_since(self, mock_get_all_costs):
         from telemetry.otel.analytics.anomaly import detect_anomalies
@@ -222,8 +218,9 @@ class TestDetectAnomaliesIntegration(unittest.TestCase):
         mock_get_all_costs.return_value = _make_cost_metrics([])
         data_dir = OTLPDataDir.default()
 
-        from datetime import datetime, timezone
-        since = datetime(2026, 7, 1, tzinfo=timezone.utc)
+        from datetime import datetime
+
+        since = datetime(2026, 7, 1, tzinfo=UTC)
 
         detect_anomalies(data_dir=data_dir, since=since, threshold=2.5)
 
@@ -232,6 +229,7 @@ class TestDetectAnomaliesIntegration(unittest.TestCase):
     @mock.patch("telemetry.otel.analytics.anomaly.get_all_costs")
     def test_returns_empty_when_no_sessions(self, mock_get_all_costs):
         from telemetry.otel.analytics.anomaly import detect_anomalies
+
         mock_get_all_costs.return_value = _make_cost_metrics([])
         result = detect_anomalies()
         self.assertEqual(result, [])
@@ -239,10 +237,11 @@ class TestDetectAnomaliesIntegration(unittest.TestCase):
     @mock.patch("telemetry.otel.analytics.anomaly.get_all_costs")
     def test_flags_outlier_session(self, mock_get_all_costs):
         from telemetry.otel.analytics.anomaly import detect_anomalies
+
         # 10 normal + 1 extreme outlier ensures z > 2.0
-        sessions = [
-            _make_session_cost(f"n{i}", cost=1.0) for i in range(10)
-        ] + [_make_session_cost("outlier", cost=1000.0)]
+        sessions = [_make_session_cost(f"n{i}", cost=1.0) for i in range(10)] + [
+            _make_session_cost("outlier", cost=1000.0)
+        ]
         mock_get_all_costs.return_value = _make_cost_metrics(sessions)
         result = detect_anomalies(threshold=2.0)
         flagged_ids = [f.session_id for f in result]

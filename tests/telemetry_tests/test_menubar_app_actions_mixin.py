@@ -8,6 +8,7 @@ Covers:
 - _on_toggle_login_item (not-bundle-mode, enable/disable, OSError paths)
 - _on_clear (cancel, delete, OSError paths)
 """
+
 from __future__ import annotations
 
 import os
@@ -214,10 +215,15 @@ class TestCopyToClipboard(unittest.TestCase):
         # bound when the AppKit import succeeds. On Linux CI the except-ImportError
         # branch runs, so the names do not exist on the module and a plain patch
         # raises AttributeError before the test body runs.
-        with patch("telemetry._menubar_app_actions._HAS_APPKIT", True), \
-             patch("telemetry._menubar_app_actions.NSPasteboard", mock_appkit_ns, create=True), \
-             patch("telemetry._menubar_app_actions.NSPasteboardTypeString",
-                   "public.utf8-plain-text", create=True):
+        with (
+            patch("telemetry._menubar_app_actions._HAS_APPKIT", True),
+            patch("telemetry._menubar_app_actions.NSPasteboard", mock_appkit_ns, create=True),
+            patch(
+                "telemetry._menubar_app_actions.NSPasteboardTypeString",
+                "public.utf8-plain-text",
+                create=True,
+            ),
+        ):
             ActionsMixin._copy_to_clipboard("appkit text")
 
         mock_pb.clearContents.assert_called_once()
@@ -234,17 +240,21 @@ class TestCopyToClipboard(unittest.TestCase):
             pbcopy_calls.append(cmd)
 
         # create=True: NSPasteboard is unbound on non-macOS (see note above).
-        with patch("telemetry._menubar_app_actions._HAS_APPKIT", True), \
-             patch("telemetry._menubar_app_actions.NSPasteboard", mock_appkit_ns, create=True), \
-             patch("subprocess.run", fake_run):
+        with (
+            patch("telemetry._menubar_app_actions._HAS_APPKIT", True),
+            patch("telemetry._menubar_app_actions.NSPasteboard", mock_appkit_ns, create=True),
+            patch("subprocess.run", fake_run),
+        ):
             ActionsMixin._copy_to_clipboard("fallback text")
 
         self.assertEqual(pbcopy_calls, [["pbcopy"]])
 
     def test_pbcopy_exception_is_swallowed(self):
         """When pbcopy subprocess.run raises, the exception is swallowed."""
-        with patch("telemetry._menubar_app_actions._HAS_APPKIT", False), \
-             patch("subprocess.run", side_effect=OSError("no pbcopy")):
+        with (
+            patch("telemetry._menubar_app_actions._HAS_APPKIT", False),
+            patch("subprocess.run", side_effect=OSError("no pbcopy")),
+        ):
             # Should not raise
             ActionsMixin._copy_to_clipboard("text")
 
@@ -252,6 +262,7 @@ class TestCopyToClipboard(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _on_configure tests — all GUI interactions (rumps.Window, rumps.alert) mocked
 # ---------------------------------------------------------------------------
+
 
 def _make_mock_rumps(*, clicked: int = 1, text: str = "", alert_side_effect=None):
     """Build a mock rumps module for configure tests."""
@@ -319,8 +330,13 @@ class TestOnConfigure(unittest.TestCase):
         rebuild_called = []
         host._rebuild_menu = lambda _: rebuild_called.append(True)
 
-        with self._patch_rumps(mock_rumps), load, ctt, parse, \
-             patch("telemetry._menubar_app_actions._save_config", side_effect=OSError("disk full")):
+        with (
+            self._patch_rumps(mock_rumps),
+            load,
+            ctt,
+            parse,
+            patch("telemetry._menubar_app_actions._save_config", side_effect=OSError("disk full")),
+        ):
             host._on_configure(None)
 
         mock_rumps.alert.assert_called_once()
@@ -361,6 +377,7 @@ class TestOnConfigure(unittest.TestCase):
 # _on_toggle_login_item tests
 # ---------------------------------------------------------------------------
 
+
 class TestOnToggleLoginItem(unittest.TestCase):
     """_on_toggle_login_item branching logic."""
 
@@ -374,8 +391,7 @@ class TestOnToggleLoginItem(unittest.TestCase):
         host = _make_host()
         ctx, mock_rumps = self._patch_rumps()
 
-        with ctx, \
-             patch("telemetry._menubar_app_actions._login_item") as mock_li:
+        with ctx, patch("telemetry._menubar_app_actions._login_item") as mock_li:
             mock_li.is_bundle_mode.return_value = False
             host._on_toggle_login_item(None)
 
@@ -388,8 +404,7 @@ class TestOnToggleLoginItem(unittest.TestCase):
         host = _make_host()
         ctx, _ = self._patch_rumps()
 
-        with ctx, \
-             patch("telemetry._menubar_app_actions._login_item") as mock_li:
+        with ctx, patch("telemetry._menubar_app_actions._login_item") as mock_li:
             mock_li.is_bundle_mode.return_value = True
             mock_li.is_enabled.side_effect = [True, False]  # before toggle, after toggle
             host._on_toggle_login_item(None)
@@ -402,8 +417,7 @@ class TestOnToggleLoginItem(unittest.TestCase):
         host = _make_host()
         ctx, _ = self._patch_rumps()
 
-        with ctx, \
-             patch("telemetry._menubar_app_actions._login_item") as mock_li:
+        with ctx, patch("telemetry._menubar_app_actions._login_item") as mock_li:
             mock_li.is_bundle_mode.return_value = True
             mock_li.is_enabled.side_effect = [False, True]  # before toggle, after toggle
             host._on_toggle_login_item(None)
@@ -416,8 +430,7 @@ class TestOnToggleLoginItem(unittest.TestCase):
         host = _make_host()
         ctx, mock_rumps = self._patch_rumps()
 
-        with ctx, \
-             patch("telemetry._menubar_app_actions._login_item") as mock_li:
+        with ctx, patch("telemetry._menubar_app_actions._login_item") as mock_li:
             mock_li.is_bundle_mode.return_value = True
             mock_li.is_enabled.side_effect = [False, False]
             mock_li.enable.side_effect = OSError("permission denied")
@@ -432,8 +445,7 @@ class TestOnToggleLoginItem(unittest.TestCase):
         host = _make_host()
         ctx, mock_rumps = self._patch_rumps()
 
-        with ctx, \
-             patch("telemetry._menubar_app_actions._login_item") as mock_li:
+        with ctx, patch("telemetry._menubar_app_actions._login_item") as mock_li:
             mock_li.is_bundle_mode.return_value = True
             mock_li.is_enabled.side_effect = [True, True]
             mock_li.disable.side_effect = RuntimeError("smc error")
@@ -447,6 +459,7 @@ class TestOnToggleLoginItem(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _on_clear tests
 # ---------------------------------------------------------------------------
+
 
 class TestOnClear(unittest.TestCase):
     """_on_clear branching: cancel, delete, iterdir failure."""
@@ -482,8 +495,7 @@ class TestOnClear(unittest.TestCase):
         refresh_called = []
         host._refresh = lambda _: refresh_called.append(True)
 
-        with ctx, \
-             patch.object(ActionsMixin, "_clear_stale_project_dir", return_value=2):
+        with ctx, patch.object(ActionsMixin, "_clear_stale_project_dir", return_value=2):
             with tempfile.TemporaryDirectory() as tmpdir:
                 projects_dir = Path(tmpdir) / ".claude" / "projects"
                 projects_dir.mkdir(parents=True)
@@ -527,8 +539,7 @@ class TestOnClear(unittest.TestCase):
         host._refresh = lambda _: None
 
         # Patch _clear_stale_project_dir to return 1 deleted file
-        with ctx, \
-             patch.object(ActionsMixin, "_clear_stale_project_dir", return_value=1):
+        with ctx, patch.object(ActionsMixin, "_clear_stale_project_dir", return_value=1):
             with tempfile.TemporaryDirectory() as tmpdir:
                 projects_dir = Path(tmpdir) / ".claude" / "projects"
                 projects_dir.mkdir(parents=True)
@@ -548,8 +559,7 @@ class TestOnClear(unittest.TestCase):
         ctx, _ = self._patch_rumps(mock_rumps)
         host._refresh = lambda _: None
 
-        with ctx, \
-             patch.object(ActionsMixin, "_clear_stale_project_dir", return_value=3):
+        with ctx, patch.object(ActionsMixin, "_clear_stale_project_dir", return_value=3):
             with tempfile.TemporaryDirectory() as tmpdir:
                 projects_dir = Path(tmpdir) / ".claude" / "projects"
                 projects_dir.mkdir(parents=True)

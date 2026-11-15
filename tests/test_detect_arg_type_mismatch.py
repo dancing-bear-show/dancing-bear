@@ -70,6 +70,7 @@ _is_mismatch = _dm._is_mismatch
 # Helper: write a minimal fake src/ and tests/ tree in a temp dir.
 # ---------------------------------------------------------------------------
 
+
 class _TempRepo:
     """Context manager that creates a src/ and tests/ dir pair in a temp dir."""
 
@@ -166,8 +167,7 @@ class TestCollectParams(unittest.TestCase):
         tree = ast.parse(textwrap.dedent(src))
         cls_node = next(n for n in ast.walk(tree) if isinstance(n, ast.ClassDef))
         method = next(
-            m for m in cls_node.body
-            if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))
+            m for m in cls_node.body if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))
         )
         params = _collect_params(method, is_method=True, is_classmethod=False)
         names = [p[0] for p in params]
@@ -184,8 +184,7 @@ class TestCollectParams(unittest.TestCase):
         tree = ast.parse(textwrap.dedent(src))
         cls_node = next(n for n in ast.walk(tree) if isinstance(n, ast.ClassDef))
         method = next(
-            m for m in cls_node.body
-            if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))
+            m for m in cls_node.body if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))
         )
         params = _collect_params(method, is_method=False, is_classmethod=True)
         names = [p[0] for p in params]
@@ -348,8 +347,7 @@ class TestStaticmethodKeepsFirstParam(unittest.TestCase):
         tree = ast.parse(textwrap.dedent(src))
         cls_node = next(n for n in ast.walk(tree) if isinstance(n, ast.ClassDef))
         return next(
-            m for m in cls_node.body
-            if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))
+            m for m in cls_node.body if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))
         )
 
     def test_staticmethod_detected(self):
@@ -371,8 +369,7 @@ class TestStaticmethodKeepsFirstParam(unittest.TestCase):
                     return label
         """
         cls_node = next(
-            n for n in ast.walk(ast.parse(textwrap.dedent(src)))
-            if isinstance(n, ast.ClassDef)
+            n for n in ast.walk(ast.parse(textwrap.dedent(src))) if isinstance(n, ast.ClassDef)
         )
         sigs = {}
         _dm._collect_class_sigs(cls_node, "p.py", "mod", sigs)
@@ -387,8 +384,7 @@ class TestStaticmethodKeepsFirstParam(unittest.TestCase):
                     return argv
         """
         cls_node = next(
-            n for n in ast.walk(ast.parse(textwrap.dedent(src)))
-            if isinstance(n, ast.ClassDef)
+            n for n in ast.walk(ast.parse(textwrap.dedent(src))) if isinstance(n, ast.ClassDef)
         )
         sigs = {}
         _dm._collect_class_sigs(cls_node, "p.py", "mod", sigs)
@@ -527,9 +523,7 @@ class TestEmptyScanFailsLoudly(unittest.TestCase):
         src = "def greet(name: str) -> str:\n    return name\n"
         test = "from mymod.helpers import greet\n\ndef test_ok():\n    greet('x')\n"
         with _TempRepo(src, test) as repo:
-            code, payload, _ = self._run_main(
-                ["prog", repo.src_root, repo.test_root]
-            )
+            code, payload, _ = self._run_main(["prog", repo.src_root, repo.test_root])
         self.assertEqual(code, 0)
         self.assertFalse(payload["scanned_nothing"])
         self.assertGreater(payload["stats"]["src_files_scanned"], 0)

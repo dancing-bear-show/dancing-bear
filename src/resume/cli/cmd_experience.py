@@ -6,11 +6,11 @@ import argparse
 
 from core.cli_framework import CLIApp
 
-from ..io_utils import read_text_any, write_yaml_or_json
-from ..parsing_experience_text import parse_resume_text
 from ..experience_summary import build_experience_summary
+from ..io_utils import read_text_any, write_yaml_or_json
 from ..overlays import apply_profile_overlays
-from .args import PROFILE_HELP_OUT, OUT_DIR_HELP, EXT_YAML
+from ..parsing_experience_text import parse_resume_text
+from .args import EXT_YAML, OUT_DIR_HELP, PROFILE_HELP_OUT
 from .helpers import _load_candidate_data, _resolve_out
 
 
@@ -48,7 +48,10 @@ def register_experience_commands(app: CLIApp) -> object:
         [
             (("--data",), {"help": "Unified data file (YAML/JSON)"}),
             (("--resume",), {"help": "Resume file to parse (txt/md/html/docx/pdf)"}),
-            (("--max-bullets",), {"type": int, "default": None, "help": "Limit bullets per role in summary"}),
+            (
+                ("--max-bullets",),
+                {"type": int, "default": None, "help": "Limit bullets per role in summary"},
+            ),
             (("--out",), {"help": "Output file path (overrides --profile)"}),
             (("--profile",), {"help": PROFILE_HELP_OUT}),
             (("--out-dir",), {"help": OUT_DIR_HELP}),

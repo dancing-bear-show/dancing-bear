@@ -19,23 +19,24 @@ What IS tested:
 - _window_since (delegates to _window_since_impl)
 - _project_short (pure string logic)
 """
+
 from __future__ import annotations
 
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 import telemetry._menubar_app as _app_module
 from telemetry._menubar_app import (
+    _OTEL_WINDOWS,
+    _STORAGE_WARN_DAYS,
     _VERSION,
+    _WINDOWS,
     _build_version,
     _get_app_version,
     _month_since,
     _project_short,
     _window_since,
-    _WINDOWS,
-    _OTEL_WINDOWS,
-    _STORAGE_WARN_DAYS,
 )
 from telemetry.models import SessionSummary
 
@@ -44,7 +45,7 @@ def _make_session(
     session_id: str = "abc123",
     project_path: str | None = "/home/user/my-project",
 ) -> SessionSummary:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return SessionSummary(
         session_id=session_id,
         project_path=project_path,
@@ -68,14 +69,16 @@ class TestBuildVersion(unittest.TestCase):
 
     def test_subprocess_error_returns_version_only(self) -> None:
         import subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
-        with patch("telemetry._menubar_app.subprocess.check_output",
-                   side_effect=subprocess.CalledProcessError(1, "git")):
+
+        with patch(
+            "telemetry._menubar_app.subprocess.check_output",
+            side_effect=subprocess.CalledProcessError(1, "git"),
+        ):
             result = _build_version()
         self.assertEqual(result, _VERSION)
 
     def test_file_not_found_returns_version_only(self) -> None:
-        with patch("telemetry._menubar_app.subprocess.check_output",
-                   side_effect=FileNotFoundError):
+        with patch("telemetry._menubar_app.subprocess.check_output", side_effect=FileNotFoundError):
             result = _build_version()
         self.assertEqual(result, _VERSION)
 
@@ -105,7 +108,7 @@ class TestMonthSince(unittest.TestCase):
     def test_returns_utc_datetime(self) -> None:
         result = _month_since()
         self.assertIsInstance(result, datetime)
-        self.assertEqual(result.tzinfo, timezone.utc)
+        self.assertEqual(result.tzinfo, UTC)
 
     def test_day_is_one(self) -> None:
         result = _month_since()
@@ -122,7 +125,7 @@ class TestMonthSince(unittest.TestCase):
 class TestWindowSince(unittest.TestCase):
     def test_with_seconds_is_approximately_correct(self) -> None:
         result = _window_since(3600)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         diff = (now - result).total_seconds()
         self.assertGreater(diff, 3500)
         self.assertLess(diff, 3700)

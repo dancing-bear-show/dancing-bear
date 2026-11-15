@@ -4,9 +4,10 @@ from pathlib import Path
 from typing import Any
 
 from core.cli_errors import CLIError, ExitCode
-from core.yamlio import dump_config as _dump_yaml, load_config as _load_yaml
+from core.yamlio import dump_config as _dump_yaml
+from core.yamlio import load_config as _load_yaml
 
-from .backup import find_latest_backup_dir, find_iconstate_file, load_plist
+from .backup import find_iconstate_file, find_latest_backup_dir, load_plist
 from .layout_normalize import NormalizedLayout, normalize_iconstate
 
 
@@ -73,16 +74,12 @@ def _layout_from_export(export: dict[str, Any]) -> NormalizedLayout:
     return NormalizedLayout(dock=_bundle_ids(export.get("dock")), pages=pages)
 
 
-def load_layout(
-    layout_path: str | None, backup_path: str | None
-) -> NormalizedLayout:
+def load_layout(layout_path: str | None, backup_path: str | None) -> NormalizedLayout:
     if layout_path:
         export = read_yaml(Path(layout_path).expanduser())
         return _layout_from_export(export)
 
-    backup_dir = (
-        Path(backup_path).expanduser() if backup_path else find_latest_backup_dir()
-    )
+    backup_dir = Path(backup_path).expanduser() if backup_path else find_latest_backup_dir()
     if not backup_dir or not backup_dir.exists():
         raise LayoutLoadError(
             2,
@@ -90,9 +87,7 @@ def load_layout(
         )
     iconfile = find_iconstate_file(backup_dir)
     if not iconfile:
-        raise LayoutLoadError(
-            3, f"Error: IconState plist not found in backup at {backup_dir}"
-        )
+        raise LayoutLoadError(3, f"Error: IconState plist not found in backup at {backup_dir}")
     data = load_plist(iconfile.path)
     return normalize_iconstate(data)
 

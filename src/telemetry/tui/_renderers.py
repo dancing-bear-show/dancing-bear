@@ -1,12 +1,12 @@
 """Rich renderers — used by both Textual widgets and static print_summary."""
 
 from collections.abc import Callable
-from core.date_utils import now_utc
 
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from core.date_utils import now_utc
 from telemetry.models import (
     AgentSummary,
     SessionEvent,
@@ -26,10 +26,10 @@ from telemetry.tui._formatters import (
     _format_tokens,
 )
 
-
 # ---------------------------------------------------------------------------
 # Header / tips text renderers
 # ---------------------------------------------------------------------------
+
 
 def _render_header_text(summary: SessionSummary) -> str:
     mode = "LIVE" if summary.end_time is None else "HISTORY"
@@ -47,8 +47,7 @@ def _render_header_text(summary: SessionSummary) -> str:
     out_tok = _format_tokens(summary.output_tokens)
     eff_bar = _bar(summary.efficiency_score / 100.0, width=10)
     cache_str = (
-        f"{summary.cache_hit_rate * 100:.0f}%"
-        if summary.cache_hit_rate is not None else "n/a"
+        f"{summary.cache_hit_rate * 100:.0f}%" if summary.cache_hit_rate is not None else "n/a"
     )
     est = " [estimated]" if summary.cost_is_estimated else ""
 
@@ -82,6 +81,7 @@ def _render_tips_text(tips: list[Tip]) -> str:
 # Detail text builders
 # ---------------------------------------------------------------------------
 
+
 def _tool_event_detail(evt: SessionEvent) -> str:
     """Build detail text for a tool event."""
     cls = evt.classification or "neutral"
@@ -110,9 +110,7 @@ def _tool_event_detail(evt: SessionEvent) -> str:
 
     if evt.waste_reason:
         tag = _WASTE_TAGS.get(evt.waste_reason, evt.waste_reason)
-        lines.append(
-            f"[bold]Reason:[/] [{color}]{evt.waste_reason}[/] ({tag})"
-        )
+        lines.append(f"[bold]Reason:[/] [{color}]{evt.waste_reason}[/] ({tag})")
 
     if evt.blame_target:
         bt = evt.blame_target
@@ -154,9 +152,7 @@ def _event_input_detail(tool_name: str, evt: SessionEvent) -> str:
     return detail[:60]
 
 
-def _render_cls_group(
-    cls: str, group: list[SessionEvent], tool_name: str
-) -> list[str]:
+def _render_cls_group(cls: str, group: list[SessionEvent], tool_name: str) -> list[str]:
     """Render one classification group as markup lines for _tool_stat_detail."""
     sym = _CLASS_SYMBOLS.get(cls, "○")
     color = _CLASS_COLORS.get(cls, "dim")
@@ -173,13 +169,10 @@ def _render_cls_group(
     return lines
 
 
-def _tool_stat_detail(
-    stat: ToolStats, events: list[SessionEvent]
-) -> str:
+def _tool_stat_detail(stat: ToolStats, events: list[SessionEvent]) -> str:
     """Build detail text for a tool stat, with per-call breakdown."""
     tool_events = [
-        e for e in events
-        if e.event_type == "tool_use" and e.tool_name == stat.tool_name
+        e for e in events if e.event_type == "tool_use" and e.tool_name == stat.tool_name
     ]
 
     lines = [
@@ -239,6 +232,7 @@ def _agent_detail(agent: AgentSummary) -> str:
 # Static console print helpers
 # ---------------------------------------------------------------------------
 
+
 def _print_tool_stats_panel(console: Console, summary: SessionSummary) -> None:
     """Print the tool breakdown panel to console, if any stats exist."""
     if not summary.tool_stats:
@@ -255,7 +249,11 @@ def _print_tool_stats_panel(console: Console, summary: SessionSummary) -> None:
         frac = stat.cost / max_cost if max_cost > 0 else 0.0
         avoid_str = str(stat.avoidable_count) if stat.avoidable_count else "—"
         table.add_row(
-            stat.tool_name, str(stat.count), f"${stat.cost:.3f}", _bar(frac, 8), avoid_str,
+            stat.tool_name,
+            str(stat.count),
+            f"${stat.cost:.3f}",
+            _bar(frac, 8),
+            avoid_str,
         )
     console.print(Panel(table, title="[bold]Tool Breakdown[/]", border_style="magenta"))
 
@@ -272,10 +270,12 @@ def _print_agents_panel(console: Console, agents: list[AgentSummary]) -> None:
     table.add_column("Tools", justify="right")
     table.add_column("Cost", justify="right")
     for a in agents:
-        desc = (a.description[:25] if a.description else "—")
+        desc = a.description[:25] if a.description else "—"
         model_short = a.model.split("/")[-1] if a.model else "—"
         table.add_row(
-            desc, a.agent_type, model_short,
+            desc,
+            a.agent_type,
+            model_short,
             f"{a.duration_ms / 1000:.1f}s",
             str(a.total_tool_uses),
             _format_cost(a.cost_usd, a.cost_is_estimated),
@@ -292,7 +292,9 @@ def _render_timeline_line(evt: SessionEvent) -> str:
     tool = (evt.tool_name or "")[:10]
     desc = _event_desc(evt)
     cost_str = f"${evt.cost_usd:.4f}" if evt.cost_usd else ""
-    tag = _WASTE_TAGS.get(evt.waste_reason, evt.waste_reason[:4].upper()) if evt.waste_reason else ""
+    tag = (
+        _WASTE_TAGS.get(evt.waste_reason, evt.waste_reason[:4].upper()) if evt.waste_reason else ""
+    )
     tag_str = f" [{tag}]" if tag else ""
     return (
         f"[dim]{ts}[/] [{color}]{sym}[/] [cyan]{tool:<10}[/]"
@@ -303,6 +305,7 @@ def _render_timeline_line(evt: SessionEvent) -> str:
 # ---------------------------------------------------------------------------
 # Stats panel renderers
 # ---------------------------------------------------------------------------
+
 
 def _stats_duration_str(summary: SessionSummary) -> str:
     """Format elapsed duration as HH:MM:SS."""
@@ -339,8 +342,7 @@ def _render_stats_panel(summary: SessionSummary) -> Panel:
     duration = _stats_duration_str(summary)
     cost_str = _format_cost(summary.total_cost, summary.cost_is_estimated)
     cache_str = (
-        f"{summary.cache_hit_rate * 100:.0f}%"
-        if summary.cache_hit_rate is not None else "n/a"
+        f"{summary.cache_hit_rate * 100:.0f}%" if summary.cache_hit_rate is not None else "n/a"
     )
     session_label = _stats_session_label(summary)
     in_tok = _format_tokens(summary.input_tokens)
@@ -375,8 +377,7 @@ def _render_stats_compact(summary: SessionSummary) -> str:
     in_tok = _format_tokens(summary.input_tokens)
     out_tok = _format_tokens(summary.output_tokens)
     cache_str = (
-        f"{summary.cache_hit_rate * 100:.0f}%↑"
-        if summary.cache_hit_rate is not None else "n/a"
+        f"{summary.cache_hit_rate * 100:.0f}%↑" if summary.cache_hit_rate is not None else "n/a"
     )
     eff_bar = _bar(summary.efficiency_score / 100.0, width=8)
     eff_color = _efficiency_color(summary.efficiency_score)

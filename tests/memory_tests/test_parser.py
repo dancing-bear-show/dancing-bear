@@ -7,7 +7,6 @@ from __future__ import annotations
 import unittest
 from datetime import datetime
 
-from tests.memory_tests.fixtures import CURRENT_FORMAT_MEMORY, MemoryTestCase
 from memory.models import MemoryType, SchemaShape
 from memory.parser import (
     extract_anchors,
@@ -16,6 +15,7 @@ from memory.parser import (
     parse_frontmatter,
     parse_memory_file,
 )
+from tests.memory_tests.fixtures import CURRENT_FORMAT_MEMORY, MemoryTestCase
 
 
 class TestExtractWikilinks(MemoryTestCase):

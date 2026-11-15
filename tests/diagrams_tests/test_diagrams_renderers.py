@@ -5,7 +5,6 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock, patch
 
-
 # ---------------------------------------------------------------------------
 # TextRenderer
 # ---------------------------------------------------------------------------
@@ -59,6 +58,7 @@ class TestTextRendererRenderEmbedded(unittest.TestCase):
 class TestLocalRendererInferFormat(unittest.TestCase):
     def _infer(self, path):
         from diagrams.renderers import LocalRenderer
+
         return LocalRenderer._infer_format(path)
 
     def test_svg_extension(self):

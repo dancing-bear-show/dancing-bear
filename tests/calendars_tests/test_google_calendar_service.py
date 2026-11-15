@@ -13,6 +13,7 @@ Covers:
 - get_calendar_timezone: returns None for empty/whitespace timezone
 - get_calendar_timezone: returns None when the API raises (swallow path)
 """
+
 from __future__ import annotations
 
 import sys
@@ -21,7 +22,9 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 
-def _make_fake_service(responses: list[dict[str, Any]], inserted: list | None = None, tz_response: dict | None = None) -> MagicMock:
+def _make_fake_service(
+    responses: list[dict[str, Any]], inserted: list | None = None, tz_response: dict | None = None
+) -> MagicMock:
     """Build a fake googleapiclient service object.
 
     Parameters
@@ -50,6 +53,7 @@ def _make_fake_service(responses: list[dict[str, Any]], inserted: list | None = 
 
     # insert
     if inserted is not None:
+
         def _insert_execute():
             return {"id": "new-ev", "summary": "inserted"}
 
@@ -70,11 +74,13 @@ def _make_fake_service(responses: list[dict[str, Any]], inserted: list | None = 
     return service
 
 
-def _build_service_with_fake(fake_service: MagicMock) -> "Any":
+def _build_service_with_fake(fake_service: MagicMock) -> Any:
     """Patch googleapiclient.discovery.build and construct a GoogleCalendarService."""
     from calendars.google_calendar_service import GoogleCalendarService
 
-    with patch("calendars.google_calendar_service.GoogleCalendarService.__init__", return_value=None):
+    with patch(
+        "calendars.google_calendar_service.GoogleCalendarService.__init__", return_value=None
+    ):
         svc = GoogleCalendarService.__new__(GoogleCalendarService)
         svc._service = fake_service
     return svc
@@ -261,18 +267,22 @@ class TestInsertEvent(unittest.TestCase):
         fake_svc.events.return_value.insert.return_value.execute.return_value = created
         svc = _build_service_with_fake(fake_svc)
 
-        body = {"summary": "My Event", "start": {"date": "2026-01-01"}, "end": {"date": "2026-01-02"}}
+        body = {
+            "summary": "My Event",
+            "start": {"date": "2026-01-01"},
+            "end": {"date": "2026-01-02"},
+        }
         result = svc.insert_event("primary", body)
 
         self.assertEqual(result, created)
-        fake_svc.events.return_value.insert.assert_called_once_with(
-            calendarId="primary", body=body
-        )
+        fake_svc.events.return_value.insert.assert_called_once_with(calendarId="primary", body=body)
 
     def test_insert_event_api_error_propagates(self):
         """API error during insert propagates to the caller."""
         fake_svc = MagicMock()
-        fake_svc.events.return_value.insert.return_value.execute.side_effect = RuntimeError("insert failed")
+        fake_svc.events.return_value.insert.return_value.execute.side_effect = RuntimeError(
+            "insert failed"
+        )
         svc = _build_service_with_fake(fake_svc)
 
         with self.assertRaises(RuntimeError) as ctx:

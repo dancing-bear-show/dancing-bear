@@ -7,16 +7,32 @@ from typing import Any
 
 from .io_utils import read_yaml_or_json
 
-
 # Fields to copy from profile config
-_PROFILE_FIELDS = ("name", "headline", "summary", "email", "phone", "location", "website", "linkedin", "github")
+_PROFILE_FIELDS = (
+    "name",
+    "headline",
+    "summary",
+    "email",
+    "phone",
+    "location",
+    "website",
+    "linkedin",
+    "github",
+)
 _CONTACT_FIELDS = ("email", "phone", "location", "website", "linkedin", "github")
 
 # Overlay file names; used both for loading and legacy-exists checks.
 _OVERLAY_NAMES = (
-    "profile", "skills_groups", "experience", "interests",
-    "presentations", "projects", "languages", "coursework",
-    "education", "certifications",
+    "profile",
+    "skills_groups",
+    "experience",
+    "interests",
+    "presentations",
+    "projects",
+    "languages",
+    "coursework",
+    "education",
+    "certifications",
 )
 
 # Root of the packaged config tree; anchored to this file, not the CWD.
@@ -47,6 +63,7 @@ def _validate_profile_name(profile: str) -> None:
         or profile.startswith(".")
     ):
         from core.cli_errors import CLIError, ExitCode
+
         raise CLIError(
             f"Profile name {profile!r} must be a plain name segment "
             "(no path separators, '..', or leading '.')",
@@ -75,6 +92,7 @@ def resolve_profile_dir(profile: str) -> Path | None:
     """
     _validate_profile_name(profile)
     from core.paths import config_home
+
     for candidate in (
         config_home() / "resume" / "profiles" / profile,
         Path("config") / "profiles" / profile,
@@ -88,6 +106,7 @@ def resolve_profile_dir(profile: str) -> Path | None:
 def _searched_dirs(profile: str) -> list[Path]:
     """Return the directories :func:`resolve_profile_dir` would have searched."""
     from core.paths import config_home
+
     return [
         config_home() / "resume" / "profiles" / profile,
         Path("config") / "profiles" / profile,
@@ -114,7 +133,7 @@ def _get_overlay_paths(prof_dir: Path, cfg_dir: Path, profile: str, name: str) -
 def _apply_profile_config(out: dict[str, Any], prof_data: dict[str, Any]) -> None:
     """Apply profile fields and nested contact to output."""
     for k in _PROFILE_FIELDS:
-        if (v := prof_data.get(k)):
+        if v := prof_data.get(k):
             out[k] = v
 
     if isinstance(prof_data.get("contact"), dict):
@@ -133,7 +152,7 @@ def _apply_profile_config(out: dict[str, Any], prof_data: dict[str, Any]) -> Non
 def _load_skills_groups(prof_dir: Path, cfg_dir: Path, profile: str) -> list[Any] | None:
     """Load skills_groups from overlay."""
     paths = _get_overlay_paths(prof_dir, cfg_dir, profile, "skills_groups")
-    if (data := _try_load_from_paths(paths)):
+    if data := _try_load_from_paths(paths):
         return data.get("groups", [])
     return None
 
@@ -141,7 +160,7 @@ def _load_skills_groups(prof_dir: Path, cfg_dir: Path, profile: str) -> list[Any
 def _load_experience(prof_dir: Path, cfg_dir: Path, profile: str) -> list[Any] | None:
     """Load experience from overlay."""
     paths = _get_overlay_paths(prof_dir, cfg_dir, profile, "experience")
-    if (data := _try_load_from_paths(paths)):
+    if data := _try_load_from_paths(paths):
         exp_list = data.get("experience") or data.get("roles")
         if isinstance(exp_list, list) and exp_list:
             return exp_list
@@ -151,7 +170,7 @@ def _load_experience(prof_dir: Path, cfg_dir: Path, profile: str) -> list[Any] |
 def _load_list_overlay(prof_dir: Path, cfg_dir: Path, profile: str, key: str) -> list[Any] | None:
     """Load a simple list overlay (interests, languages, etc.)."""
     paths = _get_overlay_paths(prof_dir, cfg_dir, profile, key)
-    if (data := _try_load_from_paths(paths)):
+    if data := _try_load_from_paths(paths):
         if isinstance(data, dict) and isinstance(data.get(key), list):
             return data[key]
         if isinstance(data, list):
@@ -198,10 +217,7 @@ def apply_profile_overlays(data: dict[str, Any], profile: str | None) -> dict[st
         # No directory found anywhere.  Before warning, check whether legacy
         # flat files (config/<name>.<profile>.yaml) exist in the CWD — a user
         # running from the repo root may have only the old layout.
-        legacy_found = any(
-            (cfg_dir / f"{name}.{profile}.yaml").exists()
-            for name in _OVERLAY_NAMES
-        )
+        legacy_found = any((cfg_dir / f"{name}.{profile}.yaml").exists() for name in _OVERLAY_NAMES)
         if not legacy_found:
             searched = "\n  ".join(str(p) for p in _searched_dirs(profile))
             print(
@@ -216,20 +232,28 @@ def apply_profile_overlays(data: dict[str, Any], profile: str | None) -> dict[st
 
     # Profile config
     paths = _get_overlay_paths(prof_dir, cfg_dir, profile, "profile")
-    if (prof_data := _try_load_from_paths(paths)):
+    if prof_data := _try_load_from_paths(paths):
         _apply_profile_config(out, prof_data)
 
     # Skills groups
-    if (skills := _load_skills_groups(prof_dir, cfg_dir, profile)):
+    if skills := _load_skills_groups(prof_dir, cfg_dir, profile):
         out["skills_groups"] = skills
 
     # Experience
-    if (exp := _load_experience(prof_dir, cfg_dir, profile)):
+    if exp := _load_experience(prof_dir, cfg_dir, profile):
         out["experience"] = exp
 
     # Simple list overlays
-    for key in ("interests", "presentations", "projects", "languages", "coursework", "education", "certifications"):
-        if (items := _load_list_overlay(prof_dir, cfg_dir, profile, key)):
+    for key in (
+        "interests",
+        "presentations",
+        "projects",
+        "languages",
+        "coursework",
+        "education",
+        "certifications",
+    ):
+        if items := _load_list_overlay(prof_dir, cfg_dir, profile, key):
             out[key] = items
 
     return out

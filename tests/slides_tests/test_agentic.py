@@ -11,9 +11,8 @@ AgenticCLIContractMixin.
 
 import unittest
 
-from tests.agentic_builder_contract import AgenticBuilderContractMixin
-
 from slides.agentic import build_agentic_capsule
+from tests.agentic_builder_contract import AgenticBuilderContractMixin
 
 
 class TestSlidesAgenticBuilder(AgenticBuilderContractMixin, unittest.TestCase):

@@ -92,7 +92,7 @@ class TestCommitMsgHookAcceptsValid(unittest.TestCase):
 
     def test_revert_commit(self) -> None:
         """Revert commits bypass validation."""
-        self._assert_accepted("Revert \"feat(mail): add auto-labeling pipeline\"\n")
+        self._assert_accepted('Revert "feat(mail): add auto-labeling pipeline"\n')
 
     def test_fixup_commit(self) -> None:
         """fixup! commits bypass validation."""
@@ -124,7 +124,18 @@ class TestCommitMsgHookAcceptsValid(unittest.TestCase):
 
     def test_all_types_accepted(self) -> None:
         """Every type from COMMIT_CONVENTION.md must be accepted."""
-        types = ["feat", "fix", "docs", "refactor", "test", "chore", "perf", "ci", "style", "revert"]
+        types = [
+            "feat",
+            "fix",
+            "docs",
+            "refactor",
+            "test",
+            "chore",
+            "perf",
+            "ci",
+            "style",
+            "revert",
+        ]
         for t in types:
             with self.subTest(type=t):
                 self._assert_accepted(f"{t}: some subject\n")
@@ -216,7 +227,9 @@ class TestPrePushHookAllowsOther(unittest.TestCase):
         self._assert_allowed(line)
 
     def test_allows_worktree_branch(self) -> None:
-        line = f"refs/heads/worktree-agent-abc {_FAKE_SHA} refs/heads/worktree-agent-abc {_ZERO_SHA}\n"
+        line = (
+            f"refs/heads/worktree-agent-abc {_FAKE_SHA} refs/heads/worktree-agent-abc {_ZERO_SHA}\n"
+        )
         self._assert_allowed(line)
 
     def test_allows_delete_push_to_feature_branch(self) -> None:
@@ -242,9 +255,14 @@ class TestHooksAreExecutable(unittest.TestCase):
         self.assertTrue(path.is_file(), msg=f"missing: {path}")
         self.assertTrue(os.access(path, os.X_OK), msg=f"not executable: {path}")
 
+    def test_pre_commit_is_executable(self) -> None:
+        path = HOOKS_DIR / "pre-commit"
+        self.assertTrue(path.is_file(), msg=f"missing: {path}")
+        self.assertTrue(os.access(path, os.X_OK), msg=f"not executable: {path}")
+
     def test_hooks_do_not_invoke_python(self) -> None:
         """Hook scripts are pure bash — no Python interpreter calls."""
-        for name in ("commit-msg", "pre-push"):
+        for name in ("commit-msg", "pre-push", "pre-commit"):
             path = HOOKS_DIR / name
             text = path.read_text(encoding="utf-8")
             self.assertNotIn(
@@ -252,6 +270,98 @@ class TestHooksAreExecutable(unittest.TestCase):
                 text,
                 msg=f"{name} invokes Python; hooks should be pure bash",
             )
+
+
+def _resolve_ruff() -> str | None:
+    """The ruff the hook would use, or None when no binary is available."""
+    result = subprocess.run(  # nosec B603 B607 - trusted in-repo script
+        ["bash", str(REPO_ROOT / "bin" / "ruff-resolve.sh"), "--print"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    return result.stdout.splitlines()[0].strip()
+
+
+_RUFF = _resolve_ruff()
+
+_UNFORMATTED = "import os\nx = {'a':1}\n"
+_FORMATTED = 'x = {"a": 1}\n'
+
+
+@unittest.skipUnless(_RUFF, "no ruff binary (run any `qlty check` to populate the cache)")
+class TestPreCommitHook(unittest.TestCase):
+    """pre-commit fixes fully staged Python and never rewrites partial stages."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.repo = Path(self._tmp.name)
+        self._git("init", "-q")
+        self.env = {**os.environ, "RUFF_BIN": str(_RUFF)}
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _git(self, *args: str) -> str:
+        return subprocess.run(  # nosec B603 B607 - git on a temp repo
+            ["git", *args], cwd=self.repo, capture_output=True, text=True, check=True
+        ).stdout
+
+    def _write(self, name: str, text: str) -> None:
+        (self.repo / name).write_text(text, encoding="utf-8")
+
+    def _staged(self, name: str) -> str:
+        return self._git("show", f":{name}")
+
+    def _run_hook(self) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(  # nosec B603 B607 - trusted in-repo hook script
+            ["bash", str(HOOKS_DIR / "pre-commit")],
+            cwd=self.repo,
+            env=self.env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+    def test_no_staged_python_is_a_noop(self) -> None:
+        self._write("notes.txt", "x\n")
+        self._git("add", "notes.txt")
+        self.assertEqual(self._run_hook().returncode, 0)
+
+    def test_fully_staged_file_is_fixed_and_restaged(self) -> None:
+        self._write("mod.py", _UNFORMATTED)
+        self._git("add", "mod.py")
+        result = self._run_hook()
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertEqual(self._staged("mod.py"), _FORMATTED)
+        self.assertEqual((self.repo / "mod.py").read_text(encoding="utf-8"), _FORMATTED)
+
+    def test_partially_staged_file_is_not_rewritten(self) -> None:
+        self._write("mod.py", _UNFORMATTED)
+        self._git("add", "mod.py")
+        unstaged = _UNFORMATTED + "y = 2\n"
+        self._write("mod.py", unstaged)
+        result = self._run_hook()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Partially staged", result.stderr)
+        self.assertEqual(self._staged("mod.py"), _UNFORMATTED)
+        self.assertEqual((self.repo / "mod.py").read_text(encoding="utf-8"), unstaged)
+
+    def test_unfixable_finding_blocks_commit(self) -> None:
+        self._write("mod.py", "print(undefined_name)\n")
+        self._git("add", "mod.py")
+        result = self._run_hook()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("could not fix", result.stderr)
+
+    def test_clean_file_passes_unchanged(self) -> None:
+        self._write("mod.py", _FORMATTED)
+        self._git("add", "mod.py")
+        result = self._run_hook()
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertEqual(self._staged("mod.py"), _FORMATTED)
 
 
 if __name__ == "__main__":

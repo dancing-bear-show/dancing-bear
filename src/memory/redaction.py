@@ -133,9 +133,7 @@ REDACTION_RULES: tuple[RedactionRule, ...] = (
     RedactionRule(
         rule_id="origin-session-id",
         severity=SEVERITY_SCRUB,
-        pattern=re.compile(
-            r"origin_session_id['\"]?\s*[:=]\s*['\"]?([a-f0-9\-]{36})['\"]?"
-        ),
+        pattern=re.compile(r"origin_session_id['\"]?\s*[:=]\s*['\"]?([a-f0-9\-]{36})['\"]?"),
         replacement="origin_session_id: [REDACTED_SESSION_ID]",
         description="Origin session UUID",
     ),
@@ -149,9 +147,7 @@ REDACTION_RULES: tuple[RedactionRule, ...] = (
     RedactionRule(
         rule_id="machine-hostname",
         severity=SEVERITY_SCRUB,
-        pattern=re.compile(
-            r"[Hh]ostname['\"]?\s*[:=]\s*['\"]?([A-Za-z0-9\-_.]+)['\"]?(?:\s|$)"
-        ),
+        pattern=re.compile(r"[Hh]ostname['\"]?\s*[:=]\s*['\"]?([A-Za-z0-9\-_.]+)['\"]?(?:\s|$)"),
         replacement="Hostname: [REDACTED]",
         description="Machine hostname",
     ),
@@ -216,9 +212,7 @@ REDACTION_RULES: tuple[RedactionRule, ...] = (
     RedactionRule(
         rule_id="credential-assignment",
         severity=SEVERITY_WARN,
-        pattern=re.compile(
-            r"(?:api_key|password|secret)\s*=\s*[a-z0-9\-_]{6,}", re.IGNORECASE
-        ),
+        pattern=re.compile(r"(?:api_key|password|secret)\s*=\s*[a-z0-9\-_]{6,}", re.IGNORECASE),
         replacement="[REDACTED_CREDENTIAL]",
         description="Generic api_key/password/secret assignment (warn only; block would false-positive on ordinary prose)",
     ),
@@ -232,9 +226,7 @@ REDACTION_RULES: tuple[RedactionRule, ...] = (
     RedactionRule(
         rule_id="pr-url",
         severity=SEVERITY_WARN,
-        pattern=re.compile(
-            r"https://github\.com/[A-Za-z0-9\-_]+/[A-Za-z0-9\-_]+/pull/\d+"
-        ),
+        pattern=re.compile(r"https://github\.com/[A-Za-z0-9\-_]+/[A-Za-z0-9\-_]+/pull/\d+"),
         replacement="https://github.com/[REPO]/pull/[NUMBER]",
         description="GitHub pull request URL",
     ),

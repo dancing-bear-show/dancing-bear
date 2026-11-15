@@ -4,6 +4,7 @@ from pathlib import Path
 
 from core.agentic import section as _section
 
+
 def build_agentic_capsule() -> str:
     from .pipeline import scan_tools
 
@@ -31,7 +32,9 @@ def build_domain_map() -> str:
     from .pipeline import scan_tools
 
     out: list[str] = []
-    out.append("Top-Level\n- maker/card — card generators\n- maker/tp_rod — TPU rod generator\n- maker/print — printer helpers")
+    out.append(
+        "Top-Level\n- maker/card — card generators\n- maker/tp_rod — TPU rod generator\n- maker/print — printer helpers"
+    )
     tools = scan_tools(Path(__file__).resolve().parent)
     if tools:
         out.append(_section("Tools", "\n".join(f"- maker/{t}" for t in tools)))

@@ -16,35 +16,35 @@ from core.paths import output_dir
 from core.pipeline import run_pipeline
 
 from ..helpers import LayoutLoadError, load_layout, read_yaml, write_yaml
-from ..pipeline_export import (
-    AnalyzeProducer,
-    AnalyzeProcessor,
-    AnalyzeRequest,
-    ChecklistProducer,
-    ChecklistProcessor,
-    ChecklistRequest,
-    ExportDeviceProducer,
-    ExportDeviceProcessor,
-    ExportDeviceRequest,
-    ExportProducer,
-    ExportProcessor,
-    ExportRequest,
-    IconmapProducer,
-    IconmapProcessor,
-    IconmapRequest,
-    PlanProducer,
-    PlanProcessor,
-    PlanRequest,
-    PruneProducer,
-    PruneProcessor,
-    PruneRequest,
-    UnusedProducer,
-    UnusedProcessor,
-    UnusedRequest,
-)
 from ..layout_plan_analyze import (
     auto_folderize,
     distribute_folders_across_pages,
+)
+from ..pipeline_export import (
+    AnalyzeProcessor,
+    AnalyzeProducer,
+    AnalyzeRequest,
+    ChecklistProcessor,
+    ChecklistProducer,
+    ChecklistRequest,
+    ExportDeviceProcessor,
+    ExportDeviceProducer,
+    ExportDeviceRequest,
+    ExportProcessor,
+    ExportProducer,
+    ExportRequest,
+    IconmapProcessor,
+    IconmapProducer,
+    IconmapRequest,
+    PlanProcessor,
+    PlanProducer,
+    PlanRequest,
+    PruneProcessor,
+    PruneProducer,
+    PruneRequest,
+    UnusedProcessor,
+    UnusedProducer,
+    UnusedRequest,
 )
 
 
@@ -184,7 +184,9 @@ def cmd_export_device(args) -> int:
 def cmd_iconmap(args) -> int:
     """Download raw icon layout from device via cfgutil."""
     fmt = getattr(args, "format", "json")
-    out_default = str(output_dir("phone") / ("ios.iconmap.json" if fmt == "json" else "ios.iconmap.plist"))
+    out_default = str(
+        output_dir("phone") / ("ios.iconmap.json" if fmt == "json" else "ios.iconmap.plist")
+    )
     out_path = Path(getattr(args, "out", None) or out_default)
     request = IconmapRequest(
         udid=getattr(args, "udid", None) or os.environ.get("IOS_DEVICE_UDID"),
@@ -243,7 +245,9 @@ def cmd_prune(args) -> int:
         limit=int(getattr(args, "limit", 50)),
         threshold=float(getattr(args, "threshold", 1.0)),
         mode=getattr(args, "mode", "offload"),
-        out_path=Path(getattr(args, "out", None) or output_dir("phone") / "ios.unused.prune_checklist.txt"),
+        out_path=Path(
+            getattr(args, "out", None) or output_dir("phone") / "ios.unused.prune_checklist.txt"
+        ),
     )
     return run_pipeline(request, PruneProcessor, PruneProducer)
 
@@ -292,9 +296,7 @@ def cmd_validate_layout(args) -> int:
 def cmd_auto_folders(args) -> int:
     """Auto-assign all apps into folders in plan (keeps specified apps out)."""
     try:
-        layout = load_layout(
-            getattr(args, "layout", None), getattr(args, "backup", None)
-        )
+        layout = load_layout(getattr(args, "layout", None), getattr(args, "backup", None))
     except LayoutLoadError as err:
         print(err, file=sys.stderr)
         return err.code
@@ -323,10 +325,12 @@ def cmd_auto_folders(args) -> int:
     # Write updated plan
     plan_path.parent.mkdir(parents=True, exist_ok=True)
     write_yaml(plan, plan_path)
-    emit_one({
-        "status": "ok",
-        "plan": str(plan_path),
-        "folders_total": len(folders),
-        "folders_nonempty": sum(1 for a in folders.values() if a),
-    })
+    emit_one(
+        {
+            "status": "ok",
+            "plan": str(plan_path),
+            "folders_total": len(folders),
+            "folders_nonempty": sum(1 for a in folders.values() if a),
+        }
+    )
     return 0

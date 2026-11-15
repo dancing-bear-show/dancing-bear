@@ -5,14 +5,13 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from pathlib import Path
-
 from functools import lru_cache
+from pathlib import Path
 
 from core.assistant import BaseAssistant
 from core.cli_errors import CLIError, ExitCode, handle_error
 from core.cli_framework import CLIApp
-from core.cli_output import OutputWriter, OutputConfig, OutputFormat
+from core.cli_output import OutputConfig, OutputFormat, OutputWriter
 
 from .meta import META
 
@@ -156,16 +155,22 @@ def _load_panel_specs(cfg, json_to_spec_fn):
 
 
 @app.command("render", help="Render a single chart from a JSON spec.")
-@app.argument("--input", "-i", dest="input_path", default="-",
-              help="JSON input file (default: stdin).")
-@app.argument("--output", "-o", dest="output_path", required=True,
-              help="Output path (.png or .svg).")
-@app.argument("--theme", choices=["dark", "light"], default="dark",
-              help="Color theme (default: dark).")
-@app.argument("--dpi", type=int, default=None,
-              help="Override DPI (default: from spec).")
-@app.argument("--svg", action="store_true", default=False,
-              help="Force SVG output regardless of --output extension.")
+@app.argument(
+    "--input", "-i", dest="input_path", default="-", help="JSON input file (default: stdin)."
+)
+@app.argument(
+    "--output", "-o", dest="output_path", required=True, help="Output path (.png or .svg)."
+)
+@app.argument(
+    "--theme", choices=["dark", "light"], default="dark", help="Color theme (default: dark)."
+)
+@app.argument("--dpi", type=int, default=None, help="Override DPI (default: from spec).")
+@app.argument(
+    "--svg",
+    action="store_true",
+    default=False,
+    help="Force SVG output regardless of --output extension.",
+)
 def _handle_render(args: argparse.Namespace, writer: OutputWriter | None = None) -> int:
     _require_matplotlib()
 
@@ -202,14 +207,14 @@ def _handle_render(args: argparse.Namespace, writer: OutputWriter | None = None)
 
 
 @app.command("grid", help="Render a multi-panel grid from a YAML config.")
-@app.argument("--config", "-c", dest="config_path", required=True,
-              help="YAML grid config file.")
-@app.argument("--output", "-o", dest="output_path", default=None,
-              help="Override output path from config.")
-@app.argument("--theme", choices=["dark", "light"], default=None,
-              help="Override theme from config.")
-@app.argument("--svg", action="store_true", default=False,
-              help="Force SVG output.")
+@app.argument("--config", "-c", dest="config_path", required=True, help="YAML grid config file.")
+@app.argument(
+    "--output", "-o", dest="output_path", default=None, help="Override output path from config."
+)
+@app.argument(
+    "--theme", choices=["dark", "light"], default=None, help="Override theme from config."
+)
+@app.argument("--svg", action="store_true", default=False, help="Force SVG output.")
 def _handle_grid(args: argparse.Namespace, writer: OutputWriter | None = None) -> int:
     _require_matplotlib()
 
@@ -242,18 +247,18 @@ def _handle_grid(args: argparse.Namespace, writer: OutputWriter | None = None) -
     "reshape",
     help="Normalise arbitrary row data into the charts JSON contract, writes to stdout.",
 )
-@app.argument("--input", "-i", dest="input_path", default="-",
-              help="Input file (default: stdin).")
-@app.argument("--x", dest="x_field", required=True,
-              help="Field to use as x-axis.")
-@app.argument("--y", dest="y_field", required=True,
-              help="Field to use as value (y-axis).")
-@app.argument("--group-by", dest="group_by", default=None,
-              help="Field to split into series.")
-@app.argument("--title", default="Chart",
-              help="Chart title (default: Chart).")
-@app.argument("--format", dest="fmt", choices=["json", "yaml"], default="json",
-              help="Output format (default: json).")
+@app.argument("--input", "-i", dest="input_path", default="-", help="Input file (default: stdin).")
+@app.argument("--x", dest="x_field", required=True, help="Field to use as x-axis.")
+@app.argument("--y", dest="y_field", required=True, help="Field to use as value (y-axis).")
+@app.argument("--group-by", dest="group_by", default=None, help="Field to split into series.")
+@app.argument("--title", default="Chart", help="Chart title (default: Chart).")
+@app.argument(
+    "--format",
+    dest="fmt",
+    choices=["json", "yaml"],
+    default="json",
+    help="Output format (default: json).",
+)
 def _handle_reshape(args: argparse.Namespace, writer: OutputWriter | None = None) -> int:
     fmt = OutputFormat.YAML if args.fmt == "yaml" else OutputFormat.JSON
     out = writer or OutputWriter(OutputConfig(format=fmt))
@@ -265,10 +270,7 @@ def _handle_reshape(args: argparse.Namespace, writer: OutputWriter | None = None
     data: dict[str, object] = {
         "title": args.title,
         "x_field": args.x_field,
-        "series": [
-            {"name": name, "data": series_data}
-            for name, series_data in series_map.items()
-        ],
+        "series": [{"name": name, "data": series_data} for name, series_data in series_map.items()],
     }
 
     out.print_data(data)

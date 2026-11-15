@@ -1,4 +1,5 @@
 """Tests for whatsapp pipeline module."""
+
 from __future__ import annotations
 
 import importlib
@@ -8,11 +9,11 @@ from unittest.mock import patch
 
 from core.cli_output import OutputFormat
 from whatsapp.pipeline import (
+    SearchProcessor,
+    SearchProducer,
     SearchRequest,
     SearchRequestConsumer,
     SearchResult,
-    SearchProcessor,
-    SearchProducer,
 )
 from whatsapp.search import MessageRow
 
@@ -243,6 +244,7 @@ class TestSearchQueryRemoved(unittest.TestCase):
     def test_search_request_is_canonical_input_type(self):
         """SearchRequest is the canonical search input and is importable."""
         from whatsapp.pipeline import SearchRequest
+
         req = SearchRequest()
         self.assertIsInstance(req, SearchRequest)
         self.assertEqual(req.output_format, OutputFormat.TEXT)

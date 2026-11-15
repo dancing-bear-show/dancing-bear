@@ -5,6 +5,7 @@ Provides renderers for sections that delegate directly to render_simple_list:
   - CourseworkSectionRenderer, CertificationsSectionRenderer
   - PresentationsSectionRenderer
 """
+
 from __future__ import annotations
 
 from .docx_links import add_hyperlink, display_url, normalize_link_url

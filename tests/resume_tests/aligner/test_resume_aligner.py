@@ -242,9 +242,7 @@ class TestBuildTailoredCandidate(unittest.TestCase):
         self.assertLessEqual(len(exp["bullets"]), 4)
 
     def test_max_bullets_per_role(self):
-        result = build_tailored_candidate(
-            self.candidate, self.alignment, max_bullets_per_role=2
-        )
+        result = build_tailored_candidate(self.candidate, self.alignment, max_bullets_per_role=2)
 
         for exp in result["experience"]:
             self.assertLessEqual(len(exp["bullets"]), 2)
@@ -253,7 +251,13 @@ class TestBuildTailoredCandidate(unittest.TestCase):
         # Alignment with keywords that don't match any bullets
         alignment = {
             "matched_keywords": [
-                {"skill": "Kubernetes", "count": 1, "weight": 1, "tier": "required", "category": None},
+                {
+                    "skill": "Kubernetes",
+                    "count": 1,
+                    "weight": 1,
+                    "tier": "required",
+                    "category": None,
+                },
             ],
             "experience_scores": [(0, 1), (1, 1)],
         }

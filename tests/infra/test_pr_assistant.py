@@ -65,6 +65,7 @@ PRA = _load_module()
 # Fake gh transport
 # ---------------------------------------------------------------------------
 
+
 def _proc(returncode: int = 0, stdout: str = "", stderr: str = "") -> SimpleNamespace:
     """Minimal stand-in for a subprocess.CompletedProcess."""
     return SimpleNamespace(returncode=returncode, stdout=stdout, stderr=stderr)
@@ -101,10 +102,13 @@ class FakeGhTransport:
         if cmd[:2] == ["gh", "api"]:
             return self._pop("api", default=_proc(stdout="[[]]"))
         if cmd[:3] == ["gh", "pr", "view"]:
-            return self._pop("pr_view", default=_proc(
-                stdout='{"number": 42, "url": "https://example/pr/42",'
-                       ' "headRefName": "feature", "baseRefName": "main"}'
-            ))
+            return self._pop(
+                "pr_view",
+                default=_proc(
+                    stdout='{"number": 42, "url": "https://example/pr/42",'
+                    ' "headRefName": "feature", "baseRefName": "main"}'
+                ),
+            )
         if cmd[:3] == ["gh", "pr", "diff"]:
             return self._pop("pr_diff", default=_proc(stdout=""))
         if cmd[:3] == ["gh", "pr", "checks"]:
@@ -130,20 +134,21 @@ class FakeGhTransport:
     def graphql_query(self, response: dict[str, Any]) -> None:
         """Push a JSON payload to be returned by the next ``gh api graphql``."""
         import json
-        self.responses.setdefault("graphql", []).append(
-            _proc(stdout=json.dumps(response))
-        )
+
+        self.responses.setdefault("graphql", []).append(_proc(stdout=json.dumps(response)))
 
 
 def _new_gh(fake: FakeGhTransport):
     """Build a real GhCLI backed by ``fake`` (so all core.github logic runs)."""
     from core.gh_cli import GhCLI
+
     return GhCLI(run_func=fake)
 
 
 # ---------------------------------------------------------------------------
 # GraphQL fixtures
 # ---------------------------------------------------------------------------
+
 
 def _thread_node(
     thread_id: str,
@@ -167,19 +172,22 @@ def _thread_node(
         "comments": {
             "totalCount": 1,
             "pageInfo": {"hasNextPage": False, "endCursor": None},
-            "nodes": [{
-                "databaseId": 1,
-                "author": {"login": author_login, "__typename": typename},
-                "body": body,
-                "createdAt": "2026-01-01T00:00:00Z",
-                "url": "https://example/comment/1",
-            }],
+            "nodes": [
+                {
+                    "databaseId": 1,
+                    "author": {"login": author_login, "__typename": typename},
+                    "body": body,
+                    "createdAt": "2026-01-01T00:00:00Z",
+                    "url": "https://example/comment/1",
+                }
+            ],
         },
     }
 
 
-def _threads_page(nodes: list[dict[str, Any]], *, has_next: bool, end_cursor: str | None,
-                  total: int | None = None) -> dict[str, Any]:
+def _threads_page(
+    nodes: list[dict[str, Any]], *, has_next: bool, end_cursor: str | None, total: int | None = None
+) -> dict[str, Any]:
     return {
         "data": {
             "repository": {
@@ -202,8 +210,7 @@ class TestPaginatedCopilotSelection(unittest.TestCase):
         fake = FakeGhTransport()
         # Page 1: 100 non-copilot threads
         page1_nodes = [
-            _thread_node(f"page1-{i}", author_login="somebody", typename="User")
-            for i in range(100)
+            _thread_node(f"page1-{i}", author_login="somebody", typename="User") for i in range(100)
         ]
         # Page 2: one real copilot thread
         page2_nodes = [
@@ -240,8 +247,7 @@ class TestPaginatedCopilotSelection(unittest.TestCase):
         """
         fake = FakeGhTransport()
         page1_nodes = [
-            _thread_node(f"page1-{i}", author_login="somebody", typename="User")
-            for i in range(50)
+            _thread_node(f"page1-{i}", author_login="somebody", typename="User") for i in range(50)
         ]
         # Only page 1; totalCount matches so nothing looks truncated.
         fake.graphql_query(_threads_page(page1_nodes, has_next=False, end_cursor=None, total=50))
@@ -259,18 +265,32 @@ class TestIncompleteFetchIsRefused(unittest.TestCase):
     def test_truncated_fetch_raises_instead_of_returning_a_partial_list(self):
         fake = FakeGhTransport()
         node = _thread_node("PRRT_1", author_login="copilot-pull-request-reviewer")
-        fake.graphql_query({"data": {"repository": {"pullRequest": {"reviewThreads": {
-            "totalCount": 3,  # GitHub says 3; one came back
-            "pageInfo": {"hasNextPage": False, "endCursor": None},
-            "nodes": [node],
-        }}}}})
+        fake.graphql_query(
+            {
+                "data": {
+                    "repository": {
+                        "pullRequest": {
+                            "reviewThreads": {
+                                "totalCount": 3,  # GitHub says 3; one came back
+                                "pageInfo": {"hasNextPage": False, "endCursor": None},
+                                "nodes": [node],
+                            }
+                        }
+                    }
+                }
+            }
+        )
         with self.assertRaisesRegex(PRA.GhError, "incomplete"):
             PRA.fetch_copilot_threads(_new_gh(fake), "owner", "repo", 42)
 
     def test_main_turns_any_gh_error_into_exit_1_without_a_traceback(self):
-        with patch.object(sys, "argv", ["pr-assistant", "--dry-run"]), \
-                patch.object(PRA, "_run", side_effect=PRA.GhError("gh api graphql timed out after 300s")), \
-                patch("sys.stderr") as err:
+        with (
+            patch.object(sys, "argv", ["pr-assistant", "--dry-run"]),
+            patch.object(
+                PRA, "_run", side_effect=PRA.GhError("gh api graphql timed out after 300s")
+            ),
+            patch("sys.stderr") as err,
+        ):
             self.assertEqual(PRA.main(), 1)
         written = "".join(c.args[0] for c in err.write.call_args_list)
         self.assertIn("pr-assistant: gh api graphql timed out", written)
@@ -361,15 +381,18 @@ class TestDryRunPerformsNoMutation(unittest.TestCase):
         for call in fake.calls:
             argv_text = " ".join(call)
             self.assertNotIn(
-                "pr create", argv_text,
+                "pr create",
+                argv_text,
                 f"dry-run issued 'pr create': {call!r}",
             )
             self.assertNotIn(
-                "pr comment", argv_text,
+                "pr comment",
+                argv_text,
                 f"dry-run issued 'pr comment': {call!r}",
             )
             self.assertNotIn(
-                "pr edit", argv_text,
+                "pr edit",
+                argv_text,
                 f"dry-run issued 'pr edit': {call!r}",
             )
             for marker in mutating:
@@ -391,14 +414,17 @@ class TestResolveFailureIsReported(unittest.TestCase):
 
     def test_null_thread_and_errors_array_raises(self) -> None:
         from core.gh_cli import GhError
+
         fake = FakeGhTransport()
         # gh exits 0 but the payload carries errors + null thread. The
         # ``resolve_thread`` symbol pr-assistant imports must raise, not silently
         # accept the response.
-        fake.graphql_query({
-            "data": {"resolveReviewThread": None},
-            "errors": [{"message": "Resource not accessible by integration"}],
-        })
+        fake.graphql_query(
+            {
+                "data": {"resolveReviewThread": None},
+                "errors": [{"message": "Resource not accessible by integration"}],
+            }
+        )
         gh = _new_gh(fake)
 
         with self.assertRaises(GhError):
@@ -411,9 +437,11 @@ class TestResolveFailureIsReported(unittest.TestCase):
         raises unconditionally, which would break normal use.
         """
         fake = FakeGhTransport()
-        fake.graphql_query({
-            "data": {"resolveReviewThread": {"thread": {"id": "T", "isResolved": True}}},
-        })
+        fake.graphql_query(
+            {
+                "data": {"resolveReviewThread": {"thread": {"id": "T", "isResolved": True}}},
+            }
+        )
         gh = _new_gh(fake)
         # No assertion needed — the call not raising is the assertion.
         PRA.resolve_thread(gh, "THREAD_ID")
@@ -434,7 +462,9 @@ class TestResolveFailureIsReported(unittest.TestCase):
         with patch.object(PRA, "resolve_thread", side_effect=_raiser):
             # No exception should escape; the failure is printed instead.
             PRA._resolve_copilot_threads(
-                gh, [{"id": "T1", "path": "p", "line": 1, "body": "x"}], args,
+                gh,
+                [{"id": "T1", "path": "p", "line": 1, "body": "x"}],
+                args,
             )
 
 
@@ -499,7 +529,9 @@ class TestHumanRepliedCopilotThreadsSurfaced(unittest.TestCase):
         gh = _new_gh(fake)
         threads, skipped_count = PRA.fetch_copilot_threads(gh, "owner", "repo", 42)
         ids = [t["id"] for t in threads]
-        self.assertNotIn("COPILOT_HUMAN_REPLIED", ids, "human-replied thread must not be auto-resolved")
+        self.assertNotIn(
+            "COPILOT_HUMAN_REPLIED", ids, "human-replied thread must not be auto-resolved"
+        )
         self.assertIn("COPILOT_CLEAN", ids)
         self.assertEqual(skipped_count, 1)
 
@@ -526,8 +558,9 @@ class TestHumanRepliedCopilotThreadsSurfaced(unittest.TestCase):
         buf2 = io.StringIO()
         with _patch("sys.stdout", buf2):
             PRA._display_summary(threads, 0, None, [])
-        self.assertNotIn("human replies", buf2.getvalue(),
-                         "zero skipped count must add no human-reply line")
+        self.assertNotIn(
+            "human replies", buf2.getvalue(), "zero skipped count must add no human-reply line"
+        )
 
     def test_skipped_count_shown_in_summary_comment(self) -> None:
         """build_summary_comment must mention human-replied threads when count > 0."""
@@ -537,8 +570,11 @@ class TestHumanRepliedCopilotThreadsSurfaced(unittest.TestCase):
         self.assertIn("human replies", comment, "must mention human replies in comment")
         # Non-match: zero count produces no such line.
         comment_zero = PRA.build_summary_comment(threads, 0, None, [])
-        self.assertNotIn("human replies", comment_zero,
-                         "zero skipped count must add no human-reply line to comment")
+        self.assertNotIn(
+            "human replies",
+            comment_zero,
+            "zero skipped count must add no human-reply line to comment",
+        )
 
     def test_human_replied_thread_is_not_resolved(self) -> None:
         """End-to-end: the human-replied thread must never be passed to resolve_thread."""
@@ -558,21 +594,33 @@ class TestArgparseSurfaceUnchanged(unittest.TestCase):
     def test_every_legacy_flag_parses(self) -> None:
         parser = PRA.build_parser()
         argv = [
-            "--create", "--no-create",
-            "--resolve-copilot", "--no-resolve-copilot",
-            "--check-qlty", "--no-check-qlty",
-            "--check-ci", "--no-check-ci",
-            "--update-summary", "--no-update-summary",
-            "--base", "develop",
-            "--title", "T",
-            "--body", "B",
+            "--create",
+            "--no-create",
+            "--resolve-copilot",
+            "--no-resolve-copilot",
+            "--check-qlty",
+            "--no-check-qlty",
+            "--check-ci",
+            "--no-check-ci",
+            "--update-summary",
+            "--no-update-summary",
+            "--base",
+            "develop",
+            "--title",
+            "T",
+            "--body",
+            "B",
             "--dry-run",
         ]
         args = parser.parse_args(argv)
         # The last of a pair wins under argparse; verify the flags exist at all.
         for name in (
-            "create", "resolve_copilot", "check_qlty",
-            "check_ci", "update_summary", "dry_run",
+            "create",
+            "resolve_copilot",
+            "check_qlty",
+            "check_ci",
+            "update_summary",
+            "dry_run",
         ):
             self.assertTrue(hasattr(args, name), f"{name} missing from namespace")
         self.assertEqual(args.base, "develop")
@@ -601,7 +649,8 @@ class TestFormatCheckStatusHandlesBucket(unittest.TestCase):
     def test_state_in_progress_when_no_bucket(self) -> None:
         # State-only rows (external status checks) still classify.
         self.assertEqual(
-            PRA.format_check_status({"state": "IN_PROGRESS"}), "in_progress",
+            PRA.format_check_status({"state": "IN_PROGRESS"}),
+            "in_progress",
         )
 
     def test_unknown_falls_back_to_unknown(self) -> None:

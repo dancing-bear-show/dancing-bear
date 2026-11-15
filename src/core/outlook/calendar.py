@@ -4,6 +4,14 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
+from core.constants import DAY_END_TIME, DAY_START_TIME, GRAPH_API_URL
+from core.outlook._location import _parse_location
+from core.outlook._recurrence import (
+    _apply_reminder,
+    _build_recurrence_pattern,
+    _build_recurrence_range,
+)
+
 from .client import _requests
 from .models import (
     EventCreationParams,
@@ -14,13 +22,6 @@ from .models import (
     UpdateEventLocationRequest,
     UpdateEventReminderRequest,
     UpdateEventSubjectRequest,
-)
-from core.constants import DAY_START_TIME, DAY_END_TIME, GRAPH_API_URL
-from core.outlook._location import _parse_location
-from core.outlook._recurrence import (
-    _apply_reminder,
-    _build_recurrence_pattern,
-    _build_recurrence_range,
 )
 
 
@@ -87,7 +88,9 @@ class OutlookCalendarMixin(_OutlookCalendarHost):
         return f"{base}/{event_id}" if event_id else base
 
     @staticmethod
-    def _apply_reminder(payload: dict[str, Any], no_reminder: bool, reminder_minutes: int | None) -> None:
+    def _apply_reminder(
+        payload: dict[str, Any], no_reminder: bool, reminder_minutes: int | None
+    ) -> None:
         """Apply reminder settings to an event payload."""
         _apply_reminder(payload, no_reminder, reminder_minutes)
 
@@ -177,10 +180,7 @@ class OutlookCalendarMixin(_OutlookCalendarHost):
         return self._update_calendar_permission(calendar_id, pid, role)
 
     def ensure_calendar_permission(
-        self,
-        calendar_id: str,
-        email: str,
-        role: str = "write"
+        self, calendar_id: str, email: str, role: str = "write"
     ) -> dict[str, Any]:
         """Ensure a calendar permission exists for an external email with the given role.
 
@@ -208,8 +208,14 @@ class OutlookCalendarMixin(_OutlookCalendarHost):
         performs a client-side case-insensitive match.
         """
         cal_id = self._resolve_calendar_id(params.calendar_id, params.calendar_name)
-        base = f"{GRAPH_API_URL}/me/calendars/{cal_id}/calendarView" if cal_id else f"{GRAPH_API_URL}/me/calendarView"
-        events = self._paginated_get(f"{base}?startDateTime={params.start_iso}&endDateTime={params.end_iso}&$top={int(params.top)}")
+        base = (
+            f"{GRAPH_API_URL}/me/calendars/{cal_id}/calendarView"
+            if cal_id
+            else f"{GRAPH_API_URL}/me/calendarView"
+        )
+        events = self._paginated_get(
+            f"{base}?startDateTime={params.start_iso}&endDateTime={params.end_iso}&$top={int(params.top)}"
+        )
         if not params.subject_filter:
             return events
         needle = params.subject_filter.lower()
@@ -220,8 +226,14 @@ class OutlookCalendarMixin(_OutlookCalendarHost):
         params: ListCalendarViewRequest,
     ) -> list[dict[str, Any]]:
         """List calendar view (expanded occurrences) for a date range."""
-        base = f"{GRAPH_API_URL}/me/calendars/{params.calendar_id}/calendarView" if params.calendar_id else f"{GRAPH_API_URL}/me/calendarView"
-        return self._paginated_get(f"{base}?startDateTime={params.start_iso}&endDateTime={params.end_iso}&$top={int(params.top)}")
+        base = (
+            f"{GRAPH_API_URL}/me/calendars/{params.calendar_id}/calendarView"
+            if params.calendar_id
+            else f"{GRAPH_API_URL}/me/calendarView"
+        )
+        return self._paginated_get(
+            f"{base}?startDateTime={params.start_iso}&endDateTime={params.end_iso}&$top={int(params.top)}"
+        )
 
     def _resolve_tz(self, tz: str | None) -> str:
         if tz and tz.strip():
@@ -258,9 +270,7 @@ class OutlookCalendarMixin(_OutlookCalendarHost):
         r.raise_for_status()
         return r.json()
 
-    def create_recurring_event(
-        self, params: RecurringEventCreationParams
-    ) -> dict[str, Any]:
+    def create_recurring_event(self, params: RecurringEventCreationParams) -> dict[str, Any]:
         """Create a recurring event series."""
         tz_final = self._resolve_tz(params.tz)
         cal_id = self._resolve_calendar_id(params.calendar_id, params.calendar_name)
@@ -306,12 +316,16 @@ class OutlookCalendarMixin(_OutlookCalendarHost):
             pass
 
     @staticmethod
-    def _build_recurrence_pattern(repeat: str, interval: int, byday: list[str] | None) -> dict[str, Any]:
+    def _build_recurrence_pattern(
+        repeat: str, interval: int, byday: list[str] | None
+    ) -> dict[str, Any]:
         """Build recurrence pattern for Graph API."""
         return _build_recurrence_pattern(repeat, interval, byday)
 
     @staticmethod
-    def _build_recurrence_range(start_date: str, until: str | None, count: int | None) -> dict[str, Any]:
+    def _build_recurrence_range(
+        start_date: str, until: str | None, count: int | None
+    ) -> dict[str, Any]:
         """Build recurrence range for Graph API."""
         return _build_recurrence_range(start_date, until, count)
 
@@ -345,7 +359,9 @@ class OutlookCalendarMixin(_OutlookCalendarHost):
     ) -> dict[str, Any]:
         """Patch an event and return the result."""
         cal_id = self._resolve_calendar_id(calendar_id, calendar_name)
-        r = _requests().patch(self._event_endpoint(cal_id, event_id), headers=self._headers(), json=body)
+        r = _requests().patch(
+            self._event_endpoint(cal_id, event_id), headers=self._headers(), json=body
+        )
         r.raise_for_status()
         return r.json() if r.text else {}
 
@@ -357,7 +373,9 @@ class OutlookCalendarMixin(_OutlookCalendarHost):
         if not (params.location_str and params.location_str.strip()):
             raise ValueError("Must provide location_str")
         loc = _parse_location(params.location_str)
-        return self._patch_event(params.event_id, params.calendar_id, params.calendar_name, {"location": loc})
+        return self._patch_event(
+            params.event_id, params.calendar_id, params.calendar_name, {"location": loc}
+        )
 
     def update_event_reminder(
         self,
@@ -407,20 +425,12 @@ class OutlookCalendarMixin(_OutlookCalendarHost):
         r.raise_for_status()
         return r.json()
 
-    def delete_event(
-        self,
-        event_id: str,
-        calendar_id: str | None = None
-    ) -> None:
+    def delete_event(self, event_id: str, calendar_id: str | None = None) -> None:
         r = _requests().delete(self._event_endpoint(calendar_id, event_id), headers=self._headers())
         if r.status_code not in (200, 202, 204):
             r.raise_for_status()
 
-    def delete_event_by_id(
-        self,
-        event_id: str,
-        calendar_id: str | None = None
-    ) -> bool:
+    def delete_event_by_id(self, event_id: str, calendar_id: str | None = None) -> bool:
         """Delete an event by ID, return True if successful."""
         try:
             self.delete_event(event_id, calendar_id)

@@ -19,7 +19,9 @@ class TestRunOutlookAuthDeviceCode(TempDirMixin, unittest.TestCase):
         """Test successful device code flow initiation."""
         msal = make_fake_msal_module()
         out_path = Path(self.tmpdir) / "flow.json"
-        args = make_args(client_id="test-client", tenant="consumers", out=str(out_path), verbose=False)
+        args = make_args(
+            client_id="test-client", tenant="consumers", out=str(out_path), verbose=False
+        )
 
         with patch.dict("sys.modules", {"msal": msal}, clear=False):
             from mail.outlook.auth_commands import run_outlook_auth_device_code
@@ -44,7 +46,9 @@ class TestRunOutlookAuthDeviceCode(TempDirMixin, unittest.TestCase):
         """Test device code with verbose flag."""
         msal = make_fake_msal_module()
         out_path = Path(self.tmpdir) / "flow.json"
-        args = make_args(client_id="test-client", tenant="consumers", out=str(out_path), verbose=True)
+        args = make_args(
+            client_id="test-client", tenant="consumers", out=str(out_path), verbose=True
+        )
 
         with patch.dict("sys.modules", {"msal": msal}, clear=False):
             from mail.outlook.auth_commands import run_outlook_auth_device_code
@@ -62,7 +66,13 @@ class TestRunOutlookAuthDeviceCode(TempDirMixin, unittest.TestCase):
         """Test device code with profile flag in output."""
         msal = make_fake_msal_module()
         out_path = Path(self.tmpdir) / "flow.json"
-        args = make_args(client_id="test-client", tenant="consumers", out=str(out_path), profile="work", verbose=False)
+        args = make_args(
+            client_id="test-client",
+            tenant="consumers",
+            out=str(out_path),
+            profile="work",
+            verbose=False,
+        )
 
         with patch.dict("sys.modules", {"msal": msal}, clear=False):
             from mail.outlook.auth_commands import run_outlook_auth_device_code
@@ -82,7 +92,10 @@ class TestRunOutlookAuthDeviceCode(TempDirMixin, unittest.TestCase):
         args = make_args(client_id=None, tenant="consumers", out=str(out_path), verbose=False)
 
         with patch.dict("sys.modules", {"msal": msal}, clear=False):
-            with patch("mail.outlook.auth_commands.resolve_outlook_credentials", return_value=(None, "consumers", None)):
+            with patch(
+                "mail.outlook.auth_commands.resolve_outlook_credentials",
+                return_value=(None, "consumers", None),
+            ):
                 from mail.outlook.auth_commands import run_outlook_auth_device_code
 
                 buf = io.StringIO()
@@ -96,7 +109,9 @@ class TestRunOutlookAuthDeviceCode(TempDirMixin, unittest.TestCase):
     def test_device_code_missing_msal(self):
         """Test device code with missing msal dependency."""
         out_path = Path(self.tmpdir) / "flow.json"
-        args = make_args(client_id="test-client", tenant="consumers", out=str(out_path), verbose=False)
+        args = make_args(
+            client_id="test-client", tenant="consumers", out=str(out_path), verbose=False
+        )
 
         with patch.dict("sys.modules", {"msal": None}, clear=False):
             from mail.outlook.auth_commands import run_outlook_auth_device_code
@@ -113,7 +128,9 @@ class TestRunOutlookAuthDeviceCode(TempDirMixin, unittest.TestCase):
         """Test device code when flow initiation fails."""
         msal = make_fake_msal_module(flow_success=False)
         out_path = Path(self.tmpdir) / "flow.json"
-        args = make_args(client_id="test-client", tenant="consumers", out=str(out_path), verbose=False)
+        args = make_args(
+            client_id="test-client", tenant="consumers", out=str(out_path), verbose=False
+        )
 
         with patch.dict("sys.modules", {"msal": msal}, clear=False):
             from mail.outlook.auth_commands import run_outlook_auth_device_code

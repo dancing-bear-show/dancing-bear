@@ -6,13 +6,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from workflow.dispatchers import LocalDispatcher
-from workflow.models import StageResult
-
 from tests.workflow_tests.helpers.factories import (
     make_resolved_stage,
     make_stage_spec,
 )
+from workflow.dispatchers import LocalDispatcher
+from workflow.models import StageResult
 
 
 class TestLocalDispatcherDispatchGroup(unittest.TestCase):

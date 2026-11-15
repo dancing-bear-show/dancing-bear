@@ -52,8 +52,7 @@ def copilot_review_switch(environ: dict[str, str] | None = None) -> CopilotSwitc
         return CopilotSwitch(False)
     return CopilotSwitch(
         True,
-        f"unrecognised {COPILOT_REVIEW_ENV}={raw!r}; treating as enabled "
-        "(0/false/no/off disables)",
+        f"unrecognised {COPILOT_REVIEW_ENV}={raw!r}; treating as enabled (0/false/no/off disables)",
     )
 
 
@@ -65,7 +64,10 @@ def is_copilot_thread(entry: dict[str, Any]) -> bool:
     if not comments:
         return False
     opening = comments[0]
-    return opening.get("author_kind") == "bot" and normalize_login(opening.get("author")) == COPILOT_LOGIN
+    return (
+        opening.get("author_kind") == "bot"
+        and normalize_login(opening.get("author")) == COPILOT_LOGIN
+    )
 
 
 def _all_bot_comments(entry: dict[str, Any]) -> bool:
@@ -91,7 +93,8 @@ def copilot_threads(
     if doc.get("truncated"):
         raise GhError("review-thread fetch incomplete (reported counts did not match); rerun")
     candidates = [
-        e for e in doc.get("threads") or []
+        e
+        for e in doc.get("threads") or []
         if is_copilot_thread(e) and (include_resolved or not e.get("is_resolved"))
     ]
     selected = [e for e in candidates if _all_bot_comments(e)]
@@ -113,6 +116,7 @@ def request_copilot_review(gh: GhCLI, owner: str, repo: str, pr: int) -> list[st
     if data.get("number") is None:
         raise GhError(f"review request on PR #{pr} returned no pull request")
     return [
-        str(r.get("login") or "") for r in data.get("requested_reviewers") or []
+        str(r.get("login") or "")
+        for r in data.get("requested_reviewers") or []
         if isinstance(r, dict)
     ]

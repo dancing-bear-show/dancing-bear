@@ -33,7 +33,7 @@ import argparse
 import unittest
 from unittest.mock import MagicMock, patch
 
-from slides.cli import cmd_generate, _apply_layout_map
+from slides.cli import _apply_layout_map, cmd_generate
 
 TEST_OUTPUT_PATH = "/tmp/output.pptx"  # nosec B108 - string literal for mock data, no actual file created
 TEST_TEMPLATE_PATH = "/path/to/template.pptx"
@@ -49,6 +49,7 @@ def _make_generate_args(**overrides: object) -> argparse.Namespace:
     the rewritten CLI (Google Drive/Slides integration is out of scope).
     """
     from typing import Any
+
     defaults: dict[str, Any] = {
         "yaml_file": "deck.yaml",
         "output": None,
@@ -110,9 +111,7 @@ class TestCmdGenerate(unittest.TestCase):
     @patch("slides.generator.SlideGenerator.generate")
     @patch("slides.cli.load_deck_from_yaml")
     @patch("slides.cli.Path")
-    def test_generate_success_with_yaml_template(
-        self, mock_path_class, mock_load_deck, mock_gen
-    ):
+    def test_generate_success_with_yaml_template(self, mock_path_class, mock_load_deck, mock_gen):
         """cmd_generate returns 0 when template is in YAML (not --template)."""
         mock_path_class.return_value.exists.return_value = True
 
@@ -303,9 +302,7 @@ class TestCmdGenerateTemplateFromYaml(unittest.TestCase):
     @patch("slides.generator.SlideGenerator.generate")
     @patch("slides.cli.load_deck_from_yaml")
     @patch("slides.cli.Path")
-    def test_always_loads_deck_from_yaml(
-        self, mock_path_class, mock_load_deck, mock_gen
-    ):
+    def test_always_loads_deck_from_yaml(self, mock_path_class, mock_load_deck, mock_gen):
         """cmd_generate always loads deck from YAML (needed for layout_map)."""
         mock_path_class.return_value.exists.return_value = True
         mock_deck = MagicMock()
@@ -325,9 +322,7 @@ class TestCmdGenerateTemplateFromYaml(unittest.TestCase):
     @patch("slides.generator.SlideGenerator.generate")
     @patch("slides.cli.load_deck_from_yaml")
     @patch("slides.cli.Path")
-    def test_calls_load_deck_when_no_template(
-        self, mock_path_class, mock_load_deck, mock_gen
-    ):
+    def test_calls_load_deck_when_no_template(self, mock_path_class, mock_load_deck, mock_gen):
         """cmd_generate calls load_deck_from_yaml to check template when --template not given."""
         mock_path_class.return_value.exists.return_value = True
 

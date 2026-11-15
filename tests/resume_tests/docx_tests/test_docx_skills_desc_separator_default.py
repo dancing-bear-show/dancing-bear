@@ -89,9 +89,7 @@ def _tech_resume() -> dict:
 def _skills_resume() -> dict:
     return {
         "name": "Ada Placeholder",
-        "skills_groups": [
-            {"title": "Platform", "items": [{"name": NAME, "desc": DESC}]}
-        ],
+        "skills_groups": [{"title": "Platform", "items": [{"name": NAME, "desc": DESC}]}],
     }
 
 
@@ -116,9 +114,7 @@ def _separator_between(paragraphs: list[str]) -> str:
         if NAME in text and DESC in text:
             body = text[text.index(NAME) + len(NAME) : text.index(DESC)]
             return body
-    raise AssertionError(
-        f"no paragraph carried both {NAME!r} and {DESC!r}: {paragraphs}"
-    )
+    raise AssertionError(f"no paragraph carried both {NAME!r} and {DESC!r}: {paragraphs}")
 
 
 class DescSeparatorFallbackAgreementTests(unittest.TestCase):
@@ -138,8 +134,7 @@ class DescSeparatorFallbackAgreementTests(unittest.TestCase):
         self.assertEqual(
             bulleted,
             joined,
-            "bulleted and joined technologies output disagree on the "
-            "desc_separator fallback",
+            "bulleted and joined technologies output disagree on the desc_separator fallback",
         )
 
     def test_skills_and_technologies_bullets_agree(self):
@@ -150,8 +145,7 @@ class DescSeparatorFallbackAgreementTests(unittest.TestCase):
         self.assertEqual(
             skills,
             tech,
-            "skills and technologies bullets disagree on the desc_separator "
-            "fallback",
+            "skills and technologies bullets disagree on the desc_separator fallback",
         )
 
     def test_fallback_matches_the_shared_constant(self):

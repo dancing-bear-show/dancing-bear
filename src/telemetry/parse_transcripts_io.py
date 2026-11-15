@@ -9,16 +9,16 @@ from __future__ import annotations
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import BinaryIO
 
 from core.cli_errors import CLIError
 from core.fileutil import atomic_write_json, safe_load_json
 from telemetry._menubar_budget import _to_int
-from telemetry.timeutil import now_utc, parse_window
-from telemetry.parse_transcripts_emit import ParseResult
 from telemetry._transcript_record_parser import _process_one_record
+from telemetry.parse_transcripts_emit import ParseResult
+from telemetry.timeutil import now_utc, parse_window
 
 DEFAULT_INDEX_DIR = Path.home() / ".config" / "dancing-bear" / "work" / "prompt-index"
 STATE_FILE = ".state.json"
@@ -59,9 +59,7 @@ def _parse_since_window(since: str) -> datetime | None:
             try:
                 int(prefix)
             except ValueError:
-                raise CLIError(
-                    f"Cannot parse time window: {since!r}. Use e.g. 7d, 30d, all."
-                )
+                raise CLIError(f"Cannot parse time window: {since!r}. Use e.g. 7d, 30d, all.")
             break
     else:
         # No recognized suffix — includes bare integers and unknown suffixes
@@ -77,7 +75,7 @@ def _passes_since_filter(p: Path, since_dt: datetime | None) -> bool:
     if since_dt is None:
         return True
     try:
-        mtime = datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc)
+        mtime = datetime.fromtimestamp(p.stat().st_mtime, tz=UTC)
     except OSError:
         return False
     return mtime >= since_dt
@@ -272,7 +270,9 @@ def _process_one_file(
         )
     except Exception as exc:  # noqa: BLE001
         print(f"[parse-transcripts] error processing {jsonl_path}: {exc}", file=sys.stderr)
-        return ParseResult(session_id=session_id, prompts_added=0, bash_added=0, bytes_processed=0, status="error")
+        return ParseResult(
+            session_id=session_id, prompts_added=0, bash_added=0, bytes_processed=0, status="error"
+        )
 
     atomic_write_json(index_dir / f"{session_id}.json", session_index)
     state[abs_path] = new_offset

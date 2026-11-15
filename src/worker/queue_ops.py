@@ -17,8 +17,8 @@ import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
-from glob import escape as glob_escape
 from datetime import UTC, datetime, timedelta
+from glob import escape as glob_escape
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -133,7 +133,7 @@ class Job:
     not_before: str = ""
     attempts: int = 0
     max_attempts: int = 3
-    timeout_sec: int = 0   # 0 = use daemon-level job_timeout; >0 = per-job override
+    timeout_sec: int = 0  # 0 = use daemon-level job_timeout; >0 = per-job override
     enqueued_at: str = ""
     updated_at: str = ""
 
@@ -197,9 +197,7 @@ def list_pending(root: Path | None = None) -> list[tuple[Path, dict[str, object]
             # so treat it as not-yet-due and leave it in pending/. Previously
             # this fell through to eligible=True, which silently ran a
             # deliberately deferred job immediately behind a debug log.
-            _log.warning(
-                "Skipping job %s: unparseable not_before %r (%s)", p.name, nb, exc
-            )
+            _log.warning("Skipping job %s: unparseable not_before %r (%s)", p.name, nb, exc)
             continue
         if eligible:
             items.append((p, data))
@@ -287,9 +285,7 @@ def start_processing(job_path: Path, root: Path | None = None) -> tuple[Path, st
                 data[FIELD_UPDATED_AT] = iso_now()
                 atomic_write_json(new_path, data)
             except Exception as exc:
-                _log.debug(
-                    "Failed to update processing job %s: %s", new_path, exc
-                )
+                _log.debug("Failed to update processing job %s: %s", new_path, exc)
                 token = ""  # nosec B105 - empty string signals metadata-write failure, not a credential
             _reconcile_staged_on_claim(job_path)
         return new_path, token
@@ -404,7 +400,9 @@ def finish(
         data = _owned_record(job_path, claim_token)
         if data is None:
             return None
-        return _write_finished(job_path, data, success, root=root, error_msg=error_msg, result=result)
+        return _write_finished(
+            job_path, data, success, root=root, error_msg=error_msg, result=result
+        )
 
 
 def _write_finished(
@@ -592,8 +590,7 @@ def _discard_shutdown_marker(marker: Path) -> None:
         marker.unlink(missing_ok=True)
     except OSError as exc:
         _log.warning(
-            "Could not remove shutdown-timeout marker %s: %s; "
-            "left for the next recovery",
+            "Could not remove shutdown-timeout marker %s: %s; left for the next recovery",
             marker.name,
             exc,
         )
@@ -993,9 +990,7 @@ def _discard_superseded_staged(staged: Path, dest: Path) -> bool:
         if _load_requeue_id(tmp) == requeue_id:
             tmp.unlink(missing_ok=True)
     staged.unlink(missing_ok=True)
-    _log.warning(
-        "Not publishing %s: an earlier publish of it is already at %s", staged.name, copy
-    )
+    _log.warning("Not publishing %s: an earlier publish of it is already at %s", staged.name, copy)
     return True
 
 
@@ -1110,9 +1105,7 @@ def _publish_by_copy(staged: Path, dest: Path) -> bool:
         # filesystem class cannot close atomically. staged is left in
         # place for recover_staged_requeues rather than trusting a
         # replace that may have destroyed the rival's record.
-        _log.warning(
-            "Not publishing %s: lost a no-clobber race for %s", staged.name, dest
-        )
+        _log.warning("Not publishing %s: lost a no-clobber race for %s", staged.name, dest)
         return False
     staged.unlink(missing_ok=True)
     return True
@@ -1218,8 +1211,7 @@ def _stage_and_requeue(
             # would publish the job again. recover_staged_requeues rewrites
             # and publishes the staged file instead.
             _log.warning(
-                "Failed to update metadata for requeued job %s: %s; "
-                "left staged for recovery",
+                "Failed to update metadata for requeued job %s: %s; left staged for recovery",
                 src.stem,
                 exc,
             )
@@ -1340,9 +1332,7 @@ def _apply_max_attempts(data: dict, new_max_attempts: int) -> None:
     try:
         data["max_attempts"] = int(new_max_attempts)
     except Exception as exc:
-        _log.debug(
-            "Invalid new_max_attempts=%s: %s", new_max_attempts, exc
-        )
+        _log.debug("Invalid new_max_attempts=%s: %s", new_max_attempts, exc)
 
 
 def _strip_error_field(data: dict, job_path: Path) -> None:
@@ -1351,9 +1341,7 @@ def _strip_error_field(data: dict, job_path: Path) -> None:
     try:
         del data["error"]
     except Exception as exc:
-        _log.debug(
-            "Failed to strip error field for %s: %s", job_path, exc
-        )
+        _log.debug("Failed to strip error field for %s: %s", job_path, exc)
 
 
 def _remove_job_file(job_path: Path) -> None:
@@ -1366,9 +1354,7 @@ def _remove_job_file(job_path: Path) -> None:
     try:
         job_path.unlink(missing_ok=True)
     except Exception as exc:
-        _log.debug(
-            "Failed to remove job file %s: %s", job_path, exc
-        )
+        _log.debug("Failed to remove job file %s: %s", job_path, exc)
 
 
 def requeue_error(
@@ -1419,9 +1405,7 @@ def _parse_timestamp_safe(ts_str: str, path: Path, field_name: str) -> datetime 
     try:
         return parse_iso_utc_strict(ts_str)
     except Exception as exc:
-        _log.debug(
-            "Invalid %s '%s' for %s: %s", field_name, ts_str, path, exc
-        )
+        _log.debug("Invalid %s '%s' for %s: %s", field_name, ts_str, path, exc)
         return None
 
 
@@ -1490,7 +1474,9 @@ def effective_job_timeout(data: dict, default_timeout: int) -> int:
     return per_job if per_job > 0 else default_timeout
 
 
-def _reap_one_job(p: Path, job_timeout: int, paths: dict, now: datetime, log: logging.Logger) -> str | None:
+def _reap_one_job(
+    p: Path, job_timeout: int, paths: dict, now: datetime, log: logging.Logger
+) -> str | None:
     """Reap one processing job if stale. Returns its job_id if reaped, else None.
 
     A record that is not a JSON object is skipped with a warning rather than
@@ -1567,7 +1553,11 @@ def _purge_file(p: Path, now: datetime, older_than_sec: int, *, dry_run: bool = 
 
 
 def purge(
-    older_than_sec: int, *, root: Path | None = None, folders: list[str] | None = None, dry_run: bool = False
+    older_than_sec: int,
+    *,
+    root: Path | None = None,
+    folders: list[str] | None = None,
+    dry_run: bool = False,
 ) -> dict[str, int]:
     """Delete jobs in given folders older than threshold; returns counts per
     folder. dry_run returns the counts that would be deleted, deleting and

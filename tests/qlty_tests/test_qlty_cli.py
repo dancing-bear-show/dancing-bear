@@ -9,13 +9,12 @@ from contextlib import redirect_stderr, redirect_stdout
 from typing import Protocol, cast
 from unittest.mock import patch
 
-from tests.cli_separator_contract import SeparatorContractMixin
-from tests.cli_no_subcommand_contract import NoSubcommandContractMixin
-
 from qlty import cli
 from qlty.models import Source
 from qlty.runner import InvocationResult, QltyInvocationError, QltyRunner
 from qlty.scanner import Scanner
+from tests.cli_no_subcommand_contract import NoSubcommandContractMixin
+from tests.cli_separator_contract import SeparatorContractMixin
 from tests.qlty_tests.shared_fixtures import FakeRunner, make_finding, result_of
 
 
@@ -72,9 +71,7 @@ class ScanCommandTests(unittest.TestCase):
         runner = FakeRunner()
         with _patched_scanner(runner):
             run_cli(["scan"])
-        self.assertEqual(
-            {call[0] for call in runner.calls}, {Source.CHECK, Source.SMELLS}
-        )
+        self.assertEqual({call[0] for call in runner.calls}, {Source.CHECK, Source.SMELLS})
 
     def test_changed_flag_opts_into_diff_only(self):
         runner = FakeRunner()
@@ -181,9 +178,7 @@ class ChangedWithPathsUsageErrorTests(unittest.TestCase):
         discard one of the two flags the caller explicitly passed."""
         runner = FakeRunner()
         with _patched_scanner(runner):
-            code, _, err = run_cli_streams(
-                ["scan", "--include-tests", "--no-include-tests"]
-            )
+            code, _, err = run_cli_streams(["scan", "--include-tests", "--no-include-tests"])
         self.assertNotEqual(code, 0)
         self.assertIn("--include-tests and --no-include-tests are opposites", err)
 
@@ -284,9 +279,7 @@ class TriageCommandTests(unittest.TestCase):
         runner = FakeRunner({Source.SMELLS: [result_of(findings)]})
         with patch.object(cli, "sibling_uses_params_object", return_value=True):
             with _patched_scanner(runner):
-                _, out = run_cli(
-                    ["triage", "--smells-only", "--format", "json"]
-                )
+                _, out = run_cli(["triage", "--smells-only", "--format", "json"])
         payload = json.loads(out)
         self.assertEqual(payload["tiers"][0]["drift_candidates"], ["src/x.py"])
 
@@ -307,9 +300,7 @@ class TriageCommandTests(unittest.TestCase):
             make_finding(rule="function-parameters", path="", line=3),
         ]
         runner = FakeRunner({Source.SMELLS: [result_of(findings)]})
-        with patch.object(
-            cli, "sibling_uses_params_object", return_value=True
-        ) as probe:
+        with patch.object(cli, "sibling_uses_params_object", return_value=True) as probe:
             with _patched_scanner(runner):
                 _, out = run_cli(["triage", "--smells-only", "--format", "json"])
 
@@ -323,9 +314,7 @@ class TriageCommandTests(unittest.TestCase):
         runner = FakeRunner({Source.SMELLS: [result_of(findings)]})
         with patch.object(cli, "sibling_uses_params_object", return_value=False):
             with _patched_scanner(runner):
-                _, out = run_cli(
-                    ["triage", "--smells-only", "--format", "json"]
-                )
+                _, out = run_cli(["triage", "--smells-only", "--format", "json"])
         payload = json.loads(out)
         self.assertEqual(payload["tiers"][0]["drift_candidates"], [])
 
@@ -446,11 +435,16 @@ class RuleFilterTests(unittest.TestCase):
         ]
         runner = FakeRunner({Source.SMELLS: [result_of(findings)]})
         with _patched_scanner(runner):
-            code, out = run_cli([
-                "scan", "--smells-only",
-                "--rule", "file-complexity",
-                "--rule", "function-parameters",
-            ])
+            code, out = run_cli(
+                [
+                    "scan",
+                    "--smells-only",
+                    "--rule",
+                    "file-complexity",
+                    "--rule",
+                    "function-parameters",
+                ]
+            )
         self.assertEqual(code, 0)
         self.assertIn("file-complexity", out)
         self.assertIn("function-parameters", out)
@@ -482,11 +476,16 @@ class RuleFilterTests(unittest.TestCase):
         findings = [make_finding(rule="file-complexity", path="src/a.py")]
         runner = FakeRunner({Source.SMELLS: [result_of(findings)]})
         with _patched_scanner(runner):
-            code, _, err = run_cli_streams([
-                "scan", "--smells-only",
-                "--rule", "no-such-rule",
-                "--expect-min", "1",
-            ])
+            code, _, err = run_cli_streams(
+                [
+                    "scan",
+                    "--smells-only",
+                    "--rule",
+                    "no-such-rule",
+                    "--expect-min",
+                    "1",
+                ]
+            )
         # Raw total is 1, which meets --expect-min 1, so no error despite 0 filtered.
         self.assertEqual(code, 0)
         self.assertNotIn("expected at least", err)
@@ -498,10 +497,16 @@ class RuleFilterTests(unittest.TestCase):
         ]
         runner = FakeRunner({Source.SMELLS: [result_of(findings)]})
         with _patched_scanner(runner):
-            _, out = run_cli([
-                "scan", "--smells-only", "--format", "json",
-                "--rule", "file-complexity",
-            ])
+            _, out = run_cli(
+                [
+                    "scan",
+                    "--smells-only",
+                    "--format",
+                    "json",
+                    "--rule",
+                    "file-complexity",
+                ]
+            )
         payload = json.loads(out)
         self.assertEqual(payload["total"], 1)
 
@@ -521,13 +526,13 @@ class TestQltySeparatorCLI(SeparatorContractMixin, unittest.TestCase):
     APP_ID = "qlty"
 
 
-
 class TestQltyNoSubcommand(NoSubcommandContractMixin, unittest.TestCase):
     """Rule A7 — the no-subcommand exit code is deliberate."""
 
     MODULE_PATH = "qlty.cli"
     EXPECTED_RC = 0
     EXPECTED_STREAM = "stdout"
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -331,7 +331,9 @@ class TestExportPdfHappyPath(unittest.TestCase):
                 return _ok_result(requested)
 
             with patch("resume.australian_rotate.convert_docx_to_pdf", fake_convert):
-                with patch.object(Path, "rename", side_effect=AssertionError("rename must not run")):
+                with patch.object(
+                    Path, "rename", side_effect=AssertionError("rename must not run")
+                ):
                     buf = io.StringIO()
                     with redirect_stdout(buf):
                         rc = cmd_export_pdf(_export_args(str(docx), str(requested)))
@@ -383,9 +385,7 @@ class TestExportPdfSadPaths(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             docx = Path(td, "resume.docx")
             docx.write_bytes(b"fake docx")
-            failure = ConversionResult(
-                ok=False, failure=ConversionFailure.CONVERTER_MISSING
-            )
+            failure = ConversionResult(ok=False, failure=ConversionFailure.CONVERTER_MISSING)
 
             with patch("resume.australian_rotate.convert_docx_to_pdf", return_value=failure):
                 with self.assertRaises(CLIError) as ctx:
@@ -493,7 +493,9 @@ class TestExportPdfSadPaths(unittest.TestCase):
         )
         with patch("resume.cli.cmd_render._load_candidate_data", return_value={"name": "T"}):
             with patch("resume.cli.cmd_render.load_template", return_value={}):
-                with patch("resume.cli.cmd_render._apply_filter_pipeline", return_value={"name": "T"}):
+                with patch(
+                    "resume.cli.cmd_render._apply_filter_pipeline", return_value={"name": "T"}
+                ):
                     with patch("resume.cli.cmd_render._load_structure", return_value=None):
                         with self.assertRaises(CLIError) as ctx:
                             cmd_render(args)
@@ -561,9 +563,7 @@ class TestConverterRequiresAnOutputFile(unittest.TestCase):
         self.assertNotIn("not found", message)
         self.assertNotIn("was not found", message)
         # The missing-binary case keeps its own, different message.
-        missing = ConversionResult(
-            ok=False, failure=ConversionFailure.CONVERTER_MISSING
-        ).message
+        missing = ConversionResult(ok=False, failure=ConversionFailure.CONVERTER_MISSING).message
         self.assertNotEqual(message, missing)
         self.assertIn("not found", missing)
 

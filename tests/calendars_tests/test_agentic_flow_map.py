@@ -1,9 +1,9 @@
 """Tests for calendars/agentic.py flow map branches and capsule sections."""
+
 from __future__ import annotations
 
 import unittest
 from unittest.mock import patch
-
 
 from tests.fixtures import make_path_mock as _make_path_mock  # noqa: E402
 
@@ -11,6 +11,7 @@ from tests.fixtures import make_path_mock as _make_path_mock  # noqa: E402
 class TestOutlookAddFlows(unittest.TestCase):
     def test_add_only(self):
         from calendars import agentic as mod
+
         true_paths = {("outlook", "add")}
         with patch.object(mod, "_cli_path_exists", side_effect=_make_path_mock(true_paths)):
             result = mod._flow_map()
@@ -20,6 +21,7 @@ class TestOutlookAddFlows(unittest.TestCase):
 
     def test_add_recurring_only(self):
         from calendars import agentic as mod
+
         true_paths = {("outlook", "add-recurring")}
         with patch.object(mod, "_cli_path_exists", side_effect=_make_path_mock(true_paths)):
             result = mod._flow_map()
@@ -29,6 +31,7 @@ class TestOutlookAddFlows(unittest.TestCase):
 
     def test_both_add_and_add_recurring(self):
         from calendars import agentic as mod
+
         true_paths = {("outlook", "add"), ("outlook", "add-recurring")}
         with patch.object(mod, "_cli_path_exists", side_effect=_make_path_mock(true_paths)):
             result = mod._flow_map()
@@ -37,6 +40,7 @@ class TestOutlookAddFlows(unittest.TestCase):
 
     def test_add_from_config_and_verify(self):
         from calendars import agentic as mod
+
         true_paths = {("outlook", "add-from-config"), ("outlook", "verify-from-config")}
         with patch.object(mod, "_cli_path_exists", side_effect=_make_path_mock(true_paths)):
             result = mod._flow_map()
@@ -46,6 +50,7 @@ class TestOutlookAddFlows(unittest.TestCase):
 
     def test_add_from_config_without_verify_excluded(self):
         from calendars import agentic as mod
+
         true_paths = {("outlook", "add-from-config")}  # no verify-from-config
         with patch.object(mod, "_cli_path_exists", side_effect=_make_path_mock(true_paths)):
             result = mod._flow_map()
@@ -55,6 +60,7 @@ class TestOutlookAddFlows(unittest.TestCase):
 class TestOutlookManageFlows(unittest.TestCase):
     def test_locations_flow(self):
         from calendars import agentic as mod
+
         true_paths = {("outlook", "update-locations"), ("outlook", "apply-locations")}
         with patch.object(mod, "_cli_path_exists", side_effect=_make_path_mock(true_paths)):
             result = mod._flow_map()
@@ -64,6 +70,7 @@ class TestOutlookManageFlows(unittest.TestCase):
 
     def test_reminders_flow(self):
         from calendars import agentic as mod
+
         true_paths = {("outlook", "reminders-off")}
         with patch.object(mod, "_cli_path_exists", side_effect=_make_path_mock(true_paths)):
             result = mod._flow_map()
@@ -72,6 +79,7 @@ class TestOutlookManageFlows(unittest.TestCase):
 
     def test_dedup_flow(self):
         from calendars import agentic as mod
+
         true_paths = {("outlook", "dedup")}
         with patch.object(mod, "_cli_path_exists", side_effect=_make_path_mock(true_paths)):
             result = mod._flow_map()
@@ -79,6 +87,7 @@ class TestOutlookManageFlows(unittest.TestCase):
 
     def test_list_one_offs_flow(self):
         from calendars import agentic as mod
+
         true_paths = {("outlook", "list-one-offs")}
         with patch.object(mod, "_cli_path_exists", side_effect=_make_path_mock(true_paths)):
             result = mod._flow_map()
@@ -86,6 +95,7 @@ class TestOutlookManageFlows(unittest.TestCase):
 
     def test_remove_from_config_flow(self):
         from calendars import agentic as mod
+
         true_paths = {("outlook", "remove-from-config")}
         with patch.object(mod, "_cli_path_exists", side_effect=_make_path_mock(true_paths)):
             result = mod._flow_map()
@@ -93,6 +103,7 @@ class TestOutlookManageFlows(unittest.TestCase):
 
     def test_calendar_share_flow(self):
         from calendars import agentic as mod
+
         true_paths = {("outlook", "calendar-share")}
         with patch.object(mod, "_cli_path_exists", side_effect=_make_path_mock(true_paths)):
             result = mod._flow_map()
@@ -102,6 +113,7 @@ class TestOutlookManageFlows(unittest.TestCase):
 class TestGmailScanFlows(unittest.TestCase):
     def test_scan_classes(self):
         from calendars import agentic as mod
+
         true_paths = {("gmail", "scan-classes")}
         with patch.object(mod, "_cli_path_exists", side_effect=_make_path_mock(true_paths)):
             result = mod._flow_map()
@@ -112,6 +124,7 @@ class TestGmailScanFlows(unittest.TestCase):
 
     def test_scan_receipts(self):
         from calendars import agentic as mod
+
         true_paths = {("gmail", "scan-receipts")}
         with patch.object(mod, "_cli_path_exists", side_effect=_make_path_mock(true_paths)):
             result = mod._flow_map()
@@ -120,6 +133,7 @@ class TestGmailScanFlows(unittest.TestCase):
 
     def test_scan_activerh(self):
         from calendars import agentic as mod
+
         true_paths = {("gmail", "scan-activerh")}
         with patch.object(mod, "_cli_path_exists", side_effect=_make_path_mock(true_paths)):
             result = mod._flow_map()
@@ -128,6 +142,7 @@ class TestGmailScanFlows(unittest.TestCase):
 
     def test_all_gmail_scans(self):
         from calendars import agentic as mod
+
         true_paths = {
             ("gmail", "scan-classes"),
             ("gmail", "scan-receipts"),
@@ -146,32 +161,44 @@ class TestCapsuleAndDomainMapWithFlows(unittest.TestCase):
 
     def test_capsule_with_all_flows(self):
         from calendars import agentic as mod
-        with patch.object(mod, "_cli_path_exists", side_effect=self._all_true_mock), \
-             patch.object(mod, "_cli_tree", return_value="tree-content"):
+
+        with (
+            patch.object(mod, "_cli_path_exists", side_effect=self._all_true_mock),
+            patch.object(mod, "_cli_tree", return_value="tree-content"),
+        ):
             cap = mod.build_agentic_capsule()
         self.assertIn("tree-content", cap)
         self.assertIn("Outlook add", cap)
 
     def test_domain_map_with_tree_and_flows(self):
         from calendars import agentic as mod
-        with patch.object(mod, "_cli_path_exists", side_effect=self._all_true_mock), \
-             patch.object(mod, "_cli_tree", return_value="tree-content"):
+
+        with (
+            patch.object(mod, "_cli_path_exists", side_effect=self._all_true_mock),
+            patch.object(mod, "_cli_tree", return_value="tree-content"),
+        ):
             dm = mod.build_domain_map()
         self.assertIn("tree-content", dm)
         self.assertIn("Top-Level", dm)
 
     def test_capsule_no_tree_no_flows(self):
         from calendars import agentic as mod
-        with patch.object(mod, "_cli_path_exists", return_value=False), \
-             patch.object(mod, "_cli_tree", return_value=""):
+
+        with (
+            patch.object(mod, "_cli_path_exists", return_value=False),
+            patch.object(mod, "_cli_tree", return_value=""),
+        ):
             cap = mod.build_agentic_capsule()
         self.assertIsInstance(cap, str)
         self.assertGreater(len(cap), 0)
 
     def test_domain_map_no_tree_no_flows(self):
         from calendars import agentic as mod
-        with patch.object(mod, "_cli_path_exists", return_value=False), \
-             patch.object(mod, "_cli_tree", return_value=""):
+
+        with (
+            patch.object(mod, "_cli_path_exists", return_value=False),
+            patch.object(mod, "_cli_tree", return_value=""),
+        ):
             dm = mod.build_domain_map()
         self.assertIn("Top-Level", dm)
 

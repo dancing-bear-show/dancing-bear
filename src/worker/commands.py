@@ -14,13 +14,13 @@ from pathlib import Path
 from core.cli_errors import CLIError, ExitCode
 from core.cli_output import OutputWriter, emit_one
 from core.date_utils import iso_now, now_utc, parse_iso_utc, parse_window
+from worker import queue_ops as q
 from worker._helpers import (
     DATE_FORMAT_YMD,
     ISO_DATETIME_FORMAT,
 )
-from worker import queue_ops as q
-from worker.queue_ops import QUEUE_FOLDERS
 from worker.queue_metrics import counts, status
+from worker.queue_ops import QUEUE_FOLDERS
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +43,9 @@ class EnqueueCommand:
             logger.exception("Invalid --payload-json")
             return 2
         if not isinstance(payload, dict):
-            logger.error("Invalid --payload-json: expected a JSON object, got %s", type(payload).__name__)
+            logger.error(
+                "Invalid --payload-json: expected a JSON object, got %s", type(payload).__name__
+            )
             return 2
 
         job_id = str(getattr(args, "job_id", "") or uuid.uuid4().hex)
@@ -288,9 +290,7 @@ class PurgeCommand:
         win = parse_window(str(getattr(args, "older_than", "30d")))
         secs = int(win.total_seconds())
         folders = [
-            s.strip()
-            for s in str(getattr(args, "folders", "done,error")).split(",")
-            if s.strip()
+            s.strip() for s in str(getattr(args, "folders", "done,error")).split(",") if s.strip()
         ]
         dry_run = bool(getattr(args, "dry_run", False))
         res: dict[str, int] = {}

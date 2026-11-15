@@ -8,12 +8,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 
-
 class TestProcessPage(unittest.TestCase):
     """Tests for page/folder helper function branches."""
 
     def test_folder_without_name_defaults_to_folder(self):
         from phone.pipeline_export import _process_pages
+
         p = {"apps": ["app1"], "folders": [{"apps": ["app2"]}]}  # no name key
         pages_out, folders_total = _process_pages([p], set(), [])
         self.assertEqual(folders_total, 1)
@@ -21,12 +21,14 @@ class TestProcessPage(unittest.TestCase):
 
     def test_folder_with_none_name_defaults_to_folder(self):
         from phone.pipeline_export import _process_pages
+
         p = {"apps": [], "folders": [{"name": None, "apps": ["app1"]}]}
         pages_out, _folders_total = _process_pages([p], set(), [])
         self.assertEqual(pages_out[0]["folders"][0]["name"], "Folder")
 
     def test_collect_unique_skips_empty_strings(self):
         from phone.pipeline_export import _collect_unique_app
+
         seen = set()
         all_apps: list = []
         for app in ["app1", "", "app2", "app1"]:
@@ -36,11 +38,20 @@ class TestProcessPage(unittest.TestCase):
 
 class TestChecklistProcessorFileNotFound(unittest.TestCase):
     def test_checklist_plan_not_found(self):
-        from phone.pipeline_export import ChecklistProcessor, ChecklistRequest, ChecklistRequestConsumer
         from phone.layout_normalize import NormalizedLayout
+        from phone.pipeline_export import (
+            ChecklistProcessor,
+            ChecklistRequest,
+            ChecklistRequestConsumer,
+        )
+
         layout = NormalizedLayout(dock=[], pages=[])
-        with patch("phone.pipeline_export.load_layout", return_value=layout), \
-             patch("phone.pipeline_export.read_yaml", side_effect=FileNotFoundError("/missing.yaml")):
+        with (
+            patch("phone.pipeline_export.load_layout", return_value=layout),
+            patch(
+                "phone.pipeline_export.read_yaml", side_effect=FileNotFoundError("/missing.yaml")
+            ),
+        ):
             req = ChecklistRequest(
                 plan_path=Path("/missing.yaml"),
                 layout=None,
@@ -54,7 +65,8 @@ class TestChecklistProcessorFileNotFound(unittest.TestCase):
 
 class TestBuildInstallCmd(unittest.TestCase):
     def test_with_udid(self):
-        from phone.pipeline_plan import _build_install_command, ManifestInstallRequest
+        from phone.pipeline_plan import ManifestInstallRequest, _build_install_command
+
         payload = ManifestInstallRequest(
             manifest_path=Path("manifest.yaml"),
             out_path=None,
@@ -71,7 +83,8 @@ class TestBuildInstallCmd(unittest.TestCase):
         self.assertIn("test-udid", cmd)
 
     def test_with_label_only(self):
-        from phone.pipeline_plan import _build_install_command, ManifestInstallRequest
+        from phone.pipeline_plan import ManifestInstallRequest, _build_install_command
+
         payload = ManifestInstallRequest(
             manifest_path=Path("manifest.yaml"),
             out_path=None,
@@ -88,7 +101,8 @@ class TestBuildInstallCmd(unittest.TestCase):
         self.assertIn("my-device", cmd)
 
     def test_with_creds_profile_and_config(self):
-        from phone.pipeline_plan import _build_install_command, ManifestInstallRequest
+        from phone.pipeline_plan import ManifestInstallRequest, _build_install_command
+
         payload = ManifestInstallRequest(
             manifest_path=Path("manifest.yaml"),
             out_path=None,
@@ -107,7 +121,8 @@ class TestBuildInstallCmd(unittest.TestCase):
         self.assertIn("/etc/config.yaml", cmd)
 
     def test_with_device_section_in_manifest(self):
-        from phone.pipeline_plan import _build_install_command, ManifestInstallRequest
+        from phone.pipeline_plan import ManifestInstallRequest, _build_install_command
+
         payload = ManifestInstallRequest(
             manifest_path=Path("manifest.yaml"),
             out_path=None,
@@ -127,13 +142,19 @@ class TestBuildInstallCmd(unittest.TestCase):
 class TestManifestInstallProcessor(unittest.TestCase):
     def _make_manifest_yaml(self, tmp: str, data: dict) -> Path:
         import yaml
+
         p = Path(tmp) / "manifest.yaml"
         with open(p, "w") as f:
             yaml.safe_dump(data, f)
         return p
 
     def test_file_not_found(self):
-        from phone.pipeline_plan import ManifestInstallProcessor, ManifestInstallRequest, ManifestInstallRequestConsumer
+        from phone.pipeline_plan import (
+            ManifestInstallProcessor,
+            ManifestInstallRequest,
+            ManifestInstallRequestConsumer,
+        )
+
         req = ManifestInstallRequest(
             manifest_path=Path("/nonexistent.yaml"),
             out_path=None,
@@ -148,7 +169,12 @@ class TestManifestInstallProcessor(unittest.TestCase):
         self.assertIn("not found", (env.diagnostics or {}).get("message", "").lower())
 
     def test_invalid_manifest_not_dict(self):
-        from phone.pipeline_plan import ManifestInstallProcessor, ManifestInstallRequest, ManifestInstallRequestConsumer
+        from phone.pipeline_plan import (
+            ManifestInstallProcessor,
+            ManifestInstallRequest,
+            ManifestInstallRequestConsumer,
+        )
+
         with tempfile.TemporaryDirectory() as tmp:  # nosec B108 - test-only temp file, not a security concern
             p = Path(tmp) / "manifest.yaml"
             p.write_text("- item1\n- item2\n")
@@ -165,7 +191,12 @@ class TestManifestInstallProcessor(unittest.TestCase):
         self.assertFalse(env.ok())
 
     def test_manifest_missing_plan_section(self):
-        from phone.pipeline_plan import ManifestInstallProcessor, ManifestInstallRequest, ManifestInstallRequestConsumer
+        from phone.pipeline_plan import (
+            ManifestInstallProcessor,
+            ManifestInstallRequest,
+            ManifestInstallRequestConsumer,
+        )
+
         with tempfile.TemporaryDirectory() as tmp:  # nosec B108 - test-only temp file, not a security concern
             p = self._make_manifest_yaml(tmp, {"meta": {"name": "test"}})
             req = ManifestInstallRequest(
@@ -181,7 +212,12 @@ class TestManifestInstallProcessor(unittest.TestCase):
         self.assertFalse(env.ok())
 
     def test_manifest_with_layout_section(self):
-        from phone.pipeline_plan import ManifestInstallProcessor, ManifestInstallRequest, ManifestInstallRequestConsumer
+        from phone.pipeline_plan import (
+            ManifestInstallProcessor,
+            ManifestInstallRequest,
+            ManifestInstallRequestConsumer,
+        )
+
         with tempfile.TemporaryDirectory() as tmp:  # nosec B108 - test-only temp file, not a security concern
             manifest = {
                 "layout": {"dock": ["app1"], "pages": []},
@@ -200,13 +236,20 @@ class TestManifestInstallProcessor(unittest.TestCase):
             )
             mock_profile = {"PayloadContent": [], "PayloadType": "Configuration"}
             with patch("phone.profile.build_mobileconfig", return_value=mock_profile):
-                env = ManifestInstallProcessor().process(ManifestInstallRequestConsumer(req).consume())
+                env = ManifestInstallProcessor().process(
+                    ManifestInstallRequestConsumer(req).consume()
+                )
         self.assertTrue(env.ok())
         self.assertTrue(env.payload.dry_run)
 
     def test_manifest_with_plan_auto_path(self):
         """Test that auto path is generated from device label when out_path is None."""
-        from phone.pipeline_plan import ManifestInstallProcessor, ManifestInstallRequest, ManifestInstallRequestConsumer
+        from phone.pipeline_plan import (
+            ManifestInstallProcessor,
+            ManifestInstallRequest,
+            ManifestInstallRequestConsumer,
+        )
+
         with tempfile.TemporaryDirectory() as tmp:  # nosec B108 - test-only temp file, not a security concern
             manifest = {
                 "plan": {"dock": ["app1"], "pages": {}},
@@ -224,7 +267,9 @@ class TestManifestInstallProcessor(unittest.TestCase):
             )
             mock_profile = {"PayloadContent": [], "PayloadType": "Configuration"}
             with patch("phone.profile.build_mobileconfig", return_value=mock_profile):
-                env = ManifestInstallProcessor().process(ManifestInstallRequestConsumer(req).consume())
+                env = ManifestInstallProcessor().process(
+                    ManifestInstallRequestConsumer(req).consume()
+                )
         self.assertTrue(env.ok())
         # Auto-generated path should include 'mydevice'
         self.assertIn("mydevice", str(env.payload.profile_path))
@@ -233,6 +278,7 @@ class TestManifestInstallProcessor(unittest.TestCase):
 class TestPlanFromLayout(unittest.TestCase):
     def test_basic_conversion(self):
         from phone.pipeline_plan import _plan_from_layout
+
         layout_obj = {
             "dock": ["app1", "app2"],
             "pages": [
@@ -248,6 +294,7 @@ class TestPlanFromLayout(unittest.TestCase):
 
     def test_empty_layout(self):
         from phone.pipeline_plan import _plan_from_layout
+
         plan = _plan_from_layout({})
         self.assertEqual(plan["dock"], [])
         self.assertEqual(plan["pages"], {})
@@ -255,6 +302,7 @@ class TestPlanFromLayout(unittest.TestCase):
 
     def test_page_folder_without_name(self):
         from phone.pipeline_plan import _plan_from_layout
+
         layout_obj = {
             "dock": [],
             "pages": [
@@ -267,11 +315,18 @@ class TestPlanFromLayout(unittest.TestCase):
 
 class TestIdentityVerifyProcessorBranches(unittest.TestCase):
     def test_verify_with_label_resolves_udid(self):
-        from phone.pipeline_plan import IdentityVerifyProcessor, IdentityVerifyRequest, IdentityVerifyRequestConsumer
         from phone.device import CertInfo
+        from phone.pipeline_plan import (
+            IdentityVerifyProcessor,
+            IdentityVerifyRequest,
+            IdentityVerifyRequestConsumer,
+        )
+
         mock_cert = CertInfo(subject="CN=TestOrg", issuer="CN=TestIssuer")
         with (
-            patch("phone.device.read_credentials_ini", return_value=(Path("creds.ini"), {})),  # sentinel path, never accessed in this test
+            patch(
+                "phone.device.read_credentials_ini", return_value=(Path("creds.ini"), {})
+            ),  # sentinel path, never accessed in this test
             patch("phone.device.resolve_p12_path", return_value=("/path/to/cert.p12", "pass")),  # nosec B106
             patch("phone.device.extract_p12_cert_info", return_value=mock_cert),
             patch("phone.device.get_device_supervision_status", return_value="true"),
@@ -286,12 +341,19 @@ class TestIdentityVerifyProcessorBranches(unittest.TestCase):
                 udid=None,
                 expected_org=None,
             )
-            env = IdentityVerifyProcessor().process(IdentityVerifyRequestConsumer(request).consume())
+            env = IdentityVerifyProcessor().process(
+                IdentityVerifyRequestConsumer(request).consume()
+            )
         self.assertTrue(env.ok())
         self.assertEqual(env.payload.udid, "resolved-udid")
 
     def test_verify_runtime_error_from_p12(self):
-        from phone.pipeline_plan import IdentityVerifyProcessor, IdentityVerifyRequest, IdentityVerifyRequestConsumer
+        from phone.pipeline_plan import (
+            IdentityVerifyProcessor,
+            IdentityVerifyRequest,
+            IdentityVerifyRequestConsumer,
+        )
+
         with (
             patch("phone.device.read_credentials_ini", return_value=(None, {})),
             patch("phone.device.resolve_p12_path", return_value=("/path/to/cert.p12", "pass")),  # nosec B106
@@ -306,35 +368,49 @@ class TestIdentityVerifyProcessorBranches(unittest.TestCase):
                 udid=None,
                 expected_org=None,
             )
-            env = IdentityVerifyProcessor().process(IdentityVerifyRequestConsumer(request).consume())
+            env = IdentityVerifyProcessor().process(
+                IdentityVerifyRequestConsumer(request).consume()
+            )
         self.assertFalse(env.ok())
 
 
 class TestIconmapProcessorEcidResolution(unittest.TestCase):
     def test_iconmap_with_udid_resolves_ecid(self):
         from phone.pipeline_export import IconmapProcessor, IconmapRequest, IconmapRequestConsumer
-        with patch("phone.device.find_cfgutil_path", return_value="/usr/bin/cfgutil"), \
-             patch("phone.device.map_udid_to_ecid", return_value="0xECID"), \
-             patch("subprocess.check_output", return_value=b'{}'):
-            request = IconmapRequest(udid="test-udid", ecid=None, format="json", out_path=Path("out.json"))
+
+        with (
+            patch("phone.device.find_cfgutil_path", return_value="/usr/bin/cfgutil"),
+            patch("phone.device.map_udid_to_ecid", return_value="0xECID"),
+            patch("subprocess.check_output", return_value=b"{}"),
+        ):
+            request = IconmapRequest(
+                udid="test-udid", ecid=None, format="json", out_path=Path("out.json")
+            )
             env = IconmapProcessor().process(IconmapRequestConsumer(request).consume())
         self.assertTrue(env.ok())
 
     def test_iconmap_processor_called_process_error(self):
         import subprocess as sp  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
+
         from phone.pipeline_export import IconmapProcessor, IconmapRequest, IconmapRequestConsumer
-        with patch("phone.device.find_cfgutil_path", return_value="/usr/bin/cfgutil"), \
-             patch("phone.device.map_udid_to_ecid", return_value=""), \
-             patch("subprocess.check_output", side_effect=sp.CalledProcessError(1, "cfgutil")):
+
+        with (
+            patch("phone.device.find_cfgutil_path", return_value="/usr/bin/cfgutil"),
+            patch("phone.device.map_udid_to_ecid", return_value=""),
+            patch("subprocess.check_output", side_effect=sp.CalledProcessError(1, "cfgutil")),
+        ):
             request = IconmapRequest(udid=None, ecid=None, format="json", out_path=Path("out.json"))
             env = IconmapProcessor().process(IconmapRequestConsumer(request).consume())
         self.assertFalse(env.ok())
 
     def test_iconmap_processor_generic_exception(self):
         from phone.pipeline_export import IconmapProcessor, IconmapRequest, IconmapRequestConsumer
-        with patch("phone.device.find_cfgutil_path", return_value="/usr/bin/cfgutil"), \
-             patch("phone.device.map_udid_to_ecid", return_value=""), \
-             patch("subprocess.check_output", side_effect=OSError("device not found")):
+
+        with (
+            patch("phone.device.find_cfgutil_path", return_value="/usr/bin/cfgutil"),
+            patch("phone.device.map_udid_to_ecid", return_value=""),
+            patch("subprocess.check_output", side_effect=OSError("device not found")),
+        ):
             request = IconmapRequest(udid=None, ecid=None, format="json", out_path=Path("out.json"))
             env = IconmapProcessor().process(IconmapRequestConsumer(request).consume())
         self.assertFalse(env.ok())
@@ -342,38 +418,60 @@ class TestIconmapProcessorEcidResolution(unittest.TestCase):
 
 class TestManifestFromExportValidation(unittest.TestCase):
     def test_invalid_export_missing_required_keys(self):
-        from phone.pipeline_plan import ManifestFromExportProcessor, ManifestFromExportRequest, ManifestFromExportRequestConsumer
+        from phone.pipeline_plan import (
+            ManifestFromExportProcessor,
+            ManifestFromExportRequest,
+            ManifestFromExportRequestConsumer,
+        )
+
         with tempfile.TemporaryDirectory() as tmp:  # nosec B108 - test-only temp file, not a security concern
             p = Path(tmp) / "bad_export.yaml"
             import yaml
+
             with open(p, "w") as f:
                 yaml.safe_dump({"only_key": "no_dock_or_pages"}, f)
             request = ManifestFromExportRequest(export_path=p, out_path=Path(tmp) / "manifest.yaml")
-            env = ManifestFromExportProcessor().process(ManifestFromExportRequestConsumer(request).consume())
+            env = ManifestFromExportProcessor().process(
+                ManifestFromExportRequestConsumer(request).consume()
+            )
         self.assertFalse(env.ok())
         self.assertIn("dock", (env.diagnostics or {}).get("message", "").lower())
 
 
 class TestManifestFromDeviceProcessorEmptyExport(unittest.TestCase):
     def test_empty_export_raises_error(self):
-        from phone.pipeline_plan import ManifestFromDeviceProcessor, ManifestFromDeviceRequest, ManifestFromDeviceRequestConsumer
-        with patch("phone.device.find_cfgutil_path", return_value="/usr/bin/cfgutil"), \
-             patch("phone.device.map_udid_to_ecid", return_value=None), \
-             patch("phone.device.export_from_device", return_value=None):
-            request = ManifestFromDeviceRequest(udid=None, export_out=None, out_path=Path("out.yaml"))
-            env = ManifestFromDeviceProcessor().process(ManifestFromDeviceRequestConsumer(request).consume())
+        from phone.pipeline_plan import (
+            ManifestFromDeviceProcessor,
+            ManifestFromDeviceRequest,
+            ManifestFromDeviceRequestConsumer,
+        )
+
+        with (
+            patch("phone.device.find_cfgutil_path", return_value="/usr/bin/cfgutil"),
+            patch("phone.device.map_udid_to_ecid", return_value=None),
+            patch("phone.device.export_from_device", return_value=None),
+        ):
+            request = ManifestFromDeviceRequest(
+                udid=None, export_out=None, out_path=Path("out.yaml")
+            )
+            env = ManifestFromDeviceProcessor().process(
+                ManifestFromDeviceRequestConsumer(request).consume()
+            )
         self.assertFalse(env.ok())
         self.assertIn("export", (env.diagnostics or {}).get("message", "").lower())
 
 
 class TestPruneProcessorCandidateLine(unittest.TestCase):
     def test_candidates_in_output(self):
-        from phone.pipeline_export import PruneProcessor, PruneRequest, PruneRequestConsumer
         from phone.layout_normalize import NormalizedLayout
+        from phone.pipeline_export import PruneProcessor, PruneRequest, PruneRequestConsumer
+
         layout = NormalizedLayout(dock=[], pages=[])
         rows = [("com.example.app", 1.5, "Page 1")]
-        with patch("phone.pipeline_export.load_layout", return_value=layout), \
-             patch("phone.layout_plan_analyze.rank_unused_candidates", return_value=rows):
+        with (
+            patch("phone.pipeline_export.load_layout", return_value=layout),
+            patch("phone.layout_plan_analyze.rank_unused_candidates", return_value=rows),
+        ):
             request = PruneRequest(
                 layout=None,
                 backup=None,
@@ -391,11 +489,16 @@ class TestPruneProcessorCandidateLine(unittest.TestCase):
 
 class TestAnalyzeProcessorWithPlanPath(unittest.TestCase):
     def test_analyze_with_missing_plan_path(self):
-        from phone.pipeline_export import AnalyzeProcessor, AnalyzeRequest, AnalyzeRequestConsumer
         from phone.layout_normalize import NormalizedLayout
+        from phone.pipeline_export import AnalyzeProcessor, AnalyzeRequest, AnalyzeRequestConsumer
+
         layout = NormalizedLayout(dock=[], pages=[])
-        with patch("phone.pipeline_export.load_layout", return_value=layout), \
-             patch("phone.pipeline_export.read_yaml", side_effect=FileNotFoundError("/missing.yaml")):
+        with (
+            patch("phone.pipeline_export.load_layout", return_value=layout),
+            patch(
+                "phone.pipeline_export.read_yaml", side_effect=FileNotFoundError("/missing.yaml")
+            ),
+        ):
             request = AnalyzeRequest(
                 layout=None,
                 backup=None,
@@ -409,8 +512,13 @@ class TestAnalyzeProcessorWithPlanPath(unittest.TestCase):
 
 class TestIdentityVerifyNoLabelNoUdid(unittest.TestCase):
     def test_verify_no_label_no_udid_skips_resolve(self):
-        from phone.pipeline_plan import IdentityVerifyProcessor, IdentityVerifyRequest, IdentityVerifyRequestConsumer
         from phone.device import CertInfo
+        from phone.pipeline_plan import (
+            IdentityVerifyProcessor,
+            IdentityVerifyRequest,
+            IdentityVerifyRequestConsumer,
+        )
+
         mock_cert = CertInfo(subject="CN=TestOrg", issuer="CN=TestIssuer")
         with (
             patch("phone.device.read_credentials_ini", return_value=(None, {})),
@@ -424,10 +532,12 @@ class TestIdentityVerifyNoLabelNoUdid(unittest.TestCase):
                 creds_profile=None,
                 config=None,
                 device_label=None,  # no label
-                udid=None,          # no udid
+                udid=None,  # no udid
                 expected_org=None,
             )
-            env = IdentityVerifyProcessor().process(IdentityVerifyRequestConsumer(request).consume())
+            env = IdentityVerifyProcessor().process(
+                IdentityVerifyRequestConsumer(request).consume()
+            )
         self.assertTrue(env.ok())
         self.assertIsNone(env.payload.udid)
 

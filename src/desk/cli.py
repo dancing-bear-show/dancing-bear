@@ -5,11 +5,11 @@ from __future__ import annotations
 import os
 
 from core.assistant import BaseAssistant
-from .meta import META
 from core.cli_framework import CLIApp
 from core.cli_output import OutputWriter
 
 from . import __version__
+from .meta import META
 from .pipeline import (
     ApplyProcessor,
     ApplyRequest,
@@ -54,7 +54,12 @@ def _emit_agentic(fmt: str, compact: bool) -> int:
 
 # scan command
 @app.command("scan", help="Scan for large, stale, and duplicate files")
-@app.argument("--paths", nargs="+", default=_paths_default(), help="Paths to scan (default: ~/Downloads ~/Desktop)")
+@app.argument(
+    "--paths",
+    nargs="+",
+    default=_paths_default(),
+    help="Paths to scan (default: ~/Downloads ~/Desktop)",
+)
 @app.argument("--min-size", default="50MB", help="Report files >= this size (e.g. 50MB, 1G)")
 @app.argument("--older-than", default=None, help="Report files older than this (e.g. 30d, 12h)")
 @app.argument("--duplicates", action="store_true", help="Include duplicate detection (size+hash)")
@@ -96,6 +101,7 @@ def cmd_plan(args) -> int:
 def cmd_apply(args) -> int:
     """Apply a previously generated plan."""
     from .pipeline import ApplyRequestConsumer
+
     request = ApplyRequest(plan_path=args.plan, dry_run=args.dry_run)
     envelope = ApplyProcessor().process(ApplyRequestConsumer(request).consume())
     ApplyResultProducer().produce(envelope)

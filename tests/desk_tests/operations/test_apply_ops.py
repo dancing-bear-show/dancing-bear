@@ -7,12 +7,11 @@ from contextlib import redirect_stderr
 from io import StringIO
 from unittest.mock import patch
 
-from desk.apply_ops import apply_plan_file, _load_data, _do_move, _do_trash
+from desk.apply_ops import _do_move, _do_trash, _load_data, apply_plan_file
 from tests.fixtures import TempDirMixin
 
 
 class LoadDataTests(TempDirMixin, unittest.TestCase):
-
     def test_load_json(self):
         path = os.path.join(self.tmpdir, "plan.json")
         data = {"operations": [{"action": "move"}]}
@@ -40,7 +39,6 @@ class LoadDataTests(TempDirMixin, unittest.TestCase):
 
 
 class DoMoveTests(TempDirMixin, unittest.TestCase):
-
     def test_move_file(self):
         src = os.path.join(self.tmpdir, "source.txt")
         dest_dir = os.path.join(self.tmpdir, "dest")
@@ -102,7 +100,6 @@ class DoMoveTests(TempDirMixin, unittest.TestCase):
 
 
 class DoTrashTests(TempDirMixin, unittest.TestCase):
-
     def test_trash_dry_run(self):
         src = os.path.join(self.tmpdir, "to_delete.txt")
         with open(src, "w") as f:
@@ -118,7 +115,6 @@ class DoTrashTests(TempDirMixin, unittest.TestCase):
 
 
 class ApplyPlanFileTests(TempDirMixin, unittest.TestCase):
-
     def test_apply_move_operation(self):
         src = os.path.join(self.tmpdir, "source.txt")
         dest_dir = os.path.join(self.tmpdir, "dest")
@@ -128,11 +124,7 @@ class ApplyPlanFileTests(TempDirMixin, unittest.TestCase):
             f.write("content")
 
         plan_path = os.path.join(self.tmpdir, "plan.json")
-        plan = {
-            "operations": [
-                {"action": "move", "src": src, "dest": dest}
-            ]
-        }
+        plan = {"operations": [{"action": "move", "src": src, "dest": dest}]}
         with open(plan_path, "w") as f:
             json.dump(plan, f)
 
@@ -149,11 +141,7 @@ class ApplyPlanFileTests(TempDirMixin, unittest.TestCase):
             f.write("content")
 
         plan_path = os.path.join(self.tmpdir, "plan.json")
-        plan = {
-            "operations": [
-                {"action": "move", "src": src, "dest": dest}
-            ]
-        }
+        plan = {"operations": [{"action": "move", "src": src, "dest": dest}]}
         with open(plan_path, "w") as f:
             json.dump(plan, f)
 
@@ -199,11 +187,7 @@ class ApplyPlanFileTests(TempDirMixin, unittest.TestCase):
 
     def test_unknown_action_prints_message(self):
         plan_path = os.path.join(self.tmpdir, "plan.json")
-        plan = {
-            "operations": [
-                {"action": "unknown_action", "src": "/some/path"}
-            ]
-        }
+        plan = {"operations": [{"action": "unknown_action", "src": "/some/path"}]}
         with open(plan_path, "w") as f:
             json.dump(plan, f)
 

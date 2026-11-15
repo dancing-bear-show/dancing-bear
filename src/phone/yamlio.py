@@ -10,7 +10,7 @@ from core.yamlio import load_config as _load_config
 
 Pathish = str | Path
 
-__all__ = ["load_config", "dump_config"]
+__all__ = ["dump_config", "load_config"]
 
 
 def load_config(path: Pathish | None) -> dict[str, Any]:

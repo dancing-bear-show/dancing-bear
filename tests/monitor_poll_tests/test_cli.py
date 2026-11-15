@@ -48,18 +48,29 @@ class FilePollTests(CliTestCase):
         self.assertEqual(len(out.strip().splitlines()), 1)
 
     def test_missing_file_times_out_with_exit_one(self):
-        rc, out, _ = self.run_cli("file", str(Path(self.tmpdir) / "never"), "--timeout", "0.05", "--interval", "0.02")
+        rc, out, _ = self.run_cli(
+            "file", str(Path(self.tmpdir) / "never"), "--timeout", "0.05", "--interval", "0.02"
+        )
         self.assertEqual(rc, 1)
         self.assertEqual(self.last_record(out)["verdict"], "timed_out")
 
     def test_absent_flag_waits_for_removal(self):
-        rc, out, _ = self.run_cli("file", str(Path(self.tmpdir) / "never"), "--absent", "--timeout", "0")
+        rc, out, _ = self.run_cli(
+            "file", str(Path(self.tmpdir) / "never"), "--absent", "--timeout", "0"
+        )
         self.assertEqual(rc, 0)
         self.assertEqual(self.last_record(out)["verdict"], "passed")
 
     def test_ticks_stream_ndjson_before_the_final_record(self):
-        rc, out, _ = self.run_cli("file", str(Path(self.tmpdir) / "never"), "--timeout", "0.05",
-                                  "--interval", "0.02", "--ticks")
+        rc, out, _ = self.run_cli(
+            "file",
+            str(Path(self.tmpdir) / "never"),
+            "--timeout",
+            "0.05",
+            "--interval",
+            "0.02",
+            "--ticks",
+        )
         lines = [json.loads(line) for line in out.strip().splitlines()]
         self.assertEqual(rc, 1)
         self.assertGreaterEqual(len(lines), 2)
@@ -81,12 +92,22 @@ class FilePollTests(CliTestCase):
 
 class CmdPollTests(CliTestCase):
     def test_command_exit_zero_passes(self):
-        rc, out, _ = self.run_cli("cmd", "--timeout", "0", sys.executable, "-c", "raise SystemExit(0)")
+        rc, out, _ = self.run_cli(
+            "cmd", "--timeout", "0", sys.executable, "-c", "raise SystemExit(0)"
+        )
         self.assertEqual(rc, 0)
         self.assertEqual(self.last_record(out)["verdict"], "passed")
 
     def test_command_flags_after_command_belong_to_the_command(self):
-        rc, _, _ = self.run_cli("cmd", "--timeout", "0", sys.executable, "-c", "import sys; sys.exit(int(sys.argv[1]))", "0")
+        rc, _, _ = self.run_cli(
+            "cmd",
+            "--timeout",
+            "0",
+            sys.executable,
+            "-c",
+            "import sys; sys.exit(int(sys.argv[1]))",
+            "0",
+        )
         self.assertEqual(rc, 0)
 
     def test_optional_separator_is_accepted(self):
@@ -94,11 +115,15 @@ class CmdPollTests(CliTestCase):
         self.assertEqual(rc, 0)
 
     def test_expect_rc_matches_nonzero_code(self):
-        rc, _, _ = self.run_cli("cmd", "--timeout", "0", "--expect-rc", "3", sys.executable, "-c", "raise SystemExit(3)")
+        rc, _, _ = self.run_cli(
+            "cmd", "--timeout", "0", "--expect-rc", "3", sys.executable, "-c", "raise SystemExit(3)"
+        )
         self.assertEqual(rc, 0)
 
     def test_wrong_rc_times_out(self):
-        rc, out, _ = self.run_cli("cmd", "--timeout", "0", sys.executable, "-c", "raise SystemExit(1)")
+        rc, out, _ = self.run_cli(
+            "cmd", "--timeout", "0", sys.executable, "-c", "raise SystemExit(1)"
+        )
         self.assertEqual(rc, 1)
         self.assertEqual(self.last_record(out)["detail"], "exit 1")
 
@@ -121,14 +146,25 @@ class CmdPollTests(CliTestCase):
 
 class OutputPollTests(CliTestCase):
     def test_match_passes(self):
-        rc, out, _ = self.run_cli("output", "--match", "RE+ADY", "--timeout", "0",
-                                  sys.executable, "-c", "print('REEADY')")
+        rc, out, _ = self.run_cli(
+            "output", "--match", "RE+ADY", "--timeout", "0", sys.executable, "-c", "print('REEADY')"
+        )
         self.assertEqual(rc, 0)
         self.assertIn("REEADY", self.last_record(out)["detail"])
 
     def test_fail_match_fails_before_timeout(self):
-        rc, out, _ = self.run_cli("output", "--match", "ok", "--fail-match", "BAD", "--timeout", "30",
-                                  sys.executable, "-c", "print('ok BAD')")
+        rc, out, _ = self.run_cli(
+            "output",
+            "--match",
+            "ok",
+            "--fail-match",
+            "BAD",
+            "--timeout",
+            "30",
+            sys.executable,
+            "-c",
+            "print('ok BAD')",
+        )
         self.assertEqual(rc, 1)
         self.assertEqual(self.last_record(out)["verdict"], "failed")
 
@@ -145,8 +181,10 @@ class HttpPollTests(CliTestCase):
         self.assertIn("unsupported URL scheme", err)
 
     def test_state_masks_credentials_in_url(self):
-        with mock.patch("monitor_poll.conditions.http_condition",
-                        return_value=lambda: Probe(Outcome.SUCCESS, "HTTP 200")):
+        with mock.patch(
+            "monitor_poll.conditions.http_condition",
+            return_value=lambda: Probe(Outcome.SUCCESS, "HTTP 200"),
+        ):
             rc, _, _ = self.run_cli("http", "https://h/x?access_token=SEKRET123", "--timeout", "0")
         self.assertEqual(rc, 0)
         self.assertNotIn("SEKRET123", self.state_files()[0].read_text())
@@ -154,16 +192,20 @@ class HttpPollTests(CliTestCase):
 
 class GhPollTests(CliTestCase):
     def test_gh_pr_passes_through_to_condition(self):
-        with mock.patch("monitor_poll.conditions.gh_pr_condition",
-                        return_value=lambda: Probe(Outcome.SUCCESS, "3 checks passed")) as factory:
+        with mock.patch(
+            "monitor_poll.conditions.gh_pr_condition",
+            return_value=lambda: Probe(Outcome.SUCCESS, "3 checks passed"),
+        ) as factory:
             rc, out, _ = self.run_cli("gh-pr", "--pr", "7", "--repo", "o/r", "--timeout", "0")
         factory.assert_called_once_with(7, repo="o/r")
         self.assertEqual(rc, 0)
         self.assertEqual(self.last_record(out)["condition"], "gh-pr")
 
     def test_gh_run_failure_exits_one(self):
-        with mock.patch("monitor_poll.conditions.gh_run_condition",
-                        return_value=lambda: Probe(Outcome.FAILURE, "run failure")) as factory:
+        with mock.patch(
+            "monitor_poll.conditions.gh_run_condition",
+            return_value=lambda: Probe(Outcome.FAILURE, "run failure"),
+        ) as factory:
             rc, out, _ = self.run_cli("gh-run", "--run", "55", "--timeout", "0")
         factory.assert_called_once_with("55", repo=None)
         self.assertEqual(rc, 1)
@@ -189,8 +231,15 @@ class ArgumentValidationTests(CliTestCase):
 
 
 def write_state_file(root: Path, **fields: Any) -> state.PollState:
-    st = state.PollState(**{"poll_id": "p1", "pid": os.getpid(), "condition": "file",
-                            "started_at": "2026-01-01T00:00:00Z", **fields})
+    st = state.PollState(
+        **{
+            "poll_id": "p1",
+            "pid": os.getpid(),
+            "condition": "file",
+            "started_at": "2026-01-01T00:00:00Z",
+            **fields,
+        }
+    )
     state.write_state(st, root)
     return st
 
@@ -228,8 +277,10 @@ class CancelTests(CliTestCase):
 
     def test_running_poll_gets_sigterm_and_is_marked_cancelled(self):
         write_state_file(self.root, pid=4242)
-        with mock.patch.object(state, "is_pid_alive", return_value=True), \
-                mock.patch.object(state.os, "kill") as kill:
+        with (
+            mock.patch.object(state, "is_pid_alive", return_value=True),
+            mock.patch.object(state.os, "kill") as kill,
+        ):
             rc, rec = self._cancel("--poll-id", "p1")
         kill.assert_called_once_with(4242, mock.ANY)
         self.assertEqual((rc, rec["cancelled"]), (0, True))
@@ -237,8 +288,10 @@ class CancelTests(CliTestCase):
 
     def test_cancel_by_pid(self):
         write_state_file(self.root, pid=4242)
-        with mock.patch.object(state, "is_pid_alive", return_value=True), \
-                mock.patch.object(state.os, "kill") as kill:
+        with (
+            mock.patch.object(state, "is_pid_alive", return_value=True),
+            mock.patch.object(state.os, "kill") as kill,
+        ):
             rc, rec = self._cancel("--pid", "4242")
         kill.assert_called_once_with(4242, mock.ANY)
         self.assertEqual((rc, rec["poll_id"]), (0, "p1"))
@@ -253,8 +306,10 @@ class CancelTests(CliTestCase):
 
     def test_signal_failure_exits_one_and_leaves_status(self):
         write_state_file(self.root, pid=4242)
-        with mock.patch.object(state, "is_pid_alive", return_value=True), \
-                mock.patch.object(state.os, "kill", side_effect=PermissionError("denied")):
+        with (
+            mock.patch.object(state, "is_pid_alive", return_value=True),
+            mock.patch.object(state.os, "kill", side_effect=PermissionError("denied")),
+        ):
             rc, rec = self._cancel("--poll-id", "p1")
         self.assertEqual((rc, rec["cancelled"]), (1, False))
         self.assertEqual(json.loads(self.state_files()[0].read_text())["status"], "running")
@@ -277,7 +332,9 @@ class SharedFlagsTests(unittest.TestCase):
         parser = cli.app.build_parser()
         for name in ("cmd", "output", "file", "http", "gh-pr", "gh-run"):
             with self.subTest(command=name):
-                sub = next(a for a in parser._actions if getattr(a, "choices", None) and name in a.choices)
+                sub = next(
+                    a for a in parser._actions if getattr(a, "choices", None) and name in a.choices
+                )
                 flags = {o for act in sub.choices[name]._actions for o in act.option_strings}
                 self.assertLessEqual({"--timeout", "--interval", "--ticks", "--format"}, flags)
 

@@ -5,6 +5,7 @@ Extracted from docx_sections. Provides:
   - ExperienceSectionRenderer: experience/work history renderer
   - EducationSectionRenderer: education section renderer
 """
+
 from __future__ import annotations
 
 import logging
@@ -39,7 +40,7 @@ class _ExperienceRenderOpts:
     prior_max_bullets: int = 999
 
     @classmethod
-    def from_cfg(cls, cfg: dict[str, Any]) -> "_ExperienceRenderOpts":
+    def from_cfg(cls, cfg: dict[str, Any]) -> _ExperienceRenderOpts:
         """Build from a section config dict.
 
         ``bullet_style`` is deliberately not read. It used to name a Word list
@@ -118,8 +119,11 @@ class ExperienceSectionRenderer(ListSectionRenderer):
 
         # Determine per-role bullet limit
         per_role_limit = self._calculate_bullet_limit(
-            idx, opts.max_bullets, opts.recent_roles_count,
-            opts.recent_max_bullets, opts.prior_max_bullets,
+            idx,
+            opts.max_bullets,
+            opts.recent_roles_count,
+            opts.recent_max_bullets,
+            opts.prior_max_bullets,
         )
 
         # Warn when bullets will be truncated. Name the setting that actually
@@ -130,9 +134,7 @@ class ExperienceSectionRenderer(ListSectionRenderer):
         if len(raw_bullets) > per_role_limit:
             role_name = company or title or f"role at index {idx}"
             limit_name = (
-                "recent_max_bullets"
-                if idx < opts.recent_roles_count
-                else "prior_max_bullets"
+                "recent_max_bullets" if idx < opts.recent_roles_count else "prior_max_bullets"
             )
             _warn(
                 f"template {limit_name}={per_role_limit} truncated"
@@ -153,9 +155,9 @@ class ExperienceSectionRenderer(ListSectionRenderer):
 
         if start_txt and end_txt:
             return f"{self._normalize_present(start_txt)} – {self._normalize_present(end_txt)}"
-        elif start_txt:
+        if start_txt:
             return f"{self._normalize_present(start_txt)} – Present"
-        elif end_txt:
+        if end_txt:
             return self._normalize_present(end_txt)
         return ""
 

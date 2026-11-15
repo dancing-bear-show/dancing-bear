@@ -172,7 +172,9 @@ def decode_claims(token: str) -> TokenClaims:
     """
     parts = token.split(".")
     if len(parts) != 3:
-        raise ConfigError("Developer token is not a well-formed JWT (expected three dot-separated segments).")
+        raise ConfigError(
+            "Developer token is not a well-formed JWT (expected three dot-separated segments)."
+        )
     try:
         header = json.loads(_b64url_decode(parts[0]))
         payload = json.loads(_b64url_decode(parts[1]))

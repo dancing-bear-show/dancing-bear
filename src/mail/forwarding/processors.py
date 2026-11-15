@@ -1,4 +1,5 @@
 """Processors for forwarding pipelines."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -7,11 +8,11 @@ from typing import Any
 from core.pipeline import Processor, ResultEnvelope
 
 from .consumers import (
-    ForwardingListPayload,
     ForwardingAddPayload,
-    ForwardingStatusPayload,
-    ForwardingEnablePayload,
     ForwardingDisablePayload,
+    ForwardingEnablePayload,
+    ForwardingListPayload,
+    ForwardingStatusPayload,
 )
 
 
@@ -54,7 +55,9 @@ class ForwardingDisableResult:
     success: bool = True
 
 
-class ForwardingListProcessor(Processor[ForwardingListPayload, ResultEnvelope[ForwardingListResult]]):
+class ForwardingListProcessor(
+    Processor[ForwardingListPayload, ResultEnvelope[ForwardingListResult]]
+):
     """List forwarding addresses."""
 
     def process(self, payload: ForwardingListPayload) -> ResultEnvelope[ForwardingListResult]:
@@ -95,7 +98,9 @@ class ForwardingAddProcessor(Processor[ForwardingAddPayload, ResultEnvelope[Forw
             )
 
 
-class ForwardingStatusProcessor(Processor[ForwardingStatusPayload, ResultEnvelope[ForwardingStatusResult]]):
+class ForwardingStatusProcessor(
+    Processor[ForwardingStatusPayload, ResultEnvelope[ForwardingStatusResult]]
+):
     """Get auto-forwarding status."""
 
     def process(self, payload: ForwardingStatusPayload) -> ResultEnvelope[ForwardingStatusResult]:
@@ -119,7 +124,9 @@ class ForwardingStatusProcessor(Processor[ForwardingStatusPayload, ResultEnvelop
             )
 
 
-class ForwardingEnableProcessor(Processor[ForwardingEnablePayload, ResultEnvelope[ForwardingEnableResult]]):
+class ForwardingEnableProcessor(
+    Processor[ForwardingEnablePayload, ResultEnvelope[ForwardingEnableResult]]
+):
     """Enable auto-forwarding."""
 
     def process(self, payload: ForwardingEnablePayload) -> ResultEnvelope[ForwardingEnableResult]:
@@ -137,7 +144,10 @@ class ForwardingEnableProcessor(Processor[ForwardingEnablePayload, ResultEnvelop
                 return ResultEnvelope(
                     status="error",
                     payload=None,
-                    diagnostics={"error": f"Forward address not verified: {payload.email}", "code": 2},
+                    diagnostics={
+                        "error": f"Forward address not verified: {payload.email}",
+                        "code": 2,
+                    },
                 )
 
             st = client.set_auto_forwarding(
@@ -160,7 +170,9 @@ class ForwardingEnableProcessor(Processor[ForwardingEnablePayload, ResultEnvelop
             )
 
 
-class ForwardingDisableProcessor(Processor[ForwardingDisablePayload, ResultEnvelope[ForwardingDisableResult]]):
+class ForwardingDisableProcessor(
+    Processor[ForwardingDisablePayload, ResultEnvelope[ForwardingDisableResult]]
+):
     """Disable auto-forwarding."""
 
     def process(self, payload: ForwardingDisablePayload) -> ResultEnvelope[ForwardingDisableResult]:

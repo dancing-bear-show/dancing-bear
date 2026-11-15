@@ -1,4 +1,5 @@
 """Shared test fixtures for wifi tests."""
+
 from __future__ import annotations
 
 from wifi.diagnostics_runners import CommandResult, CommandRunner
@@ -25,9 +26,7 @@ class FakeRunner(CommandRunner):
 
     def add(self, cmd, stdout="", stderr="", returncode=0):
         """Register a response for an exact command list."""
-        self._exact[tuple(cmd)] = CommandResult(
-            stdout=stdout, stderr=stderr, returncode=returncode
-        )
+        self._exact[tuple(cmd)] = CommandResult(stdout=stdout, stderr=stderr, returncode=returncode)
 
     def run(self, cmd, timeout=None):
         self.calls.append(cmd)

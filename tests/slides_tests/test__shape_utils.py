@@ -56,7 +56,6 @@ def _make_slide(*shapes):
 
 class _Concrete(ShapeUtilsMixin):
     """Concrete subclass so we can instantiate the mixin."""
-    pass
 
 
 class TestFindShape(unittest.TestCase):
@@ -227,7 +226,9 @@ class TestRemoveUnusedPlaceholders(unittest.TestCase):
 
     def test_keeps_page_number_placeholder(self):
         """Placeholder containing only a digit (page number) is kept."""
-        page_num = _make_shape(is_placeholder=True, placeholder_idx=2, has_text_frame=True, text="3")
+        page_num = _make_shape(
+            is_placeholder=True, placeholder_idx=2, has_text_frame=True, text="3"
+        )
         page_num._element = MagicMock()
         parent = MagicMock()
         page_num._element.getparent.return_value = parent
@@ -261,7 +262,7 @@ class TestRepositionTextbox(unittest.TestCase):
         textbox = _make_shape(
             is_placeholder=False,
             shape_type=MSO_SHAPE_TYPE.TEXT_BOX,
-            top=int(914400 * 2),  # 2 inches in EMU
+            top=(914400 * 2),  # 2 inches in EMU
         )
         slide = _make_slide(textbox)
 
@@ -283,6 +284,7 @@ class TestRepositionTextbox(unittest.TestCase):
 # (partial branch 142->exit)
 # ---------------------------------------------------------------------------
 
+
 class TestSetSlideTitleInheritStyle(unittest.TestCase):
     """Cover _set_slide_title with subtitle and inherit_style=True (partial branch 142->exit)."""
 
@@ -300,6 +302,7 @@ class TestSetSlideTitleInheritStyle(unittest.TestCase):
     def test_subtitle_with_inherit_style_does_not_set_alignment(self):
         """When inherit_style=True, the subtitle paragraph alignment is not set."""
         from pptx.enum.dml import MSO_THEME_COLOR
+
         mixin = _Concrete()
         # _style_run lives on StyleUtilsMixin (not in ShapeUtilsMixin); stub it
         mixin._style_run = MagicMock()
@@ -325,6 +328,7 @@ class TestSetSlideTitleInheritStyle(unittest.TestCase):
     def test_subtitle_without_inherit_style_runs_through_style_block(self):
         """Happy path: subtitle with inherit_style=False applies styling."""
         from pptx.enum.dml import MSO_THEME_COLOR
+
         mixin = _Concrete()
         # _style_run is defined on StyleUtilsMixin (mixed in on SlideGenerator); stub it here
         mixin._style_run = MagicMock()
@@ -374,11 +378,10 @@ class TestSlideWidthFallback(unittest.TestCase):
     def test_fallback_on_type_error(self) -> None:
         """When accessing slide_width raises TypeError, returns Inches(10) fallback."""
         from unittest.mock import PropertyMock
+
         slide = MagicMock()
         pres_type = type(slide.part.package.presentation)
-        pres_type.slide_width = PropertyMock(
-            side_effect=TypeError("not subscriptable")
-        )
+        pres_type.slide_width = PropertyMock(side_effect=TypeError("not subscriptable"))
         self.addCleanup(lambda: delattr(pres_type, "slide_width"))
 
         result = SlideGenerator._slide_width(slide)
@@ -408,9 +411,7 @@ class TestRemoveUnusedPlaceholdersNoTextFrame(unittest.TestCase):
 
         self.generator._remove_unused_placeholders(mock_slide)
 
-        mock_no_tf._element.getparent().remove.assert_called_once_with(
-            mock_no_tf._element
-        )
+        mock_no_tf._element.getparent().remove.assert_called_once_with(mock_no_tf._element)
 
 
 class TestRemoveUnusedPlaceholdersDigitKeep(unittest.TestCase):
@@ -447,9 +448,7 @@ class TestRemoveUnusedPlaceholdersDigitKeep(unittest.TestCase):
         self.generator._remove_unused_placeholders(mock_slide)
 
         mock_page_num._element.getparent.assert_not_called()
-        mock_other._element.getparent().remove.assert_called_once_with(
-            mock_other._element
-        )
+        mock_other._element.getparent().remove.assert_called_once_with(mock_other._element)
 
 
 class TestRepositionTextboxTypeError(unittest.TestCase):

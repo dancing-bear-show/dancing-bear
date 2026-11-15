@@ -1,4 +1,5 @@
 """Producers for Outlook pipelines."""
+
 from __future__ import annotations
 
 from typing import Any, Generic, Protocol, TypeVar
@@ -6,24 +7,24 @@ from typing import Any, Generic, Protocol, TypeVar
 from core.cli_output import OutputWriter
 from core.pipeline import BaseProducer, ResultEnvelope, diagnostic_message
 
-from .processors_rules import (
-    OutlookRulesListResult,
-    OutlookRulesExportResult,
-)
-from .processors_rules_write import (
-    OutlookRulesSyncResult,
-    OutlookRulesDeleteResult,
-    OutlookRulesSweepResult,
-)
-from .processors_rules_plan import OutlookRulesPlanResult
 from .processors_calendar import (
-    OutlookCategoriesListResult,
+    OutlookCalendarAddFromConfigResult,
+    OutlookCalendarAddRecurringResult,
+    OutlookCalendarAddResult,
     OutlookCategoriesExportResult,
+    OutlookCategoriesListResult,
     OutlookCategoriesSyncResult,
     OutlookFoldersSyncResult,
-    OutlookCalendarAddResult,
-    OutlookCalendarAddRecurringResult,
-    OutlookCalendarAddFromConfigResult,
+)
+from .processors_rules import (
+    OutlookRulesExportResult,
+    OutlookRulesListResult,
+)
+from .processors_rules_plan import OutlookRulesPlanResult
+from .processors_rules_write import (
+    OutlookRulesDeleteResult,
+    OutlookRulesSweepResult,
+    OutlookRulesSyncResult,
 )
 
 
@@ -66,7 +67,7 @@ def _format_rule_details(
 ) -> str:
     """Format rule action details for display."""
     cats = []
-    for cid in (action.get("addLabelIds") or []):
+    for cid in action.get("addLabelIds") or []:
         nm = id_to_name.get(cid) or cid
         cats.append(nm)
 
@@ -104,7 +105,10 @@ class OutlookRulesListProducer(BaseProducer):
         self._print_rules(rules, payload.id_to_name, payload.folder_path_rev)
 
     def _print_rules(
-        self, rules: list[dict[str, Any]], id_to_name: dict[str, str], folder_path_rev: dict[str, str]
+        self,
+        rules: list[dict[str, Any]],
+        id_to_name: dict[str, str],
+        folder_path_rev: dict[str, str],
     ) -> None:
         """Print formatted rules."""
         for r in rules:
@@ -254,7 +258,9 @@ class OutlookCategoriesListProducer(BaseProducer):
     def __init__(self, writer: OutputWriter | None = None) -> None:
         super().__init__(writer)
 
-    def _produce_success(self, payload: OutlookCategoriesListResult, diagnostics: dict | None) -> None:
+    def _produce_success(
+        self, payload: OutlookCategoriesListResult, diagnostics: dict | None
+    ) -> None:
         cats = payload.categories
         if not cats:
             self._writer.print("No categories.")
@@ -273,7 +279,9 @@ class OutlookCategoriesExportProducer(BaseProducer):
     def __init__(self, writer: OutputWriter | None = None) -> None:
         super().__init__(writer)
 
-    def _produce_success(self, payload: OutlookCategoriesExportResult, diagnostics: dict | None) -> None:
+    def _produce_success(
+        self, payload: OutlookCategoriesExportResult, diagnostics: dict | None
+    ) -> None:
         self._writer.print(f"Exported {payload.count} categories to {payload.out_path}")
 
 
@@ -331,8 +339,12 @@ class OutlookCalendarAddRecurringProducer(BaseProducer):
     def __init__(self, writer: OutputWriter | None = None) -> None:
         super().__init__(writer)
 
-    def _produce_success(self, payload: OutlookCalendarAddRecurringResult, diagnostics: dict | None) -> None:
-        self._writer.print(f"Created recurring series: {payload.event_id} subject={payload.subject}")
+    def _produce_success(
+        self, payload: OutlookCalendarAddRecurringResult, diagnostics: dict | None
+    ) -> None:
+        self._writer.print(
+            f"Created recurring series: {payload.event_id} subject={payload.subject}"
+        )
 
 
 class OutlookCalendarAddFromConfigProducer(BaseProducer):
@@ -343,5 +355,7 @@ class OutlookCalendarAddFromConfigProducer(BaseProducer):
     def __init__(self, writer: OutputWriter | None = None) -> None:
         super().__init__(writer)
 
-    def _produce_success(self, payload: OutlookCalendarAddFromConfigResult, diagnostics: dict | None) -> None:
+    def _produce_success(
+        self, payload: OutlookCalendarAddFromConfigResult, diagnostics: dict | None
+    ) -> None:
         self._writer.print(f"Created {payload.created} events/series from config")

@@ -6,12 +6,12 @@ import unittest
 
 from resume.parsing_experience_pdf import (
     _pdf_empty_result,
+    _pdf_extract_education,
+    _pdf_extract_experience,
     _pdf_extract_name_headline,
+    _pdf_extract_summary,
     _pdf_find_sections,
     _pdf_get_section_lines,
-    _pdf_extract_summary,
-    _pdf_extract_experience,
-    _pdf_extract_education,
 )
 from resume.parsing_linkedin import (
     _parse_linkedin_meta_from_html,
@@ -205,7 +205,7 @@ class TestParseLinkedinMetaFromHtml(unittest.TestCase):
         self.assertEqual(result["location"], "San Francisco")
 
     def test_returns_empty_when_no_data(self):
-        html = '<html><head></head><body></body></html>'
+        html = "<html><head></head><body></body></html>"
         result = _parse_linkedin_meta_from_html(html)
         self.assertEqual(result, {})
 

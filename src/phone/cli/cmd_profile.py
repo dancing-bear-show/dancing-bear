@@ -18,17 +18,17 @@ from core.pipeline import run_pipeline
 
 from ..helpers import read_yaml, write_yaml
 from ..pipeline_plan import (
-    IdentityVerifyProducer,
     IdentityVerifyProcessor,
+    IdentityVerifyProducer,
     IdentityVerifyRequest,
-    ManifestFromDeviceProducer,
     ManifestFromDeviceProcessor,
+    ManifestFromDeviceProducer,
     ManifestFromDeviceRequest,
-    ManifestFromExportProducer,
     ManifestFromExportProcessor,
+    ManifestFromExportProducer,
     ManifestFromExportRequest,
-    ManifestInstallProducer,
     ManifestInstallProcessor,
+    ManifestInstallProducer,
     ManifestInstallRequest,
 )
 from ..profile import MobileConfigOptions, ProfileMetadata, build_mobileconfig
@@ -59,9 +59,7 @@ def _build_all_apps_folder_config(args, layout_export) -> dict | None:
         return None
 
     if not layout_export:
-        raise ValueError(
-            "--all-apps-folder-* requires --layout to enumerate remaining apps"
-        )
+        raise ValueError("--all-apps-folder-* requires --layout to enumerate remaining apps")
 
     folder = {"name": getattr(args, "all_apps_folder_name", None) or "All Apps"}
     if getattr(args, "all_apps_folder_page", None) is not None:
@@ -83,9 +81,7 @@ def _write_mobileconfig(profile_dict: dict, out_path: Path) -> None:
         plistlib.dump(profile_dict, f, fmt=plistlib.FMT_XML, sort_keys=False)
 
 
-def _sign_mobileconfig(
-    in_path: Path, out_path: Path, p12_path: Path, p12_pass: str
-) -> None:
+def _sign_mobileconfig(in_path: Path, out_path: Path, p12_path: Path, p12_pass: str) -> None:
     """Sign a mobileconfig profile using openssl smime.
 
     Args:
@@ -278,9 +274,7 @@ def cmd_profile_build(args) -> int:
     # Sign the profile if requested
     sign_p12 = getattr(args, "sign_p12", None)
     if sign_p12:
-        sign_pass = getattr(args, "sign_pass", None) or os.environ.get(
-            "IOS_SIGN_PASS", ""
-        )
+        sign_pass = getattr(args, "sign_pass", None) or os.environ.get("IOS_SIGN_PASS", "")
         try:
             _sign_mobileconfig(out_path, out_path, Path(sign_p12), sign_pass)
         except subprocess.CalledProcessError as e:
@@ -336,9 +330,7 @@ def cmd_manifest_from_export(args) -> int:
         export_path=Path(args.export),
         out_path=Path(args.out),
     )
-    return run_pipeline(
-        request, ManifestFromExportProcessor, ManifestFromExportProducer
-    )
+    return run_pipeline(request, ManifestFromExportProcessor, ManifestFromExportProducer)
 
 
 def cmd_manifest_from_device(args) -> int:
@@ -349,9 +341,7 @@ def cmd_manifest_from_device(args) -> int:
         export_out=export_out,
         out_path=Path(args.out),
     )
-    return run_pipeline(
-        request, ManifestFromDeviceProcessor, ManifestFromDeviceProducer
-    )
+    return run_pipeline(request, ManifestFromDeviceProcessor, ManifestFromDeviceProducer)
 
 
 def cmd_manifest_install(args) -> int:

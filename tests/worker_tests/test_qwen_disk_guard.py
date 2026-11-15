@@ -11,8 +11,8 @@ from __future__ import annotations
 import logging
 import os
 import unittest
-from pathlib import Path
 import unittest.mock as mock
+from pathlib import Path
 
 from tests.fixtures import TempDirMixin
 from tests.worker_tests.qwen_fixtures import QwenHandlerCase
@@ -74,8 +74,14 @@ class QwenFreeDiskBytesTests(TempDirMixin, unittest.TestCase):
     def test_unmeasurable_path_still_returns_none(self) -> None:
         target = Path(self.tmpdir) / "a" / "patches"
         for label, patcher in (
-            ("disk_usage fails", mock.patch("shutil.disk_usage", side_effect=OSError("unreadable"))),
-            ("ancestor stat denied", mock.patch.object(Path, "exists", side_effect=PermissionError("denied"))),
+            (
+                "disk_usage fails",
+                mock.patch("shutil.disk_usage", side_effect=OSError("unreadable")),
+            ),
+            (
+                "ancestor stat denied",
+                mock.patch.object(Path, "exists", side_effect=PermissionError("denied")),
+            ),
         ):
             with self.subTest(label), patcher:
                 self.assertIsNone(qwen._free_disk_bytes(target))

@@ -14,20 +14,20 @@ from pathlib import Path
 # Built-in fallback map (kept for compatibility); prefer YAML at config/locations.yaml
 ADDRESS_MAP = {
     # Richmond Hill Arenas / Pools
-    'Bond Lake Arena': 'Bond Lake Arena (70 Old Colony Rd, Richmond Hill, ON)',
-    'Ed Sackfield Arena': 'Ed Sackfield Arena (311 Valleymede Dr, Richmond Hill, ON)',
-    'Elgin Barrow Arena': 'Elgin Barrow Arena (43 Church St S, Richmond Hill, ON)',
-    'Tom Graham Arena': 'Tom Graham Arena (1300 Elgin Mills Rd E, Richmond Hill, ON)',
-    'Bayview Hill Pool': 'Bayview Hill Community Centre (114 Spadina Rd, Richmond Hill, ON)',
-    'Elgin West Pool': 'Elgin West Community Centre (11099 Bathurst St, Richmond Hill, ON)',
-    'Oak Ridges Pool': 'Oak Ridges Community Centre (12895 Bayview Ave, Richmond Hill, ON)',
-    'Richvale Pool': 'Richvale Community Centre (160 Avenue Rd, Richmond Hill, ON)',
-    'The Wave Pool': 'Wave Pool (5 Hopkins St, Richmond Hill, ON)',
+    "Bond Lake Arena": "Bond Lake Arena (70 Old Colony Rd, Richmond Hill, ON)",
+    "Ed Sackfield Arena": "Ed Sackfield Arena (311 Valleymede Dr, Richmond Hill, ON)",
+    "Elgin Barrow Arena": "Elgin Barrow Arena (43 Church St S, Richmond Hill, ON)",
+    "Tom Graham Arena": "Tom Graham Arena (1300 Elgin Mills Rd E, Richmond Hill, ON)",
+    "Bayview Hill Pool": "Bayview Hill Community Centre (114 Spadina Rd, Richmond Hill, ON)",
+    "Elgin West Pool": "Elgin West Community Centre (11099 Bathurst St, Richmond Hill, ON)",
+    "Oak Ridges Pool": "Oak Ridges Community Centre (12895 Bayview Ave, Richmond Hill, ON)",
+    "Richvale Pool": "Richvale Community Centre (160 Avenue Rd, Richmond Hill, ON)",
+    "The Wave Pool": "Wave Pool (5 Hopkins St, Richmond Hill, ON)",
     # Aurora Pools
-    'S.A.R.C.': 'Stronach Aurora Recreation Complex (1400 Wellington St E, Aurora, ON)',
-    'S.A.R.C. Pool': 'Stronach Aurora Recreation Complex (1400 Wellington St E, Aurora, ON)',
-    'A.F.L.C.': 'Aurora Family Leisure Complex (135 Industrial Pkwy N, Aurora, ON)',
-    'A.F.L.C. Pool': 'Aurora Family Leisure Complex (135 Industrial Pkwy N, Aurora, ON)',
+    "S.A.R.C.": "Stronach Aurora Recreation Complex (1400 Wellington St E, Aurora, ON)",
+    "S.A.R.C. Pool": "Stronach Aurora Recreation Complex (1400 Wellington St E, Aurora, ON)",
+    "A.F.L.C.": "Aurora Family Leisure Complex (135 Industrial Pkwy N, Aurora, ON)",
+    "A.F.L.C. Pool": "Aurora Family Leisure Complex (135 Industrial Pkwy N, Aurora, ON)",
 }
 
 _CACHED_MAP: dict[str, str] | None = None
@@ -36,10 +36,10 @@ _CACHED_MAP: dict[str, str] | None = None
 def _default_locations_yaml_paths() -> list[Path]:
     # Check CWD config first, then repo-root-relative to this package
     paths = []
-    paths.append(Path.cwd() / 'config' / 'locations.yaml')
+    paths.append(Path.cwd() / "config" / "locations.yaml")
     try:
         repo_root = Path(__file__).resolve().parents[1]
-        paths.append(repo_root / 'config' / 'locations.yaml')
+        paths.append(repo_root / "config" / "locations.yaml")
     except Exception:  # nosec B110 - fallback to other paths
         pass
     return paths
@@ -49,11 +49,14 @@ def _try_load_yaml_locations(p: Path) -> dict[str, str] | None:
     """Attempt to load a locations YAML file. Returns dict or None."""
     try:
         from core.yamlio import load_config  # lazy import
+
         data = load_config(str(p))
         if not isinstance(data, dict):
             return None
-        locs = data.get('locations') if 'locations' in data else data
-        if isinstance(locs, dict) and all(isinstance(k, (str, int)) and isinstance(v, str) for k, v in locs.items()):
+        locs = data.get("locations") if "locations" in data else data
+        if isinstance(locs, dict) and all(
+            isinstance(k, (str, int)) and isinstance(v, str) for k, v in locs.items()
+        ):
             return {str(k): str(v) for k, v in locs.items()}
     except Exception:  # nosec B110 - continue to fallback
         pass
@@ -84,7 +87,7 @@ def enrich_location(name: str) -> str:
 
     If the name is unknown, returns the original input unchanged.
     """
-    n = (name or '').strip()
+    n = (name or "").strip()
     if not n:
         return n
     mapping = get_locations_map()

@@ -179,9 +179,11 @@ class TestGatherPages(unittest.TestCase):
 
     def test_works_with_generator(self):
         """Works with generator input."""
+
         def gen():
             yield ["x", "y"]
             yield ["z"]
+
         result = gather_pages(gen())
         self.assertEqual(result, ["x", "y", "z"])
 

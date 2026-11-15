@@ -1,4 +1,5 @@
 """Tests for core/format_utils.py — canonical token-count formatter."""
+
 from __future__ import annotations
 
 import unittest

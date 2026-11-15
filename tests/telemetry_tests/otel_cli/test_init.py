@@ -17,7 +17,6 @@ from telemetry.otel.cli import (
     main,
 )
 
-
 # ---------------------------------------------------------------------------
 # _split_argv
 # ---------------------------------------------------------------------------
@@ -123,7 +122,9 @@ class TestMainDispatcher(unittest.TestCase):
         fake_module.main.return_value = 0
         with patch.dict("sys.modules", {"telemetry.otel.cli.query": fake_module}):
             with patch("telemetry.otel.cli._check_infrastructure", return_value=None):
-                with patch("telemetry.otel.cli._should_skip_infrastructure_check", return_value=False):
+                with patch(
+                    "telemetry.otel.cli._should_skip_infrastructure_check", return_value=False
+                ):
                     result = main(["metrics"])
         self.assertEqual(result, 0)
         fake_module.main.assert_called_once()
@@ -163,10 +164,23 @@ class TestMainDispatcher(unittest.TestCase):
 
     def test_all_subcommands_registered(self):
         expected = {
-            "health", "size", "inspect", "query", "stats", "cost",
-            "sessions", "prune", "clear", "events-search", "compare",
-            "tools", "prompts", "anomalies", "clusters",
-            "otel-summary", "workflow-cost",
+            "health",
+            "size",
+            "inspect",
+            "query",
+            "stats",
+            "cost",
+            "sessions",
+            "prune",
+            "clear",
+            "events-search",
+            "compare",
+            "tools",
+            "prompts",
+            "anomalies",
+            "clusters",
+            "otel-summary",
+            "workflow-cost",
         }
         self.assertEqual(set(_SUBCOMMANDS.keys()), expected)
 
@@ -196,7 +210,9 @@ class TestMainDispatcher(unittest.TestCase):
         fake_module.main.return_value = 0
         with patch.dict("sys.modules", {"telemetry.otel.cli.cost": fake_module}):
             with patch("telemetry.otel.cli._should_skip_infrastructure_check", return_value=False):
-                with patch("telemetry.otel.cli._check_infrastructure", side_effect=SystemExit(None)):
+                with patch(
+                    "telemetry.otel.cli._check_infrastructure", side_effect=SystemExit(None)
+                ):
                     result = main(["cost"])
         self.assertEqual(result, 1)
 
@@ -235,7 +251,9 @@ class TestMainArgvDefaulting(unittest.TestCase):
         fake_module.main.return_value = 0
         with patch("sys.argv", ["telemetry-otel", "size"]):
             with patch.dict("sys.modules", {"telemetry.otel.cli.size": fake_module}):
-                with patch("telemetry.otel.cli._should_skip_infrastructure_check", return_value=True):
+                with patch(
+                    "telemetry.otel.cli._should_skip_infrastructure_check", return_value=True
+                ):
                     result = main(None)
         self.assertEqual(result, 0)
         fake_module.main.assert_called_once_with([])
@@ -280,7 +298,11 @@ class TestMainSadPaths(unittest.TestCase):
     def test_import_error_on_registered_module_propagates(self):
         # A registry entry naming a module that cannot be imported is a real
         # defect; it must raise rather than be reported as a clean exit.
-        with patch.dict("telemetry.otel.cli._SUBCOMMANDS", {"cost": "telemetry.otel.cli.does_not_exist"}, clear=False):
+        with patch.dict(
+            "telemetry.otel.cli._SUBCOMMANDS",
+            {"cost": "telemetry.otel.cli.does_not_exist"},
+            clear=False,
+        ):
             with patch("telemetry.otel.cli._should_skip_infrastructure_check", return_value=True):
                 with self.assertRaises(ModuleNotFoundError):
                     main(["cost"])

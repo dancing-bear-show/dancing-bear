@@ -1,5 +1,6 @@
 """Tests for tui/_renderers.py — core rendering helpers (header, tips, tool event detail,
 event input detail, cls group)."""
+
 from __future__ import annotations
 
 import unittest
@@ -11,7 +12,6 @@ from telemetry.tui._renderers import (
     _render_tips_text,
     _tool_event_detail,
 )
-
 from tests.telemetry_tests.shared_fixtures import (
     _make_blame,
     _make_event,
@@ -19,10 +19,10 @@ from tests.telemetry_tests.shared_fixtures import (
     _make_tip,
 )
 
-
 # ---------------------------------------------------------------------------
 # _render_header_text
 # ---------------------------------------------------------------------------
+
 
 class TestRenderHeaderText(unittest.TestCase):
     def test_history_mode(self):
@@ -84,7 +84,9 @@ class TestRenderHeaderText(unittest.TestCase):
         self.assertIn("Path: -", result)
 
     def test_count_fields_present(self):
-        summary = _make_summary(productive_count=10, neutral_count=5, avoidable_count=2, review_count=1)
+        summary = _make_summary(
+            productive_count=10, neutral_count=5, avoidable_count=2, review_count=1
+        )
         result = _render_header_text(summary)
         self.assertIn("10", result)
         self.assertIn("5", result)
@@ -95,6 +97,7 @@ class TestRenderHeaderText(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _render_tips_text
 # ---------------------------------------------------------------------------
+
 
 class TestRenderTipsText(unittest.TestCase):
     def test_empty_list_returns_clean_message(self):
@@ -127,6 +130,7 @@ class TestRenderTipsText(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _tool_event_detail
 # ---------------------------------------------------------------------------
+
 
 class TestToolEventDetail(unittest.TestCase):
     def test_basic_fields_present(self):
@@ -211,6 +215,7 @@ class TestToolEventDetail(unittest.TestCase):
 # _event_input_detail
 # ---------------------------------------------------------------------------
 
+
 class TestEventInputDetail(unittest.TestCase):
     def test_bash_returns_command(self):
         evt = _make_event(tool_input={"command": "git status"})
@@ -284,6 +289,7 @@ class TestEventInputDetail(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _render_cls_group
 # ---------------------------------------------------------------------------
+
 
 class TestRenderClsGroup(unittest.TestCase):
     def test_with_waste_reason(self):

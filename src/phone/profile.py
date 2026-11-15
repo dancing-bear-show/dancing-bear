@@ -142,9 +142,7 @@ class HomeScreenConfigBuilder:
             pages_items.append(spec.as_items())
         return pages_items
 
-    def build_payload(
-        self, *, payload_identifier: str, display_name: str
-    ) -> dict[str, Any]:
+    def build_payload(self, *, payload_identifier: str, display_name: str) -> dict[str, Any]:
         pages_items = self._build_pages_items()
         return _build_hsl_payload(
             HslPayloadConfig(

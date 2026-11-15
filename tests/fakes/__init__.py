@@ -10,13 +10,13 @@ Modules:
 
 from __future__ import annotations
 
+from tests.fakes.docx import FakeDocument, FakeParagraph, FakeRun
 from tests.fakes.gmail import FakeGmailClient, make_gmail_client
 from tests.fakes.outlook import (
-    FakeOutlookClient,
     FakeCalendarService,
+    FakeOutlookClient,
     make_outlook_client,
 )
-from tests.fakes.docx import FakeDocument, FakeParagraph, FakeRun
 
 __all__ = [
     # Gmail

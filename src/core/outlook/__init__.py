@@ -13,25 +13,26 @@ Usage:
     calendars = client.list_calendars()
 """
 
+from core.constants import GRAPH_API_SCOPES, GRAPH_API_URL
+
 from .base import OutlookBaseProvider
-from .client import OutlookClientBase, _requests
-from core.constants import GRAPH_API_URL, GRAPH_API_SCOPES
 from .calendar import OutlookCalendarMixin
+from .client import OutlookClientBase, _requests
+from .mail import OutlookMailMixin
 from .models import (
     CalendarRef,
     DateRange,
-    ReminderSettings,
     EventCreationParams,
+    EventSettingsPatch,
+    ListCalendarViewRequest,
+    ListEventsRequest,
     RecurrencePattern,
     RecurrenceRange,
     RecurringEventCreationParams,
-    EventSettingsPatch,
-    ListEventsRequest,
-    UpdateEventReminderRequest,
-    ListCalendarViewRequest,
+    ReminderSettings,
     SearchParams,
+    UpdateEventReminderRequest,
 )
-from .mail import OutlookMailMixin
 
 
 class OutlookClient(OutlookClientBase, OutlookCalendarMixin, OutlookMailMixin):
@@ -44,7 +45,6 @@ class OutlookClient(OutlookClientBase, OutlookCalendarMixin, OutlookMailMixin):
     - Filters -> Inbox rules (messageRules on Inbox)
     - Forwarding -> Rule action forwardTo
     """
-    pass
 
 
 __all__ = [

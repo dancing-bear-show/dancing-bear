@@ -19,8 +19,14 @@ from collections.abc import Iterator
 SRC = "src"
 SKIP_PARTS = {"maker", "__pycache__", "personal_assistants.egg-info"}
 SKIP_WALK_DIRS = {
-    ".git", ".venv", ".claude", "__pycache__", ".facade-work",
-    "personal_assistants.egg-info", "node_modules", ".cache",
+    ".git",
+    ".venv",
+    ".claude",
+    "__pycache__",
+    ".facade-work",
+    "personal_assistants.egg-info",
+    "node_modules",
+    ".cache",
 }
 INCLUDE_INIT = os.environ.get("INCLUDE_INIT", "false").lower() == "true"
 DOMAINS = os.environ.get("DOMAINS", "*")
@@ -148,11 +154,7 @@ def _scan_file_lines(p: str, regex: re.Pattern[str]) -> list[str]:
     except (OSError, UnicodeDecodeError):
         return []  # nosec B112 - skip unreadable/binary files silently
 
-    return [
-        f"{p}:{lineno}"
-        for lineno, line in enumerate(lines, start=1)
-        if regex.search(line)
-    ]
+    return [f"{p}:{lineno}" for lineno, line in enumerate(lines, start=1) if regex.search(line)]
 
 
 def scan_lines(pattern: str, roots: list[str]) -> list[str]:
@@ -222,12 +224,16 @@ for path in iter_py():
         if DOMAINS != "*" and domain not in {d.strip() for d in DOMAINS.split(",")}:
             continue
         facades[mod] = {
-            "module": mod, "path": path, "domain": domain,
-            "names_reexported": len(names), "_names": names,
+            "module": mod,
+            "path": path,
+            "domain": domain,
+            "names_reexported": len(names),
+            "_names": names,
         }
 
 
 # ---- Step 3-4: callers and patch targets -----------------------------------
+
 
 def _file_pkg(p: str) -> str:
     """Return the dotted package path of a source file, or "" if not under SRC."""
@@ -244,9 +250,7 @@ def _record_import_node(n: ast.Import, p: str, found: defaultdict) -> None:
             found[a.name].add(p)
 
 
-def _record_import_from_node(
-    n: ast.ImportFrom, p: str, pkg: str, found: defaultdict
-) -> None:
+def _record_import_from_node(n: ast.ImportFrom, p: str, pkg: str, found: defaultdict) -> None:
     """Record ``from x import y`` nodes that reference a facade module.
 
     A string grep for `from <dotted.module> import` is relative-import-blind:
@@ -349,6 +353,7 @@ for mod, f in facades.items():
 
 # ---- Step 6: symbol -> terminal real module --------------------------------
 
+
 def _module_file(mod: str) -> str | None:
     parts = mod.split(".")
     p = os.path.join(SRC, *parts) + ".py"
@@ -383,18 +388,11 @@ def _node_defines_sym(n: ast.stmt, sym: str) -> bool:
         return n.name == sym
 
     if isinstance(n, ast.Assign):
-        return any(
-            isinstance(t, ast.Name) and t.id == sym
-            for t in n.targets
-        )
+        return any(isinstance(t, ast.Name) and t.id == sym for t in n.targets)
 
     if isinstance(n, ast.AnnAssign):
         # e.g. ALL_VENDORS: List[VendorParser] = [...]
-        return (
-            isinstance(n.target, ast.Name)
-            and n.target.id == sym
-            and n.value is not None
-        )
+        return isinstance(n.target, ast.Name) and n.target.id == sym and n.value is not None
 
     return False
 
@@ -448,16 +446,12 @@ def _build_alias_to_mod(body: list[ast.stmt]) -> dict[str, str]:
     return alias_to_mod
 
 
-def _resolve_import_from(
-    node: ast.ImportFrom, sym: str, pkg: str, hops: int
-) -> str | None:
+def _resolve_import_from(node: ast.ImportFrom, sym: str, pkg: str, hops: int) -> str | None:
     """Resolve Form 1: ``from <mod> import <sym>``.
 
     Returns the module that defines sym, or None if not found via this node.
     """
-    target = next(
-        (a.name for a in node.names if (a.asname or a.name) == sym), None
-    )
+    target = next((a.name for a in node.names if (a.asname or a.name) == sym), None)
     if target is None:
         return None
 
@@ -543,11 +537,10 @@ for mod, f in facades.items():
     f["symbols_unresolved"] = len(unresolved)
 
 out = {
-    "scanned_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "scanned_at": datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
     "include_init": INCLUDE_INIT,
     "total_facades": len(facades),
-    "facades": sorted(facades.values(),
-                      key=lambda f: (f["domain"], f["chain_depth"], f["module"])),
+    "facades": sorted(facades.values(), key=lambda f: (f["domain"], f["chain_depth"], f["module"])),
 }
 json.dump(out, sys.stdout, indent=1)
 print()

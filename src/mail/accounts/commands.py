@@ -1,60 +1,59 @@
 """Accounts command orchestration helpers for multi-account operations."""
+
 from __future__ import annotations
 
 from .pipeline_list import (
-    AccountsListRequest,
-    AccountsListRequestConsumer,
     AccountsListProcessor,
     AccountsListProducer,
+    AccountsListRequest,
+    AccountsListRequestConsumer,
 )
 from .pipeline_list_export import (
-    AccountsExportLabelsRequest,
-    AccountsExportLabelsRequestConsumer,
-    AccountsExportLabelsProcessor,
-    AccountsExportLabelsProducer,
-    AccountsExportFiltersRequest,
-    AccountsExportFiltersRequestConsumer,
     AccountsExportFiltersProcessor,
     AccountsExportFiltersProducer,
-)
-from .pipeline_list_sync import (
-    AccountsSyncLabelsRequest,
-    AccountsSyncLabelsRequestConsumer,
-    AccountsSyncLabelsProcessor,
-    AccountsSyncLabelsProducer,
-    AccountsSyncFiltersRequest,
-    AccountsSyncFiltersRequestConsumer,
-    AccountsSyncFiltersProcessor,
-    AccountsSyncFiltersProducer,
+    AccountsExportFiltersRequest,
+    AccountsExportFiltersRequestConsumer,
+    AccountsExportLabelsProcessor,
+    AccountsExportLabelsProducer,
+    AccountsExportLabelsRequest,
+    AccountsExportLabelsRequestConsumer,
 )
 from .pipeline_list_plan import (
-    AccountsPlanLabelsRequest,
-    AccountsPlanLabelsRequestConsumer,
-    AccountsPlanLabelsProcessor,
-    AccountsPlanLabelsProducer,
-    AccountsPlanFiltersRequest,
-    AccountsPlanFiltersRequestConsumer,
     AccountsPlanFiltersProcessor,
     AccountsPlanFiltersProducer,
+    AccountsPlanFiltersRequest,
+    AccountsPlanFiltersRequestConsumer,
+    AccountsPlanLabelsProcessor,
+    AccountsPlanLabelsProducer,
+    AccountsPlanLabelsRequest,
+    AccountsPlanLabelsRequestConsumer,
 )
 from .pipeline_list_signatures import (
-    AccountsExportSignaturesRequest,
-    AccountsExportSignaturesRequestConsumer,
     AccountsExportSignaturesProcessor,
     AccountsExportSignaturesProducer,
-    AccountsSyncSignaturesRequest,
-    AccountsSyncSignaturesRequestConsumer,
+    AccountsExportSignaturesRequest,
+    AccountsExportSignaturesRequestConsumer,
     AccountsSyncSignaturesProcessor,
     AccountsSyncSignaturesProducer,
+    AccountsSyncSignaturesRequest,
+    AccountsSyncSignaturesRequestConsumer,
+)
+from .pipeline_list_sync import (
+    AccountsSyncFiltersProcessor,
+    AccountsSyncFiltersProducer,
+    AccountsSyncFiltersRequest,
+    AccountsSyncFiltersRequestConsumer,
+    AccountsSyncLabelsProcessor,
+    AccountsSyncLabelsProducer,
+    AccountsSyncLabelsRequest,
+    AccountsSyncLabelsRequestConsumer,
 )
 
 
 def run_accounts_list(args) -> int:
     """List all configured accounts."""
     request = AccountsListRequest(config_path=args.config)
-    envelope = AccountsListProcessor().process(
-        AccountsListRequestConsumer(request).consume()
-    )
+    envelope = AccountsListProcessor().process(AccountsListRequestConsumer(request).consume())
     AccountsListProducer().produce(envelope)
     return 0 if envelope.ok() else 1
 

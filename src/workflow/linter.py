@@ -42,11 +42,11 @@ from .placeholders import find_refs, in_backtick_span
 
 __all__ = [
     "LintError",
-    "LintWarning",
     "LintResult",
-    "lint_workflow",
+    "LintWarning",
     "_check_fan_out_worker_queue",
     "_check_inline_executor",
+    "lint_workflow",
 ]
 
 _CLI_CMD_RE = re.compile(r"\./bin/([a-z-]+)\s+([a-z-]+)")
@@ -115,9 +115,7 @@ def lint_workflow(path: str | Path, *, check_commands: bool = False) -> LintResu
     try:
         defn = parse_workflow_str(text, source=str(p))
     except WorkflowParseError as exc:
-        result.errors.append(
-            LintError(stage=_GLOBAL_STAGE, field="<parse>", message=str(exc))
-        )
+        result.errors.append(LintError(stage=_GLOBAL_STAGE, field="<parse>", message=str(exc)))
         result.valid = False
         return result
 
@@ -166,9 +164,7 @@ def _lint_included_fragments(text: str, workflow_path: Path, result: LintResult)
     _lint_fragments_from(text, workflow_path, result, seen)
 
 
-def _lint_fragments_from(
-    text: str, source_path: Path, result: LintResult, seen: set[str]
-) -> None:
+def _lint_fragments_from(text: str, source_path: Path, result: LintResult, seen: set[str]) -> None:
     for inc in extract_include_entries(text):
         if not isinstance(inc, dict) or "path" not in inc:
             continue
@@ -227,9 +223,7 @@ def _lint_fragment(p: Path, text: str, result: LintResult) -> LintResult:
     try:
         stages = _parse_fragment_str(text, source=str(p))
     except WorkflowParseError as exc:
-        result.errors.append(
-            LintError(stage=_GLOBAL_STAGE, field="<parse>", message=str(exc))
-        )
+        result.errors.append(LintError(stage=_GLOBAL_STAGE, field="<parse>", message=str(exc)))
         result.valid = False
         return result
 
@@ -291,20 +285,15 @@ def _own_stage_names(top: object) -> frozenset[str]:
 def _fragment_stage_names(defn: object) -> frozenset[str]:
     """Return the names of stages that were injected from included fragments."""
     from workflow.models import WorkflowDefinition
+
     if not isinstance(defn, WorkflowDefinition) or not defn.includes:
         return frozenset()
 
-    prefixes = tuple(
-        inc.prefix + "-" for inc in defn.includes if inc.prefix
-    )
+    prefixes = tuple(inc.prefix + "-" for inc in defn.includes if inc.prefix)
     if not prefixes:
         return frozenset()
 
-    return frozenset(
-        stage.name
-        for stage in defn.stages
-        if stage.name.startswith(prefixes)
-    )
+    return frozenset(stage.name for stage in defn.stages if stage.name.startswith(prefixes))
 
 
 def _build_known_vars(defn: WorkflowDefinition) -> tuple[frozenset[str], frozenset[str]]:
@@ -321,12 +310,15 @@ def _build_known_vars(defn: WorkflowDefinition) -> tuple[frozenset[str], frozens
             caller_vars |= _extract_var_refs(stage.description)
 
     exclusive_fragment_vars = fragment_vars - caller_vars
-    return fragment_names, frozenset(declared_params | _RUNTIME_BUILTIN_VARS | exclusive_fragment_vars)
+    return fragment_names, frozenset(
+        declared_params | _RUNTIME_BUILTIN_VARS | exclusive_fragment_vars
+    )
 
 
 def _stage_undeclared_refs(stage: object, known: frozenset[str]) -> list[str]:
     """Return var refs in *stage* that are not covered by *known*."""
     from workflow.models import StageSpec
+
     if not isinstance(stage, StageSpec):
         return []
     fan_out_key = stage.fan_out.key if stage.fan_out is not None else None
@@ -337,6 +329,7 @@ def _stage_undeclared_refs(stage: object, known: frozenset[str]) -> list[str]:
 def _check_var_refs(defn: object, result: LintResult) -> None:
     """Append warnings for undeclared {var} references in stage descriptions."""
     from workflow.models import WorkflowDefinition
+
     if not isinstance(defn, WorkflowDefinition):
         return
 
@@ -357,6 +350,7 @@ def _check_var_refs(defn: object, result: LintResult) -> None:
 def _check_fan_out_worker_queue(defn: object, result: LintResult) -> None:
     """Emit an error for every fan_out with mode=worker_queue that has no script."""
     from workflow.models import FanOutMode, WorkflowDefinition
+
     if not isinstance(defn, WorkflowDefinition):
         return
     for stage in defn.stages:
@@ -369,7 +363,9 @@ def _check_fan_out_worker_queue(defn: object, result: LintResult) -> None:
                     field="fan_out.script",
                     message=(
                         "fan_out.mode='worker_queue' requires a non-empty 'script' field — "
-                        "provide a shell command template with {" + stage.fan_out.key + "} substituted per item"
+                        "provide a shell command template with {"
+                        + stage.fan_out.key
+                        + "} substituted per item"
                     ),
                 )
             )
@@ -419,7 +415,7 @@ def _check_refused_output_names(
         )
 
 
-def _compute_dag_depth(stages: "tuple[StageSpec, ...]") -> int:
+def _compute_dag_depth(stages: tuple[StageSpec, ...]) -> int:
     """Compute the longest dependency chain depth (number of BFS levels).
 
     Never raises: stages on a cycle or behind an unknown dependency are left
@@ -440,6 +436,7 @@ def _extract_var_refs(text: str) -> set[str]:
 def _check_cli_commands(defn: object, result: LintResult) -> None:
     """Append warnings for ./bin/<cli> <subcommand> patterns that cannot be validated."""
     from workflow.models import WorkflowDefinition
+
     if not isinstance(defn, WorkflowDefinition):
         return
 
@@ -514,7 +511,7 @@ def _description_has_escape_brace(description: str) -> bool:
     return False
 
 
-def _check_escape_style_braces(stages: "tuple[object, ...]", result: LintResult) -> None:
+def _check_escape_style_braces(stages: tuple[object, ...], result: LintResult) -> None:
     """Warn when a stage description contains ``{{`` that looks like an escape attempt.
 
     The workflow engine does not unescape doubled braces — ``{{`` renders

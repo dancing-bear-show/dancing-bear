@@ -114,7 +114,10 @@ class TestRunOutlookAuthEnsure(TempDirMixin, unittest.TestCase):
         args = make_args(client_id=None, tenant="consumers", token="token.json")  # nosec B106 - test fixture path
 
         with patch.dict("sys.modules", {"msal": msal}, clear=False):
-            with patch("mail.outlook.auth_commands.resolve_outlook_credentials", return_value=(None, "consumers", "token.json")):
+            with patch(
+                "mail.outlook.auth_commands.resolve_outlook_credentials",
+                return_value=(None, "consumers", "token.json"),
+            ):
                 from mail.outlook.auth_commands import run_outlook_auth_ensure
 
                 buf = io.StringIO()
@@ -157,6 +160,7 @@ class TestRunOutlookAuthEnsure(TempDirMixin, unittest.TestCase):
             buf_out = io.StringIO()
             with redirect_stdout(buf_out):
                 from contextlib import redirect_stderr
+
                 with redirect_stderr(io.StringIO()):
                     rc = run_outlook_auth_ensure(args)
 
@@ -301,7 +305,10 @@ class TestRunOutlookAuthValidate(TempDirMixin, unittest.TestCase):
         args = make_args(client_id=None, tenant="consumers", token="token.json")  # nosec B106 - test fixture path
 
         with patch.dict("sys.modules", {"msal": msal, "requests": requests}, clear=False):
-            with patch("mail.outlook.auth_commands.resolve_outlook_credentials", return_value=(None, "consumers", "token.json")):
+            with patch(
+                "mail.outlook.auth_commands.resolve_outlook_credentials",
+                return_value=(None, "consumers", "token.json"),
+            ):
                 from mail.outlook.auth_commands import run_outlook_auth_validate
 
                 buf = io.StringIO()

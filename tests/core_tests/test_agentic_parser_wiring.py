@@ -22,6 +22,7 @@ These assert on the OBSERVABLE consequence (a parser resolves, subcommands are
 discoverable) rather than on how each domain reaches its parser, so a domain is
 free to restructure as long as its capsule still describes a real CLI.
 """
+
 from __future__ import annotations
 
 import ast
@@ -402,9 +403,8 @@ class CapsuleCommandsAreShellSafeTests(unittest.TestCase):
     def test_resume_seed_example_round_trips_to_real_criteria(self):
         # End-to-end on the line that prompted this: shell-split it the way a
         # paste would, then feed the result to the real parser.
-        from resume.templating import parse_seed_criteria
-
         import resume.agentic as mod
+        from resume.templating import parse_seed_criteria
 
         lines = [ln for ln in self._command_lines(mod.build_agentic_capsule()) if "--seed" in ln]
         self.assertTrue(lines, "capsule advertises no --seed example to check")

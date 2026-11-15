@@ -38,9 +38,7 @@ def main(argv: list[str] | None = None) -> int:
     if err is not None:
         return err
 
-    results = cluster_sessions(
-        data_dir=data_dir, since=since, n_clusters=args.clusters
-    )
+    results = cluster_sessions(data_dir=data_dir, since=since, n_clusters=args.clusters)
 
     headers = ["cluster", "session_id", "cost", "tokens"]
     rows: list[dict[str, object]] = [
@@ -60,4 +58,6 @@ def main(argv: list[str] | None = None) -> int:
         }
         for r in results
     ]
-    return emit_rows(rows, args.format, headers=headers, empty_msg="No session data for clustering.")
+    return emit_rows(
+        rows, args.format, headers=headers, empty_msg="No session data for clustering."
+    )

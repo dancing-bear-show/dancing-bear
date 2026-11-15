@@ -9,7 +9,6 @@ without requiring network access or credentials.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
 
 
 @dataclass
@@ -26,48 +25,51 @@ class FakeGmailClient:
         )
     """
 
-    labels: List[Dict[str, str]] = field(default_factory=list)
-    filters: List[Dict] = field(default_factory=list)
-    messages: Dict[str, Dict] = field(default_factory=dict)
-    message_ids_by_query: Dict[str, List[str]] = field(default_factory=dict)
-    threads: Dict[str, Dict] = field(default_factory=dict)
+    labels: list[dict[str, str]] = field(default_factory=list)
+    filters: list[dict] = field(default_factory=list)
+    messages: dict[str, dict] = field(default_factory=dict)
+    message_ids_by_query: dict[str, list[str]] = field(default_factory=dict)
+    threads: dict[str, dict] = field(default_factory=dict)
     verified_forward_addresses: set = field(default_factory=set)
 
     # Track mutations
-    created_filters: List[Dict] = field(default_factory=list)
-    deleted_filter_ids: List[str] = field(default_factory=list)
-    modified_batches: List[tuple] = field(default_factory=list)
-    sent_messages: List[bytes] = field(default_factory=list)
-    created_drafts: List[bytes] = field(default_factory=list)
+    created_filters: list[dict] = field(default_factory=list)
+    deleted_filter_ids: list[str] = field(default_factory=list)
+    modified_batches: list[tuple] = field(default_factory=list)
+    sent_messages: list[bytes] = field(default_factory=list)
+    created_drafts: list[bytes] = field(default_factory=list)
 
     def authenticate(self) -> None:
         """No-op for fake client - authentication not needed in tests."""
 
-    def list_labels(self) -> List[Dict[str, str]]:
+    def list_labels(self) -> list[dict[str, str]]:
         return list(self.labels)
 
-    def get_label_id_map(self) -> Dict[str, str]:
+    def get_label_id_map(self) -> dict[str, str]:
         return {lab["name"]: lab["id"] for lab in self.labels}
 
-    def list_filters(self, use_cache: bool = False, ttl: int = 300) -> List[Dict]:  # NOSONAR - fake interface must match real signature
+    def list_filters(self, use_cache: bool = False, ttl: int = 300) -> list[dict]:  # NOSONAR - fake interface must match real signature  # fmt: skip
         return list(self.filters)
 
     def list_message_ids(
-        self, query: Optional[str] = None, label_ids: Optional[List[str]] = None, **kwargs  # NOSONAR - fake interface must match real signature
-    ) -> List[str]:
+        self,
+        query: str | None = None,
+        label_ids: list[str] | None = None,  # NOSONAR - fake interface must match real signature
+        **kwargs,  # NOSONAR - fake interface must match real signature
+    ) -> list[str]:
         q = (query or "").lower()
         for pattern, ids in self.message_ids_by_query.items():
             if pattern.lower() in q:
                 return ids
         return []
 
-    def get_messages_metadata(self, ids: List[str], use_cache: bool = True) -> List[Dict]:  # NOSONAR - fake interface must match real signature
+    def get_messages_metadata(self, ids: list[str], use_cache: bool = True) -> list[dict]:  # NOSONAR - fake interface must match real signature  # fmt: skip
         return [self.messages.get(mid, {"id": mid}) for mid in ids]
 
-    def get_message(self, msg_id: str, fmt: str = "full") -> Dict:  # NOSONAR - fake interface must match real signature
+    def get_message(self, msg_id: str, fmt: str = "full") -> dict:  # NOSONAR - fake interface must match real signature  # fmt: skip
         return self.messages.get(msg_id, {"id": msg_id, "payload": {"headers": []}})
 
-    def get_thread(self, thread_id: str, fmt: str = "metadata") -> Dict:  # NOSONAR - fake interface must match real signature
+    def get_thread(self, thread_id: str, fmt: str = "metadata") -> dict:  # NOSONAR - fake interface must match real signature  # fmt: skip
         """Return a registered thread, or raise so not-found paths are testable."""
         if thread_id not in self.threads:
             raise KeyError(f"FakeGmailClient: no thread '{thread_id}'")
@@ -91,10 +93,10 @@ class FakeGmailClient:
             )
         return attachments[attachment_id]
 
-    def get_profile(self) -> Dict[str, str]:
+    def get_profile(self) -> dict[str, str]:
         return {"emailAddress": "test@example.com"}
 
-    def create_filter(self, criteria: Dict, action: Dict) -> Dict:
+    def create_filter(self, criteria: dict, action: dict) -> dict:
         filt = {"id": f"NEW_{len(self.created_filters)}", "criteria": criteria, "action": action}
         self.created_filters.append(filt)
         return filt
@@ -104,11 +106,11 @@ class FakeGmailClient:
         self.filters = [f for f in self.filters if f.get("id") != filter_id]
 
     @property
-    def deleted_ids(self) -> List[str]:
+    def deleted_ids(self) -> list[str]:
         """Alias for deleted_filter_ids for backward compatibility."""
         return self.deleted_filter_ids
 
-    def ensure_label(self, name: str, **kwargs) -> str:  # NOSONAR - fake interface must match real signature
+    def ensure_label(self, name: str, **kwargs) -> str:  # NOSONAR - fake interface must match real signature  # fmt: skip
         mapping = self.get_label_id_map()
         if name in mapping:
             return mapping[name]
@@ -116,12 +118,12 @@ class FakeGmailClient:
         self.labels.append({"id": new_id, "name": name, "type": "user"})
         return new_id
 
-    def create_label(self, **body) -> Dict:
+    def create_label(self, **body) -> dict:
         label = {"id": f"LBL_{len(self.labels)}", "type": "user", **body}
         self.labels.append(label)
         return label
 
-    def update_label(self, label_id: str, body: Dict) -> Dict:
+    def update_label(self, label_id: str, body: dict) -> dict:
         for lab in self.labels:
             if lab["id"] == label_id:
                 lab.update(body)
@@ -133,32 +135,36 @@ class FakeGmailClient:
 
     def batch_modify_messages(
         self,
-        ids: List[str],
-        add_label_ids: Optional[List[str]] = None,
-        remove_label_ids: Optional[List[str]] = None,
+        ids: list[str],
+        add_label_ids: list[str] | None = None,
+        remove_label_ids: list[str] | None = None,
     ) -> None:
-        self.modified_batches.append((list(ids), list(add_label_ids or []), list(remove_label_ids or [])))
+        self.modified_batches.append(
+            (list(ids), list(add_label_ids or []), list(remove_label_ids or []))
+        )
 
-    def send_message_raw(self, raw_bytes: bytes, thread_id: Optional[str] = None) -> Dict:  # NOSONAR - fake interface must match real signature
+    def send_message_raw(self, raw_bytes: bytes, thread_id: str | None = None) -> dict:  # NOSONAR - fake interface must match real signature  # fmt: skip
         self.sent_messages.append(raw_bytes)
         return {"id": f"SENT_{len(self.sent_messages)}"}
 
-    def create_draft_raw(self, raw_bytes: bytes, thread_id: Optional[str] = None) -> Dict:  # NOSONAR - fake interface must match real signature
+    def create_draft_raw(self, raw_bytes: bytes, thread_id: str | None = None) -> dict:  # NOSONAR - fake interface must match real signature  # fmt: skip
         self.created_drafts.append(raw_bytes)
         return {"id": f"DRAFT_{len(self.created_drafts)}"}
 
-    def list_forwarding_addresses(self) -> List[Dict]:
-        return [{"forwardingEmail": addr, "verificationStatus": "accepted"}
-                for addr in self.verified_forward_addresses]
+    def list_forwarding_addresses(self) -> list[dict]:
+        return [
+            {"forwardingEmail": addr, "verificationStatus": "accepted"}
+            for addr in self.verified_forward_addresses
+        ]
 
     def get_verified_forwarding_addresses(self) -> set:
         return set(self.verified_forward_addresses)
 
 
 def make_gmail_client(
-    labels: Optional[List[Dict]] = None,
-    filters: Optional[List[Dict]] = None,
-    message_ids_by_query: Optional[Dict[str, List[str]]] = None,
+    labels: list[dict] | None = None,
+    filters: list[dict] | None = None,
+    message_ids_by_query: dict[str, list[str]] | None = None,
 ) -> FakeGmailClient:
     """Factory for creating a pre-configured FakeGmailClient."""
     return FakeGmailClient(

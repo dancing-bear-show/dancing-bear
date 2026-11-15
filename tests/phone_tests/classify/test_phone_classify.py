@@ -8,7 +8,16 @@ from phone.constants import FOLDERS
 
 class ClassifyAppTests(TestCase):
     def test_folders_list(self):
-        expected = ["Work", "Media", "Social", "Finance", "Travel", "Health", "Shopping", "Utilities"]
+        expected = [
+            "Work",
+            "Media",
+            "Social",
+            "Finance",
+            "Travel",
+            "Health",
+            "Shopping",
+            "Utilities",
+        ]
         self.assertEqual(FOLDERS, expected)
 
     def test_apple_apps_explicit_mapping(self):

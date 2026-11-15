@@ -9,7 +9,13 @@ from datetime import datetime
 from unittest.mock import patch
 
 from telemetry.otel.cli.cost import main
-from telemetry.otel.cost_models import CostMetrics, DailyCost, ModelCost, ModelPerformance, SessionCost
+from telemetry.otel.cost_models import (
+    CostMetrics,
+    DailyCost,
+    ModelCost,
+    ModelPerformance,
+    SessionCost,
+)
 
 
 def _make_session_cost(
@@ -242,6 +248,7 @@ class TestCostValidation(unittest.TestCase):
 
     def test_data_dir_flag_used(self):
         import tempfile
+
         metrics = _make_cost_metrics()
         with tempfile.TemporaryDirectory() as td:
             with patch("telemetry.otel.cli.cost.get_all_costs", return_value=metrics):

@@ -1,10 +1,11 @@
 """Shared test fixtures for telemetry test suite splits."""
+
 from __future__ import annotations
 
 import io
 import json
 import tempfile
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from rich.console import Console
@@ -24,7 +25,7 @@ from telemetry.models import (
 # classify shared helpers
 # ---------------------------------------------------------------------------
 
-_BASE_TS = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+_BASE_TS = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
 _seq = [0]
 
 
@@ -281,6 +282,7 @@ class TempProjectsDirMixin:
 
     def setUp(self) -> None:  # NOSONAR - required unittest lifecycle method name
         from telemetry.providers.transcript import TranscriptProvider
+
         self._td = tempfile.TemporaryDirectory()
         self.addCleanup(self._td.cleanup)  # type: ignore[attr-defined]
         self.projects_dir = Path(self._td.name)
@@ -299,7 +301,7 @@ class TempProjectsDirMixin:
 
 def _now() -> datetime:
     """Return a stable UTC datetime for the current test run."""
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _make_summary_base(
@@ -317,7 +319,11 @@ def _make_summary_base(
 ) -> dict:
     """Return a kwargs dict for SessionSummary construction (identity/timing/cost fields)."""
     start = _now() - timedelta(seconds=end_time_offset_secs or 3600)
-    end = (start + timedelta(seconds=end_time_offset_secs)) if end_time_offset_secs is not None else None
+    end = (
+        (start + timedelta(seconds=end_time_offset_secs))
+        if end_time_offset_secs is not None
+        else None
+    )
     return {
         "session_id": session_id,
         "project_path": project_path,
@@ -347,15 +353,17 @@ def _make_summary(
 ) -> SessionSummary:
     """Build a SessionSummary with sensible defaults for renderer tests."""
     kwargs = _make_summary_base(**base_kwargs)  # type: ignore[arg-type]
-    kwargs.update({
-        "productive_count": productive_count,
-        "neutral_count": neutral_count,
-        "avoidable_count": avoidable_count,
-        "review_count": review_count,
-        "tool_stats": tool_stats or {},
-        "agents": agents or [],
-        "tips": tips or [],
-    })
+    kwargs.update(
+        {
+            "productive_count": productive_count,
+            "neutral_count": neutral_count,
+            "avoidable_count": avoidable_count,
+            "review_count": review_count,
+            "tool_stats": tool_stats or {},
+            "agents": agents or [],
+            "tips": tips or [],
+        }
+    )
     return SessionSummary(**kwargs)
 
 
