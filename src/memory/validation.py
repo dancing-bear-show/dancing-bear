@@ -9,13 +9,13 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
 import subprocess
 from collections.abc import Callable
 from functools import partial
 from dataclasses import dataclass
 from pathlib import Path
 
+from core.fileutil import atomic_write_text
 from core.text_utils import slugify
 from memory.index import append_entry, merge_duplicate_sections, remove_entry
 from memory.models import MemoryStore, MemoryType, SchemaShape
@@ -232,8 +232,9 @@ def _check_contradiction_topic_overlap(
         for anchor in anchors:
             for path, text in claude_texts.items():
                 if anchor in text:
+                    mem_idx = memory.body.find(anchor)
                     excerpt_memory = memory.body[
-                        : memory.body.find(anchor) + len(anchor) + 40
+                        max(0, mem_idx - 40) : mem_idx + len(anchor) + 40
                     ]
                     idx = text.find(anchor)
                     excerpt_claude = text[max(0, idx - 40) : idx + len(anchor) + 40]
@@ -266,17 +267,59 @@ def _check_schema_no_frontmatter(
     )
 
 
+_UNPARSEABLE_ERRORS = (TypeError, ValueError, OSError)  # ValueError covers UnicodeDecodeError
+
+
 def _shape_of_path(path_str: str) -> SchemaShape | None:
     # non_memory_files stores raw paths; re-derive shape cheaply by reading
     # the file's own leading bytes rather than re-parsing the whole memory.
+    # None for a missing file or one whose frontmatter cannot be parsed
+    # (non-mapping YAML, non-UTF-8); schema-unparseable reports those.
     from memory.parser import parse_frontmatter
 
     path = Path(path_str)
     if not path.is_file():
         return None
-    with open(path, encoding="utf-8") as f:
-        head = f.read(4096)
-    return parse_frontmatter(head if head.startswith("---") else "").shape
+    try:
+        with open(path, encoding="utf-8") as f:
+            head = f.read(4096)
+        return parse_frontmatter(head if head.startswith("---") else "").shape
+    except _UNPARSEABLE_ERRORS:
+        return None
+
+
+def _check_schema_unparseable(
+    store: MemoryStore, ctx: _CheckContext
+) -> tuple[CheckResult, ...]:
+    from memory.parser import parse_frontmatter
+
+    results = []
+    for name in store.non_memory_files:
+        path = Path(name)
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+            parse_frontmatter(text if text.startswith("---") else "")
+        except _UNPARSEABLE_ERRORS:
+            results.append(
+                CheckResult(
+                    check_id="schema-unparseable",
+                    severity="warn",
+                    target=path.name,
+                    message=f"'{path.name}' frontmatter is not a mapping or the file is not UTF-8",
+                    fixable=False,
+                )
+            )
+    return tuple(results)
+
+
+def _is_unterminated_file(path_str: str) -> bool:
+    try:
+        text = Path(path_str).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return False
+    return _has_unterminated_frontmatter(text)
 
 
 def _check_schema_missing_type(
@@ -288,7 +331,7 @@ def _check_schema_missing_type(
             severity="warn",
             target=m.slug,
             message=f"'{m.slug}.md' has frontmatter but no type in either dialect",
-            fixable=True,
+            fixable=not _is_unterminated_file(m.path),
         )
         for m in store.memories
         if m.frontmatter.shape != SchemaShape.NO_FRONTMATTER
@@ -442,15 +485,21 @@ def _git_toplevel() -> Path | None:
     return Path(out) if out else None
 
 
-def _resolve_repo_root(repo: Path | None, marker: str) -> Path | None:
+def _resolve_repo_root(
+    repo: Path | None, marker: str, *, allow_toplevel_fallback: bool = True
+) -> Path | None:
     """Repo root containing ``marker``: ``repo`` itself, else the git toplevel.
 
     ``repo`` for worktree slugs decodes to a non-existent garbled path (e.g.
     /Users/name/code/repo--claude-worktrees-<name>), so fall back to the git
     toplevel rather than Path.cwd(), which only works from the repo root.
+    Callers that execute something under the root pass
+    ``allow_toplevel_fallback=False`` so the cwd's checkout is never trusted.
     """
     if repo is not None and (repo / marker).exists():
         return repo
+    if not allow_toplevel_fallback:
+        return None
     top = _git_toplevel()
     if top is not None and (top / marker).exists():
         return top
@@ -521,13 +570,15 @@ def _check_stale_superseded_pr(
 ) -> tuple[CheckResult, ...]:
     """Scan project memories for PR references and flag closed/merged PRs.
 
-    Skips silently if bin/github cannot be found under the repo root (or git
-    toplevel), or the call fails or returns a non-object — network may be
+    Skips silently if bin/github cannot be found under the explicit/inferred
+    repo (the cwd's git toplevel is never used: the script is executed), or the call fails or returns a non-object — network may be
     unavailable in offline contexts. Only runs on PROJECT memories.
     """
     caller = github_caller
     if caller is None:
-        root = _resolve_repo_root(ctx.repo, "bin/github")
+        root = _resolve_repo_root(
+            ctx.repo, "bin/github", allow_toplevel_fallback=False
+        )
         if root is None:
             return ()
         caller = partial(_default_github_caller, root / "bin" / "github")
@@ -561,6 +612,7 @@ CHECK_REGISTRY: dict[str, Check] = {
     "index-hook-drift": _check_index_hook_drift,
     "contradiction-topic-overlap": _check_contradiction_topic_overlap,
     "schema-no-frontmatter": _check_schema_no_frontmatter,
+    "schema-unparseable": _check_schema_unparseable,
     "schema-missing-type": _check_schema_missing_type,
     "schema-ambiguous": _check_schema_ambiguous,
     "schema-flat-dialect": _check_schema_flat_dialect,
@@ -628,7 +680,7 @@ def _apply_fix_schema_missing_type(
 ) -> None:
     by_slug = {m.slug: m for m in store.memories}
     for finding in findings:
-        if finding.check_id != "schema-missing-type":
+        if finding.check_id != "schema-missing-type" or not finding.fixable:
             continue
         memory = by_slug.get(finding.target)
         if memory is None:
@@ -637,8 +689,21 @@ def _apply_fix_schema_missing_type(
         inferred = _TYPE_PREFIX_TO_MEMORY_TYPE.get(prefix)
         if inferred is None:
             continue
-        _write_backup(Path(memory.path))
         _rewrite_frontmatter_type(Path(memory.path), inferred)
+
+
+def _free_archive_path(archive_dir: Path, name: str) -> Path:
+    """``archive_dir/name``, or ``<stem>.<n><suffix>`` when that already exists."""
+    candidate = archive_dir / name
+    if not (candidate.exists() or candidate.is_symlink()):
+        return candidate
+    stem, suffix = Path(name).stem, Path(name).suffix
+    n = 1
+    while True:
+        candidate = archive_dir / f"{stem}.{n}{suffix}"
+        if not (candidate.exists() or candidate.is_symlink()):
+            return candidate
+        n += 1
 
 
 def _apply_fix_schema_no_frontmatter(
@@ -653,7 +718,11 @@ def _apply_fix_schema_no_frontmatter(
         archive_dir = src.parent / _ARCHIVE_DIRNAME
         archive_dir.mkdir(exist_ok=True)
         _write_backup(src)
-        shutil.move(str(src), str(archive_dir / src.name))
+        dest = _free_archive_path(archive_dir, src.name)
+        # Atomic write + unlink instead of shutil.move: never overwrites an
+        # existing archive entry and never leaves a half-written destination.
+        atomic_write_text(dest, src.read_text(encoding="utf-8"), refuse_symlink=True)
+        src.unlink()
 
 
 def _write_backup(path: Path) -> None:
@@ -661,34 +730,59 @@ def _write_backup(path: Path) -> None:
     # discovered and parsed by discover_stores() off local disk, not an
     # HTTP-sourced value; write targets the same file's own .bak sibling.
     backup_path = path.with_suffix(path.suffix + ".bak")
+    if backup_path.is_symlink():
+        # Replace the link itself; writing through it would clobber its target.
+        backup_path.unlink()
     backup_path.write_bytes(path.read_bytes())  # NOSONAR - see above
 
 
-def _rewrite_frontmatter_type(path: Path, memory_type: MemoryType) -> None:
+def _has_unterminated_frontmatter(text: str) -> bool:
+    if not text.startswith("---"):
+        return False
+    return not any(line.strip() == "---" for line in text.split("\n")[1:])
+
+
+def _metadata_child_indent(lines: list[str], metadata_idx: int, end_idx: int) -> str:
+    """Indent of the first child line under ``metadata:``; two spaces if none."""
+    for line in lines[metadata_idx + 1 : end_idx]:
+        stripped = line.lstrip()
+        if stripped and len(stripped) < len(line):
+            return line[: len(line) - len(stripped)]
+        if stripped:
+            break
+    return "  "
+
+
+def _rewrite_frontmatter_type(path: Path, memory_type: MemoryType) -> bool:
+    """Add ``type`` to a memory's frontmatter; True when the file was changed.
+
+    Leaves an unterminated frontmatter block untouched (returns False) rather
+    than prepending a second block. A ``.bak`` is written before any change.
+    """
     # NOSONAR - path is memory.path from a store already discovered and
     # parsed by discover_stores() off local disk, not an HTTP-sourced value.
     text = path.read_text(encoding="utf-8")
+    if _has_unterminated_frontmatter(text):
+        return False
     if text.startswith("---"):
         lines = text.split("\n")
-        closing_idx = next(
-            (i for i in range(1, len(lines)) if lines[i].strip() == "---"), None
+        closing_idx = next(i for i in range(1, len(lines)) if lines[i].strip() == "---")
+        # Detect nested dialect by presence of 'metadata:' line
+        metadata_idx = next(
+            (i for i in range(1, closing_idx) if lines[i].strip() == "metadata:"),
+            None,
         )
-        if closing_idx is not None:
-            # Detect nested dialect by presence of 'metadata:' line
-            metadata_idx = next(
-                (i for i in range(1, closing_idx) if lines[i].strip() == "metadata:"),
-                None,
-            )
-            if metadata_idx is not None:
-                # Insert under metadata: with proper indentation
-                lines.insert(metadata_idx + 1, f"  type: {memory_type.value}")
-            else:
-                lines.insert(closing_idx, f"type: {memory_type.value}")
-            new_text = "\n".join(lines)
-            path.write_text(new_text, encoding="utf-8")  # NOSONAR - see above
-            return
-    prepended = f"---\ntype: {memory_type.value}\n---\n\n{text}"
-    path.write_text(prepended, encoding="utf-8")  # NOSONAR - see above
+        if metadata_idx is not None:
+            indent = _metadata_child_indent(lines, metadata_idx, closing_idx)
+            lines.insert(metadata_idx + 1, f"{indent}type: {memory_type.value}")
+        else:
+            lines.insert(closing_idx, f"type: {memory_type.value}")
+        new_text = "\n".join(lines)
+    else:
+        new_text = f"---\ntype: {memory_type.value}\n---\n\n{text}"
+    _write_backup(path)
+    atomic_write_text(path, new_text)
+    return True
 
 
 _FIXERS: dict[str, Callable[[MemoryStore, tuple[CheckResult, ...]], None]] = {
@@ -722,8 +816,11 @@ def run_checks(
     checks=None runs DEFAULT_CHECKS (every offline check). When fix=True, applies only the
     repairs marked fixable (index orphan/dangling/duplicate-section,
     schema-missing-type inference, schema-no-frontmatter archival) — a .bak
-    of any modified file is written first, and every index write goes
-    through index.py's atomic write-temp-then-os.replace() path. Never
+    of any modified file is written first (a symlinked .bak is replaced, never
+    written through), every rewrite is atomic (temp file + rename), archival
+    never overwrites an earlier _archive/ entry (it appends .<n> to the stem),
+    and a file with an unterminated frontmatter block is left alone and not
+    reported fixable. Never
     rewrites an index hook line, and never edits CLAUDE.md under any flag.
     Returns an empty tuple for a clean store, never None; a check that
     raises surfaces as an error-severity CheckResult rather than silently

@@ -82,3 +82,18 @@ class TestPrivateKeyRegex(unittest.TestCase):
         self.assertIsNotNone(
             _private_key_rule().search("-----BEGIN RSA " + "PRIVATE KEY-----")
         )
+
+
+class TestSlackTokenRegex(unittest.TestCase):
+    @staticmethod
+    def _pattern() -> re.Pattern[str]:
+        (rule,) = [r for r in REDACTION_RULES if r.rule_id == "slack-token"]
+        return rule.pattern
+
+    def test_slack_token_pathological_is_linear(self) -> None:
+        for text in ("xo" + "xb" * BIG, ("xo" + "xb-!") * (BIG // 4), "xo" + "xb-" + "-" * BIG):
+            assert_fast(lambda t=text: self._pattern().search(t))
+
+    def test_realistic_length_token_matches(self) -> None:
+        token = "xo" + "xb-" + "1" * 12 + "-" + "2" * 13 + "-" + "aB3" * 8
+        self.assertIsNotNone(self._pattern().search(token))

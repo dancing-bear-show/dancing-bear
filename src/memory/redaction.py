@@ -94,7 +94,7 @@ REDACTION_RULES: tuple[RedactionRule, ...] = (
     RedactionRule(
         rule_id="slack-token",
         severity=SEVERITY_BLOCK,
-        pattern=re.compile(r"(?:xoxb|xoxp|xoxc|xoxa)-[A-Za-z0-9\-]{80,100}"),
+        pattern=re.compile(r"xox[abposr]-[A-Za-z0-9\-]{20,}"),
         replacement="[REDACTED_SLACK_TOKEN]",
         description="Slack token (xox prefix)",
     ),

@@ -223,6 +223,9 @@ class TestHardenedBlockRules(unittest.TestCase):
             ("github-token", "github" + "_pat_" + "a" * 22),
             ("anthropic-key", "ANTHROPIC_API_KEY=" + ant),
             ("anthropic-key", '"' + admin + '"'),
+            ("slack-token", "xo" + "xb-" + "1" * 12 + "-" + "2" * 13 + "-" + "aB3" * 8),
+            ("slack-token", "xo" + "xp-" + "1" * 12 + "-" + "2" * 12 + "-" + "c" * 24),
+            ("slack-token", "xo" + "xs-" + "x" * 30),
         ]
         for rule_id, text in cases:
             with self.subTest(rule_id=rule_id, text=text[:30]):
@@ -242,6 +245,9 @@ class TestHardenedBlockRules(unittest.TestCase):
             ("anthropic-key", "sk-" + "ant"),
             ("anthropic-key", "sk-" + "ant-api03-short"),
             ("anthropic-key", "ask-" + "ant-api03-" + "x" * 40),
+            ("slack-token", "xo" + "xb-"),
+            ("slack-token", "xo" + "xb-short"),
+            ("slack-token", "xo" + "xz-" + "a" * 40),
         ]
         for rule_id, text in cases:
             with self.subTest(rule_id=rule_id, text=text[:30]):

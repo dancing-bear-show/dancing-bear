@@ -64,6 +64,7 @@ class TestCheckRegistryCompleteness(unittest.TestCase):
         "contradiction-topic-overlap",
         "schema-no-frontmatter",
         "schema-missing-type",
+        "schema-unparseable",
         "schema-ambiguous",
         "schema-flat-dialect",
         "schema-unknown-key",
@@ -1456,10 +1457,10 @@ class TestRewriteFrontmatterTypeNested(MemoryTestCase):
             "---\nname: broken\nno closing dashes here\n",
             encoding="utf-8",
         )
-        _rewrite_frontmatter_type(broken_path, MemoryType.PROJECT)
+        self.assertFalse(_rewrite_frontmatter_type(broken_path, MemoryType.PROJECT))
 
-        result = broken_path.read_text(encoding="utf-8")
-        self.assertTrue(result.startswith("---\ntype: project\n---\n\n"))
+        # Unterminated block: left unchanged, no second block prepended.
+        self.assertEqual(broken_path.read_text(encoding="utf-8"), "---\nname: broken\nno closing dashes here\n")
 
 
 # ---------------------------------------------------------------------------
@@ -1811,3 +1812,153 @@ class TestCurrentOnDiskFormat(MemoryTestCase):
             DEFAULT_CHECKS,
             "stale-superseded-pr is a network check and must be excluded from DEFAULT_CHECKS",
         )
+
+
+# ---------------------------------------------------------------------------
+# Review fixes: --fix write safety, excerpt window, stale-pr trust boundary
+# ---------------------------------------------------------------------------
+
+
+class TestFixWriteSafety(MemoryTestCase):
+    def test_nested_dialect_uses_existing_child_indent(self) -> None:
+        from memory.models import MemoryType
+        from memory.validation import _rewrite_frontmatter_type
+
+        path = self.tmp / "feedback_four.md"
+        path.write_text(
+            "---\nname: feedback_four\ndescription: d\nmetadata:\n    node_type: memory\n---\nbody\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(_rewrite_frontmatter_type(path, MemoryType.FEEDBACK))
+        self.assertIn("\n    type: feedback\n    node_type: memory\n", path.read_text(encoding="utf-8"))
+
+    def test_unterminated_frontmatter_unchanged_and_not_fixable(self) -> None:
+        from memory.models import MemoryType
+        from memory.validation import _is_unterminated_file, _rewrite_frontmatter_type
+
+        path = self.tmp / "project_broken.md"
+        content = "---\nname: project_broken\nno close\n"
+        path.write_text(content, encoding="utf-8")
+        self.assertTrue(_is_unterminated_file(str(path)))
+        self.assertFalse(_rewrite_frontmatter_type(path, MemoryType.PROJECT))
+        self.assertEqual(path.read_text(encoding="utf-8"), content)
+        self.assertFalse(path.with_suffix(".md.bak").exists())
+
+    def test_rewrite_goes_through_atomic_write(self) -> None:
+        from memory.models import MemoryType
+        from memory.validation import _rewrite_frontmatter_type
+
+        path = self.tmp / "project_atomic.md"
+        path.write_text("---\nname: project_atomic\n---\nbody\n", encoding="utf-8")
+        with patch("memory.validation.atomic_write_text") as writer:
+            _rewrite_frontmatter_type(path, MemoryType.PROJECT)
+        writer.assert_called_once()
+
+    def test_archival_does_not_overwrite_existing_archive_entry(self) -> None:
+        from memory.validation import _FIXERS
+
+        src = self.tmp / "notes.md"
+        src.write_text("second\n", encoding="utf-8")
+        archive = self.tmp / "_archive"
+        archive.mkdir()
+        (archive / "notes.md").write_text("first\n", encoding="utf-8")
+        finding = CheckResult("schema-no-frontmatter", "warn", str(src), "m", True)
+        _FIXERS["schema-no-frontmatter"](_make_store(self.tmp), (finding,))
+        self.assertFalse(src.exists())
+        self.assertEqual((archive / "notes.md").read_text(encoding="utf-8"), "first\n")
+        self.assertEqual((archive / "notes.1.md").read_text(encoding="utf-8"), "second\n")
+
+    def test_backup_replaces_symlink_instead_of_writing_through(self) -> None:
+        from memory.validation import _write_backup
+
+        victim = self.tmp / "victim.txt"
+        victim.write_text("keep", encoding="utf-8")
+        path = self.tmp / "m.md"
+        path.write_text("data", encoding="utf-8")
+        (self.tmp / "m.md.bak").symlink_to(victim)
+        _write_backup(path)
+        self.assertEqual(victim.read_text(encoding="utf-8"), "keep")
+        bak = self.tmp / "m.md.bak"
+        self.assertFalse(bak.is_symlink())
+        self.assertEqual(bak.read_text(encoding="utf-8"), "data")
+
+
+class TestContradictionExcerptWindow(MemoryTestCase):
+    def test_memory_excerpt_is_windowed_around_anchor(self) -> None:
+        from memory.parser import extract_anchors
+        from memory.validation import _CheckContext, _check_contradiction_topic_overlap
+
+        probe = "Never use `rm -rf` in scripts."
+        anchors = extract_anchors(probe)
+        self.assertTrue(anchors)
+        anchor = anchors[0]
+        body = "x" * 2000 + " " + probe
+        m = _make_memory(
+            self.tmp,
+            "feedback_long",
+            f"---\nname: feedback_long\ndescription: d\ntype: feedback\n---\n\n{body}\n",
+        )
+        claude = self.tmp / "CLAUDE.md"
+        claude.write_text(f"rules: {probe}\n", encoding="utf-8")
+        ctx = _CheckContext(repo=None, claude_md_paths=(claude,), fix=False)
+        results = _check_contradiction_topic_overlap(_make_store(self.tmp, memories=(m,)), ctx)
+        self.assertEqual(len(results), 1)
+        memory_line = results[0].detail.splitlines()[0]
+        self.assertIn(anchor, memory_line)
+        self.assertLess(len(memory_line), 40 + len(anchor) + 40 + 30)
+
+
+class TestStaleSupersededPrNoCwdFallback(MemoryTestCase):
+    def test_cwd_checkout_bin_github_is_never_executed(self) -> None:
+        import os
+
+        from memory.validation import _CheckContext, _check_stale_superseded_pr
+
+        evil = self.tmp / "evil"
+        (evil / "bin").mkdir(parents=True)
+        (evil / "bin" / "github").write_text("#!/bin/sh\n", encoding="utf-8")
+        ctx = _CheckContext(repo=None, claude_md_paths=(), fix=False)
+        cwd = os.getcwd()
+        self.addCleanup(os.chdir, cwd)
+        os.chdir(evil)
+        with patch("memory.validation._git_toplevel", return_value=evil), patch(
+            "memory.validation.subprocess.run"
+        ) as run:
+            m = _make_project_memory(self.tmp, "project_x", "See PR #7.")
+            results = _check_stale_superseded_pr(_make_store(self.tmp, memories=(m,)), ctx)
+        self.assertEqual(results, ())
+        run.assert_not_called()
+
+    def test_dead_cli_keeps_toplevel_fallback(self) -> None:
+        from memory.validation import _resolve_repo_root
+
+        top = self.tmp / "top"
+        (top / "bin").mkdir(parents=True)
+        with patch("memory.validation._git_toplevel", return_value=top):
+            self.assertEqual(_resolve_repo_root(None, "bin"), top)
+            self.assertIsNone(_resolve_repo_root(None, "bin", allow_toplevel_fallback=False))
+
+
+class TestSchemaUnparseable(MemoryTestCase):
+    def _store_with_bad_files(self):
+        listfm = self.tmp / "listfm.md"
+        listfm.write_text("---\n- a\n- b\n---\nbody\n", encoding="utf-8")
+        binary = self.tmp / "binary.md"
+        binary.write_bytes(b"---\nname: \xff\xfe\n---\n")
+        return _make_store(self.tmp, non_memory_files=(str(listfm), str(binary)))
+
+    def test_run_checks_does_not_raise_and_reports_both(self) -> None:
+        store = self._store_with_bad_files()
+        results = run_checks(store, checks=("schema-no-frontmatter", "schema-unparseable"))
+        self.assertEqual(
+            sorted(r.target for r in results if r.check_id == "schema-unparseable"),
+            ["binary.md", "listfm.md"],
+        )
+        self.assertTrue(all(r.severity == "warn" and not r.fixable for r in results))
+        self.assertFalse([r for r in results if r.check_id == "schema-no-frontmatter"])
+        self.assertFalse([r for r in results if r.severity == "error"])
+
+    def test_default_checks_include_schema_unparseable(self) -> None:
+        from memory.validation import DEFAULT_CHECKS
+
+        self.assertIn("schema-unparseable", DEFAULT_CHECKS)
