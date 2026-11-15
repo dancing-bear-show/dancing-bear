@@ -1903,7 +1903,10 @@ class TestContradictionExcerptWindow(MemoryTestCase):
         ctx = _CheckContext(repo=None, claude_md_paths=(claude,), fix=False)
         results = _check_contradiction_topic_overlap(_make_store(self.tmp, memories=(m,)), ctx)
         self.assertEqual(len(results), 1)
-        memory_line = results[0].detail.splitlines()[0]
+        detail = results[0].detail
+        if detail is None:
+            self.fail("contradiction-topic-overlap must carry a detail excerpt")
+        memory_line = detail.splitlines()[0]
         self.assertIn(anchor, memory_line)
         self.assertLess(len(memory_line), 40 + len(anchor) + 40 + 30)
 

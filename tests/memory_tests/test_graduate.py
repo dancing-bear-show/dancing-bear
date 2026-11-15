@@ -314,11 +314,13 @@ class TestGraduateMemory(MemoryTestCase):
             {"myslug.md": _feedback("myslug", "version B — different content")},
             with_index=True,
         )
-        assert canonical.index_path is not None
+        index_path = canonical.index_path
+        if index_path is None:
+            self.fail("with_index=True must give the canonical store an index")
 
         graduate_memory("myslug", source, canonical, yes=True)
 
-        targets = [e.target for e in parse_index(canonical.index_path)]
+        targets = [e.target for e in parse_index(index_path)]
         self.assertEqual(targets.count("myslug.md"), 1)
 
 
