@@ -63,6 +63,18 @@ class TestCheckout(GitRepoCase):
         self.assertEqual(result.status, "ok", result.output)
         self.assertEqual(self._head(), "topic")
 
+    def test_untracked_file_conflicting_with_target_branch_is_error(self):
+        _git(self.repo, "checkout", "-q", "topic")
+        write(self.repo, "clash.txt", "tracked on topic\n")
+        _git(self.repo, "add", "clash.txt")
+        _git(self.repo, "commit", "-q", "-m", "add clash")
+        _git(self.repo, "checkout", "-q", "main")
+        write(self.repo, "clash.txt", "untracked on main\n")
+        result = git_ops.op_checkout(self.repo, "topic", fetch=False)
+        self.assertEqual(result.status, "error")
+        self.assertIn("clash.txt", result.output)
+        self.assertEqual(self._head(), "main")
+
     def test_branch_required_and_option_like_rejected(self):
         self.assertIn("required", git_ops.op_checkout(self.repo, None, False).output)
         self.assertIn("must not start", git_ops.op_checkout(self.repo, "--force", False).output)

@@ -59,7 +59,8 @@ def _status(run: CompletedRun) -> str:
 def _is_dirty(cwd: str) -> bool:
     """True when tracked files have uncommitted changes (or status could not be read).
 
-    Untracked files are ignored: git itself does not refuse a checkout for them.
+    Untracked files are ignored here.  If one would be overwritten by the target
+    branch, git's own checkout aborts and that surfaces as an error result.
     """
     run = _git(["status", "--porcelain", "--untracked-files=no"], cwd)
     return not run.ok or bool(run.stdout.strip())

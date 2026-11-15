@@ -153,14 +153,57 @@ def _target_names(target: ast.expr) -> set[str]:
 
 
 def _nested_blocks(node: ast.stmt) -> list[list[ast.stmt]]:
-    """Statement lists of an if/try/with node that still execute at module level."""
-    if isinstance(node, ast.If):
+    """Statement lists of a compound node that still execute at module level."""
+    if isinstance(node, (ast.If, ast.For, ast.AsyncFor, ast.While)):
         return [node.body, node.orelse]
     if isinstance(node, (ast.Try, ast.TryStar)):
         return [node.body, *(h.body for h in node.handlers), node.orelse, node.finalbody]
     if isinstance(node, (ast.With, ast.AsyncWith)):
         return [node.body]
+    if isinstance(node, ast.Match):
+        return [case.body for case in node.cases]
     return []
+
+
+def _pattern_names(pattern: ast.pattern) -> set[str]:
+    """Capture names bound by a ``match`` pattern (``as x``, ``*rest``, ``**rest``)."""
+    names: set[str] = set()
+    for sub in ast.walk(pattern):
+        if isinstance(sub, (ast.MatchAs, ast.MatchStar)) and sub.name:
+            names.add(sub.name)
+        elif isinstance(sub, ast.MatchMapping) and sub.rest:
+            names.add(sub.rest)
+    return names
+
+
+def _clause_names(node: ast.stmt) -> set[str]:
+    """Names bound by a compound statement's own header (loop/with/except/case targets)."""
+    if isinstance(node, (ast.For, ast.AsyncFor)):
+        return _target_names(node.target)
+    if isinstance(node, (ast.With, ast.AsyncWith)):
+        return set().union(*(_target_names(i.optional_vars) for i in node.items if i.optional_vars))
+    if isinstance(node, (ast.Try, ast.TryStar)):
+        return {h.name for h in node.handlers if h.name}
+    if isinstance(node, ast.Match):
+        return set().union(*(_pattern_names(c.pattern) for c in node.cases))
+    return set()
+
+
+def _walrus_names(node: ast.AST) -> set[str]:
+    """``:=`` targets in a statement's own expressions.
+
+    Does not descend into nested statements (handled by block recursion), nor into
+    lambdas or comprehensions.  Real Python binds a comprehension walrus in the
+    enclosing scope; that case is deliberately skipped to keep this simple.
+    """
+    names: set[str] = set()
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, (ast.stmt, ast.Lambda, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+            continue
+        if isinstance(child, ast.NamedExpr):
+            names.add(child.target.id)
+        names |= _walrus_names(child)
+    return names
 
 
 def _bound_names(node: ast.stmt) -> set[str]:
@@ -168,12 +211,14 @@ def _bound_names(node: ast.stmt) -> set[str]:
     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
         return {node.name}
     if isinstance(node, ast.Assign):
-        return set().union(*(_target_names(t) for t in node.targets))
-    if isinstance(node, (ast.AnnAssign, ast.AugAssign)):
-        return _target_names(node.target)
-    if isinstance(node, (ast.Import, ast.ImportFrom)):
+        direct = set().union(*(_target_names(t) for t in node.targets))
+    elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+        direct = _target_names(node.target)
+    elif isinstance(node, (ast.Import, ast.ImportFrom)):
         return {(a.asname or a.name).split(".")[0] for a in node.names}
-    return set()
+    else:
+        direct = _clause_names(node)
+    return direct | _walrus_names(node)
 
 
 def _collect_names(body: list[ast.stmt], defined: set[str]) -> None:
@@ -184,8 +229,9 @@ def _collect_names(body: list[ast.stmt], defined: set[str]) -> None:
 
 
 def _defined_names(tree: ast.Module) -> set[str]:
-    """Names bound at module level, including inside top-level if/try/with blocks.
+    """Names bound at module level, including inside top-level compound statements.
 
+    Covers if/try/for/while/with/match blocks, their targets, and walrus names.
     Function and class bodies are not searched.
     """
     defined: set[str] = set()
@@ -202,7 +248,8 @@ def check_all_exported(tree: ast.Module, file: str) -> dict[str, object]:
     exported = parse_all_names(tree)
     if exported is None:
         return _ast_failure(file, "__all__ not found in module")
-    undefined = [n for n in exported if n not in _defined_names(tree)]
+    defined = _defined_names(tree)
+    undefined = [n for n in exported if n not in defined]
     return {
         "file": file,
         "all_list": exported,
