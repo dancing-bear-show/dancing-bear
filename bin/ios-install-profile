@@ -170,7 +170,7 @@ if [[ -n "$P12" && -z "$USE_CONFIGURATOR_IDENTITY" ]]; then
   fi
   # If no password provided and running in a TTY, prompt once (no echo)
   if [[ -z "$P12_PASS" && -t 0 ]]; then
-    read -s -p "Enter password for $P12: " P12_PASS
+    read -r -s -p "Enter password for $P12: " P12_PASS
     echo >&2
   fi
   TMPDIR_CREATED="$(mktemp -d -t iosprof.XXXXXX)"

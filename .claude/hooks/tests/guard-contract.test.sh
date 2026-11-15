@@ -133,7 +133,8 @@ MADE_LINKS=()
 # path that no longer existed.
 MADE_LINK_PARENTS=()
 ensure_dirs() {
-  local spec="$1" csv="$spec" linkspec="" d pair
+  local spec="$1"
+  local csv="$spec" linkspec="" d pair
   # The flattener appends "#LINKS#a>b|c>d" when a group needs symlinks.
   case "$spec" in
     *"#LINKS#"*)

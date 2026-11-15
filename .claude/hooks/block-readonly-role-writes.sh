@@ -505,7 +505,8 @@ classify_path() {
           if [ -d "$_parent" ]; then
             _resolved=$(cd -P "$_parent" 2>/dev/null && pwd -P) || _resolved=""
             if [ -n "$_resolved" ]; then
-              local _real="$_resolved/$(basename "$p")"
+              local _real
+              _real="$_resolved/$(basename "$p")"
               if [ "$_real" = "$REPO_ROOT" ] || [ "${_real#"$REPO_ROOT"/}" != "$_real" ]; then
                 printf 'guarded:a path that resolves into the repo (%s)' "$_real"
                 return

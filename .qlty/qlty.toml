@@ -276,6 +276,10 @@ name = "bandit"
 [[plugin]]
 name = "osv-scanner"
 
+# Lints the repo's bash scripts (bin/, .githooks/, .claude/hooks, .claude/scripts).
+[[plugin]]
+name = "shellcheck"
+
 [[plugin]]
 name = "radarlint-python"
 mode = "comment"

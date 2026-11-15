@@ -160,6 +160,7 @@ CMD=$(tr -s '[:space:]' ' ' <<< "$CMD")
 #
 # Defined ONCE and reused by every pattern below. Two copies of a character class is
 # how one of them ends up missing a character.
+# shellcheck disable=SC1003  # quote-splice idiom builds a regex class containing a literal single quote
 CMD_START='(^|[|;&(`\\'"'"'"[:space:]])'
 
 # This repo's credential filenames, resolved from core/constants.py (credentials.ini
@@ -433,6 +434,7 @@ _normalize_target() {
   target=$(sed -E 's/\\(.)/\1/g' <<< "$target")
   target=${target//\$HOME/$HOME}
   target=${target//\$\{HOME\}/$HOME}
+  # shellcheck disable=SC2088  # deliberately matching a literal "~" in the command text, not expanding it
   case "$target" in
     "~") target="$HOME" ;;
     "~/"*) target="$HOME/${target#\~/}" ;;
@@ -595,6 +597,7 @@ if grep -qE "${CMD_START}${RM_NAME}([[:space:]]|$)" <<< "$CMD"; then
   # string regardless of whether the call was `rm`, `/bin/rm`, or `"rm"`. Without that
   # second substitution `/bin/rm` survives into the token list, where `/bin` reads as an
   # operand under a protected system prefix and blocks every rm call in the repo.
+  # shellcheck disable=SC1003  # quote-splice idiom builds a regex class containing a literal single quote
   RM_CALLS=$(grep -oE "${CMD_START}${RM_NAME}[[:space:]][^|;&\`)]*" <<< "$CMD" \
     | sed -E 's/^[|;&(`\\'"'"'"[:space:]]*//' \
     | sed -E 's/^("|'"'"')?([^[:space:]|;&()<>"'"'"']*\/)?rm("|'"'"')?[[:space:]]/ /')

@@ -102,7 +102,7 @@ done
 # would make the guard unusable. Only the enforcing machinery is off-limits. Editing
 # these files is a deliberate act the user can do themselves.
 case "$FILE" in
-  *.claude/hooks/*|.claude/hooks/*)
+  *.claude/hooks/*)  # also matches a bare ".claude/hooks/..." (leading * may be empty)
     echo "Blocked: $FILE modifies the guard hooks themselves." >&2
     echo "A hook that can rewrite its own source enforces nothing -- the next tool call would be" >&2
     echo "judged by the rewritten version. Edit these files yourself outside the session." >&2
@@ -112,7 +112,7 @@ esac
 case "${FILE##*/}" in
   settings.json|settings.local.json|settings*.json)
     case "$FILE" in
-      *.claude/*|.claude/*)
+      *.claude/*)  # also matches a bare ".claude/..." (leading * may be empty)
         echo "Blocked: $FILE is the settings file that wires up the guard hooks." >&2
         echo "Removing the PreToolUse entry disarms every protection in them. Edit it yourself" >&2
         echo "outside the session." >&2

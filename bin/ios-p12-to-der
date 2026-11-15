@@ -168,7 +168,7 @@ echo "Converting .p12 to DER cert/key under: $OUT_DIR"
 
 # Always pass a -passin to avoid interactive hangs; prompt once if TTY and PASS empty
 if [[ -z "$PASS" && -t 0 ]]; then
-  read -s -p "Enter password for $P12 (leave empty if none): " PASS
+  read -r -s -p "Enter password for $P12 (leave empty if none): " PASS
   echo >&2
 fi
 PASSIN=( -passin pass:"${PASS:-}" )

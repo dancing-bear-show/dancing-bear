@@ -14,6 +14,9 @@
 # Usage: bash statusline.test.sh [path-to-script]
 # Exit:  0 = all pass, 1 = at least one failure. Requires jq.
 
+# File-wide: test inputs are literal jq/shell text, so `$VAR` inside single quotes
+# must NOT expand -- that is the input under test.
+# shellcheck disable=SC2016
 SCRIPT="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/statusline.sh}"
 
 # shellcheck source=./_harness.sh
@@ -30,7 +33,6 @@ GREEN_ESC=$'\033[32m'
 YELLOW_ESC=$'\033[33m'
 RED_ESC=$'\033[31m'
 DIM_ESC=$'\033[2m'
-MAGENTA_ESC=$'\033[35m'
 
 _render() { printf '%s' "$1" | bash "$SCRIPT" 2>/dev/null; }
 _strip()  { sed -E $'s/\033\\[[0-9;]*m//g'; }
