@@ -269,6 +269,28 @@ class TestGraduateMemory(MemoryTestCase):
         result = graduate_memory("myslug", source, canonical, yes=True)
         self.assertEqual(result.action, "graduated")
 
+    def test_graduate_yes_keeps_bak_of_replaced_canonical(self):
+        source = _make_store(
+            self.tmp,
+            "worktree-store",
+            {"myslug.md": _feedback("myslug", "version A")},
+            is_worktree_slug=True,
+        )
+        canonical = _make_store(
+            self.tmp,
+            "canonical-store",
+            {"myslug.md": _feedback("myslug", "version B — different content")},
+        )
+        dest = Path(canonical.root) / "memory" / "myslug.md"
+        old_text = dest.read_text(encoding="utf-8")
+
+        graduate_memory("myslug", source, canonical, yes=True)
+
+        bak = dest.with_suffix(".md.bak")
+        self.assertTrue(bak.exists())
+        self.assertEqual(bak.read_text(encoding="utf-8"), old_text)
+        self.assertNotEqual(dest.read_text(encoding="utf-8"), old_text)
+
 
 # ---------------------------------------------------------------------------
 # TestGraduateCliMain — exercises memory.cli.main(["graduate", ...])
@@ -300,6 +322,22 @@ class TestGraduateCliMain(MemoryTestCase):
         ):
             rc = _run_cli("graduate", "any-slug")
         self.assertNotEqual(rc, 0)
+
+    def test_no_store_flag_uses_strict_resolution(self):
+        source = _make_store(self.tmp, "src", {"mem.md": _feedback("mem", "x")})
+        stderr = io.StringIO()
+        with (
+            patch("memory.commands.graduate.discover_stores", return_value=(source,)),
+            patch(
+                "memory.commands.graduate.resolve_current_store", return_value=None
+            ) as resolve,
+            contextlib.redirect_stderr(stderr),
+        ):
+            rc = _run_cli("graduate", "mem", suppress_output=False)
+        self.assertEqual(rc, 1)
+        resolve.assert_called_once()
+        self.assertIs(resolve.call_args.kwargs.get("strict"), True)
+        self.assertIn("--store=SLUG", stderr.getvalue())
 
     def test_load_store_failure_errors(self):
         with (

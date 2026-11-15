@@ -40,9 +40,13 @@ def run(args: argparse.Namespace) -> int:
         except Exception as exc:  # NOSONAR - CLI boundary: surface as validation error
             return validation_error("--store", f"could not load store {args.store!r}: {exc}")
     else:
-        resolved = resolve_current_store(all_stores)
+        resolved = resolve_current_store(all_stores, strict=True)
         if resolved is None:
-            print("No memory stores found.", file=sys.stderr)
+            print(
+                "[memory] No store matches the current directory; pass --store=SLUG "
+                "(see `memory stores`).",
+                file=sys.stderr,
+            )
             return 1
         source = resolved
 

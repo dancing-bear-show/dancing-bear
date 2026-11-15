@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from core.cli_errors import CLIError
 from core.fileutil import (
     SymlinkDestinationError,
+    atomic_copy,
+    atomic_write_bytes,
     atomic_write_json,
+    file_sha256,
     atomic_write_text,
     load_json_or_exit,
     safe_load_json,
@@ -210,6 +215,55 @@ class TestAtomicWriteText(unittest.TestCase):
             atomic_write_text(target, "\ud800")  # lone surrogate cannot encode
         self.assertEqual(target.read_text(), "old")
         self.assertEqual(self._leftovers(), [])
+
+
+class TestAtomicBytesAndCopy(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.dir = Path(tmp.name)
+
+    def test_write_bytes_roundtrip(self):
+        target = self.dir / "sub" / "b.bin"
+        atomic_write_bytes(target, b"\x00\xff")
+        self.assertEqual(target.read_bytes(), b"\x00\xff")
+
+    def test_copy_preserves_destination_mode(self):
+        src = self.dir / "src.md"
+        src.write_text("new")
+        dest = self.dir / "dest.md"
+        dest.write_text("old")
+        dest.chmod(0o644)
+        atomic_copy(src, dest)
+        self.assertEqual(dest.read_text(), "new")
+        self.assertEqual(dest.stat().st_mode & 0o777, 0o644)
+
+    def test_copy_new_file_is_not_0600(self):
+        src = self.dir / "src.md"
+        src.write_text("x")
+        dest = self.dir / "dest.md"
+        atomic_copy(src, dest)
+        mask = os.umask(0)
+        os.umask(mask)
+        self.assertEqual(dest.stat().st_mode & 0o777, 0o666 & ~mask)
+
+    def test_copy_failure_removes_temp_file(self):
+        src = self.dir / "src.md"
+        src.write_text("x")
+        dest = self.dir / "dest.md"
+        with mock.patch("core.fileutil.os.replace", side_effect=OSError("boom")):
+            with self.assertRaises(OSError):
+                atomic_copy(src, dest)
+        self.assertEqual([p.name for p in self.dir.iterdir()], ["src.md"])
+
+    def test_file_sha256(self):
+        f = self.dir / "f"
+        f.write_bytes(b"abc")
+        self.assertEqual(
+            file_sha256(f),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

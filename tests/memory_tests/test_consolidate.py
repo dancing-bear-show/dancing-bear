@@ -4,13 +4,16 @@ archive-not-delete, and TOCTOU abort.
 
 from __future__ import annotations
 
+import dataclasses
 import io
+import os
 import time
 import unittest
 from datetime import datetime
 from pathlib import Path
 
 from memory.consolidate import (
+    ConsolidationAborted,
     ConsolidationPlan,
     ConsolidationResult,
     apply_plan,
@@ -527,20 +530,19 @@ class TestOnDivergencePrompt(MemoryTestCase):
         self.assertTrue(result.applied)
         self.assertGreaterEqual(len(result.superseded), 1)
 
-    def test_on_divergence_prompt_quit_raises_system_exit(self) -> None:
+    def test_on_divergence_prompt_quit_raises_aborted(self) -> None:
         store1, store2 = _make_conflicting_stores(self.tmp, "quit")
         plan = plan_consolidation((store1, store2), on_divergence="prompt")
         self.assertTrue(plan.conflicts)
 
         archive_dest = self.tmp / "archive_prompt_q"
-        with self.assertRaises(SystemExit) as ctx:
+        with self.assertRaises(ConsolidationAborted):
             apply_plan(
                 plan,
                 archive_dest=archive_dest,
                 dry_run=False,
                 _stdin=io.StringIO("q\n"),
             )
-        self.assertEqual(ctx.exception.code, 1)
 
     def test_on_divergence_prompt_invalid_then_quit(self) -> None:
         store1, store2 = _make_conflicting_stores(self.tmp, "invalid-quit")
@@ -548,14 +550,13 @@ class TestOnDivergencePrompt(MemoryTestCase):
         self.assertTrue(plan.conflicts)
 
         archive_dest = self.tmp / "archive_prompt_xq"
-        with self.assertRaises(SystemExit) as ctx:
+        with self.assertRaises(ConsolidationAborted):
             apply_plan(
                 plan,
                 archive_dest=archive_dest,
                 dry_run=False,
                 _stdin=io.StringIO("x\nq\n"),
             )
-        self.assertEqual(ctx.exception.code, 1)
 
     def test_on_divergence_prompt_eof_exits(self) -> None:
         """EOF (empty stdin) must not silently default to keep-canonical."""
@@ -564,14 +565,13 @@ class TestOnDivergencePrompt(MemoryTestCase):
         self.assertTrue(plan.conflicts)
 
         archive_dest = self.tmp / "archive_prompt_eof"
-        with self.assertRaises(SystemExit) as ctx:
+        with self.assertRaises(ConsolidationAborted):
             apply_plan(
                 plan,
                 archive_dest=archive_dest,
                 dry_run=False,
                 _stdin=io.StringIO(""),
             )
-        self.assertEqual(ctx.exception.code, 1)
 
     def test_on_divergence_prompt_double_invalid_exits(self) -> None:
         """Second invalid char must also exit rather than falling through to keep-canonical."""
@@ -580,14 +580,128 @@ class TestOnDivergencePrompt(MemoryTestCase):
         self.assertTrue(plan.conflicts)
 
         archive_dest = self.tmp / "archive_prompt_xx"
-        with self.assertRaises(SystemExit) as ctx:
+        with self.assertRaises(ConsolidationAborted):
             apply_plan(
                 plan,
                 archive_dest=archive_dest,
                 dry_run=False,
                 _stdin=io.StringIO("x\ny\n"),
             )
-        self.assertEqual(ctx.exception.code, 1)
+
+
+# ---------------------------------------------------------------------------
+# keep-newest, index append, abort-before-write
+# ---------------------------------------------------------------------------
+
+
+def _conflict_with_unique_files(
+    tmp_path: Path, suffix: str, on_divergence: str = "keep-newest"
+) -> ConsolidationPlan:
+    """Two stores sharing a diverged file, each with one unique file."""
+    store1 = _make_store(
+        tmp_path,
+        f"{suffix}-main",
+        {
+            "diverged.md": _feedback("diverged", "version one"),
+            "only_one.md": _feedback("only_one", "unique one"),
+        },
+    )
+    store2 = _make_store(
+        tmp_path,
+        f"{suffix}-worktree",
+        {
+            "diverged.md": _feedback("diverged", "version two"),
+            "only_two.md": _feedback("only_two", "unique two"),
+        },
+        is_worktree_slug=True,
+    )
+    return plan_consolidation((store1, store2), on_divergence=on_divergence)
+
+
+class TestKeepNewest(MemoryTestCase):
+    def _set_loser_mtime_offset(self, plan: ConsolidationPlan, offset: float) -> tuple[Path, Path]:
+        loser_str, winner_str = plan.conflicts[0]
+        loser, winner = Path(loser_str), Path(winner_str)
+        base = winner.stat().st_mtime
+        os.utime(loser, (base + offset, base + offset))
+        return loser, winner
+
+    def test_newer_non_canonical_wins_and_canonical_is_archived(self) -> None:
+        plan = _conflict_with_unique_files(self.tmp, "newer")
+        loser, winner = self._set_loser_mtime_offset(plan, +100)
+        newer_text = loser.read_text(encoding="utf-8")
+        old_canonical_text = winner.read_text(encoding="utf-8")
+
+        archive = self.tmp / "archive_newer"
+        result = apply_plan(plan, archive_dest=archive, dry_run=False)
+
+        self.assertEqual(winner.read_text(encoding="utf-8"), newer_text)
+        archived_texts = {
+            p.read_text(encoding="utf-8") for p in archive.rglob("*.md")
+        }
+        self.assertIn(old_canonical_text, archived_texts)
+        self.assertIn(str(winner), result.copied)
+
+    def test_older_non_canonical_does_not_win(self) -> None:
+        plan = _conflict_with_unique_files(self.tmp, "older")
+        loser, winner = self._set_loser_mtime_offset(plan, -100)
+        canonical_text = winner.read_text(encoding="utf-8")
+        older_text = loser.read_text(encoding="utf-8")
+
+        archive = self.tmp / "archive_older"
+        apply_plan(plan, archive_dest=archive, dry_run=False)
+
+        self.assertEqual(winner.read_text(encoding="utf-8"), canonical_text)
+        archived_texts = {
+            p.read_text(encoding="utf-8") for p in archive.rglob("*.md")
+        }
+        self.assertIn(older_text, archived_texts)
+
+
+class TestCopiedFilesIndexed(MemoryTestCase):
+    def test_copied_file_gets_index_entry(self) -> None:
+        from memory.index import parse_index
+
+        store_a = _make_store(
+            self.tmp,
+            "idx-a",
+            {"diverged.md": _feedback("diverged", "v1"), "only_a.md": _feedback("only_a", "a")},
+        )
+        store_b = _make_store(
+            self.tmp,
+            "idx-b",
+            {"diverged.md": _feedback("diverged", "v2"), "only_b.md": _feedback("only_b", "b")},
+            is_worktree_slug=True,
+        )
+        stores = []
+        for store in (store_a, store_b):
+            index_file = Path(store.root) / "memory" / "MEMORY.md"
+            index_file.write_text("## Feedback\n", encoding="utf-8")
+            stores.append(dataclasses.replace(store, index_path=str(index_file)))
+        plan = plan_consolidation(tuple(stores))
+        self.assertEqual(len(plan.to_copy), 1)
+
+        apply_plan(plan, archive_dest=self.tmp / "archive_idx", dry_run=False)
+
+        copied_name = Path(plan.to_copy[0]).name
+        targets = {e.target for e in parse_index(str(plan.canonical.index_path))}
+        self.assertIn(copied_name, targets)
+
+
+class TestAbortBeforeAnyWrite(MemoryTestCase):
+    def test_quit_at_prompt_writes_nothing(self) -> None:
+        plan = _conflict_with_unique_files(self.tmp, "abort", "prompt")
+        canonical_dir = Path(plan.canonical.root) / "memory"
+        before = {p.name for p in canonical_dir.iterdir()}
+        archive = self.tmp / "archive_abort"
+
+        with self.assertRaises(ConsolidationAborted):
+            apply_plan(
+                plan, archive_dest=archive, dry_run=False, _stdin=io.StringIO("q\n")
+            )
+
+        self.assertEqual({p.name for p in canonical_dir.iterdir()}, before)
+        self.assertFalse(archive.exists())
 
 
 if __name__ == "__main__":

@@ -17,7 +17,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from memory.commands.consolidate import _plan_to_rows
-from memory.consolidate import ConsolidationPlan, ConsolidationResult
+from memory.consolidate import ConsolidationAborted, ConsolidationPlan, ConsolidationResult
 from memory.discovery import load_store
 from memory.models import MemoryStore
 from tests.memory_tests.fixtures import MemoryTestCase
@@ -283,6 +283,21 @@ class TestMainApply(MemoryTestCase):
 
 
 class TestMainRuntimeError(MemoryTestCase):
+    def test_user_quit_returns_exit_code_4(self) -> None:
+        store = _empty_store(self.tmp)
+        plan = _make_plan()
+        with (
+            patch("memory.commands.consolidate.discover_stores", return_value=(store,)),
+            patch("memory.commands.consolidate.plan_consolidation", return_value=plan),
+            patch(
+                "memory.commands.consolidate.apply_plan",
+                side_effect=ConsolidationAborted("aborted at conflict prompt"),
+            ),
+        ):
+            rc, _out, err = _run_cli([])
+        self.assertEqual(rc, 4)
+        self.assertIn("aborted", err)
+
     def test_runtime_error_returns_exit_code_3(self) -> None:
         store = _empty_store(self.tmp)
         plan = _make_plan()

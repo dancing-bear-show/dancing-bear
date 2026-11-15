@@ -1,7 +1,8 @@
 """CLI subcommand: plan and apply zero-loss multi-store consolidation.
 
 Archives rather than deletes. TOCTOU-safe via re-stat before any mutation.
-Exit codes: 0 success, 1 validation error, 3 apply RuntimeError (TOCTOU abort).
+Exit codes: 0 success, 1 validation error, 3 apply RuntimeError (TOCTOU abort),
+4 user quit at a conflict prompt (nothing written).
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from pathlib import Path
 from core.cli_output import emit_rows
 from memory.commands._common import DRY_RUN_ARG, ArgSpec, format_arg
 from memory.consolidate import (
+    ConsolidationAborted,
     ConsolidationPlan,
     apply_plan,
     plan_consolidation,
@@ -61,6 +63,9 @@ def run(args: argparse.Namespace) -> int:
     archive_dest: Path | None = Path(args.archive_dest) if args.archive_dest else None
     try:
         result = apply_plan(plan, archive_dest=archive_dest, dry_run=False)
+    except ConsolidationAborted as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 4
     except RuntimeError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 3

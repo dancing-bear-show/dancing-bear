@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Callable
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 
+from core.fileutil import atomic_write_text
 from memory.models import IndexEntry, Memory
 
 __all__ = [
+    "IndexConflictError",
     "append_entry",
     "merge_duplicate_sections",
     "parse_index",
@@ -80,40 +82,64 @@ def render_index_line(m: Memory) -> str:
     return f"- [{filename}]({filename}) — {hook}"
 
 
+_MAX_RETRIES = 3
+
+
+class IndexConflictError(RuntimeError):
+    """MEMORY.md kept changing under a read-modify-write; nothing was written."""
+
+
 def _read_lines(path: Path) -> list[str]:
     with open(path, encoding="utf-8") as f:
         return [line.rstrip("\n") for line in f]
 
 
-def _atomic_write_lines(path: Path, lines: list[str]) -> None:
-    """Write lines to path via write-temp-then-os.replace(), never in-place."""
-    parent_dir = path.parent
-    with NamedTemporaryFile(
-        mode="w", dir=parent_dir, delete=False, encoding="utf-8"
-    ) as tmp:
-        tmp_path = tmp.name
-        for line in lines:
-            tmp.write(line + "\n")
-    os.replace(tmp_path, path)
+def _signature(path: Path) -> tuple[int, int] | None:
+    """(mtime_ns, size) of path, or None when it does not exist."""
+    try:
+        st = os.stat(path)
+    except FileNotFoundError:
+        return None
+    return (st.st_mtime_ns, st.st_size)
 
 
-def append_entry(path: str | Path, m: Memory, *, section: str | None = None) -> None:
-    """Atomically append a Memory entry to MEMORY.md under the correct section.
+def _before_replace(path: Path) -> None:
+    """Hook invoked after the new content is computed, just before the re-stat."""
 
-    Inserts under the '## ' section matching the memory's type (defaulting
-    from section when provided); creates the header if absent rather than
-    appending to an arbitrary trailing section. A non-empty index with no
-    '## ' headers at all is flat, so with section=None the line is appended
-    at the end instead. Routes the write through
-    write-temp-then-os.replace() — a concurrent Claude Code session writing
-    MEMORY.md must never observe a half-written index.
+
+def _modify_index(
+    path: Path, transform: Callable[[list[str]], list[str] | None]
+) -> bool:
+    """Read-modify-write MEMORY.md without clobbering a concurrent writer.
+
+    ``transform`` maps the current lines to the new lines, or None for no
+    change. The file's (mtime_ns, size) is recorded at read and re-checked
+    right before the atomic replace; on a mismatch the file is re-read and
+    the transform re-applied, up to ``_MAX_RETRIES`` times, then
+    IndexConflictError is raised. Returns True when a write happened.
     """
-    path = Path(path)
+    for _ in range(_MAX_RETRIES):
+        before = _signature(path)
+        lines = _read_lines(path) if before is not None else []
+        new_lines = transform(lines)
+        if new_lines is None:
+            return False
+        _before_replace(path)
+        if _signature(path) != before:
+            continue
+        atomic_write_text(path, "".join(line + "\n" for line in new_lines))
+        return True
+    raise IndexConflictError(
+        f"{path} changed during {_MAX_RETRIES} consecutive update attempts; not overwriting"
+    )
+
+
+def _insert_entry(lines: list[str], m: Memory, section: str | None) -> list[str]:
+    """Return ``lines`` with m's index line inserted under the right section."""
+    lines = list(lines)
     target_section = section or (
         m.frontmatter.type.value if m.frontmatter.type else "Reference"
     )
-
-    lines = _read_lines(path) if path.exists() else []
 
     # Match section headers case-insensitively: MemoryType.value is lowercase
     # ("feedback", "project") but on-disk headers are capitalized ("## Feedback").
@@ -127,8 +153,7 @@ def append_entry(path: str | Path, m: Memory, *, section: str | None = None) -> 
     # the entry appended at the end; inventing a first section would split it.
     if section is None and lines and not any(header_names):
         lines.append(render_index_line(m))
-        _atomic_write_lines(path, lines)
-        return
+        return lines
 
     section_idx = next(
         (
@@ -157,7 +182,31 @@ def append_entry(path: str | Path, m: Memory, *, section: str | None = None) -> 
             break
 
     lines.insert(insert_idx, render_index_line(m))
-    _atomic_write_lines(path, lines)
+    return lines
+
+
+def append_entry(path: str | Path, m: Memory, *, section: str | None = None) -> None:
+    """Atomically append a Memory entry to MEMORY.md under the correct section.
+
+    Inserts under the '## ' section matching the memory's type (defaulting
+    from section when provided); creates the header if absent rather than
+    appending to an arbitrary trailing section. A non-empty index with no
+    '## ' headers at all is flat, so with section=None the line is appended
+    at the end instead. The read-modify-replace is guarded against a
+    concurrent writer (see ``_modify_index``); it raises IndexConflictError
+    rather than overwrite a write it did not see.
+    """
+    _modify_index(Path(path), lambda lines: _insert_entry(lines, m, section))
+
+
+def _drop_entry(lines: list[str], target: str) -> list[str] | None:
+    """Return ``lines`` without entries for target, or None when none matched."""
+    kept = [
+        line
+        for line in lines
+        if not ((em := _ENTRY_RE.match(line)) and em.group(2) == target)
+    ]
+    return kept if len(kept) != len(lines) else None
 
 
 def remove_entry(path: str | Path, target: str) -> bool:
@@ -169,22 +218,7 @@ def remove_entry(path: str | Path, target: str) -> bool:
     path = Path(path)
     if not path.exists():
         return False
-
-    lines = _read_lines(path)
-    new_lines: list[str] = []
-    removed = False
-    for line in lines:
-        entry_match = _ENTRY_RE.match(line)
-        if entry_match and entry_match.group(2) == target:
-            removed = True
-            continue
-        new_lines.append(line)
-
-    if not removed:
-        return False
-
-    _atomic_write_lines(path, new_lines)
-    return True
+    return _modify_index(path, lambda lines: _drop_entry(lines, target))
 
 
 def _group_lines_by_section(
@@ -228,25 +262,13 @@ def _group_lines_by_section(
     return section_order, preamble, section_entries, duplicate_count
 
 
-def merge_duplicate_sections(path: str | Path) -> int:
-    """Merge repeated '## ' headers into the first occurrence.
-
-    Preserves entry order within the merged section and returns the number
-    of duplicate headers collapsed. Zero duplicates found means return 0
-    and leave the file byte-identical rather than rewriting it. Atomic
-    write via os.replace().
-    """
-    path = Path(path)
-    if not path.exists():
-        return 0
-
-    lines = _read_lines(path)
+def _merge_sections(lines: list[str]) -> tuple[list[str] | None, int]:
+    """Return (merged lines, duplicates collapsed); lines is None when nothing to merge."""
     section_order, preamble, section_entries, duplicate_count = _group_lines_by_section(
         lines
     )
-
     if duplicate_count == 0:
-        return 0
+        return None, 0
 
     new_lines: list[str] = list(preamble)
     for name in section_order:
@@ -254,6 +276,27 @@ def merge_duplicate_sections(path: str | Path) -> int:
             new_lines.append("")
         new_lines.append(f"## {name}")
         new_lines.extend(section_entries[name])
+    return new_lines, duplicate_count
 
-    _atomic_write_lines(path, new_lines)
-    return duplicate_count
+
+def merge_duplicate_sections(path: str | Path) -> int:
+    """Merge repeated '## ' headers into the first occurrence.
+
+    Preserves entry order within the merged section and returns the number
+    of duplicate headers collapsed. Zero duplicates found means return 0
+    and leave the file byte-identical rather than rewriting it. Atomic
+    write, guarded like ``append_entry``.
+    """
+    path = Path(path)
+    if not path.exists():
+        return 0
+
+    collapsed = 0
+
+    def transform(lines: list[str]) -> list[str] | None:
+        nonlocal collapsed
+        merged, collapsed = _merge_sections(lines)
+        return merged
+
+    _modify_index(path, transform)
+    return collapsed

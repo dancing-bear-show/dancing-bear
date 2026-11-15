@@ -2,20 +2,21 @@
 
 from __future__ import annotations
 
-import os
 import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from hashlib import sha256
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 from typing import IO
 
+from core.fileutil import atomic_copy, file_sha256
 from core.paths import output_dir
 from memory.discovery import elect_canonical
+from memory.index import append_entry, parse_index
 from memory.models import MemoryStore
+from memory.parser import parse_memory_file
 
 __all__ = [
+    "ConsolidationAborted",
     "ConsolidationPlan",
     "ConsolidationResult",
     "apply_plan",
@@ -64,8 +65,8 @@ class ConsolidationResult:
     dry_run: bool
 
 
-def _file_sha256(path: Path) -> str:
-    return sha256(path.read_bytes()).hexdigest()
+class ConsolidationAborted(Exception):
+    """The user chose to quit at a conflict prompt; no changes were written."""
 
 
 def _group_by_repo(
@@ -116,7 +117,7 @@ def _classify_store_files(
 
             if canonical_path is None:
                 to_copy.append(str(source_path))
-            elif _file_sha256(source_path) == _file_sha256(canonical_path):
+            elif file_sha256(source_path) == file_sha256(canonical_path):
                 identical.append(str(source_path))
             else:
                 conflicts.append((str(source_path), str(canonical_path)))
@@ -218,14 +219,6 @@ def plan_consolidation(
         on_divergence=on_divergence,
         scanned_at=scanned_at,
     )
-
-
-def _atomic_copy(src: Path, dest: Path) -> None:
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    with NamedTemporaryFile(mode="wb", dir=dest.parent, delete=False) as tmp:
-        tmp_path = Path(tmp.name)
-        tmp.write(src.read_bytes())
-    os.replace(tmp_path, dest)
 
 
 def _check_no_concurrent_mutation(
@@ -338,42 +331,79 @@ def _prompt_conflict_choice(
     return ch
 
 
+_REPLACE = "replace"  # keep-newest: the non-canonical copy is newer and wins
+_KEEP = "keep"  # canonical wins; the other copy is archived
+_BOTH = "both"  # canonical wins; the other copy is archived as superseded
+
+
+def _decide_conflict(
+    plan: ConsolidationPlan, loser: Path, winner: Path, stdin: IO[str] | None
+) -> str:
+    """One conflict's decision per on_divergence. Raises ConsolidationAborted on 'q'."""
+    if plan.on_divergence == "keep-both":
+        return _BOTH
+    if plan.on_divergence == "prompt":
+        ch = _prompt_conflict_choice(
+            loser, winner, stdin if stdin is not None else sys.stdin
+        )
+        if ch == "q":
+            raise ConsolidationAborted("aborted at conflict prompt — no changes were applied")
+        return _BOTH if ch == "b" else _KEEP
+    # keep-newest: strictly newer mtime wins; a tie keeps canonical
+    return _REPLACE if loser.stat().st_mtime > winner.stat().st_mtime else _KEEP
+
+
+def _resolve_conflicts(
+    plan: ConsolidationPlan, *, stdin: IO[str] | None
+) -> list[tuple[Path, Path, str]]:
+    """Decide every conflict before any write."""
+    return [
+        (Path(loser), Path(winner), _decide_conflict(plan, Path(loser), Path(winner), stdin))
+        for loser, winner in plan.conflicts
+    ]
+
+
 def _apply_conflicts(
-    plan: ConsolidationPlan,
-    archive_dir: Path,
-    *,
-    _stdin: IO[str] | None = None,
-) -> tuple[list[str], list[str]]:
-    """Resolve each conflict per on_divergence. Returns (archived, superseded)."""
+    decisions: list[tuple[Path, Path, str]], archive_dir: Path
+) -> tuple[list[str], list[str], list[str]]:
+    """Apply resolved decisions. Returns (archived, superseded, replaced_canonical)."""
     archived: list[str] = []
     superseded: list[str] = []
-    for loser_str, winner_str in plan.conflicts:
-        loser = Path(loser_str)
-        winner = Path(winner_str)
-        if plan.on_divergence == "keep-both":
+    replaced: list[str] = []
+    for loser, winner, decision in decisions:
+        if decision == _BOTH:
             dest = archive_dir / _superseded_name(loser, winner)
-            _atomic_copy(loser, dest)
+            atomic_copy(loser, dest)
             superseded.append(str(dest))
-        elif plan.on_divergence == "prompt":
-            effective_stdin = _stdin if _stdin is not None else sys.stdin
-            ch = _prompt_conflict_choice(loser, winner, effective_stdin)
-            if ch == "q":
-                sys.exit(1)
-            elif ch == "b":
-                dest = archive_dir / _superseded_name(loser, winner)
-                _atomic_copy(loser, dest)
-                superseded.append(str(dest))
-            else:
-                # 'k' or any unrecognized second input → keep-canonical; archive loser
-                dest = archive_dir / loser.name
-                _atomic_copy(loser, dest)
-                archived.append(str(dest))
-        else:
-            # keep-newest: canonical copy wins; the loser is archived, never discarded
-            dest = archive_dir / loser.name
-            _atomic_copy(loser, dest)
+        elif decision == _REPLACE:
+            # Archive the canonical copy being replaced before overwriting it.
+            dest = archive_dir / f"{winner.stem}.superseded-canonical.md"
+            atomic_copy(winner, dest)
             archived.append(str(dest))
-    return archived, superseded
+            atomic_copy(loser, winner)
+            replaced.append(str(winner))
+        else:
+            dest = archive_dir / loser.name
+            atomic_copy(loser, dest)
+            archived.append(str(dest))
+    return archived, superseded, replaced
+
+
+def _index_copied(plan: ConsolidationPlan, copied: list[str]) -> None:
+    """Append MEMORY.md entries to the canonical store for newly copied files."""
+    index_path = plan.canonical.index_path
+    if not index_path:
+        candidate = Path(plan.canonical.root) / "memory" / "MEMORY.md"
+        index_path = str(candidate) if candidate.exists() else None
+    if not index_path:
+        return
+    indexed = {e.target for e in parse_index(index_path)}
+    for dest_str in copied:
+        dest = Path(dest_str)
+        if dest.name in indexed:
+            continue
+        memory = parse_memory_file(dest, project_slug=plan.canonical.project_slug)
+        append_entry(index_path, memory)
 
 
 def _archive_store_contents(store_root: str, archive_dir: Path) -> None:
@@ -388,7 +418,7 @@ def _archive_store_contents(store_root: str, archive_dir: Path) -> None:
         return
     for src_file in memory_subdir.iterdir():
         if src_file.is_file():
-            _atomic_copy(src_file, dest / src_file.name)
+            atomic_copy(src_file, dest / src_file.name)
 
 
 def apply_plan(
@@ -410,6 +440,11 @@ def apply_plan(
     written within the last RECENT_WRITE_WARNING_WINDOW_SECONDS (real apply
     only). dry_run defaults to True; under dry_run nothing is written and
     the result enumerates exactly the actions that would have been taken.
+    Conflicts are all resolved before the first write; ConsolidationAborted is
+    raised (with nothing written) when the user quits a prompt. keep-newest
+    replaces the canonical file with a strictly newer copy, archiving the
+    replaced one first. Files copied into the canonical store are appended to
+    its MEMORY.md.
     No code path here calls os.remove or unlink on a memory file.
     """
     if dry_run:
@@ -422,6 +457,9 @@ def apply_plan(
     slug = plan.canonical.project_slug or "unknown"
     archive_dir = archive_root / f"{slug}-{timestamp}"
 
+    # Resolve every conflict (including interactive prompts) before any write,
+    # so a quit leaves the stores untouched.
+    decisions = _resolve_conflicts(plan, stdin=_stdin)
     warnings = _check_no_concurrent_mutation(plan.canonical, plan.scanned_at)
     canonical_root = Path(plan.canonical.root) / "memory"
 
@@ -429,18 +467,20 @@ def apply_plan(
     for src_str in plan.to_copy:
         src = Path(src_str)
         dest = canonical_root / src.name
-        _atomic_copy(src, dest)
+        atomic_copy(src, dest)
         copied.append(str(dest))
+    _index_copied(plan, copied)
 
     archived: list[str] = []
     for src_str in plan.identical:
         src = Path(src_str)
         dest = archive_dir / src.name
-        _atomic_copy(src, dest)
+        atomic_copy(src, dest)
         archived.append(str(dest))
 
-    conflict_archived, superseded = _apply_conflicts(plan, archive_dir, _stdin=_stdin)
+    conflict_archived, superseded, replaced = _apply_conflicts(decisions, archive_dir)
     archived.extend(conflict_archived)
+    copied.extend(replaced)
 
     for store_root in plan.to_archive:
         _archive_store_contents(store_root, archive_dir)

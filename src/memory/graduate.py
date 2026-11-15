@@ -6,12 +6,10 @@ exactly one memory at a time — safe to run interactively and inside pipelines.
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
-from hashlib import sha256
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 
+from core.fileutil import atomic_copy, file_sha256
 from memory.index import append_entry
 from memory.models import Memory, MemoryStore
 
@@ -37,18 +35,6 @@ class GraduateResult:
 
 class GraduateError(Exception):
     """Raised when graduation cannot proceed safely."""
-
-
-def _file_sha256(path: Path) -> str:
-    return sha256(path.read_bytes()).hexdigest()
-
-
-def _atomic_copy(src: Path, dest: Path) -> None:
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    with NamedTemporaryFile(mode="wb", dir=dest.parent, delete=False) as tmp:
-        tmp_path = Path(tmp.name)
-        tmp.write(src.read_bytes())
-    os.replace(tmp_path, dest)
 
 
 def _find_memory_by_slug(store: MemoryStore, slug: str) -> Memory:
@@ -82,6 +68,8 @@ def graduate_memory(
     - source IS the canonical store (nothing to graduate)
     - the slug does not resolve, or resolves ambiguously
     - the destination has a diverged copy and yes=False
+
+    With yes=True a diverged destination is copied to ``<name>.md.bak`` first.
     """
     if source.root == canonical.root:
         raise GraduateError(
@@ -95,8 +83,8 @@ def graduate_memory(
     dest_path = canonical_memory_dir / src_path.name
 
     if dest_path.exists():
-        src_hash = _file_sha256(src_path)
-        dest_hash = _file_sha256(dest_path)
+        src_hash = file_sha256(src_path)
+        dest_hash = file_sha256(dest_path)
         if src_hash == dest_hash:
             return GraduateResult(
                 slug=memory.slug,
@@ -119,7 +107,11 @@ def graduate_memory(
             dest_path=str(dest_path),
         )
 
-    _atomic_copy(src_path, dest_path)
+    if dest_path.exists():
+        # Diverged copy being overwritten (--yes): keep a recoverable .bak,
+        # the same convention validate --fix uses.
+        atomic_copy(dest_path, dest_path.with_suffix(dest_path.suffix + ".bak"))
+    atomic_copy(src_path, dest_path)
 
     # Update canonical index only when the memory was indexed in the source store
     if memory.indexed and canonical.index_path:

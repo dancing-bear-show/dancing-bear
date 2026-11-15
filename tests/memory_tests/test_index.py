@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from tests.memory_tests.fixtures import CURRENT_FORMAT_INDEX, MemoryTestCase
 from memory.index import (
+    IndexConflictError,
     append_entry,
     merge_duplicate_sections,
     parse_index,
@@ -441,6 +443,63 @@ class TestMergeDuplicateSections(MemoryTestCase):
         entries = parse_index(index_file)
         feedback_targets = {e.target for e in entries if e.section == "Feedback"}
         self.assertEqual(feedback_targets, {"x.md", "y.md"})
+
+
+_FEEDBACK_MD = "---\ntype: feedback\nname: {n}\ndescription: {n} desc\n---\n\nBody.\n"
+
+
+class TestIndexModeAndConcurrency(MemoryTestCase):
+    def test_append_preserves_index_mode(self):
+        index_file = self.tmp / "MEMORY.md"
+        _make_index(index_file, "## Feedback\n- [a.md](a.md) — existing\n")
+        index_file.chmod(0o640)
+        m = _make_memory(self.tmp, "n1", _FEEDBACK_MD.format(n="n1"))
+        append_entry(index_file, m)
+        self.assertEqual(index_file.stat().st_mode & 0o777, 0o640)
+
+    def test_failed_write_leaves_no_temp_file(self):
+        index_file = self.tmp / "MEMORY.md"
+        _make_index(index_file, "## Feedback\n- [a.md](a.md) — existing\n")
+        m = _make_memory(self.tmp, "n1", _FEEDBACK_MD.format(n="n1"))
+        before = {p.name for p in self.tmp.iterdir()}
+        with mock.patch("core.fileutil.os.replace", side_effect=OSError("boom")):
+            with self.assertRaises(OSError):
+                append_entry(index_file, m)
+        self.assertEqual({p.name for p in self.tmp.iterdir()}, before)
+
+    def test_concurrent_write_between_read_and_replace_is_kept(self):
+        index_file = self.tmp / "MEMORY.md"
+        _make_index(index_file, "## Feedback\n- [a.md](a.md) — existing\n")
+        m = _make_memory(self.tmp, "mine", _FEEDBACK_MD.format(n="mine"))
+        fired: list[bool] = []
+
+        def concurrent_writer(path: Path) -> None:
+            if not fired:
+                fired.append(True)
+                with open(path, "a", encoding="utf-8") as f:
+                    f.write("- [theirs.md](theirs.md) — concurrent\n")
+
+        with mock.patch("memory.index._before_replace", side_effect=concurrent_writer):
+            append_entry(index_file, m)
+
+        targets = {e.target for e in parse_index(index_file)}
+        self.assertEqual(targets, {"a.md", "theirs.md", "mine.md"})
+
+    def test_persistent_conflict_raises_without_clobbering(self):
+        index_file = self.tmp / "MEMORY.md"
+        _make_index(index_file, "## Feedback\n- [a.md](a.md) — existing\n")
+        m = _make_memory(self.tmp, "mine", _FEEDBACK_MD.format(n="mine"))
+        counter = [0]
+
+        def always_writing(path: Path) -> None:
+            counter[0] += 1
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(f"- [t{counter[0]}.md](t{counter[0]}.md) — x\n")
+
+        with mock.patch("memory.index._before_replace", side_effect=always_writing):
+            with self.assertRaises(IndexConflictError):
+                append_entry(index_file, m)
+        self.assertNotIn("mine.md", index_file.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
