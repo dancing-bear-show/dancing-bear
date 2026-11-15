@@ -21,6 +21,7 @@ from telemetry.pricing import TokenMetrics, compute_cost
 from telemetry.providers.transcript_parse import (
     MessageKey,
     extract_cache_creation,
+    int_or_zero,
     is_billable_usage,
     message_key,
 )
@@ -147,20 +148,13 @@ def _parse_agent_usage_line(raw_line: str, since: datetime) -> _AgentUsage | Non
     return _AgentUsage(
         agent_name=record.get("agentName") or "(orchestrator)",
         model=model,
-        input_tokens=_count(usage.get("input_tokens")),
-        output_tokens=_count(usage.get("output_tokens")),
-        cache_read=_count(usage.get("cache_read_input_tokens")),
+        input_tokens=int_or_zero(usage.get("input_tokens")),
+        output_tokens=int_or_zero(usage.get("output_tokens")),
+        cache_read=int_or_zero(usage.get("cache_read_input_tokens")),
         cache_write=cache_write,
         cache_write_1h=cache_write_1h,
         key=message_key(msg.get("id"), record.get("requestId")),
     )
-
-
-def _count(value: object) -> int:
-    """Return a token count, treating null and non-numeric values as 0."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return 0
-    return int(value)
 
 
 def _apply_agent_usage(accs: TokenAccumulators, rec: _AgentUsage) -> None:
