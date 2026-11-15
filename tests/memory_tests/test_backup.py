@@ -175,6 +175,55 @@ class TestBackupStores(MemoryTestCase):
             (str(dest / "-Users-alice-code-real__feedback_real.md"),),
         )
 
+    def _real_store(self, slug: str):
+        from memory.discovery import load_store
+
+        projects = self.tmp / "projects"
+        mem_dir = projects / slug / "memory"
+        mem_dir.mkdir(parents=True)
+        (mem_dir / "feedback_a.md").write_text(_FEEDBACK_YAML, encoding="utf-8")
+        (mem_dir / "MEMORY.md").write_text("# Index\n", encoding="utf-8")
+        (mem_dir / "scratch.md").write_text("no frontmatter\n", encoding="utf-8")
+        return mem_dir, load_store(slug, projects_root=projects)
+
+    def test_backup_includes_index_and_non_memory_files(self) -> None:
+        _, store = self._real_store("-Users-alice-code-full")
+        dest = self.tmp / "full_backup"
+        with patch("memory.backup.subprocess.run") as mock_run:
+            mock_run.return_value = _ok_proc()
+            result = backup_stores((store,), dest)
+        names = {Path(p).name for p in result.files_staged}
+        self.assertEqual(
+            names,
+            {
+                "-Users-alice-code-full__feedback_a.md",
+                "-Users-alice-code-full__MEMORY.md",
+                "-Users-alice-code-full__scratch.md",
+            },
+        )
+        for p in result.files_staged:
+            self.assertTrue(Path(p).is_file())
+
+    def test_backup_skips_symlinked_md(self) -> None:
+        mem_dir, _ = self._real_store("-Users-alice-code-link")
+        outside = self.tmp / "outside.md"
+        outside.write_text("---\ntype: feedback\n---\n\nSECRET\n", encoding="utf-8")
+        link = mem_dir / "linked.md"
+        link.symlink_to(outside)
+        from memory.discovery import load_store
+
+        store = load_store("-Users-alice-code-link", projects_root=self.tmp / "projects")
+        dest = self.tmp / "link_backup"
+        with patch("memory.backup.subprocess.run") as mock_run:
+            mock_run.return_value = _ok_proc()
+            result = backup_stores((store,), dest)
+        self.assertFalse((dest / "-Users-alice-code-link__linked.md").exists())
+        self.assertEqual(result.skipped_symlinks, (str(link.parent.resolve() / link.name),))
+        self.assertNotIn(
+            "-Users-alice-code-link__linked.md",
+            {Path(p).name for p in result.files_staged},
+        )
+
     def test_no_git_push_called(self) -> None:
         store = _make_store_with_file(
             self.tmp,

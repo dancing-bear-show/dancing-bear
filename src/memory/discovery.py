@@ -76,7 +76,9 @@ def load_store(slug: str, *, projects_root: str | Path | None = None) -> MemoryS
 
     Parses MEMORY.md first, then each *.md in memory/, passing the index
     entries so indexed/index_hook/index_section are populated. Files whose
-    is_memory is False land in non_memory_files rather than being dropped.
+    is_memory is False, and files that fail to parse (non-mapping frontmatter,
+    non-UTF-8 bytes, unreadable), land in non_memory_files rather than being
+    dropped.
     A store whose memory/ directory does not exist yields empty tuples and
     index_path=None rather than raising — "no-memory" is a reportable role.
 
@@ -119,9 +121,16 @@ def load_store(slug: str, *, projects_root: str | Path | None = None) -> MemoryS
     for md_file in sorted(memory_dir.glob("*.md")):
         if md_file.name == "MEMORY.md":
             continue
-        memory = parse_memory_file(
-            md_file, project_slug=slug, index_entries=index_entries
-        )
+        try:
+            memory = parse_memory_file(
+                md_file, project_slug=slug, index_entries=index_entries
+            )
+        except (TypeError, ValueError, OSError):
+            # Non-mapping frontmatter (TypeError) or undecodable bytes
+            # (UnicodeDecodeError is a ValueError) must not drop the whole
+            # store: keep the file visible so validate can report it.
+            non_memory_files.append(str(md_file))
+            continue
         if memory.is_memory:
             memories.append(memory)
         else:

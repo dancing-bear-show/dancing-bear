@@ -17,6 +17,7 @@ from tests.memory_tests.fixtures import (
     SLUG_WORKTREE,
     MemoryTestCase,
     make_projects_root,
+    write_memory_dir,
 )
 from memory.discovery import (
     decode_project_slug,
@@ -231,6 +232,33 @@ class TestDiscoverStores(MemoryTestCase):
         slugs = {s.project_slug for s in stores}
         self.assertIn(SLUG_MAIN, slugs)
         self.assertIn(SLUG_EMPTY, slugs)
+
+    def _store_with_good_and_bad(self, bad_name: str, bad_bytes: bytes):
+        projects_root = self.tmp / "projects"
+        memory_dir = write_memory_dir(
+            projects_root,
+            SLUG_MAIN,
+            [("good.md", "---\ntype: feedback\n---\n\nbody\n")],
+        )
+        bad = memory_dir / bad_name
+        bad.write_bytes(bad_bytes)
+        return projects_root, bad
+
+    def test_list_frontmatter_file_does_not_drop_store(self):
+        projects_root, bad = self._store_with_good_and_bad(
+            "bad.md", b"---\n- a\n---\nbody\n"
+        )
+        stores = discover_stores(root=projects_root)
+        self.assertEqual(len(stores), 1)
+        self.assertEqual([m.slug for m in stores[0].memories], ["good"])
+        self.assertEqual(stores[0].non_memory_files, (str(bad.resolve()),))
+
+    def test_non_utf8_file_does_not_drop_store(self):
+        projects_root, bad = self._store_with_good_and_bad("bin.md", b"\xff\xfe\x00bad")
+        stores = discover_stores(root=projects_root)
+        self.assertEqual(len(stores), 1)
+        self.assertEqual([m.slug for m in stores[0].memories], ["good"])
+        self.assertEqual(stores[0].non_memory_files, (str(bad.resolve()),))
 
     def test_missing_root_returns_empty(self):
         buf = io.StringIO()

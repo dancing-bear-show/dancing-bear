@@ -23,6 +23,8 @@ class BackupResult:
     returning a non-zero exit for a reason other than "nothing to commit")
     — callers must surface this distinctly from commit_sha=None, which is
     also the no-op sentinel and is not itself a failure.
+    skipped_symlinks lists source files not backed up because they are
+    symlinks (never followed).
     """
 
     dest: str
@@ -31,6 +33,7 @@ class BackupResult:
     message: str
     created_repo: bool
     failed: bool = False
+    skipped_symlinks: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -75,18 +78,37 @@ def _init_repo_if_absent(dest_path: Path) -> tuple[bool, BackupResult | None]:
     return True, None
 
 
-def _copy_store_files(stores: tuple[MemoryStore, ...], dest_path: Path) -> list[str]:
-    """Copy each memory file to dest, explicit path by explicit path."""
+def _store_source_files(store: MemoryStore) -> list[Path]:
+    """Every file a restore needs: MEMORY.md, parsed memories, non-memory files."""
+    paths: list[Path] = []
+    if store.index_path:
+        paths.append(Path(store.index_path))
+    paths.extend(Path(m.path) for m in store.memories)
+    paths.extend(Path(p) for p in store.non_memory_files)
+    return paths
+
+
+def _copy_store_files(
+    stores: tuple[MemoryStore, ...], dest_path: Path
+) -> tuple[list[str], list[str]]:
+    """Copy each store file to dest; return (files_staged, skipped_symlinks).
+
+    Symlinks are never followed: copying the target would put content from
+    outside the store into the backup repo.
+    """
     files_staged: list[str] = []
+    skipped: list[str] = []
     for store in stores:
-        for memory in store.memories:
-            src = Path(memory.path)
-            if not src.exists():
+        for src in _store_source_files(store):
+            if src.is_symlink():
+                skipped.append(str(src))
+                continue
+            if not src.is_file():
                 continue
             dest_file = dest_path / f"{store.project_slug}__{src.name}"
             copy2(src, dest_file)
             files_staged.append(str(dest_file))
-    return files_staged
+    return files_staged, skipped
 
 
 def _stage_files(
@@ -116,7 +138,12 @@ def _stage_files(
 
 
 def _commit_and_resolve_sha(
-    message: str, dest_path: Path, files_staged: list[str], *, created_repo: bool
+    message: str,
+    dest_path: Path,
+    files_staged: list[str],
+    *,
+    created_repo: bool,
+    skipped_symlinks: tuple[str, ...] = (),
 ) -> BackupResult:
     result = _run_git(["commit", "-m", message], cwd=dest_path)
     # git commit exits 0 on a genuine commit. A non-zero exit with "nothing
@@ -132,6 +159,7 @@ def _commit_and_resolve_sha(
             message=f"git commit failed: {result.stderr or result.stdout}",
             created_repo=created_repo,
             failed=True,
+            skipped_symlinks=skipped_symlinks,
         )
 
     commit_sha = None
@@ -149,6 +177,7 @@ def _commit_and_resolve_sha(
         commit_sha=commit_sha,
         message=message,
         created_repo=created_repo,
+        skipped_symlinks=skipped_symlinks,
     )
 
 
@@ -158,6 +187,10 @@ def backup_stores(
     message: str | None = None,
 ) -> BackupResult:
     """Stage and commit memory store files to a local-only git repository.
+
+    Included per store: MEMORY.md, every parsed memory file, and non-memory
+    *.md files (so a restore is complete). Symlinked files are skipped, not
+    followed, and listed in BackupResult.skipped_symlinks.
 
     Args:
         stores: Tuple of MemoryStore instances to back up.
@@ -173,7 +206,7 @@ def backup_stores(
     if init_error is not None:
         return init_error
 
-    files_staged = _copy_store_files(stores, dest_path)
+    files_staged, skipped_symlinks = _copy_store_files(stores, dest_path)
 
     stage_error = _stage_files(files_staged, dest_path, created_repo=created_repo)
     if stage_error is not None:
@@ -183,7 +216,11 @@ def backup_stores(
         message = datetime.now(UTC).isoformat()
 
     return _commit_and_resolve_sha(
-        message, dest_path, files_staged, created_repo=created_repo
+        message,
+        dest_path,
+        files_staged,
+        created_repo=created_repo,
+        skipped_symlinks=tuple(skipped_symlinks),
     )
 
 

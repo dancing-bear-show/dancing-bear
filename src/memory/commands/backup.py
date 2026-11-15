@@ -3,6 +3,9 @@
 Delegates all git work to memory.backup — this module constructs
 no subprocess commands itself. --status is strictly read-only; all other
 invocations require --store or --all-stores.
+
+Backed up per store: MEMORY.md, memory files, and non-memory *.md files.
+Symlinks are skipped (never followed) and reported on stderr.
 """
 
 from __future__ import annotations
@@ -42,7 +45,7 @@ ARGUMENTS: list[ArgSpec] = [
 
 
 def run(args: argparse.Namespace) -> int:
-    """Back up memory stores into a local-only git repository."""
+    """Back up MEMORY.md, memory files and non-memory *.md (symlinks skipped) to a local git repo."""
     scope_error = exclusive_store_scope(args.store, args.all_stores)
     if scope_error is not None:
         return scope_error
@@ -84,6 +87,9 @@ def run(args: argparse.Namespace) -> int:
         print(f"Error: {result.message}", file=sys.stderr)
         return 1
 
+    for skipped in result.skipped_symlinks:
+        print(f"Warning: skipped symlink {skipped}", file=sys.stderr)
+
     emit_one(
         {
             "dest": result.dest,
@@ -91,6 +97,7 @@ def run(args: argparse.Namespace) -> int:
             "commit_sha": result.commit_sha,
             "message": result.message,
             "created_repo": result.created_repo,
+            "skipped_symlinks": len(result.skipped_symlinks),
         },
         args.format,
     )
