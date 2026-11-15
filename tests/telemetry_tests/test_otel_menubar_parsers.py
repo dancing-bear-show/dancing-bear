@@ -11,7 +11,6 @@ from typing import cast
 from telemetry.otel.menubar_parsers import (
     _accumulate_compaction_events,
     _accumulate_cost_metric,
-    _accumulate_datapoint,
     _accumulate_loc_metrics,
     _accumulate_token_metric,
     _is_event_success,
@@ -20,7 +19,9 @@ from telemetry.otel.menubar_parsers import (
     _parse_attrs,
     _parse_nano_ts,
     _process_tool_result_event,
+    _read_datapoint,
     _read_rotated_jsonl,
+    parse_metric_points,
     _top_n,
     _trunc,
     _MAX_ATTR_LEN,
@@ -158,6 +159,14 @@ class TestParseAttrs(unittest.TestCase):
         self.assertAlmostEqual(cast(float, result["cost"]), 0.5)
 
 
+class TestIterLogRecordsSkipsNonDicts(unittest.TestCase):
+    def test_non_dict_log_records_skipped(self) -> None:
+        raw: dict[str, object] = {
+            "resourceLogs": [{"scopeLogs": [{"logRecords": [None, "x", 3, {"body": "ok"}]}]}]
+        }
+        self.assertEqual(list(_iter_log_records([raw])), [{"body": "ok"}])
+
+
 class TestIterLogRecords(unittest.TestCase):
     def test_empty_list_yields_nothing(self) -> None:
         self.assertEqual(list(_iter_log_records([])), [])
@@ -201,8 +210,9 @@ class TestIterMetricDatapoints(unittest.TestCase):
         }
         results = list(_iter_metric_datapoints(raw))
         self.assertEqual(len(results), 1)
-        name, dp = results[0]
+        name, is_cumulative, dp = results[0]
         self.assertEqual(name, "claude_code.cost.usage")
+        self.assertFalse(is_cumulative)
         self.assertEqual(dp["asDouble"], 1.5)
 
     def test_sum_data_points_used(self) -> None:
@@ -219,41 +229,67 @@ class TestIterMetricDatapoints(unittest.TestCase):
         results = list(_iter_metric_datapoints(raw))
         self.assertEqual(len(results), 1)
 
+    def test_cumulative_temporality_flagged(self) -> None:
+        raw: dict[str, object] = {
+            "resourceMetrics": [{
+                "scopeMetrics": [{
+                    "metrics": [{
+                        "name": "claude_code.token.usage",
+                        "sum": {"aggregationTemporality": 2, "dataPoints": [{"asInt": "100"}]},
+                    }]
+                }]
+            }]
+        }
+        [(_, is_cumulative, _)] = list(_iter_metric_datapoints(raw))
+        self.assertTrue(is_cumulative)
+
     def test_empty_raw_yields_nothing(self) -> None:
         results = list(_iter_metric_datapoints({}))
         self.assertEqual(results, [])
 
 
-class TestAccumulateDatapoint(unittest.TestCase):
+class TestReadDatapoint(unittest.TestCase):
     def _future_ts_nano(self, secs_ahead: int = 10) -> int:
         """Return a nanosecond timestamp comfortably in the future."""
         return int((time.time() + secs_ahead) * 1e9)
 
-    def test_recent_datapoint_appended(self) -> None:
+    def test_recent_datapoint_returned(self) -> None:
         cutoff = time.time() - 3600  # 1 hour ago
         dp: dict[str, object] = {"timeUnixNano": self._future_ts_nano(), "asDouble": 2.5}
-        out: list = []
-        _accumulate_datapoint(dp, "my.metric", cutoff, out)
-        self.assertEqual(len(out), 1)
-        name, value, _ = out[0]
-        self.assertEqual(name, "my.metric")
+        point = _read_datapoint(dp, cutoff)
+        self.assertIsNotNone(point)
+        _, value, _ = cast(tuple, point)
         self.assertAlmostEqual(value, 2.5)
 
     def test_old_datapoint_skipped(self) -> None:
         cutoff = time.time() + 3600  # 1 hour in the future
         dp: dict[str, object] = {"timeUnixNano": int(time.time() * 1e9), "asDouble": 2.5}
-        out: list = []
-        _accumulate_datapoint(dp, "my.metric", cutoff, out)
-        self.assertEqual(len(out), 0)
+        self.assertIsNone(_read_datapoint(dp, cutoff))
 
     def test_asint_used_when_asdouble_missing(self) -> None:
         cutoff = time.time() - 3600
-        dp: dict[str, object] = {"timeUnixNano": self._future_ts_nano(), "asInt": 10}
-        out: list = []
-        _accumulate_datapoint(dp, "my.metric", cutoff, out)
-        self.assertEqual(len(out), 1)
-        _, value, _ = out[0]
+        dp: dict[str, object] = {"timeUnixNano": self._future_ts_nano(), "asInt": "10"}
+        _, value, _ = cast(tuple, _read_datapoint(dp, cutoff))
         self.assertEqual(value, 10.0)
+
+    def test_asint_used_when_asdouble_is_null(self) -> None:
+        cutoff = time.time() - 3600
+        dp: dict[str, object] = {
+            "timeUnixNano": self._future_ts_nano(), "asDouble": None, "asInt": 7,
+        }
+        _, value, _ = cast(tuple, _read_datapoint(dp, cutoff))
+        self.assertEqual(value, 7.0)
+
+    def test_unusable_timestamp_or_value_skipped(self) -> None:
+        cutoff = time.time() - 3600
+        for dp in (
+            {"asDouble": 1.0},
+            {"timeUnixNano": "garbage", "asDouble": 1.0},
+            {"timeUnixNano": 2**70, "asDouble": 1.0},
+            {"timeUnixNano": self._future_ts_nano(), "asInt": 10**400},
+        ):
+            with self.subTest(dp=str(dp)[:60]):
+                self.assertIsNone(_read_datapoint(cast(dict, dp), cutoff))
 
     def test_attrs_parsed(self) -> None:
         cutoff = time.time() - 3600
@@ -262,10 +298,65 @@ class TestAccumulateDatapoint(unittest.TestCase):
             "asDouble": 1.0,
             "attributes": [{"key": "model", "value": {"stringValue": "sonnet"}}],
         }
-        out: list = []
-        _accumulate_datapoint(dp, "my.metric", cutoff, out)
-        _, _, attrs = out[0]
+        _, _, attrs = cast(tuple, _read_datapoint(dp, cutoff))
         self.assertEqual(attrs["model"], "sonnet")
+
+
+def _metrics_line(temporality: int, points: list[tuple[int, float, str]]) -> dict[str, object]:
+    """One metrics JSONL record of ``claude_code.cost.usage`` with (ts_nano, value, model) points."""
+    return {
+        "resourceMetrics": [{
+            "scopeMetrics": [{
+                "metrics": [{
+                    "name": "claude_code.cost.usage",
+                    "sum": {
+                        "aggregationTemporality": temporality,
+                        "dataPoints": [
+                            {
+                                "timeUnixNano": ts,
+                                "asDouble": value,
+                                "attributes": [{"key": "model", "value": {"stringValue": model}}],
+                            }
+                            for ts, value, model in points
+                        ],
+                    },
+                }]
+            }]
+        }]
+    }
+
+
+class TestParseMetricPoints(unittest.TestCase):
+    def setUp(self) -> None:
+        self.now_nano = int(time.time() * 1e9)
+        self.cutoff = time.time() - 3600
+
+    def test_cumulative_series_counts_latest_point_only(self) -> None:
+        # Three exports of one running total: 1.0, then 2.5, then 4.0.
+        lines = [
+            _metrics_line(2, [(self.now_nano - 3_000_000_000, 1.0, "opus")]),
+            _metrics_line(2, [(self.now_nano - 1_000_000_000, 4.0, "opus")]),
+            _metrics_line(2, [(self.now_nano - 2_000_000_000, 2.5, "opus")]),
+        ]
+        points = parse_metric_points(cast(list, lines), self.cutoff)
+        self.assertEqual([(n, v) for n, v, _ in points], [("claude_code.cost.usage", 4.0)])
+
+    def test_cumulative_series_are_kept_per_attribute_set(self) -> None:
+        lines = [
+            _metrics_line(2, [(self.now_nano - 2_000_000_000, 1.0, "opus")]),
+            _metrics_line(2, [(self.now_nano - 1_000_000_000, 3.0, "opus")]),
+            _metrics_line(2, [(self.now_nano - 1_000_000_000, 0.5, "haiku")]),
+        ]
+        points = parse_metric_points(cast(list, lines), self.cutoff)
+        self.assertEqual(sorted(v for _, v, _ in points), [0.5, 3.0])
+
+    def test_delta_points_all_count(self) -> None:
+        lines = [
+            _metrics_line(1, [(self.now_nano - 2_000_000_000, 1.0, "opus")]),
+            _metrics_line(1, [(self.now_nano - 1_000_000_000, 3.0, "opus")]),
+        ]
+        points = parse_metric_points(cast(list, lines), self.cutoff)
+        self.assertEqual(sum(v for _, v, _ in points), 4.0)
 
 
 class TestAccumulateTokenMetric(unittest.TestCase):

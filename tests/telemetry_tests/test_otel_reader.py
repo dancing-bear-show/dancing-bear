@@ -82,6 +82,42 @@ class TestOTLPReaderReadMethods(unittest.TestCase):
     def _make_reader(self) -> OTLPReader:
         return OTLPReader(data_dir=OTLPDataDir(path=self.tmppath))
 
+    def test_non_object_lines_are_skipped(self):
+        _write_jsonl(self.tmppath / METRICS_FILE, ["[1, 2]", "42", '"text"', _METRICS_LINE])
+        self.assertEqual(len(self._make_reader().read_metrics()), 1)
+
+    def test_bad_timestamp_drops_only_that_event(self):
+        good = {"timeUnixNano": "1700000000000000000", "body": {"stringValue": "ok"}}
+        line = json.dumps({
+            "resourceLogs": [{"scopeLogs": [{"logRecords": [
+                {"timeUnixNano": None}, {"timeUnixNano": "garbage"}, {"timeUnixNano": 2**70}, good,
+            ]}]}]
+        })
+        _write_jsonl(self.tmppath / EVENTS_FILE, [line])
+        [record] = self._make_reader().read_events()
+        self.assertEqual([e.body for e in record.log_records], ["ok"])
+
+    def test_bad_timestamp_drops_only_that_span(self):
+        good = {"name": "ok", "startTimeUnixNano": "1", "endTimeUnixNano": "2"}
+        line = json.dumps({
+            "resourceSpans": [{"scopeSpans": [{"spans": [{"startTimeUnixNano": "x"}, good]}]}]
+        })
+        _write_jsonl(self.tmppath / SPANS_FILE, [line])
+        [record] = self._make_reader().read_spans()
+        self.assertEqual([s.name for s in record.spans], ["ok"])
+
+    def test_malformed_nesting_yields_empty_record(self):
+        lines = [
+            json.dumps({"resourceMetrics": None}),
+            json.dumps({"resourceMetrics": [None, 3]}),
+            json.dumps({"resourceMetrics": [{"resource": "x", "scopeMetrics": "y"}]}),
+            json.dumps({"resourceMetrics": [{"scopeMetrics": [{"scope": None, "metrics": [None]}]}]}),
+        ]
+        _write_jsonl(self.tmppath / METRICS_FILE, lines)
+        records = self._make_reader().read_metrics()
+        self.assertEqual(len(records), 4)
+        self.assertTrue(all(r.metrics == [] for r in records))
+
     def test_read_metrics_returns_records(self):
         _write_jsonl(self.tmppath / METRICS_FILE, [_METRICS_LINE, _METRICS_LINE])
         reader = self._make_reader()

@@ -17,6 +17,14 @@ def build_agentic_capsule() -> str:
     lines.append("  - status: ./bin/workflow status <workspace-dir>")
     lines.append("  - init-workspace: ./bin/workflow init-workspace <file.yaml>")
     lines.append("  - resume: ./bin/workflow resume <workspace-dir>")
+    lines.append(
+        "  - set-state: ./bin/workflow set-state <workspace-dir> <stage> "
+        "[--status success] [--data '{json}'] [--stage-index N] [--note T]"
+    )
+    lines.append(
+        "  - seed-pr-lifecycle: ./bin/workflow seed-pr-lifecycle <workspace-dir> <prefix> "
+        "--pr N [--url U] [--note T] [--fragment PATH]"
+    )
     lines.append("  - validate-fragment: ./bin/workflow validate-fragment <fragment.yaml>")
     lines.append(
         "  - check-params: ./bin/workflow check-params <workspace>/manifest.json "
@@ -68,6 +76,18 @@ def build_agentic_capsule() -> str:
     lines.append("  - sweep-record.write: ./bin/workflow sweep-record write --head <sha40> --workspace <dir>")
     lines.append("  - sweep-record.waive: ./bin/workflow sweep-record waive --head <sha40> --reason '<text>'")
     lines.append("  - sweep-record.check: ./bin/workflow sweep-record check --head <sha40>")
+    lines.append(
+        "  - fleet.run: ./bin/workflow fleet run <file.yaml> --fan-over items:a,b "
+        "--fan-param 'k={item}' [--param k=v] [--batch-size N] [--force-items a,b] "
+        "[--base-dir DIR] [--dry-run]"
+    )
+    lines.append("  - fleet.status: ./bin/workflow fleet status <file.yaml> [--filter STATUS]")
+    lines.append("  - fleet.reset: ./bin/workflow fleet reset <file.yaml> [--filter STATUS] [--items a,b]")
+    lines.append("  - fleet.report: ./bin/workflow fleet report <file.yaml> [--filter STATUS]")
+    lines.append(
+        "  - fleet.mark: ./bin/workflow fleet mark <file.yaml> <item> <running/done/failed/skipped> "
+        "[--workspace DIR] [--error MSG] [--force]"
+    )
     lines.append("notes:")
     lines.append("  - ./bin/workflow list is the authoritative live catalog of available workflows")
     lines.append(
@@ -87,9 +107,20 @@ def build_agentic_capsule() -> str:
         "exit 2 refused; check "
         "exits 0 found (prints mode), 1 none, 2 bad sha; the PR-create hook requires one"
     )
+    lines.append(
+        "  - fleet: ledger at <data-home>/workflow-fleet/<slug>/ledger.json; --fan-over items:a,b or file:<path>; run inits one "
+        "workspace per batch item and marks it running (it never executes stages); run each with "
+        "/workflow, then fleet mark; a failed item is retried in its old workspace, reset starts "
+        "fresh; mark done exits 1 while the workspace has stages left unless --force"
+    )
     lines.append("  - file arguments are positional (./bin/workflow run <file>), not --input")
     lines.append("  - --params accepts k=v pairs; repeat for multiple params")
     lines.append("  - resume exits 0 if all stages done, exits 2 if stages remain")
+    lines.append(
+        "  - set-state / seed-pr-lifecycle: stuck-run recovery; write stage markers for work "
+        "done outside the orchestrator (index = max+1, so they supersede older markers); "
+        "stage must be in plan.json; exit 1 on unknown workspace/stage, bad name or --data"
+    )
     lines.append(
         "  - check-params validates trigger params as JSON data (exit 0 pass, 1 fail); "
         "--print writes one value to stdout only if every --check passed, so a stage "

@@ -2,7 +2,7 @@
 
 This repository hosts personal assistants (mail, calendar, schedule, phone, resume, whatsapp,
 wifi, desk, apple_music, maker, charts, diagrams, slides, sheets, qlty, workflow, worker,
-telemetry).
+telemetry, agent-helpers).
 
 ## Quick Start for Agents
 
@@ -32,7 +32,7 @@ All 20 CLIApp-based apps support `--agentic`. `./bin/llm inventory --stdout` pri
 
 ## Architecture
 
-20 packages under `src/`:
+21 packages under `src/`:
 ```
 mail/              Gmail/Outlook providers, CLI wiring
 calendars/         Outlook calendar CLI + Gmail scans
@@ -51,8 +51,9 @@ sheets/            styled .xlsx generation from YAML
 qlty/              qlty scan/triage wrapper
 github_assistant/  GitHub porcelain over core.github
 memory/            Claude auto-memory list/validate/consolidate/export
+agent_helpers/     agent-facing checks (tests, validators, patch analysis)
 monitor_poll/      poll a condition until it resolves or times out
-workflow/          YAML DAG engine (24 subcommands)
+workflow/          YAML DAG engine (27 subcommands)
 worker/            background job queue and daemon; qwen_patch job type (Ollama)
 telemetry/         Claude Code session telemetry
 core/              shared helpers and CLI framework; pdf_forms (AcroForm fill, [pdf] extra)

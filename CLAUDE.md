@@ -43,7 +43,7 @@ src/                      # all Python source packages (installable via package-
   diagrams/               # Mermaid diagram generation (flowchart/sequence/gantt/pie; telemetry cost/token pies)
   slides/                 # generate PowerPoint decks from YAML deck definitions
   sheets/                 # generate styled .xlsx spreadsheets from YAML workbook definitions
-  workflow/               # YAML DAG workflow engine (24 subcommands; see docs/workflow-engine.md)
+  workflow/               # YAML DAG workflow engine (27 subcommands; see docs/workflow-engine.md)
   core/                   # shared helpers
   telemetry/              # Claude Code session telemetry (cost, tokens, TUI)
   worker/                 # background job queue and daemon
@@ -52,6 +52,7 @@ src/                      # all Python source packages (installable via package-
   qlty/                   # qlty scan/triage wrapper (tiers findings by remediation strategy)
   github_assistant/       # GitHub porcelain over core.github
   memory/                 # Claude auto-memory: list/validate/consolidate/export/backup
+  agent_helpers/          # agent-facing checks: run tests/lint/typecheck, validate imports/AST/JSON, analyze patches, git ops
   monitor_poll/           # poll a condition (command/file/URL/gh PR+run) until it resolves or times out
 bin/                      # entry wrappers and helper scripts
 tests/                    # lightweight unittest suite
@@ -90,8 +91,8 @@ All CLIs use argparse with positional subcommand dispatch. Arguments are passed 
 - Flags (`--dry-run`, `--profile`, `--format`) always follow the subcommand
 - The `assistant` dispatcher strips the app name and passes remaining argv directly to the app's `main()`
 - The workflow engine (`src/workflow/compiler.py`) inserts `--` before flags for most skills; `llm` and `docs` CLIs are exempt (`_NO_SEPARATOR_CLIS`). `docs` is reserved for a planned external documentation CLI — no `bin/docs` ships today
-- `--` separator is now **optional** for all CLIApp-based CLIs (mail, calendar, schedule, resume, phone, whatsapp, desk, wifi, maker, apple_music, workflow, worker, slides, sheets, telemetry, qlty, charts, diagrams, github, memory, monitor-poll); `src/core/cli_framework.py` strips bare `--` tokens automatically. The workflow engine's `_NO_SEPARATOR_CLIS` exemption for `llm`/`docs` remains unchanged.
-- Auto-derived agentic schema: **all 21 apps** support `--agentic --agentic-format json` to emit a machine-readable parser schema that never drifts from the real CLI; add `--agentic-compact` to strip low-value fields; add `--agentic-domain <prefix>` to filter to one subcommand group. Run `./bin/llm inventory --stdout` for the authoritative list — it prints the exact invocation per app, because `./bin/<app>` is wrong for three of them (`apple-music` and `qlty` use `-assistant` wrappers, and `resume` goes through `./bin/assistant resume`).
+- `--` separator is now **optional** for all CLIApp-based CLIs (mail, calendar, schedule, resume, phone, whatsapp, desk, wifi, maker, apple_music, workflow, worker, slides, sheets, telemetry, qlty, charts, diagrams, github, memory, agent-helpers, monitor-poll); `src/core/cli_framework.py` strips bare `--` tokens automatically. The workflow engine's `_NO_SEPARATOR_CLIS` exemption for `llm`/`docs` remains unchanged.
+- Auto-derived agentic schema: **all 22 apps** support `--agentic --agentic-format json` to emit a machine-readable parser schema that never drifts from the real CLI; add `--agentic-compact` to strip low-value fields; add `--agentic-domain <prefix>` to filter to one subcommand group. Run `./bin/llm inventory --stdout` for the authoritative list — it prints the exact invocation per app, because `./bin/<app>` is wrong for three of them (`apple-music` and `qlty` use `-assistant` wrappers, and `resume` goes through `./bin/assistant resume`).
 - Most apps get this via `CLIApp.run_with_assistant()`. Four wire it manually to preserve legacy no-subcommand exit codes: charts (1) and diagrams (0) call `assistant.add_agentic_flags(parser)` then `maybe_emit_agentic(...)` before their `cmd_func is None` branch; worker (1) and workflow (2) pass `on_no_command=` through `run_with_assistant()`.
 
 ## Development Rules
@@ -553,15 +554,15 @@ resolution order. This is the same diagnostic
 ## Check for an Existing Workflow First
 
 **Before starting any multi-step task, check whether a workflow already does it.**
-`./bin/workflow list` is the authoritative catalog and shows 56 workflows (as of
-2026-09-23; the count grows, so trust the command over this number). Counting the
-files instead overstates it: of 76 YAML files under `workflows/`, 19 are
+`./bin/workflow list` is the authoritative catalog and shows 63 workflows (as of
+2026-11-11; the count grows, so trust the command over this number). Counting the
+files instead overstates it: of 85 YAML files under `workflows/`, 21 are
 `fragment: true` includes that cannot run on their own.
 
-56 is the *listable* count, not quite the runnable one — `workflow list` skips
+63 is the *listable* count, not quite the runnable one — `workflow list` skips
 everything under `workflows/shared/`, and one file there
 (`workflows/shared/critique.yaml`) is a non-fragment workflow that can be invoked
-directly. So 57 are runnable and 56 are listed.
+directly. So 64 are runnable and 63 are listed.
 
 Reinventing a workflow wastes the work already invested in it and produces a
 second, diverging implementation of the same process.
@@ -616,7 +617,7 @@ and hit a gap the YAML didn't cover, fix the YAML — that is how these get bett
 # Visualization + orchestration
 ./bin/charts render <spec.json>          # render a chart (also: grid, reshape)
 ./bin/diagrams from-yaml <spec.yaml>     # Mermaid from YAML (also: render, validate, embed, telemetry)
-./bin/workflow run <workflow.yaml>       # run a YAML DAG (24 subcommands; see docs/workflow-engine.md)
+./bin/workflow run <workflow.yaml>       # run a YAML DAG (27 subcommands; see docs/workflow-engine.md)
 ```
 
 ## Auto-Familiarization
@@ -742,6 +743,7 @@ Never use a bare `sleep` loop in a Bash tool call to wait for a condition.
 | `ci-fixer` | Sonnet | CI failure diagnosis and fix |
 | `code-writer-opus` | Opus | Escalate from code-writer when Sonnet is stuck or producing incorrect code after retries |
 | `tester-opus` | Opus | Escalate from tester when Sonnet fails to produce passing tests after iteration |
+| `code-writer-haiku-scaffold` | Haiku | One-file scaffold writer for scaffold-impl's swarm stage; Read + Write only, no Bash |
 | `ci-fixer-opus` | Opus | Escalate from ci-fixer when failure involves entangled cross-domain regressions or deep test-infrastructure reasoning |
 | `critic` | Opus | Adversarial critique of plans, workflow designs, architecture decisions |
 | `workflow-debugger` | Sonnet | Diagnose failed or stuck workflow runs — daemon, fan_out, DAG, and worker_queue issues |

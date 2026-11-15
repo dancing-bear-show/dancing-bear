@@ -35,15 +35,14 @@ from telemetry.otel.menubar_parsers import (
     _WINDOW_SECS,
     _accumulate_compaction_events,
     _accumulate_cost_metric,
-    _accumulate_datapoint,
     _accumulate_loc_metrics,
     _accumulate_token_metric,
     _iter_log_records,
-    _iter_metric_datapoints,
     _parse_attrs,
     _parse_nano_ts,
     _process_tool_result_event,
     _read_rotated_jsonl,
+    parse_metric_points,
     _safe_float,
     _safe_int,
     _top_n,
@@ -156,12 +155,12 @@ class OtelMenubarProvider:
     def _parse_metric_datapoints(
         self, raw_lines: list[dict[str, object]], cutoff: float
     ) -> list[tuple[str, float, dict[str, object]]]:
-        """Parse raw metrics JSONL dicts into (metric_name, value, attrs) triples."""
-        out: list[tuple[str, float, dict[str, object]]] = []
-        for raw in raw_lines:
-            for name, dp in _iter_metric_datapoints(raw):
-                _accumulate_datapoint(dp, name, cutoff, out)
-        return out
+        """Parse raw metrics JSONL dicts into (metric_name, value, attrs) triples.
+
+        Cumulative series contribute only their latest point; see
+        ``parse_metric_points``.
+        """
+        return parse_metric_points(raw_lines, cutoff)
 
     def _compute_otel_usage(
         self,

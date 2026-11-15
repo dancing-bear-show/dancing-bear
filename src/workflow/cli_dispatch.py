@@ -464,11 +464,44 @@ def _cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_init_workspace(args: argparse.Namespace) -> int:
-    """Create workspace dir, write manifest.json + plan.json, and print workspace path."""
+def create_run_workspace(
+    path: str,
+    cli_params: dict[str, str],
+    *,
+    run_id: str = "",
+    base_dir: str | None = None,
+) -> Path:
+    """Create a run workspace with manifest.json + plan.json and return its path.
+
+    Shared by ``init-workspace`` and ``fleet run``.  Raises CLIError on a
+    parse/compile failure or an unsafe workspace path.
+    """
     from workflow.persistence import init_workspace, write_manifest
     from core.fileutil import atomic_write_json
 
+    resolved_params = _build_resolved_params(path, cli_params)
+    defn, manifest = _load_manifest(path, trigger_params=resolved_params or None)
+
+    run_id = run_id or _generate_run_id(defn.name)
+    base = _resolve_base_dir(base_dir, defn, resolved_params)
+
+    workspace = init_workspace(defn.name, run_id, base_dir=base)
+
+    write_manifest(
+        workspace,
+        manifest,
+        yaml_path=str(Path(path).resolve()),
+        run_id=run_id,
+        trigger_params=resolved_params or None,
+    )
+
+    plan = _build_plan_json(defn.name, run_id, manifest)
+    atomic_write_json(workspace / "plan.json", plan)
+    return workspace
+
+
+def _cmd_init_workspace(args: argparse.Namespace) -> int:
+    """Create workspace dir, write manifest.json + plan.json, and print workspace path."""
     if not check_workflow_path(args.path):
         return 1
 
@@ -477,25 +510,9 @@ def _cmd_init_workspace(args: argparse.Namespace) -> int:
         print(err, file=sys.stderr)
         return 1
 
-    resolved_params = _build_resolved_params(args.path, params)
-    defn, manifest = _load_manifest(args.path, trigger_params=resolved_params or None)
-
-    run_id = args.run_id or _generate_run_id(defn.name)
-    base_dir = _resolve_base_dir(args.base_dir or None, defn, resolved_params)
-
-    workspace = init_workspace(defn.name, run_id, base_dir=base_dir)
-
-    write_manifest(
-        workspace,
-        manifest,
-        yaml_path=str(Path(args.path).resolve()),
-        run_id=run_id,
-        trigger_params=resolved_params or None,
+    workspace = create_run_workspace(
+        args.path, params, run_id=args.run_id, base_dir=args.base_dir or None,
     )
-
-    plan = _build_plan_json(defn.name, run_id, manifest)
-    atomic_write_json(workspace / "plan.json", plan)
-
     print(str(workspace))
     return 0
 

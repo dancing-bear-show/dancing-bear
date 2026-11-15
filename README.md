@@ -61,6 +61,7 @@ CLI help:
 | Qlty | `./bin/qlty-assistant` | Scan, triage, and rank qlty findings by remediation tier |
 | GitHub | `./bin/github` | GitHub porcelain over `core.github` |
 | Memory | `./bin/memory` | Inspect, validate, consolidate, and back up Claude auto-memory stores |
+| Agent Helpers | `./bin/agent-helpers` | Run tests/lint/typecheck, validate imports/AST/JSON, analyze patches |
 
 Legacy `-assistant` suffixed binaries still work (e.g., `./bin/mail-assistant`).
 
@@ -95,6 +96,7 @@ flowchart TB
         qlty[qlty/]
         github_assistant[github_assistant/]
         memory[memory/]
+        agent_helpers[agent_helpers/]
     end
 
     core[src/core/ — shared helpers + CLI framework]
@@ -427,8 +429,9 @@ src/
   qlty/         qlty scan/triage wrapper
   github_assistant/  GitHub porcelain over core.github
   memory/       Claude auto-memory list/validate/consolidate/export/backup
+  agent_helpers/  agent-facing checks (tests, validators, patch analysis)
   monitor_poll/  poll a condition (command, file, URL, GitHub PR/run) until it resolves or times out
-  workflow/     YAML DAG engine (24 subcommands; see docs/workflow-engine.md)
+  workflow/     YAML DAG engine (27 subcommands; see docs/workflow-engine.md)
   worker/       background job queue and daemon; qwen_patch job type (Ollama)
   telemetry/    Claude Code session telemetry (cost, tokens, TUI)
   core/         shared helpers and CLI framework

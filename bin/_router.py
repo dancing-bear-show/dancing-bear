@@ -105,6 +105,7 @@ _MODULE_MAP: dict[str, str] = {
     "monitor-poll": "monitor_poll",
     "github": "github_assistant",
     "memory": "memory",
+    "agent-helpers": "agent_helpers",
     "mail-assistant": "mail",
     "phone-assistant": "phone",
     "calendar-assistant": "calendars",

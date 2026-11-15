@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from pathlib import Path
+from typing import Protocol
 
 from telemetry.timeutil import now_utc, parse_iso_utc
 from telemetry.models import AgentSummary, SessionEvent
@@ -21,7 +22,120 @@ logger = logging.getLogger(__name__)
 JSONL_GLOB = "*.jsonl"
 SUBDIR_GLOB = "*/subagents/*.jsonl"
 
-CostFn = Callable[[str, int, int, int, int], float]
+# Model name Claude Code records for its own non-billable calls (e.g. context
+# compaction summaries).
+SYNTHETIC_MODEL = "<synthetic>"
+
+MessageKey = tuple[str, str | None]
+
+
+class CostFn(Protocol):
+    """Prices one call: (model, input, output, cache_read, cache_create[, cache_1h])."""
+
+    def __call__(
+        self,
+        model: str,
+        input_tokens: int,
+        output_tokens: int,
+        cache_read: int,
+        cache_create: int,
+        cache_1h: int = 0,
+    ) -> float: ...
+
+
+def message_key(message_id: str | None, request_id: str | None) -> MessageKey | None:
+    """Return the dedup key for a billed call, or None when it cannot be identified.
+
+    Records without a ``message.id`` (older transcript formats) cannot be matched
+    to their duplicates, so they are always treated as unique.
+    """
+    if not message_id:
+        return None
+    return (message_id, request_id)
+
+
+def _int_or_zero(value: object) -> int:
+    """Return *value* as an int token count; 0 for null, bool, or non-numeric."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0
+    return int(value)
+
+
+def extract_cache_creation(usage: dict) -> tuple[int, int]:
+    """Return ``(total, one_hour)`` cache-creation tokens from a usage block.
+
+    Three transcript schema variants carry the total, tried in order so tokens
+    are never summed from more than one:
+
+    1. ``cache_creation_input_tokens`` is a number. The 5m/1h split, if any,
+       lives under the separate ``cache_creation`` dict.
+    2. ``cache_creation_input_tokens`` is itself a dict of
+       ``ephemeral_5m_input_tokens`` / ``ephemeral_1h_input_tokens``.
+    3. Older transcripts carry the two tiers as literal dotted top-level keys
+       (``"cache_creation.ephemeral_5m_input_tokens"``).
+
+    ``one_hour`` is 0 when no tier split is present, so the whole total is then
+    priced at the 5-minute rate.
+    """
+    cc = usage.get("cache_creation_input_tokens")
+    if isinstance(cc, dict):
+        cache_5m = _int_or_zero(cc.get("ephemeral_5m_input_tokens"))
+        cache_1h = _int_or_zero(cc.get("ephemeral_1h_input_tokens"))
+        return cache_5m + cache_1h, cache_1h
+    if cc is None and (
+        "cache_creation.ephemeral_5m_input_tokens" in usage
+        or "cache_creation.ephemeral_1h_input_tokens" in usage
+    ):
+        cache_5m = _int_or_zero(usage.get("cache_creation.ephemeral_5m_input_tokens"))
+        cache_1h = _int_or_zero(usage.get("cache_creation.ephemeral_1h_input_tokens"))
+        return cache_5m + cache_1h, cache_1h
+    total = _int_or_zero(cc)
+    detail = usage.get("cache_creation")
+    cache_1h = _int_or_zero(detail.get("ephemeral_1h_input_tokens")) if isinstance(detail, dict) else 0
+    return total, cache_1h
+
+
+def is_billable_usage(model: str, usage: dict, cache_create: int) -> bool:
+    """Return True when a usage block is a real, non-empty billed call.
+
+    ``<synthetic>`` records and records whose token counts are all zero are
+    neither priced nor counted as calls.
+    """
+    if not usage or model == SYNTHETIC_MODEL:
+        return False
+    return any(
+        _int_or_zero(usage.get(k))
+        for k in ("input_tokens", "output_tokens", "cache_read_input_tokens")
+    ) or cache_create > 0
+
+
+def collapse_streamed_snapshots(events: list[SessionEvent]) -> list[SessionEvent]:
+    """Keep one ``api_request`` event per billed call within one transcript file.
+
+    An assistant turn is written as one record per content block (thinking,
+    text, each tool_use), each repeating the call's usage. ``input_tokens`` and
+    the cache counts are final on every copy, but ``output_tokens`` is a
+    mid-stream snapshot that only the last copy completes, so the copy with the
+    largest ``output_tokens`` (the first, on a tie) is kept and the others are
+    dropped. Events without a message id, and all non-``api_request`` events,
+    pass through in order.
+    """
+    best: dict[MessageKey, SessionEvent] = {}
+    for e in events:
+        key = message_key(e.message_id, e.request_id) if e.event_type == "api_request" else None
+        if key is None:
+            continue
+        prev = best.get(key)
+        if prev is None or (e.output_tokens or 0) > (prev.output_tokens or 0):
+            best[key] = e
+    kept = {id(e) for e in best.values()}
+    return [
+        e
+        for e in events
+        if e.event_type != "api_request"
+        or message_key(e.message_id, e.request_id) is None
+        or id(e) in kept
+    ]
 
 
 def parse_assistant_record(
@@ -39,25 +153,26 @@ def parse_assistant_record(
         agent_tool_inputs: Mutable map of tool_use_id -> Agent tool input,
             updated in-place when an Agent tool_use block is encountered.
         sequence: Current sequence counter; incremented for each new event.
-        compute_cost_fn: Callable(model, input, output, cache_read, cache_create)
-            returning a float USD cost.
+        compute_cost_fn: ``CostFn`` pricing one call in USD.
     """
     new_events: list[SessionEvent] = []
     session_id = record.get("sessionId", "")
     ts = parse_iso_utc(record.get("timestamp", "")) or now_utc()
-    msg = record.get("message", {})
-    usage = msg.get("usage", {})
-    model = msg.get("model", "")
-    content = msg.get("content", [])
+    msg = record.get("message") or {}
+    # `or {}`: a JSON null value defeats the .get default.
+    usage = msg.get("usage") or {}
+    model = msg.get("model") or ""
+    content = msg.get("content") or []
 
-    input_tokens = usage.get("input_tokens", 0)
-    output_tokens = usage.get("output_tokens", 0)
-    cache_read = usage.get("cache_read_input_tokens", 0)
-    cache_create = usage.get("cache_creation_input_tokens", 0)
+    input_tokens = _int_or_zero(usage.get("input_tokens"))
+    output_tokens = _int_or_zero(usage.get("output_tokens"))
+    cache_read = _int_or_zero(usage.get("cache_read_input_tokens"))
+    cache_create, cache_1h = extract_cache_creation(usage)
 
     cost = 0.0
-    if usage:
-        cost = compute_cost_fn(model, input_tokens, output_tokens, cache_read, cache_create)
+    billable = is_billable_usage(model, usage, cache_create)
+    if billable:
+        cost = compute_cost_fn(model, input_tokens, output_tokens, cache_read, cache_create, cache_1h)
         sequence += 1
         new_events.append(SessionEvent(
             timestamp=ts,
@@ -70,10 +185,13 @@ def parse_assistant_record(
             output_tokens=output_tokens,
             cache_read_tokens=cache_read,
             cache_creation_tokens=cache_create,
+            cache_creation_1h_tokens=cache_1h,
+            message_id=msg.get("id"),
+            request_id=record.get("requestId"),
         ))
 
-    tool_blocks = [b for b in content if b.get("type") == "tool_use"]
-    per_tool_cost = cost / len(tool_blocks) if usage and tool_blocks else 0.0
+    tool_blocks = [b for b in content if isinstance(b, dict) and b.get("type") == "tool_use"]
+    per_tool_cost = cost / len(tool_blocks) if billable and tool_blocks else 0.0
 
     for block in tool_blocks:
         tool_name = block.get("name", "")
@@ -108,8 +226,7 @@ def parse_user_record(
         record: Raw decoded JSONL record dict.
         agent_tool_inputs: Map of tool_use_id -> Agent tool input built from
             preceding assistant records.
-        compute_cost_fn: Callable(model, input, output, cache_read, cache_create)
-            returning a float USD cost.
+        compute_cost_fn: ``CostFn`` pricing one call in USD.
     """
     tool_use_result = record.get("toolUseResult")
     if not tool_use_result or "agentId" not in tool_use_result:
@@ -120,12 +237,13 @@ def parse_user_record(
     total_tokens = tool_use_result.get("totalTokens", 0)
     total_tool_uses = tool_use_result.get("totalToolUseCount", 0)
     duration_ms = tool_use_result.get("totalDurationMs", 0)
-    sub_usage = tool_use_result.get("usage", {})
+    # `or {}`: a JSON null value defeats the .get default.
+    sub_usage = tool_use_result.get("usage") or {}
 
-    sub_input = sub_usage.get("input_tokens", 0)
-    sub_output = sub_usage.get("output_tokens", 0)
-    sub_cache_read = sub_usage.get("cache_read_input_tokens", 0)
-    sub_cache_create = sub_usage.get("cache_creation_input_tokens", 0)
+    sub_input = _int_or_zero(sub_usage.get("input_tokens"))
+    sub_output = _int_or_zero(sub_usage.get("output_tokens"))
+    sub_cache_read = _int_or_zero(sub_usage.get("cache_read_input_tokens"))
+    sub_cache_create, sub_cache_1h = extract_cache_creation(sub_usage)
 
     content_blocks = record.get("message", {}).get("content", [])
     tool_use_id = next(
@@ -136,7 +254,9 @@ def parse_user_record(
     description = agent_input.get("description", "")
     agent_model = agent_input.get("model", "")
 
-    cost = compute_cost_fn(agent_model, sub_input, sub_output, sub_cache_read, sub_cache_create)
+    cost = compute_cost_fn(
+        agent_model, sub_input, sub_output, sub_cache_read, sub_cache_create, sub_cache_1h
+    )
     return AgentSummary(
         agent_id=agent_id,
         agent_type=agent_type,
@@ -155,15 +275,15 @@ def parse_session_file(  # NOSONAR S3776 - JSONL file parser; loop+try/except+me
 ) -> tuple[list[SessionEvent], list[AgentSummary]]:
     """Parse a JSONL transcript file and return (events, agents).
 
-    For each assistant message with usage, one ``api_request`` SessionEvent is
-    emitted.  For each tool_use block inside that assistant message, one
+    For each billed assistant call, one ``api_request`` SessionEvent is emitted
+    (the per-content-block copies of one call are collapsed by
+    ``collapse_streamed_snapshots``).  For each tool_use block inside that assistant message, one
     ``tool_use`` SessionEvent is emitted.  If a user message carries a
     ``toolUseResult`` with an ``agentId``, an AgentSummary is created.
 
     Args:
         path: Path to a ``.jsonl`` transcript file.
-        compute_cost_fn: Callable(model, input, output, cache_read, cache_create)
-            returning a float USD cost.
+        compute_cost_fn: ``CostFn`` pricing one call in USD.
     """
     events: list[SessionEvent] = []
     agents: list[AgentSummary] = []
@@ -191,7 +311,7 @@ def parse_session_file(  # NOSONAR S3776 - JSONL file parser; loop+try/except+me
                 if agent is not None:
                     agents.append(agent)
 
-    return events, agents
+    return collapse_streamed_snapshots(events), agents
 
 
 def iter_jsonl_files(project_dir: Path) -> Iterator[tuple[Path, str]]:

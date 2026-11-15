@@ -113,6 +113,7 @@ exclude_patterns = [
   #
   # Generated from bin/_wrappers.yaml -- run `make bin-wrappers` to refresh.
   # `make bin-wrappers-check` (CI) fails if this block drifts from the config.
+  "bin/agent-helpers",
   "bin/apple-music-assistant",
   "bin/apple-music-user-token",
   "bin/assistant",

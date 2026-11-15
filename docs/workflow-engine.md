@@ -41,6 +41,9 @@ Reinventing one produces a second, diverging implementation.
 ./bin/workflow status <workspace-dir>      # status of a run
 ```
 
+27 subcommands in all (the `sweep-record` and `fleet` groups count once each);
+`./bin/workflow --agentic --agentic-format json --agentic-compact` is authoritative.
+
 `run` defaults to **dry-run**. Nothing executes until you pass `--execute`.
 Override trigger params with repeatable `--params key=value`:
 
@@ -57,6 +60,65 @@ Override trigger params with repeatable `--params key=value`:
 | `resume <workspace>` | Show stages that need re-running; exit 0 if all done, exit 2 if stages remain |
 | `validate-fragment <file>` | Validate a `fragment: true` YAML (not a full workflow); use instead of `lint` |
 | `check-params <workspace>` | Validate params from a workspace JSON file; exit 0 pass, 1 fail |
+| `set-state <workspace> <stage>` | Write a stage-result marker for a stage finished outside the orchestrator |
+| `seed-pr-lifecycle <workspace> <prefix> --pr N` | Mark every stage of an included PR fragment `success` for one PR |
+
+#### Recovering a stuck run
+
+When a stage's work was finished by hand (for example a PR opened and merged by
+a separately dispatched agent), record it instead of re-running it:
+
+```bash
+./bin/workflow resume <workspace>                       # which stages still need a run
+./bin/workflow set-state <workspace> build --note "fixed by hand"
+./bin/workflow seed-pr-lifecycle <workspace> pr --pr 711 --url <pr-url>
+./bin/workflow run <file> --execute --workspace <workspace>   # continue from there
+```
+
+Markers are written through the engine's own `StageResult` writer as
+`stages/NNN-<stage>.json`, with `metadata.seeded_by` and `seeded_at`. The index
+defaults to the highest existing index plus one, so a new marker supersedes an
+older (for example `failed`) one rather than editing it. The workspace must
+hold a `manifest.json` and the stage must appear in its `plan.json`; a name outside it, an unsafe name, or a non-object
+`--data` exits 1 without writing. `seed-pr-lifecycle` reads stage names from
+`--fragment` (default `workflows/shared/pr-open-and-wait-ci.yaml`), checks every
+`<prefix>-<stage>` before the first write, and stores `pr_number` and `url` on
+the `open-pr` stage.
+
+`run --workspace` resumes by keeping every stage that has any `success` marker,
+so `set-state --status failed` does not force a re-run there; `resume` reports
+the newest marker.
+
+### Fleet: one workflow over many items
+
+`fleet` tracks a single workflow fanned out over a list of items in a ledger at
+`<data-home>/workflow-fleet/<slug>/ledger.json` (see "Generated Output Location"
+in `CLAUDE.md`), so a long fan-out is resumable batch by batch.
+
+| Subcommand | Purpose |
+|---|---|
+| `fleet run <file> --fan-over items:a,b\|file:<path> --fan-param 'k={item}'` | Add items to the ledger; init a workspace per item in the next batch and mark it `running` |
+| `fleet status <file>` | Progress bar plus per-item status (`--filter <status>`) |
+| `fleet report <file>` | Per-item stage progress read from each workspace, plus status totals |
+| `fleet mark <file> <item> <status>` | Record an outcome (`running`/`done`/`failed`/`skipped`) |
+| `fleet reset <file> --filter <status> \| --items a,b` | Return items to `pending` |
+
+```bash
+./bin/workflow fleet run workflows/x.yaml --fan-over file:items.txt \
+  --fan-param 'target={item}' --batch-size 5 --dry-run     # preview, writes nothing
+./bin/workflow fleet run workflows/x.yaml --fan-over file:items.txt --fan-param 'target={item}' --batch-size 5
+# run each printed workspace with the /workflow skill, then:
+./bin/workflow fleet mark workflows/x.yaml <item> done
+```
+
+`fleet run` never executes stages. `run --execute` stubs agent stages that lack
+generate/template outputs and records them `success`, so shelling out to it per
+item would mark a fleet done with no work performed; the `/workflow` skill is
+the executor, and `fleet mark` records what it did. `mark ... done` exits 1
+while the item's workspace still has stages that `resume` would re-run, unless
+`--force`. A `failed` item picked up by the next batch keeps its workspace, so
+the retry resumes; `reset` clears the workspace for a fresh start. Writes to
+the ledger hold an `flock` on `ledger.lock`, so parallel `mark` calls are safe.
 
 ### Review-thread remediation helpers
 

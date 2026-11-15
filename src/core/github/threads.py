@@ -86,7 +86,7 @@ query($id: ID!, $after: String) {{
 """
 
 
-def _next_cursor(page_info: Any, previous: str | None, what: str) -> str | None:
+def next_cursor(page_info: Any, previous: str | None, what: str) -> str | None:
     """Return the cursor for the next page, or None when the connection is done.
 
     Raises when ``hasNextPage`` is true but the cursor is missing or unchanged:
@@ -101,7 +101,7 @@ def _next_cursor(page_info: Any, previous: str | None, what: str) -> str | None:
     return str(cursor)
 
 
-def _dig(data: Any, *keys: str, what: str) -> Any:
+def dig(data: Any, *keys: str, what: str) -> Any:
     """Walk ``keys`` into ``data``, raising a GhError naming ``what`` on a gap."""
     cur = data
     for key in keys:
@@ -123,11 +123,11 @@ def _page_thread_comments(gh: GhCLI, thread_id: str, after: str | None) -> tuple
     cursor = after
     for _ in range(MAX_PAGES):
         data = gh.graphql_checked(THREAD_COMMENTS_QUERY, {"id": thread_id, "after": cursor})
-        conn = _dig(data, "node", "comments", what=f"thread {thread_id} comments")
+        conn = dig(data, "node", "comments", what=f"thread {thread_id} comments")
         nodes.extend(conn.get("nodes") or [])
         raw_total = conn.get("totalCount")
         total = int(raw_total) if raw_total is not None else None
-        cursor = _next_cursor(conn.get("pageInfo"), cursor, f"thread {thread_id} comments")
+        cursor = next_cursor(conn.get("pageInfo"), cursor, f"thread {thread_id} comments")
         if cursor is None:
             return nodes, total
     raise GhError(f"thread {thread_id} comments: exceeded {MAX_PAGES} pages")
@@ -164,10 +164,10 @@ def fetch_raw_threads(gh: GhCLI, owner: str, repo: str, pr: int) -> tuple[list[d
         data = gh.graphql_checked(
             THREADS_QUERY, {"owner": owner, "name": repo, "pr": int(pr), "after": cursor},
         )
-        conn = _dig(data, "repository", "pullRequest", "reviewThreads", what=f"PR #{pr} threads")
+        conn = dig(data, "repository", "pullRequest", "reviewThreads", what=f"PR #{pr} threads")
         threads.extend(conn.get("nodes") or [])
         reported_total = conn.get("totalCount")
-        cursor = _next_cursor(conn.get("pageInfo"), cursor, f"PR #{pr} threads")
+        cursor = next_cursor(conn.get("pageInfo"), cursor, f"PR #{pr} threads")
         if cursor is None:
             break
     else:
@@ -201,7 +201,7 @@ def _complete_thread_comments(gh: GhCLI, node: dict[str, Any]) -> bool:
     """
     comments = node.get("comments") or {}
     nodes = list(comments.get("nodes") or [])
-    more = _next_cursor(comments.get("pageInfo"), None, f"thread {node.get('id')} comments")
+    more = next_cursor(comments.get("pageInfo"), None, f"thread {node.get('id')} comments")
     if more is not None:
         extra, _ = _page_thread_comments(gh, str(node["id"]), more)
         nodes.extend(extra)
@@ -231,11 +231,11 @@ def fetch_thread_states(gh: GhCLI, owner: str, repo: str, pr: int) -> tuple[list
         data = gh.graphql_checked(
             THREAD_STATE_QUERY, {"owner": owner, "name": repo, "pr": int(pr), "after": cursor},
         )
-        conn = _dig(data, "repository", "pullRequest", "reviewThreads", what=f"PR #{pr} thread states")
+        conn = dig(data, "repository", "pullRequest", "reviewThreads", what=f"PR #{pr} thread states")
         threads.extend(conn.get("nodes") or [])
         raw_total = conn.get("totalCount")
         reported_total = int(raw_total) if raw_total is not None else None
-        cursor = _next_cursor(conn.get("pageInfo"), cursor, f"PR #{pr} thread states")
+        cursor = next_cursor(conn.get("pageInfo"), cursor, f"PR #{pr} thread states")
         if cursor is None:
             break
     else:
@@ -439,15 +439,15 @@ def fetch_pr_reviews(
             PR_REVIEWS_QUERY,
             {"owner": owner, "name": repo, "pr": int(pr), "after": cursor},
         )
-        pull = _dig(data, "repository", "pullRequest", what=f"PR #{pr}")
-        conn = _dig(pull, "reviews", what=f"PR #{pr} reviews")
+        pull = dig(data, "repository", "pullRequest", what=f"PR #{pr}")
+        conn = dig(pull, "reviews", what=f"PR #{pr} reviews")
         pr_title = pr_title or (pull.get("title") or "")
         commits = pull.get("commits")
         if commit_count is None and isinstance(commits, dict) and isinstance(commits.get("totalCount"), int):
             commit_count = commits["totalCount"]
         nodes.extend(conn.get("nodes") or [])
         reported_total = conn.get("totalCount")
-        cursor = _next_cursor(conn.get("pageInfo"), cursor, f"PR #{pr} reviews")
+        cursor = next_cursor(conn.get("pageInfo"), cursor, f"PR #{pr} reviews")
         if cursor is None:
             break
     else:
