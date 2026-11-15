@@ -27,7 +27,11 @@ __all__ = [
 # Written with an explicit [a-z0-9] class (never \w) so it never silently
 # broadens to Unicode word characters.
 _WIKILINK_PATTERN = re.compile(r"\[\[([^\]]+)\]\]")
-_WIKILINK_INCLUSION_RE = re.compile(r"^[a-z]+(?:[_-][a-z0-9]+)+$")
+_WIKILINK_INCLUSION_RE = re.compile(r"^[a-z][a-z0-9]*+(?:[_-][a-z0-9]++)*+$")
+# Code is not prose: ``[[nodiscard]]`` in a fence or inline span is a C++
+# attribute, not a link. Fences first, then inline spans; both are linear.
+_FENCED_CODE_RE = re.compile(r"^```[^\n]*+\n.*?^```", re.MULTILINE | re.DOTALL)
+_INLINE_CODE_RE = re.compile(r"`[^`\n]*+`")
 _WIKILINK_EXCLUDED_CHARS = ("/", "!", "$", '"', "'", "`")
 
 _WHY_MARKER = "**Why:**"
@@ -264,15 +268,18 @@ def normalize_slug(slug: str) -> str:
 def extract_wikilinks(body: str) -> tuple[str, ...]:
     """Extract normalized wikilink targets from a memory body.
 
-    A [[...]] token is a candidate only if its inner text matches
-    ``^[a-z]+(?:[_-][a-z0-9]+)+$`` and contains none of the excluded
-    characters — this excludes bash test syntax (``[[ ! -d "$PWD" ]]``)
-    and path references (``[[.llm/OTEL_GUIDE.md]]``). Accepted tokens have
-    every '-' folded to '_' before being returned, so
-    [[feedback-worktree-isolation]] normalizes to feedback_worktree_isolation.
+    A [[...]] token is a candidate only if it sits outside fenced and inline
+    code, its inner text is lowercase words joined by '_'/'-' (a single word
+    such as [[deploy]] counts), and it contains none of the excluded
+    characters — this excludes bash test syntax (``[[ ! -d "$PWD" ]]``),
+    path references (``[[.llm/OTEL_GUIDE.md]]``) and C++ attributes quoted
+    as code. Accepted tokens have every '-' folded to '_' before being
+    returned, so [[feedback-worktree-isolation]] normalizes to
+    feedback_worktree_isolation.
     """
+    prose = _INLINE_CODE_RE.sub("", _FENCED_CODE_RE.sub("", body))
     result: list[str] = []
-    for candidate in _WIKILINK_PATTERN.findall(body):
+    for candidate in _WIKILINK_PATTERN.findall(prose):
         if any(ch in candidate for ch in _WIKILINK_EXCLUDED_CHARS):
             continue
         if any(ch.isspace() for ch in candidate):

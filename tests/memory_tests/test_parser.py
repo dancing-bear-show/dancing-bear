@@ -61,9 +61,20 @@ class TestExtractWikilinks(MemoryTestCase):
         result = extract_wikilinks("body text [[end-link]]")
         self.assertEqual(result, ("end_link",))
 
-    def test_single_word_wikilink_excluded(self):
-        result = extract_wikilinks("[[word]]")
-        self.assertEqual(result, ())
+    def test_single_word_wikilink_included(self):
+        result = extract_wikilinks("see [[deploy]] and [[v2]]")
+        self.assertEqual(result, ("deploy", "v2"))
+
+    def test_wikilinks_inside_code_excluded(self):
+        body = (
+            "Use `[[nodiscard]]` here.\n"
+            "```cpp\n[[nodiscard]] int f();\n[[maybe-unused]] int g();\n```\n"
+            "but [[real-link]] counts"
+        )
+        self.assertEqual(extract_wikilinks(body), ("real_link",))
+
+    def test_leading_digit_excluded(self):
+        self.assertEqual(extract_wikilinks("[[2fa]]"), ())
 
     def test_uppercase_excluded(self):
         result = extract_wikilinks("[[Feedback]]")
