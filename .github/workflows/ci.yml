@@ -14,6 +14,11 @@ jobs:
       - uses: qltysh/qlty-action/install@main
       - name: Run qlty check
         run: qlty check --no-progress
+      # qlty's shellcheck plugin skips extensionless scripts (a defect in
+      # bin/zz-probe went unreported; the same file as bin/zz-probe.sh was flagged),
+      # so lint every shebang-detected script directly. ubuntu runners ship shellcheck.
+      - name: Run shellcheck on all bash scripts
+        run: bin/shellcheck-all.sh
 
   # Separate from `tests` on purpose. This job needs the full history
   # (fetch-depth: 0) for a correct merge-base, which the test job does not, and
