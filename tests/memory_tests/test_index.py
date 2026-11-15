@@ -4,8 +4,8 @@ and parsing fixtures.CURRENT_FORMAT_INDEX (flat format, two entries, empty secti
 from __future__ import annotations
 
 import unittest
+import unittest.mock
 from pathlib import Path
-from unittest import mock
 
 from tests.memory_tests.fixtures import CURRENT_FORMAT_INDEX, MemoryTestCase
 from memory.index import (
@@ -462,7 +462,7 @@ class TestIndexModeAndConcurrency(MemoryTestCase):
         _make_index(index_file, "## Feedback\n- [a.md](a.md) — existing\n")
         m = _make_memory(self.tmp, "n1", _FEEDBACK_MD.format(n="n1"))
         before = {p.name for p in self.tmp.iterdir()}
-        with mock.patch("core.fileutil.os.replace", side_effect=OSError("boom")):
+        with unittest.mock.patch("core.fileutil.os.replace", side_effect=OSError("boom")):
             with self.assertRaises(OSError):
                 append_entry(index_file, m)
         self.assertEqual({p.name for p in self.tmp.iterdir()}, before)
@@ -479,7 +479,7 @@ class TestIndexModeAndConcurrency(MemoryTestCase):
                 with open(path, "a", encoding="utf-8") as f:
                     f.write("- [theirs.md](theirs.md) — concurrent\n")
 
-        with mock.patch("memory.index._before_replace", side_effect=concurrent_writer):
+        with unittest.mock.patch("memory.index._before_replace", side_effect=concurrent_writer):
             append_entry(index_file, m)
 
         targets = {e.target for e in parse_index(index_file)}
@@ -496,7 +496,7 @@ class TestIndexModeAndConcurrency(MemoryTestCase):
             with open(path, "a", encoding="utf-8") as f:
                 f.write(f"- [t{counter[0]}.md](t{counter[0]}.md) — x\n")
 
-        with mock.patch("memory.index._before_replace", side_effect=always_writing):
+        with unittest.mock.patch("memory.index._before_replace", side_effect=always_writing):
             with self.assertRaises(IndexConflictError):
                 append_entry(index_file, m)
         self.assertNotIn("mine.md", index_file.read_text(encoding="utf-8"))

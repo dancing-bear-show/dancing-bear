@@ -6,7 +6,7 @@ import json
 import os
 import tempfile
 import unittest
-from unittest import mock
+import unittest.mock
 from pathlib import Path
 
 from core.cli_errors import CLIError
@@ -251,7 +251,7 @@ class TestAtomicBytesAndCopy(unittest.TestCase):
         src = self.dir / "src.md"
         src.write_text("x")
         dest = self.dir / "dest.md"
-        with mock.patch("core.fileutil.os.replace", side_effect=OSError("boom")):
+        with unittest.mock.patch("core.fileutil.os.replace", side_effect=OSError("boom")):
             with self.assertRaises(OSError):
                 atomic_copy(src, dest)
         self.assertEqual([p.name for p in self.dir.iterdir()], ["src.md"])
