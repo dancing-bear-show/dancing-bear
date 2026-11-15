@@ -291,6 +291,36 @@ class TestGraduateMemory(MemoryTestCase):
         self.assertEqual(bak.read_text(encoding="utf-8"), old_text)
         self.assertNotEqual(dest.read_text(encoding="utf-8"), old_text)
 
+    def test_graduate_yes_over_indexed_canonical_adds_no_duplicate_entry(self):
+        import dataclasses
+
+        from memory.index import parse_index
+
+        source = _make_store(
+            self.tmp,
+            "worktree-store",
+            {"myslug.md": _feedback("myslug", "version A")},
+            is_worktree_slug=True,
+        )
+        # The source memory is indexed in its own store, so graduation wants
+        # to add it to the canonical index.
+        source = dataclasses.replace(
+            source,
+            memories=tuple(dataclasses.replace(m, indexed=True) for m in source.memories),
+        )
+        canonical = _make_store(
+            self.tmp,
+            "canonical-store",
+            {"myslug.md": _feedback("myslug", "version B — different content")},
+            with_index=True,
+        )
+        assert canonical.index_path is not None
+
+        graduate_memory("myslug", source, canonical, yes=True)
+
+        targets = [e.target for e in parse_index(canonical.index_path)]
+        self.assertEqual(targets.count("myslug.md"), 1)
+
 
 # ---------------------------------------------------------------------------
 # TestGraduateCliMain — exercises memory.cli.main(["graduate", ...])

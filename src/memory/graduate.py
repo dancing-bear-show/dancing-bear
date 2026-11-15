@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from core.fileutil import atomic_copy, file_sha256
-from memory.index import append_entry
+from memory.index import append_entry, parse_index
 from memory.models import Memory, MemoryStore
 
 __all__ = [
@@ -113,9 +113,13 @@ def graduate_memory(
         atomic_copy(dest_path, dest_path.with_suffix(dest_path.suffix + ".bak"))
     atomic_copy(src_path, dest_path)
 
-    # Update canonical index only when the memory was indexed in the source store
+    # Update canonical index only when the memory was indexed in the source
+    # store and the canonical index does not already list it (an overwrite
+    # under --yes would otherwise add a duplicate entry).
     if memory.indexed and canonical.index_path:
-        append_entry(canonical.index_path, memory)
+        indexed = {e.target for e in parse_index(canonical.index_path)}
+        if dest_path.name not in indexed:
+            append_entry(canonical.index_path, memory)
 
     return GraduateResult(
         slug=memory.slug,
