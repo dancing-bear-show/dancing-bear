@@ -54,7 +54,7 @@ def message_key(message_id: str | None, request_id: str | None) -> MessageKey | 
     return (message_id, request_id)
 
 
-def _int_or_zero(value: object) -> int:
+def int_or_zero(value: object) -> int:
     """Return *value* as an int token count; 0 for null, bool, or non-numeric."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return 0
@@ -79,19 +79,19 @@ def extract_cache_creation(usage: dict) -> tuple[int, int]:
     """
     cc = usage.get("cache_creation_input_tokens")
     if isinstance(cc, dict):
-        cache_5m = _int_or_zero(cc.get("ephemeral_5m_input_tokens"))
-        cache_1h = _int_or_zero(cc.get("ephemeral_1h_input_tokens"))
+        cache_5m = int_or_zero(cc.get("ephemeral_5m_input_tokens"))
+        cache_1h = int_or_zero(cc.get("ephemeral_1h_input_tokens"))
         return cache_5m + cache_1h, cache_1h
     if cc is None and (
         "cache_creation.ephemeral_5m_input_tokens" in usage
         or "cache_creation.ephemeral_1h_input_tokens" in usage
     ):
-        cache_5m = _int_or_zero(usage.get("cache_creation.ephemeral_5m_input_tokens"))
-        cache_1h = _int_or_zero(usage.get("cache_creation.ephemeral_1h_input_tokens"))
+        cache_5m = int_or_zero(usage.get("cache_creation.ephemeral_5m_input_tokens"))
+        cache_1h = int_or_zero(usage.get("cache_creation.ephemeral_1h_input_tokens"))
         return cache_5m + cache_1h, cache_1h
-    total = _int_or_zero(cc)
+    total = int_or_zero(cc)
     detail = usage.get("cache_creation")
-    cache_1h = _int_or_zero(detail.get("ephemeral_1h_input_tokens")) if isinstance(detail, dict) else 0
+    cache_1h = int_or_zero(detail.get("ephemeral_1h_input_tokens")) if isinstance(detail, dict) else 0
     return total, cache_1h
 
 
@@ -104,7 +104,7 @@ def is_billable_usage(model: str, usage: dict, cache_create: int) -> bool:
     if not usage or model == SYNTHETIC_MODEL:
         return False
     return any(
-        _int_or_zero(usage.get(k))
+        int_or_zero(usage.get(k))
         for k in ("input_tokens", "output_tokens", "cache_read_input_tokens")
     ) or cache_create > 0
 
@@ -164,9 +164,9 @@ def parse_assistant_record(
     model = msg.get("model") or ""
     content = msg.get("content") or []
 
-    input_tokens = _int_or_zero(usage.get("input_tokens"))
-    output_tokens = _int_or_zero(usage.get("output_tokens"))
-    cache_read = _int_or_zero(usage.get("cache_read_input_tokens"))
+    input_tokens = int_or_zero(usage.get("input_tokens"))
+    output_tokens = int_or_zero(usage.get("output_tokens"))
+    cache_read = int_or_zero(usage.get("cache_read_input_tokens"))
     cache_create, cache_1h = extract_cache_creation(usage)
 
     cost = 0.0
@@ -240,9 +240,9 @@ def parse_user_record(
     # `or {}`: a JSON null value defeats the .get default.
     sub_usage = tool_use_result.get("usage") or {}
 
-    sub_input = _int_or_zero(sub_usage.get("input_tokens"))
-    sub_output = _int_or_zero(sub_usage.get("output_tokens"))
-    sub_cache_read = _int_or_zero(sub_usage.get("cache_read_input_tokens"))
+    sub_input = int_or_zero(sub_usage.get("input_tokens"))
+    sub_output = int_or_zero(sub_usage.get("output_tokens"))
+    sub_cache_read = int_or_zero(sub_usage.get("cache_read_input_tokens"))
     sub_cache_create, sub_cache_1h = extract_cache_creation(sub_usage)
 
     content_blocks = record.get("message", {}).get("content", [])
@@ -269,7 +269,7 @@ def parse_user_record(
     )
 
 
-def parse_session_file(  # NOSONAR S3776 - JSONL file parser; loop+try/except+message-type dispatch is irreducible
+def parse_session_file(
     path: Path,
     compute_cost_fn: CostFn,
 ) -> tuple[list[SessionEvent], list[AgentSummary]]:

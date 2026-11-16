@@ -31,6 +31,7 @@ from typing import Any
 from core.assistant import BaseAssistant
 from core.cli_errors import CLIError, ExitCode
 from core.cli_framework import CLIApp
+from core.cli_output import emit_one
 from core.github import (
     GhCLI,
     GhError,
@@ -72,11 +73,6 @@ def _lazy_agentic():
 
 
 # ---- helpers ----------------------------------------------------------------
-
-
-def _print_json(obj: Any) -> None:
-    """Emit compact-but-readable JSON. Consumers pipe this into jq."""
-    print(json.dumps(obj, indent=2, ensure_ascii=False))
 
 
 def _read_body(path: str, *, option: str = "--body-file") -> str:
@@ -125,7 +121,7 @@ def _repo(args) -> str | None:
 def cmd_repo(args) -> int:
     owner, name = resolve_owner_repo(_gh(), _repo(args))
     if args.format == "json":
-        _print_json({"owner": owner, "name": name, "nameWithOwner": f"{owner}/{name}"})
+        emit_one({"owner": owner, "name": name, "nameWithOwner": f"{owner}/{name}"})
     else:
         print(f"{owner}/{name}")
     return ExitCode.SUCCESS
@@ -171,7 +167,7 @@ def cmd_threads_fetch(args) -> int:
 @app.argument("--thread", required=True, help="Review thread node id")
 def cmd_threads_comments(args) -> int:
     comments = fetch_thread_comments(_gh(), args.thread)
-    _print_json(comments)
+    emit_one(comments)
     return ExitCode.SUCCESS
 
 
@@ -208,7 +204,7 @@ def _handle_already_replied(
     err: str | None = None
     if resolve_asked:
         resolved, err = _try_resolve(gh, thread_id)
-    _print_json({
+    emit_one({
         "thread_id": thread_id,
         "status": "already_replied",
         "comment_id": None,
@@ -227,7 +223,7 @@ def _handle_reply_failure(thread_id: str, exc: GhError) -> int:
     explanation. Emit the failure JSON and exit non-zero without touching the
     resolve path at all.
     """
-    _print_json({
+    emit_one({
         "thread_id": thread_id,
         "status": "failed",
         "comment_id": None,
@@ -294,7 +290,7 @@ def cmd_threads_reply(args) -> int:
     if args.resolve:
         resolved, resolve_error = _try_resolve(gh, thread_id)
 
-    _print_json({
+    emit_one({
         "thread_id": thread_id,
         "status": "replied",
         "comment_id": reply["comment_id"],
@@ -310,7 +306,7 @@ def cmd_threads_reply(args) -> int:
 @app.argument("--thread", required=True, help="Review thread node id")
 def cmd_threads_resolve(args) -> int:
     resolve_thread(_gh(), args.thread)
-    _print_json({"thread_id": args.thread, "resolved": True})
+    emit_one({"thread_id": args.thread, "resolved": True})
     return ExitCode.SUCCESS
 
 
@@ -329,7 +325,7 @@ def cmd_threads_state(args) -> int:
         # A count GitHub reported did not match what came back, so any number
         # here is unverified. Report null, never a partial count that would
         # make an incomplete run look complete.
-        _print_json({
+        emit_one({
             "total": None,
             "unresolved": None,
             "unresolved_ids": None,
@@ -338,7 +334,7 @@ def cmd_threads_state(args) -> int:
         })
         return ExitCode.ERROR
     unresolved_ids = [str(n["id"]) for n in raw_threads if not n.get("isResolved") and n.get("id")]
-    _print_json({
+    emit_one({
         "total": len(raw_threads),
         "unresolved": len(unresolved_ids),
         "unresolved_ids": unresolved_ids,
@@ -387,7 +383,7 @@ def cmd_pr_view(args) -> int:
             print(json.dumps(value, ensure_ascii=False, separators=(",", ":")))
         return ExitCode.SUCCESS
     fields = [f.strip() for f in args.fields.split(",") if f.strip()]
-    _print_json(_pulls.pr_view(gh, _pr_arg(args), fields, repo=_repo(args)))
+    emit_one(_pulls.pr_view(gh, _pr_arg(args), fields, repo=_repo(args)))
     return ExitCode.SUCCESS
 
 
@@ -478,7 +474,7 @@ def cmd_pr_create(args) -> int:
         draft=bool(args.draft),
         repo=_repo(args),
     )
-    _print_json({"number": data.get("number"), "url": data.get("url")})
+    emit_one({"number": data.get("number"), "url": data.get("url")})
     return ExitCode.SUCCESS
 
 
@@ -500,7 +496,7 @@ def cmd_pr_edit(args) -> int:
         body=body,
         repo=_repo(args),
     )
-    _print_json(got)
+    emit_one(got)
     return ExitCode.SUCCESS
 
 
@@ -523,7 +519,7 @@ def cmd_pr_checks(args) -> int:
         # bucket-vs-exit-code trap as unwatched checks: gh exits nonzero while
         # pending, so the caller must interpret the code — never a stdout body.
         return _pulls.pr_checks_watch(_gh(), _pr_arg(args), interval=int(args.interval), repo=_repo(args))
-    _print_json(_pulls.pr_checks(_gh(), _pr_arg(args), repo=_repo(args)))
+    emit_one(_pulls.pr_checks(_gh(), _pr_arg(args), repo=_repo(args)))
     return ExitCode.SUCCESS
 
 
@@ -549,7 +545,7 @@ def cmd_pr_list(args) -> int:
         search=args.search,
         repo=_repo(args),
     )
-    _print_json(rows)
+    emit_one(rows)
     return ExitCode.SUCCESS
 
 
@@ -571,7 +567,7 @@ def cmd_pr_comment(args) -> int:
 def cmd_pr_comments(args) -> int:
     gh = _gh()
     owner, name = resolve_owner_repo(gh, _repo(args))
-    _print_json(_pulls.pr_comments(gh, owner, name, int(args.pr), kind=args.kind))
+    emit_one(_pulls.pr_comments(gh, owner, name, int(args.pr), kind=args.kind))
     return ExitCode.SUCCESS
 
 
@@ -586,7 +582,7 @@ def cmd_pr_comments(args) -> int:
 def cmd_pr_review_comment(args) -> int:
     gh = _gh()
     owner, name = resolve_owner_repo(gh, _repo(args))
-    _print_json(_pulls.pr_review_comment(
+    emit_one(_pulls.pr_review_comment(
         gh, owner, name, int(args.pr),
         path=args.path, line=int(args.line), side=args.side,
         commit_id=args.commit_id, body=_read_body(args.body_file),
@@ -637,7 +633,7 @@ def cmd_pr_summary(args) -> int:
     if not args.files:
         for row in rows:
             row.pop("files", None)
-    _print_json(rows)
+    emit_one(rows)
     return ExitCode.SUCCESS
 
 
@@ -653,7 +649,7 @@ def cmd_activity(args) -> int:
     if args.format == "text":
         sys.stdout.write(_activity.render_activity_text(data))
     else:
-        _print_json(data.to_dict())
+        emit_one(data.to_dict())
     return ExitCode.SUCCESS
 
 
@@ -682,7 +678,7 @@ def cmd_copilot_request(args) -> int:
     else:
         out["requested_reviewers"] = _copilot.request_copilot_review(gh, owner, name, int(args.pr))
         out["requested"] = True
-    _print_json(out)
+    emit_one(out)
     return ExitCode.SUCCESS
 
 
@@ -703,7 +699,7 @@ def cmd_copilot_cycle(args) -> int:
     result = _review_cycle.run_review_cycle(gh, owner, name, int(args.pr), opts)
     for warning in result.warnings:
         print(f"warning: {warning}", file=sys.stderr)
-    _print_json(result.to_dict())
+    emit_one(result.to_dict())
     return ExitCode.ERROR if result.errors else ExitCode.SUCCESS
 
 

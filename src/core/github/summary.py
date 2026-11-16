@@ -16,7 +16,7 @@ from typing import Any
 
 from core.gh_cli import GhCLI, GhError
 
-from .threads import MAX_PAGES, dig, next_cursor
+from .threads import paginate_connection
 
 FILE_PAGE = 100
 PATH_MODES = ("prefix", "glob", "regex")
@@ -99,26 +99,25 @@ def _summary_from(node: dict[str, Any], files: list[FileChange]) -> PRSummary:
 
 def fetch_pr_summary(gh: GhCLI, owner: str, repo: str, pr: int) -> PRSummary:
     """Fetch one PR's summary with every changed file; raise if files come back short."""
-    files: list[FileChange] = []
     node: dict[str, Any] = {}
-    reported: Any = None
-    cursor: str | None = None
-    for _ in range(MAX_PAGES):
-        data = gh.graphql_checked(PR_DETAIL_QUERY, {"owner": owner, "name": repo, "pr": int(pr), "after": cursor})
-        node = dig(data, "repository", "pullRequest", what=f"PR #{pr}")
-        conn = dig(node, "files", what=f"PR #{pr} files")
-        for f in conn.get("nodes") or []:
-            files.append(FileChange(
-                path=str(f.get("path") or ""),
-                additions=int(f.get("additions") or 0),
-                deletions=int(f.get("deletions") or 0),
-            ))
-        reported = conn.get("totalCount")
-        cursor = next_cursor(conn.get("pageInfo"), cursor, f"PR #{pr} files")
-        if cursor is None:
-            break
-    else:
-        raise GhError(f"PR #{pr} files: exceeded {MAX_PAGES} pages")
+
+    def _keep_node(pull: Any) -> None:
+        nonlocal node
+        node = pull
+
+    raw_files, reported = paginate_connection(
+        gh, PR_DETAIL_QUERY, {"owner": owner, "name": repo, "pr": int(pr)},
+        ("repository", "pullRequest", "files"), what=f"PR #{pr} files",
+        parent_what=f"PR #{pr}", on_page=_keep_node,
+    )
+    files = [
+        FileChange(
+            path=str(f.get("path") or ""),
+            additions=int(f.get("additions") or 0),
+            deletions=int(f.get("deletions") or 0),
+        )
+        for f in raw_files
+    ]
     if reported is None or len(files) != int(reported):
         raise GhError(f"PR #{pr} files: fetched {len(files)} of {reported} reported")
     return _summary_from(node, files)
