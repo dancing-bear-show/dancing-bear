@@ -14,6 +14,13 @@ _EXTRA_RULE_SAMPLES = "\n".join(
     [
         "key: sk-" + "ant-api03-" + "x" * 40,  # anthropic-key
         "slug: -home-alice-code-myproject",  # abs-home-path-slug-form-linux
+        "k: sk-" + "proj-" + "A1b2C3d4" * 6,  # openai-key
+        "k: AI" + "za" + "SyA1b2C3d4E5f6G7h8I9j0KlMnOpQrStUv",  # google-api-key
+        "t: ey" + "J" + "hbGciOiJIUzI1NiJ9.ey" + "J" + "zdWIiOiIx.c2ln_nat-ure1",  # jwt
+        "k: sk" + "_live_" + "51H" + "a" * 30,  # stripe-key
+        "t: npm" + "_" + "A1b2C3d4E5" * 3 + "abcdef",  # npm-token
+        "u: https://admin:" + "hunter2pass" + "@db.example.com/x",  # url-credentials
+        "aws_secret_access_key = " + "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",  # aws-secret-key
     ]
 )
 
@@ -248,6 +255,64 @@ class TestHardenedBlockRules(unittest.TestCase):
             ("slack-token", "xo" + "xb-"),
             ("slack-token", "xo" + "xb-short"),
             ("slack-token", "xo" + "xz-" + "a" * 40),
+        ]
+        for rule_id, text in cases:
+            with self.subTest(rule_id=rule_id, text=text[:30]):
+                self.assertNotIn(rule_id, _ids(text))
+
+
+def _credential_shape_samples() -> list[tuple[str, str]]:
+    """(rule_id, text) pairs, assembled by concatenation for push protection."""
+    return [
+        ("openai-key", "key sk-" + "proj-" + "A1b2C3d4" * 6),
+        ("openai-key", "OPENAI_API_KEY=sk-" + "proj-" + "A1b2_C3-d4" * 6),
+        ("google-api-key", "AI" + "za" + "SyA1b2C3d4E5f6G7h8I9j0KlMnOpQrStUv"),
+        ("google-api-key", "key=AI" + "za" + "SyA1b2C3d4E5f6G7h8I9j0KlMnOpQrStUv&x=1"),
+        ("jwt", "ey" + "J" + "hbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"),
+        ("jwt", "Authorization: ey" + "J" + "hbGciOiJIUzI1NiJ9.ey" + "J" + "zdWIiOiIx.c2ln_nat-ure1"),
+        ("stripe-key", "sk" + "_live_" + "51H" + "a" * 30),
+        ("stripe-key", "rk" + "_live_" + "51H" + "b" * 30),
+        ("npm-token", "npm" + "_" + "A1b2C3d4E5" * 3 + "abcdef"),
+        ("url-credentials", "https://admin:" + "hunter2pass" + "@db.example.com/x"),
+        ("url-credentials", "postgres://u:p" + "@host:5432/db"),
+        ("aws-secret-key", "aws_secret_access_key = " + "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"),
+        ("aws-secret-key", 'AWS_SECRET_ACCESS_KEY="' + "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" + '"'),
+    ]
+
+
+class TestCredentialShapeRules(unittest.TestCase):
+    """Credential shapes the first rule set missed must block; near-misses must not."""
+
+    def test_positive_shapes_block(self) -> None:
+        for rule_id, text in _credential_shape_samples():
+            with self.subTest(rule_id=rule_id, text=text[:30]):
+                reds = scan(text)
+                self.assertIn(rule_id, {r.rule_id for r in reds})
+                self.assertTrue(has_blocking(reds))
+
+    def test_negative_shapes_do_not_match(self) -> None:
+        cases = [
+            ("openai-key", "the sk-" + "proj prefix"),
+            ("openai-key", "sk-" + "proj-short"),
+            ("openai-key", "task-" + "proj-" + "A1b2C3d4" * 6),
+            ("google-api-key", "AI" + "za" + "Sy123"),
+            ("google-api-key", "AI" + "za"),
+            ("google-api-key", "AI" + "za" + "A" * 20),
+            ("jwt", "a.b.c"),
+            ("jwt", "v1.2.3"),
+            ("jwt", "ey" + "J" + "hbGciOi.short"),
+            ("jwt", "file.tar.gz"),
+            ("stripe-key", "sk" + "_live_" + "short"),
+            ("stripe-key", "sk" + "_test_" + "a" * 30),
+            ("npm-token", "npm" + "_" + "A" * 35),
+            ("npm-token", "npm" + "_" + "A" * 37),
+            ("npm-token", "install npm_config"),
+            ("url-credentials", "http://host/path"),
+            ("url-credentials", "http://host:8080/path"),
+            ("url-credentials", "https://github.com/a/b@c"),
+            ("url-credentials", "mailto:a@b.example"),
+            ("aws-secret-key", "aws_secret_access_key = short"),
+            ("aws-secret-key", "aws_secret_access_key"),
         ]
         for rule_id, text in cases:
             with self.subTest(rule_id=rule_id, text=text[:30]):
