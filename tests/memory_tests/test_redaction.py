@@ -261,9 +261,6 @@ class TestHardenedBlockRules(unittest.TestCase):
                 self.assertNotIn(rule_id, _ids(text))
 
 
-_B64 = "A1b2C3d4E5f6G7h8I9j0KlMnOpQrStUvWxYz"
-
-
 def _credential_shape_samples() -> list[tuple[str, str]]:
     """(rule_id, text) pairs, assembled by concatenation for push protection."""
     return [
