@@ -69,6 +69,12 @@ lint:
 lint-fix:
 	@bin/ruff-resolve.sh check --fix $(SRC) tests bin workflows
 
+# Companion to `lint`: shellcheck over every tracked bash script, found by shebang.
+# qlty skips extensionless scripts (most of bin/), so `lint` and `qlty check` miss them.
+.PHONY: shellcheck
+shellcheck:
+	@bin/shellcheck-all.sh
+
 # A test directory without __init__.py is skipped silently by `unittest discover`,
 # so its tests never run and the module it covers reports 0% as if untested. Same
 # outcome when the __init__.py is gitignored: it passes locally and never reaches

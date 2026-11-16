@@ -15,6 +15,9 @@
 # Usage: bash block-destructive-bash.test.sh [path-to-hook]
 # Exit:  0 = all pass, 1 = at least one failure. Requires jq.
 
+# File-wide: the `run` cases are literal command text fed to the hook, so `$VAR`/`~`
+# inside single quotes must NOT expand -- that is the input under test.
+# shellcheck disable=SC2016,SC2088
 HOOK="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/block-destructive-bash.sh}"
 
 # shellcheck source=./_harness.sh

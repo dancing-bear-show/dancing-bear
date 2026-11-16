@@ -1,0 +1,3 @@
+# Follow `source`d files (e.g. hooks/tests/_harness.sh) so SC1091/SC2034 see real usage.
+external-sources=true
+source-path=SCRIPTDIR

@@ -28,7 +28,6 @@ ORG="Personal"
 P12=""
 P12_PASS=""
 PROFILE_NAME="ios_layout_manager"
-ALT_PROFILE_NAME="ios_supervisor"
 CONFIG_PATH=""
 
 while [[ $# -gt 0 ]]; do

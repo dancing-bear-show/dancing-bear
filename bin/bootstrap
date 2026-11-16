@@ -186,7 +186,7 @@ fi
 
 # ── Summary ──────────────────────────────────────────────────────────
 echo ""
-printf "${BOLD}── Bootstrap complete ──${NC}\n"
+printf '%b── Bootstrap complete ──%b\n' "$BOLD" "$NC"
 echo ""
 echo "Next steps:"
 echo "  1. source .venv/bin/activate"
