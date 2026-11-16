@@ -33,7 +33,7 @@ def _run_wrapper_help(name: str) -> subprocess.CompletedProcess | None:
         cmd = ["bash", str(wrapper), "--help"]
     else:
         cmd = [sys.executable, str(wrapper), "--help"]
-    return subprocess.run(cmd, cwd=str(repo_root()), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # nosec B603 - test code with trusted local scripts
+    return subprocess.run(cmd, cwd=str(repo_root()), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # nosec B603 - test code with trusted local scripts  # fmt: skip
 
 
 class IntegrationCLITests(unittest.TestCase):
@@ -53,7 +53,7 @@ class IntegrationCLITests(unittest.TestCase):
             cmd = ["bash", str(wrapper)] + (args or ["--help"])
         else:
             cmd = [sys.executable, str(wrapper)] + (args or ["--help"])
-        return subprocess.run(cmd, cwd=str(repo_root()), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # nosec B603 - test code with trusted local scripts
+        return subprocess.run(cmd, cwd=str(repo_root()), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # nosec B603 - test code with trusted local scripts  # fmt: skip
 
     def test_mail_underscore_help(self):
         proc = self._run_wrapper("mail")
@@ -108,7 +108,7 @@ class IntegrationCLISadPathTests(unittest.TestCase):
         wrapper = bin_path(name)
         self.assertTrue(wrapper.exists(), f"bin/{name} not found")
         cmd = [sys.executable, str(wrapper)] + args
-        return subprocess.run(cmd, cwd=str(repo_root()), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # nosec B603 - test code with trusted local scripts
+        return subprocess.run(cmd, cwd=str(repo_root()), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # nosec B603 - test code with trusted local scripts  # fmt: skip
 
     def test_mail_unknown_subcommand(self):
         proc = self._run_wrapper("mail", ["bogus-subcommand"])
@@ -133,7 +133,9 @@ class IntegrationCLISadPathTests(unittest.TestCase):
     def test_calendar_assistant_outlook_add_missing_required(self):
         proc = self._run_wrapper("calendar-assistant", ["outlook", "add"])
         self.assertEqual(proc.returncode, 2)
-        self.assertIn("the following arguments are required: --subject, --start, --end", proc.stderr)
+        self.assertIn(
+            "the following arguments are required: --subject, --start, --end", proc.stderr
+        )
 
     def test_schedule_assistant_unknown_subcommand(self):
         proc = self._run_wrapper("schedule-assistant", ["bogus-subcommand"])
@@ -162,7 +164,7 @@ class AssistantDispatcherIntegrationTests(unittest.TestCase):
     def _run_assistant(self, args: list[str]) -> subprocess.CompletedProcess:
         wrapper = bin_path("assistant")
         cmd = [sys.executable, str(wrapper)] + args
-        return subprocess.run(cmd, cwd=str(repo_root()), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # nosec B603 - test code with trusted local scripts
+        return subprocess.run(cmd, cwd=str(repo_root()), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # nosec B603 - test code with trusted local scripts  # fmt: skip
 
     def test_assistant_no_args(self):
         proc = self._run_assistant([])
@@ -227,7 +229,7 @@ class LLMCLIIntegrationTests(unittest.TestCase):
     def _run_llm(self, args: list[str]) -> subprocess.CompletedProcess:
         wrapper = bin_path("llm")
         cmd = [sys.executable, str(wrapper)] + args
-        return subprocess.run(cmd, cwd=str(repo_root()), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # nosec B603 - test code with trusted local scripts
+        return subprocess.run(cmd, cwd=str(repo_root()), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # nosec B603 - test code with trusted local scripts  # fmt: skip
 
     def test_llm_unknown_subcommand(self):
         proc = self._run_llm(["bogus-subcommand"])
@@ -303,7 +305,7 @@ class IOSWrapperIntegrationTests(unittest.TestCase):
             self.skipTest(f"bin/{name} not found")
         # iOS wrappers are bash scripts
         cmd = ["bash", str(wrapper), "--help"]
-        return subprocess.run(cmd, cwd=str(repo_root()), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # nosec B603 - test code with trusted local scripts
+        return subprocess.run(cmd, cwd=str(repo_root()), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # nosec B603 - test code with trusted local scripts  # fmt: skip
 
     def test_ios_export_help(self):
         proc = self._run_wrapper("ios-export")

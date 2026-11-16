@@ -1,4 +1,5 @@
 """Shared YAML read/write helpers for personal assistant CLIs."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -6,7 +7,7 @@ from typing import Any
 
 from core.cli_errors import CLIError, ExitCode
 
-__all__ = ["load_config", "dump_config"]
+__all__ = ["dump_config", "load_config"]
 
 
 def _require_yaml():
@@ -15,7 +16,9 @@ def _require_yaml():
 
         return yaml
     except Exception as exc:  # pragma: no cover - runtime guard
-        raise CLIError("PyYAML not installed. Run: pip install pyyaml", ExitCode.CONFIG_ERROR) from exc
+        raise CLIError(
+            "PyYAML not installed. Run: pip install pyyaml", ExitCode.CONFIG_ERROR
+        ) from exc
 
 
 def load_config(path: str | None) -> dict[str, Any]:
@@ -41,6 +44,4 @@ def dump_config(path: str, data: dict[str, Any]) -> None:
     yaml = _require_yaml()
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(
-        yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8"
-    )
+    target.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")

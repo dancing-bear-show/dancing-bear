@@ -107,8 +107,7 @@ DEFAULT_RULES: dict[str, Any] = {
         },
         "redundant-read": {
             "skill": (
-                "Skill {name} read the same file multiple times"
-                " — cache contents in a variable."
+                "Skill {name} read the same file multiple times — cache contents in a variable."
             ),
             "agent": "Agent {name}: avoid re-reading the same file; store content for reuse.",
             "session": "Session: the same file was read repeatedly — read once and reuse.",
@@ -121,8 +120,7 @@ DEFAULT_RULES: dict[str, Any] = {
         "abandoned-search": {
             "skill": "Skill {name} ran many reads without writing — verify search strategy.",
             "agent": (
-                "Agent {name}: consecutive reads without progress"
-                " — reconsider search approach."
+                "Agent {name}: consecutive reads without progress — reconsider search approach."
             ),
             "session": "Session: many reads without writes suggest abandoned search patterns.",
         },
@@ -183,7 +181,9 @@ def load_rules(path: str | Path | None = None) -> dict[str, Any]:
         return deepcopy(DEFAULT_RULES)
 
     if not isinstance(raw, dict):
-        logger.warning("Warning: rules file %s did not parse to a mapping; using defaults.", config_path)
+        logger.warning(
+            "Warning: rules file %s did not parse to a mapping; using defaults.", config_path
+        )
         return deepcopy(DEFAULT_RULES)
 
     merged = _deep_merge(DEFAULT_RULES, raw)
@@ -191,7 +191,9 @@ def load_rules(path: str | Path | None = None) -> dict[str, Any]:
     errors = validate_rules(merged)
     real_errors = [e for e in errors if not e.startswith("jsonschema not installed")]
     if real_errors:
-        logger.warning("Warning: rules file %s failed schema validation; using defaults.", config_path)
+        logger.warning(
+            "Warning: rules file %s failed schema validation; using defaults.", config_path
+        )
         for err in real_errors:
             logger.warning("  - %s", err)
         return deepcopy(DEFAULT_RULES)

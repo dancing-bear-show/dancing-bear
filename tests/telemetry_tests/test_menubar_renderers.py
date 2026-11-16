@@ -1,4 +1,5 @@
 """Tests for telemetry/_menubar_renderers.py — icon rendering helpers."""
+
 from __future__ import annotations
 
 import unittest
@@ -54,6 +55,7 @@ class TestIconSubstitutions(unittest.TestCase):
 
     def test_tokens_1h_computed_from_input_plus_output(self) -> None:
         from telemetry.tui import format_tokens
+
         ctx = {"1h": {"cost": 0.0, "input_tokens": 2000, "output_tokens": 500}}
         subs = _icon_substitutions(ctx, mtd_cost=0.0, score=1)
         # 2000 + 500 = 2500 tokens — format_tokens condenses to e.g. "2K"

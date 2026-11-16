@@ -7,12 +7,22 @@ from dataclasses import dataclass, field
 # Ordered hex colors used by the renderer to assign series colors by index.
 # Dark palette uses GitHub's dark-mode syntax highlight colors for familiarity.
 PALETTE_DARK: tuple[str, ...] = (
-    "#ffa657", "#79c0ff", "#7ee787", "#ff7b72",
-    "#d2a8ff", "#ffa198", "#56d364",
+    "#ffa657",
+    "#79c0ff",
+    "#7ee787",
+    "#ff7b72",
+    "#d2a8ff",
+    "#ffa198",
+    "#56d364",
 )
 PALETTE_LIGHT: tuple[str, ...] = (
-    "#d4691e", "#1565c0", "#2e7d32", "#c62828",
-    "#6a1b9a", "#ad1457", "#00695c",
+    "#d4691e",
+    "#1565c0",
+    "#2e7d32",
+    "#c62828",
+    "#6a1b9a",
+    "#ad1457",
+    "#00695c",
 )
 
 

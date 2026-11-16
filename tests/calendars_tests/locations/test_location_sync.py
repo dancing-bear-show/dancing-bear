@@ -99,30 +99,42 @@ class TestLocationSyncPlanFromConfig(unittest.TestCase):
         self.assertEqual(result, 0)
 
     def test_dry_run_counts_updates(self):
-        events = [make_test_event(
-            "evt1", "Meeting", "2024-01-15T09:00:00",
-            location={"displayName": "Old Room"},
-        )]
+        events = [
+            make_test_event(
+                "evt1",
+                "Meeting",
+                "2024-01-15T09:00:00",
+                location={"displayName": "Old Room"},
+            )
+        ]
         sync, _ = make_location_sync(events, mock_svc=True)
-        items = [{
-            "subject": "Meeting",
-            "location": "New Room",
-            "range": {"start_date": "2024-01-01", "until": "2024-02-01"},
-        }]
+        items = [
+            {
+                "subject": "Meeting",
+                "location": "New Room",
+                "range": {"start_date": "2024-01-01", "until": "2024-02-01"},
+            }
+        ]
         result = sync.plan_from_config(items, calendar="Test", dry_run=True)
         self.assertEqual(result, 1)
 
     def test_skips_when_locations_match(self):
-        events = [make_test_event(
-            "evt1", "Meeting", "2024-01-15T09:00:00",
-            location={"displayName": "Room A"},
-        )]
+        events = [
+            make_test_event(
+                "evt1",
+                "Meeting",
+                "2024-01-15T09:00:00",
+                location={"displayName": "Room A"},
+            )
+        ]
         sync, _ = make_location_sync(events, mock_svc=True)
-        items = [{
-            "subject": "Meeting",
-            "location": "Room A",
-            "range": {"start_date": "2024-01-01", "until": "2024-02-01"},
-        }]
+        items = [
+            {
+                "subject": "Meeting",
+                "location": "Room A",
+                "range": {"start_date": "2024-01-01", "until": "2024-02-01"},
+            }
+        ]
         result = sync.plan_from_config(items, calendar="Test", dry_run=True)
         self.assertEqual(result, 0)
 
@@ -137,11 +149,15 @@ class TestLocationSyncPlanFromConfig(unittest.TestCase):
             "postalCode": "L4C 0A2",
             "countryOrRegion": "CA",
         }
-        events = [make_test_event(
-            "occ1", "Class", "2024-01-15T17:00:00",
-            location={"displayName": "Elgin West", "address": addr},
-            seriesMasterId="ser1",
-        )]
+        events = [
+            make_test_event(
+                "occ1",
+                "Class",
+                "2024-01-15T17:00:00",
+                location={"displayName": "Elgin West", "address": addr},
+                seriesMasterId="ser1",
+            )
+        ]
         sync, _ = make_location_sync(events, mock_svc=True)
         item = {
             "subject": "Class",
@@ -167,16 +183,22 @@ class TestLocationSyncApplyFromConfig(unittest.TestCase):
         self.assertEqual(result, 0)
 
     def test_dry_run_logs_message(self):
-        events = [make_test_event(
-            "evt1", "Meeting", "2024-01-15T09:00:00",
-            location={"displayName": "Old Room"},
-        )]
+        events = [
+            make_test_event(
+                "evt1",
+                "Meeting",
+                "2024-01-15T09:00:00",
+                location={"displayName": "Old Room"},
+            )
+        ]
         sync, _ = make_location_sync(events, mock_svc=True)
-        items = [{
-            "subject": "Meeting",
-            "location": "New Room",
-            "range": {"start_date": "2024-01-01", "until": "2024-02-01"},
-        }]
+        items = [
+            {
+                "subject": "Meeting",
+                "location": "New Room",
+                "range": {"start_date": "2024-01-01", "until": "2024-02-01"},
+            }
+        ]
         buf = StringIO()
         with patch("sys.stdout", buf):
             result = sync.apply_from_config(items, calendar="Test", dry_run=True)
@@ -184,38 +206,58 @@ class TestLocationSyncApplyFromConfig(unittest.TestCase):
         self.assertIn("[dry-run]", buf.getvalue())
 
     def test_apply_calls_update_location(self):
-        events = [make_test_event(
-            "evt1", "Meeting", "2024-01-15T09:00:00",
-            location={"displayName": "Old Room"},
-        )]
+        events = [
+            make_test_event(
+                "evt1",
+                "Meeting",
+                "2024-01-15T09:00:00",
+                location={"displayName": "Old Room"},
+            )
+        ]
         sync, svc = make_location_sync(events, mock_svc=True)
         svc.update_event_location = MagicMock()
-        items = [{
-            "subject": "Meeting",
-            "location": "New Room",
-            "range": {"start_date": "2024-01-01", "until": "2024-02-01"},
-        }]
-        with patch('sys.stdout', new_callable=StringIO):
+        items = [
+            {
+                "subject": "Meeting",
+                "location": "New Room",
+                "range": {"start_date": "2024-01-01", "until": "2024-02-01"},
+            }
+        ]
+        with patch("sys.stdout", new_callable=StringIO):
             result = sync.apply_from_config(items, calendar="Test", dry_run=False)
         self.assertEqual(result, 1)
         svc.update_event_location.assert_called_once()
 
     def test_all_occurrences_updates_series(self):
         events = [
-            make_test_event("occ1", "Weekly", "2024-01-15T09:00:00",
-                            location={"displayName": "Old"}, seriesMasterId="series1"),
-            make_test_event("occ2", "Weekly", "2024-01-22T09:00:00",
-                            location={"displayName": "Old"}, seriesMasterId="series1"),
+            make_test_event(
+                "occ1",
+                "Weekly",
+                "2024-01-15T09:00:00",
+                location={"displayName": "Old"},
+                seriesMasterId="series1",
+            ),
+            make_test_event(
+                "occ2",
+                "Weekly",
+                "2024-01-22T09:00:00",
+                location={"displayName": "Old"},
+                seriesMasterId="series1",
+            ),
         ]
         sync, svc = make_location_sync(events, mock_svc=True)
         svc.update_event_location = MagicMock()
-        items = [{
-            "subject": "Weekly",
-            "location": "New Room",
-            "range": {"start_date": "2024-01-01", "until": "2024-02-01"},
-        }]
-        with patch('sys.stdout', new_callable=StringIO):
-            result = sync.apply_from_config(items, calendar="Test", all_occurrences=True, dry_run=False)
+        items = [
+            {
+                "subject": "Weekly",
+                "location": "New Room",
+                "range": {"start_date": "2024-01-01", "until": "2024-02-01"},
+            }
+        ]
+        with patch("sys.stdout", new_callable=StringIO):
+            result = sync.apply_from_config(
+                items, calendar="Test", all_occurrences=True, dry_run=False
+            )
         # Should update series once (deduped by seriesMasterId)
         self.assertEqual(result, 1)
         svc.update_event_location.assert_called_once_with(
@@ -232,21 +274,31 @@ class TestLocationSyncApplyFromConfig(unittest.TestCase):
         two events sharing the same seriesMasterId (deduped into one update).
         """
         events = [
-            make_test_event("occ1", "Weekly", "2024-01-15T09:00:00",
-                            location={"displayName": "Old"}, seriesMasterId="series1"),
-            make_test_event("single1", "Weekly", "2024-01-22T09:00:00",
-                            location={"displayName": "Old Single"}),
+            make_test_event(
+                "occ1",
+                "Weekly",
+                "2024-01-15T09:00:00",
+                location={"displayName": "Old"},
+                seriesMasterId="series1",
+            ),
+            make_test_event(
+                "single1", "Weekly", "2024-01-22T09:00:00", location={"displayName": "Old Single"}
+            ),
         ]
         sync, svc = make_location_sync(events, mock_svc=True)
         svc.update_event_location = MagicMock()
-        items = [{
-            "subject": "Weekly",
-            "location": "New Room",
-            "range": {"start_date": "2024-01-01", "until": "2024-02-01"},
-        }]
+        items = [
+            {
+                "subject": "Weekly",
+                "location": "New Room",
+                "range": {"start_date": "2024-01-01", "until": "2024-02-01"},
+            }
+        ]
         buf = StringIO()
         with patch("sys.stdout", buf):
-            result = sync.apply_from_config(items, calendar="Test", all_occurrences=True, dry_run=False)
+            result = sync.apply_from_config(
+                items, calendar="Test", all_occurrences=True, dry_run=False
+            )
         self.assertEqual(result, 2)
         svc.update_event_location.assert_any_call(
             UpdateEventLocationRequest(
@@ -263,16 +315,22 @@ class TestLocationSyncApplyFromConfig(unittest.TestCase):
         self.assertIn("Updated occurrence", out)
 
     def test_skips_when_location_matches(self):
-        events = [make_test_event(
-            "evt1", "Meeting", "2024-01-15T09:00:00",
-            location={"displayName": "Same Room"},
-        )]
+        events = [
+            make_test_event(
+                "evt1",
+                "Meeting",
+                "2024-01-15T09:00:00",
+                location={"displayName": "Same Room"},
+            )
+        ]
         sync, _ = make_location_sync(events, mock_svc=True)
-        items = [{
-            "subject": "Meeting",
-            "location": "Same Room",
-            "range": {"start_date": "2024-01-01", "until": "2024-02-01"},
-        }]
+        items = [
+            {
+                "subject": "Meeting",
+                "location": "Same Room",
+                "range": {"start_date": "2024-01-01", "until": "2024-02-01"},
+            }
+        ]
         result = sync.apply_from_config(items, calendar="Test", dry_run=False)
         self.assertEqual(result, 0)
 
@@ -286,28 +344,32 @@ class TestLocationSyncSelectMatches(unittest.TestCase):
             make_test_event("2", "Meeting", "2024-01-16T09:00:00"),
         ]
         sync, _ = make_location_sync(events, mock_svc=True)
-        result = sync._select_matches_from_criteria(MatchCriteria(
-            cal_name="Test",
-            subj="Meeting",
-            win=("2024-01-01T00:00:00", "2024-02-01T23:59:59"),
-            byday=[],
-            start_time=None,
-            end_time=None,
-        ))
+        result = sync._select_matches_from_criteria(
+            MatchCriteria(
+                cal_name="Test",
+                subj="Meeting",
+                win=("2024-01-01T00:00:00", "2024-02-01T23:59:59"),
+                byday=[],
+                start_time=None,
+                end_time=None,
+            )
+        )
         self.assertEqual(len(result), 2)
 
     def test_returns_first_when_no_filter_matches(self):
         # Events without start.dateTime (filter_events_by_day_time will return empty)
         events = [{"id": "1"}, {"id": "2"}]
         sync, _ = make_location_sync(events, mock_svc=True)
-        result = sync._select_matches_from_criteria(MatchCriteria(
-            cal_name="Test",
-            subj="Meeting",
-            win=("2024-01-01T00:00:00", "2024-02-01T23:59:59"),
-            byday=["MO"],  # Filter by Monday
-            start_time=None,
-            end_time=None,
-        ))
+        result = sync._select_matches_from_criteria(
+            MatchCriteria(
+                cal_name="Test",
+                subj="Meeting",
+                win=("2024-01-01T00:00:00", "2024-02-01T23:59:59"),
+                byday=["MO"],  # Filter by Monday
+                start_time=None,
+                end_time=None,
+            )
+        )
         # Should return first event as fallback
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["id"], "1")

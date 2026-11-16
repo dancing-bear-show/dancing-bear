@@ -14,7 +14,12 @@ from unittest.mock import patch
 import memory.cli as memory_cli
 from memory.models import MemoryStore
 from memory.parser import parse_memory_file
-from memory.validation import _check_ref_dead_path, _check_stale_superseded_pr, _CheckContext, run_checks
+from memory.validation import (
+    _check_ref_dead_path,
+    _check_stale_superseded_pr,
+    _CheckContext,
+    run_checks,
+)
 from tests.memory_tests.fixtures import MemoryTestCase, write_memory_dir
 
 SLUG_A = "-Users-alice-code-aaa"
@@ -33,7 +38,9 @@ def _run_validate(*argv: str) -> tuple[int, str, str]:
 
 
 def _snapshot(root: Path) -> dict[str, bytes]:
-    return {str(p.relative_to(root)): p.read_bytes() for p in sorted(root.rglob("*")) if p.is_file()}
+    return {
+        str(p.relative_to(root)): p.read_bytes() for p in sorted(root.rglob("*")) if p.is_file()
+    }
 
 
 def _store(root: Path, memories: tuple = ()) -> MemoryStore:
@@ -54,8 +61,12 @@ class TestValidateFixScope(MemoryTestCase):
         super().setUp()
         projects = self.home / ".claude" / "projects"
         projects.mkdir(parents=True)
-        self.dir_a = write_memory_dir(projects, SLUG_A, [("feedback_x.md", _UNTYPED), ("MEMORY.md", "# Index\n")])
-        self.dir_b = write_memory_dir(projects, SLUG_B, [("feedback_x.md", _UNTYPED), ("MEMORY.md", "# Index\n")])
+        self.dir_a = write_memory_dir(
+            projects, SLUG_A, [("feedback_x.md", _UNTYPED), ("MEMORY.md", "# Index\n")]
+        )
+        self.dir_b = write_memory_dir(
+            projects, SLUG_B, [("feedback_x.md", _UNTYPED), ("MEMORY.md", "# Index\n")]
+        )
 
     def _both(self) -> tuple[dict[str, bytes], dict[str, bytes]]:
         return _snapshot(self.dir_a), _snapshot(self.dir_b)
@@ -125,14 +136,20 @@ class TestMultiStoreCwdDefaults(MemoryTestCase):
 
 def _project_memory(tmp: Path, body: str):
     f = tmp / "project_a.md"
-    f.write_text(f"---\nname: project_a\ndescription: d\ntype: project\n---\n\n{body}\n", encoding="utf-8")
+    f.write_text(
+        f"---\nname: project_a\ndescription: d\ntype: project\n---\n\n{body}\n", encoding="utf-8"
+    )
     return parse_memory_file(f, project_slug="s")
 
 
 class TestRefDeadPathMissingRepo(MemoryTestCase):
     def test_nonexistent_repo_yields_no_findings(self) -> None:
-        store = _store(self.tmp, (_project_memory(self.tmp, "See src/core/x.py and `src/mail/y.py`."),))
-        ctx = _CheckContext(repo=self.tmp / "no-such-repo--claude-worktrees-x", claude_md_paths=(), fix=False)
+        store = _store(
+            self.tmp, (_project_memory(self.tmp, "See src/core/x.py and `src/mail/y.py`."),)
+        )
+        ctx = _CheckContext(
+            repo=self.tmp / "no-such-repo--claude-worktrees-x", claude_md_paths=(), fix=False
+        )
         self.assertEqual(_check_ref_dead_path(store, ctx), ())
 
 

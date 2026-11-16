@@ -27,8 +27,6 @@ from core.assistant import BaseAssistant
 from core.cli_errors import ExitCode
 from core.cli_framework import CLIApp
 from core.cli_output import emit_one, emit_rows
-from workflow.meta import META
-
 from workflow.cli_compile import _cmd_compile
 from workflow.cli_dispatch import (
     _cmd_check_params,
@@ -70,6 +68,7 @@ from workflow.cli_fleet import (
     _cmd_fleet_status,
 )
 from workflow.cli_lifecycle import _cmd_seed_pr_lifecycle, _cmd_set_state
+from workflow.meta import META
 from workflow.models import StageStatus
 from workflow.set_state import DEFAULT_PR_FRAGMENT
 
@@ -104,6 +103,7 @@ def _emit_one(data: dict, *, fmt: str = "table") -> None:
     elif fmt == "yaml":
         try:
             import yaml
+
             print(yaml.safe_dump(data, default_flow_style=False).rstrip())
         except ImportError:
             emit_one(data, fmt="json")
@@ -130,6 +130,7 @@ assistant = BaseAssistant(META.app_id, META.agentic_fallback)
 @lru_cache(maxsize=1)
 def _lazy_agentic():
     from .agentic import emit_agentic_context
+
     return emit_agentic_context
 
 
@@ -149,7 +150,10 @@ def cmd_parse(args: argparse.Namespace) -> int:
     help="Bypass the sha256-keyed compile cache and re-compile from YAML",
 )
 @app.argument(
-    "--params", action="append", default=[], metavar="key=value",
+    "--params",
+    action="append",
+    default=[],
+    metavar="key=value",
     help="Trigger parameter overrides (repeatable) — affects when/will_run",
 )
 @app.argument("--format", "-f", **_format_kwargs(default="table"))
@@ -159,10 +163,15 @@ def cmd_compile(args: argparse.Namespace) -> int:
 
 @app.command("run", help="Parse + compile + execute a workflow")
 @app.argument("path", help=_PATH_HELP)
-@app.argument("--execute", action="store_true", help="Actually run the workflow (default is dry-run)")
+@app.argument(
+    "--execute", action="store_true", help="Actually run the workflow (default is dry-run)"
+)
 @app.argument("--workspace", help="Override workspace base directory")
 @app.argument(
-    "--params", action="append", default=[], metavar="key=value",
+    "--params",
+    action="append",
+    default=[],
+    metavar="key=value",
     help="Trigger parameter overrides (repeatable)",
 )
 @app.argument("--run-id", help="Custom run ID")
@@ -174,11 +183,14 @@ def cmd_run(args: argparse.Namespace) -> int:
 @app.command("lint", help="Validate workflow YAML structure without running it")
 @app.argument("file", help="Path to workflow YAML file")
 @app.argument(
-    "--strict", action="store_true",
+    "--strict",
+    action="store_true",
     help="Treat warnings as errors (exit non-zero if any warnings exist)",
 )
 @app.argument(
-    "--check-commands", action="store_true", dest="check_commands",
+    "--check-commands",
+    action="store_true",
+    dest="check_commands",
     help="Validate ./bin/<cli> <subcommand> patterns by probing each binary",
 )
 @app.argument("--format", "-f", **_format_kwargs(default="yaml"))
@@ -217,9 +229,21 @@ def cmd_check_paths(args: argparse.Namespace) -> int:
     help="Select concern guides for given file paths and optional task type",
 )
 @app.argument("--paths", nargs="*", default=[], metavar="PATH", help="File paths to evaluate")
-@app.argument("--paths-file", dest="paths_file", default="", help="Newline-delimited file of paths (- for stdin)")
-@app.argument("--task-type", dest="task_type", default="", help="Task type: a task_type_rules key in concerns/selection.yaml")
-@app.argument("--format", "-f", choices=["text", "json"], default="text", help="Output format (default: text)")
+@app.argument(
+    "--paths-file",
+    dest="paths_file",
+    default="",
+    help="Newline-delimited file of paths (- for stdin)",
+)
+@app.argument(
+    "--task-type",
+    dest="task_type",
+    default="",
+    help="Task type: a task_type_rules key in concerns/selection.yaml",
+)
+@app.argument(
+    "--format", "-f", choices=["text", "json"], default="text", help="Output format (default: text)"
+)
 def cmd_select_concerns(args: argparse.Namespace) -> int:
     return _cmd_select_concerns(args)
 
@@ -236,10 +260,15 @@ def cmd_status(args: argparse.Namespace) -> int:
     help="Create workspace dir, write manifest.json + plan.json, print workspace path",
 )
 @app.argument("path", help=_PATH_HELP)
-@app.argument("--run-id", dest="run_id", default="", help="Custom run ID (auto-generated if omitted)")
+@app.argument(
+    "--run-id", dest="run_id", default="", help="Custom run ID (auto-generated if omitted)"
+)
 @app.argument("--base-dir", dest="base_dir", default="", help="Base directory for workspace")
 @app.argument(
-    "--params", action="append", default=[], metavar="key=value",
+    "--params",
+    action="append",
+    default=[],
+    metavar="key=value",
     help="Trigger parameter overrides (repeatable)",
 )
 def cmd_init_workspace(args: argparse.Namespace) -> int:
@@ -263,16 +292,24 @@ def cmd_resume(args: argparse.Namespace) -> int:
 @app.argument("workspace_dir", help="Workspace directory of the run")
 @app.argument("stage_name", help="Stage name to mark; must be in the run's plan")
 @app.argument(
-    "--status", default="success", choices=[s.value for s in StageStatus],
+    "--status",
+    default="success",
+    choices=[s.value for s in StageStatus],
     help="Status to record (default: success)",
 )
 @app.argument("--data", default="", metavar="JSON", help="JSON object stored as the result's data")
 @app.argument(
-    "--stage-index", dest="stage_index", type=int, default=None, metavar="N",
+    "--stage-index",
+    dest="stage_index",
+    type=int,
+    default=None,
+    metavar="N",
     help="Marker index (default: max existing + 1, so it outranks older markers)",
 )
 @app.argument("--note", default=None, help="Free text stored in metadata.note")
-@app.argument("--format", "-f", **_format_kwargs(formats=["json", "yaml", "table"], default="table"))
+@app.argument(
+    "--format", "-f", **_format_kwargs(formats=["json", "yaml", "table"], default="table")
+)
 def cmd_set_state(args: argparse.Namespace) -> int:
     return _cmd_set_state(args)
 
@@ -287,7 +324,9 @@ def cmd_set_state(args: argparse.Namespace) -> int:
 @app.argument("--url", default=None, help="PR URL, stored on the open-pr stage")
 @app.argument("--note", default=None, help="Free text stored in metadata.note on every stage")
 @app.argument(
-    "--fragment", default="", metavar="PATH",
+    "--fragment",
+    default="",
+    metavar="PATH",
     help=f"Fragment whose stages to seed (default: {DEFAULT_PR_FRAGMENT})",
 )
 @app.argument("--format", "-f", **_format_kwargs(formats=["json", "csv", "table"], default="table"))
@@ -312,17 +351,25 @@ def cmd_validate_fragment(args: argparse.Namespace) -> int:
 )
 @app.argument("file", help="Path to manifest.json (or another engine/stage JSON file)")
 @app.argument(
-    "--check", action="append", default=[], required=True, metavar="name=regex",
+    "--check",
+    action="append",
+    default=[],
+    required=True,
+    metavar="name=regex",
     help="Param name and full-match regex it must satisfy (repeatable)",
 )
 @app.argument(
-    "--top-level", action="store_true",
+    "--top-level",
+    action="store_true",
     help="Read params from the document root instead of its 'trigger_params' key",
 )
 @app.argument(
-    "--print", dest="print_param", default=None, metavar="name",
+    "--print",
+    dest="print_param",
+    default=None,
+    metavar="name",
     help="Also write this param's value to stdout, only if every --check passed "
-         "(the name must be one of them)",
+    "(the name must be one of them)",
 )
 def cmd_check_params(args: argparse.Namespace) -> int:
     return _cmd_check_params(args)
@@ -353,7 +400,8 @@ def cmd_thread_fingerprints(args: argparse.Namespace) -> int:
 @app.argument("threads", help="Path to threads.json (the fetch)")
 @app.argument("triage", help="Path to triage.json")
 @app.argument(
-    "--repair", action="store_true",
+    "--repair",
+    action="store_true",
     help="Rewrite triage.json with the fetch's coordinates when only coordinates differ",
 )
 def cmd_check_thread_ids(args: argparse.Namespace) -> int:
@@ -437,7 +485,11 @@ def cmd_review_rounds(args: argparse.Namespace) -> int:
     required=True,
     help="Repo-relative file or directory (repeatable); check-paths rules plus [A-Za-z0-9_][A-Za-z0-9._/-]*",
 )
-@app.argument("--root", default=None, help="Repo root or a dir inside it; paths are relative to it (default: repo root)")
+@app.argument(
+    "--root",
+    default=None,
+    help="Repo root or a dir inside it; paths are relative to it (default: repo root)",
+)
 def cmd_count_sweep(args: argparse.Namespace) -> int:
     return _cmd_count_sweep(args)
 
@@ -463,7 +515,8 @@ def cmd_merge_fix_results(args: argparse.Namespace) -> int:
 
 
 sweep_record_group = app.group(
-    "sweep-record", help="Per-commit evidence that the concern swarm ran (or was waived)",
+    "sweep-record",
+    help="Per-commit evidence that the concern swarm ran (or was waived)",
 )
 _HEAD_HELP = "Full 40-hex commit id"
 
@@ -500,20 +553,43 @@ def _batch_size(raw: str) -> int:
 
 
 fleet_group = app.group(
-    "fleet", help="Track one workflow across many items in resumable batches (ledger-backed)",
+    "fleet",
+    help="Track one workflow across many items in resumable batches (ledger-backed)",
 )
 _FLEET_FORMATS = ["table", "json", "csv"]
 
 
-@fleet_group.command("run", help="Add items to the ledger; init a workspace per item in the next batch")
+@fleet_group.command(
+    "run", help="Add items to the ledger; init a workspace per item in the next batch"
+)
 @app.argument("path", help=_PATH_HELP)
-@app.argument("--fan-over", required=True, metavar="SOURCE", help="Items: items:a,b,c or file:<path> (one per line)")
 @app.argument(
-    "--fan-param", action="append", default=[], metavar="key=...{item}...",
+    "--fan-over",
+    required=True,
+    metavar="SOURCE",
+    help="Items: items:a,b,c or file:<path> (one per line)",
+)
+@app.argument(
+    "--fan-param",
+    action="append",
+    default=[],
+    metavar="key=...{item}...",
     help="Per-item param; {item} is substituted (repeatable)",
 )
-@app.argument("--param", action="append", default=[], metavar="key=value", help="Param for every item (repeatable)")
-@app.argument("--batch-size", type=_batch_size, default=10, metavar="N", help="Items per batch; 0 = all (default: 10)")
+@app.argument(
+    "--param",
+    action="append",
+    default=[],
+    metavar="key=value",
+    help="Param for every item (repeatable)",
+)
+@app.argument(
+    "--batch-size",
+    type=_batch_size,
+    default=10,
+    metavar="N",
+    help="Items per batch; 0 = all (default: 10)",
+)
 @app.argument("--force-items", default="", metavar="a,b", help="Reset these items to pending first")
 @app.argument("--base-dir", default="", help="Base directory for item workspaces")
 @app.argument("--dry-run", action="store_true", help="Show the batch; write nothing")
@@ -524,7 +600,9 @@ def cmd_fleet_run(args: argparse.Namespace) -> int:
 
 @fleet_group.command("status", help="Show fleet progress and per-item status")
 @app.argument("path", help=_PATH_HELP)
-@app.argument("--filter", default=FILTER_ALL, choices=FILTER_CHOICES, help="Only items with this status")
+@app.argument(
+    "--filter", default=FILTER_ALL, choices=FILTER_CHOICES, help="Only items with this status"
+)
 @app.argument("--format", "-f", **_format_kwargs(formats=_FLEET_FORMATS, default="table"))
 def cmd_fleet_status(args: argparse.Namespace) -> int:
     return _cmd_fleet_status(args)
@@ -532,15 +610,21 @@ def cmd_fleet_status(args: argparse.Namespace) -> int:
 
 @fleet_group.command("reset", help="Return items to pending (next run starts them fresh)")
 @app.argument("path", help=_PATH_HELP)
-@app.argument("--filter", default=None, choices=FILTER_CHOICES, help="Reset every item with this status")
+@app.argument(
+    "--filter", default=None, choices=FILTER_CHOICES, help="Reset every item with this status"
+)
 @app.argument("--items", default="", metavar="a,b", help="Reset these items")
 def cmd_fleet_reset(args: argparse.Namespace) -> int:
     return _cmd_fleet_reset(args)
 
 
-@fleet_group.command("report", help="Per-item stage progress from each workspace, plus status totals")
+@fleet_group.command(
+    "report", help="Per-item stage progress from each workspace, plus status totals"
+)
 @app.argument("path", help=_PATH_HELP)
-@app.argument("--filter", default=FILTER_ALL, choices=FILTER_CHOICES, help="Only items with this status")
+@app.argument(
+    "--filter", default=FILTER_ALL, choices=FILTER_CHOICES, help="Only items with this status"
+)
 @app.argument("--format", "-f", **_format_kwargs(formats=_FLEET_FORMATS, default="table"))
 def cmd_fleet_report(args: argparse.Namespace) -> int:
     return _cmd_fleet_report(args)
@@ -552,7 +636,9 @@ def cmd_fleet_report(args: argparse.Namespace) -> int:
 @app.argument("status", choices=MARK_CHOICES, help="New status")
 @app.argument("--workspace", default=None, help="Item's run workspace (default: the ledger's)")
 @app.argument("--error", default=None, metavar="MSG", help="Error message, for failed")
-@app.argument("--force", action="store_true", help="Mark done even if the workspace has stages left")
+@app.argument(
+    "--force", action="store_true", help="Mark done even if the workspace has stages left"
+)
 def cmd_fleet_mark(args: argparse.Namespace) -> int:
     return _cmd_fleet_mark(args)
 

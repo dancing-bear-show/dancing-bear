@@ -140,9 +140,7 @@ def _is_protected(normalised: str) -> bool:
     # casefold: macOS's default filesystem is case-insensitive, so `.GIT/hooks`
     # is the same directory as `.git/hooks`.
     parts = [p.casefold() for p in normalised.split("/")]
-    return parts[0] in _PROTECTED_TOP_LEVEL or any(
-        p in _PROTECTED_ANY_SEGMENT for p in parts
-    )
+    return parts[0] in _PROTECTED_TOP_LEVEL or any(p in _PROTECTED_ANY_SEGMENT for p in parts)
 
 
 def classify_repo_path(path: str) -> tuple[str | None, str | None]:
@@ -223,12 +221,11 @@ class Finding:
         read as the reviewer having raised the finding before — inverting the
         signal, since a dismissed finding is the opposite of a repeat offender.
         """
-        return any(
-            " ".join(s.lower().split()) == PREVIOUSLY_MISSED for s in self.sections
-        )
+        return any(" ".join(s.lower().split()) == PREVIOUSLY_MISSED for s in self.sections)
 
-    def as_dict(self, *, current: bool = False,
-                prior_same_path: list[str] | None = None) -> dict[str, Any]:
+    def as_dict(
+        self, *, current: bool = False, prior_same_path: list[str] | None = None
+    ) -> dict[str, Any]:
         return {
             "title": self.title,
             "severity": self.severity,
@@ -261,8 +258,9 @@ class Finding:
         }
 
 
-def _record(findings: dict[str, Finding], fid: str, section: str,
-            review: dict[str, Any], **attrs: Any) -> Finding:
+def _record(
+    findings: dict[str, Finding], fid: str, section: str, review: dict[str, Any], **attrs: Any
+) -> Finding:
     """Upsert a finding, unioning its section history.
 
     ``review`` is the review body being folded, not the finding's own text —
@@ -380,18 +378,28 @@ def _match_section_header(raw: str) -> tuple[str | None, bool]:
     return None, False
 
 
-def _record_linked(findings: dict[str, Finding], link: re.Match[str], raw: str,
-                   section: str, review: dict[str, Any]) -> None:
+def _record_linked(
+    findings: dict[str, Finding],
+    link: re.Match[str],
+    raw: str,
+    section: str,
+    review: dict[str, Any],
+) -> None:
     severity = _SEVERITY.search(raw)
     _record(
-        findings, link.group(2), section, review,
-        title=link.group(1), linked=True,
+        findings,
+        link.group(2),
+        section,
+        review,
+        title=link.group(1),
+        linked=True,
         severity=severity.group(1) if severity else None,
     )
 
 
-def _unlinked_slot(findings: dict[str, Finding], base: str, title: str | None,
-                   taken: set[str]) -> str:
+def _unlinked_slot(
+    findings: dict[str, Finding], base: str, title: str | None, taken: set[str]
+) -> str:
     """Pick the id an unlinked finding records under.
 
     ``path:line`` alone is not an identity. Two different findings can cite
@@ -416,16 +424,24 @@ def _unlinked_slot(findings: dict[str, Finding], base: str, title: str | None,
         n += 1
 
 
-def _record_unlinked(findings: dict[str, Finding], pending: _Pending,
-                     review: dict[str, Any], taken: set[str]) -> None:
+def _record_unlinked(
+    findings: dict[str, Finding], pending: _Pending, review: dict[str, Any], taken: set[str]
+) -> None:
     """Record a finished unlinked block under its identity slot."""
     fid = _unlinked_slot(findings, pending.finding_id, pending.title, taken)
     taken.add(fid)
     _record(
-        findings, fid, pending.section, review,
-        title=pending.title, severity=pending.severity,
-        linked=False, path=pending.path, line=pending.line,
-        body=pending.body, path_rejected=pending.path_rejected,
+        findings,
+        fid,
+        pending.section,
+        review,
+        title=pending.title,
+        severity=pending.severity,
+        linked=False,
+        path=pending.path,
+        line=pending.line,
+        body=pending.body,
+        path_rejected=pending.path_rejected,
         path_rejected_reason=pending.path_rejected_reason,
         id_path=pending.path or pending.id_path,
     )
@@ -578,14 +594,14 @@ def _section_counts(review: dict[str, Any]) -> dict[str, int]:
 def _open_findings(findings: dict[str, Finding], newest_review_id: Any) -> int:
     """Findings the newest overview listed as still open."""
     return sum(
-        1 for f in findings.values()
+        1
+        for f in findings.values()
         if f.source_review_id == newest_review_id
         and " ".join((f.section or "").lower().split()) == OPEN_SECTION
     )
 
 
-def _parsed_section_counts(findings: dict[str, Finding],
-                           newest_review_id: Any) -> dict[str, int]:
+def _parsed_section_counts(findings: dict[str, Finding], newest_review_id: Any) -> dict[str, int]:
     """How many entries the newest review actually parsed into each section.
 
     Counts both linked and unlinked findings — a declared ``Previously missed``
@@ -602,8 +618,12 @@ def _parsed_section_counts(findings: dict[str, Finding],
     return counts
 
 
-def _shortfall(claimed: int | None, findings: dict[str, Finding],
-               newest_review_id: Any, declared_sections: dict[str, int]) -> int:
+def _shortfall(
+    claimed: int | None,
+    findings: dict[str, Finding],
+    newest_review_id: Any,
+    declared_sections: dict[str, int],
+) -> int:
     """How much the newest overview declared but we did not parse.
 
     Two independent checks combined:
@@ -645,8 +665,8 @@ def _shortfall(claimed: int | None, findings: dict[str, Finding],
     penalised for not being ``Open``.
     """
     parsed = _parsed_section_counts(findings, newest_review_id)
-    open_shortfall = 0 if claimed is None else max(
-        0, claimed - _open_findings(findings, newest_review_id)
+    open_shortfall = (
+        0 if claimed is None else max(0, claimed - _open_findings(findings, newest_review_id))
     )
 
     open_section_gap = 0
@@ -684,8 +704,9 @@ def _comment_index(threads: list[dict[str, Any]]) -> dict[str, str]:
     return index
 
 
-def _stale_unlinked_by_path(findings: dict[str, Finding],
-                             newest_review_id: Any) -> dict[str, list[str]]:
+def _stale_unlinked_by_path(
+    findings: dict[str, Finding], newest_review_id: Any
+) -> dict[str, list[str]]:
     """Path → sorted list of stale unlinked finding ids that cite it.
 
     "Stale" means the finding is unlinked and not from the newest review.
@@ -701,9 +722,11 @@ def _stale_unlinked_by_path(findings: dict[str, Finding],
     return by_path
 
 
-def _reconcile(findings: dict[str, Finding], comment_to_thread: dict[str, str],
-               newest_review_id: Any,
-               ) -> tuple[dict[str, Any], list[dict[str, Any]], set[str], list[str]]:
+def _reconcile(
+    findings: dict[str, Finding],
+    comment_to_thread: dict[str, str],
+    newest_review_id: Any,
+) -> tuple[dict[str, Any], list[dict[str, Any]], set[str], list[str]]:
     """Attach thread ids to findings and collect the citations that miss.
 
     Also computes per-finding ``current`` and ``prior_same_path`` fields and
@@ -739,8 +762,7 @@ def _reconcile(findings: dict[str, Finding], comment_to_thread: dict[str, str],
     return out, cited_not_found, cited_threads, sorted(stale_unlinked)
 
 
-def _prior_same_path(entry: Finding, is_current: bool,
-                     by_path: dict[str, list[str]]) -> list[str]:
+def _prior_same_path(entry: Finding, is_current: bool, by_path: dict[str, list[str]]) -> list[str]:
     """Stale unlinked finding ids on the same path as ``entry``, if current."""
     if not is_current or entry.linked:
         return []
@@ -748,19 +770,24 @@ def _prior_same_path(entry: Finding, is_current: bool,
     return by_path.get(id_path, []) if id_path else []
 
 
-def parse_overview(review_bodies: list[dict[str, Any]],
-                   threads: list[dict[str, Any]] | None = None,
-                   pr_number: str = "") -> dict[str, Any]:
+def parse_overview(
+    review_bodies: list[dict[str, Any]],
+    threads: list[dict[str, Any]] | None = None,
+    pr_number: str = "",
+) -> dict[str, Any]:
     """Parse every Copilot overview body and reconcile against ``threads``."""
-    overviews = sorted(
-        (b for b in review_bodies if is_copilot_overview(b)), key=_sort_key
-    )
+    overviews = sorted((b for b in review_bodies if is_copilot_overview(b)), key=_sort_key)
 
     if not overviews:
         return {
-            "pr_number": pr_number, "present": False, "status": "ok",
-            "parse_shortfall": 0, "findings": {}, "previously_missed": [],
-            "cited_not_found": [], "threads_not_cited": [],
+            "pr_number": pr_number,
+            "present": False,
+            "status": "ok",
+            "parse_shortfall": 0,
+            "findings": {},
+            "previously_missed": [],
+            "cited_not_found": [],
+            "threads_not_cited": [],
             "stale_unlinked": [],
         }
 
@@ -792,15 +819,14 @@ def parse_overview(review_bodies: list[dict[str, Any]],
             "sections": declared_sections,
         },
         "findings": out,
-        "previously_missed": sorted(
-            fid for fid, f in findings.items() if f.previously_missed
-        ),
+        "previously_missed": sorted(fid for fid, f in findings.items() if f.previously_missed),
         "cited_not_found": cited_not_found,
         # Only real threads can be "uncited": threads.json also carries
         # review-body and issue-comment entries with thread_id null, and
         # sorting those against strings raises TypeError.
         "threads_not_cited": sorted(
-            str(t["thread_id"]) for t in (threads or [])
+            str(t["thread_id"])
+            for t in (threads or [])
             if t.get("thread_id") and t["thread_id"] not in cited_threads
         ),
         # Sorted ids of unlinked findings that are NOT from the newest review.

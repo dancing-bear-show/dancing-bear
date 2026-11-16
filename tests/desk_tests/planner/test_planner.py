@@ -4,9 +4,9 @@ import os
 import time
 import unittest
 
-from tests.fixtures import TempDirMixin
 from core.cli_errors import NotFoundError
 from desk.planner import plan_from_config
+from tests.fixtures import TempDirMixin
 
 
 class PlanFromConfigTests(TempDirMixin, unittest.TestCase):
@@ -24,7 +24,9 @@ class PlanFromConfigTests(TempDirMixin, unittest.TestCase):
             f.write(content)
         return config_path
 
-    def _create_test_file(self, name: str, size: int = 100, age_days: int = 0, base_dir: str | None = None) -> str:
+    def _create_test_file(
+        self, name: str, size: int = 100, age_days: int = 0, base_dir: str | None = None
+    ) -> str:
         path = os.path.join(base_dir or self.test_files_dir, name)
         with open(path, "wb") as f:
             f.write(b"x" * size)

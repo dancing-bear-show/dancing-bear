@@ -17,16 +17,14 @@ import unittest
 from unittest.mock import patch
 
 from core.cli_errors import CLIError, ExitCode
-from workflow.compiler import WorkflowCompileError
+from tests.workflow_tests.helpers.factories import write_yaml
+from workflow.cli import _emit_one, _emit_rows
 from workflow.cli_dispatch import (
     _build_resolved_params,
     _load_definition,
     _load_manifest,
 )
-from workflow.cli import _emit_one, _emit_rows
-
-from tests.workflow_tests.helpers.factories import write_yaml
-
+from workflow.compiler import WorkflowCompileError
 
 # ---------------------------------------------------------------------------
 # Minimal YAML fixture
@@ -96,7 +94,7 @@ class TestLoadDefinitionRaisesCLIError(unittest.TestCase):
             _load_definition("/nonexistent/path/wf.yaml")
         except CLIError:
             pass  # expected path under test — CLIError, not SystemExit
-        except SystemExit:  # NOSONAR - asserting SystemExit is NOT raised; re-raising would defeat the test
+        except SystemExit:  # NOSONAR - asserting SystemExit is NOT raised; re-raising would defeat the test  # fmt: skip
             self.fail("_load_definition raised SystemExit instead of CLIError")
 
     def test_invalid_yaml_raises_cli_error(self) -> None:
@@ -112,7 +110,7 @@ class TestLoadDefinitionRaisesCLIError(unittest.TestCase):
                 _load_definition(path)
             except CLIError:
                 pass  # expected path under test — CLIError, not SystemExit
-            except SystemExit:  # NOSONAR - asserting SystemExit is NOT raised; re-raising would defeat the test
+            except SystemExit:  # NOSONAR - asserting SystemExit is NOT raised; re-raising would defeat the test  # fmt: skip
                 self.fail("_load_definition raised SystemExit instead of CLIError")
 
     def test_missing_file_cli_error_code_is_error(self) -> None:
@@ -145,7 +143,7 @@ class TestLoadManifestRaisesCLIError(unittest.TestCase):
             _load_manifest("/no/such/wf.yaml")
         except CLIError:
             pass  # expected path under test — CLIError, not SystemExit
-        except SystemExit:  # NOSONAR - asserting SystemExit is NOT raised; re-raising would defeat the test
+        except SystemExit:  # NOSONAR - asserting SystemExit is NOT raised; re-raising would defeat the test  # fmt: skip
             self.fail("_load_manifest raised SystemExit instead of CLIError")
 
     def test_compile_error_raises_cli_error(self) -> None:
@@ -202,7 +200,7 @@ stages:
                 _load_manifest(path)
             except CLIError:
                 pass  # expected path under test — CLIError, not SystemExit
-            except SystemExit:  # NOSONAR - asserting SystemExit is NOT raised; re-raising would defeat the test
+            except SystemExit:  # NOSONAR - asserting SystemExit is NOT raised; re-raising would defeat the test  # fmt: skip
                 self.fail("_load_manifest raised SystemExit instead of CLIError")
 
     def test_happy_path_returns_defn_and_manifest(self) -> None:
@@ -230,7 +228,7 @@ class TestBuildResolvedParamsRaisesCLIError(unittest.TestCase):
             _build_resolved_params("/no/such/file.yaml", {})
         except CLIError:
             pass  # expected path under test — CLIError, not SystemExit
-        except SystemExit:  # NOSONAR - asserting SystemExit is NOT raised; re-raising would defeat the test
+        except SystemExit:  # NOSONAR - asserting SystemExit is NOT raised; re-raising would defeat the test  # fmt: skip
             self.fail("_build_resolved_params raised SystemExit instead of CLIError")
 
     def test_invalid_yaml_raises_cli_error(self) -> None:
@@ -337,11 +335,17 @@ class TestEmitOneYamlFormat(unittest.TestCase):
         """When yaml is unavailable, _emit_one falls back to JSON output."""
         data = {"key": "val"}
         out = io.StringIO()
-        with patch("sys.stdout", out), \
-             patch("builtins.__import__", side_effect=lambda name, *a, **kw: (
-                 (_ for _ in ()).throw(ImportError("no yaml")) if name == "yaml"
-                 else __import__(name, *a, **kw)
-             )):
+        with (
+            patch("sys.stdout", out),
+            patch(
+                "builtins.__import__",
+                side_effect=lambda name, *a, **kw: (
+                    (_ for _ in ()).throw(ImportError("no yaml"))
+                    if name == "yaml"
+                    else __import__(name, *a, **kw)
+                ),
+            ),
+        ):
             _emit_one(data, fmt="yaml")
         output = out.getvalue().strip()
         # Should fall back to JSON when yaml is unavailable

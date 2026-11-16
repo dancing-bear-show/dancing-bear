@@ -111,11 +111,7 @@ def _metrics_rows(records: list) -> list[dict]:
         {
             "Service": r.resource.service_name,
             "Metrics": len(r.metrics),
-            "Earliest": (
-                r.earliest_timestamp().isoformat()
-                if r.earliest_timestamp()
-                else "N/A"
-            ),
+            "Earliest": (r.earliest_timestamp().isoformat() if r.earliest_timestamp() else "N/A"),
         }
         for r in records
     ]

@@ -14,6 +14,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from tests.workflow_tests.helpers.factories import (
+    make_output_spec,
+    make_resolved_stage,
+    make_stage_result,
+    make_stage_spec,
+)
 from workflow.dispatchers import (
     CompositeDispatcher,
     LocalDispatcher,
@@ -27,13 +33,6 @@ from workflow.models import (
 )
 from workflow.persistence import write_stage_result
 
-from tests.workflow_tests.helpers.factories import (
-    make_output_spec,
-    make_resolved_stage,
-    make_stage_result,
-    make_stage_spec,
-)
-
 
 class TestLocalDispatcherInvokeSuccess(unittest.TestCase):
     """Invoke mode success: subprocess called, returns success StageResult."""
@@ -43,13 +42,18 @@ class TestLocalDispatcherInvokeSuccess(unittest.TestCase):
             tmp_path = Path(tmp_dir)
             output = make_output_spec(name="metrics", mode=OutputMode.invoke)
             spec = make_stage_spec(name="gather-metrics", outputs=(output,))
-            stage = make_resolved_stage(spec=spec, cli_commands=("./bin/mail-assistant filters list",))
+            stage = make_resolved_stage(
+                spec=spec, cli_commands=("./bin/mail-assistant filters list",)
+            )
             dispatcher = LocalDispatcher()
 
             with patch(
                 "workflow.dispatchers.subprocess.run",
                 return_value=subprocess.CompletedProcess(
-                    args=[], returncode=0, stdout="ok", stderr="",
+                    args=[],
+                    returncode=0,
+                    stdout="ok",
+                    stderr="",
                 ),
             ):
                 result = dispatcher.dispatch(stage, tmp_path)
@@ -61,13 +65,18 @@ class TestLocalDispatcherInvokeSuccess(unittest.TestCase):
             tmp_path = Path(tmp_dir)
             output = make_output_spec(name="metrics", mode=OutputMode.invoke)
             spec = make_stage_spec(name="gather-metrics", outputs=(output,))
-            stage = make_resolved_stage(spec=spec, cli_commands=("./bin/mail-assistant filters list",))
+            stage = make_resolved_stage(
+                spec=spec, cli_commands=("./bin/mail-assistant filters list",)
+            )
             dispatcher = LocalDispatcher()
 
             with patch(
                 "workflow.dispatchers.subprocess.run",
                 return_value=subprocess.CompletedProcess(
-                    args=[], returncode=0, stdout="result", stderr="",
+                    args=[],
+                    returncode=0,
+                    stdout="result",
+                    stderr="",
                 ),
             ):
                 result = dispatcher.dispatch(stage, tmp_path)
@@ -85,7 +94,10 @@ class TestLocalDispatcherInvokeSuccess(unittest.TestCase):
             with patch(
                 "workflow.dispatchers.subprocess.run",
                 return_value=subprocess.CompletedProcess(
-                    args=[], returncode=0, stdout="hi", stderr="",
+                    args=[],
+                    returncode=0,
+                    stdout="hi",
+                    stderr="",
                 ),
             ):
                 result = dispatcher.dispatch(stage, tmp_path)
@@ -128,7 +140,9 @@ class TestLocalDispatcherInvokeTimeout(unittest.TestCase):
                 result = dispatcher.dispatch(stage, tmp_path)
 
             self.assertGreater(len(result.errors), 0)
-            self.assertTrue(any("timed out" in e.lower() or "timeout" in e.lower() for e in result.errors))
+            self.assertTrue(
+                any("timed out" in e.lower() or "timeout" in e.lower() for e in result.errors)
+            )
 
 
 class TestLocalDispatcherInvokeFailure(unittest.TestCase):
@@ -145,7 +159,10 @@ class TestLocalDispatcherInvokeFailure(unittest.TestCase):
             with patch(
                 "workflow.dispatchers.subprocess.run",
                 return_value=subprocess.CompletedProcess(
-                    args=[], returncode=1, stdout="", stderr="bad error",
+                    args=[],
+                    returncode=1,
+                    stdout="",
+                    stderr="bad error",
                 ),
             ):
                 result = dispatcher.dispatch(stage, tmp_path)
@@ -163,7 +180,10 @@ class TestLocalDispatcherInvokeFailure(unittest.TestCase):
             with patch(
                 "workflow.dispatchers.subprocess.run",
                 return_value=subprocess.CompletedProcess(
-                    args=[], returncode=2, stdout="", stderr="err",
+                    args=[],
+                    returncode=2,
+                    stdout="",
+                    stderr="err",
                 ),
             ):
                 result = dispatcher.dispatch(stage, tmp_path)
@@ -217,7 +237,10 @@ class TestLocalDispatcherWritesOutputFiles(unittest.TestCase):
             with patch(
                 "workflow.dispatchers.subprocess.run",
                 return_value=subprocess.CompletedProcess(
-                    args=[], returncode=0, stdout="hi", stderr="",
+                    args=[],
+                    returncode=0,
+                    stdout="hi",
+                    stderr="",
                 ),
             ):
                 dispatcher.dispatch(stage, tmp_path)
@@ -239,7 +262,10 @@ class TestLocalDispatcherWritesOutputFiles(unittest.TestCase):
             with patch(
                 "workflow.dispatchers.subprocess.run",
                 return_value=subprocess.CompletedProcess(
-                    args=[], returncode=0, stdout="hi", stderr="",
+                    args=[],
+                    returncode=0,
+                    stdout="hi",
+                    stderr="",
                 ),
             ):
                 dispatcher.dispatch(stage, tmp_path)
@@ -535,7 +561,7 @@ class TestWorkerQueueDispatcherReturnsPending(unittest.TestCase):
 
             mock_enqueue.assert_called_once()
             job_id = mock_enqueue.call_args[0][0].id
-            self.assertRegex(job_id, r'^[A-Za-z0-9_\-]+$')
+            self.assertRegex(job_id, r"^[A-Za-z0-9_\-]+$")
 
 
 class TestWorkerQueueDispatcherTriggerParams(unittest.TestCase):
@@ -599,6 +625,7 @@ class TestWorkerQueueDispatcherHandlerRegistered(unittest.TestCase):
 
     def test_workflow_stage_in_registry(self) -> None:
         from worker.handlers import REGISTRY
+
         self.assertIn(WorkerQueueDispatcher.JOB_TYPE, REGISTRY)
 
     def test_registry_handler_is_callable(self) -> None:
@@ -607,7 +634,9 @@ class TestWorkerQueueDispatcherHandlerRegistered(unittest.TestCase):
         handler = REGISTRY[WorkerQueueDispatcher.JOB_TYPE]
         self.assertIs(handler, handle_workflow_stage)
 
-        job: dict[str, object] = {"payload": {"workflow_name": "wf", "stage_name": "s", "stage_index": 0}}
+        job: dict[str, object] = {
+            "payload": {"workflow_name": "wf", "stage_name": "s", "stage_index": 0}
+        }
         ok, detail = handler(job)
         self.assertFalse(ok)
         self.assertEqual(detail, "workflow_stage job has neither script nor cli_commands")
@@ -629,12 +658,21 @@ class TestCompositeDispatcherRoutesInvokeToLocal(unittest.TestCase):
             stage = make_resolved_stage(spec=spec, cli_commands=("echo test",))
             dispatcher = CompositeDispatcher("test-workflow")
 
-            with patch.object(dispatcher._local, "dispatch", wraps=dispatcher._local.dispatch) as mock_local, \
-                 patch.object(dispatcher._skill, "dispatch", wraps=dispatcher._skill.dispatch) as mock_skill:
+            with (
+                patch.object(
+                    dispatcher._local, "dispatch", wraps=dispatcher._local.dispatch
+                ) as mock_local,
+                patch.object(
+                    dispatcher._skill, "dispatch", wraps=dispatcher._skill.dispatch
+                ) as mock_skill,
+            ):
                 with patch(
                     "workflow.dispatchers.subprocess.run",
                     return_value=subprocess.CompletedProcess(
-                        args=[], returncode=0, stdout="test", stderr="",
+                        args=[],
+                        returncode=0,
+                        stdout="test",
+                        stderr="",
                     ),
                 ):
                     dispatcher.dispatch(stage, tmp_path)
@@ -663,8 +701,14 @@ class TestCompositeDispatcherRoutesToSkill(unittest.TestCase):
                     stage = make_resolved_stage(spec=spec)
                     dispatcher = CompositeDispatcher("test-workflow")
 
-                    with patch.object(dispatcher._skill, "dispatch", wraps=dispatcher._skill.dispatch) as mock_skill, \
-                         patch.object(dispatcher._local, "dispatch", wraps=dispatcher._local.dispatch) as mock_local:
+                    with (
+                        patch.object(
+                            dispatcher._skill, "dispatch", wraps=dispatcher._skill.dispatch
+                        ) as mock_skill,
+                        patch.object(
+                            dispatcher._local, "dispatch", wraps=dispatcher._local.dispatch
+                        ) as mock_local,
+                    ):
                         dispatcher.dispatch(stage, tmp_path)
 
                     mock_skill.assert_called_once()
@@ -691,7 +735,10 @@ class TestCompositeDispatcherDispatchGroup(unittest.TestCase):
             with patch(
                 "workflow.dispatchers.subprocess.run",
                 return_value=subprocess.CompletedProcess(
-                    args=[], returncode=0, stdout="hi", stderr="",
+                    args=[],
+                    returncode=0,
+                    stdout="hi",
+                    stderr="",
                 ),
             ):
                 results = dispatcher.dispatch_group([invoke_stage, gen_stage], tmp_path)
@@ -713,10 +760,18 @@ class TestCompositeDispatcherRoutesWorkerQueueExecutor(unittest.TestCase):
             stage = make_resolved_stage(spec=spec)
             dispatcher = CompositeDispatcher("test-workflow")
 
-            with patch.object(dispatcher._worker_queue, "dispatch", wraps=dispatcher._worker_queue.dispatch) as mock_wq, \
-                 patch.object(dispatcher._skill, "dispatch", wraps=dispatcher._skill.dispatch) as mock_skill, \
-                 patch.object(dispatcher._local, "dispatch", wraps=dispatcher._local.dispatch) as mock_local, \
-                 patch("worker.queue_ops.enqueue"):
+            with (
+                patch.object(
+                    dispatcher._worker_queue, "dispatch", wraps=dispatcher._worker_queue.dispatch
+                ) as mock_wq,
+                patch.object(
+                    dispatcher._skill, "dispatch", wraps=dispatcher._skill.dispatch
+                ) as mock_skill,
+                patch.object(
+                    dispatcher._local, "dispatch", wraps=dispatcher._local.dispatch
+                ) as mock_local,
+                patch("worker.queue_ops.enqueue"),
+            ):
                 dispatcher.dispatch(stage, tmp_path)
 
             mock_wq.assert_called_once()
@@ -732,10 +787,13 @@ class TestCompositeDispatcherTriggerParams(unittest.TestCase):
             "test-workflow",
             trigger_params={"team": "mail", "env": "prod"},
         )
-        self.assertEqual(dispatcher._worker_queue._trigger_params, {
-            "team": "mail",
-            "env": "prod",
-        })
+        self.assertEqual(
+            dispatcher._worker_queue._trigger_params,
+            {
+                "team": "mail",
+                "env": "prod",
+            },
+        )
 
     def test_constructor_defaults_to_empty_trigger_params(self) -> None:
         dispatcher = CompositeDispatcher("test-workflow")

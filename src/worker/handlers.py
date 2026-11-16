@@ -120,13 +120,13 @@ def _build_command(prog: str, cmd_list: list) -> list[str]:
     if not Path(prog).is_absolute():
         prog_path = str((get_repo_root() / "bin" / prog).resolve())
         return [prog_path] + [str(x) for x in cmd_list[1:]]
-    else:
-        return [prog] + [str(x) for x in cmd_list[1:]]
+    return [prog] + [str(x) for x in cmd_list[1:]]
 
 
-def _execute_subprocess(cmd: list[str], env_overlay: dict, timeout: int, cwd: str | None = None) -> dict:  # pragma: no cover - subprocess execution
+def _execute_subprocess(cmd: list[str], env_overlay: dict, timeout: int, cwd: str | None = None) -> dict:  # pragma: no cover - subprocess execution  # fmt: skip
     """Execute command as a subprocess via ShellJobProcessor. Returns dict with returncode, stdout, stderr."""
     from core.pipeline import RequestConsumer
+
     request = ShellJobRequest(
         cmd=[str(x) for x in cmd],
         env_overlay={k: str(v) for k, v in env_overlay.items()},
@@ -146,7 +146,7 @@ def _execute_subprocess(cmd: list[str], env_overlay: dict, timeout: int, cwd: st
     }
 
 
-def _execute_command(cmd: list[str], env_overlay: dict, timeout: int, cwd: str | None = None) -> dict:  # pragma: no cover - subprocess execution
+def _execute_command(cmd: list[str], env_overlay: dict, timeout: int, cwd: str | None = None) -> dict:  # pragma: no cover - subprocess execution  # fmt: skip
     """Execute a repo-bin command, defaulting to repo root when cwd is not given."""
     return _execute_subprocess(cmd, env_overlay, timeout, cwd=cwd or str(get_repo_root()))
 
@@ -173,7 +173,7 @@ def _parse_run_cli_timeout(payload: dict[str, object]) -> int:
         return 300
 
 
-def handle_run_cli(job: dict[str, object]) -> tuple[bool, object]:  # pragma: no cover - subprocess execution
+def handle_run_cli(job: dict[str, object]) -> tuple[bool, object]:  # pragma: no cover - subprocess execution  # fmt: skip
     """Run a repo bin command with args.
 
     payload schema: {"cmd": ["bin_name_or_path", "arg1", ...], "env": {..}, "timeout": 300, "cwd": "/optional/path"}
@@ -194,7 +194,7 @@ def handle_run_cli(job: dict[str, object]) -> tuple[bool, object]:  # pragma: no
 
     try:
         out = _execute_command(cmd, env_overlay, timeout, cwd=cwd)
-        ok = (int(out.get("returncode", 1)) == 0)
+        ok = int(out.get("returncode", 1)) == 0
         return (ok, out if ok else out.get("stderr") or out)
     except subprocess.TimeoutExpired:
         return (False, "timeout")
@@ -205,6 +205,7 @@ def handle_run_cli(job: dict[str, object]) -> tuple[bool, object]:  # pragma: no
 REGISTRY: dict[str, HandlerFn] = {
     "run_cli": handle_run_cli,
 }
+
 
 # --- Optional: generic shell runner (allowlisted) ---
 def _shell_allowlist() -> set[str]:
@@ -237,7 +238,7 @@ def _get_shell_allowlist() -> set[str]:
     return _shell_allowlist()
 
 
-def _execute_shell_command(argv: list[str], env_overlay: dict, timeout: int, cwd: str | None) -> dict:  # pragma: no cover - subprocess execution
+def _execute_shell_command(argv: list[str], env_overlay: dict, timeout: int, cwd: str | None) -> dict:  # pragma: no cover - subprocess execution  # fmt: skip
     """Execute a shell command."""
     return _execute_subprocess(argv, env_overlay, timeout, cwd=cwd)
 
@@ -351,7 +352,7 @@ def _dispatch_argv(
         return (False, str(e))
 
 
-def handle_run_shell(job: dict[str, object]) -> tuple[bool, object]:  # pragma: no cover - subprocess execution
+def handle_run_shell(job: dict[str, object]) -> tuple[bool, object]:  # pragma: no cover - subprocess execution  # fmt: skip
     """Run an arbitrary program with arguments (allowlisted).
 
     Two payload schemas are supported:
@@ -385,7 +386,9 @@ def handle_run_shell(job: dict[str, object]) -> tuple[bool, object]:  # pragma: 
 REGISTRY["run_shell"] = handle_run_shell
 
 
-def _dispatch_workflow_stage_script(job: dict[str, object], payload: dict[str, object], script: str, workspace_dir: str | None) -> tuple[bool, object]:
+def _dispatch_workflow_stage_script(
+    job: dict[str, object], payload: dict[str, object], script: str, workspace_dir: str | None
+) -> tuple[bool, object]:
     shell_job = dict(job)
     shell_payload = {**payload, "script": script}
     if workspace_dir:
@@ -395,9 +398,13 @@ def _dispatch_workflow_stage_script(job: dict[str, object], payload: dict[str, o
 
 
 def _dispatch_workflow_stage_cli_commands(
-    job: dict[str, object], payload: dict[str, object], cli_commands: list[str], workspace_dir: str | None
+    job: dict[str, object],
+    payload: dict[str, object],
+    cli_commands: list[str],
+    workspace_dir: str | None,
 ) -> tuple[bool, object]:
     import shlex
+
     results = []
     for raw_cmd in cli_commands:
         cli_job = dict(job)

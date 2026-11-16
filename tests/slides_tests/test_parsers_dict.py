@@ -10,10 +10,10 @@ from slides.constants import (
 from slides.parsers_dict import _parse_slide, load_deck_from_dict
 from slides.schema import SlideDeck, TableSlide
 
-
 # ---------------------------------------------------------------------------
 # load_deck_from_dict
 # ---------------------------------------------------------------------------
+
 
 class TestLoadDeckFromDict(unittest.TestCase):
     """Tests for load_deck_from_dict."""
@@ -121,6 +121,7 @@ class TestLoadDeckFromDict(unittest.TestCase):
 # _parse_slide with body: field
 # ---------------------------------------------------------------------------
 
+
 class TestParseSlideBodyField(unittest.TestCase):
     """Tests for body: field support in _parse_slide."""
 
@@ -159,9 +160,11 @@ class TestParseSlideBodyField(unittest.TestCase):
         result = _parse_slide(slide_data)
         self.assertEqual(result.bullets, [])
 
+
 # ---------------------------------------------------------------------------
 # load_deck_from_dict: slides key absent defaults to empty list (line 182)
 # ---------------------------------------------------------------------------
+
 
 class TestLoadDeckFromDictNoSlidesKey(unittest.TestCase):
     """Tests for load_deck_from_dict when the 'slides' key is entirely absent."""
@@ -180,6 +183,7 @@ class TestLoadDeckFromDictNoSlidesKey(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _parse_slide: bullets: not-a-list ValueError (lines 56-60)
 # ---------------------------------------------------------------------------
+
 
 class TestParseSlideValueErrors(unittest.TestCase):
     """Tests for _parse_slide error paths on invalid field types."""
@@ -201,6 +205,7 @@ class TestParseSlideValueErrors(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # load_deck_from_dict: slides: not-a-list ValueError (lines 183-188)
 # ---------------------------------------------------------------------------
+
 
 class TestLoadDeckFromDictValueErrors(unittest.TestCase):
     """Tests for load_deck_from_dict error paths on invalid slides field."""
@@ -229,6 +234,7 @@ class TestLoadDeckFromDictValueErrors(unittest.TestCase):
 # Deck metadata: missing / empty / null / present (shared with sheets)
 # ---------------------------------------------------------------------------
 
+
 class TestDeckMetadataParsing(unittest.TestCase):
     """title/author/date parse the same way the sheets generator parses them."""
 
@@ -236,8 +242,11 @@ class TestDeckMetadataParsing(unittest.TestCase):
         ("missing", {}, ("Untitled", None, None)),
         ("null", {"title": "T", "author": None, "date": None}, ("T", None, None)),
         ("empty", {"title": "", "author": "", "date": ""}, ("", "", "")),
-        ("present", {"title": "T", "author": "A", "date": datetime.date(2026, 1, 15)},
-         ("T", "A", "2026-01-15")),
+        (
+            "present",
+            {"title": "T", "author": "A", "date": datetime.date(2026, 1, 15)},
+            ("T", "A", "2026-01-15"),
+        ),
     ]
 
     def test_cases(self):

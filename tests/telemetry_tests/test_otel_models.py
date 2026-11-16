@@ -1,7 +1,7 @@
 """Tests for telemetry/otel/models.py OTLP dataclasses."""
 
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from telemetry.otel.models import (
     MetricDataPoint,
@@ -20,6 +20,7 @@ from telemetry.otel.models import (
 # Shared fixture helpers — plain functions that always return a fresh dict so
 # tests that mutate dicts cannot pollute each other.
 # ---------------------------------------------------------------------------
+
 
 def _attr_dict(key: str, **value_fields) -> dict:
     """Build a raw OTLP attribute dict."""
@@ -86,8 +87,8 @@ def _gauge_metric_dict(name: str = "my.gauge") -> dict:
 # OTLPValue
 # ---------------------------------------------------------------------------
 
-class TestOTLPValueAsStr(unittest.TestCase):
 
+class TestOTLPValueAsStr(unittest.TestCase):
     def test_string_value(self):
         v = OTLPValue(string_value="hello")
         self.assertEqual(v.as_str(), "hello")
@@ -119,7 +120,6 @@ class TestOTLPValueAsStr(unittest.TestCase):
 
 
 class TestOTLPValueAsFloat(unittest.TestCase):
-
     def test_double_value(self):
         v = OTLPValue(double_value=2.5)
         self.assertAlmostEqual(v.as_float(), 2.5)
@@ -158,7 +158,6 @@ class TestOTLPValueAsFloat(unittest.TestCase):
 
 
 class TestOTLPValueFromDict(unittest.TestCase):
-
     def test_string_value(self):
         v = OTLPValue.from_dict({"stringValue": "foo"})
         self.assertEqual(v.string_value, "foo")
@@ -190,8 +189,8 @@ class TestOTLPValueFromDict(unittest.TestCase):
 # OTLPAttribute
 # ---------------------------------------------------------------------------
 
-class TestOTLPAttributeFromDict(unittest.TestCase):
 
+class TestOTLPAttributeFromDict(unittest.TestCase):
     def test_key_and_string_value(self):
         a = OTLPAttribute.from_dict({"key": "my.key", "value": {"stringValue": "bar"}})
         self.assertEqual(a.key, "my.key")
@@ -212,8 +211,8 @@ class TestOTLPAttributeFromDict(unittest.TestCase):
 # OTLPResource
 # ---------------------------------------------------------------------------
 
-class TestOTLPResourceFromDict(unittest.TestCase):
 
+class TestOTLPResourceFromDict(unittest.TestCase):
     def test_all_known_attributes_extracted(self):
         r = OTLPResource.from_dict(_full_resource_dict())
         self.assertEqual(r.service_name, "my-service")
@@ -223,9 +222,7 @@ class TestOTLPResourceFromDict(unittest.TestCase):
         self.assertEqual(r.os_version, "24.0.0")
 
     def test_missing_optional_attributes_are_none(self):
-        r = OTLPResource.from_dict(
-            _resource_dict(_attr_dict("service.name", stringValue="svc"))
-        )
+        r = OTLPResource.from_dict(_resource_dict(_attr_dict("service.name", stringValue="svc")))
         self.assertEqual(r.service_name, "svc")
         self.assertIsNone(r.host_arch)
         self.assertIsNone(r.os_type)
@@ -246,7 +243,6 @@ class TestOTLPResourceFromDict(unittest.TestCase):
 
 
 class TestOTLPResourceGetAttr(unittest.TestCase):
-
     def setUp(self):
         self.resource = OTLPResource.from_dict(
             _resource_dict(_attr_dict("service.name", stringValue="test-svc"))
@@ -270,9 +266,10 @@ _START_NS = 1_699_900_000_000_000_000
 
 
 class TestMetricDataPointFromDict(unittest.TestCase):
-
     def test_basic_parse(self):
-        dp = MetricDataPoint.from_dict(_datapoint_dict(value=5.5, time_ns=_TIME_NS, start_ns=_START_NS))
+        dp = MetricDataPoint.from_dict(
+            _datapoint_dict(value=5.5, time_ns=_TIME_NS, start_ns=_START_NS)
+        )
         self.assertAlmostEqual(dp.value, 5.5)
         self.assertEqual(dp.time_unix_nano, _TIME_NS)
         self.assertEqual(dp.start_time_unix_nano, _START_NS)
@@ -316,27 +313,24 @@ class TestMetricDataPointFromDict(unittest.TestCase):
 
 
 class TestMetricDataPointTimestampProperties(unittest.TestCase):
-
     def setUp(self):
-        self.dp = MetricDataPoint.from_dict(
-            _datapoint_dict(time_ns=_TIME_NS, start_ns=_START_NS)
-        )
+        self.dp = MetricDataPoint.from_dict(_datapoint_dict(time_ns=_TIME_NS, start_ns=_START_NS))
 
     def test_timestamp_is_datetime(self):
         self.assertIsInstance(self.dp.timestamp, datetime)
         # Ground-truth literal: nano_to_datetime(1_700_000_000_000_000_000) -> 2023-11-14T22:13:20Z
-        self.assertEqual(self.dp.timestamp, datetime(2023, 11, 14, 22, 13, 20, tzinfo=timezone.utc))
+        self.assertEqual(self.dp.timestamp, datetime(2023, 11, 14, 22, 13, 20, tzinfo=UTC))
 
     def test_timestamp_is_utc(self):
-        self.assertEqual(self.dp.timestamp.tzinfo, timezone.utc)
+        self.assertEqual(self.dp.timestamp.tzinfo, UTC)
 
     def test_start_timestamp_is_datetime(self):
         self.assertIsInstance(self.dp.start_timestamp, datetime)
         # Ground-truth literal: nano_to_datetime(1_699_900_000_000_000_000) -> 2023-11-13T18:26:40Z
-        self.assertEqual(self.dp.start_timestamp, datetime(2023, 11, 13, 18, 26, 40, tzinfo=timezone.utc))
+        self.assertEqual(self.dp.start_timestamp, datetime(2023, 11, 13, 18, 26, 40, tzinfo=UTC))
 
     def test_start_timestamp_is_utc(self):
-        self.assertEqual(self.dp.start_timestamp.tzinfo, timezone.utc)
+        self.assertEqual(self.dp.start_timestamp.tzinfo, UTC)
 
     def test_timestamp_before_start_timestamp(self):
         # _TIME_NS > _START_NS so timestamp should be later
@@ -344,13 +338,14 @@ class TestMetricDataPointTimestampProperties(unittest.TestCase):
 
 
 class TestMetricDataPointGetAttr(unittest.TestCase):
-
     def setUp(self):
         self.dp = MetricDataPoint.from_dict(
-            _datapoint_dict(attrs=[
-                _attr_dict("region", stringValue="us-east-1"),
-                _attr_dict("cost", doubleValue=1.5),
-            ])
+            _datapoint_dict(
+                attrs=[
+                    _attr_dict("region", stringValue="us-east-1"),
+                    _attr_dict("cost", doubleValue=1.5),
+                ]
+            )
         )
 
     def test_get_attr_found(self):
@@ -370,8 +365,8 @@ class TestMetricDataPointGetAttr(unittest.TestCase):
 # OTLPMetric
 # ---------------------------------------------------------------------------
 
-class TestOTLPMetricFromDict(unittest.TestCase):
 
+class TestOTLPMetricFromDict(unittest.TestCase):
     def test_sum_with_data_points(self):
         """Happy path: sum present with populated dataPoints."""
         m = OTLPMetric.from_dict(_sum_metric_dict())
@@ -392,7 +387,7 @@ class TestOTLPMetricFromDict(unittest.TestCase):
             "description": "",
             "unit": "1",
             "sum": {
-                "dataPoints": [],          # empty — but sum IS present
+                "dataPoints": [],  # empty — but sum IS present
                 "aggregationTemporality": 2,
                 "isMonotonic": True,
             },
@@ -428,6 +423,7 @@ class TestOTLPMetricFromDict(unittest.TestCase):
 # OTLPMetricsRecord
 # ---------------------------------------------------------------------------
 
+
 def _otlp_metrics_wrapper(service_name: str = "svc", metrics=None) -> dict:
     """Build a full OTLP resourceMetrics wrapper dict."""
     if metrics is None:
@@ -435,9 +431,7 @@ def _otlp_metrics_wrapper(service_name: str = "svc", metrics=None) -> dict:
     return {
         "resourceMetrics": [
             {
-                "resource": _resource_dict(
-                    _attr_dict("service.name", stringValue=service_name)
-                ),
+                "resource": _resource_dict(_attr_dict("service.name", stringValue=service_name)),
                 "scopeMetrics": [
                     {
                         "scope": {"name": "my.scope", "version": "0.1"},
@@ -453,9 +447,7 @@ def _simplified_metrics_dict(service_name: str = "svc", metrics=None) -> dict:
     """Build a simplified (non-wrapper) metrics record dict."""
     metrics = metrics or [_sum_metric_dict()]
     return {
-        "resource": _resource_dict(
-            _attr_dict("service.name", stringValue=service_name)
-        ),
+        "resource": _resource_dict(_attr_dict("service.name", stringValue=service_name)),
         "scopeMetrics": [
             {
                 "scope": {"name": "simple.scope", "version": "0.2"},
@@ -466,7 +458,6 @@ def _simplified_metrics_dict(service_name: str = "svc", metrics=None) -> dict:
 
 
 class TestOTLPMetricsRecordFromDict(unittest.TestCase):
-
     def test_otlp_wrapper_format(self):
         rec = OTLPMetricsRecord.from_dict(_otlp_metrics_wrapper())
         self.assertEqual(rec.resource.service_name, "svc")
@@ -502,7 +493,6 @@ class TestOTLPMetricsRecordFromDict(unittest.TestCase):
 
 
 class TestOTLPMetricsRecordMetricsByName(unittest.TestCase):
-
     def setUp(self):
         metrics = [
             _sum_metric_dict(name="app.cpu.usage"),
@@ -528,7 +518,6 @@ class TestOTLPMetricsRecordMetricsByName(unittest.TestCase):
 
 
 class TestOTLPMetricsRecordEarliestTimestamp(unittest.TestCase):
-
     def test_returns_earliest(self):
         earlier_ns = 1_699_000_000_000_000_000
         later_ns = 1_700_000_000_000_000_000
@@ -541,7 +530,7 @@ class TestOTLPMetricsRecordEarliestTimestamp(unittest.TestCase):
         self.assertIsNotNone(ts)
         self.assertIsInstance(ts, datetime)
         # Ground-truth literal: nano_to_datetime(1_699_000_000_000_000_000) -> 2023-11-03T08:26:40Z
-        self.assertEqual(ts, datetime(2023, 11, 3, 8, 26, 40, tzinfo=timezone.utc))
+        self.assertEqual(ts, datetime(2023, 11, 3, 8, 26, 40, tzinfo=UTC))
 
     def test_no_data_points_returns_none(self):
         metrics = [_sum_metric_dict(name="empty", data_points=[])]
@@ -579,7 +568,6 @@ def _event_dict_wrapped_body(string_value: str = "wrapped body") -> dict:
 
 
 class TestOTLPEventFromDict(unittest.TestCase):
-
     def test_plain_string_body(self):
         e = OTLPEvent.from_dict(_event_dict_plain_body("my message"))
         self.assertEqual(e.body, "my message")
@@ -590,11 +578,13 @@ class TestOTLPEventFromDict(unittest.TestCase):
         self.assertEqual(e.body, "inner text")
 
     def test_dict_body_missing_string_value_gives_empty(self):
-        e = OTLPEvent.from_dict({
-            "timeUnixNano": _EVENT_NS,
-            "observedTimeUnixNano": _EVENT_NS,
-            "body": {"otherKey": "ignored"},
-        })
+        e = OTLPEvent.from_dict(
+            {
+                "timeUnixNano": _EVENT_NS,
+                "observedTimeUnixNano": _EVENT_NS,
+                "body": {"otherKey": "ignored"},
+            }
+        )
         self.assertEqual(e.body, "")
 
     def test_time_unix_nano_set(self):
@@ -615,24 +605,25 @@ class TestOTLPEventFromDict(unittest.TestCase):
 
 
 class TestOTLPEventTimestampAndGetAttr(unittest.TestCase):
-
     def setUp(self):
-        self.event = OTLPEvent.from_dict({
-            "timeUnixNano": _EVENT_NS,
-            "observedTimeUnixNano": _EVENT_NS,
-            "body": "test",
-            "attributes": [
-                _attr_dict("severity", stringValue="WARN"),
-                _attr_dict("count", doubleValue=3.0),
-            ],
-        })
+        self.event = OTLPEvent.from_dict(
+            {
+                "timeUnixNano": _EVENT_NS,
+                "observedTimeUnixNano": _EVENT_NS,
+                "body": "test",
+                "attributes": [
+                    _attr_dict("severity", stringValue="WARN"),
+                    _attr_dict("count", doubleValue=3.0),
+                ],
+            }
+        )
 
     def test_timestamp_is_utc_datetime(self):
         ts = self.event.timestamp
         self.assertIsInstance(ts, datetime)
-        self.assertEqual(ts.tzinfo, timezone.utc)
+        self.assertEqual(ts.tzinfo, UTC)
         # Ground-truth literal: nano_to_datetime(1_700_000_000_000_000_000) -> 2023-11-14T22:13:20Z
-        self.assertEqual(ts, datetime(2023, 11, 14, 22, 13, 20, tzinfo=timezone.utc))
+        self.assertEqual(ts, datetime(2023, 11, 14, 22, 13, 20, tzinfo=UTC))
 
     def test_get_attr_found(self):
         self.assertEqual(self.event.get_attr("severity"), "WARN")
@@ -651,13 +642,12 @@ class TestOTLPEventTimestampAndGetAttr(unittest.TestCase):
 # OTLPEventsRecord
 # ---------------------------------------------------------------------------
 
+
 def _otlp_events_wrapper(service_name: str = "svc") -> dict:
     return {
         "resourceLogs": [
             {
-                "resource": _resource_dict(
-                    _attr_dict("service.name", stringValue=service_name)
-                ),
+                "resource": _resource_dict(_attr_dict("service.name", stringValue=service_name)),
                 "scopeLogs": [
                     {
                         "scope": {"name": "log.scope"},
@@ -671,9 +661,7 @@ def _otlp_events_wrapper(service_name: str = "svc") -> dict:
 
 def _simplified_events_dict(service_name: str = "svc") -> dict:
     return {
-        "resource": _resource_dict(
-            _attr_dict("service.name", stringValue=service_name)
-        ),
+        "resource": _resource_dict(_attr_dict("service.name", stringValue=service_name)),
         "scopeLogs": [
             {
                 "scope": {"name": "simple.log.scope"},
@@ -684,7 +672,6 @@ def _simplified_events_dict(service_name: str = "svc") -> dict:
 
 
 class TestOTLPEventsRecordFromDict(unittest.TestCase):
-
     def test_otlp_wrapper_format(self):
         rec = OTLPEventsRecord.from_dict(_otlp_events_wrapper())
         self.assertEqual(rec.resource.service_name, "svc")
@@ -712,9 +699,7 @@ class TestOTLPEventsRecordFromDict(unittest.TestCase):
 
     def test_otlp_wrapper_empty_scope_logs_list_is_guarded(self):
         """resourceLogs present but scopeLogs=[] must not IndexError; yields empty record."""
-        rec = OTLPEventsRecord.from_dict(
-            {"resourceLogs": [{"resource": {}, "scopeLogs": []}]}
-        )
+        rec = OTLPEventsRecord.from_dict({"resourceLogs": [{"resource": {}, "scopeLogs": []}]})
         self.assertEqual(rec.log_records, [])
         self.assertEqual(rec.scope_name, "")
 
@@ -746,7 +731,6 @@ def _span_dict(
 
 
 class TestOTLPSpanFromDict(unittest.TestCase):
-
     def test_basic_parse(self):
         s = OTLPSpan.from_dict(_span_dict())
         self.assertEqual(s.trace_id, "abc123")
@@ -756,9 +740,7 @@ class TestOTLPSpanFromDict(unittest.TestCase):
         self.assertEqual(s.end_time_unix_nano, _SPAN_END_NS)
 
     def test_attributes_parsed(self):
-        s = OTLPSpan.from_dict(
-            _span_dict(attrs=[_attr_dict("http.method", stringValue="GET")])
-        )
+        s = OTLPSpan.from_dict(_span_dict(attrs=[_attr_dict("http.method", stringValue="GET")]))
         self.assertEqual(len(s.attributes), 1)
         self.assertEqual(s.attributes[0].key, "http.method")
 
@@ -772,7 +754,6 @@ class TestOTLPSpanFromDict(unittest.TestCase):
 
 
 class TestOTLPSpanProperties(unittest.TestCase):
-
     def setUp(self):
         self.span = OTLPSpan.from_dict(
             _span_dict(
@@ -789,9 +770,9 @@ class TestOTLPSpanProperties(unittest.TestCase):
     def test_start_timestamp_is_utc_datetime(self):
         ts = self.span.start_timestamp
         self.assertIsInstance(ts, datetime)
-        self.assertEqual(ts.tzinfo, timezone.utc)
+        self.assertEqual(ts.tzinfo, UTC)
         # Ground-truth literal: nano_to_datetime(1_700_000_000_000_000_000) -> 2023-11-14T22:13:20Z
-        self.assertEqual(ts, datetime(2023, 11, 14, 22, 13, 20, tzinfo=timezone.utc))
+        self.assertEqual(ts, datetime(2023, 11, 14, 22, 13, 20, tzinfo=UTC))
 
     def test_get_attr_found(self):
         self.assertEqual(self.span.get_attr("db.system"), "postgres")
@@ -804,13 +785,12 @@ class TestOTLPSpanProperties(unittest.TestCase):
 # OTLPSpansRecord
 # ---------------------------------------------------------------------------
 
+
 def _otlp_spans_wrapper(service_name: str = "svc") -> dict:
     return {
         "resourceSpans": [
             {
-                "resource": _resource_dict(
-                    _attr_dict("service.name", stringValue=service_name)
-                ),
+                "resource": _resource_dict(_attr_dict("service.name", stringValue=service_name)),
                 "scopeSpans": [
                     {
                         "spans": [_span_dict()],
@@ -823,9 +803,7 @@ def _otlp_spans_wrapper(service_name: str = "svc") -> dict:
 
 def _simplified_spans_dict(service_name: str = "svc") -> dict:
     return {
-        "resource": _resource_dict(
-            _attr_dict("service.name", stringValue=service_name)
-        ),
+        "resource": _resource_dict(_attr_dict("service.name", stringValue=service_name)),
         "scopeSpans": [
             {
                 "spans": [_span_dict(name="simple.span")],
@@ -835,7 +813,6 @@ def _simplified_spans_dict(service_name: str = "svc") -> dict:
 
 
 class TestOTLPSpansRecordFromDict(unittest.TestCase):
-
     def test_otlp_wrapper_format(self):
         rec = OTLPSpansRecord.from_dict(_otlp_spans_wrapper())
         self.assertEqual(rec.resource.service_name, "svc")

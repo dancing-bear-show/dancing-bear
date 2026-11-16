@@ -26,9 +26,7 @@ from memory.commands.search import (
 )
 from memory.models import MemoryStore
 from memory.parser import parse_memory_file
-
 from tests.memory_tests.fixtures import MemoryTestCase
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -99,9 +97,7 @@ class TestResolveStores(MemoryTestCase):
         store = _make_store(self.tmp, "specific-slug")
         ns = _make_namespace(store="specific-slug")
 
-        with patch(
-            "memory.commands.search.load_store", return_value=store
-        ) as mock_load:
+        with patch("memory.commands.search.load_store", return_value=store) as mock_load:
             result = _resolve_stores(ns, (store,))
         mock_load.assert_called_once_with("specific-slug")
         self.assertEqual(result, (store,))
@@ -132,9 +128,7 @@ class TestResolveStores(MemoryTestCase):
         store = _make_store(self.tmp, "current-slug")
         ns = _make_namespace()
 
-        with patch(
-            "memory.commands.search.resolve_current_store", return_value=store
-        ):
+        with patch("memory.commands.search.resolve_current_store", return_value=store):
             result = _resolve_stores(ns, (store,))
         self.assertEqual(result, (store,))
 
@@ -142,9 +136,7 @@ class TestResolveStores(MemoryTestCase):
         store_a = _make_store(self.tmp, "slug-a")
         ns = _make_namespace()
 
-        with patch(
-            "memory.commands.search.resolve_current_store", return_value=None
-        ):
+        with patch("memory.commands.search.resolve_current_store", return_value=None):
             result = _resolve_stores(ns, (store_a,))
         self.assertEqual(result, (store_a,))
 
@@ -184,12 +176,8 @@ class TestCollectMatchesLimit(MemoryTestCase):
         store_a = _make_store(
             self.tmp, "store-a", [("mem.md", _feedback("mem_a", body="target target"))]
         )
-        store_b = _make_store(
-            self.tmp, "store-b", [("mem.md", _feedback("mem_b", body="target"))]
-        )
-        matches = _collect_matches(
-            (store_a, store_b), query="target", pattern=None, limit=2
-        )
+        store_b = _make_store(self.tmp, "store-b", [("mem.md", _feedback("mem_b", body="target"))])
+        matches = _collect_matches((store_a, store_b), query="target", pattern=None, limit=2)
         self.assertEqual(len(matches), 2)
 
 

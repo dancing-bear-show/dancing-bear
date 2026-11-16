@@ -140,8 +140,11 @@ class TestWorkbookMetadataParsing(unittest.TestCase):
         ("missing", "sheets: []\n", ("Untitled", None, None)),
         ("null", "title: T\nauthor: null\ndate: null\nsheets: []\n", ("T", None, None)),
         ("empty", "title: ''\nauthor: ''\ndate: ''\nsheets: []\n", ("", "", "")),
-        ("present", "title: T\nauthor: A\ndate: 2026-01-15\nsheets: []\n",
-         ("T", "A", "2026-01-15")),
+        (
+            "present",
+            "title: T\nauthor: A\ndate: 2026-01-15\nsheets: []\n",
+            ("T", "A", "2026-01-15"),
+        ),
     ]
 
     def test_cases(self):

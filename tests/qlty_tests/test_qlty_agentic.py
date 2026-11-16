@@ -8,9 +8,8 @@ CLI tree, hence EXPECT_CLI_TREE = False.
 
 import unittest
 
-from tests.agentic_builder_contract import AgenticBuilderContractMixin
-
 from qlty.agentic import build_agentic_capsule, build_domain_map
+from tests.agentic_builder_contract import AgenticBuilderContractMixin
 
 
 class TestQltyAgenticContract(AgenticBuilderContractMixin, unittest.TestCase):

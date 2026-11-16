@@ -1,4 +1,5 @@
 """Tests for maker/cli/main.py CLI registration and commands."""
+
 from __future__ import annotations
 
 import unittest
@@ -12,34 +13,34 @@ class TestMakerCLIMain(unittest.TestCase):
 
     def test_main_with_no_args_shows_help(self):
         """main() with no args should show help and return 0."""
-        with patch('sys.stdout'):
+        with patch("sys.stdout"):
             result = main([])
         self.assertEqual(result, 0)
 
-    @patch('maker.cli.main.assistant.maybe_emit_agentic')
+    @patch("maker.cli.main.assistant.maybe_emit_agentic")
     def test_main_handles_agentic_flags(self, mock_agentic):
         """main() should handle agentic flags when present."""
         mock_agentic.return_value = 0
-        result = main(['--agentic'])
+        result = main(["--agentic"])
         mock_agentic.assert_called_once()
         self.assertEqual(result, 0)
 
-    @patch('maker.cli.main.ToolCatalogProducer')
-    @patch('maker.cli.main.ToolCatalogProcessor')
+    @patch("maker.cli.main.ToolCatalogProducer")
+    @patch("maker.cli.main.ToolCatalogProcessor")
     def test_list_tools_command(self, mock_processor, mock_producer):
         """list-tools command should execute successfully."""
         mock_envelope = MagicMock()
         mock_envelope.ok.return_value = True
         mock_processor.return_value.process.return_value = mock_envelope
 
-        result = main(['list-tools'])
+        result = main(["list-tools"])
 
         mock_processor.assert_called_once()
         mock_producer.assert_called_once()
         self.assertEqual(result, 0)
 
-    @patch('maker.cli.main.ToolResultProducer')
-    @patch('maker.cli.main.ToolRunnerProcessor')
+    @patch("maker.cli.main.ToolResultProducer")
+    @patch("maker.cli.main.ToolRunnerProcessor")
     def test_card_command_success(self, mock_runner, mock_producer):
         """card command should execute and return 0 on success."""
         mock_envelope = MagicMock()
@@ -47,27 +48,27 @@ class TestMakerCLIMain(unittest.TestCase):
         mock_envelope.payload.return_code = 0
         mock_runner.return_value.process.return_value = mock_envelope
 
-        result = main(['card'])
+        result = main(["card"])
 
         mock_runner.assert_called_once()
         mock_producer.assert_called_once()
         self.assertEqual(result, 0)
 
-    @patch('maker.cli.main.ToolResultProducer')
-    @patch('maker.cli.main.ToolRunnerProcessor')
+    @patch("maker.cli.main.ToolResultProducer")
+    @patch("maker.cli.main.ToolRunnerProcessor")
     def test_card_command_failure(self, mock_runner, mock_producer):
         """card command should return 1 on failure (SafeProcessor pattern)."""
         mock_envelope = MagicMock()
         mock_envelope.ok.return_value = False
         mock_runner.return_value.process.return_value = mock_envelope
 
-        result = main(['card'])
+        result = main(["card"])
 
         # With SafeProcessor/BaseProducer pattern, failures return 1
         self.assertEqual(result, 1)
 
-    @patch('maker.cli.main.ToolResultProducer')
-    @patch('maker.cli.main.ToolRunnerProcessor')
+    @patch("maker.cli.main.ToolResultProducer")
+    @patch("maker.cli.main.ToolRunnerProcessor")
     def test_tp_rod_command_success(self, mock_runner, mock_producer):
         """tp-rod command should execute and return 0 on success."""
         mock_envelope = MagicMock()
@@ -75,14 +76,14 @@ class TestMakerCLIMain(unittest.TestCase):
         mock_envelope.payload.return_code = 0
         mock_runner.return_value.process.return_value = mock_envelope
 
-        result = main(['tp-rod'])
+        result = main(["tp-rod"])
 
         mock_runner.assert_called_once()
         mock_producer.assert_called_once()
         self.assertEqual(result, 0)
 
-    @patch('maker.cli.main.ToolResultProducer')
-    @patch('maker.cli.main.ToolRunnerProcessor')
+    @patch("maker.cli.main.ToolResultProducer")
+    @patch("maker.cli.main.ToolRunnerProcessor")
     def test_print_send_command_success(self, mock_runner, mock_producer):
         """print-send command should execute and return 0 on success."""
         mock_envelope = MagicMock()
@@ -90,14 +91,14 @@ class TestMakerCLIMain(unittest.TestCase):
         mock_envelope.payload.return_code = 0
         mock_runner.return_value.process.return_value = mock_envelope
 
-        result = main(['print-send'])
+        result = main(["print-send"])
 
         mock_runner.assert_called_once()
         mock_producer.assert_called_once()
         self.assertEqual(result, 0)
 
-    @patch('maker.cli.main.ToolResultProducer')
-    @patch('maker.cli.main.ToolRunnerProcessor')
+    @patch("maker.cli.main.ToolResultProducer")
+    @patch("maker.cli.main.ToolRunnerProcessor")
     def test_command_failure_without_payload(self, mock_runner, mock_producer):
         """Command should return 1 if envelope fails with no payload."""
         mock_envelope = MagicMock()
@@ -105,10 +106,10 @@ class TestMakerCLIMain(unittest.TestCase):
         mock_envelope.payload = None
         mock_runner.return_value.process.return_value = mock_envelope
 
-        result = main(['card'])
+        result = main(["card"])
 
         self.assertEqual(result, 1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

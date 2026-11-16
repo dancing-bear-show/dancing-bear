@@ -99,9 +99,7 @@ def _run_preamble(script: str, pythonpath: str) -> PreambleState:
     if proc.returncode != 0:
         raise AssertionError(f"{script} preamble failed: {proc.stderr}")
     payload = json.loads(proc.stdout.strip().splitlines()[-1])
-    return PreambleState(
-        pythonpath=payload["pythonpath"], sys_path=list(payload["sys_path"])
-    )
+    return PreambleState(pythonpath=payload["pythonpath"], sys_path=list(payload["sys_path"]))
 
 
 class TestStandaloneScriptsStripForeignCheckouts(unittest.TestCase):
@@ -198,9 +196,7 @@ class TestStandaloneScriptsStripForeignCheckouts(unittest.TestCase):
                 ):
                     entry = build(Path(td, dirname))
 
-                    state = _run_preamble(
-                        script, os.pathsep.join([str(entry), OWN_SRC])
-                    )
+                    state = _run_preamble(script, os.pathsep.join([str(entry), OWN_SRC]))
 
                     self.assertIn(
                         str(entry),
@@ -251,8 +247,7 @@ class TestStandaloneScriptsImportSuccessfully(unittest.TestCase):
             self.assertEqual(
                 proc.returncode,
                 0,
-                "bin/llm failed with a sibling checkout ahead on PYTHONPATH:\n"
-                f"{proc.stderr}",
+                f"bin/llm failed with a sibling checkout ahead on PYTHONPATH:\n{proc.stderr}",
             )
 
     def test_path_guard_imports_with_foreign_checkout_ahead(self) -> None:
@@ -280,9 +275,7 @@ class TestStandaloneScriptsImportSuccessfully(unittest.TestCase):
             foreign = make_fake_checkout(Path(td, "other-checkout"))
             combined = os.pathsep.join([str(foreign), OWN_SRC])
 
-            proc = self._run(
-                "path-guard", [str(REPO_ROOT), "bin/_pathrepair.py"], combined
-            )
+            proc = self._run("path-guard", [str(REPO_ROOT), "bin/_pathrepair.py"], combined)
 
             self.assertEqual(
                 proc.returncode,
@@ -422,17 +415,14 @@ class TestUnresolvableEntriesDoNotBreakTheRepair(unittest.TestCase):
                         text=True,
                         env={
                             **os.environ,
-                            "PYTHONPATH": os.pathsep.join(
-                                [str(loop), str(REPO_ROOT / "src")]
-                            ),
+                            "PYTHONPATH": os.pathsep.join([str(loop), str(REPO_ROOT / "src")]),
                         },
                         timeout=120,
                     )
                     self.assertEqual(
                         proc.returncode,
                         0,
-                        f"bin/{script} died on a looping PYTHONPATH entry:\n"
-                        f"{proc.stderr[-800:]}",
+                        f"bin/{script} died on a looping PYTHONPATH entry:\n{proc.stderr[-800:]}",
                     )
                     self.assertNotIn("Traceback", proc.stderr)
 

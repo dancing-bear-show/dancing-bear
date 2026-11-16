@@ -1,4 +1,5 @@
 """Processors for signatures pipelines."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -10,8 +11,8 @@ from core.pipeline import Processor, ResultEnvelope
 
 from .consumers import (
     SignaturesExportPayload,
-    SignaturesSyncPayload,
     SignaturesNormalizePayload,
+    SignaturesSyncPayload,
 )
 
 
@@ -68,7 +69,9 @@ class SignaturesNormalizeResult:
     success: bool = True
 
 
-class SignaturesExportProcessor(Processor[SignaturesExportPayload, ResultEnvelope[SignaturesExportResult]]):
+class SignaturesExportProcessor(
+    Processor[SignaturesExportPayload, ResultEnvelope[SignaturesExportResult]]
+):
     """Export signatures from Gmail."""
 
     def process(self, payload: SignaturesExportPayload) -> ResultEnvelope[SignaturesExportResult]:
@@ -108,14 +111,18 @@ class SignaturesExportProcessor(Processor[SignaturesExportPayload, ResultEnvelop
             )
 
 
-def _sync_primary_signature(client, current: dict, default_html: str, payload, result: SignaturesSyncResult) -> None:
+def _sync_primary_signature(
+    client, current: dict, default_html: str, payload, result: SignaturesSyncResult
+) -> None:
     """Apply default signature to primary send-as address."""
     for sa in current.values():
         if not sa.get("isPrimary"):
             continue
         email = sa.get("sendAsEmail")
         disp = sa.get("displayName") or payload.account_display_name
-        html_final = _inline_css(_render_template(default_html, {"displayName": disp or "", "email": email or ""}))
+        html_final = _inline_css(
+            _render_template(default_html, {"displayName": disp or "", "email": email or ""})
+        )
         if payload.dry_run:
             result.gmail_updates.append(f"Would update {email} (primary)")
         else:
@@ -132,7 +139,9 @@ class _GmailSignatureState:
     default_html: str | None
 
 
-def _sync_desired_signatures(state: _GmailSignatureState, desired: list, payload: Any, result: SignaturesSyncResult) -> None:
+def _sync_desired_signatures(
+    state: _GmailSignatureState, desired: list, payload: Any, result: SignaturesSyncResult
+) -> None:
     """Sync specific desired signatures."""
     for ent in desired:
         email = ent.get("sendAs")
@@ -142,7 +151,9 @@ def _sync_desired_signatures(state: _GmailSignatureState, desired: list, payload
         if payload.send_as and email != payload.send_as:
             continue
         disp = (state.current.get(email) or {}).get("displayName") or payload.account_display_name
-        html_final = _inline_css(_render_template(html, {"displayName": disp or "", "email": email}))
+        html_final = _inline_css(
+            _render_template(html, {"displayName": disp or "", "email": email})
+        )
         if payload.dry_run:
             result.gmail_updates.append(f"Would update {email}")
         else:
@@ -193,7 +204,9 @@ def _write_outlook_note(default_html: str | None, sigs: dict) -> Path | None:
     return None
 
 
-class SignaturesSyncProcessor(Processor[SignaturesSyncPayload, ResultEnvelope[SignaturesSyncResult]]):
+class SignaturesSyncProcessor(
+    Processor[SignaturesSyncPayload, ResultEnvelope[SignaturesSyncResult]]
+):
     """Sync signatures to Gmail and write assets."""
 
     def process(self, payload: SignaturesSyncPayload) -> ResultEnvelope[SignaturesSyncResult]:
@@ -215,10 +228,14 @@ class SignaturesSyncProcessor(Processor[SignaturesSyncPayload, ResultEnvelope[Si
             )
 
 
-class SignaturesNormalizeProcessor(Processor[SignaturesNormalizePayload, ResultEnvelope[SignaturesNormalizeResult]]):
+class SignaturesNormalizeProcessor(
+    Processor[SignaturesNormalizePayload, ResultEnvelope[SignaturesNormalizeResult]]
+):
     """Normalize signature HTML with variable substitution."""
 
-    def process(self, payload: SignaturesNormalizePayload) -> ResultEnvelope[SignaturesNormalizeResult]:
+    def process(
+        self, payload: SignaturesNormalizePayload
+    ) -> ResultEnvelope[SignaturesNormalizeResult]:
         try:
             sigs = payload.config.get("signatures") or {}
             html = sigs.get("default_html")

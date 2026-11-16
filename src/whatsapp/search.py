@@ -8,18 +8,19 @@ Notes
 - Timestamps: Apple epoch seconds (since 2001-01-01). Convert by adding
   978307200 to get Unix epoch seconds.
 """
+
 from __future__ import annotations
 
 import json
 import os
 import sqlite3
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any
 
 from core.cli_errors import NotFoundError
 from core.text_utils import truncate_text
-
 
 APPLE_EPOCH_OFFSET = 978307200  # seconds to add to get Unix epoch
 
@@ -136,7 +137,14 @@ def search_messages(
         cur = conn.cursor()
         query_args = [APPLE_EPOCH_OFFSET, *params, int(q.limit)]
         for ts, partner, fromme, text in cur.execute(sql, query_args):
-            rows.append(MessageRow(ts=str(ts or ""), partner=str(partner or ""), from_me=int(fromme or 0), text=str(text or "")))
+            rows.append(
+                MessageRow(
+                    ts=str(ts or ""),
+                    partner=str(partner or ""),
+                    from_me=int(fromme or 0),
+                    text=str(text or ""),
+                )
+            )
     return rows
 
 
@@ -151,12 +159,9 @@ def format_rows_text(rows: Iterable[MessageRow]) -> str:
 
 def rows_to_dicts(rows: Iterable[MessageRow]) -> list[dict[str, Any]]:
     return [
-        {"ts": r.ts, "partner": r.partner, "from_me": bool(r.from_me), "text": r.text}
-        for r in rows
+        {"ts": r.ts, "partner": r.partner, "from_me": bool(r.from_me), "text": r.text} for r in rows
     ]
 
 
 def format_rows_json(rows: Iterable[MessageRow], indent: int = 2) -> str:
     return json.dumps(rows_to_dicts(rows), ensure_ascii=False, indent=indent)
-
-

@@ -17,8 +17,8 @@ from __future__ import annotations
 
 import unittest
 
-from tests.agentic_builder_contract import AgenticBuilderContractMixin
 from sheets.agentic import build_agentic_capsule
+from tests.agentic_builder_contract import AgenticBuilderContractMixin
 
 
 class TestSheetsAgenticBuilder(AgenticBuilderContractMixin, unittest.TestCase):

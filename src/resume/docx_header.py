@@ -2,6 +2,7 @@
 
 Provides HeaderRenderer for experience and education entry headers.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -84,19 +85,32 @@ class HeaderRenderer:
 
         # Location
         if c.loc_text:
-            self._add_meta_run(p, c.loc_text, MetaRunConfig(
-                brackets=cfg.get("location_brackets", True),
-                open_br="[", close_br="]",
-                meta_pt=meta_pt, color=loc_color, italic=True,
-            ))
+            self._add_meta_run(
+                p,
+                c.loc_text,
+                MetaRunConfig(
+                    brackets=cfg.get("location_brackets", True),
+                    open_br="[",
+                    close_br="]",
+                    meta_pt=meta_pt,
+                    color=loc_color,
+                    italic=True,
+                ),
+            )
 
         # Duration
         if c.span_text:
-            self._add_meta_run(p, c.span_text, MetaRunConfig(
-                brackets=cfg.get("duration_brackets", True),
-                open_br="(", close_br=")",
-                meta_pt=meta_pt, color=dur_color,
-            ))
+            self._add_meta_run(
+                p,
+                c.span_text,
+                MetaRunConfig(
+                    brackets=cfg.get("duration_brackets", True),
+                    open_br="(",
+                    close_br=")",
+                    meta_pt=meta_pt,
+                    color=dur_color,
+                ),
+            )
 
         return p
 

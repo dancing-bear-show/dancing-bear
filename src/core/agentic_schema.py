@@ -8,11 +8,12 @@ Public API:
     build_schema_json(parser, *, compact=False, ultra=False, domain=None) -> dict
     build_schema_yaml(parser, *, compact=False, ultra=False, domain=None) -> str
 """
+
 from __future__ import annotations
 
 import argparse
-from typing import Any, Callable
-
+from collections.abc import Callable
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Parser introspection
@@ -55,9 +56,7 @@ def _action_to_entry(action: argparse.Action) -> dict:
 def _extract_options(parser: argparse.ArgumentParser) -> list[dict]:
     """Extract option descriptors from a parser (non-positional actions)."""
     return [
-        _action_to_entry(action)
-        for action in parser._actions
-        if not _skip_option_action(action)
+        _action_to_entry(action) for action in parser._actions if not _skip_option_action(action)
     ]
 
 
@@ -176,6 +175,8 @@ _ULTRA_OPT_KEY_MAP = {
     "choices": "c",
     "nargs": "g",
 }
+
+
 def _keep_scalar_value(val: Any) -> bool:
     """Keep predicate for node scalar fields: keep 0, drop other empty/None."""
     return bool(val) or val == 0
@@ -244,6 +245,7 @@ def _apply_ultra(node: dict) -> dict:
 # ---------------------------------------------------------------------------
 # Public schema builders
 # ---------------------------------------------------------------------------
+
 
 def build_schema_json(
     parser: argparse.ArgumentParser,

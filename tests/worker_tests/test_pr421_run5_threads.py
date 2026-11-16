@@ -42,8 +42,8 @@ from tests.worker_tests.test_daemon_nonblocking import (
     _patch_queue_root,
     _wait_for,
 )
-from worker.queue_ops import Job, enqueue
 from worker import queue_ops as q
+from worker.queue_ops import Job, enqueue
 
 
 def _names(folder: Path) -> list[str]:
@@ -68,7 +68,9 @@ class TestPruneLiveThreadsSurvivesRequeueError(unittest.TestCase, QueueRootIsola
         self.setup_queue_root()
         self.join_new_threads_before_restore()
         base = _patch_queue_root(self.root)
-        base.enter_context(patch.dict("worker.job_runtime.HANDLERS", {"fast": lambda _d: (True, "ok")}))
+        base.enter_context(
+            patch.dict("worker.job_runtime.HANDLERS", {"fast": lambda _d: (True, "ok")})
+        )
         self.addCleanup(base.close)
 
     def test_happy_path_normal_completion_still_prunes_cleanly(self) -> None:
@@ -115,8 +117,10 @@ class TestPruneLiveThreadsSurvivesRequeueError(unittest.TestCase, QueueRootIsola
         def _raise(*_a: object, **_kw: object) -> None:
             raise OSError("simulated I/O error during prune")
 
-        with patch("worker.job_runtime.q.requeue_processing", side_effect=_raise), \
-             self.assertLogs("worker.job_runtime", "ERROR"):
+        with (
+            patch("worker.job_runtime.q.requeue_processing", side_effect=_raise),
+            self.assertLogs("worker.job_runtime", "ERROR"),
+        ):
             runner._prune_live_threads()  # must not raise
 
         # The registry entry must survive so a later tick retries it.
@@ -190,7 +194,9 @@ class TestDrainLockBudgetFloorsAtZero(unittest.TestCase, QueueRootIsolationMixin
         enqueue(Job(id="lockfloor-contended", type="slow", payload={}, attempts=1), root=self.root)
         runner.tick()
         self.assertTrue(
-            _wait_for(lambda: (self.root / "processing" / "lockfloor-contended.json").exists(), timeout=5)
+            _wait_for(
+                lambda: (self.root / "processing" / "lockfloor-contended.json").exists(), timeout=5
+            )
         )
 
         captured_timeouts: list[float | None] = []
@@ -200,8 +206,10 @@ class TestDrainLockBudgetFloorsAtZero(unittest.TestCase, QueueRootIsolationMixin
             captured_timeouts.append(kwargs.get("lock_timeout"))  # type: ignore[arg-type]
             return real_requeue(*args, **kwargs)  # type: ignore[arg-type]
 
-        with patch("worker.job_runtime.q.requeue_processing", side_effect=_capture), \
-             self.assertLogs("worker.job_runtime", "WARNING"):
+        with (
+            patch("worker.job_runtime.q.requeue_processing", side_effect=_capture),
+            self.assertLogs("worker.job_runtime", "WARNING"),
+        ):
             # grace=0 means time.monotonic() + 0 as the deadline: by the time
             # the post-join loop reaches the requeue call, remaining is <= 0.
             runner.drain_live_threads(grace=0.0)
@@ -211,7 +219,8 @@ class TestDrainLockBudgetFloorsAtZero(unittest.TestCase, QueueRootIsolationMixin
         self.assertIsNotNone(budget)
         assert budget is not None  # nosec B101 - narrows Optional for type checker
         self.assertLessEqual(
-            budget, 0.05,
+            budget,
+            0.05,
             "lock_timeout budget must not be floored above zero once the deadline has passed",
         )
 

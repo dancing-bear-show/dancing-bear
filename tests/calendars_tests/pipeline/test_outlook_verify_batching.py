@@ -5,6 +5,7 @@ own window and a subject filter. It now fetches each calendar once over the
 union window and narrows in memory. These tests pin both halves: the call
 count, and that the report is byte-identical to the per-entry path.
 """
+
 from __future__ import annotations
 
 import datetime as dt
@@ -22,7 +23,7 @@ from calendars.outlook_pipelines import (
 
 def _utc(iso: str) -> dt.datetime:
     parsed = dt.datetime.fromisoformat(iso)
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=dt.timezone.utc)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=dt.UTC)
 
 
 def _occ(subject: str, start: str, end: str) -> dict[str, Any]:
@@ -68,22 +69,61 @@ class _GraphLikeService:
 _CONFIG = {
     "events": [
         # 1. present on its Monday (17:00 Toronto == 22:00 UTC) -> duplicate
-        {"subject": "Swim", "repeat": "weekly", "byday": ["MO"], "start_time": "17:00",
-         "end_time": "17:30", "range": {"start_date": "2025-01-06", "until": "2025-03-01"}},
+        {
+            "subject": "Swim",
+            "repeat": "weekly",
+            "byday": ["MO"],
+            "start_time": "17:00",
+            "end_time": "17:30",
+            "range": {"start_date": "2025-01-06", "until": "2025-03-01"},
+        },
         # 2. a matching Piano exists, but only BEFORE this entry's window -> missing
-        {"subject": "Piano", "repeat": "weekly", "byday": ["TU"], "start_time": "16:00",
-         "end_time": "17:00", "range": {"start_date": "2025-02-01", "until": "2025-02-28"}},
+        {
+            "subject": "Piano",
+            "repeat": "weekly",
+            "byday": ["TU"],
+            "start_time": "16:00",
+            "end_time": "17:00",
+            "range": {"start_date": "2025-02-01", "until": "2025-02-28"},
+        },
         # 3. subject substring match ("Art" in "Art Class") -> duplicate
-        {"subject": "Art", "repeat": "weekly", "byday": ["TH"], "start_time": "10:00",
-         "end_time": "11:00", "range": {"start_date": "2025-01-01", "until": "2025-01-31"}},
+        {
+            "subject": "Art",
+            "repeat": "weekly",
+            "byday": ["TH"],
+            "start_time": "10:00",
+            "end_time": "11:00",
+            "range": {"start_date": "2025-01-01", "until": "2025-01-31"},
+        },
         # 4. open-ended series on another calendar -> duplicate
-        {"subject": "Yoga", "repeat": "weekly", "byday": ["WE"], "start_time": "09:00",
-         "end_time": "10:00", "calendar": "Family", "range": {"start_date": "2025-01-06"}},
+        {
+            "subject": "Yoga",
+            "repeat": "weekly",
+            "byday": ["WE"],
+            "start_time": "09:00",
+            "end_time": "10:00",
+            "calendar": "Family",
+            "range": {"start_date": "2025-01-06"},
+        },
         # 5. calendar whose listing fails -> error line, neither duplicate nor missing
-        {"subject": "Chess", "repeat": "weekly", "byday": ["FR"], "start_time": "18:00",
-         "end_time": "19:00", "calendar": "Broken", "range": {"start_date": "2025-01-03", "until": "2025-01-31"}},
-        {"subject": "Go", "repeat": "weekly", "byday": ["FR"], "start_time": "19:00",
-         "end_time": "20:00", "calendar": "Broken", "range": {"start_date": "2025-01-03", "until": "2025-01-31"}},
+        {
+            "subject": "Chess",
+            "repeat": "weekly",
+            "byday": ["FR"],
+            "start_time": "18:00",
+            "end_time": "19:00",
+            "calendar": "Broken",
+            "range": {"start_date": "2025-01-03", "until": "2025-01-31"},
+        },
+        {
+            "subject": "Go",
+            "repeat": "weekly",
+            "byday": ["FR"],
+            "start_time": "19:00",
+            "end_time": "20:00",
+            "calendar": "Broken",
+            "range": {"start_date": "2025-01-03", "until": "2025-01-31"},
+        },
         # 7. weekly with no window -> counted, no log line, no query
         {"subject": "Floating", "repeat": "weekly", "byday": ["MO"]},
         # 8. not weekly -> ignored entirely
@@ -145,7 +185,9 @@ class TestOutlookVerifyBatching(unittest.TestCase):
     def test_no_queries_when_nothing_to_verify(self):
         svc = _GraphLikeService(by_calendar=_EVENTS)
         request = OutlookVerifyRequest(config_path=Path("cfg.yaml"), calendar=None, service=svc)
-        processor = OutlookVerifyProcessor(config_loader=lambda _p: {"events": [_CONFIG["events"][-1]]})
+        processor = OutlookVerifyProcessor(
+            config_loader=lambda _p: {"events": [_CONFIG["events"][-1]]}
+        )
         env = processor.process(OutlookVerifyRequestConsumer(request).consume())
 
         self.assertTrue(env.ok(), env.diagnostics)

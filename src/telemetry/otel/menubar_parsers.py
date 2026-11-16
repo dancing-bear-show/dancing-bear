@@ -1,4 +1,5 @@
 """Parsing/accumulation helpers extracted from menubar_provider.py."""
+
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping
@@ -175,7 +176,9 @@ def _accumulate_loc_delta(
 
 
 def _accumulate_commit_count(
-    value: float, attrs: dict[str, object], counters: dict[str, object]  # noqa: ARG001
+    value: float,
+    attrs: dict[str, object],
+    counters: dict[str, object],  # noqa: ARG001
 ) -> None:
     """Add a commit.count datapoint into counters['commits_today']."""
     counters["commits_today"] = _safe_int(counters["commits_today"], 0) + _safe_int(value, 0)
@@ -190,9 +193,7 @@ def _accumulate_language_count(
 
 
 # metric name -> accumulator handler, each taking (value, attrs, counters).
-_LOC_METRIC_HANDLERS: dict[
-    str, Callable[[float, dict[str, object], dict[str, object]], None]
-] = {
+_LOC_METRIC_HANDLERS: dict[str, Callable[[float, dict[str, object], dict[str, object]], None]] = {
     "claude_code.lines_of_code.count": _accumulate_loc_delta,
     "claude_code.commit.count": _accumulate_commit_count,
     "claude_code.code_edit_tool.decision": _accumulate_language_count,
@@ -250,8 +251,12 @@ def _process_tool_result_event(
         state["bash_calls"] = state["bash_calls"] + 1  # type: ignore[operator]
         if not is_success:
             state["bash_errors"] = state["bash_errors"] + 1  # type: ignore[operator]
-    state["total_input_bytes"] = state["total_input_bytes"] + _safe_float(attrs.get("tool_input_size_bytes", 0), 0.0)  # type: ignore[operator]
-    state["total_output_bytes"] = state["total_output_bytes"] + _safe_float(attrs.get("tool_result_size_bytes", 0), 0.0)  # type: ignore[operator]
+    state["total_input_bytes"] = state["total_input_bytes"] + _safe_float(  # type: ignore[operator]
+        attrs.get("tool_input_size_bytes", 0), 0.0
+    )
+    state["total_output_bytes"] = state["total_output_bytes"] + _safe_float(  # type: ignore[operator]
+        attrs.get("tool_result_size_bytes", 0), 0.0
+    )
 
 
 def _accumulate_cost_metric(

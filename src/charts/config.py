@@ -37,9 +37,11 @@ def load_grid_config(path: str) -> GridConfig:
     """
     try:
         import yaml  # noqa: PLC0415
+
         raw = yaml.safe_load(Path(path).read_text())
     except ImportError:
         import json
+
         raw = json.loads(Path(path).read_text())
 
     if not isinstance(raw, dict):

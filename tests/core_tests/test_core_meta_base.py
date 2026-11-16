@@ -4,6 +4,7 @@ The fallback strings are rendered here rather than in each app's meta tests:
 the rendering is AppMeta's behaviour, identical for every app that declares
 one, so it is asserted once.
 """
+
 from __future__ import annotations
 
 import dataclasses

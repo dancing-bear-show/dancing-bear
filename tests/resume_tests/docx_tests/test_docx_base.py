@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
-
-from tests.fixtures import test_path
 import unittest
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
+from resume.schema import Resume
+from tests.fixtures import test_path
 from tests.resume_tests.fixtures import make_docx_paragraph_side_effect, mock_docx_modules
 
-from resume.schema import Resume
 
 @mock_docx_modules
 class TestCreateResumeWriter(unittest.TestCase):
@@ -19,6 +18,7 @@ class TestCreateResumeWriter(unittest.TestCase):
     def test_returns_standard_writer_by_default(self):
         """Test factory returns StandardResumeWriter for no layout specified."""
         from resume.docx_base import create_resume_writer
+
         data = Resume.from_dict({"name": "John Doe"})
         template = {"sections": []}
         writer = create_resume_writer(data, template)
@@ -27,6 +27,7 @@ class TestCreateResumeWriter(unittest.TestCase):
     def test_returns_standard_writer_for_standard_layout(self):
         """Test factory returns StandardResumeWriter for 'standard' layout."""
         from resume.docx_base import create_resume_writer
+
         data = Resume.from_dict({"name": "John Doe"})
         template = {"sections": [], "layout": {"type": "standard"}}
         writer = create_resume_writer(data, template)
@@ -35,6 +36,7 @@ class TestCreateResumeWriter(unittest.TestCase):
     def test_returns_sidebar_writer_for_sidebar_layout(self):
         """Test factory returns SidebarResumeWriter for 'sidebar' layout."""
         from resume.docx_base import create_resume_writer
+
         data = Resume.from_dict({"name": "John Doe"})
         template = {"sections": [], "layout": {"type": "sidebar"}}
         writer = create_resume_writer(data, template)
@@ -49,6 +51,7 @@ class TestCreateResumeWriter(unittest.TestCase):
         it was given and the original template.
         """
         from resume.docx_base import create_resume_writer
+
         data = Resume.from_dict({"name": "John Doe"})
         template = {"sections": [], "page": {"compact": True}}
         writer = create_resume_writer(data, template)
@@ -59,6 +62,7 @@ class TestCreateResumeWriter(unittest.TestCase):
     def test_extracts_page_config(self):
         """Test writer extracts page config from template."""
         from resume.docx_base import create_resume_writer
+
         data = Resume.from_dict({"name": "John Doe"})
         template = {"page": {"compact": True, "margins_in": 0.4}}
         writer = create_resume_writer(data, template)
@@ -67,6 +71,7 @@ class TestCreateResumeWriter(unittest.TestCase):
     def test_extracts_layout_config(self):
         """Test writer extracts layout config from template."""
         from resume.docx_base import create_resume_writer
+
         data = Resume.from_dict({"name": "John Doe"})
         template = {"layout": {"type": "standard", "columns": 1}}
         writer = create_resume_writer(data, template)
@@ -80,15 +85,18 @@ class TestResumeWriterBase(unittest.TestCase):
     def _get_writer(self):
         """Create a StandardResumeWriter for testing base methods."""
         from resume.docx_base import create_resume_writer
-        data = Resume.from_dict({
-            "name": "John Doe",
-            "email": "john@example.com",
-            "experience": [
-                {"title": "Dev", "location": "Seattle, WA"},
-                {"title": "Mgr", "location": "Portland, OR"},
-                {"title": "Dir", "location": "Seattle, WA"},  # Duplicate
-            ],
-        })
+
+        data = Resume.from_dict(
+            {
+                "name": "John Doe",
+                "email": "john@example.com",
+                "experience": [
+                    {"title": "Dev", "location": "Seattle, WA"},
+                    {"title": "Mgr", "location": "Portland, OR"},
+                    {"title": "Dir", "location": "Seattle, WA"},  # Duplicate
+                ],
+            }
+        )
         template = {"page": {}}
         return create_resume_writer(data, template)
 
@@ -101,6 +109,7 @@ class TestResumeWriterBase(unittest.TestCase):
     def test_extract_experience_locations_empty(self):
         """Test extracting locations with no experience."""
         from resume.docx_base import create_resume_writer
+
         data = Resume.from_dict({"name": "John"})
         template = {"page": {}}
         writer = create_resume_writer(data, template)
@@ -116,6 +125,7 @@ class TestResumeWriterBase(unittest.TestCase):
     def test_get_contact_field_nested(self):
         """Test getting contact field from nested contact dict."""
         from resume.docx_base import create_resume_writer
+
         data = Resume.from_dict({"name": "John", "contact": {"phone": "555-1234"}})
         template = {"page": {}}
         writer = create_resume_writer(data, template)
@@ -125,11 +135,14 @@ class TestResumeWriterBase(unittest.TestCase):
     def test_get_contact_field_prefers_top_level(self):
         """Test top level field is preferred over nested."""
         from resume.docx_base import create_resume_writer
-        data = Resume.from_dict({
-            "name": "John",
-            "email": "top@example.com",
-            "contact": {"email": "nested@example.com"},
-        })
+
+        data = Resume.from_dict(
+            {
+                "name": "John",
+                "email": "top@example.com",
+                "contact": {"email": "nested@example.com"},
+            }
+        )
         template = {"page": {}}
         writer = create_resume_writer(data, template)
         result = writer._get_contact_field("email")
@@ -144,12 +157,15 @@ class TestResumeWriterBase(unittest.TestCase):
     def test_collect_link_extras_single_links(self):
         """Test collecting individual link fields."""
         from resume.docx_base import create_resume_writer
-        data = Resume.from_dict({
-            "name": "John",
-            "website": "https://example.com",
-            "linkedin": "https://linkedin.com/in/john",
-            "github": "https://github.com/john",
-        })
+
+        data = Resume.from_dict(
+            {
+                "name": "John",
+                "website": "https://example.com",
+                "linkedin": "https://linkedin.com/in/john",
+                "github": "https://github.com/john",
+            }
+        )
         template = {"page": {}}
         writer = create_resume_writer(data, template)
         result = writer._collect_link_extras()
@@ -158,10 +174,13 @@ class TestResumeWriterBase(unittest.TestCase):
     def test_collect_link_extras_links_list(self):
         """Test collecting from links list."""
         from resume.docx_base import create_resume_writer
-        data = Resume.from_dict({
-            "name": "John",
-            "links": ["https://blog.example.com", "https://portfolio.example.com"],
-        })
+
+        data = Resume.from_dict(
+            {
+                "name": "John",
+                "links": ["https://blog.example.com", "https://portfolio.example.com"],
+            }
+        )
         template = {"page": {}}
         writer = create_resume_writer(data, template)
         result = writer._collect_link_extras()
@@ -170,6 +189,7 @@ class TestResumeWriterBase(unittest.TestCase):
     def test_collect_link_extras_empty(self):
         """Test collecting links with no links."""
         from resume.docx_base import create_resume_writer
+
         data = Resume.from_dict({"name": "John"})
         template = {"page": {}}
         writer = create_resume_writer(data, template)
@@ -192,6 +212,7 @@ class TestIdentityFields(unittest.TestCase):
         """
         from resume.docx_base import _identity_fields
         from resume.schema import Resume
+
         resume = Resume(
             contact={
                 "name": "Nested Name",
@@ -209,6 +230,7 @@ class TestIdentityFields(unittest.TestCase):
         """Top-level scalars take precedence over the nested contact dict."""
         from resume.docx_base import _identity_fields
         from resume.schema import Resume
+
         resume = Resume(
             name="Top Name",
             contact={"name": "Nested Name", "email": "nested@example.com"},
@@ -221,18 +243,19 @@ class TestIdentityFields(unittest.TestCase):
         """A Resume with neither source yields empty strings, not None."""
         from resume.docx_base import _identity_fields
         from resume.schema import Resume
+
         self.assertEqual(_identity_fields(Resume()), ("", "", "", ""))
 
     def test_author_is_set_from_nested_contact_name(self):
         """The nested-only name reaches cp.author, not just _identity_fields."""
         from resume.docx_base import set_document_metadata_on_doc
         from resume.schema import Resume
+
         doc = MagicMock()
         cp = doc.core_properties
         resume = Resume(contact={"name": "Nested Name"})
         set_document_metadata_on_doc(doc, resume, {})
         self.assertEqual(cp.author, "Nested Name")
-
 
 
 @mock_docx_modules
@@ -244,6 +267,7 @@ class TestResumeWriterBaseWrite(unittest.TestCase):
         """Test write raises when python-docx is not installed."""
         mock_safe_import.return_value = None
         from resume.docx_base import create_resume_writer
+
         data = Resume.from_dict({"name": "John"})
         template = {"page": {}}
         writer = create_resume_writer(data, template)
@@ -274,6 +298,7 @@ class TestResumeWriterBaseWrite(unittest.TestCase):
 
         with patch.dict("sys.modules", {"docx": mock_docx}):
             from resume.docx_base import create_resume_writer
+
             data = Resume.from_dict({"name": "John Doe"})
             template = {"sections": [], "page": {"compact": False}}
             writer = create_resume_writer(data, template)
@@ -320,9 +345,7 @@ class TestNonDictContact(unittest.TestCase):
         from resume.schema import Resume
 
         with self.assertLogs(level="WARNING"):
-            resume = Resume.from_dict(
-                {"name": "Ada Example", "contact": "not-a-dict"}
-            )
+            resume = Resume.from_dict({"name": "Ada Example", "contact": "not-a-dict"})
         self.assertEqual(get_contact_field(resume, "name"), "Ada Example")
 
     def test_invalid_contact_still_warns_on_from_dict(self):
@@ -332,8 +355,7 @@ class TestNonDictContact(unittest.TestCase):
         with self.assertLogs(level="WARNING") as captured:
             Resume.from_dict({"contact": "not-a-dict"})
         self.assertTrue(
-            any("contact" in line and "expected dict" in line
-                for line in captured.output),
+            any("contact" in line and "expected dict" in line for line in captured.output),
             captured.output,
         )
 
@@ -438,7 +460,9 @@ class TestWriterRejectsUntypedResume(unittest.TestCase):
         from resume.docx_base import create_resume_writer
 
         with self.assertRaises(TypeError) as ctx:
-            create_resume_writer(cast(Any, None), {"sections": []})  # cast: exercises TypeError guard for non-Resume data
+            create_resume_writer(
+                cast(Any, None), {"sections": []}
+            )  # cast: exercises TypeError guard for non-Resume data
         self._assert_non_dict_guidance(ctx, "NoneType")
 
     def test_rejects_unrelated_type(self):
@@ -462,7 +486,9 @@ class TestWriterRejectsUntypedResume(unittest.TestCase):
         from resume.docx_base import create_resume_writer
 
         with self.assertRaises(TypeError) as ctx:
-            create_resume_writer(cast(Any, None), {"sections": []})  # cast: exercises TypeError guard for non-Resume data
+            create_resume_writer(
+                cast(Any, None), {"sections": []}
+            )  # cast: exercises TypeError guard for non-Resume data
         msg = str(ctx.exception)
         self.assertNotIn("pass Resume.from_dict", msg)
         self.assertNotIn("Resume.from_dict(data) instead", msg)
@@ -496,9 +522,7 @@ class TestWriterRejectsUntypedResume(unittest.TestCase):
         from resume.docx_base import create_resume_writer
 
         data = Resume.from_dict({"name": "Ada Example"})
-        writer = create_resume_writer(
-            data, {"sections": [], "layout": {"type": "sidebar"}}
-        )
+        writer = create_resume_writer(data, {"sections": [], "layout": {"type": "sidebar"}})
         self.assertEqual(writer.__class__.__name__, "SidebarResumeWriter")
         self.assertIs(writer.resume, data)
 

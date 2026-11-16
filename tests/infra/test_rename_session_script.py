@@ -161,6 +161,7 @@ class TestRenameSessionScript(unittest.TestCase):
             # Read what was written to the master side of the pty.
             # Use os.read with a small buffer; the escape is ~14 bytes.
             import select
+
             ready, _, _ = select.select([master_fd], [], [], 1.0)
             if not ready:
                 self.fail("no data written to pty master within 1 second")
@@ -195,12 +196,14 @@ class TestRenameSessionScript(unittest.TestCase):
         would be visible on the master fd within the select timeout.
         """
         import select
+
         master_fd, slave_fd = os.openpty()
         try:
             slave_name = os.ttyname(slave_fd)
             result = _run("some-task", self.tmp, stub_exit=1, fake_tty=slave_name)
-            self.assertNotEqual(result.returncode, 0,
-                                "script must exit non-zero when rename-session fails")
+            self.assertNotEqual(
+                result.returncode, 0, "script must exit non-zero when rename-session fails"
+            )
             # No title must have been written to the pty.
             ready, _, _ = select.select([master_fd], [], [], 0.3)
             if ready:
@@ -216,7 +219,9 @@ class TestRenameSessionScript(unittest.TestCase):
 
     def _assert_invalid(self, name: str) -> None:
         result = _run(name, self.tmp)
-        self.assertEqual(result.returncode, 2, f"expected exit 2 for {name!r}, got {result.returncode}")
+        self.assertEqual(
+            result.returncode, 2, f"expected exit 2 for {name!r}, got {result.returncode}"
+        )
         calls = _parse_log(self.tmp)
         self.assertEqual(calls, [], f"tmux must not be called for invalid name {name!r}")
         # Rejected value must NOT appear in stderr (it may carry escape sequences).
@@ -268,19 +273,21 @@ class TestRenameSessionScript(unittest.TestCase):
         #   NAME="..."; echo "$NAME" | grep -qE '^...$'
         # Pass the name via env to avoid any shell quoting of the newline.
         proc = subprocess.run(  # nosec B603 B607 - fixed argv, isolated bash snippet
-            ["bash", "-c",
-             "echo \"$NAME\" | grep -qE '^[a-z0-9]+(-[a-z0-9]+)*$'"],
+            ["bash", "-c", "echo \"$NAME\" | grep -qE '^[a-z0-9]+(-[a-z0-9]+)*$'"],
             capture_output=True,
             env={**os.environ, "NAME": name},
             timeout=30,
         )
         self.assertEqual(
-            proc.returncode, 0,
+            proc.returncode,
+            0,
             "teeth: old grep form should have passed the newline-embedded name (bypass confirmed)",
         )
         # Confirm the current script rejects it.
         result = _run(name, self.tmp)
-        self.assertEqual(result.returncode, 2, "current script must reject the newline-embedded name")
+        self.assertEqual(
+            result.returncode, 2, "current script must reject the newline-embedded name"
+        )
 
 
 if __name__ == "__main__":

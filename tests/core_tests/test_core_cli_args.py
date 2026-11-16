@@ -6,9 +6,9 @@ import argparse
 import unittest
 
 from core.cli_args import (
+    OutlookAuthConfig,
     _add_argument_with_help,
     add_outlook_auth_args,
-    OutlookAuthConfig,
 )
 
 
@@ -35,7 +35,9 @@ class TestAddArgumentWithHelp(unittest.TestCase):
     def test_passes_through_kwargs(self):
         """Test that additional kwargs are passed through."""
         parser = argparse.ArgumentParser()
-        _add_argument_with_help(parser, "--test", "Help text", default="default_val", required=False)
+        _add_argument_with_help(
+            parser, "--test", "Help text", default="default_val", required=False
+        )
 
         args = parser.parse_args([])
         self.assertEqual(args.test, "default_val")
@@ -63,14 +65,12 @@ class TestAddOutlookAuthArgsHelpers(unittest.TestCase):
     def test_creates_arguments_without_help(self):
         """Test arguments are created even without help text."""
         parser = argparse.ArgumentParser()
-        config = OutlookAuthConfig(
-            client_id_help=None,
-            tenant_help=None,
-            token_help=None
-        )
+        config = OutlookAuthConfig(client_id_help=None, tenant_help=None, token_help=None)
         add_outlook_auth_args(parser, config)
 
-        args = parser.parse_args(["--client-id", "test-id", "--tenant", "common", "--token", "token.json"])
+        args = parser.parse_args(
+            ["--client-id", "test-id", "--tenant", "common", "--token", "token.json"]
+        )
         self.assertEqual(args.client_id, "test-id")
         self.assertEqual(args.tenant, "common")
         self.assertEqual(args.token, "token.json")
@@ -81,7 +81,7 @@ class TestAddOutlookAuthArgsHelpers(unittest.TestCase):
         config = OutlookAuthConfig(
             client_id_help="Client ID help",
             tenant_help="Tenant help",
-            token_help="Token help"  # nosec B106 - test help string
+            token_help="Token help",  # nosec B106 - test help string
         )
         add_outlook_auth_args(parser, config)
 
@@ -115,7 +115,9 @@ class TestAddOutlookAuthArgsHelpers(unittest.TestCase):
         config = OutlookAuthConfig(include_profile=True, profile_help="Profile name")
         add_outlook_auth_args(parser, config)
 
-        args = parser.parse_args(["--profile", "work", "--client-id", "id", "--token", "token.json"])
+        args = parser.parse_args(
+            ["--profile", "work", "--client-id", "id", "--token", "token.json"]
+        )
         self.assertEqual(args.profile, "work")
 
     def test_uses_defaults_when_config_not_provided(self):
@@ -149,15 +151,13 @@ class TestAddOutlookAuthArgsIntegration(unittest.TestCase):
             client_id_help="App client ID",
             tenant_help="Azure tenant",
             tenant_default="common",
-            token_help="Token cache path"  # nosec B106 - test help string
+            token_help="Token cache path",  # nosec B106 - test help string
         )
         add_outlook_auth_args(parser, config)
 
-        args = parser.parse_args([
-            "--profile", "work",
-            "--client-id", "abc123",
-            "--token", "/path/to/token.json"
-        ])
+        args = parser.parse_args(
+            ["--profile", "work", "--client-id", "abc123", "--token", "/path/to/token.json"]
+        )
 
         self.assertEqual(args.profile, "work")
         self.assertEqual(args.client_id, "abc123")
@@ -170,10 +170,7 @@ class TestAddOutlookAuthArgsIntegration(unittest.TestCase):
         config = OutlookAuthConfig(include_profile=False)
         add_outlook_auth_args(parser, config)
 
-        args = parser.parse_args([
-            "--client-id", "test-id",
-            "--token", "token.json"
-        ])
+        args = parser.parse_args(["--client-id", "test-id", "--token", "token.json"])
 
         self.assertEqual(args.client_id, "test-id")
         self.assertEqual(args.token, "token.json")
@@ -181,18 +178,21 @@ class TestAddOutlookAuthArgsIntegration(unittest.TestCase):
     def test_override_all_defaults(self):
         """Test overriding all default values."""
         parser = argparse.ArgumentParser()
-        config = OutlookAuthConfig(
-            include_profile=True,
-            tenant_default="organizations"
-        )
+        config = OutlookAuthConfig(include_profile=True, tenant_default="organizations")
         add_outlook_auth_args(parser, config)
 
-        args = parser.parse_args([
-            "--profile", "personal",
-            "--client-id", "xyz789",
-            "--tenant", "custom-tenant",
-            "--token", "cache.json"
-        ])
+        args = parser.parse_args(
+            [
+                "--profile",
+                "personal",
+                "--client-id",
+                "xyz789",
+                "--tenant",
+                "custom-tenant",
+                "--token",
+                "cache.json",
+            ]
+        )
 
         self.assertEqual(args.profile, "personal")
         self.assertEqual(args.client_id, "xyz789")

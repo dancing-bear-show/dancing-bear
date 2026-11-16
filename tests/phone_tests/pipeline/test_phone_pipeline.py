@@ -6,64 +6,64 @@ from unittest import TestCase
 from unittest.mock import patch
 
 from core.pipeline import ResultEnvelope
-from phone.layout_normalize import NormalizedLayout
 from phone.helpers import LayoutLoadError
+from phone.layout_normalize import NormalizedLayout
 from phone.pipeline_export import (
-    AnalyzeProducer,
     AnalyzeProcessor,
-    AnalyzeResult,
+    AnalyzeProducer,
     AnalyzeRequest,
     AnalyzeRequestConsumer,
-    ChecklistProducer,
+    AnalyzeResult,
     ChecklistProcessor,
-    ChecklistResult,
+    ChecklistProducer,
     ChecklistRequest,
     ChecklistRequestConsumer,
-    ExportDeviceProducer,
+    ChecklistResult,
     ExportDeviceProcessor,
-    ExportDeviceResult,
+    ExportDeviceProducer,
     ExportDeviceRequest,
     ExportDeviceRequestConsumer,
-    ExportProducer,
+    ExportDeviceResult,
     ExportProcessor,
-    ExportResult,
+    ExportProducer,
     ExportRequest,
     ExportRequestConsumer,
-    IconmapProducer,
+    ExportResult,
     IconmapProcessor,
-    IconmapResult,
+    IconmapProducer,
     IconmapRequest,
     IconmapRequestConsumer,
-    PlanProducer,
+    IconmapResult,
     PlanProcessor,
-    PlanResult,
+    PlanProducer,
     PlanRequest,
     PlanRequestConsumer,
-    PruneProducer,
+    PlanResult,
     PruneProcessor,
-    PruneResult,
+    PruneProducer,
     PruneRequest,
     PruneRequestConsumer,
-    UnusedProducer,
+    PruneResult,
     UnusedProcessor,
-    UnusedResult,
+    UnusedProducer,
     UnusedRequest,
     UnusedRequestConsumer,
+    UnusedResult,
 )
 from phone.pipeline_plan import (
-    IdentityVerifyProducer,
     IdentityVerifyProcessor,
-    IdentityVerifyResult,
+    IdentityVerifyProducer,
     IdentityVerifyRequest,
     IdentityVerifyRequestConsumer,
+    IdentityVerifyResult,
     ManifestFromDeviceProcessor,
     ManifestFromDeviceRequest,
     ManifestFromDeviceRequestConsumer,
-    ManifestFromExportProducer,
     ManifestFromExportProcessor,
-    ManifestFromExportResult,
+    ManifestFromExportProducer,
     ManifestFromExportRequest,
     ManifestFromExportRequestConsumer,
+    ManifestFromExportResult,
 )
 
 
@@ -84,6 +84,7 @@ class PhonePipelineTests(TestCase):
             request = ExportRequest(backup=None, out_path=Path("out.yaml"))
             env = ExportProcessor().process(ExportRequestConsumer(request).consume())
         self.assertFalse(env.ok())
+
     def test_export_producer_writes_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "export.yaml"
@@ -112,8 +113,9 @@ class PhonePipelineTests(TestCase):
 
     def test_checklist_processor(self):
         plan_data = {"pins": [], "folders": {"Work": ["app2"]}}
-        with patch("phone.pipeline_export.load_layout", return_value=self.layout), patch(
-            "phone.pipeline_export.read_yaml", return_value=plan_data
+        with (
+            patch("phone.pipeline_export.load_layout", return_value=self.layout),
+            patch("phone.pipeline_export.read_yaml", return_value=plan_data),
         ):
             req = ChecklistRequest(
                 plan_path=Path("plan.yaml"),
@@ -167,6 +169,7 @@ class PhonePipelineTests(TestCase):
             )
             env = UnusedProcessor().process(UnusedRequestConsumer(request).consume())
         self.assertFalse(env.ok())
+
     def test_unused_producer_text_output(self):
         payload = UnusedResult(rows=[("com.test.app", 0.9, "Page 1")], format="text")
         env = ResultEnvelope(status="success", payload=payload)
@@ -264,6 +267,7 @@ class PhonePipelineTests(TestCase):
             )
             env = AnalyzeProcessor().process(AnalyzeRequestConsumer(request).consume())
         self.assertFalse(env.ok())
+
     def test_analyze_producer_text_output(self):
         payload = AnalyzeResult(
             metrics={"dock_count": 4, "pages_count": 2, "totals": {"folders": 5}},
@@ -295,26 +299,34 @@ class PhonePipelineTests(TestCase):
 
     def test_export_device_processor_success(self):
         mock_export = {"dock": ["app1"], "pages": []}
-        with patch("phone.device.find_cfgutil_path", return_value="/usr/bin/cfgutil"), \
-             patch("phone.device.map_udid_to_ecid", return_value="0x123"), \
-             patch("phone.device.export_from_device", return_value=mock_export):
+        with (
+            patch("phone.device.find_cfgutil_path", return_value="/usr/bin/cfgutil"),
+            patch("phone.device.map_udid_to_ecid", return_value="0x123"),
+            patch("phone.device.export_from_device", return_value=mock_export),
+        ):
             request = ExportDeviceRequest(udid="test-udid", ecid=None, out_path=Path("out.yaml"))
             env = ExportDeviceProcessor().process(ExportDeviceRequestConsumer(request).consume())
         self.assertTrue(env.ok())
         self.assertEqual(env.payload.document, mock_export)
 
     def test_export_device_processor_cfgutil_not_found(self):
-        with patch("phone.device.find_cfgutil_path", side_effect=FileNotFoundError("cfgutil not found")):
+        with patch(
+            "phone.device.find_cfgutil_path", side_effect=FileNotFoundError("cfgutil not found")
+        ):
             request = ExportDeviceRequest(udid=None, ecid=None, out_path=Path("out.yaml"))
             env = ExportDeviceProcessor().process(ExportDeviceRequestConsumer(request).consume())
         self.assertFalse(env.ok())
+
     def test_export_device_processor_empty_export(self):
-        with patch("phone.device.find_cfgutil_path", return_value="/usr/bin/cfgutil"), \
-             patch("phone.device.map_udid_to_ecid", return_value=""), \
-             patch("phone.device.export_from_device", return_value={}):
+        with (
+            patch("phone.device.find_cfgutil_path", return_value="/usr/bin/cfgutil"),
+            patch("phone.device.map_udid_to_ecid", return_value=""),
+            patch("phone.device.export_from_device", return_value={}),
+        ):
             request = ExportDeviceRequest(udid=None, ecid=None, out_path=Path("out.yaml"))
             env = ExportDeviceProcessor().process(ExportDeviceRequestConsumer(request).consume())
         self.assertFalse(env.ok())
+
     def test_export_device_producer_writes_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "export.yaml"
@@ -327,19 +339,24 @@ class PhonePipelineTests(TestCase):
             self.assertIn("Wrote layout export", buf.getvalue())
 
     def test_iconmap_processor_success(self):
-        with patch("phone.device.find_cfgutil_path", return_value="/usr/bin/cfgutil"), \
-             patch("phone.device.map_udid_to_ecid", return_value=""), \
-             patch("subprocess.check_output", return_value=b'{"dock": []}'):
+        with (
+            patch("phone.device.find_cfgutil_path", return_value="/usr/bin/cfgutil"),
+            patch("phone.device.map_udid_to_ecid", return_value=""),
+            patch("subprocess.check_output", return_value=b'{"dock": []}'),
+        ):
             request = IconmapRequest(udid=None, ecid=None, format="json", out_path=Path("out.json"))
             env = IconmapProcessor().process(IconmapRequestConsumer(request).consume())
         self.assertTrue(env.ok())
         self.assertEqual(env.payload.data, b'{"dock": []}')
 
     def test_iconmap_processor_cfgutil_not_found(self):
-        with patch("phone.device.find_cfgutil_path", side_effect=FileNotFoundError("cfgutil not found")):
+        with patch(
+            "phone.device.find_cfgutil_path", side_effect=FileNotFoundError("cfgutil not found")
+        ):
             request = IconmapRequest(udid=None, ecid=None, format="json", out_path=Path("out.json"))
             env = IconmapProcessor().process(IconmapRequestConsumer(request).consume())
         self.assertFalse(env.ok())
+
     def test_iconmap_producer_writes_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "iconmap.json"
@@ -361,18 +378,28 @@ class PhonePipelineTests(TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             export_path = Path(tmp) / "export.yaml"
             import yaml
+
             with open(export_path, "w") as f:
                 yaml.safe_dump(export_data, f)
-            request = ManifestFromExportRequest(export_path=export_path, out_path=Path(tmp) / "manifest.yaml")
-            env = ManifestFromExportProcessor().process(ManifestFromExportRequestConsumer(request).consume())
+            request = ManifestFromExportRequest(
+                export_path=export_path, out_path=Path(tmp) / "manifest.yaml"
+            )
+            env = ManifestFromExportProcessor().process(
+                ManifestFromExportRequestConsumer(request).consume()
+            )
         self.assertTrue(env.ok())
         self.assertIn("layout", env.payload.manifest)
         self.assertEqual(env.payload.manifest["layout"]["dock"], ["app1"])
 
     def test_manifest_from_export_processor_file_not_found(self):
-        request = ManifestFromExportRequest(export_path=Path("/nonexistent.yaml"), out_path=Path("out.yaml"))
-        env = ManifestFromExportProcessor().process(ManifestFromExportRequestConsumer(request).consume())
+        request = ManifestFromExportRequest(
+            export_path=Path("/nonexistent.yaml"), out_path=Path("out.yaml")
+        )
+        env = ManifestFromExportProcessor().process(
+            ManifestFromExportRequestConsumer(request).consume()
+        )
         self.assertFalse(env.ok())
+
     def test_manifest_from_export_producer_writes_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "manifest.yaml"
@@ -387,19 +414,32 @@ class PhonePipelineTests(TestCase):
 
     def test_manifest_from_device_processor_success(self):
         mock_export = {"dock": ["app1"], "pages": [{"apps": ["app2"], "folders": []}]}
-        with patch("phone.device.find_cfgutil_path", return_value="/usr/bin/cfgutil"), \
-             patch("phone.device.map_udid_to_ecid", return_value="0x123"), \
-             patch("phone.device.export_from_device", return_value=mock_export):
-            request = ManifestFromDeviceRequest(udid="test-udid", export_out=None, out_path=Path("out.yaml"))
-            env = ManifestFromDeviceProcessor().process(ManifestFromDeviceRequestConsumer(request).consume())
+        with (
+            patch("phone.device.find_cfgutil_path", return_value="/usr/bin/cfgutil"),
+            patch("phone.device.map_udid_to_ecid", return_value="0x123"),
+            patch("phone.device.export_from_device", return_value=mock_export),
+        ):
+            request = ManifestFromDeviceRequest(
+                udid="test-udid", export_out=None, out_path=Path("out.yaml")
+            )
+            env = ManifestFromDeviceProcessor().process(
+                ManifestFromDeviceRequestConsumer(request).consume()
+            )
         self.assertTrue(env.ok())
         self.assertIn("layout", env.payload.manifest)
 
     def test_manifest_from_device_processor_cfgutil_not_found(self):
-        with patch("phone.device.find_cfgutil_path", side_effect=FileNotFoundError("cfgutil not found")):
-            request = ManifestFromDeviceRequest(udid=None, export_out=None, out_path=Path("out.yaml"))
-            env = ManifestFromDeviceProcessor().process(ManifestFromDeviceRequestConsumer(request).consume())
+        with patch(
+            "phone.device.find_cfgutil_path", side_effect=FileNotFoundError("cfgutil not found")
+        ):
+            request = ManifestFromDeviceRequest(
+                udid=None, export_out=None, out_path=Path("out.yaml")
+            )
+            env = ManifestFromDeviceProcessor().process(
+                ManifestFromDeviceRequestConsumer(request).consume()
+            )
         self.assertFalse(env.ok())
+
     # -------------------------------------------------------------------------
     # Identity verify pipeline tests
     # -------------------------------------------------------------------------
@@ -423,14 +463,18 @@ class PhonePipelineTests(TestCase):
                 udid="test-udid",
                 expected_org="TestOrg",
             )
-            env = IdentityVerifyProcessor().process(IdentityVerifyRequestConsumer(request).consume())
+            env = IdentityVerifyProcessor().process(
+                IdentityVerifyRequestConsumer(request).consume()
+            )
         self.assertTrue(env.ok())
         self.assertEqual(env.payload.cert_subject, "CN=TestOrg")
         self.assertTrue(env.payload.org_match)
 
     def test_identity_verify_processor_no_p12(self):
-        with patch("phone.device.read_credentials_ini", return_value=(None, {})), \
-             patch("phone.device.resolve_p12_path", return_value=(None, None)):
+        with (
+            patch("phone.device.read_credentials_ini", return_value=(None, {})),
+            patch("phone.device.resolve_p12_path", return_value=(None, None)),
+        ):
             request = IdentityVerifyRequest(
                 p12_path=None,
                 p12_pass=None,
@@ -440,12 +484,19 @@ class PhonePipelineTests(TestCase):
                 udid=None,
                 expected_org=None,
             )
-            env = IdentityVerifyProcessor().process(IdentityVerifyRequestConsumer(request).consume())
+            env = IdentityVerifyProcessor().process(
+                IdentityVerifyRequestConsumer(request).consume()
+            )
         self.assertFalse(env.ok())
+
     def test_identity_verify_processor_p12_not_found(self):
-        with patch("phone.device.read_credentials_ini", return_value=(None, {})), \
-             patch("phone.device.resolve_p12_path", return_value=("/missing.p12", None)), \
-             patch("phone.device.extract_p12_cert_info", side_effect=FileNotFoundError("/missing.p12")):
+        with (
+            patch("phone.device.read_credentials_ini", return_value=(None, {})),
+            patch("phone.device.resolve_p12_path", return_value=("/missing.p12", None)),
+            patch(
+                "phone.device.extract_p12_cert_info", side_effect=FileNotFoundError("/missing.p12")
+            ),
+        ):
             request = IdentityVerifyRequest(
                 p12_path="/missing.p12",
                 p12_pass=None,
@@ -455,8 +506,11 @@ class PhonePipelineTests(TestCase):
                 udid=None,
                 expected_org=None,
             )
-            env = IdentityVerifyProcessor().process(IdentityVerifyRequestConsumer(request).consume())
+            env = IdentityVerifyProcessor().process(
+                IdentityVerifyRequestConsumer(request).consume()
+            )
         self.assertFalse(env.ok())
+
     def test_identity_verify_producer_output(self):
         payload = IdentityVerifyResult(
             p12_path="/path/to/cert.p12",

@@ -17,9 +17,9 @@ import contextlib
 import os
 import stat
 import unittest
+import unittest.mock as mock
 from collections.abc import Iterator
 from pathlib import Path
-import unittest.mock as mock
 
 from tests.fixtures import TempDirMixin
 from tests.worker_tests.qwen_fixtures import GREET_PATH, QwenHandlerCase, require
@@ -41,7 +41,9 @@ def _no_file_reads() -> Iterator[None]:
     """Fail the test if anything opens a file while the context is active."""
     with contextlib.ExitStack() as stack:
         for target in _READ_ROUTES:
-            stack.enter_context(mock.patch(target, side_effect=AssertionError(f"guard opened a file via {target}")))
+            stack.enter_context(
+                mock.patch(target, side_effect=AssertionError(f"guard opened a file via {target}"))
+            )
         yield
 
 
@@ -127,7 +129,9 @@ class QwenConfinementRejectionTests(QwenConfinementBaseTests):
         # The post-open check applies the same policy to the kernel's path for
         # the descriptor, so it must refuse the real outside file too.
         with self.assertRaises(qwen.QwenGuardError):
-            qwen._read_confined_bytes([(sensitive / "private.txt").resolve()], self.repo_root.resolve())
+            qwen._read_confined_bytes(
+                [(sensitive / "private.txt").resolve()], self.repo_root.resolve()
+            )
 
     def test_allowlist_dir_symlinked_inside_the_repo_is_still_accepted(self) -> None:
         """A symlinked allowlist dir that stays in the checkout is legitimate."""
@@ -196,7 +200,9 @@ class QwenConfinementRejectionTests(QwenConfinementBaseTests):
     def test_first_violation_stops_before_later_paths(self) -> None:
         self._write("src/ok.py")
 
-        with mock.patch("worker.qwen._validate_one_input_file", wraps=qwen._validate_one_input_file) as validate:
+        with mock.patch(
+            "worker.qwen._validate_one_input_file", wraps=qwen._validate_one_input_file
+        ) as validate:
             with self.assertRaises(qwen.QwenGuardError):
                 qwen.resolve_input_files(["../x", "src/ok.py"], self.repo_root)
 
@@ -217,7 +223,9 @@ class QwenConfinementAcceptanceTests(QwenConfinementBaseTests):
         for d in ALLOWLIST_DIRS:
             with self.subTest(directory=d):
                 ok_file = self._write(f"{d}/file.txt", "ok\n")
-                self.assertEqual(qwen.resolve_input_files([f"{d}/file.txt"], self.repo_root), [ok_file.resolve()])
+                self.assertEqual(
+                    qwen.resolve_input_files([f"{d}/file.txt"], self.repo_root), [ok_file.resolve()]
+                )
 
 
 _OUTSIDE_CONTENT = "CONTENT-FROM-OUTSIDE-THE-REPO\n"
@@ -251,7 +259,10 @@ class QwenConfinementDescriptorTests(QwenConfinementBaseTests):
     def test_approved_file_reads_through_its_descriptor(self) -> None:
         _, resolved = self._approve("src/ok.py")
 
-        self.assertEqual(qwen._read_confined_bytes([resolved], self.repo_root.resolve()), {str(resolved): b"legitimate\n"})
+        self.assertEqual(
+            qwen._read_confined_bytes([resolved], self.repo_root.resolve()),
+            {str(resolved): b"legitimate\n"},
+        )
 
     def test_file_swapped_for_a_symlink_after_the_check_is_rejected(self) -> None:
         target, resolved = self._approve("src/ok.py")
@@ -306,7 +317,9 @@ class QwenInputFileBoundTests(QwenHandlerCase):
             qwen._validate_payload(payload)
         self.assertEqual(str(ctx.exception), expected)
 
-        with mock.patch("worker.qwen._resolve_real_path", side_effect=AssertionError("resolved a path")):
+        with mock.patch(
+            "worker.qwen._resolve_real_path", side_effect=AssertionError("resolved a path")
+        ):
             self.assertEqual(self.run_handler({"files": [GREET_PATH] * 10_000}), (False, expected))
         self.assertEqual(self.generate_requests(), [])
 

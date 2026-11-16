@@ -20,8 +20,11 @@ def _extract_keywords(seed: dict[str, Any]) -> list[str]:
     return []
 
 
-def _score_experiences(experiences: list[dict[str, Any]], keywords: list[str]) -> list[dict[str, Any]]:
+def _score_experiences(
+    experiences: list[dict[str, Any]], keywords: list[str]
+) -> list[dict[str, Any]]:
     """Rank experiences by keyword-match count, most relevant first."""
+
     def _score(e: dict[str, Any]) -> int:
         # Bullets are dicts ({"text": ..., "priority": ...}) or bare strings
         # depending on the producer, so they are joined through item_match_text
@@ -50,7 +53,9 @@ def _experience_highlight_lines(e: dict[str, Any]) -> list[str]:
     return lines
 
 
-def _build_highlights(scored_experiences: list[dict[str, Any]], limit: int = 8, top_n: int = 5) -> list[str]:
+def _build_highlights(
+    scored_experiences: list[dict[str, Any]], limit: int = 8, top_n: int = 5
+) -> list[str]:
     """Assemble top experience highlights up to limit, from the top_n ranked experiences."""
     highlights: list[str] = []
     for e in scored_experiences[:top_n]:
@@ -63,7 +68,9 @@ def _build_highlights(scored_experiences: list[dict[str, Any]], limit: int = 8, 
 def _prioritize_skills(skills: list[str], keywords: list[str], limit: int = 10) -> list[str]:
     """Order skills with keyword matches first, then truncate to limit."""
     keyset = {k.lower() for k in keywords}
-    prioritized = [s for s in skills if s.lower() in keyset] + [s for s in skills if s.lower() not in keyset]
+    prioritized = [s for s in skills if s.lower() in keyset] + [
+        s for s in skills if s.lower() not in keyset
+    ]
     return prioritized[:limit]
 
 

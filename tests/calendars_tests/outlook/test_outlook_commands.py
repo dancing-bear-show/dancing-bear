@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import argparse
 import unittest
-from unittest.mock import MagicMock, patch
 from io import StringIO
+from unittest.mock import MagicMock, patch
 
 
 class TestRunOutlookAddRecurring(unittest.TestCase):
@@ -37,6 +37,7 @@ class TestRunOutlookAddRecurring(unittest.TestCase):
 
     def test_requires_until_or_count(self):
         from calendars.outlook.commands import run_outlook_add_recurring
+
         args = self._make_args(until=None, count=None)
         with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
             result = run_outlook_add_recurring(args)
@@ -45,6 +46,7 @@ class TestRunOutlookAddRecurring(unittest.TestCase):
 
     def test_weekly_requires_byday(self):
         from calendars.outlook.commands import run_outlook_add_recurring
+
         args = self._make_args(repeat="weekly", until="2024-12-31", byday=None)
         with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
             result = run_outlook_add_recurring(args)
@@ -55,6 +57,7 @@ class TestRunOutlookAddRecurring(unittest.TestCase):
     @patch("calendars.outlook.commands.run_pipeline")
     def test_parses_byday_string(self, mock_pipeline, mock_build_svc):
         from calendars.outlook.commands import run_outlook_add_recurring
+
         mock_build_svc.return_value = MagicMock()
         mock_pipeline.return_value = 0
         args = self._make_args(
@@ -72,6 +75,7 @@ class TestRunOutlookAddRecurring(unittest.TestCase):
     @patch("calendars.outlook.commands._build_outlook_service")
     def test_returns_1_when_service_fails(self, mock_build_svc):
         from calendars.outlook.commands import run_outlook_add_recurring
+
         mock_build_svc.return_value = None
         args = self._make_args(repeat="daily", until="2024-12-31")
         result = run_outlook_add_recurring(args)
@@ -97,6 +101,7 @@ class TestRunOutlookRemindersSet(unittest.TestCase):
     @patch("calendars.outlook.commands._build_outlook_service")
     def test_requires_minutes_unless_off(self, mock_build_svc):
         from calendars.outlook.commands import run_outlook_reminders_set
+
         mock_build_svc.return_value = MagicMock()
         args = self._make_args(off=False, minutes=None)
         with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
@@ -108,6 +113,7 @@ class TestRunOutlookRemindersSet(unittest.TestCase):
     @patch("calendars.outlook.commands.run_pipeline")
     def test_off_flag_does_not_require_minutes(self, mock_pipeline, mock_build_svc):
         from calendars.outlook.commands import run_outlook_reminders_set
+
         mock_build_svc.return_value = MagicMock()
         mock_pipeline.return_value = 0
         args = self._make_args(off=True, minutes=None)
@@ -133,6 +139,7 @@ class TestRunOutlookRemindersSet(unittest.TestCase):
         hand-built Namespace, which is what this test does.
         """
         from calendars.outlook.commands import run_outlook_reminders_set
+
         mock_build_svc.return_value = MagicMock()
         mock_pipeline.return_value = 0
         result = run_outlook_reminders_set(self._make_args(off=False, minutes="15"))
@@ -147,6 +154,7 @@ class TestRunOutlookRemindersSet(unittest.TestCase):
     def test_zero_minutes_is_valid_not_missing(self, mock_pipeline, mock_build_svc):
         """0 is falsy but a legitimate value — it must not trip the guard."""
         from calendars.outlook.commands import run_outlook_reminders_set
+
         mock_build_svc.return_value = MagicMock()
         mock_pipeline.return_value = 0
         result = run_outlook_reminders_set(self._make_args(off=False, minutes=0))
@@ -163,6 +171,7 @@ class TestRunOutlookRemindersSet(unittest.TestCase):
         int(None) was unreachable only because they happened to agree.
         """
         from calendars.outlook.commands import run_outlook_reminders_set
+
         mock_build_svc.return_value = MagicMock()
         mock_pipeline.return_value = 0
         result = run_outlook_reminders_set(self._make_args(off=True, minutes="15"))
@@ -178,6 +187,7 @@ class TestBuildOutlookService(unittest.TestCase):
     @patch("calendars.outlook.commands.build_outlook_service_from_args")
     def test_returns_none_on_exception(self, mock_build):
         from calendars.outlook.commands import _build_outlook_service
+
         mock_build.side_effect = Exception("Auth failed")
         args = argparse.Namespace(profile=None)
         with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
@@ -188,6 +198,7 @@ class TestBuildOutlookService(unittest.TestCase):
     @patch("calendars.outlook.commands.build_outlook_service_from_args")
     def test_returns_service_on_success(self, mock_build):
         from calendars.outlook.commands import _build_outlook_service
+
         mock_svc = MagicMock()
         mock_build.return_value = mock_svc
         args = argparse.Namespace(profile=None)
@@ -211,6 +222,7 @@ class TestRunOutlookMailList(unittest.TestCase):
     @patch("calendars.outlook.commands._build_outlook_service")
     def test_returns_1_when_service_fails(self, mock_build_svc):
         from calendars.outlook.commands import run_outlook_mail_list
+
         mock_build_svc.return_value = None
         args = self._make_args()
         result = run_outlook_mail_list(args)
@@ -220,6 +232,7 @@ class TestRunOutlookMailList(unittest.TestCase):
     @patch("calendars.outlook.commands.run_pipeline")
     def test_creates_request_with_args(self, mock_pipeline, mock_build_svc):
         from calendars.outlook.commands import run_outlook_mail_list
+
         mock_build_svc.return_value = MagicMock()
         mock_pipeline.return_value = 0
         args = self._make_args(folder="sent", top=10, pages=2)
@@ -255,6 +268,7 @@ class TestRunOutlookAdd(unittest.TestCase):
     @patch("calendars.outlook.commands.run_pipeline")
     def test_creates_event_request(self, mock_pipeline, mock_build_svc):
         from calendars.outlook.commands import run_outlook_add
+
         mock_build_svc.return_value = MagicMock()
         mock_pipeline.return_value = 0
         args = self._make_args(
@@ -291,6 +305,7 @@ class TestRunOutlookDedup(unittest.TestCase):
     @patch("calendars.outlook.commands.run_pipeline")
     def test_passes_dedup_flags(self, mock_pipeline, mock_build_svc):
         from calendars.outlook.commands import run_outlook_dedup
+
         mock_build_svc.return_value = MagicMock()
         mock_pipeline.return_value = 0
         args = self._make_args(
@@ -324,6 +339,7 @@ class TestRunOutlookLocationsEnrich(unittest.TestCase):
     @patch("calendars.outlook.commands.run_pipeline")
     def test_creates_enrich_request(self, mock_pipeline, mock_build_svc):
         from calendars.outlook.commands import run_outlook_locations_enrich
+
         mock_build_svc.return_value = MagicMock()
         mock_pipeline.return_value = 0
         args = self._make_args(
@@ -356,6 +372,7 @@ class TestRunOutlookCalendarShare(unittest.TestCase):
     @patch("calendars.outlook.commands._build_outlook_service")
     def test_returns_1_when_service_fails(self, mock_build_svc):
         from calendars.outlook.commands import run_outlook_calendar_share
+
         mock_build_svc.return_value = None
         args = self._make_args()
         result = run_outlook_calendar_share(args)
@@ -365,6 +382,7 @@ class TestRunOutlookCalendarShare(unittest.TestCase):
     @patch("calendars.outlook.commands.run_pipeline")
     def test_creates_share_request(self, mock_pipeline, mock_build_svc):
         from calendars.outlook.commands import run_outlook_calendar_share
+
         mock_build_svc.return_value = MagicMock()
         mock_pipeline.return_value = 0
         args = self._make_args(
@@ -400,6 +418,7 @@ class TestRunOutlookScheduleImport(unittest.TestCase):
     @patch("calendars.outlook.commands._build_outlook_service")
     def test_returns_1_when_service_fails(self, mock_build_svc):
         from calendars.outlook.commands import run_outlook_schedule_import
+
         mock_build_svc.return_value = None
         args = self._make_args()
         result = run_outlook_schedule_import(args)
@@ -409,6 +428,7 @@ class TestRunOutlookScheduleImport(unittest.TestCase):
     @patch("calendars.outlook.commands.run_pipeline")
     def test_creates_import_request(self, mock_pipeline, mock_build_svc):
         from calendars.outlook.commands import run_outlook_schedule_import
+
         mock_build_svc.return_value = MagicMock()
         mock_pipeline.return_value = 0
         args = self._make_args(
@@ -444,6 +464,7 @@ class TestRunOutlookAddFromConfig(unittest.TestCase):
     @patch("calendars.outlook.commands._build_outlook_service")
     def test_returns_1_when_service_fails(self, mock_build_svc):
         from calendars.outlook.commands import run_outlook_add_from_config
+
         mock_build_svc.return_value = None
         args = self._make_args()
         result = run_outlook_add_from_config(args)
@@ -452,8 +473,10 @@ class TestRunOutlookAddFromConfig(unittest.TestCase):
     @patch("calendars.outlook.commands._build_outlook_service")
     @patch("calendars.outlook.commands.run_pipeline")
     def test_creates_add_request(self, mock_pipeline, mock_build_svc):
-        from calendars.outlook.commands import run_outlook_add_from_config
         from pathlib import Path
+
+        from calendars.outlook.commands import run_outlook_add_from_config
+
         mock_build_svc.return_value = MagicMock()
         mock_pipeline.return_value = 0
         args = self._make_args(
@@ -484,6 +507,7 @@ class TestRunOutlookVerifyFromConfig(unittest.TestCase):
     @patch("calendars.outlook.commands._build_outlook_service")
     def test_returns_1_when_service_fails(self, mock_build_svc):
         from calendars.outlook.commands import run_outlook_verify_from_config
+
         mock_build_svc.return_value = None
         args = self._make_args()
         result = run_outlook_verify_from_config(args)
@@ -492,8 +516,10 @@ class TestRunOutlookVerifyFromConfig(unittest.TestCase):
     @patch("calendars.outlook.commands._build_outlook_service")
     @patch("calendars.outlook.commands.run_pipeline")
     def test_creates_verify_request(self, mock_pipeline, mock_build_svc):
-        from calendars.outlook.commands import run_outlook_verify_from_config
         from pathlib import Path
+
+        from calendars.outlook.commands import run_outlook_verify_from_config
+
         mock_build_svc.return_value = MagicMock()
         mock_pipeline.return_value = 0
         args = self._make_args(
@@ -523,6 +549,7 @@ class TestRunOutlookUpdateLocations(unittest.TestCase):
     @patch("calendars.outlook.commands._build_outlook_service")
     def test_returns_1_when_service_fails(self, mock_build_svc):
         from calendars.outlook.commands import run_outlook_update_locations
+
         mock_build_svc.return_value = None
         args = self._make_args()
         result = run_outlook_update_locations(args)
@@ -531,8 +558,10 @@ class TestRunOutlookUpdateLocations(unittest.TestCase):
     @patch("calendars.outlook.commands._build_outlook_service")
     @patch("calendars.outlook.commands.run_pipeline")
     def test_creates_locations_request(self, mock_pipeline, mock_build_svc):
-        from calendars.outlook.commands import run_outlook_update_locations
         from pathlib import Path
+
+        from calendars.outlook.commands import run_outlook_update_locations
+
         mock_build_svc.return_value = MagicMock()
         mock_pipeline.return_value = 0
         args = self._make_args(
@@ -565,6 +594,7 @@ class TestRunOutlookApplyLocations(unittest.TestCase):
     @patch("calendars.outlook.commands._build_outlook_service")
     def test_returns_1_when_service_fails(self, mock_build_svc):
         from calendars.outlook.commands import run_outlook_apply_locations
+
         mock_build_svc.return_value = None
         args = self._make_args()
         result = run_outlook_apply_locations(args)
@@ -574,6 +604,7 @@ class TestRunOutlookApplyLocations(unittest.TestCase):
     @patch("calendars.outlook.commands.run_pipeline")
     def test_creates_apply_request_with_all_occurrences(self, mock_pipeline, mock_build_svc):
         from calendars.outlook.commands import run_outlook_apply_locations
+
         mock_build_svc.return_value = MagicMock()
         mock_pipeline.return_value = 0
         args = self._make_args(
@@ -605,6 +636,7 @@ class TestRunOutlookRemindersOff(unittest.TestCase):
     @patch("calendars.outlook.commands._build_outlook_service")
     def test_returns_1_when_service_fails(self, mock_build_svc):
         from calendars.outlook.commands import run_outlook_reminders_off
+
         mock_build_svc.return_value = None
         args = self._make_args()
         result = run_outlook_reminders_off(args)
@@ -614,6 +646,7 @@ class TestRunOutlookRemindersOff(unittest.TestCase):
     @patch("calendars.outlook.commands.run_pipeline")
     def test_creates_reminders_off_request(self, mock_pipeline, mock_build_svc):
         from calendars.outlook.commands import run_outlook_reminders_off
+
         mock_build_svc.return_value = MagicMock()
         mock_pipeline.return_value = 0
         args = self._make_args(
@@ -649,6 +682,7 @@ class TestRunOutlookListOneOffs(unittest.TestCase):
     @patch("calendars.outlook.commands._build_outlook_service")
     def test_returns_1_when_service_fails(self, mock_build_svc):
         from calendars.outlook.commands import run_outlook_list_one_offs
+
         mock_build_svc.return_value = None
         args = self._make_args()
         result = run_outlook_list_one_offs(args)
@@ -658,6 +692,7 @@ class TestRunOutlookListOneOffs(unittest.TestCase):
     @patch("calendars.outlook.commands.run_pipeline")
     def test_creates_list_request(self, mock_pipeline, mock_build_svc):
         from calendars.outlook.commands import run_outlook_list_one_offs
+
         mock_build_svc.return_value = MagicMock()
         mock_pipeline.return_value = 0
         args = self._make_args(
@@ -673,8 +708,10 @@ class TestRunOutlookListOneOffs(unittest.TestCase):
     @patch("calendars.outlook.commands._build_outlook_service")
     @patch("calendars.outlook.commands.run_pipeline")
     def test_creates_request_with_out_path(self, mock_pipeline, mock_build_svc):
-        from calendars.outlook.commands import run_outlook_list_one_offs
         from pathlib import Path
+
+        from calendars.outlook.commands import run_outlook_list_one_offs
+
         mock_build_svc.return_value = MagicMock()
         mock_pipeline.return_value = 0
         args = self._make_args(out="events.yaml")
@@ -702,6 +739,7 @@ class TestRunOutlookSettingsApply(unittest.TestCase):
     @patch("calendars.outlook.commands._build_outlook_service")
     def test_returns_1_when_service_fails(self, mock_build_svc):
         from calendars.outlook.commands import run_outlook_settings_apply
+
         mock_build_svc.return_value = None
         args = self._make_args()
         result = run_outlook_settings_apply(args)
@@ -710,8 +748,10 @@ class TestRunOutlookSettingsApply(unittest.TestCase):
     @patch("calendars.outlook.commands._build_outlook_service")
     @patch("calendars.outlook.commands.run_pipeline")
     def test_creates_settings_request(self, mock_pipeline, mock_build_svc):
-        from calendars.outlook.commands import run_outlook_settings_apply
         from pathlib import Path
+
+        from calendars.outlook.commands import run_outlook_settings_apply
+
         mock_build_svc.return_value = MagicMock()
         mock_pipeline.return_value = 0
         args = self._make_args(
@@ -746,6 +786,7 @@ class TestRunOutlookRemoveFromConfig(unittest.TestCase):
     @patch("calendars.outlook.commands._build_outlook_service")
     def test_returns_1_when_service_fails(self, mock_build_svc):
         from calendars.outlook.commands import run_outlook_remove_from_config
+
         mock_build_svc.return_value = None
         args = self._make_args()
         result = run_outlook_remove_from_config(args)
@@ -754,8 +795,10 @@ class TestRunOutlookRemoveFromConfig(unittest.TestCase):
     @patch("calendars.outlook.commands._build_outlook_service")
     @patch("calendars.outlook.commands.run_pipeline")
     def test_creates_remove_request(self, mock_pipeline, mock_build_svc):
-        from calendars.outlook.commands import run_outlook_remove_from_config
         from pathlib import Path
+
+        from calendars.outlook.commands import run_outlook_remove_from_config
+
         mock_build_svc.return_value = MagicMock()
         mock_pipeline.return_value = 0
         args = self._make_args(
@@ -792,6 +835,7 @@ class TestRunOutlookScanClasses(unittest.TestCase):
     @patch("calendars.outlook.commands._build_outlook_service")
     def test_returns_1_when_service_fails(self, mock_build_svc):
         from calendars.outlook.commands import run_outlook_scan_classes
+
         mock_build_svc.return_value = None
         args = self._make_args()
         result = run_outlook_scan_classes(args)
@@ -800,6 +844,7 @@ class TestRunOutlookScanClasses(unittest.TestCase):
     @patch("calendars.outlook.commands._build_outlook_service")
     def test_returns_0_when_no_messages_found(self, mock_build_svc):
         from calendars.outlook.commands import run_outlook_scan_classes
+
         mock_svc = MagicMock()
         mock_svc.search_inbox_messages.return_value = []
         mock_build_svc.return_value = mock_svc
@@ -812,6 +857,7 @@ class TestRunOutlookScanClasses(unittest.TestCase):
     @patch("calendars.outlook.commands._build_outlook_service")
     def test_returns_0_when_no_schedule_lines_found(self, mock_build_svc):
         from calendars.outlook.commands import run_outlook_scan_classes
+
         mock_svc = MagicMock()
         mock_svc.search_inbox_messages.return_value = ["msg1"]
         mock_svc.get_message.return_value = {

@@ -1,4 +1,5 @@
 """Env command group registration for Mail Assistant CLI."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -27,18 +28,37 @@ def register_env_commands(app: CLIApp) -> object:
 
     # (subcommand, help, handler, args)
     specs: list[tuple[str, str, Any, list[ArgSpec]]] = [
-        ("setup", "Prepare venv and persisted credentials (INI)", run_env_setup, [
-            (("--venv-dir",), {"default": ".venv", "help": "Virtualenv directory"}),
-            (("--no-venv",), {"action": "store_true", "help": "Skip creating virtualenv"}),
-            (("--skip-install",), {"action": "store_true", "help": "Skip pip install"}),
-            (("--credentials",), {"help": f"Path to Gmail credentials.json (default: {_default_gmail_credentials})"}),
-            (("--token",), {"help": f"Path to Gmail token.json (default: {_default_gmail_token})"}),  # nosec B105 - argparse help text, not a credential
-            (("--outlook-client-id",), {"help": HELP_CLIENT_ID}),
-            (("--tenant",), {"help": f"{HELP_TENANT} (e.g., consumers)"}),
-            (("--outlook-token",), {"help": "Path to Outlook token cache JSON"}),
-            (("--copy-gmail-example",), {"dest": "copy_gmail_example", "action": "store_true", "default": True}),
-            (("--no-copy-gmail-example",), {"dest": "copy_gmail_example", "action": "store_false"}),
-        ]),
+        (
+            "setup",
+            "Prepare venv and persisted credentials (INI)",
+            run_env_setup,
+            [
+                (("--venv-dir",), {"default": ".venv", "help": "Virtualenv directory"}),
+                (("--no-venv",), {"action": "store_true", "help": "Skip creating virtualenv"}),
+                (("--skip-install",), {"action": "store_true", "help": "Skip pip install"}),
+                (
+                    ("--credentials",),
+                    {
+                        "help": f"Path to Gmail credentials.json (default: {_default_gmail_credentials})"
+                    },
+                ),
+                (
+                    ("--token",),
+                    {"help": f"Path to Gmail token.json (default: {_default_gmail_token})"},
+                ),  # nosec B105 - argparse help text, not a credential
+                (("--outlook-client-id",), {"help": HELP_CLIENT_ID}),
+                (("--tenant",), {"help": f"{HELP_TENANT} (e.g., consumers)"}),
+                (("--outlook-token",), {"help": "Path to Outlook token cache JSON"}),
+                (
+                    ("--copy-gmail-example",),
+                    {"dest": "copy_gmail_example", "action": "store_true", "default": True},
+                ),
+                (
+                    ("--no-copy-gmail-example",),
+                    {"dest": "copy_gmail_example", "action": "store_false"},
+                ),
+            ],
+        ),
     ]
 
     env_group = app.group("env", help="Environment setup and verification")

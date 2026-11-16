@@ -3,6 +3,7 @@
 The plan (dry-run preview) processor is in processors_rules_plan.py; the
 reconcile index builders it shares with sync are in processors_rules_index.py.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -11,28 +12,27 @@ from typing import Any
 from core.pipeline import Processor, ResultEnvelope
 
 from .consumers import (
-    OutlookRulesSyncPayload,
     OutlookRulesDeletePayload,
     OutlookRulesSweepPayload,
+    OutlookRulesSyncPayload,
 )
 from .processors_rules_helpers import (
     RuleContext,
+    _build_rule_action,
+    _build_rule_criteria,
+    _build_search_query,
+    _create_rule_key,
     _criteria_key,
     _fetch_rules_with_provenance,
-    _build_rule_criteria,
-    _build_rule_action,
-    _create_rule_key,
-    _build_search_query,
-    _resolve_destination_folder,
     _has_explicit_destination,
+    _resolve_destination_folder,
 )
 from .processors_rules_index import (
-    _index_live_rules,
+    _all_unmappable_ids,
     _build_reconcile_index,
     _build_unmappable_criteria_index,
-    _all_unmappable_ids,
+    _index_live_rules,
 )
-
 
 #: Sentinel distinguishing "this spec is not protected, carry on" from a genuine
 #: protected-id of ``None`` ("protected, but the live rule's id was not found").
@@ -43,9 +43,11 @@ _NOT_PROTECTED = object()
 
 # Result dataclasses
 
+
 @dataclass
 class OutlookRulesSyncResult:
     """Result of rules sync."""
+
     created: int = 0
     deleted: int = 0
     reconciled: int = 0
@@ -63,23 +65,29 @@ class OutlookRulesSyncResult:
 @dataclass
 class OutlookRulesDeleteResult:
     """Result of rules delete."""
+
     rule_id: str = ""
 
 
 @dataclass
 class OutlookRulesSweepResult:
     """Result of rules sweep."""
+
     moved: int = 0
 
 
 # Processor classes
 
-class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelope[OutlookRulesSyncResult]]):
+
+class OutlookRulesSyncProcessor(
+    Processor[OutlookRulesSyncPayload, ResultEnvelope[OutlookRulesSyncResult]]
+):
     """Sync Outlook inbox rules from YAML config."""
 
     def process(self, payload: OutlookRulesSyncPayload) -> ResultEnvelope[OutlookRulesSyncResult]:
         try:
             from core.yamlio import load_config
+
             from ..dsl import normalize_filters_for_outlook
 
             client = payload.client
@@ -93,7 +101,11 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
                 return ResultEnvelope(
                     status="error",
                     payload=None,
-                    diagnostics={"error": f"Auth failed: {e}", "code": 2, "hint": "Run outlook auth.ensure"},
+                    diagnostics={
+                        "error": f"Auth failed: {e}",
+                        "code": 2,
+                        "hint": "Run outlook auth.ensure",
+                    },
                 )
 
             # Destructive modes must not run on data we did not actually read.
@@ -156,13 +168,15 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
                 # otherwise mutate the mailbox.
                 dry_run=payload.dry_run,
             )
-            created, reconciled, failed, desired_keys, reconciled_rule_ids = self._create_desired_rules(
-                desired, existing, ctx, payload.dry_run, payload.reconcile
+            created, reconciled, failed, desired_keys, reconciled_rule_ids = (
+                self._create_desired_rules(
+                    desired, existing, ctx, payload.dry_run, payload.reconcile
+                )
             )
             deleted = (
-                self._delete_missing_rules(
-                    existing, desired_keys, payload, reconciled_rule_ids
-                ) if payload.delete_missing else 0
+                self._delete_missing_rules(existing, desired_keys, payload, reconciled_rule_ids)
+                if payload.delete_missing
+                else 0
             )
 
             result = OutlookRulesSyncResult(
@@ -520,7 +534,12 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
 
         for spec in desired:
             result = self._create_rule_if_new(
-                spec, existing, ctx, dry_run, reconcile_index, unmappable_index,
+                spec,
+                existing,
+                ctx,
+                dry_run,
+                reconcile_index,
+                unmappable_index,
             )
             if result is None:
                 continue
@@ -607,19 +626,25 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
         """
         skip_ids = reconciled_rule_ids or set()
         to_delete = [
-            rule for k, rule in existing.items()
+            rule
+            for k, rule in existing.items()
             if k not in desired_keys and rule.get("id") not in skip_ids
         ]
         return sum(
-            1 for rule in to_delete
+            1
+            for rule in to_delete
             if self._delete_one_rule(payload.client, rule.get("id"), payload.dry_run)
         )
 
 
-class OutlookRulesDeleteProcessor(Processor[OutlookRulesDeletePayload, ResultEnvelope[OutlookRulesDeleteResult]]):
+class OutlookRulesDeleteProcessor(
+    Processor[OutlookRulesDeletePayload, ResultEnvelope[OutlookRulesDeleteResult]]
+):
     """Delete an Outlook inbox rule."""
 
-    def process(self, payload: OutlookRulesDeletePayload) -> ResultEnvelope[OutlookRulesDeleteResult]:
+    def process(
+        self, payload: OutlookRulesDeletePayload
+    ) -> ResultEnvelope[OutlookRulesDeleteResult]:
         try:
             payload.client.delete_filter(payload.rule_id)
             return ResultEnvelope(
@@ -634,12 +659,15 @@ class OutlookRulesDeleteProcessor(Processor[OutlookRulesDeletePayload, ResultEnv
             )
 
 
-class OutlookRulesSweepProcessor(Processor[OutlookRulesSweepPayload, ResultEnvelope[OutlookRulesSweepResult]]):
+class OutlookRulesSweepProcessor(
+    Processor[OutlookRulesSweepPayload, ResultEnvelope[OutlookRulesSweepResult]]
+):
     """Sweep inbox messages based on rules."""
 
     def process(self, payload: OutlookRulesSweepPayload) -> ResultEnvelope[OutlookRulesSweepResult]:
         try:
             from core.yamlio import load_config
+
             from ..dsl import normalize_filters_for_outlook
 
             client = payload.client
@@ -721,6 +749,7 @@ class OutlookRulesSweepProcessor(Processor[OutlookRulesSweepPayload, ResultEnvel
         quoting and percent-encoding.
         """
         from core.outlook.models import SearchParams
+
         return client.search_inbox_messages(
             SearchParams(
                 search_query=query,

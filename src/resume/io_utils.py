@@ -8,7 +8,8 @@ from typing import Any
 
 from core.cli_errors import CLIError
 from core.fileutil import atomic_write_json
-from core.yamlio import dump_config as _dump_yaml, load_config as _load_yaml
+from core.yamlio import dump_config as _dump_yaml
+from core.yamlio import load_config as _load_yaml
 
 
 def safe_import(name: str) -> Any | None:
@@ -31,9 +32,7 @@ def read_text_any(path: str | os.PathLike[str]) -> str:
     if suffix == ".docx":
         docx = safe_import("docx")
         if not docx:
-            raise CLIError(
-                "Reading .docx requires python-docx. Install it or provide .txt/.md."
-            )
+            raise CLIError("Reading .docx requires python-docx. Install it or provide .txt/.md.")
         from docx import Document
 
         doc = Document(str(p))
@@ -42,9 +41,7 @@ def read_text_any(path: str | os.PathLike[str]) -> str:
         # Optional dependency
         pdfminer = safe_import("pdfminer.high_level")
         if not pdfminer:
-            raise CLIError(
-                "Reading .pdf requires pdfminer.six. Install it or provide .txt/.md."
-            )
+            raise CLIError("Reading .pdf requires pdfminer.six. Install it or provide .txt/.md.")
         from pdfminer.high_level import extract_text
 
         return extract_text(str(p))

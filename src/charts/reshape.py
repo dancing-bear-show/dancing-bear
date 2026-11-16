@@ -111,9 +111,7 @@ def _apply_optional_fields(raw: dict[str, object], kwargs: dict[str, object]) ->
         _validate_string_list_field(raw, series_field, kwargs)
 
 
-def _validate_bool_field(
-    raw: dict[str, object], key: str, kwargs: dict[str, object]
-) -> None:
+def _validate_bool_field(raw: dict[str, object], key: str, kwargs: dict[str, object]) -> None:
     if key not in raw:
         return
     v = raw[key]
@@ -122,18 +120,14 @@ def _validate_bool_field(
     kwargs[key] = v
 
 
-def _apply_bar_fields(
-    raw: dict[str, object], kwargs: dict[str, object], kind: ChartKind
-) -> None:
+def _apply_bar_fields(raw: dict[str, object], kwargs: dict[str, object], kind: ChartKind) -> None:
     if kind != ChartKind.bar:
         return
     _validate_bool_field(raw, "stacked", kwargs)
     if "orientation" in raw:
         v = raw["orientation"]
         if v not in ("vertical", "horizontal"):
-            raise ValueError(
-                f"'orientation' must be 'vertical' or 'horizontal', got {v!r}"
-            )
+            raise ValueError(f"'orientation' must be 'vertical' or 'horizontal', got {v!r}")
         kwargs["orientation"] = v
     if "bar_width" in raw:
         v = raw["bar_width"]
@@ -142,9 +136,7 @@ def _apply_bar_fields(
         kwargs["bar_width"] = v
 
 
-def _apply_area_fields(
-    raw: dict[str, object], kwargs: dict[str, object], kind: ChartKind
-) -> None:
+def _apply_area_fields(raw: dict[str, object], kwargs: dict[str, object], kind: ChartKind) -> None:
     if kind != ChartKind.area:
         return
     _validate_bool_field(raw, "stacked", kwargs)
@@ -163,17 +155,11 @@ def json_to_spec_list(raw: list[dict[str, object]]) -> list[ChartSpec]:
 def _validate_series_rows(data: list[object], series_idx: int, x_field: str) -> None:
     for row_idx, row in enumerate(data):
         if not isinstance(row, dict):
-            raise ValueError(
-                f"series[{series_idx}].data[{row_idx}]: row must be a dict"
-            )
+            raise ValueError(f"series[{series_idx}].data[{row_idx}]: row must be a dict")
         if x_field not in row:
-            raise ValueError(
-                f"series[{series_idx}].data[{row_idx}]: missing {x_field!r} key"
-            )
+            raise ValueError(f"series[{series_idx}].data[{row_idx}]: missing {x_field!r} key")
         if "value" not in row:
-            raise ValueError(
-                f"series[{series_idx}].data[{row_idx}]: missing 'value' key"
-            )
+            raise ValueError(f"series[{series_idx}].data[{row_idx}]: missing 'value' key")
         val = row["value"]
         if not isinstance(val, (int, float)):
             raise ValueError(
@@ -182,15 +168,11 @@ def _validate_series_rows(data: list[object], series_idx: int, x_field: str) -> 
             )
 
 
-def _coerce_series(
-    raw_series: list[dict[str, object]], x_field: str
-) -> list[SeriesSpec]:
+def _coerce_series(raw_series: list[dict[str, object]], x_field: str) -> list[SeriesSpec]:
     result: list[SeriesSpec] = []
     for series_idx, raw_s in enumerate(raw_series):
         if not isinstance(raw_s, dict):
-            raise ValueError(
-                f"series[{series_idx}]: must be a mapping, got {type(raw_s).__name__}"
-            )
+            raise ValueError(f"series[{series_idx}]: must be a mapping, got {type(raw_s).__name__}")
         name = raw_s.get("name")
         if not name:
             raise ValueError(f"series[{series_idx}]: missing required 'name' field")
@@ -230,7 +212,5 @@ def _detect_kind(raw: dict[str, object]) -> ChartKind:
         return ChartKind.line
     kind = _KIND_MAP.get(str(raw_type))
     if kind is None:
-        raise ValueError(
-            f"Unknown chart kind {raw_type!r}. Valid kinds: {list(_KIND_MAP.keys())}"
-        )
+        raise ValueError(f"Unknown chart kind {raw_type!r}. Valid kinds: {list(_KIND_MAP.keys())}")
     return kind

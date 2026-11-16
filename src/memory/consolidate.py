@@ -206,9 +206,7 @@ def plan_consolidation(
     if canonical is None:  # unreachable: target_group is non-empty
         raise RuntimeError("no canonical store elected for a non-empty group")
 
-    identical, to_copy, conflicts, to_archive = _classify_store_files(
-        target_group, canonical
-    )
+    identical, to_copy, conflicts, to_archive = _classify_store_files(target_group, canonical)
 
     return ConsolidationPlan(
         canonical=canonical,
@@ -221,9 +219,7 @@ def plan_consolidation(
     )
 
 
-def _check_no_concurrent_mutation(
-    canonical: MemoryStore, scanned_at: datetime
-) -> list[str]:
+def _check_no_concurrent_mutation(canonical: MemoryStore, scanned_at: datetime) -> list[str]:
     """Re-stat every canonical file; raise if any mtime moved since scanned_at.
 
     Returns a list of warnings for files written within the recent-write
@@ -256,19 +252,14 @@ def _superseded_name(loser: Path, winner: Path) -> str:
     identifying which store the loser came from, so multiple losers with the
     same filename from different stores don't collide in the archive dir.
     """
-    origin_slug = (
-        loser.parent.parent.name if loser.parent.name == "memory" else loser.parent.name
-    )
+    origin_slug = loser.parent.parent.name if loser.parent.name == "memory" else loser.parent.name
     return f"{winner.stem}.superseded-{origin_slug}.md"
 
 
 def _preview_plan(plan: ConsolidationPlan) -> ConsolidationResult:
     """Build the dry-run preview result without touching the filesystem."""
     superseded = (
-        tuple(
-            _superseded_name(Path(loser), Path(winner))
-            for loser, winner in plan.conflicts
-        )
+        tuple(_superseded_name(Path(loser), Path(winner)) for loser, winner in plan.conflicts)
         if plan.on_divergence == "keep-both"
         else ()
     )
@@ -343,9 +334,7 @@ def _decide_conflict(
     if plan.on_divergence == "keep-both":
         return _BOTH
     if plan.on_divergence == "prompt":
-        ch = _prompt_conflict_choice(
-            loser, winner, stdin if stdin is not None else sys.stdin
-        )
+        ch = _prompt_conflict_choice(loser, winner, stdin if stdin is not None else sys.stdin)
         if ch == "q":
             raise ConsolidationAborted("aborted at conflict prompt — no changes were applied")
         return _BOTH if ch == "b" else _KEEP
@@ -450,9 +439,7 @@ def apply_plan(
     if dry_run:
         return _preview_plan(plan)
 
-    archive_root = (
-        Path(archive_dest) if archive_dest is not None else default_archive_root()
-    )
+    archive_root = Path(archive_dest) if archive_dest is not None else default_archive_root()
     timestamp = plan.scanned_at.strftime("%Y%m%dT%H%M%SZ")
     slug = plan.canonical.project_slug or "unknown"
     archive_dir = archive_root / f"{slug}-{timestamp}"

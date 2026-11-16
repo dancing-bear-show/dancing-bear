@@ -1,13 +1,14 @@
 """Consumers for labels pipelines."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
 
 from core.pipeline import Consumer
+from core.yamlio import load_config
 
 from ..context import MailContext
-from core.yamlio import load_config
 
 
 @dataclass
@@ -75,7 +76,9 @@ class LabelsExportConsumer(Consumer[LabelsExportPayload]):
 def _load_labels_payload(context: MailContext, *, error_hint: str, allow_missing: bool) -> dict:
     args = context.args
     cfg = load_config(getattr(args, "config", None))
-    desired_labels = _load_desired(cfg, key="labels", error_hint=error_hint, allow_missing=allow_missing)
+    desired_labels = _load_desired(
+        cfg, key="labels", error_hint=error_hint, allow_missing=allow_missing
+    )
     desired_redirects = _load_desired(cfg, key="redirects", error_hint="", allow_missing=True)
 
     client = context.get_gmail_client()

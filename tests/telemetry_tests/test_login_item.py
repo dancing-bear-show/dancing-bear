@@ -1,4 +1,5 @@
 """Tests for telemetry/login_item.py — LaunchAgent management helpers."""
+
 from __future__ import annotations
 
 import plistlib
@@ -143,8 +144,10 @@ class TestEnable(unittest.TestCase):
             fake_plist = Path(tmpdir) / _PLIST_NAME
             fake_bundle = Path("/Applications/ClaudeStats.app")
 
-            with patch("telemetry.login_item.bundle_path", return_value=fake_bundle), \
-                 patch("telemetry.login_item.plist_path", return_value=fake_plist):
+            with (
+                patch("telemetry.login_item.bundle_path", return_value=fake_bundle),
+                patch("telemetry.login_item.plist_path", return_value=fake_plist),
+            ):
                 enable()
 
             self.assertTrue(fake_plist.exists())
@@ -156,8 +159,10 @@ class TestEnable(unittest.TestCase):
             fake_plist = Path(tmpdir) / _PLIST_NAME
             fake_bundle = Path("/Applications/ClaudeStats.app")
 
-            with patch("telemetry.login_item.bundle_path", return_value=fake_bundle), \
-                 patch("telemetry.login_item.plist_path", return_value=fake_plist):
+            with (
+                patch("telemetry.login_item.bundle_path", return_value=fake_bundle),
+                patch("telemetry.login_item.plist_path", return_value=fake_plist),
+            ):
                 enable()
 
             tmp_files = list(Path(tmpdir).glob("*.tmp"))
@@ -190,9 +195,11 @@ class TestEnableWriteErrorCleanup(unittest.TestCase):
             target = Path(tmpdir) / _PLIST_NAME
             fake_bundle = Path("/Applications/ClaudeStats.app")
 
-            with patch("telemetry.login_item.bundle_path", return_value=fake_bundle), \
-                 patch("telemetry.login_item.plist_path", return_value=target), \
-                 patch("os.replace", side_effect=OSError("disk full")):
+            with (
+                patch("telemetry.login_item.bundle_path", return_value=fake_bundle),
+                patch("telemetry.login_item.plist_path", return_value=target),
+                patch("os.replace", side_effect=OSError("disk full")),
+            ):
                 with self.assertRaises(OSError):
                     enable()
 
@@ -206,10 +213,12 @@ class TestEnableWriteErrorCleanup(unittest.TestCase):
             target = Path(tmpdir) / _PLIST_NAME
             fake_bundle = Path("/Applications/ClaudeStats.app")
 
-            with patch("telemetry.login_item.bundle_path", return_value=fake_bundle), \
-                 patch("telemetry.login_item.plist_path", return_value=target), \
-                 patch("os.replace", side_effect=OSError("disk full")), \
-                 patch("os.unlink", side_effect=OSError("unlink failed")):
+            with (
+                patch("telemetry.login_item.bundle_path", return_value=fake_bundle),
+                patch("telemetry.login_item.plist_path", return_value=target),
+                patch("os.replace", side_effect=OSError("disk full")),
+                patch("os.unlink", side_effect=OSError("unlink failed")),
+            ):
                 with self.assertRaises(OSError) as cm:
                     enable()
             # The original error (disk full) should be the one raised

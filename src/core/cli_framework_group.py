@@ -2,10 +2,12 @@
 
 Split out of cli_framework.py to keep that module focused on CLIApp.
 """
+
 from __future__ import annotations
 
 import argparse
-from typing import Any, Callable, TYPE_CHECKING
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from .cli_framework_types import Argument, CommandDef, CommandFunc
 
@@ -18,7 +20,7 @@ class CommandGroup:
 
     def __init__(
         self,
-        app: "CLIApp",
+        app: CLIApp,
         name: str,
         *,
         help: str = "",
@@ -49,6 +51,7 @@ class CommandGroup:
         Returns:
             Decorator function.
         """
+
         def decorator(func: CommandFunc) -> CommandFunc:
             # Collect pending arguments
             arguments = list(reversed(self.app._pending_arguments))
@@ -70,6 +73,7 @@ class CommandGroup:
             self.app._commands[full_name] = cmd_def
 
             return func
+
         return decorator
 
     def argument(
@@ -124,7 +128,7 @@ def quick_cli(
     name: str,
     description: str = "",
     **kwargs: Any,
-) -> "CLIApp":
+) -> CLIApp:
     """Create a simple CLI app quickly.
 
     Args:

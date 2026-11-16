@@ -23,17 +23,17 @@ touches the real worker state dir.
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Mapping
 import json
 import os
 import time
 import unittest
-import urllib.error
-from pathlib import Path
 import unittest.mock as mock
+import urllib.error
+from collections.abc import Mapping
+from pathlib import Path
 
-from worker import qwen
 from tests.worker_tests.qwen_fixtures import QwenHandlerCase, require
+from worker import qwen
 
 
 class QwenLockHeldTests(QwenHandlerCase):
@@ -48,7 +48,9 @@ class QwenLockHeldTests(QwenHandlerCase):
         """Holds a real lock file for a live, fresh holder and lets the real
         acquire path poll it, rather than mocking the acquire result."""
         self.lock_path.parent.mkdir(parents=True, exist_ok=True)
-        self.lock_path.write_text(json.dumps({"pid": os.getpid(), "started_at": time.time()}), encoding="utf-8")
+        self.lock_path.write_text(
+            json.dumps({"pid": os.getpid(), "started_at": time.time()}), encoding="utf-8"
+        )
         fast = qwen.QwenThresholds(wait_ceiling_sec=0.05, lock_poll_interval_sec=0.01)
 
         with mock.patch("worker.qwen.THRESHOLDS", fast):
@@ -129,7 +131,9 @@ class QwenStaleLockTests(QwenHandlerCase):
 
     def _write_lock(self, pid: int, age_sec: float) -> None:
         self.lock_path.parent.mkdir(parents=True, exist_ok=True)
-        self.lock_path.write_text(json.dumps({"pid": pid, "started_at": time.time() - age_sec}), encoding="utf-8")
+        self.lock_path.write_text(
+            json.dumps({"pid": pid, "started_at": time.time() - age_sec}), encoding="utf-8"
+        )
 
     def _acquire(self, job_id: str) -> bool:
         acquired = qwen._acquire_model_lock(job_id, wait_ceiling_sec=1)
@@ -141,13 +145,17 @@ class QwenStaleLockTests(QwenHandlerCase):
         self._write_lock(pid=999999, age_sec=5)
 
         with mock.patch("worker.qwen._pid_alive", return_value=False):
-            self.assertTrue(self._acquire("job-dead-holder"), "a lock held by a dead PID must be reclaimed")
+            self.assertTrue(
+                self._acquire("job-dead-holder"), "a lock held by a dead PID must be reclaimed"
+            )
 
     def test_alive_holder_within_stale_ceiling_is_not_reclaimed(self) -> None:
         self._write_lock(pid=1, age_sec=10)
 
         with mock.patch("worker.qwen._pid_alive", return_value=True):
-            self.assertFalse(self._acquire("job-active-holder"), "an active, fresh lock must not be reclaimed")
+            self.assertFalse(
+                self._acquire("job-active-holder"), "an active, fresh lock must not be reclaimed"
+            )
 
     def test_alive_holder_older_than_ceiling_with_nonempty_lane_is_not_reclaimed(self) -> None:
         """SUSPECT: alive + past the ceiling, a worker process, non-empty lane."""
@@ -186,7 +194,9 @@ class QwenStaleLockTests(QwenHandlerCase):
             with self.subTest(lane=lane):
                 self._write_lock(pid=1, age_sec=2500)
                 with (
-                    mock.patch("worker.qwen.THRESHOLDS", qwen.QwenThresholds(lock_poll_interval_sec=0.01)),
+                    mock.patch(
+                        "worker.qwen.THRESHOLDS", qwen.QwenThresholds(lock_poll_interval_sec=0.01)
+                    ),
                     mock.patch("worker.qwen._pid_alive", return_value=True),
                     mock.patch("worker.qwen._pid_is_worker", return_value=None),
                     mock.patch("worker.qwen._lane_depth", return_value=lane),
@@ -230,7 +240,9 @@ class QwenLockCompareAndDeleteTests(QwenHandlerCase):
         self.assertTrue(swapped, "the interleaving never happened")
         self.assertIsNone(acquired, "this worker acquired a lock another worker holds")
         self.assertEqual(json.loads(self.lock_path.read_text(encoding="utf-8")), new_holder)
-        self.assertEqual(self._lock_dir_names(), ["model.lock"], "a reclaim tombstone was left behind")
+        self.assertEqual(
+            self._lock_dir_names(), ["model.lock"], "a reclaim tombstone was left behind"
+        )
 
     def test_unchanged_stale_lock_is_still_reclaimed(self) -> None:
         self._write_lock({"pid": 999999, "started_at": time.time() - 5})
@@ -267,7 +279,9 @@ class QwenLockCompareAndDeleteTests(QwenHandlerCase):
 
         qwen._release_lock(self.lock_path, first)
 
-        self.assertEqual(qwen._read_lock_holder(self.lock_path), second, "the new acquisition's lock was removed")
+        self.assertEqual(
+            qwen._read_lock_holder(self.lock_path), second, "the new acquisition's lock was removed"
+        )
         qwen._release_lock(self.lock_path, second)
         self.assertEqual(self._lock_dir_names(), [])
 
@@ -289,13 +303,17 @@ class QwenLockCompareAndDeleteTests(QwenHandlerCase):
         holder = require(qwen._try_acquire_lock(self.lock_path))
 
         raw = json.loads(self.lock_path.read_text(encoding="utf-8"))
-        self.assertEqual(raw, {"pid": os.getpid(), "started_at": holder.started_at, "token": holder.token})
+        self.assertEqual(
+            raw, {"pid": os.getpid(), "started_at": holder.started_at, "token": holder.token}
+        )
 
     def test_lock_without_a_token_is_read_and_reclaimed(self) -> None:
         """A lock written before the token existed still parses and still reclaims."""
         legacy = {"pid": 999999, "started_at": time.time() - 5}
         self._write_lock(legacy)
-        self.assertEqual(qwen._read_lock_holder(self.lock_path), qwen._LockHolder(999999, legacy["started_at"]))
+        self.assertEqual(
+            qwen._read_lock_holder(self.lock_path), qwen._LockHolder(999999, legacy["started_at"])
+        )
 
         with mock.patch("worker.qwen._pid_alive", return_value=False):
             self.assertIsNotNone(qwen._handle_existing_lock(self.lock_path))

@@ -64,7 +64,9 @@ def run(args: argparse.Namespace) -> int:
     canonical = elect_canonical(same_repo) if same_repo else None
 
     if canonical is None:
-        return validation_error("store", f"no canonical store found for repo '{source.inferred_repo}'")
+        return validation_error(
+            "store", f"no canonical store found for repo '{source.inferred_repo}'"
+        )
 
     try:
         result = graduate_memory(

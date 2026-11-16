@@ -162,15 +162,19 @@ class TestQueueRootResolvesAtReadTime(unittest.TestCase):
         probe = _Probe(methodName="setUp")
         with self._env(self.dir_x):
             probe.setup_queue_root()
-            self.assertIn("QUEUE_ROOT", vars(queue_ops).keys(), "setup_queue_root did not pin QUEUE_ROOT")
+            self.assertIn(
+                "QUEUE_ROOT", vars(queue_ops).keys(), "setup_queue_root did not pin QUEUE_ROOT"
+            )
             probe.doCleanups()
-            self.assertNotIn("QUEUE_ROOT", vars(queue_ops).keys(), "mixin restore pinned QUEUE_ROOT")
+            self.assertNotIn(
+                "QUEUE_ROOT", vars(queue_ops).keys(), "mixin restore pinned QUEUE_ROOT"
+            )
         with self._env(self.dir_y):
             self.assertEqual(queue_ops.QUEUE_ROOT, self.dir_y / "queue")
 
     def test_unknown_attribute_still_raises(self) -> None:
         with self.assertRaises(AttributeError):
-            getattr(queue_ops, "NO_SUCH_ATTRIBUTE")
+            getattr(queue_ops, "NO_SUCH_ATTRIBUTE")  # noqa: B009 - probing a missing attr
 
 
 if __name__ == "__main__":

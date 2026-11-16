@@ -1,4 +1,5 @@
 """Tests for worker.queue_ops.effective_job_timeout."""
+
 from __future__ import annotations
 
 import unittest

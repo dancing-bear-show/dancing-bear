@@ -17,9 +17,15 @@ from telemetry.otel.analytics.cost import (
 )
 from telemetry.otel.cli._format_helpers import (
     add_format_argument,
-    format_duration as _format_duration,
-    format_timestamp as _format_timestamp,
     format_validation_error,
+)
+from telemetry.otel.cli._format_helpers import (
+    format_duration as _format_duration,
+)
+from telemetry.otel.cli._format_helpers import (
+    format_timestamp as _format_timestamp,
+)
+from telemetry.otel.cli._format_helpers import (
     sort_sessions as _sort_sessions,
 )
 from telemetry.otel.cost_models import CostMetrics
@@ -56,9 +62,7 @@ class CostScanProcessor(SafeProcessor[CostScanRequest, CostScanResult]):
 class CostScanProducer(BaseProducer):
     """Render telemetry cost output (table or JSON) via OutputWriter."""
 
-    def _produce_success(
-        self, payload: CostScanResult, diagnostics: dict[str, Any] | None
-    ) -> None:
+    def _produce_success(self, payload: CostScanResult, diagnostics: dict[str, Any] | None) -> None:
         # fmt and breakdown are carried via diagnostics from the call site
         fmt = (diagnostics or {}).get("fmt", "table")
         breakdown = (diagnostics or {}).get("breakdown", "none")
@@ -209,7 +213,9 @@ def _output_daily_table(daily: list, writer: OutputWriter | None = None) -> None
     w = writer or OutputWriter()
     w.print("Daily Cost Summary")
     w.print("─" * 80)
-    w.print(f"  {'Date':<12} {'Calls':>8} {'Cost':>10} {'Input':>12} {'Output':>12} {'Cache Read':>12}")
+    w.print(
+        f"  {'Date':<12} {'Calls':>8} {'Cost':>10} {'Input':>12} {'Output':>12} {'Cache Read':>12}"
+    )
     w.print("─" * 80)
     for d in daily:
         w.print(
@@ -350,9 +356,7 @@ def _print_session_breakdown(
         )
 
 
-def _print_model_breakdown(
-    metrics: CostMetrics, writer: OutputWriter | None = None
-) -> None:
+def _print_model_breakdown(metrics: CostMetrics, writer: OutputWriter | None = None) -> None:
     """Print model cost breakdown table."""
     w = writer or OutputWriter()
     w.print("")
@@ -363,10 +367,7 @@ def _print_model_breakdown(
     for model in metrics.by_model:
         pct = (model.cost / total_cost * 100) if total_cost > 0 else 0
         w.print(f"  {model.model_name}")
-        w.print(
-            f"    Calls: {model.api_calls:,}  |  "
-            f"Cost: ${model.cost:.4f} ({pct:.1f}%)"
-        )
+        w.print(f"    Calls: {model.api_calls:,}  |  Cost: ${model.cost:.4f} ({pct:.1f}%)")
         w.print(
             f"    Tokens: {model.billable_tokens:,} billable  |  "
             f"Efficiency: {model.efficiency_ratio:.2f}x"
@@ -406,7 +407,9 @@ def _session_breakdown(metrics: CostMetrics, sort_key: str) -> list[dict]:
             "session_id": s.session_id,
             "first_seen": s.first_seen.isoformat() if s.first_seen else None,
             "last_seen": s.last_seen.isoformat() if s.last_seen else None,
-            "duration_minutes": round(s.duration_minutes, 1) if s.duration_minutes is not None else None,
+            "duration_minutes": round(s.duration_minutes, 1)
+            if s.duration_minutes is not None
+            else None,
             "api_calls": s.api_calls,
             "input_tokens": s.input_tokens,
             "output_tokens": s.output_tokens,
@@ -415,9 +418,7 @@ def _session_breakdown(metrics: CostMetrics, sort_key: str) -> list[dict]:
             "billable_tokens": s.billable_tokens,
             "cost": round(s.cost, 4),
             "cost_percent": round(
-                (s.cost / metrics.total_cost * 100)
-                if metrics.total_cost > 0
-                else 0,
+                (s.cost / metrics.total_cost * 100) if metrics.total_cost > 0 else 0,
                 1,
             ),
             "efficiency_ratio": round(s.efficiency_ratio, 2),
@@ -438,9 +439,7 @@ def _model_breakdown(metrics: CostMetrics) -> list[dict]:
             "cache_read_tokens": m.cache_read_tokens,
             "cost": round(m.cost, 4),
             "cost_percent": round(
-                (m.cost / metrics.total_cost * 100)
-                if metrics.total_cost > 0
-                else 0,
+                (m.cost / metrics.total_cost * 100) if metrics.total_cost > 0 else 0,
                 1,
             ),
             "efficiency_ratio": round(m.efficiency_ratio, 2),

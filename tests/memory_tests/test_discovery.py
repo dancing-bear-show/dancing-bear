@@ -11,6 +11,16 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
+from memory.discovery import (
+    decode_project_slug,
+    discover_stores,
+    elect_canonical,
+    encode_path_slug,
+    is_worktree_slug,
+    load_store,
+    resolve_current_store,
+)
+from memory.models import MemoryStore
 from tests.memory_tests.fixtures import (
     SLUG_EMPTY,
     SLUG_MAIN,
@@ -19,17 +29,6 @@ from tests.memory_tests.fixtures import (
     make_projects_root,
     write_memory_dir,
 )
-from memory.discovery import (
-    decode_project_slug,
-    discover_stores,
-    elect_canonical,
-    is_worktree_slug,
-    load_store,
-    encode_path_slug,
-    resolve_current_store,
-)
-from memory.models import MemoryStore
-
 
 # ---------------------------------------------------------------------------
 # File-local helper
@@ -245,9 +244,7 @@ class TestDiscoverStores(MemoryTestCase):
         return projects_root, bad
 
     def test_list_frontmatter_file_does_not_drop_store(self):
-        projects_root, bad = self._store_with_good_and_bad(
-            "bad.md", b"---\n- a\n---\nbody\n"
-        )
+        projects_root, bad = self._store_with_good_and_bad("bad.md", b"---\n- a\n---\nbody\n")
         stores = discover_stores(root=projects_root)
         self.assertEqual(len(stores), 1)
         self.assertEqual([m.slug for m in stores[0].memories], ["good"])
@@ -358,9 +355,7 @@ class TestResolveCurrentStore(MemoryTestCase):
         """cwd exactly equal to inferred_repo (no trailing path segment) must still match."""
         repo = "/Users/alice/code/repo"
         store = _make_store("slug-a", inferred_repo=repo)
-        other = _make_store(
-            "slug-b", inferred_repo="/Users/alice/code/repo-extended"
-        )
+        other = _make_store("slug-b", inferred_repo="/Users/alice/code/repo-extended")
 
         with patch("memory.discovery.os.getcwd", return_value=repo):
             result = resolve_current_store((store, other))
@@ -371,9 +366,7 @@ class TestResolveCurrentStore(MemoryTestCase):
         """cwd under a repo whose name is a superstring of another store's
         inferred_repo must not match the shorter store via a bare startswith."""
         repo_store = _make_store("slug-a", inferred_repo="/Users/alice/code/repo")
-        extended_store = _make_store(
-            "slug-b", inferred_repo="/Users/alice/code/repo-extended"
-        )
+        extended_store = _make_store("slug-b", inferred_repo="/Users/alice/code/repo-extended")
 
         with patch(
             "memory.discovery.os.getcwd",
@@ -385,9 +378,7 @@ class TestResolveCurrentStore(MemoryTestCase):
 
     def test_none_inferred_repo_store_is_skipped(self):
         no_repo = _make_store("no-repo-slug", inferred_repo=None)
-        with_repo = _make_store(
-            "with-repo-slug", inferred_repo="/Users/alice/code/repo"
-        )
+        with_repo = _make_store("with-repo-slug", inferred_repo="/Users/alice/code/repo")
 
         with patch(
             "memory.discovery.os.getcwd",
@@ -405,9 +396,7 @@ class TestResolveCurrentStore(MemoryTestCase):
                 "memory.discovery.os.getcwd",
                 return_value="/completely/different",
             ),
-            patch(
-                "memory.discovery.elect_canonical", return_value=store
-            ) as mock_elect,
+            patch("memory.discovery.elect_canonical", return_value=store) as mock_elect,
         ):
             result = resolve_current_store((store,))
 

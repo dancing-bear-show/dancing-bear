@@ -11,15 +11,14 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
+from mail.accounts.pipeline_list_sync import (
+    AccountsSyncFiltersProcessor,
+    AccountsSyncFiltersRequest,
+    AccountsSyncLabelsProcessor,
+    AccountsSyncLabelsRequest,
+)
 from tests.fakes.gmail import FakeGmailClient
 from tests.fakes.outlook import FakeOutlookClient
-
-from mail.accounts.pipeline_list_sync import (
-    AccountsSyncLabelsRequest,
-    AccountsSyncLabelsProcessor,
-    AccountsSyncFiltersRequest,
-    AccountsSyncFiltersProcessor,
-)
 
 
 def make_account_dict(
@@ -38,7 +37,9 @@ class TestAccountsSyncLabelsProcessor(unittest.TestCase):
     @patch("mail.accounts.helpers.load_accounts")
     @patch("core.yamlio.load_config")
     @patch("mail.accounts.helpers.build_provider_for_account")
-    def test_process_creates_new_gmail_labels_when_applying(self, mock_build, mock_load_config, mock_load_accounts):
+    def test_process_creates_new_gmail_labels_when_applying(
+        self, mock_build, mock_load_config, mock_load_accounts
+    ):
         mock_load_accounts.return_value = [make_account_dict(name="personal", provider="gmail")]
         mock_load_config.return_value = {"labels": [{"name": "VIP"}]}
         client = FakeGmailClient(labels=[])
@@ -66,7 +67,9 @@ class TestAccountsSyncLabelsProcessor(unittest.TestCase):
     @patch("mail.accounts.helpers.load_accounts")
     @patch("core.yamlio.load_config")
     @patch("mail.accounts.helpers.build_provider_for_account")
-    def test_process_dry_run_does_not_mutate_client(self, mock_build, mock_load_config, mock_load_accounts):
+    def test_process_dry_run_does_not_mutate_client(
+        self, mock_build, mock_load_config, mock_load_accounts
+    ):
         mock_load_accounts.return_value = [make_account_dict(name="personal", provider="gmail")]
         mock_load_config.return_value = {"labels": [{"name": "VIP"}]}
         client = FakeGmailClient(labels=[])
@@ -90,11 +93,13 @@ class TestAccountsSyncLabelsProcessor(unittest.TestCase):
     @patch("mail.accounts.helpers.load_accounts")
     @patch("core.yamlio.load_config")
     @patch("mail.accounts.helpers.build_provider_for_account")
-    def test_process_normalizes_labels_for_outlook_provider(self, mock_build, mock_load_config, mock_load_accounts):
+    def test_process_normalizes_labels_for_outlook_provider(
+        self, mock_build, mock_load_config, mock_load_accounts
+    ):
         mock_load_accounts.return_value = [make_account_dict(name="work", provider="outlook")]
         mock_load_config.return_value = {"labels": [{"name": "Parent/Child"}]}
         client = FakeOutlookClient(categories=[])
-        client.list_labels = lambda: []
+        client.list_labels = list
         client.create_label = lambda **body: {"id": "LBL_1", **body}
         mock_build.return_value = client
 
@@ -116,10 +121,16 @@ class TestAccountsSyncLabelsProcessor(unittest.TestCase):
     @patch("mail.accounts.helpers.load_accounts")
     @patch("core.yamlio.load_config")
     @patch("mail.accounts.helpers.build_provider_for_account")
-    def test_process_updates_existing_label_when_fields_changed(self, mock_build, mock_load_config, mock_load_accounts):
+    def test_process_updates_existing_label_when_fields_changed(
+        self, mock_build, mock_load_config, mock_load_accounts
+    ):
         mock_load_accounts.return_value = [make_account_dict(name="personal", provider="gmail")]
-        mock_load_config.return_value = {"labels": [{"name": "VIP", "color": {"backgroundColor": "#fff"}}]}
-        client = FakeGmailClient(labels=[{"id": "LBL_1", "name": "VIP", "color": {"backgroundColor": "#000"}}])
+        mock_load_config.return_value = {
+            "labels": [{"name": "VIP", "color": {"backgroundColor": "#fff"}}]
+        }
+        client = FakeGmailClient(
+            labels=[{"id": "LBL_1", "name": "VIP", "color": {"backgroundColor": "#000"}}]
+        )
         mock_build.return_value = client
 
         request = AccountsSyncLabelsRequest(
@@ -138,7 +149,9 @@ class TestAccountsSyncLabelsProcessor(unittest.TestCase):
     @patch("mail.accounts.helpers.load_accounts")
     @patch("core.yamlio.load_config")
     @patch("mail.accounts.helpers.build_provider_for_account")
-    def test_process_returns_error_envelope_on_exception(self, mock_build, mock_load_config, mock_load_accounts):
+    def test_process_returns_error_envelope_on_exception(
+        self, mock_build, mock_load_config, mock_load_accounts
+    ):
         mock_load_accounts.side_effect = FileNotFoundError("Config not found")
 
         request = AccountsSyncLabelsRequest(config_path="/missing.yaml", labels_path="/labels.yaml")
@@ -151,7 +164,9 @@ class TestAccountsSyncLabelsProcessor(unittest.TestCase):
 
     @patch("mail.accounts.helpers.load_accounts")
     @patch("core.yamlio.load_config")
-    def test_process_filters_accounts_by_accounts_filter(self, mock_load_config, mock_load_accounts):
+    def test_process_filters_accounts_by_accounts_filter(
+        self, mock_load_config, mock_load_accounts
+    ):
         mock_load_accounts.return_value = [
             make_account_dict(name="personal", provider="gmail"),
             make_account_dict(name="work", provider="gmail"),
@@ -210,7 +225,9 @@ class TestAccountsSyncFiltersProcessorGmail(unittest.TestCase):
 
     @patch("mail.accounts.helpers.load_accounts")
     @patch("mail.filters.commands.run_filters_sync")
-    def test_process_passes_dry_run_flag_through_to_gmail_sync(self, mock_run_sync, mock_load_accounts):
+    def test_process_passes_dry_run_flag_through_to_gmail_sync(
+        self, mock_run_sync, mock_load_accounts
+    ):
         mock_load_accounts.return_value = [make_account_dict(name="personal", provider="gmail")]
 
         request = AccountsSyncFiltersRequest(
@@ -231,13 +248,15 @@ class TestAccountsSyncFiltersProcessorOutlook(unittest.TestCase):
     @patch("mail.accounts.helpers.load_accounts")
     @patch("core.yamlio.load_config")
     @patch("mail.accounts.helpers.build_client_for_account")
-    def test_process_creates_new_outlook_filter_when_applying(self, mock_build, mock_load_config, mock_load_accounts):
+    def test_process_creates_new_outlook_filter_when_applying(
+        self, mock_build, mock_load_config, mock_load_accounts
+    ):
         mock_load_accounts.return_value = [make_account_dict(name="work", provider="outlook")]
         mock_load_config.return_value = {
             "filters": [{"match": {"from": "boss@example.com"}, "action": {"add": ["VIP"]}}]
         }
         client = FakeOutlookClient(categories=[{"id": "CAT_1", "displayName": "VIP"}])
-        client.list_filters = lambda: []
+        client.list_filters = list
         client.get_label_id_map = lambda: {"VIP": "CAT_1"}
         client.create_filter = lambda criteria, action: {"id": "NEW"}
         mock_build.return_value = client
@@ -259,13 +278,15 @@ class TestAccountsSyncFiltersProcessorOutlook(unittest.TestCase):
     @patch("mail.accounts.helpers.load_accounts")
     @patch("core.yamlio.load_config")
     @patch("mail.accounts.helpers.build_client_for_account")
-    def test_process_dry_run_does_not_call_create_filter(self, mock_build, mock_load_config, mock_load_accounts):
+    def test_process_dry_run_does_not_call_create_filter(
+        self, mock_build, mock_load_config, mock_load_accounts
+    ):
         mock_load_accounts.return_value = [make_account_dict(name="work", provider="outlook")]
         mock_load_config.return_value = {
             "filters": [{"match": {"from": "boss@example.com"}, "action": {"add": ["VIP"]}}]
         }
         client = FakeOutlookClient(categories=[{"id": "CAT_1", "displayName": "VIP"}])
-        client.list_filters = lambda: []
+        client.list_filters = list
         client.get_label_id_map = lambda: {"VIP": "CAT_1"}
         create_calls = []
         client.create_filter = lambda criteria, action: create_calls.append((criteria, action))
@@ -286,13 +307,15 @@ class TestAccountsSyncFiltersProcessorOutlook(unittest.TestCase):
     @patch("mail.accounts.helpers.load_accounts")
     @patch("core.yamlio.load_config")
     @patch("mail.accounts.helpers.build_client_for_account")
-    def test_process_records_error_when_outlook_create_filter_raises(self, mock_build, mock_load_config, mock_load_accounts):
+    def test_process_records_error_when_outlook_create_filter_raises(
+        self, mock_build, mock_load_config, mock_load_accounts
+    ):
         mock_load_accounts.return_value = [make_account_dict(name="work", provider="outlook")]
         mock_load_config.return_value = {
             "filters": [{"match": {"from": "boss@example.com"}, "action": {"add": ["VIP"]}}]
         }
         client = FakeOutlookClient(categories=[{"id": "CAT_1", "displayName": "VIP"}])
-        client.list_filters = lambda: []
+        client.list_filters = list
         client.get_label_id_map = lambda: {"VIP": "CAT_1"}
 
         def _raise(criteria, action):
@@ -322,7 +345,9 @@ class TestAccountsSyncFiltersProcessorUnsupported(unittest.TestCase):
     def test_process_records_unsupported_provider_without_syncing(self, mock_load_accounts):
         mock_load_accounts.return_value = [make_account_dict(name="other", provider="yahoo")]
 
-        request = AccountsSyncFiltersRequest(config_path="/config.yaml", filters_path="/filters.yaml")
+        request = AccountsSyncFiltersRequest(
+            config_path="/config.yaml", filters_path="/filters.yaml"
+        )
         processor = AccountsSyncFiltersProcessor()
         envelope = processor.process(request)
 
@@ -337,7 +362,9 @@ class TestAccountsSyncFiltersProcessorUnsupported(unittest.TestCase):
     def test_process_treats_missing_provider_as_empty_string(self, mock_load_accounts):
         mock_load_accounts.return_value = [{"name": "no-provider"}]
 
-        request = AccountsSyncFiltersRequest(config_path="/config.yaml", filters_path="/filters.yaml")
+        request = AccountsSyncFiltersRequest(
+            config_path="/config.yaml", filters_path="/filters.yaml"
+        )
         processor = AccountsSyncFiltersProcessor()
         envelope = processor.process(request)
 
@@ -349,7 +376,9 @@ class TestAccountsSyncFiltersProcessorUnsupported(unittest.TestCase):
     def test_process_returns_error_envelope_on_exception(self, mock_load_accounts):
         mock_load_accounts.side_effect = FileNotFoundError("Config not found")
 
-        request = AccountsSyncFiltersRequest(config_path="/missing.yaml", filters_path="/filters.yaml")
+        request = AccountsSyncFiltersRequest(
+            config_path="/missing.yaml", filters_path="/filters.yaml"
+        )
         processor = AccountsSyncFiltersProcessor()
         envelope = processor.process(request)
 

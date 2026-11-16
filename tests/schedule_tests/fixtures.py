@@ -3,10 +3,11 @@
 Provides shared fake/stub classes used across schedule_tests/.
 Consolidates the FakeOutlook inline definitions from test_schedule_verify_sync.py.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any
 
 
 @dataclass
@@ -24,11 +25,11 @@ class FakeOutlook:
         # Pass via patch("core.outlook.OutlookClient", new=type(svc))
     """
 
-    events: List[Dict[str, Any]] = field(default_factory=list)
+    events: list[dict[str, Any]] = field(default_factory=list)
     calendar_id: str = "CAL_FAKE"
 
     # Track mutations for assertions
-    ensure_calendar_calls: List[str] = field(default_factory=list)
+    ensure_calendar_calls: list[str] = field(default_factory=list)
 
     def authenticate(self) -> None:
         """No-op – authentication not needed in tests."""
@@ -37,5 +38,5 @@ class FakeOutlook:
         self.ensure_calendar_calls.append(name)
         return self.calendar_id
 
-    def list_events_in_range(self, _params: Any) -> List[Dict[str, Any]]:
+    def list_events_in_range(self, _params: Any) -> list[dict[str, Any]]:
         return list(self.events)

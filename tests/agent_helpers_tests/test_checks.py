@@ -52,8 +52,12 @@ class TestRunCheckVerdict(unittest.TestCase):
 
     def test_multi_path_command_without_ran_line_is_not_masked(self):
         runs = [_run(stderr="Ran 4 tests in 0.1s\n\nOK\n"), _run(stdout="silent\n")]
-        with unittest.mock.patch.object(checks, "run_binary", side_effect=runs), \
-                unittest.mock.patch.object(checks, "build_commands", return_value=([["a"], ["b"]], None)):
+        with (
+            unittest.mock.patch.object(checks, "run_binary", side_effect=runs),
+            unittest.mock.patch.object(
+                checks, "build_commands", return_value=([["a"], ["b"]], None)
+            ),
+        ):
             result = run_check("test", "/repo", ["x", "y"])
         self.assertFalse(result.passed)
         self.assertEqual(result.exit_code, 0)
@@ -65,7 +69,9 @@ class TestRunCheckVerdict(unittest.TestCase):
         self.assertEqual(result.tests_run, 0)
 
     def test_nonzero_exit_is_failure_and_keeps_output(self):
-        result, _ = self._check("test", _run(stderr="Ran 3 tests in 1s\n\nFAILED (failures=1)\n", rc=1))
+        result, _ = self._check(
+            "test", _run(stderr="Ran 3 tests in 1s\n\nFAILED (failures=1)\n", rc=1)
+        )
         self.assertFalse(result.passed)
         self.assertEqual(result.exit_code, 1)
         self.assertIn("FAILED", result.output)
@@ -181,7 +187,18 @@ class TestBuildCommands(TempDirMixin, unittest.TestCase):
         root = Path(self.tmpdir).resolve()
         self.assertEqual(
             commands,
-            [[sys.executable, "-m", "unittest", "discover", "-t", str(root), "-s", str(root / "tests")]],
+            [
+                [
+                    sys.executable,
+                    "-m",
+                    "unittest",
+                    "discover",
+                    "-t",
+                    str(root),
+                    "-s",
+                    str(root / "tests"),
+                ]
+            ],
         )
 
     def test_file_uses_pattern(self):
@@ -221,7 +238,11 @@ class TestRunCheckRealSubprocess(TempDirMixin, unittest.TestCase):
         tests = Path(self.tmpdir) / "tests"
         tests.mkdir()
         write(str(tests), "__init__.py", "")
-        write(str(tests), "test_sample.py", f"import unittest\n\nclass T(unittest.TestCase):\n    def test_it(self):\n        {body}\n")
+        write(
+            str(tests),
+            "test_sample.py",
+            f"import unittest\n\nclass T(unittest.TestCase):\n    def test_it(self):\n        {body}\n",
+        )
 
     def test_passing_suite(self):
         self._make_suite("self.assertTrue(True)")
@@ -239,33 +260,55 @@ class TestRunCheckRealSubprocess(TempDirMixin, unittest.TestCase):
 
 class TestRunTestsCli(unittest.TestCase):
     def test_default_tool_runs_make_test(self):
-        with unittest.mock.patch("agent_helpers.cli.resolve_repo_root", return_value=("/repo", None)), \
-                unittest.mock.patch.object(checks, "run_binary", return_value=_run(stderr="Ran 2 tests in 0s\n")):
+        with (
+            unittest.mock.patch(
+                "agent_helpers.cli.resolve_repo_root", return_value=("/repo", None)
+            ),
+            unittest.mock.patch.object(
+                checks, "run_binary", return_value=_run(stderr="Ran 2 tests in 0s\n")
+            ),
+        ):
             result = run_json(["run-tests"])
         self.assertTrue(result["passed"])
         self.assertEqual(result["tests_run"], 2)
         self.assertEqual(result["commands"], [["make", "test"]])
 
     def test_paths_with_lint_is_usage_error(self):
-        with unittest.mock.patch("agent_helpers.cli.resolve_repo_root", return_value=("/repo", None)):
+        with unittest.mock.patch(
+            "agent_helpers.cli.resolve_repo_root", return_value=("/repo", None)
+        ):
             rc, out, err = run_main(["run-tests", "--tool", "lint", "--paths", "tests"])
         self.assertEqual((rc, out), (2, ""))
         self.assertIn("--paths", err)
 
     def test_paths_with_lint_is_usage_error_outside_repo(self):
-        with unittest.mock.patch("agent_helpers.cli.resolve_repo_root", return_value=("", "not inside a git repository")):
+        with unittest.mock.patch(
+            "agent_helpers.cli.resolve_repo_root", return_value=("", "not inside a git repository")
+        ):
             rc, out, err = run_main(["run-tests", "--tool", "lint", "--paths", "tests"])
         self.assertEqual((rc, out), (2, ""))
         self.assertIn("--paths", err)
 
     def test_outside_repo_reports_failure_in_body(self):
-        with unittest.mock.patch("agent_helpers.cli.resolve_repo_root", return_value=("", "not inside a git repository")):
+        with unittest.mock.patch(
+            "agent_helpers.cli.resolve_repo_root", return_value=("", "not inside a git repository")
+        ):
             result = run_json(["run-tests"])
         self.assertFalse(result["passed"])
         self.assertEqual(result["error"], "not inside a git repository")
         # The error path must emit the same full CheckResult shape as the normal path.
-        for key in ("tool", "paths", "commands", "exit_code", "passed", "tests_run",
-                    "timed_out", "error", "output", "truncated"):
+        for key in (
+            "tool",
+            "paths",
+            "commands",
+            "exit_code",
+            "passed",
+            "tests_run",
+            "timed_out",
+            "error",
+            "output",
+            "truncated",
+        ):
             self.assertIn(key, result, f"key {key!r} missing from outside-repo error body")
 
 

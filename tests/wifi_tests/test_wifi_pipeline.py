@@ -47,7 +47,9 @@ class WifiPipelineTests(TestCase):
         report = _sample_report()
         with tempfile.TemporaryDirectory() as tmp:
             out_path = Path(tmp) / "wifi.json"
-            payload = DiagnoseResult(report=report, output_format=OutputFormat.JSON, out_path=out_path)
+            payload = DiagnoseResult(
+                report=report, output_format=OutputFormat.JSON, out_path=out_path
+            )
             env = ResultEnvelope(status="success", payload=payload)
             buf = io.StringIO()
             with redirect_stdout(buf):

@@ -1,4 +1,5 @@
 """Tests for calendars.pipeline_base.load_schedule_sources."""
+
 import unittest
 from unittest.mock import patch
 
@@ -8,12 +9,13 @@ class TestLoadScheduleSources(unittest.TestCase):
 
     def test_empty_sources(self):
         from calendars.pipeline_base import load_schedule_sources
+
         result = load_schedule_sources([], kind="auto")
         self.assertEqual(result, [])
 
     def test_single_source_normalizes_events(self):
-        from calendars.pipeline_base import load_schedule_sources
         from calendars.importer.model import ScheduleItem
+        from calendars.pipeline_base import load_schedule_sources
 
         fake_item = ScheduleItem(
             subject="Swim Class",
@@ -32,11 +34,19 @@ class TestLoadScheduleSources(unittest.TestCase):
         self.assertEqual(results[0].get("subject"), "Swim Class")
 
     def test_multiple_sources_combined(self):
-        from calendars.pipeline_base import load_schedule_sources
         from calendars.importer.model import ScheduleItem
+        from calendars.pipeline_base import load_schedule_sources
 
-        items_a = [ScheduleItem(subject="Event A", start_iso="2025-01-01T10:00", end_iso="2025-01-01T11:00")]
-        items_b = [ScheduleItem(subject="Event B", start_iso="2025-01-02T10:00", end_iso="2025-01-02T11:00")]
+        items_a = [
+            ScheduleItem(
+                subject="Event A", start_iso="2025-01-01T10:00", end_iso="2025-01-01T11:00"
+            )
+        ]
+        items_b = [
+            ScheduleItem(
+                subject="Event B", start_iso="2025-01-02T10:00", end_iso="2025-01-02T11:00"
+            )
+        ]
 
         with patch("calendars.importer.load_schedule", side_effect=[items_a, items_b]):
             results = load_schedule_sources(["a.csv", "b.csv"], kind="csv")
@@ -48,8 +58,8 @@ class TestLoadScheduleSources(unittest.TestCase):
 
     def test_items_with_none_fields_handled(self):
         """Items with no start/end produce dicts without erroring."""
-        from calendars.pipeline_base import load_schedule_sources
         from calendars.importer.model import ScheduleItem
+        from calendars.pipeline_base import load_schedule_sources
 
         item = ScheduleItem(subject="Recurring Class")
         with patch("calendars.importer.load_schedule", return_value=[item]):
@@ -57,7 +67,6 @@ class TestLoadScheduleSources(unittest.TestCase):
 
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0].get("subject"), "Recurring Class")
-
 
 
 def _full_item():
@@ -123,7 +132,9 @@ class TestLoadScheduleSourcesFieldCoverage(unittest.TestCase):
         from calendars.importer.model import ScheduleItem
         from calendars.pipeline_base import load_schedule_sources
 
-        item = ScheduleItem(subject="Once", start_iso="2025-01-10T17:00", end_iso="2025-01-10T18:00")
+        item = ScheduleItem(
+            subject="Once", start_iso="2025-01-10T17:00", end_iso="2025-01-10T18:00"
+        )
         with patch("calendars.importer.load_schedule", return_value=[item]):
             results = load_schedule_sources(["sched.csv"], kind="csv")
 

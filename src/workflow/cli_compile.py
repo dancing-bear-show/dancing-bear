@@ -17,7 +17,6 @@ from workflow.cli_helpers import check_workflow_path
 from workflow.compiler import match_when_expression, validate_dag_contracts
 from workflow.include import extract_include_entries, resolve_fragment_path
 
-
 # ---------------------------------------------------------------------------
 # Fragment + cache helpers
 # ---------------------------------------------------------------------------
@@ -68,6 +67,7 @@ def _compile_cache_path(
 ) -> Path:
     """Return the temp-dir cache file path keyed by payload schema, YAML content, fragments, root, and params."""
     import tempfile
+
     frag_bytes = _fragment_bytes(yaml_bytes, yaml_path or Path.cwd())
     key_material = (
         f"v{_COMPILE_PAYLOAD_SCHEMA}:{project_root}:{':'.join(sorted(params))}:".encode()
@@ -81,6 +81,7 @@ def _compile_cache_path(
 def _render_compile_output(payload: dict, fmt: str) -> None:
     """Render compile output in the requested format."""
     from workflow.cli import _emit_one, _emit_rows
+
     _excluded = ("groups", "resolutions", "contract_warnings_detail")
     summary = {k: v for k, v in payload.items() if k not in _excluded}
     groups_raw = payload.get("groups", [])
@@ -89,7 +90,8 @@ def _render_compile_output(payload: dict, fmt: str) -> None:
     groups: list[dict] = groups_raw if isinstance(groups_raw, list) else []
     resolutions: list[dict] = resolutions_raw if isinstance(resolutions_raw, list) else []
     warnings: list[dict] = [
-        w for w in (warnings_raw if isinstance(warnings_raw, list) else [])
+        w
+        for w in (warnings_raw if isinstance(warnings_raw, list) else [])
         if isinstance(w, dict) and w.get("message")
     ]
     for w in warnings:
@@ -97,8 +99,11 @@ def _render_compile_output(payload: dict, fmt: str) -> None:
     if fmt == "table":
         _emit_one(summary, fmt=fmt)
         _emit_rows(groups, fmt=fmt, headers=["group", "stages", "parallelism"])
-        _emit_rows(resolutions, fmt=fmt,
-                   headers=["stage", "template_resolved", "guide_resolved", "cli_commands"])
+        _emit_rows(
+            resolutions,
+            fmt=fmt,
+            headers=["stage", "template_resolved", "guide_resolved", "cli_commands"],
+        )
         if warnings:
             _emit_rows(warnings, fmt=fmt, headers=["stage", "upstream", "message"])
     else:
@@ -166,6 +171,7 @@ def _build_compile_payload(path: str, param_overrides: list[str] | None = None) 
     would advertise the default branch while execution took the other one.
     """
     from workflow.cli_dispatch import _load_manifest
+
     overrides = _parse_param_overrides(param_overrides)
     # Overrides go through compile_workflow so its param_rules/required check
     # sees them: compiling with defaults only would accept a hostile override
@@ -179,41 +185,56 @@ def _build_compile_payload(path: str, param_overrides: list[str] | None = None) 
     effective_params = {**defn.trigger.params, **overrides}
 
     summary = {
-        "name": defn.name, "total_stages": len(manifest.resolved_stages),
+        "name": defn.name,
+        "total_stages": len(manifest.resolved_stages),
         "total_groups": len(manifest.parallel_groups),
-        "max_parallelism": max_par, "compiled_at": manifest.compiled_at,
+        "max_parallelism": max_par,
+        "compiled_at": manifest.compiled_at,
         "contract_warnings": len(contract_warnings),
     }
-    groups = [{"group": i, "stages": ", ".join(g), "parallelism": len(g)}
-              for i, g in enumerate(manifest.parallel_groups)]
-    resolutions = [{
-        "stage": name, "template_resolved": r.template_content is not None,
-        "guide_resolved": r.guide_content is not None, "cli_commands": len(r.cli_commands),
-        # Everything the orchestrator needs to dispatch a stage without
-        # re-reading the YAML. Omitting any of these forces it back to the
-        # parsed definition, which defeats the point of a compiled manifest —
-        # and isolation in particular must reach the Agent() call, or
-        # `isolation: worktree` silently does nothing.
-        "index": r.index,
-        "kind": r.spec.kind.value,
-        "executor": r.spec.executor,
-        "human_gate": r.spec.human_gate,
-        "sub_workflow": r.spec.sub_workflow or None,
-        "agent_role": r.spec.agent.role if r.spec.agent else None,
-        "agent_model": r.spec.agent.model if r.spec.agent else None,
-        "agent_isolation": r.spec.agent.isolation if r.spec.agent else None,
-        # A conditional stage is only dispatchable if its `when` holds. Without
-        # these two fields the manifest lists mutually-exclusive stages as
-        # equally runnable, so an orchestrator trusting `resolutions` alone
-        # runs BOTH branches -- and two stages writing the same declared output
-        # silently clobber each other. `when` carries the raw expression;
-        # `will_run` carries the decision against the resolved trigger params.
-        "when": r.spec.when,
-        "will_run": _eval_when_for_manifest(r.spec.when, effective_params),
-    } for name, r in manifest.resolved_stages.items()]
-    warnings = [{"stage": w.stage, "upstream": w.upstream, "message": w.message}
-                for w in contract_warnings]
-    return {**summary, "groups": groups, "resolutions": resolutions, "contract_warnings_detail": warnings}
+    groups = [
+        {"group": i, "stages": ", ".join(g), "parallelism": len(g)}
+        for i, g in enumerate(manifest.parallel_groups)
+    ]
+    resolutions = [
+        {
+            "stage": name,
+            "template_resolved": r.template_content is not None,
+            "guide_resolved": r.guide_content is not None,
+            "cli_commands": len(r.cli_commands),
+            # Everything the orchestrator needs to dispatch a stage without
+            # re-reading the YAML. Omitting any of these forces it back to the
+            # parsed definition, which defeats the point of a compiled manifest —
+            # and isolation in particular must reach the Agent() call, or
+            # `isolation: worktree` silently does nothing.
+            "index": r.index,
+            "kind": r.spec.kind.value,
+            "executor": r.spec.executor,
+            "human_gate": r.spec.human_gate,
+            "sub_workflow": r.spec.sub_workflow or None,
+            "agent_role": r.spec.agent.role if r.spec.agent else None,
+            "agent_model": r.spec.agent.model if r.spec.agent else None,
+            "agent_isolation": r.spec.agent.isolation if r.spec.agent else None,
+            # A conditional stage is only dispatchable if its `when` holds. Without
+            # these two fields the manifest lists mutually-exclusive stages as
+            # equally runnable, so an orchestrator trusting `resolutions` alone
+            # runs BOTH branches -- and two stages writing the same declared output
+            # silently clobber each other. `when` carries the raw expression;
+            # `will_run` carries the decision against the resolved trigger params.
+            "when": r.spec.when,
+            "will_run": _eval_when_for_manifest(r.spec.when, effective_params),
+        }
+        for name, r in manifest.resolved_stages.items()
+    ]
+    warnings = [
+        {"stage": w.stage, "upstream": w.upstream, "message": w.message} for w in contract_warnings
+    ]
+    return {
+        **summary,
+        "groups": groups,
+        "resolutions": resolutions,
+        "contract_warnings_detail": warnings,
+    }
 
 
 # ---------------------------------------------------------------------------

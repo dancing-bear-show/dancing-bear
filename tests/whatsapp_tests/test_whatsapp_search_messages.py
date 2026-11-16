@@ -6,6 +6,7 @@ Covers lines 60-61 (db path expansion) and 119-140 (search_messages body):
 - SQL execution returning correct MessageRow values
 - None-coalescing for ts, partner, from_me, text columns
 """
+
 from __future__ import annotations
 
 import os
@@ -14,15 +15,14 @@ import unittest
 from unittest.mock import patch
 
 from core.cli_errors import NotFoundError
+from tests.fixtures import TempDirMixin
 from whatsapp import search
 from whatsapp.search import MessageQuery, MessageRow, search_messages
-
-from tests.fixtures import TempDirMixin
-
 
 # ---------------------------------------------------------------------------
 # SQLite helpers
 # ---------------------------------------------------------------------------
+
 
 def _create_db(path: str) -> None:
     """Create a minimal ZWAMESSAGE/ZWACHATSESSION db at path."""
@@ -45,9 +45,7 @@ def _create_db(path: str) -> None:
 
 
 def _insert_session(conn: sqlite3.Connection, pk: int, name: str | None) -> None:
-    conn.execute(
-        "INSERT INTO ZWACHATSESSION (Z_PK, ZPARTNERNAME) VALUES (?, ?)", (pk, name)
-    )
+    conn.execute("INSERT INTO ZWACHATSESSION (Z_PK, ZPARTNERNAME) VALUES (?, ?)", (pk, name))
 
 
 def _insert_message(

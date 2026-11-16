@@ -2,17 +2,29 @@ from __future__ import annotations
 
 from typing import Any
 
-from .base import BaseProvider
 from core.outlook import OutlookClient
+
+from .base import BaseProvider
 
 
 class OutlookProvider(BaseProvider):
     _provider_name = "outlook"
 
-    def __init__(self, *, client_id: str, tenant: str = "consumers", token_path: str | None = None, cache_dir: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        client_id: str,
+        tenant: str = "consumers",
+        token_path: str | None = None,
+        cache_dir: str | None = None,
+    ) -> None:
         # Map BaseProvider ctor fields; credentials_path carries client_id conceptually
-        super().__init__(credentials_path=client_id, token_path=token_path or "", cache_dir=cache_dir)
-        self._client = OutlookClient(client_id=client_id, tenant=tenant, token_path=token_path, cache_dir=cache_dir)
+        super().__init__(
+            credentials_path=client_id, token_path=token_path or "", cache_dir=cache_dir
+        )
+        self._client = OutlookClient(
+            client_id=client_id, tenant=tenant, token_path=token_path, cache_dir=cache_dir
+        )
 
     # ---- lifecycle ----
     def authenticate(self) -> None:
@@ -81,11 +93,15 @@ class OutlookProvider(BaseProvider):
         add_label_ids: list[str] | None = None,
         remove_label_ids: list[str] | None = None,
     ) -> None:
-        raise NotImplementedError("OutlookProvider does not support batch message modify for sweeps")
+        raise NotImplementedError(
+            "OutlookProvider does not support batch message modify for sweeps"
+        )
 
     # ---- signatures ----
     def list_signatures(self) -> list[dict[str, Any]]:
-        raise NotImplementedError("Outlook signatures are not available via Microsoft Graph API v1.0")
+        raise NotImplementedError(
+            "Outlook signatures are not available via Microsoft Graph API v1.0"
+        )
 
     def update_signature(self, send_as_email: str, signature_html: str) -> dict[str, Any]:
         raise NotImplementedError("Outlook signatures cannot be updated via Graph v1.0")

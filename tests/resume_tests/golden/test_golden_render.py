@@ -50,7 +50,6 @@ from pathlib import Path
 from resume.docx_writer import write_resume_docx
 from resume.pipeline import FilterPipeline
 from resume.schema import Resume
-
 from tests.resume_tests.golden.golden_docx import describe_mismatch, fingerprint_docx
 from tests.resume_tests.golden.golden_fixtures import (
     CANDIDATE_FIXTURES,
@@ -96,9 +95,7 @@ class GoldenRenderTests(unittest.TestCase):
 
         if _updating():
             GOLDEN_DIR.mkdir(parents=True, exist_ok=True)
-            golden_path.write_text(
-                json.dumps(actual.to_golden(), indent=2, sort_keys=True) + "\n"
-            )
+            golden_path.write_text(json.dumps(actual.to_golden(), indent=2, sort_keys=True) + "\n")
             self.fail(
                 f"{UPDATE_ENV_VAR} is set: rewrote {golden_path.name}. "
                 "Review the diff, then unset it and re-run."
@@ -106,8 +103,7 @@ class GoldenRenderTests(unittest.TestCase):
 
         self.assertTrue(
             golden_path.exists(),
-            f"Missing golden {golden_path}. Create it with "
-            f"{UPDATE_ENV_VAR}=1 make test",
+            f"Missing golden {golden_path}. Create it with {UPDATE_ENV_VAR}=1 make test",
         )
         expected = json.loads(golden_path.read_text())
         if expected.get("digest") != actual.digest:
@@ -204,9 +200,7 @@ class GoldenRenderTests(unittest.TestCase):
                 with self.subTest(fixture=name, pipeline="filtered"):
                     self._check_golden(
                         f"pipeline_filtered__{name}",
-                        self._render_through_pipeline(
-                            CANDIDATE_FIXTURES[name](), alignment_path
-                        ),
+                        self._render_through_pipeline(CANDIDATE_FIXTURES[name](), alignment_path),
                         standard_template(),
                     )
 
@@ -276,8 +270,10 @@ class GoldenRenderTests(unittest.TestCase):
 
         for label, data in (
             ("direct", fixture),
-            ("pipeline", self._render_through_pipeline(
-                CANDIDATE_FIXTURES["empty_scalar_summary"]())),
+            (
+                "pipeline",
+                self._render_through_pipeline(CANDIDATE_FIXTURES["empty_scalar_summary"]()),
+            ),
         ):
             with self.subTest(path=label):
                 with tempfile.TemporaryDirectory() as tmp:

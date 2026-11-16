@@ -20,10 +20,10 @@ from slides.parsers_markdown import (
 from slides.schema import BulletItem, DeckOptions, SlideDeck
 from tests.slides_tests.fixtures import assert_metadata_passthrough
 
-
 # ---------------------------------------------------------------------------
 # _parse_markdown_section
 # ---------------------------------------------------------------------------
+
 
 class TestParseMarkdownSection(unittest.TestCase):
     """Tests for _parse_markdown_section helper."""
@@ -96,6 +96,7 @@ class TestParseMarkdownSection(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # load_deck_from_markdown
 # ---------------------------------------------------------------------------
+
 
 class TestLoadDeckFromMarkdown(unittest.TestCase):
     """Tests for load_deck_from_markdown."""
@@ -242,9 +243,7 @@ class TestLoadDeckFromMarkdown(unittest.TestCase):
         """Title, Subtitle directives work in markdown sections."""
         md = self._write(
             "directives.md",
-            "**Title:** Custom Title\n"
-            "**Subtitle:** My Subtitle\n"
-            "- Bullet\n",
+            "**Title:** Custom Title\n**Subtitle:** My Subtitle\n- Bullet\n",
         )
 
         deck = load_deck_from_markdown(md)
@@ -256,6 +255,7 @@ class TestLoadDeckFromMarkdown(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # load_deck_from_outline
 # ---------------------------------------------------------------------------
+
 
 class TestLoadDeckFromOutline(unittest.TestCase):
     """Tests for load_deck_from_outline."""
@@ -362,8 +362,7 @@ class TestLoadDeckFromOutline(unittest.TestCase):
         """Bold text in prompts produces highlights."""
         outline = self._write(
             "bold.md",
-            "- Slide 1 — Title\n"
-            "- Prompt (on slide): Use **kubectl** wisely\n",
+            "- Slide 1 — Title\n- Prompt (on slide): Use **kubectl** wisely\n",
         )
 
         deck = load_deck_from_outline(outline)
@@ -375,17 +374,18 @@ class TestLoadDeckFromOutline(unittest.TestCase):
         """Prompt with no text after colon is skipped."""
         outline = self._write(
             "empty_prompt.md",
-            "- Slide 1 — Title\n"
-            "- Prompt (on slide): \n",
+            "- Slide 1 — Title\n- Prompt (on slide): \n",
         )
 
         deck = load_deck_from_outline(outline)
         self.assertEqual(len(deck.slides[0].bullets), 0)
 
+
 # ---------------------------------------------------------------------------
 # _parse_markdown_section: non-bullet, non-directive line skips bullet append
 # (partial branch 189->182)
 # ---------------------------------------------------------------------------
+
 
 class TestParseSectionNonBulletLines(unittest.TestCase):
     """Cover the branch where a line is not a directive and not a bullet (branch 189->182)."""
@@ -410,6 +410,7 @@ class TestParseSectionNonBulletLines(unittest.TestCase):
 # _outline_prompt_bullet: non-matching line returns None (line 210, branch 98->91)
 # ---------------------------------------------------------------------------
 
+
 class TestOutlinePromptBullet(unittest.TestCase):
     """Tests for _outline_prompt_bullet — covers the non-match branch."""
 
@@ -431,6 +432,7 @@ class TestOutlinePromptBullet(unittest.TestCase):
 # (partial branch 243->233)
 # ---------------------------------------------------------------------------
 
+
 class TestParseOutlineSlides(unittest.TestCase):
     """Tests for _parse_outline_slides partial branches."""
 
@@ -448,10 +450,7 @@ class TestParseOutlineSlides(unittest.TestCase):
 
     def test_non_prompt_line_inside_slide_does_not_add_bullet(self):
         """A non-prompt line inside a slide does not produce a bullet (branch 189->182)."""
-        text = (
-            "- Slide 1 — Title\n"
-            "this line is not a prompt\n"
-        )
+        text = "- Slide 1 — Title\nthis line is not a prompt\n"
         slides = _parse_outline_slides(text)
         self.assertEqual(len(slides), 1)
         self.assertEqual(slides[0].bullets, [])
@@ -462,13 +461,15 @@ class TestParseOutlineSlides(unittest.TestCase):
 # (partial branch 98->91 in load_deck_from_markdown)
 # ---------------------------------------------------------------------------
 
+
 class TestParseSectionNoneResult(unittest.TestCase):
     """Cover the branch where _parse_markdown_section returns None (partial 98->91)."""
 
     def test_empty_section_skipped_in_markdown_load(self):
         """Sections that parse to None are skipped; deck slide count excludes them."""
-        import tempfile
         import os
+        import tempfile
+
         md = "# Valid Title\n- bullet one\n\n---\n\n\n---\n\n# Another\n- point\n"
         with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as f:
             f.write(md)
@@ -479,16 +480,15 @@ class TestParseSectionNoneResult(unittest.TestCase):
             # parses to None and is skipped. A >= assertion would not catch a
             # regression that stopped skipping it.
             self.assertEqual(len(deck.slides), 2)
-            self.assertEqual(
-                [s.title for s in deck.slides], ["Valid Title", "Another"]
-            )
+            self.assertEqual([s.title for s in deck.slides], ["Valid Title", "Another"])
         finally:
             os.unlink(path)
 
     def test_plain_text_only_section_produces_no_slide(self):
         """A section with only plain text (no heading, no bullets) is skipped (branch 98->91)."""
-        import tempfile
         import os
+        import tempfile
+
         # First section: valid. Second section: plain text only (no # title, no - bullet)
         # _parse_markdown_section returns None for it; load_deck skips it.
         md = "# Real Slide\n- valid bullet\n\n---\n\njust plain prose no heading no bullet\n"

@@ -241,9 +241,9 @@ def enumerate_items(source: str) -> list[str]:
     Order is preserved and duplicates dropped.
     """
     if source.startswith("items:"):
-        raw: Iterable[str] = source[len("items:"):].split(",")
+        raw: Iterable[str] = source[len("items:") :].split(",")
     elif source.startswith("file:"):
-        path = Path(source[len("file:"):]).expanduser()
+        path = Path(source[len("file:") :]).expanduser()
         try:
             raw = path.read_text(encoding="utf-8").splitlines()
         except OSError as exc:

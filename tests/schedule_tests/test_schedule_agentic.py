@@ -1,9 +1,9 @@
 """Tests for schedule/agentic.py flow map branches and capsule sections."""
+
 from __future__ import annotations
 
 import unittest
 from unittest.mock import patch
-
 
 from tests.agentic_builder_contract import AgenticBuilderContractMixin
 from tests.fixtures import make_path_mock as _make_path_mock  # noqa: E402
@@ -19,6 +19,7 @@ class TestScheduleAgenticContract(AgenticBuilderContractMixin, unittest.TestCase
 class TestScheduleFlowMap(unittest.TestCase):
     def test_plan_flow(self):
         from schedule import agentic as mod
+
         with patch.object(mod, "_cli_path_exists", side_effect=_make_path_mock({("plan",)})):
             result = mod._flow_map()
         self.assertIn("Plan", result)
@@ -26,6 +27,7 @@ class TestScheduleFlowMap(unittest.TestCase):
 
     def test_apply_flow(self):
         from schedule import agentic as mod
+
         with patch.object(mod, "_cli_path_exists", side_effect=_make_path_mock({("apply",)})):
             result = mod._flow_map()
         self.assertIn("Apply", result)
@@ -34,6 +36,7 @@ class TestScheduleFlowMap(unittest.TestCase):
 
     def test_verify_flow(self):
         from schedule import agentic as mod
+
         with patch.object(mod, "_cli_path_exists", side_effect=_make_path_mock({("verify",)})):
             result = mod._flow_map()
         self.assertIn("Verify", result)
@@ -41,6 +44,7 @@ class TestScheduleFlowMap(unittest.TestCase):
 
     def test_sync_flow(self):
         from schedule import agentic as mod
+
         with patch.object(mod, "_cli_path_exists", side_effect=_make_path_mock({("sync",)})):
             result = mod._flow_map()
         self.assertIn("Sync", result)
@@ -48,6 +52,7 @@ class TestScheduleFlowMap(unittest.TestCase):
 
     def test_export_flow(self):
         from schedule import agentic as mod
+
         with patch.object(mod, "_cli_path_exists", side_effect=_make_path_mock({("export",)})):
             result = mod._flow_map()
         self.assertIn("Export", result)
@@ -55,6 +60,7 @@ class TestScheduleFlowMap(unittest.TestCase):
 
     def test_compress_flow(self):
         from schedule import agentic as mod
+
         with patch.object(mod, "_cli_path_exists", side_effect=_make_path_mock({("compress",)})):
             result = mod._flow_map()
         self.assertIn("Compress", result)
@@ -62,6 +68,7 @@ class TestScheduleFlowMap(unittest.TestCase):
 
     def test_all_flows(self):
         from schedule import agentic as mod
+
         with patch.object(mod, "_cli_path_exists", return_value=True):
             result = mod._flow_map()
         self.assertIn("Plan", result)
@@ -73,6 +80,7 @@ class TestScheduleFlowMap(unittest.TestCase):
 
     def test_empty_flow_map(self):
         from schedule import agentic as mod
+
         with patch.object(mod, "_cli_path_exists", return_value=False):
             result = mod._flow_map()
         self.assertEqual(result, "")
@@ -83,22 +91,29 @@ class TestScheduleCapsuleContent(unittest.TestCase):
 
     def test_capsule_with_tree_and_flows(self):
         from schedule import agentic as mod
-        with patch.object(mod, "_cli_path_exists", return_value=True), \
-             patch.object(mod, "_cli_tree", return_value="cli-tree-content"):
+
+        with (
+            patch.object(mod, "_cli_path_exists", return_value=True),
+            patch.object(mod, "_cli_tree", return_value="cli-tree-content"),
+        ):
             cap = mod.build_agentic_capsule()
         self.assertIn("cli-tree-content", cap)
         self.assertIn("Plan", cap)
 
     def test_capsule_no_tree_no_flows(self):
         from schedule import agentic as mod
-        with patch.object(mod, "_cli_path_exists", return_value=False), \
-             patch.object(mod, "_cli_tree", return_value=""):
+
+        with (
+            patch.object(mod, "_cli_path_exists", return_value=False),
+            patch.object(mod, "_cli_tree", return_value=""),
+        ):
             cap = mod.build_agentic_capsule()
         self.assertIsInstance(cap, str)
         self.assertGreater(len(cap), 0)
 
     def test_capsule_mentions_schedule(self):
         from schedule.agentic import build_agentic_capsule
+
         cap = build_agentic_capsule()
         self.assertIn("schedule", cap.lower())
 
@@ -108,16 +123,22 @@ class TestScheduleDomainMapContent(unittest.TestCase):
 
     def test_domain_map_with_tree_and_flows(self):
         from schedule import agentic as mod
-        with patch.object(mod, "_cli_path_exists", return_value=True), \
-             patch.object(mod, "_cli_tree", return_value="cli-tree-content"):
+
+        with (
+            patch.object(mod, "_cli_path_exists", return_value=True),
+            patch.object(mod, "_cli_tree", return_value="cli-tree-content"),
+        ):
             dm = mod.build_domain_map()
         self.assertIn("cli-tree-content", dm)
         self.assertIn("Plan", dm)
 
     def test_domain_map_no_tree_no_flows(self):
         from schedule import agentic as mod
-        with patch.object(mod, "_cli_path_exists", return_value=False), \
-             patch.object(mod, "_cli_tree", return_value=""):
+
+        with (
+            patch.object(mod, "_cli_path_exists", return_value=False),
+            patch.object(mod, "_cli_tree", return_value=""),
+        ):
             dm = mod.build_domain_map()
         self.assertIn("Top-Level", dm)
 
@@ -125,6 +146,7 @@ class TestScheduleDomainMapContent(unittest.TestCase):
 class TestScheduleCliTree(unittest.TestCase):
     def test_cli_tree_returns_string(self):
         from schedule.agentic import _cli_tree
+
         result = _cli_tree()
         self.assertIsInstance(result, str)
 

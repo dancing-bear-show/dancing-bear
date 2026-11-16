@@ -86,7 +86,11 @@ class ParseEditBlocksTests(unittest.TestCase):
         self.assertEqual(block, qwen_edits.EditBlock("src/a.py", ("old",), ("new",)))
 
     def test_multiple_blocks_and_files_keep_their_order(self) -> None:
-        text = edit_block("src/a.py", "a1", "A1") + edit_block("src/b.py", "b1\nb2", "") + edit_block("src/a.py", "a2", "A2")
+        text = (
+            edit_block("src/a.py", "a1", "A1")
+            + edit_block("src/b.py", "b1\nb2", "")
+            + edit_block("src/a.py", "a2", "A2")
+        )
 
         blocks = qwen_edits.parse_edit_blocks(text)
 
@@ -116,7 +120,9 @@ class ParseEditBlocksTests(unittest.TestCase):
     def test_file_line_applies_to_every_following_block(self) -> None:
         text = "FILE: src/a.py\n<<<<<<< SEARCH\na\n=======\nb\n>>>>>>> REPLACE\n<<<<<<< SEARCH\nc\n=======\nd\n>>>>>>> REPLACE\n"
 
-        self.assertEqual([b.path for b in qwen_edits.parse_edit_blocks(text)], ["src/a.py", "src/a.py"])
+        self.assertEqual(
+            [b.path for b in qwen_edits.parse_edit_blocks(text)], ["src/a.py", "src/a.py"]
+        )
 
     def test_body_lines_are_verbatim(self) -> None:
         text = "FILE: docs/x.rst\n<<<<<<< SEARCH\n  Title  \n=======\nTitle\n>>>>>>> REPLACE\n"
@@ -137,7 +143,9 @@ class ParseEditBlocksTests(unittest.TestCase):
         }
         for name, text in cases.items():
             with self.subTest(name):
-                self.assertEqual(_outcome(qwen_edits.parse_edit_blocks, text), qwen_edits.EDIT_MALFORMED_OUTCOME)
+                self.assertEqual(
+                    _outcome(qwen_edits.parse_edit_blocks, text), qwen_edits.EDIT_MALFORMED_OUTCOME
+                )
 
     def test_in_body_replace_marker_followed_by_the_real_closer_is_malformed(self) -> None:
         # A literal ">>>>>>> REPLACE" line inside the REPLACE body ends the
@@ -157,7 +165,9 @@ class ParseEditBlocksTests(unittest.TestCase):
         }
         for name, text in cases.items():
             with self.subTest(name):
-                self.assertEqual(_outcome(qwen_edits.parse_edit_blocks, text), qwen_edits.EDIT_MALFORMED_OUTCOME)
+                self.assertEqual(
+                    _outcome(qwen_edits.parse_edit_blocks, text), qwen_edits.EDIT_MALFORMED_OUTCOME
+                )
 
     def test_truncation_right_after_an_in_body_replace_marker_is_malformed(self) -> None:
         # response_text ends right after "...=======\nnew1\n>>>>>>> REPLACE\n"
@@ -168,7 +178,9 @@ class ParseEditBlocksTests(unittest.TestCase):
         # line - it must not be read as trailing prose and dropped.
         text = "FILE: a.py\n<<<<<<< SEARCH\nold\n=======\nnew1\n>>>>>>> REPLACE\nnew2\n"
 
-        self.assertEqual(_outcome(qwen_edits.parse_edit_blocks, text), qwen_edits.EDIT_MALFORMED_OUTCOME)
+        self.assertEqual(
+            _outcome(qwen_edits.parse_edit_blocks, text), qwen_edits.EDIT_MALFORMED_OUTCOME
+        )
 
     def test_trailing_prose_after_the_last_block_is_malformed(self) -> None:
         # The prompt asks for edit blocks ONLY. Prose after the final block,
@@ -180,7 +192,9 @@ class ParseEditBlocksTests(unittest.TestCase):
             + "```\n\nLet me know if you need anything else!\n"
         )
 
-        self.assertEqual(_outcome(qwen_edits.parse_edit_blocks, text), qwen_edits.EDIT_MALFORMED_OUTCOME)
+        self.assertEqual(
+            _outcome(qwen_edits.parse_edit_blocks, text), qwen_edits.EDIT_MALFORMED_OUTCOME
+        )
 
     # A REPLACE body whose first line after "new1" is a literal
     # ">>>>>>> REPLACE" line, truncated before its real closer.
@@ -189,9 +203,13 @@ class ParseEditBlocksTests(unittest.TestCase):
     def test_truncation_after_an_in_body_marker_then_a_blank_line_is_malformed(self) -> None:
         text = self.IN_BODY_MARKER + "\nnew2"
 
-        self.assertEqual(_outcome(qwen_edits.parse_edit_blocks, text), qwen_edits.EDIT_MALFORMED_OUTCOME)
+        self.assertEqual(
+            _outcome(qwen_edits.parse_edit_blocks, text), qwen_edits.EDIT_MALFORMED_OUTCOME
+        )
         files = {"a.py": "old\n"}
-        self.assertEqual(_outcome(qwen_edits.edits_to_diff, text, files), qwen_edits.EDIT_MALFORMED_OUTCOME)
+        self.assertEqual(
+            _outcome(qwen_edits.edits_to_diff, text, files), qwen_edits.EDIT_MALFORMED_OUTCOME
+        )
         self.assertEqual(files, {"a.py": "old\n"})
 
     def test_truncation_residue_anywhere_after_the_last_block_is_malformed(self) -> None:
@@ -204,7 +222,9 @@ class ParseEditBlocksTests(unittest.TestCase):
         }
         for name, text in cases.items():
             with self.subTest(name):
-                self.assertEqual(_outcome(qwen_edits.parse_edit_blocks, text), qwen_edits.EDIT_MALFORMED_OUTCOME)
+                self.assertEqual(
+                    _outcome(qwen_edits.parse_edit_blocks, text), qwen_edits.EDIT_MALFORMED_OUTCOME
+                )
 
     def test_info_string_fence_after_the_last_block_is_malformed(self) -> None:
         # A response truncated right after an in-body ">>>>>>> REPLACE" can
@@ -217,9 +237,13 @@ class ParseEditBlocksTests(unittest.TestCase):
         # _is_truncation_residue specifically.
         text = self.IN_BODY_MARKER + "\n```python\n"
 
-        self.assertEqual(_outcome(qwen_edits.parse_edit_blocks, text), qwen_edits.EDIT_MALFORMED_OUTCOME)
+        self.assertEqual(
+            _outcome(qwen_edits.parse_edit_blocks, text), qwen_edits.EDIT_MALFORMED_OUTCOME
+        )
         files = {"a.py": "old\n"}
-        self.assertEqual(_outcome(qwen_edits.edits_to_diff, text, files), qwen_edits.EDIT_MALFORMED_OUTCOME)
+        self.assertEqual(
+            _outcome(qwen_edits.edits_to_diff, text, files), qwen_edits.EDIT_MALFORMED_OUTCOME
+        )
         self.assertEqual(files, {"a.py": "old\n"})
 
     def test_info_string_fence_directly_after_a_non_final_replace_is_malformed(self) -> None:
@@ -231,7 +255,9 @@ class ParseEditBlocksTests(unittest.TestCase):
         # rather than read as a legitimate fence close.
         text = self.IN_BODY_MARKER + "```python\n" + edit_block("b.py", "x", "y")
 
-        self.assertEqual(_outcome(qwen_edits.parse_edit_blocks, text), qwen_edits.EDIT_MALFORMED_OUTCOME)
+        self.assertEqual(
+            _outcome(qwen_edits.parse_edit_blocks, text), qwen_edits.EDIT_MALFORMED_OUTCOME
+        )
 
     def test_blank_lines_and_fences_after_the_last_block_still_parse(self) -> None:
         body = edit_block("src/a.py", "old", "new")
@@ -242,7 +268,9 @@ class ParseEditBlocksTests(unittest.TestCase):
             "closing fence": "```\n" + body + "```",
             "closing fence then blank lines": "```python\n" + body + "```\n\n\n",
             "prose before the first block": "Sure, here is the change:\n\n" + body,
-            "prose between two blocks": body + "\nNext, the second edit:\n\n" + edit_block("src/b.py", "x", "y"),
+            "prose between two blocks": body
+            + "\nNext, the second edit:\n\n"
+            + edit_block("src/b.py", "x", "y"),
             "wrapped in a diff fence": "```diff\n" + body + "```\n",
         }
         for name, text in cases.items():
@@ -260,7 +288,9 @@ class ParseEditBlocksTests(unittest.TestCase):
         }
         for name, text in cases.items():
             with self.subTest(name):
-                self.assertEqual(_outcome(qwen_edits.parse_edit_blocks, text), qwen_edits.EDIT_MALFORMED_OUTCOME)
+                self.assertEqual(
+                    _outcome(qwen_edits.parse_edit_blocks, text), qwen_edits.EDIT_MALFORMED_OUTCOME
+                )
                 self.assertEqual(
                     _outcome(qwen_edits.edits_to_diff, text, {"docs/x.rst": "Title\nexisting\n"}),
                     qwen_edits.EDIT_MALFORMED_OUTCOME,
@@ -301,7 +331,9 @@ class ParseEditBlocksTests(unittest.TestCase):
             "FILE: src/b.py  \n<<<<<<< SEARCH\nx2\n=======\nX2\n>>>>>>> REPLACE\n"
         )
 
-        self.assertEqual([b.path.strip() for b in qwen_edits.parse_edit_blocks(text)], ["src/a.py", "src/b.py"])
+        self.assertEqual(
+            [b.path.strip() for b in qwen_edits.parse_edit_blocks(text)], ["src/a.py", "src/b.py"]
+        )
 
     def test_an_indented_block_is_not_a_block(self) -> None:
         text = "FILE: a.py\n  <<<<<<< SEARCH\n  x\n  =======\n  y\n  >>>>>>> REPLACE\n"
@@ -316,7 +348,9 @@ class ParseEditBlocksTests(unittest.TestCase):
         self.assertEqual(block, qwen_edits.EditBlock("src/a.py", ("old",), ("new",)))
 
     def test_empty_search_parses_as_an_empty_tuple(self) -> None:
-        [block] = qwen_edits.parse_edit_blocks("FILE: src/a.py\n<<<<<<< SEARCH\n=======\nnew\n>>>>>>> REPLACE\n")
+        [block] = qwen_edits.parse_edit_blocks(
+            "FILE: src/a.py\n<<<<<<< SEARCH\n=======\nnew\n>>>>>>> REPLACE\n"
+        )
 
         self.assertEqual(block.search, ())
 
@@ -326,9 +360,16 @@ class ParseEditBlocksTests(unittest.TestCase):
         self.assertEqual(block.path, "")
 
     def test_no_blocks_is_no_edits_found(self) -> None:
-        for text in ("", "sorry, I cannot help with that", "FILE: src/a.py\n", "```diff\n--- a/x\n+++ b/x\n```"):
+        for text in (
+            "",
+            "sorry, I cannot help with that",
+            "FILE: src/a.py\n",
+            "```diff\n--- a/x\n+++ b/x\n```",
+        ):
             with self.subTest(text=text):
-                self.assertEqual(_outcome(qwen_edits.parse_edit_blocks, text), qwen_edits.NO_EDITS_OUTCOME)
+                self.assertEqual(
+                    _outcome(qwen_edits.parse_edit_blocks, text), qwen_edits.NO_EDITS_OUTCOME
+                )
 
     def test_incomplete_or_disordered_markers_are_malformed(self) -> None:
         cases = {
@@ -341,25 +382,33 @@ class ParseEditBlocksTests(unittest.TestCase):
         }
         for name, text in cases.items():
             with self.subTest(name):
-                self.assertEqual(_outcome(qwen_edits.parse_edit_blocks, text), qwen_edits.EDIT_MALFORMED_OUTCOME)
+                self.assertEqual(
+                    _outcome(qwen_edits.parse_edit_blocks, text), qwen_edits.EDIT_MALFORMED_OUTCOME
+                )
 
 
 class ApplyEditBlocksTests(unittest.TestCase):
     FILES = {"src/a.py": "one\ntwo\nthree\n", "src/b.py": "alpha\nbeta"}
 
     def _apply(self, text: str, files: dict[str, str] | None = None) -> dict[str, str]:
-        return qwen_edits.apply_edit_blocks(qwen_edits.parse_edit_blocks(text), dict(files or self.FILES))
+        return qwen_edits.apply_edit_blocks(
+            qwen_edits.parse_edit_blocks(text), dict(files or self.FILES)
+        )
 
     def _apply_outcome(self, text: str, files: dict[str, str] | None = None) -> str:
         return _outcome(self._apply, text, files)
 
     def test_single_edit_returns_only_the_changed_file(self) -> None:
-        self.assertEqual(self._apply(edit_block("src/a.py", "two", "TWO")), {"src/a.py": "one\nTWO\nthree\n"})
+        self.assertEqual(
+            self._apply(edit_block("src/a.py", "two", "TWO")), {"src/a.py": "one\nTWO\nthree\n"}
+        )
 
     def test_edits_across_files(self) -> None:
         text = edit_block("src/a.py", "one", "ONE") + edit_block("src/b.py", "alpha", "ALPHA")
 
-        self.assertEqual(self._apply(text), {"src/a.py": "ONE\ntwo\nthree\n", "src/b.py": "ALPHA\nbeta"})
+        self.assertEqual(
+            self._apply(text), {"src/a.py": "ONE\ntwo\nthree\n", "src/b.py": "ALPHA\nbeta"}
+        )
 
     def test_blocks_apply_sequentially_to_current_content(self) -> None:
         text = edit_block("src/a.py", "two", "2a\n2b") + edit_block("src/a.py", "2b\nthree", "end")
@@ -399,12 +448,16 @@ class ApplyEditBlocksTests(unittest.TestCase):
     def test_whole_line_blank_search_matches_a_blank_line(self) -> None:
         files = {"src/c.py": "a\n\nb\n"}
 
-        self.assertEqual(self._apply(edit_block("src/c.py", BLANK_LINE, "x"), files), {"src/c.py": "a\nx\nb\n"})
+        self.assertEqual(
+            self._apply(edit_block("src/c.py", BLANK_LINE, "x"), files), {"src/c.py": "a\nx\nb\n"}
+        )
 
     def test_path_spellings_that_normalise_to_an_input_are_accepted(self) -> None:
         for path in ("./src/a.py", "src//a.py", "`src/a.py`", "src/x/../a.py"):
             with self.subTest(path=path):
-                self.assertEqual(self._apply(edit_block(path, "one", "1")), {"src/a.py": "1\ntwo\nthree\n"})
+                self.assertEqual(
+                    self._apply(edit_block(path, "one", "1")), {"src/a.py": "1\ntwo\nthree\n"}
+                )
 
     def test_exact_backticked_input_name_is_matched_before_normalisation(self) -> None:
         """An input literally named `src/a.py` (backticks and all) is a
@@ -437,7 +490,10 @@ class ApplyEditBlocksTests(unittest.TestCase):
         files = {"src/a.py": "one\ntwo\nthree\n"}
         for path in ("`src/a.py`", "./src/a.py"):
             with self.subTest(path=path):
-                self.assertEqual(self._apply(edit_block(path, "one", "1"), files), {"src/a.py": "1\ntwo\nthree\n"})
+                self.assertEqual(
+                    self._apply(edit_block(path, "one", "1"), files),
+                    {"src/a.py": "1\ntwo\nthree\n"},
+                )
 
     def test_ambiguous_fallback_normalisation_is_rejected(self) -> None:
         """Two inputs that both normalise to the same name, with a raw FILE
@@ -445,56 +501,95 @@ class ApplyEditBlocksTests(unittest.TestCase):
         target and must be rejected rather than silently picking one."""
         files = {"`src/a.py`": "backticked\n", '"src/a.py"': "quoted\n"}
 
-        self.assertEqual(self._apply_outcome(edit_block("./src/a.py", "x", "y"), files), qwen_edits.EDIT_AMBIGUOUS_OUTCOME)
+        self.assertEqual(
+            self._apply_outcome(edit_block("./src/a.py", "x", "y"), files),
+            qwen_edits.EDIT_AMBIGUOUS_OUTCOME,
+        )
 
     def test_paths_outside_the_inputs_are_refused(self) -> None:
-        for path in ("", "src/c.py", "SRC/a.py", "/src/a.py", "../src/a.py", "src\\a.py", "a.py", ".", "src/a.py/.."):
+        for path in (
+            "",
+            "src/c.py",
+            "SRC/a.py",
+            "/src/a.py",
+            "../src/a.py",
+            "src\\a.py",
+            "a.py",
+            ".",
+            "src/a.py/..",
+        ):
             with self.subTest(path=path):
-                self.assertEqual(self._apply_outcome(edit_block(path, "one", "1")), qwen_edits.EDIT_OUTSIDE_INPUTS_OUTCOME)
+                self.assertEqual(
+                    self._apply_outcome(edit_block(path, "one", "1")),
+                    qwen_edits.EDIT_OUTSIDE_INPUTS_OUTCOME,
+                )
 
     def test_absolute_path_of_an_input_is_refused(self) -> None:
         """The prompt never shows the root, so a model that invents one is off-script."""
         self.assertEqual(
-            self._apply_outcome(edit_block("/Users/someone/repo/src/a.py", "one", "1")), qwen_edits.EDIT_OUTSIDE_INPUTS_OUTCOME
+            self._apply_outcome(edit_block("/Users/someone/repo/src/a.py", "one", "1")),
+            qwen_edits.EDIT_OUTSIDE_INPUTS_OUTCOME,
         )
 
     def test_search_not_in_file_is_not_found(self) -> None:
         for search in ("four", "one\nthree", "one ", " one", "two\nthree\n"):
             with self.subTest(search=search):
-                self.assertEqual(self._apply_outcome(edit_block("src/a.py", search, "x")), qwen_edits.EDIT_NOT_FOUND_OUTCOME)
+                self.assertEqual(
+                    self._apply_outcome(edit_block("src/a.py", search, "x")),
+                    qwen_edits.EDIT_NOT_FOUND_OUTCOME,
+                )
 
     def test_search_matching_twice_is_ambiguous(self) -> None:
         files = {"src/d.py": "x = 1\ny = 2\nx = 1\n"}
 
-        self.assertEqual(self._apply_outcome(edit_block("src/d.py", "x = 1", "x = 3"), files), qwen_edits.EDIT_AMBIGUOUS_OUTCOME)
-        self.assertEqual(self._apply(edit_block("src/d.py", "x = 1\ny = 2", "x = 3\ny = 2"), files), {"src/d.py": "x = 3\ny = 2\nx = 1\n"})
+        self.assertEqual(
+            self._apply_outcome(edit_block("src/d.py", "x = 1", "x = 3"), files),
+            qwen_edits.EDIT_AMBIGUOUS_OUTCOME,
+        )
+        self.assertEqual(
+            self._apply(edit_block("src/d.py", "x = 1\ny = 2", "x = 3\ny = 2"), files),
+            {"src/d.py": "x = 3\ny = 2\nx = 1\n"},
+        )
 
     def test_empty_search_is_ambiguous_never_an_insert(self) -> None:
         text = "FILE: src/a.py\n<<<<<<< SEARCH\n=======\nheader\n>>>>>>> REPLACE\n"
         for files in (self.FILES, {"src/a.py": ""}):
             with self.subTest(files=files):
-                self.assertEqual(self._apply_outcome(text, files), qwen_edits.EDIT_AMBIGUOUS_OUTCOME)
+                self.assertEqual(
+                    self._apply_outcome(text, files), qwen_edits.EDIT_AMBIGUOUS_OUTCOME
+                )
 
     # A response meant to SEARCH "Title\n=======\nold body" but cut off before
     # its real divider parses as SEARCH "Title", REPLACE "old body".
-    TRUNCATED_UNDERLINE = "FILE: docs/x.rst\n<<<<<<< SEARCH\nTitle\n=======\nold body\n>>>>>>> REPLACE\n"
+    TRUNCATED_UNDERLINE = (
+        "FILE: docs/x.rst\n<<<<<<< SEARCH\nTitle\n=======\nold body\n>>>>>>> REPLACE\n"
+    )
     RST_FILE = {"docs/x.rst": "Title\n=======\nold body\nmore\n"}
 
     def test_match_followed_by_a_bare_divider_is_malformed(self) -> None:
-        self.assertEqual(self._apply_outcome(self.TRUNCATED_UNDERLINE, self.RST_FILE), qwen_edits.EDIT_MALFORMED_OUTCOME)
         self.assertEqual(
-            _outcome(qwen_edits.edits_to_diff, self.TRUNCATED_UNDERLINE, dict(self.RST_FILE)), qwen_edits.EDIT_MALFORMED_OUTCOME
+            self._apply_outcome(self.TRUNCATED_UNDERLINE, self.RST_FILE),
+            qwen_edits.EDIT_MALFORMED_OUTCOME,
+        )
+        self.assertEqual(
+            _outcome(qwen_edits.edits_to_diff, self.TRUNCATED_UNDERLINE, dict(self.RST_FILE)),
+            qwen_edits.EDIT_MALFORMED_OUTCOME,
         )
 
     def test_match_followed_by_a_bare_divider_with_trailing_whitespace_is_malformed(self) -> None:
         files = {"docs/x.rst": "Title\n======= \nold body\nmore\n"}
 
-        self.assertEqual(self._apply_outcome(self.TRUNCATED_UNDERLINE, files), qwen_edits.EDIT_MALFORMED_OUTCOME)
+        self.assertEqual(
+            self._apply_outcome(self.TRUNCATED_UNDERLINE, files), qwen_edits.EDIT_MALFORMED_OUTCOME
+        )
 
     def test_match_followed_by_an_indented_divider_applies(self) -> None:
         files = {"docs/x.rst": "Title\n  =======\nbody\n"}
 
-        self.assertEqual(self._apply(edit_block("docs/x.rst", "Title", "TITLE"), files), {"docs/x.rst": "TITLE\n  =======\nbody\n"})
+        self.assertEqual(
+            self._apply(edit_block("docs/x.rst", "Title", "TITLE"), files),
+            {"docs/x.rst": "TITLE\n  =======\nbody\n"},
+        )
 
     def test_divider_elsewhere_in_the_file_does_not_block_an_edit(self) -> None:
         cases = (
@@ -503,7 +598,10 @@ class ApplyEditBlocksTests(unittest.TestCase):
         )
         for search, replace, expected in cases:
             with self.subTest(search=search):
-                self.assertEqual(self._apply(edit_block("docs/x.rst", search, replace), self.RST_FILE), {"docs/x.rst": expected})
+                self.assertEqual(
+                    self._apply(edit_block("docs/x.rst", search, replace), self.RST_FILE),
+                    {"docs/x.rst": expected},
+                )
 
     def test_edits_that_change_nothing_are_no_change(self) -> None:
         cases = (
@@ -517,7 +615,9 @@ class ApplyEditBlocksTests(unittest.TestCase):
     def test_inputs_are_not_mutated(self) -> None:
         files = dict(self.FILES)
 
-        qwen_edits.apply_edit_blocks(qwen_edits.parse_edit_blocks(edit_block("src/a.py", "two", "TWO")), files)
+        qwen_edits.apply_edit_blocks(
+            qwen_edits.parse_edit_blocks(edit_block("src/a.py", "two", "TWO")), files
+        )
 
         self.assertEqual(files, self.FILES)
 
@@ -571,7 +671,9 @@ class BuildUnifiedDiffGitApplyTests(TempDirMixin, unittest.TestCase):
 
     def test_no_final_newline_edit_far_from_the_end(self) -> None:
         lines = "\n".join(f"line {i}" for i in range(20))
-        diff = self._assert_round_trip({"src/n.py": lines}, edit_block("src/n.py", "line 1", "LINE 1"))
+        diff = self._assert_round_trip(
+            {"src/n.py": lines}, edit_block("src/n.py", "line 1", "LINE 1")
+        )
 
         self.assertNotIn("No newline", diff)
 
@@ -580,7 +682,9 @@ class BuildUnifiedDiffGitApplyTests(TempDirMixin, unittest.TestCase):
 
     def test_multi_hunk_single_file(self) -> None:
         text = "".join(f"line {i}\n" for i in range(40))
-        response = edit_block("src/m.py", "line 2", "LINE 2") + edit_block("src/m.py", "line 35", "LINE 35\nextra")
+        response = edit_block("src/m.py", "line 2", "LINE 2") + edit_block(
+            "src/m.py", "line 35", "LINE 35\nextra"
+        )
 
         diff = self._assert_round_trip({"src/m.py": text}, response)
 
@@ -589,7 +693,9 @@ class BuildUnifiedDiffGitApplyTests(TempDirMixin, unittest.TestCase):
     def test_multiple_files_get_one_section_each(self) -> None:
         response = edit_block("src/a.py", "x", "y") + edit_block("tests/b.py", "p\nq", "q")
 
-        diff = self._assert_round_trip({"src/a.py": "x\n", "tests/b.py": "p\nq\nr", "src/c.py": "same\n"}, response)
+        diff = self._assert_round_trip(
+            {"src/a.py": "x\n", "tests/b.py": "p\nq\nr", "src/c.py": "same\n"}, response
+        )
 
         self.assertEqual(qwen.diff_stats(diff), (["src/a.py", "tests/b.py"], 3))
         self.assertIsNone(qwen.check_patch_caps(diff))
@@ -603,7 +709,9 @@ class BuildUnifiedDiffGitApplyTests(TempDirMixin, unittest.TestCase):
         (self.repo / "src/n.py").write_text("a\nb", encoding="utf-8")
         diff = qwen_edits.edits_to_diff(edit_block("src/n.py", "b", "B"), {"src/n.py": "a\nb"})
 
-        self.assertFalse(REAL_GIT_APPLY_CHECK(diff.replace("\\ No newline at end of file\n", ""), self.repo))
+        self.assertFalse(
+            REAL_GIT_APPLY_CHECK(diff.replace("\\ No newline at end of file\n", ""), self.repo)
+        )
 
     def test_path_containing_a_tab_is_quoted_and_git_apply_accepts_it(self) -> None:
         rel = "src/a\tb.py"
@@ -644,7 +752,9 @@ class BuildUnifiedDiffGitApplyTests(TempDirMixin, unittest.TestCase):
         self.assertEqual(path.read_bytes(), b"y\n")
 
     def test_plain_path_is_unquoted_and_byte_identical(self) -> None:
-        diff = self._assert_round_trip({"src/plain.py": "x\n"}, edit_block("src/plain.py", "x", "y"))
+        diff = self._assert_round_trip(
+            {"src/plain.py": "x\n"}, edit_block("src/plain.py", "x", "y")
+        )
 
         self.assertIn("--- a/src/plain.py\n", diff)
         self.assertIn("+++ b/src/plain.py\n", diff)
@@ -687,7 +797,9 @@ class ResponsePersistenceTests(QwenHandlerCase):
     """A failure after the model answered keeps its masked response."""
 
     def _secret_response(self) -> str:
-        return f"I think token={_FAKE_TOKEN} goes here:\n" + edit_block(GREET_PATH, "not in the file", "x")
+        return f"I think token={_FAKE_TOKEN} goes here:\n" + edit_block(
+            GREET_PATH, "not in the file", "x"
+        )
 
     def _response_file(self) -> Path:
         return self.response_dir / "qwen-test-job.txt"
@@ -710,7 +822,11 @@ class ResponsePersistenceTests(QwenHandlerCase):
         cases = (
             ("sorry", qwen_edits.NO_EDITS_OUTCOME, None),
             (edit_block("src/other.py", "x", "y"), qwen_edits.EDIT_OUTSIDE_INPUTS_OUTCOME, None),
-            (edit_block(GREET_PATH, "def greet(name):", "def greet(name):"), qwen_edits.NO_CHANGE_OUTCOME, None),
+            (
+                edit_block(GREET_PATH, "def greet(name):", "def greet(name):"),
+                qwen_edits.NO_CHANGE_OUTCOME,
+                None,
+            ),
             (GREET_EDIT, "terminal-patch-does-not-apply", False),
             (GREET_EDIT, "terminal-patch-too-broad", "caps"),
         )

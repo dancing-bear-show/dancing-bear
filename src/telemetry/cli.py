@@ -8,16 +8,8 @@ This shim re-exports the full public surface so that existing imports of
 the form ``from telemetry.cli import <symbol>`` continue to work unchanged.
 ``bin/telemetry`` imports ``main`` from here, which delegates to cli_sessions.
 """
-from __future__ import annotations
 
-# Re-export main and internal helpers for backwards compat
-from telemetry.cli_sessions import (  # noqa: F401
-    _rules_explain,
-    _rules_init,
-    _rules_list,
-    _rules_validate,
-    main,
-)
+from __future__ import annotations
 
 # Re-export all formatting/data helpers
 from telemetry.cli_formatters import (  # noqa: F401
@@ -37,6 +29,15 @@ from telemetry.cli_formatters import (  # noqa: F401
     _session_to_dict,
     _sessions_json_payload,
     _truncate_id,
+)
+
+# Re-export main and internal helpers for backwards compat
+from telemetry.cli_sessions import (  # noqa: F401
+    _rules_explain,
+    _rules_init,
+    _rules_list,
+    _rules_validate,
+    main,
 )
 
 if __name__ == "__main__":  # pragma: no cover

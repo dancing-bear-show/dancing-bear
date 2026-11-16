@@ -1,17 +1,22 @@
 """Schedule assistant pipeline components."""
+
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
-from core.pipeline import RequestConsumer, SafeProcessor, BaseProducer
+from calendars.pipeline_base import load_schedule_sources
+from core.auth import (
+    OutlookServiceConfig,
+    build_outlook_service,  # noqa: F401
+)
 from core.cli_errors import CLIError, ExitCode
-from core.yamlio import dump_config as _dump_yaml
 from core.date_utils import day_range_to_iso
-
 from core.date_utils import to_iso_str as _to_iso_str  # noqa: F401
-
+from core.pipeline import BaseProducer, RequestConsumer, SafeProcessor
+from core.yamlio import dump_config as _dump_yaml
 from schedule.pipeline_expand import (  # noqa: F401
     EventCreateParams,
     RecurrenceExpansionConfig,
@@ -33,15 +38,15 @@ from schedule.pipeline_expand import (  # noqa: F401
     _weekday_code_to_py,
 )
 from schedule.pipeline_verify import (  # noqa: F401
+    _ERR_NO_PLAN_EVENTS,
     SyncRequest,
     SyncRequestConsumer,
     SyncResult,
+    VerifyProcessor,
+    VerifyProducer,
     VerifyRequest,
     VerifyRequestConsumer,
     VerifyResult,
-    VerifyProducer,
-    VerifyProcessor,
-    _ERR_NO_PLAN_EVENTS,
     _build_have_map,
     _build_have_st_keys,
     _build_outlook_service,
@@ -53,9 +58,6 @@ from schedule.pipeline_verify import (  # noqa: F401
     _key_subject_time,
     _load_plan_events,
 )
-from core.auth import OutlookServiceConfig
-from calendars.pipeline_base import load_schedule_sources
-from core.auth import build_outlook_service  # noqa: F401
 
 
 def _events_from_source(source: str, kind: str | None) -> list[dict[str, Any]]:
@@ -82,7 +84,9 @@ class PlanResult:
 class PlanProcessor(SafeProcessor[PlanRequest, PlanResult]):
     """Generate a plan from schedule sources with automatic error handling."""
 
-    def __init__(self, loader: Callable[[str, str | None], list[dict[str, Any]]] = _events_from_source) -> None:
+    def __init__(
+        self, loader: Callable[[str, str | None], list[dict[str, Any]]] = _events_from_source
+    ) -> None:
         self._loader = loader
 
     def _process_safe(self, payload: PlanRequest) -> PlanResult:
@@ -132,7 +136,8 @@ def _determine_creates(
     to_create_series = _find_missing_series(series_by_subject, present_subjects)
     missing_occ = [k for k in ctx.plan_st_keys if k not in ctx.have_keys]
     to_create_oneoffs = [
-        e for e in (events or [])
+        e
+        for e in (events or [])
         if _should_create_oneoff(e, ctx.match_mode, missing_occ, present_subjects)
     ]
     return to_create_series, to_create_oneoffs
@@ -172,7 +177,7 @@ def _find_occurrences_to_delete_by_subject(
 
 
 def _build_series_maps(
-    have_map: dict[str, dict[str, Any]]
+    have_map: dict[str, dict[str, Any]],
 ) -> tuple[dict[str, list[str]], dict[str, str]]:
     """Build series keys and subject mappings from occurrences."""
     series_keys: dict[str, list[str]] = {}
@@ -206,13 +211,14 @@ def _find_series_to_delete(ctx: SyncMatchContext) -> list[str]:
     """Find series master IDs to delete."""
     series_keys, series_subject = _build_series_maps(ctx.have_map)
     return [
-        sid for sid, keys in series_keys.items()
+        sid
+        for sid, keys in series_keys.items()
         if _should_delete_series(sid, keys, series_subject, ctx)
     ]
 
 
 def _determine_deletes(
-    payload: "SyncRequest",
+    payload: SyncRequest,
     ctx: SyncMatchContext,
 ) -> tuple[list[str], list[str]]:
     """Determine which occurrences and series masters to delete."""
@@ -223,7 +229,9 @@ def _determine_deletes(
     if ctx.match_mode == "subject-time":
         to_delete_occurrence_ids = _find_occurrences_to_delete_by_time(extra_keys, ctx.have_map)
     else:
-        to_delete_occurrence_ids = _find_occurrences_to_delete_by_subject(ctx.have_map, ctx.planned_subjects_set)
+        to_delete_occurrence_ids = _find_occurrences_to_delete_by_subject(
+            ctx.have_map, ctx.planned_subjects_set
+        )
 
     to_delete_series_master_ids: list[str] = []
     if payload.delete_unplanned_series:
@@ -243,7 +251,7 @@ class DryRunConfig:
     match_mode: str
 
 
-def _build_dry_run_lines(payload: "SyncRequest", config: DryRunConfig) -> list[str]:
+def _build_dry_run_lines(payload: SyncRequest, config: DryRunConfig) -> list[str]:
     """Build dry-run output lines."""
     lines = [
         f"[DRY-RUN] Sync window {payload.from_date} → {payload.to_date} on '{payload.calendar}'",
@@ -261,7 +269,9 @@ def _build_dry_run_lines(payload: "SyncRequest", config: DryRunConfig) -> list[s
             f"Would delete extraneous occurrences: {len(config.to_delete_occurrence_ids)} (match={config.match_mode})"
         )
         if payload.delete_unplanned_series:
-            lines.append(f"Would delete entire unplanned series: {len(config.to_delete_series_master_ids)}")
+            lines.append(
+                f"Would delete entire unplanned series: {len(config.to_delete_series_master_ids)}"
+            )
     else:
         lines.append("Delete extraneous: disabled (pass --delete-missing)")
     return lines
@@ -269,7 +279,7 @@ def _build_dry_run_lines(payload: "SyncRequest", config: DryRunConfig) -> list[s
 
 def _execute_sync_creates(
     svc: Any,
-    payload: "SyncRequest",
+    payload: SyncRequest,
     to_create_series: list[dict[str, Any]],
     to_create_oneoffs: list[dict[str, Any]],
 ) -> tuple[list[str], int]:
@@ -287,7 +297,7 @@ def _execute_sync_creates(
 def _execute_sync_deletes(
     raw_client: Any,
     cal_id: str,
-    payload: "SyncRequest",
+    payload: SyncRequest,
     to_delete_occurrence_ids: list[str],
     to_delete_series_master_ids: list[str],
 ) -> int:
@@ -334,12 +344,15 @@ class SyncProcessor(SafeProcessor[SyncRequest, SyncResult]):
             raise CLIError(str(exc), ExitCode.USAGE)
 
         from calendars.outlook_service import ListEventsRequest
-        occ = svc.list_events_in_range(ListEventsRequest(
-            start_iso=start_iso,
-            end_iso=end_iso,
-            calendar_id=cal_id,
-            top=800,
-        ))
+
+        occ = svc.list_events_in_range(
+            ListEventsRequest(
+                start_iso=start_iso,
+                end_iso=end_iso,
+                calendar_id=cal_id,
+                top=800,
+            )
+        )
 
         # Build existing calendar state
         have_map, have_keys = _build_have_map(occ)
@@ -358,7 +371,9 @@ class SyncProcessor(SafeProcessor[SyncRequest, SyncResult]):
         to_create_series, to_create_oneoffs = _determine_creates(
             events, series_by_subject, present_subjects, sync_ctx
         )
-        to_delete_occurrence_ids, to_delete_series_master_ids = _determine_deletes(payload, sync_ctx)
+        to_delete_occurrence_ids, to_delete_series_master_ids = _determine_deletes(
+            payload, sync_ctx
+        )
 
         # Dry-run mode
         if not payload.apply:
@@ -414,7 +429,9 @@ class ApplyResult:
     lines: list[str]
 
 
-def _build_apply_dry_run_lines(events: list[dict[str, Any]], calendar_name: str | None) -> list[str]:
+def _build_apply_dry_run_lines(
+    events: list[dict[str, Any]], calendar_name: str | None
+) -> list[str]:
     """Build preview lines for an apply dry-run."""
     suffix = f" to calendar '{calendar_name}'" if calendar_name else ""
     lines = [f"[DRY-RUN] Would apply {len(events)} events{suffix}"]
@@ -439,11 +456,14 @@ class ApplyProcessor(SafeProcessor[ApplyRequest, ApplyResult]):
 
         provider = payload.provider or "outlook"
         lines = [
-            f"Applying {len(events)} events" + (f" to calendar '{calendar_name}'" if calendar_name else ""),
+            f"Applying {len(events)} events"
+            + (f" to calendar '{calendar_name}'" if calendar_name else ""),
             f"Provider: {provider}",
         ]
         if provider != "outlook":
-            raise CLIError("Unsupported provider for apply. Use --provider outlook.", ExitCode.USAGE)
+            raise CLIError(
+                "Unsupported provider for apply. Use --provider outlook.", ExitCode.USAGE
+            )
 
         svc, err = _build_outlook_service(payload.auth)
         if err:
@@ -467,6 +487,7 @@ class ApplyProducer(BaseProducer):
 # ---------------------------------------------------------------------------
 # Export pipeline (C2: wrap Outlook API calls in SafeProcessor/BaseProducer)
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class ExportScheduleRequest:
@@ -498,12 +519,14 @@ class ExportScheduleProcessor(SafeProcessor[ExportScheduleRequest, ExportSchedul
     def _process_safe(self, payload: ExportScheduleRequest) -> ExportScheduleResult:
         from calendars.outlook_service import ListEventsRequest
 
-        evs = payload.service.list_events_in_range(ListEventsRequest(
-            start_iso=payload.start_iso,
-            end_iso=payload.end_iso,
-            calendar_name=payload.cal_name,
-            top=800,
-        ))
+        evs = payload.service.list_events_in_range(
+            ListEventsRequest(
+                start_iso=payload.start_iso,
+                end_iso=payload.end_iso,
+                calendar_name=payload.cal_name,
+                top=800,
+            )
+        )
 
         rows: list[dict[str, Any]] = []
         for ev in evs:
@@ -513,7 +536,15 @@ class ExportScheduleProcessor(SafeProcessor[ExportScheduleRequest, ExportSchedul
             loc = (ev.get("location") or {}).get("displayName") or ""
             if not sub or not st or not en:
                 continue
-            rows.append({"calendar": payload.cal_name, "subject": sub, "start": st, "end": en, "location": loc})
+            rows.append(
+                {
+                    "calendar": payload.cal_name,
+                    "subject": sub,
+                    "start": st,
+                    "end": en,
+                    "location": loc,
+                }
+            )
 
         rows.sort(key=lambda ev: ev.get("start", ""))
         return ExportScheduleResult(rows=rows, cal_name=payload.cal_name, out_path=payload.out_path)
@@ -522,7 +553,9 @@ class ExportScheduleProcessor(SafeProcessor[ExportScheduleRequest, ExportSchedul
 class ExportScheduleProducer(BaseProducer):
     """Write export results to YAML and print summary."""
 
-    def _produce_success(self, payload: ExportScheduleResult, diagnostics: dict[str, Any] | None) -> None:
+    def _produce_success(
+        self, payload: ExportScheduleResult, diagnostics: dict[str, Any] | None
+    ) -> None:
         _dump_yaml(str(payload.out_path), {"events": payload.rows})
         self._writer.print(
             f"Exported {len(payload.rows)} events from '{payload.cal_name}' to {payload.out_path}"
@@ -531,4 +564,3 @@ class ExportScheduleProducer(BaseProducer):
             "Note: export writes occurrences as one-offs for backup. "
             "Use verify/sync to manage plan application."
         )
-

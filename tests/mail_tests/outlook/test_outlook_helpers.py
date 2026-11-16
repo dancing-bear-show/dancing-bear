@@ -1,11 +1,12 @@
 """Tests for mail/outlook/helpers.py."""
+
 import unittest
 from unittest.mock import Mock, patch
 
 from mail.outlook.helpers import (
-    norm_label_name_outlook,
     OUTLOOK_COLOR_NAMES,
     norm_label_color_outlook,
+    norm_label_name_outlook,
     resolve_outlook_args,
 )
 
@@ -20,28 +21,18 @@ class TestNormLabelNameOutlook(unittest.TestCase):
         self.assertEqual(norm_label_name_outlook("Work/Projects"), "Work-Projects")
 
     def test_deeply_nested_label(self):
-        self.assertEqual(
-            norm_label_name_outlook("Work/Projects/Active"),
-            "Work-Projects-Active"
-        )
+        self.assertEqual(norm_label_name_outlook("Work/Projects/Active"), "Work-Projects-Active")
 
     def test_mode_first(self):
-        self.assertEqual(
-            norm_label_name_outlook("Work/Projects/Active", mode="first"),
-            "Work"
-        )
+        self.assertEqual(norm_label_name_outlook("Work/Projects/Active", mode="first"), "Work")
 
     def test_mode_join_colon(self):
         self.assertEqual(
-            norm_label_name_outlook("Work/Projects", mode="join-colon"),
-            "Work:Projects"
+            norm_label_name_outlook("Work/Projects", mode="join-colon"), "Work:Projects"
         )
 
     def test_mode_join_dash_explicit(self):
-        self.assertEqual(
-            norm_label_name_outlook("A/B/C", mode="join-dash"),
-            "A-B-C"
-        )
+        self.assertEqual(norm_label_name_outlook("A/B/C", mode="join-dash"), "A-B-C")
 
     def test_empty_string(self):
         self.assertEqual(norm_label_name_outlook(""), "")
@@ -207,8 +198,8 @@ class TestResolveOutlookArgsFromConfig(unittest.TestCase):
     """Tests for resolve_outlook_args with accounts config."""
 
     def test_loads_from_accounts_config(self):
-        import tempfile
         import os
+        import tempfile
 
         # Create a temp config file
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
@@ -245,8 +236,8 @@ accounts:
             os.unlink(config_path)
 
     def test_selects_named_account(self):
-        import tempfile
         import os
+        import tempfile
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write("""

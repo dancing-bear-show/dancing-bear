@@ -22,7 +22,6 @@ from functools import lru_cache
 from core.assistant import BaseAssistant
 from core.cli_errors import UsageError
 from core.cli_framework import CLIApp
-from worker.meta import META
 from worker.commands import (
     EnqueueCommand,
     ListCommand,
@@ -32,12 +31,13 @@ from worker.commands import (
     ShowCommand,
     StatusCommand,
 )
+from worker.handlers import REGISTRY as HANDLERS
 from worker.job_runtime import (
     DaemonRunner,
     JobProcessor,
     WorkerConfig,
 )
-from worker.handlers import REGISTRY as HANDLERS
+from worker.meta import META
 
 # ---------------------------------------------------------------------------
 # Shared module-level helpers used by the CLIApp run-once/daemon commands
@@ -95,6 +95,7 @@ assistant = BaseAssistant(META.app_id, META.agentic_fallback)
 @lru_cache(maxsize=1)
 def _lazy_agentic():
     from .agentic import emit_agentic_context
+
     return emit_agentic_context
 
 
@@ -102,7 +103,12 @@ def _lazy_agentic():
 @app.argument("--type", required=True, choices=sorted(HANDLERS.keys()))
 @app.argument("--payload-json", default="{}", help="JSON payload for the job")
 @app.argument("--priority", type=int, default=5)
-@app.argument("--not-before", dest="not_before", default="", help="Process no earlier than this ISO time (UTC)")
+@app.argument(
+    "--not-before",
+    dest="not_before",
+    default="",
+    help="Process no earlier than this ISO time (UTC)",
+)
 @app.argument("--max-attempts", type=int, default=3)
 @app.argument("--id", dest="job_id", default="")
 def cmd_enqueue(args: argparse.Namespace) -> int:
@@ -122,9 +128,24 @@ def cmd_run_once(args: argparse.Namespace) -> int:
 @app.argument("--interval", default="5", help="Poll interval seconds (default 5)")
 @app.argument("--max-per-tick", type=int, default=3)
 @app.argument("--backoff", type=int, default=60)
-@app.argument("--max-inflight", type=int, default=0, help="Hard cap of concurrent processing jobs; 0 disables clamping")
-@app.argument("--job-timeout", type=int, default=0, help="Job timeout in seconds; 0 disables timeout (default 0)")
-@app.argument("--shutdown-grace", type=float, default=10.0, help="Seconds to wait for running jobs and the requeue lock on stop; not filesystem I/O (default 10)")
+@app.argument(
+    "--max-inflight",
+    type=int,
+    default=0,
+    help="Hard cap of concurrent processing jobs; 0 disables clamping",
+)
+@app.argument(
+    "--job-timeout",
+    type=int,
+    default=0,
+    help="Job timeout in seconds; 0 disables timeout (default 0)",
+)
+@app.argument(
+    "--shutdown-grace",
+    type=float,
+    default=10.0,
+    help="Seconds to wait for running jobs and the requeue lock on stop; not filesystem I/O (default 10)",
+)
 def cmd_daemon(args: argparse.Namespace) -> int:
     """Run worker daemon."""
     return _run_processor(args, "daemon")
@@ -139,7 +160,11 @@ def cmd_list(args: argparse.Namespace) -> int:
 @app.command("status", help="Show detailed worker/queue status summary")
 @app.argument("--json", action="store_true", help="Output JSON (default)")
 @app.argument("--text", action="store_true", help="Output human-readable text")
-@app.argument("--with-throughput", action="store_true", help="Include recent jobs/min and avg duration (perf logs)")
+@app.argument(
+    "--with-throughput",
+    action="store_true",
+    help="Include recent jobs/min and avg duration (perf logs)",
+)
 def cmd_status(args: argparse.Namespace) -> int:
     """Show detailed status."""
     return StatusCommand.run(args)
@@ -153,12 +178,30 @@ def cmd_show(args: argparse.Namespace) -> int:
 
 
 @app.command("requeue-errors", help="Move jobs from error/ back to pending/")
-@app.argument("--limit", type=int, default=0, help="Max number of error jobs to requeue (default all)")
-@app.argument("--delay", type=int, default=0, help="Delay seconds before requeued jobs become eligible (default 0)")
+@app.argument(
+    "--limit", type=int, default=0, help="Max number of error jobs to requeue (default all)"
+)
+@app.argument(
+    "--delay",
+    type=int,
+    default=0,
+    help="Delay seconds before requeued jobs become eligible (default 0)",
+)
 @app.argument("--reset-attempts", action="store_true", help="Reset attempts to 0 for requeued jobs")
-@app.argument("--new-max-attempts", type=int, default=0, help="Override max_attempts for requeued jobs (0=leave unchanged)")
-@app.argument("--since", default=None, help="Only requeue errors updated within window (e.g., 2d, 6h)")
-@app.argument("--match", action="append", help="Only requeue errors whose JSON contains this substring (repeatable)")
+@app.argument(
+    "--new-max-attempts",
+    type=int,
+    default=0,
+    help="Override max_attempts for requeued jobs (0=leave unchanged)",
+)
+@app.argument(
+    "--since", default=None, help="Only requeue errors updated within window (e.g., 2d, 6h)"
+)
+@app.argument(
+    "--match",
+    action="append",
+    help="Only requeue errors whose JSON contains this substring (repeatable)",
+)
 def cmd_requeue_errors(args: argparse.Namespace) -> int:
     """Move error jobs back to pending."""
     return RequeueErrorsCommand.run(args)
@@ -176,8 +219,12 @@ def cmd_retry(args: argparse.Namespace) -> int:
 
 @app.command("purge", help="Delete old done/error jobs or saved qwen responses")
 @app.argument("--older-than", default="30d", help="Age threshold (e.g., 7d, 24h). Default 30d")
-@app.argument("--folders", default="done,error", help="Comma-separated folders (done,error,qwen-responses)")
-@app.argument("--dry-run", action="store_true", help="Report counts that would be deleted; delete nothing")
+@app.argument(
+    "--folders", default="done,error", help="Comma-separated folders (done,error,qwen-responses)"
+)
+@app.argument(
+    "--dry-run", action="store_true", help="Report counts that would be deleted; delete nothing"
+)
 def cmd_purge(args: argparse.Namespace) -> int:
     """Delete old done/error jobs."""
     return PurgeCommand.run(args)
@@ -186,6 +233,7 @@ def cmd_purge(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 # Module-level entry point (production path: delegates to CLIApp)
 # ---------------------------------------------------------------------------
+
 
 def _no_command_usage() -> int:
     """Preserve the legacy no-subcommand behavior (one-line usage to

@@ -1,17 +1,16 @@
+import datetime as _dt
 import io
 import tempfile
-import datetime as _dt
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import TestCase
 from unittest.mock import MagicMock
 
-from calendars.outlook_service import EventCreationParams
-from calendars.outlook_pipelines.schedule_import import (
-    OutlookScheduleImportProcessor,
-    OutlookScheduleImportProducer,
-    OutlookScheduleImportRequest,
-    OutlookScheduleImportRequestConsumer,
+from calendars.outlook_pipelines.add_event import (
+    OutlookAddEventProcessor,
+    OutlookAddEventProducer,
+    OutlookAddEventRequest,
+    OutlookAddEventRequestConsumer,
 )
 from calendars.outlook_pipelines.events import (
     OutlookListOneOffsProcessor,
@@ -19,24 +18,25 @@ from calendars.outlook_pipelines.events import (
     OutlookListOneOffsRequest,
     OutlookListOneOffsRequestConsumer,
 )
-from calendars.outlook_pipelines.share import (
-    OutlookCalendarShareProcessor,
-    OutlookCalendarShareProducer,
-    OutlookCalendarShareRequest,
-    OutlookCalendarShareRequestConsumer,
-)
 from calendars.outlook_pipelines.mail import (
     OutlookMailListProcessor,
     OutlookMailListProducer,
     OutlookMailListRequest,
     OutlookMailListRequestConsumer,
 )
-from calendars.outlook_pipelines.add_event import (
-    OutlookAddEventProcessor,
-    OutlookAddEventProducer,
-    OutlookAddEventRequest,
-    OutlookAddEventRequestConsumer,
+from calendars.outlook_pipelines.schedule_import import (
+    OutlookScheduleImportProcessor,
+    OutlookScheduleImportProducer,
+    OutlookScheduleImportRequest,
+    OutlookScheduleImportRequestConsumer,
 )
+from calendars.outlook_pipelines.share import (
+    OutlookCalendarShareProcessor,
+    OutlookCalendarShareProducer,
+    OutlookCalendarShareRequest,
+    OutlookCalendarShareRequestConsumer,
+)
+from calendars.outlook_service import EventCreationParams
 
 
 class CalendarExtraPipelineTests(TestCase):
@@ -44,7 +44,9 @@ class CalendarExtraPipelineTests(TestCase):
         from calendars.importer import ScheduleItem
 
         return [
-            ScheduleItem(subject="OneOff", start_iso="2025-01-01T10:00:00", end_iso="2025-01-01T11:00:00"),
+            ScheduleItem(
+                subject="OneOff", start_iso="2025-01-01T10:00:00", end_iso="2025-01-01T11:00:00"
+            ),
             ScheduleItem(
                 subject="Weekly Swim",
                 recurrence="weekly",
@@ -109,7 +111,9 @@ class CalendarExtraPipelineTests(TestCase):
     def test_schedule_import_handles_loader_error(self):
         svc = MagicMock()
         svc.ensure_calendar_exists.return_value = "cal-1"
-        processor = OutlookScheduleImportProcessor(schedule_loader=lambda *_, **__: (_ for _ in ()).throw(ValueError("boom")))
+        processor = OutlookScheduleImportProcessor(
+            schedule_loader=lambda *_, **__: (_ for _ in ()).throw(ValueError("boom"))
+        )
         request = OutlookScheduleImportRequest(
             source="bad",
             kind=None,
@@ -122,10 +126,17 @@ class CalendarExtraPipelineTests(TestCase):
         )
         env = processor.process(OutlookScheduleImportRequestConsumer(request).consume())
         self.assertFalse(env.ok())
+
     def test_list_one_offs_pipeline(self):
         svc = MagicMock()
         svc.list_events_in_range.return_value = [
-            {"type": "singleInstance", "subject": "Solo", "start": {"dateTime": "2025-01-02T10:00:00"}, "end": {"dateTime": "2025-01-02T11:00:00"}, "location": {"displayName": "Gym"}},
+            {
+                "type": "singleInstance",
+                "subject": "Solo",
+                "start": {"dateTime": "2025-01-02T10:00:00"},
+                "end": {"dateTime": "2025-01-02T11:00:00"},
+                "location": {"displayName": "Gym"},
+            },
             {"type": "occurrence", "seriesMasterId": "S1"},
             {"subject": "NoType"},
         ]
@@ -150,7 +161,13 @@ class CalendarExtraPipelineTests(TestCase):
     def test_list_one_offs_writes_yaml(self):
         svc = MagicMock()
         svc.list_events_in_range.return_value = [
-            {"type": "singleInstance", "subject": "Solo", "start": {"dateTime": "2025-01-02T10:00:00"}, "end": {"dateTime": "2025-01-02T11:00:00"}, "location": {"displayName": "Gym"}},
+            {
+                "type": "singleInstance",
+                "subject": "Solo",
+                "start": {"dateTime": "2025-01-02T10:00:00"},
+                "end": {"dateTime": "2025-01-02T11:00:00"},
+                "location": {"displayName": "Gym"},
+            },
         ]
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "one-offs.yaml"
@@ -162,7 +179,9 @@ class CalendarExtraPipelineTests(TestCase):
                 limit=10,
                 out_path=out,
             )
-            env = OutlookListOneOffsProcessor().process(OutlookListOneOffsRequestConsumer(request).consume())
+            env = OutlookListOneOffsProcessor().process(
+                OutlookListOneOffsRequestConsumer(request).consume()
+            )
             self.assertTrue(env.ok())
             buf = io.StringIO()
             with redirect_stdout(buf):
@@ -184,8 +203,11 @@ class CalendarExtraPipelineTests(TestCase):
             limit=5,
             out_path=None,
         )
-        env = OutlookListOneOffsProcessor().process(OutlookListOneOffsRequestConsumer(request).consume())
+        env = OutlookListOneOffsProcessor().process(
+            OutlookListOneOffsRequestConsumer(request).consume()
+        )
         self.assertFalse(env.ok())
+
     def test_calendar_share_processor(self):
         svc = MagicMock()
         svc.find_calendar_id.return_value = "cal-123"
@@ -195,7 +217,9 @@ class CalendarExtraPipelineTests(TestCase):
             recipient="user@example.com",
             role="Owner",
         )
-        env = OutlookCalendarShareProcessor().process(OutlookCalendarShareRequestConsumer(request).consume())
+        env = OutlookCalendarShareProcessor().process(
+            OutlookCalendarShareRequestConsumer(request).consume()
+        )
         self.assertTrue(env.ok())
         buf = io.StringIO()
         with redirect_stdout(buf):
@@ -212,7 +236,9 @@ class CalendarExtraPipelineTests(TestCase):
             recipient="user@example.com",
             role="read",
         )
-        env = OutlookCalendarShareProcessor().process(OutlookCalendarShareRequestConsumer(request).consume())
+        env = OutlookCalendarShareProcessor().process(
+            OutlookCalendarShareRequestConsumer(request).consume()
+        )
         self.assertTrue(env.ok())
         svc.ensure_calendar_permission.assert_called_once()
 
@@ -226,12 +252,19 @@ class CalendarExtraPipelineTests(TestCase):
             recipient="user@example.com",
             role="read",
         )
-        env = OutlookCalendarShareProcessor().process(OutlookCalendarShareRequestConsumer(request).consume())
+        env = OutlookCalendarShareProcessor().process(
+            OutlookCalendarShareRequestConsumer(request).consume()
+        )
         self.assertFalse(env.ok())
+
     def test_mail_list_processor_and_producer(self):
         svc = MagicMock()
         svc.list_messages.return_value = [
-            {"subject": "Hello", "receivedDateTime": "2025-01-01T10:00:00Z", "from": {"emailAddress": {"address": "a@example.com"}}}
+            {
+                "subject": "Hello",
+                "receivedDateTime": "2025-01-01T10:00:00Z",
+                "from": {"emailAddress": {"address": "a@example.com"}},
+            }
         ]
         request = OutlookMailListRequest(service=svc, folder="inbox", top=5, pages=1)
         env = OutlookMailListProcessor().process(OutlookMailListRequestConsumer(request).consume())
@@ -247,6 +280,7 @@ class CalendarExtraPipelineTests(TestCase):
         request = OutlookMailListRequest(service=svc, folder="inbox", top=5, pages=1)
         env = OutlookMailListProcessor().process(OutlookMailListRequestConsumer(request).consume())
         self.assertFalse(env.ok())
+
     def test_add_event_processor_and_producer(self):
         svc = MagicMock()
         svc.create_event.return_value = {"id": "E1", "subject": "Test"}
@@ -290,6 +324,7 @@ class CalendarExtraPipelineTests(TestCase):
         request = OutlookAddEventRequest(service=svc, params=params)
         env = OutlookAddEventProcessor().process(OutlookAddEventRequestConsumer(request).consume())
         self.assertFalse(env.ok())
+
 
 if __name__ == "__main__":  # pragma: no cover
     import unittest

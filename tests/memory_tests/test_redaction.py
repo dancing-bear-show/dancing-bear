@@ -7,7 +7,6 @@ import unittest
 from memory.redaction import REDACTION_RULES, has_blocking, scan, scrub
 from tests.memory_tests.fixtures import dirty_memory_text
 
-
 # Samples for rules the shared dirty fixture does not cover; credentials are
 # assembled by concatenation so secret scanners do not flag this source.
 _EXTRA_RULE_SAMPLES = "\n".join(
@@ -64,7 +63,9 @@ class TestSeverityClassifications(unittest.TestCase):
         text = "env: password=hunter2secret"
         redactions = scan(text)
         cred_hits = [r for r in redactions if r.rule_id == "credential-assignment"]
-        self.assertGreaterEqual(len(cred_hits), 1, "credential-assignment should fire on password= assignment")
+        self.assertGreaterEqual(
+            len(cred_hits), 1, "credential-assignment should fire on password= assignment"
+        )
         for r in cred_hits:
             self.assertEqual(
                 r.severity,

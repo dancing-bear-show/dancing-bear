@@ -72,8 +72,9 @@ class TestResumeCommandHelpers(unittest.TestCase):
 
     def test_resolve_out_with_explicit_out(self):
         """Test _resolve_out uses explicit --out path."""
-        from resume.cli.helpers import _resolve_out
         from pathlib import Path
+
+        from resume.cli.helpers import _resolve_out
 
         args = MagicMock()
         args.out = "custom/path.json"
@@ -85,8 +86,9 @@ class TestResumeCommandHelpers(unittest.TestCase):
 
     def test_resolve_out_with_profile(self):
         """Test _resolve_out generates path from profile."""
-        from resume.cli.helpers import _resolve_out
         from pathlib import Path
+
+        from resume.cli.helpers import _resolve_out
 
         args = MagicMock()
         args.out = None
@@ -98,9 +100,10 @@ class TestResumeCommandHelpers(unittest.TestCase):
 
     def test_resolve_out_default(self):
         """Test _resolve_out uses DEFAULT_PROFILE when no profile."""
-        from resume.cli.helpers import _resolve_out
-        from resume.cli.args import DEFAULT_PROFILE
         from pathlib import Path
+
+        from resume.cli.args import DEFAULT_PROFILE
+        from resume.cli.helpers import _resolve_out
 
         args = MagicMock()
         args.out = None
@@ -118,8 +121,8 @@ class TestResumeCommandHelpers(unittest.TestCase):
         result = _extend_seed_with_style(seed, None)
         self.assertEqual(result, seed)
 
-    @patch('resume.cli.helpers.read_yaml_or_json')
-    @patch('resume.style.extract_style_keywords')
+    @patch("resume.cli.helpers.read_yaml_or_json")
+    @patch("resume.style.extract_style_keywords")
     def test_extend_seed_with_style_adds_keywords(self, mock_extract, mock_read):
         """Test _extend_seed_with_style adds style keywords to seed."""
         from resume.cli.helpers import _extend_seed_with_style
@@ -137,11 +140,12 @@ class TestResumeCommandHelpers(unittest.TestCase):
 
     def test_extend_seed_with_style_handles_string_keywords(self):
         """Test _extend_seed_with_style converts string keywords to list."""
-        from resume.cli.helpers import _extend_seed_with_style
         from unittest.mock import patch
 
-        with patch('resume.cli.helpers.read_yaml_or_json') as mock_read:
-            with patch('resume.style.extract_style_keywords') as mock_extract:
+        from resume.cli.helpers import _extend_seed_with_style
+
+        with patch("resume.cli.helpers.read_yaml_or_json") as mock_read:
+            with patch("resume.style.extract_style_keywords") as mock_extract:
                 mock_read.return_value = {"style": "data"}
                 mock_extract.return_value = ["new_kw"]
 
@@ -153,10 +157,11 @@ class TestResumeCommandHelpers(unittest.TestCase):
 
     def test_extend_seed_with_style_exception_handling(self):
         """Test _extend_seed_with_style handles exceptions gracefully."""
-        from resume.cli.helpers import _extend_seed_with_style
         from unittest.mock import patch
 
-        with patch('resume.cli.helpers.read_yaml_or_json') as mock_read:
+        from resume.cli.helpers import _extend_seed_with_style
+
+        with patch("resume.cli.helpers.read_yaml_or_json") as mock_read:
             mock_read.side_effect = RuntimeError("File not found")
 
             seed = {"keywords": ["python"]}

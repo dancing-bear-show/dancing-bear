@@ -1,4 +1,5 @@
 """CSV schedule parser."""
+
 from __future__ import annotations
 
 import csv
@@ -20,11 +21,14 @@ class CSVParser(ScheduleParser):
             List of ScheduleItem objects
         """
         items: list[ScheduleItem] = []
-        with open(path, newline='', encoding='utf-8') as fh:
+        with open(path, newline="", encoding="utf-8") as fh:
             rd = csv.DictReader(fh)
             for raw in rd:
                 # Normalize keys: strip spaces and lower-case header names
-                row = {str(k).strip().lower(): (raw.get(k) if raw.get(k) is not None else '') for k in raw.keys()}
+                row = {
+                    str(k).strip().lower(): (raw.get(k) if raw.get(k) is not None else "")
+                    for k in raw.keys()
+                }
                 item = self._row_to_schedule_item(row)
                 if item:
                     items.append(item)

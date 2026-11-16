@@ -1,8 +1,8 @@
 """Session summary computation — aggregates events into SessionSummary."""
 
 from dataclasses import dataclass
-from core.date_utils import now_utc
 
+from core.date_utils import now_utc
 from telemetry.models import (
     AgentSummary,
     SessionEvent,
@@ -59,9 +59,7 @@ def compute_summary(  # NOSONAR S3776 - flat aggregation; many generator express
     review = sum(1 for e in tool_events if e.classification == "review")
     total = len(tool_events)
 
-    efficiency_score = (
-        (productive * 1.0 + neutral * 0.5) / total * 100 if total > 0 else 100.0
-    )
+    efficiency_score = (productive * 1.0 + neutral * 0.5) / total * 100 if total > 0 else 100.0
 
     input_tokens = sum(e.input_tokens or 0 for e in api_events)
     output_tokens = sum(e.output_tokens or 0 for e in api_events)
@@ -69,9 +67,7 @@ def compute_summary(  # NOSONAR S3776 - flat aggregation; many generator express
     cache_creation = sum(e.cache_creation_tokens or 0 for e in api_events)
 
     total_cacheable = input_tokens + cache_read
-    cache_hit_rate: float | None = (
-        cache_read / total_cacheable if total_cacheable > 0 else None
-    )
+    cache_hit_rate: float | None = cache_read / total_cacheable if total_cacheable > 0 else None
 
     tool_stats = _build_tool_stats(tool_events)
 
@@ -82,8 +78,7 @@ def compute_summary(  # NOSONAR S3776 - flat aggregation; many generator express
     )
     productive_cost = sum(e.cost_usd or 0.0 for e in api_events if e.cost_usd)
     avoidable_cost = sum(
-        e.cost_usd or 0.0
-        for e in tool_events if e.classification == "avoidable" and e.cost_usd
+        e.cost_usd or 0.0 for e in tool_events if e.classification == "avoidable" and e.cost_usd
     )
 
     start_time = events[0].timestamp if events else now_utc()

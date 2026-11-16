@@ -51,13 +51,25 @@ class TestCountSweep(_Tree):
         self.assertEqual((got.hits, got.files), (3, 2))
 
     def test_zero_hits_is_a_result(self) -> None:
-        self.assertEqual(count_sweep("absent", ["src"], root=self.root).as_dict(), {"hits": 0, "files": 0})
+        self.assertEqual(
+            count_sweep("absent", ["src"], root=self.root).as_dict(), {"hits": 0, "files": 0}
+        )
 
     def test_refused_paths(self) -> None:
         self._put(".git/config", "check\n")
         self._put(".claude/settings.json", "check\n")
-        for bad in ("../x", "workflows/../../etc", "/etc", "~/x", ".git/config", "src/.GIT",
-                    ".claude/settings.json", ".github/w.yml", ".", ""):
+        for bad in (
+            "../x",
+            "workflows/../../etc",
+            "/etc",
+            "~/x",
+            ".git/config",
+            "src/.GIT",
+            ".claude/settings.json",
+            ".github/w.yml",
+            ".",
+            "",
+        ):
             with self.subTest(path=bad), self.assertRaisesRegex(SweepError, "refused path"):
                 count_sweep("check", [bad], root=self.root)
 
@@ -117,9 +129,13 @@ class TestCountSweep(_Tree):
         self.assertEqual(count_sweep("check", ["workflows"], root=linked_root).hits, 3)
 
     def test_invalid_empty_and_oversized_patterns(self) -> None:
-        for bad, msg in (("(", "invalid pattern"), ("", "empty"),
-                         ("it's", "single quote"), ("a\nb", "newline"),
-                         ("a" * (sweep_count.MAX_PATTERN_CHARS + 1), "longer than")):
+        for bad, msg in (
+            ("(", "invalid pattern"),
+            ("", "empty"),
+            ("it's", "single quote"),
+            ("a\nb", "newline"),
+            ("a" * (sweep_count.MAX_PATTERN_CHARS + 1), "longer than"),
+        ):
             with self.subTest(pattern=bad[:10]), self.assertRaisesRegex(SweepError, msg):
                 count_sweep(bad, ["src"], root=self.root)
 
@@ -144,7 +160,9 @@ class TestCountSweep(_Tree):
 class TestSpecialFiles(_Tree):
     """Only regular files are read; anything else is skipped before it is opened."""
 
-    def _sweep_with_timeout(self, paths: list[str], seconds: float = 10.0) -> sweep_count.SweepCount:
+    def _sweep_with_timeout(
+        self, paths: list[str], seconds: float = 10.0
+    ) -> sweep_count.SweepCount:
         # A regression that opens a FIFO blocks forever; run in a daemon
         # thread so it fails this test instead of hanging the suite.
         results: list[sweep_count.SweepCount] = []
@@ -205,14 +223,19 @@ class TestSpecialFiles(_Tree):
 
     def test_empty_file_counts_zero(self) -> None:
         self._put("src/empty.txt", "")
-        self.assertEqual(count_sweep("check", ["src/empty.txt"], root=self.root).as_dict(), {"hits": 0, "files": 0})
+        self.assertEqual(
+            count_sweep("check", ["src/empty.txt"], root=self.root).as_dict(),
+            {"hits": 0, "files": 0},
+        )
 
     def test_file_swapped_for_a_fifo_after_the_walk_is_not_read(self) -> None:
         if not hasattr(os, "mkfifo"):
             self.skipTest("no mkfifo on this platform")
         os.mkfifo(self.root / "src/pipe")
         # Simulates the race: the walk saw a regular file, the open meets a FIFO.
-        self.assertIsNone(_sweep_worker.read_text(str(self.root / "src/pipe"), sweep_count.MAX_FILE_BYTES))
+        self.assertIsNone(
+            _sweep_worker.read_text(str(self.root / "src/pipe"), sweep_count.MAX_FILE_BYTES)
+        )
 
 
 class TestMatchTimeBound(_Tree):
@@ -267,7 +290,9 @@ class TestMatchTimeBound(_Tree):
         self.assertIn("matcher failed", got.reason)
 
     def test_truncated_or_garbled_worker_lines_are_ignored(self) -> None:
-        got = sweep_count._parse_worker_output('{"hits": 2, "files": 1}\n{"hits": 5, "fi', fallback_reason="x")
+        got = sweep_count._parse_worker_output(
+            '{"hits": 2, "files": 1}\n{"hits": 5, "fi', fallback_reason="x"
+        )
         self.assertEqual((got.hits, got.files, got.truncated, got.reason), (2, 1, True, "x"))
 
     def test_deadline_is_enforced_while_walking_empty_directories(self) -> None:
@@ -295,7 +320,11 @@ class TestMatchTimeBound(_Tree):
             calls["n"] += 1
             # First call establishes the deadline; every call after that
             # (inside the walk) reports time already past it.
-            return real_monotonic() if calls["n"] == 1 else real_monotonic() + sweep_count.MAX_SECONDS + 1
+            return (
+                real_monotonic()
+                if calls["n"] == 1
+                else real_monotonic() + sweep_count.MAX_SECONDS + 1
+            )
 
         with patch.object(sweep_count.time, "monotonic", side_effect=fake_monotonic):
             got = sweep_count.count_sweep("check", ["src"], root=self.root)
@@ -307,7 +336,10 @@ class TestMatchTimeBound(_Tree):
         # with a complete, non-truncated walk.
         root_real = self.root.resolve(strict=True)
         future_deadline = time.monotonic() + 60
-        found = sorted(p.name for p in sweep_count._iter_files(root_real / "workflows", root_real, future_deadline))
+        found = sorted(
+            p.name
+            for p in sweep_count._iter_files(root_real / "workflows", root_real, future_deadline)
+        )
         self.assertEqual(found, ["a.yaml", "b.yaml"])
 
 
@@ -326,17 +358,33 @@ class TestSweepWorker(_Tree):
         self.root = self.root.resolve(strict=True)
 
     def _run(self, files: list[str], **caps: int) -> list[dict[str, object]]:
-        job: dict[str, object] = {"pattern": "check", "files": files, "max_file_bytes": 1_000,
-                                  "max_line_chars": 100, "max_total_bytes": 10_000, **caps}
+        job: dict[str, object] = {
+            "pattern": "check",
+            "files": files,
+            "max_file_bytes": 1_000,
+            "max_line_chars": 100,
+            "max_total_bytes": 10_000,
+            **caps,
+        }
         out = io.StringIO()
         with redirect_stdout(out):
             _sweep_worker.run(job)
         return [json.loads(line) for line in out.getvalue().splitlines()]
 
     def test_emits_running_totals_then_done(self) -> None:
-        files = [str(self.root / "workflows/a.yaml"), str(self.root / "src/c.py"), str(self.root / "workflows/sub/b.yaml")]
-        self.assertEqual(self._run(files), [{"hits": 2, "files": 1}, {"hits": 3, "files": 2},
-                                            {"hits": 3, "files": 2, "done": True}])
+        files = [
+            str(self.root / "workflows/a.yaml"),
+            str(self.root / "src/c.py"),
+            str(self.root / "workflows/sub/b.yaml"),
+        ]
+        self.assertEqual(
+            self._run(files),
+            [
+                {"hits": 2, "files": 1},
+                {"hits": 3, "files": 2},
+                {"hits": 3, "files": 2, "done": True},
+            ],
+        )
 
     def test_byte_bound_emits_truncated(self) -> None:
         records = self._run([str(self.root / "workflows/a.yaml")], max_total_bytes=5)
@@ -347,14 +395,22 @@ class TestSweepWorker(_Tree):
         # over it by bytes. The ASCII control of the same length stays under.
         wide = self._put("src/wide.txt", "\u00e9" * 20 + "\n")
         narrow = self._put("src/narrow.txt", "e" * 20 + "\n")
-        self.assertEqual(self._run([str(wide)], max_total_bytes=30)[-1],
-                         {"hits": 0, "files": 0, "truncated": True, "reason": "byte bound reached"})
-        self.assertEqual(self._run([str(narrow)], max_total_bytes=30)[-1], {"hits": 0, "files": 0, "done": True})
+        self.assertEqual(
+            self._run([str(wide)], max_total_bytes=30)[-1],
+            {"hits": 0, "files": 0, "truncated": True, "reason": "byte bound reached"},
+        )
+        self.assertEqual(
+            self._run([str(narrow)], max_total_bytes=30)[-1], {"hits": 0, "files": 0, "done": True}
+        )
 
     def test_per_file_bound_counts_bytes_not_characters(self) -> None:
         wide = self._put("src/wide.txt", "check\u00e9")  # 6 characters, 7 bytes
-        self.assertEqual(self._run([str(wide)], max_file_bytes=6)[-1], {"hits": 0, "files": 0, "done": True})
-        self.assertEqual(self._run([str(wide)], max_file_bytes=7)[-1], {"hits": 1, "files": 1, "done": True})
+        self.assertEqual(
+            self._run([str(wide)], max_file_bytes=6)[-1], {"hits": 0, "files": 0, "done": True}
+        )
+        self.assertEqual(
+            self._run([str(wide)], max_file_bytes=7)[-1], {"hits": 1, "files": 1, "done": True}
+        )
 
     def test_read_text_reports_raw_byte_length(self) -> None:
         got = _sweep_worker.read_text(str(self._put("src/wide.txt", "\u00e9\n")), 1_000)
@@ -362,8 +418,14 @@ class TestSweepWorker(_Tree):
 
     def test_oversized_binary_and_missing_files_skipped(self) -> None:
         self._put("src/bin.dat", b"check\0")
-        files = [str(self.root / "src/bin.dat"), str(self.root / "workflows/a.yaml"), str(self.root / "nope")]
-        self.assertEqual(self._run(files, max_file_bytes=10)[-1], {"hits": 0, "files": 0, "done": True})
+        files = [
+            str(self.root / "src/bin.dat"),
+            str(self.root / "workflows/a.yaml"),
+            str(self.root / "nope"),
+        ]
+        self.assertEqual(
+            self._run(files, max_file_bytes=10)[-1], {"hits": 0, "files": 0, "done": True}
+        )
 
     def test_read_text_still_reads_a_normal_nested_file(self) -> None:
         # Happy path for the directory-relative reopen: an ordinary file several
@@ -448,8 +510,10 @@ class TestPathAllowlist(_Tree):
 
     def test_refusal_happens_before_any_filesystem_access(self) -> None:
         missing = self.root / "does-not-exist"
-        with patch.object(sweep_count.os, "walk", side_effect=AssertionError("walked")), \
-                self.assertRaisesRegex(SweepError, "unsafe-path"):
+        with (
+            patch.object(sweep_count.os, "walk", side_effect=AssertionError("walked")),
+            self.assertRaisesRegex(SweepError, "unsafe-path"),
+        ):
             # The first path is valid and would be looked up if paths were
             # checked one at a time; the refusal must come first.
             count_sweep("check", ["src", "src;id"], root=missing)
@@ -516,10 +580,12 @@ class TestCountSweepCLI(_Tree):
 
     def test_normal_subdirectory_root_accepted(self) -> None:
         # Happy path: a non-protected subdirectory is a valid --root.
-        code, out, err = _cli("--root", str(self.root / "src"), "--pattern=no match here",
-                               "--path", "c.py")
+        code, out, err = _cli(
+            "--root", str(self.root / "src"), "--pattern=no match here", "--path", "c.py"
+        )
         self.assertEqual(code, 0, err)
         import json as _json
+
         self.assertEqual(_json.loads(out), {"hits": 1, "files": 1})
 
     def test_symlink_loop_root_refused_as_sweep_error(self) -> None:
@@ -531,7 +597,9 @@ class TestCountSweepCLI(_Tree):
         self.assertIn("refused root", err)
 
     def test_prints_hits_json(self) -> None:
-        code, out, _ = self._run("--pattern=check-params[^|]*--check", "--path", "workflows/", "--path", "src")
+        code, out, _ = self._run(
+            "--pattern=check-params[^|]*--check", "--path", "workflows/", "--path", "src"
+        )
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(out), {"hits": 3, "files": 2})
 
@@ -540,15 +608,17 @@ class TestCountSweepCLI(_Tree):
         self.assertEqual((code, json.loads(out)["hits"]), (0, 3))
 
     def test_invalid_pattern_and_refused_path_exit_2(self) -> None:
-        for argv, msg in ((("--pattern=(", "--path", "src"), "invalid pattern"),
-                          (("--pattern=x", "--path", "../etc"), "escapes-repo"),
-                          (("--pattern=x", "--path", "/etc"), "escapes-repo"),
-                          (("--pattern=x", "--path", ".git"), "protected-path"),
-                          (("--pattern=it's", "--path", "src"), "single quote"),
-                          (("--pattern=x", "--path", ".claude"), "protected-path"),
-                          (("--pattern=x", "--path=src/$(id)"), "unsafe-path"),
-                          (("--pattern=x", "--path=-src"), "unsafe-path"),
-                          (("--pattern=x", "--path=src;id"), "unsafe-path")):
+        for argv, msg in (
+            (("--pattern=(", "--path", "src"), "invalid pattern"),
+            (("--pattern=x", "--path", "../etc"), "escapes-repo"),
+            (("--pattern=x", "--path", "/etc"), "escapes-repo"),
+            (("--pattern=x", "--path", ".git"), "protected-path"),
+            (("--pattern=it's", "--path", "src"), "single quote"),
+            (("--pattern=x", "--path", ".claude"), "protected-path"),
+            (("--pattern=x", "--path=src/$(id)"), "unsafe-path"),
+            (("--pattern=x", "--path=-src"), "unsafe-path"),
+            (("--pattern=x", "--path=src;id"), "unsafe-path"),
+        ):
             with self.subTest(argv=argv):
                 code, out, err = self._run(*argv)
                 self.assertEqual((code, out), (2, ""))
@@ -594,8 +664,13 @@ class TestCountSweepCLIRoot(unittest.TestCase):
         self.assertIn("refused root", err)
 
     def test_directory_inside_the_checkout_accepted(self) -> None:
-        code, out, err = _cli("--root", str(self.repo / "src"), "--pattern=def cli_root",
-                              "--path", "workflow/sweep_count.py")
+        code, out, err = _cli(
+            "--root",
+            str(self.repo / "src"),
+            "--pattern=def cli_root",
+            "--path",
+            "workflow/sweep_count.py",
+        )
         self.assertEqual(code, 0, err)
         self.assertEqual(json.loads(out), {"hits": 1, "files": 1})
 

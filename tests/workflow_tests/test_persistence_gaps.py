@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.workflow_tests.helpers.factories import make_stage_result
 from workflow.models import StageResult, StageStatus
 from workflow.persistence import (
     init_workspace,
@@ -14,9 +15,6 @@ from workflow.persistence import (
     read_stage_result,
     write_stage_result,
 )
-
-from tests.workflow_tests.helpers.factories import make_stage_result
-
 
 # ---------------------------------------------------------------------------
 # init_workspace — no base_dir (tempdir default)
@@ -31,6 +29,7 @@ class TestInitWorkspaceNoBaseDir(unittest.TestCase):
             self.assertIn("wf-test-run-default", str(workspace))
         finally:
             import shutil
+
             shutil.rmtree(workspace, ignore_errors=True)
 
 

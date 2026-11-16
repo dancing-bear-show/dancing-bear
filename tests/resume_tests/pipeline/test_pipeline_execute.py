@@ -51,12 +51,14 @@ class TestExtractMatchedKeywords(unittest.TestCase):
 
     def test_extracts_skill_names(self):
         """Extracts skill names from matched_keywords list."""
-        path = self._write_alignment_json({
-            "matched_keywords": [
-                {"skill": "Python", "tier": "required"},
-                {"skill": "AWS", "tier": "preferred"},
-            ]
-        })
+        path = self._write_alignment_json(
+            {
+                "matched_keywords": [
+                    {"skill": "Python", "tier": "required"},
+                    {"skill": "AWS", "tier": "preferred"},
+                ]
+            }
+        )
 
         pipeline = FilterPipeline(Resume())
         result = pipeline._extract_matched_keywords(path)
@@ -66,13 +68,15 @@ class TestExtractMatchedKeywords(unittest.TestCase):
 
     def test_handles_missing_skill_key(self):
         """Filters out entries without skill key."""
-        path = self._write_alignment_json({
-            "matched_keywords": [
-                {"skill": "Python"},
-                {"other": "data"},
-                {"skill": "AWS"},
-            ]
-        })
+        path = self._write_alignment_json(
+            {
+                "matched_keywords": [
+                    {"skill": "Python"},
+                    {"other": "data"},
+                    {"skill": "AWS"},
+                ]
+            }
+        )
 
         pipeline = FilterPipeline(Resume())
         result = pipeline._extract_matched_keywords(path)
@@ -82,14 +86,16 @@ class TestExtractMatchedKeywords(unittest.TestCase):
 
     def test_handles_non_dict_entries(self):
         """Filters out non-dict entries."""
-        path = self._write_alignment_json({
-            "matched_keywords": [
-                {"skill": "Python"},
-                "string_entry",
-                None,
-                {"skill": "AWS"},
-            ]
-        })
+        path = self._write_alignment_json(
+            {
+                "matched_keywords": [
+                    {"skill": "Python"},
+                    "string_entry",
+                    None,
+                    {"skill": "AWS"},
+                ]
+            }
+        )
 
         pipeline = FilterPipeline(Resume())
         result = pipeline._extract_matched_keywords(path)

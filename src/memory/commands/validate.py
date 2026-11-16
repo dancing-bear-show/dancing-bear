@@ -55,11 +55,34 @@ def _findings_to_rows(findings: list[CheckResult]) -> list[dict[str, str]]:
 ARGUMENTS: list[ArgSpec] = [
     STORE_ARG,
     ALL_STORES_ARG,
-    (("--check",), {"action": "append", "dest": "checks", "metavar": "ID", "choices": sorted(CHECK_REGISTRY), "help": "Check ID to run (repeatable; default: all offline checks)"}),
+    (
+        ("--check",),
+        {
+            "action": "append",
+            "dest": "checks",
+            "metavar": "ID",
+            "choices": sorted(CHECK_REGISTRY),
+            "help": "Check ID to run (repeatable; default: all offline checks)",
+        },
+    ),
     format_arg(["json", "table"], "json"),
-    (("--fix",), {"action": "store_true", "help": "Repair fixable findings (.bak backups first; needs --store or --all-stores)"}),
+    (
+        ("--fix",),
+        {
+            "action": "store_true",
+            "help": "Repair fixable findings (.bak backups first; needs --store or --all-stores)",
+        },
+    ),
     DRY_RUN_ARG,
-    (("--claude-md",), {"action": "append", "dest": "claude_md_paths", "default": [], "help": "Extra CLAUDE.md path for overlap checks (repeatable)"}),
+    (
+        ("--claude-md",),
+        {
+            "action": "append",
+            "dest": "claude_md_paths",
+            "default": [],
+            "help": "Extra CLAUDE.md path for overlap checks (repeatable)",
+        },
+    ),
     (("--repo",), {"default": None, "help": "Repo root for path/CLI reference checks"}),
 ]
 
@@ -82,7 +105,7 @@ def _load_stores(args: argparse.Namespace) -> list[MemoryStore] | int:
         return list(discover_stores())
     try:
         return [load_store(args.store)]
-    except Exception as exc:  # NOSONAR - CLI boundary: surface as a validation error, never a raw traceback
+    except (Exception) as exc:  # NOSONAR - CLI boundary: surface as a validation error, never a raw traceback  # fmt: skip
         return validation_error("--store", str(exc))
 
 

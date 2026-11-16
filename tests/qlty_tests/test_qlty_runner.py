@@ -61,9 +61,7 @@ class ParseJsonTests(unittest.TestCase):
         findings = parse_json_findings(load("check.json"), Source.CHECK)
         levels = {f.level for f in findings}
         # LEVEL_HIGH/LEVEL_NOTE become high/note.
-        self.assertLessEqual(
-            levels, {"high", "note", "medium", "low", "unknown"}
-        )
+        self.assertLessEqual(levels, {"high", "note", "medium", "low", "unknown"})
         self.assertFalse(any(level.startswith("level_") for level in levels))
 
     def test_empty_stdout_raises_rather_than_returning_empty(self):
@@ -289,9 +287,7 @@ class InvokeFallbackTests(unittest.TestCase):
 
     def test_uses_json_when_available(self):
         runner = self._runner()
-        with patch.object(
-            runner, "_execute", return_value=completed(load("smells.json"), 1)
-        ):
+        with patch.object(runner, "_execute", return_value=completed(load("smells.json"), 1)):
             result = runner.invoke(Source.SMELLS)
         self.assertIs(result.wire_format, WireFormat.JSON)
         self.assertFalse(result.degraded)
@@ -347,18 +343,14 @@ class InvokeFallbackTests(unittest.TestCase):
 
     def test_check_never_mutates_the_tree(self):
         runner = self._runner()
-        with patch.object(
-            runner, "_execute", return_value=completed("[]", 0)
-        ) as executed:
+        with patch.object(runner, "_execute", return_value=completed("[]", 0)) as executed:
             runner.invoke(Source.CHECK)
         args = executed.call_args[0][0]
         self.assertIn("--no-fix", args)
 
     def test_scan_all_flag_is_passed(self):
         runner = self._runner()
-        with patch.object(
-            runner, "_execute", return_value=completed("[]", 0)
-        ) as executed:
+        with patch.object(runner, "_execute", return_value=completed("[]", 0)) as executed:
             runner.invoke(Source.SMELLS, scan_all=True)
         self.assertIn("--all", executed.call_args[0][0])
 
@@ -366,9 +358,7 @@ class InvokeFallbackTests(unittest.TestCase):
         # Without the "--", a path beginning with "-" is parsed by qlty as a
         # flag, silently changing what gets scanned.
         runner = self._runner()
-        with patch.object(
-            runner, "_execute", return_value=completed("[]", 0)
-        ) as executed:
+        with patch.object(runner, "_execute", return_value=completed("[]", 0)) as executed:
             runner.invoke(Source.SMELLS, paths=("-weird.py", "src/a.py"))
 
         args = executed.call_args[0][0]
@@ -380,25 +370,19 @@ class InvokeFallbackTests(unittest.TestCase):
         # A bare "--" with nothing after it is noise; only emit it when it
         # actually guards something.
         runner = self._runner()
-        with patch.object(
-            runner, "_execute", return_value=completed("[]", 0)
-        ) as executed:
+        with patch.object(runner, "_execute", return_value=completed("[]", 0)) as executed:
             runner.invoke(Source.SMELLS)
         self.assertNotIn("--", executed.call_args[0][0])
 
     def test_changed_scope_omits_all_flag(self):
         runner = self._runner()
-        with patch.object(
-            runner, "_execute", return_value=completed("[]", 0)
-        ) as executed:
+        with patch.object(runner, "_execute", return_value=completed("[]", 0)) as executed:
             runner.invoke(Source.SMELLS, scan_all=False)
         self.assertNotIn("--all", executed.call_args[0][0])
 
     def test_include_tests_flag_is_passed_for_smells(self):
         runner = self._runner()
-        with patch.object(
-            runner, "_execute", return_value=completed("[]", 0)
-        ) as executed:
+        with patch.object(runner, "_execute", return_value=completed("[]", 0)) as executed:
             runner.invoke(Source.SMELLS, include_tests=True)
         self.assertIn("--include-tests", executed.call_args[0][0])
 
@@ -406,9 +390,7 @@ class InvokeFallbackTests(unittest.TestCase):
         # `qlty check` hard-errors on --include-tests; it only exists for
         # `smells`, which is the only source that excludes test_patterns.
         runner = self._runner()
-        with patch.object(
-            runner, "_execute", return_value=completed("[]", 0)
-        ) as executed:
+        with patch.object(runner, "_execute", return_value=completed("[]", 0)) as executed:
             runner.invoke(Source.CHECK, include_tests=True)
         self.assertNotIn("--include-tests", executed.call_args[0][0])
 
@@ -486,9 +468,7 @@ class ParseOrRaiseTests(unittest.TestCase):
         # diagnosis survives instead of being flattened into the generic
         # "unparseable output" wrapper _parse_or_raise adds to ValueErrors.
         runner = QltyRunner(binary="/fake/qlty")
-        with patch.object(
-            runner, "_execute", return_value=completed('{"oops": true}', 0)
-        ):
+        with patch.object(runner, "_execute", return_value=completed('{"oops": true}', 0)):
             with self.assertRaises(QltyInvocationError) as ctx:
                 runner.invoke(Source.SMELLS)
 
@@ -583,20 +563,16 @@ class BaseArgsPathForwardingTests(unittest.TestCase):
         self.assertNotIn("--", args)
 
     def test_separator_precedes_explicit_paths(self):
-        args = self._argv(
-            Source.SMELLS, scan_all=False, paths=("src/qlty/runner.py",)
-        )
+        args = self._argv(Source.SMELLS, scan_all=False, paths=("src/qlty/runner.py",))
         self.assertIn("--", args)
         self.assertLess(args.index("--"), args.index("src/qlty/runner.py"))
 
     def test_leading_dash_path_is_not_read_as_a_flag(self):
         # A file literally named "-foo.py", or a stray "--all", must land after
         # the end-of-options marker rather than altering the scan.
-        args = self._argv(
-            Source.CHECK, scan_all=False, paths=("-foo.py", "--all")
-        )
+        args = self._argv(Source.CHECK, scan_all=False, paths=("-foo.py", "--all"))
         sep = args.index("--")
-        self.assertEqual(args[sep + 1:], ["-foo.py", "--all"])
+        self.assertEqual(args[sep + 1 :], ["-foo.py", "--all"])
         # --all appears only as a forwarded path, never as a scan flag.
         self.assertNotIn("--all", args[:sep])
 
@@ -620,7 +596,7 @@ class BaseArgsPathForwardingTests(unittest.TestCase):
         args = self._argv(Source.SMELLS, scan_all=False, paths=("tests/",))
         sep = args.index("--")
         self.assertIn("--json", args[:sep])
-        self.assertEqual(args[sep + 1:], ["tests/"])
+        self.assertEqual(args[sep + 1 :], ["tests/"])
 
     def test_check_keeps_read_only_flags_before_the_separator(self):
         args = self._argv(Source.CHECK, scan_all=True, paths=("src/qlty/",))
@@ -635,23 +611,17 @@ class BaseArgsIncludeTestsTests(unittest.TestCase):
     """`--include-tests` is smells-only, and must stay before the `--` marker."""
 
     def test_smells_with_include_tests_true_gets_the_flag(self):
-        args = QltyRunner._base_args(
-            Source.SMELLS, scan_all=True, include_tests=True, paths=()
-        )
+        args = QltyRunner._base_args(Source.SMELLS, scan_all=True, include_tests=True, paths=())
         self.assertIn("--include-tests", args)
 
     def test_check_never_gets_the_flag_even_when_requested(self):
         # `qlty check --help` does not list --include-tests; qlty check
         # hard-errors if given it. Regression guard against leaking it in.
-        args = QltyRunner._base_args(
-            Source.CHECK, scan_all=True, include_tests=True, paths=()
-        )
+        args = QltyRunner._base_args(Source.CHECK, scan_all=True, include_tests=True, paths=())
         self.assertNotIn("--include-tests", args)
 
     def test_smells_with_include_tests_false_omits_the_flag(self):
-        args = QltyRunner._base_args(
-            Source.SMELLS, scan_all=True, include_tests=False, paths=()
-        )
+        args = QltyRunner._base_args(Source.SMELLS, scan_all=True, include_tests=False, paths=())
         self.assertNotIn("--include-tests", args)
 
     def test_include_tests_precedes_the_end_of_options_marker(self):

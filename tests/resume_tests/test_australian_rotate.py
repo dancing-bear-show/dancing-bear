@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import tempfile
 import os
+import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch, mock_open
+from unittest.mock import MagicMock, mock_open, patch
 
 
 class TestConvertDocxToPdf(unittest.TestCase):
@@ -55,8 +55,9 @@ class TestConvertDocxToPdf(unittest.TestCase):
         self.assertIs(result.failure, ConversionFailure.NO_OUTPUT)
 
     def test_returns_falsy_on_timeout(self):
-        from resume.australian_rotate import ConversionFailure, convert_docx_to_pdf
         import subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
+
+        from resume.australian_rotate import ConversionFailure, convert_docx_to_pdf
 
         with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("soffice", 30)):
             result = convert_docx_to_pdf("/tmp/test.docx", "/tmp/test.pdf")  # nosec B108
@@ -177,9 +178,7 @@ class TestCreateAustralianResume(unittest.TestCase):
         try:
             from resume.australian_rotate import ConversionFailure, ConversionResult
 
-            failure = ConversionResult(
-                ok=False, failure=ConversionFailure.CONVERTER_MISSING
-            )
+            failure = ConversionResult(ok=False, failure=ConversionFailure.CONVERTER_MISSING)
             with patch("resume.australian_rotate.convert_docx_to_pdf", return_value=failure):
                 result = create_australian_resume(docx_path)
             self.assertIsNone(result)
@@ -203,9 +202,7 @@ class TestCreateAustralianResume(unittest.TestCase):
             docx_path = tf.name
         try:
             no_output = ConversionResult(ok=False, failure=ConversionFailure.NO_OUTPUT)
-            with patch(
-                "resume.australian_rotate.convert_docx_to_pdf", return_value=no_output
-            ):
+            with patch("resume.australian_rotate.convert_docx_to_pdf", return_value=no_output):
                 with patch("resume.australian_rotate.rotate_pdf_180") as rotate:
                     result = create_australian_resume(docx_path)
             self.assertIsNone(result)

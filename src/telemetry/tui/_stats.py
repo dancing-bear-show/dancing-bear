@@ -32,6 +32,7 @@ class _StatsRenderer:
         transcript: TranscriptProvider,
     ) -> None:
         from rich.text import Text  # noqa: PLC0415 - local import to avoid top-level dep
+
         self._text_cls = Text
         self.compact = compact
         self.classify_engine = classify_engine
@@ -40,7 +41,8 @@ class _StatsRenderer:
         self.resolved_session_id = session_id or transcript.get_current_session_id()
         self.session_file = (
             transcript.find_session_file(self.resolved_session_id)
-            if self.resolved_session_id else None
+            if self.resolved_session_id
+            else None
         )
 
     def _resolve_session(self) -> None:
@@ -63,7 +65,8 @@ class _StatsRenderer:
         except Exception:
             return Panel(
                 self._text_cls("Error reading session.", style="red"),
-                title="[bold]stats[/]", border_style="red",
+                title="[bold]stats[/]",
+                border_style="red",
             )
 
         self.classify_engine.classify(events)
@@ -71,7 +74,8 @@ class _StatsRenderer:
 
         project_path = str(self.session_file.parent)
         summary = compute_summary(
-            events, agents,
+            events,
+            agents,
             SummaryConfig(self.resolved_session_id, project_path, cost_is_estimated=True),
         )
 
@@ -88,6 +92,7 @@ def run_stats(  # pragma: no cover - blocks on a Rich Live refresh loop
 ) -> None:
     """Run the compact live stats panel using Rich Live (no Textual)."""
     import time
+
     from rich.live import Live
 
     rules = load_rules(rules_path)
@@ -144,21 +149,27 @@ def print_summary(
     blame_engine.attribute(events)
 
     summary = compute_summary(
-        events, agents,
+        events,
+        agents,
         SummaryConfig(session_id, project_path, cost_is_estimated=True),
     )
     tips = tips_engine.generate(events, max_tips=5)
 
-    console.print(Panel(_render_header_text(summary), title="[bold]Session[/]", border_style="blue"))
+    console.print(
+        Panel(_render_header_text(summary), title="[bold]Session[/]", border_style="blue")
+    )
     _print_tool_stats_panel(console, summary)
     _print_agents_panel(console, agents)
 
     tool_events = [e for e in events if e.event_type == "tool_use" and e.tool_name]
     lines = [_render_timeline_line(evt) for evt in tool_events[-20:]]
-    console.print(Panel(
-        "\n".join(lines) or "[dim]No events[/]",
-        title="[bold]Timeline[/]", border_style="green",
-    ))
+    console.print(
+        Panel(
+            "\n".join(lines) or "[dim]No events[/]",
+            title="[bold]Timeline[/]",
+            border_style="green",
+        )
+    )
 
     if tips:
         console.print(Panel(_render_tips_text(tips), title="[bold]Tips[/]", border_style="red"))

@@ -62,4 +62,3 @@ def _build_sessions_table(all_sessions: list[SessionSummary], since_label: str) 
             str(s.total_events),
         )
     return table
-

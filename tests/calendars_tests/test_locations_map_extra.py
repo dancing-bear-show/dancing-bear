@@ -1,4 +1,5 @@
 """Additional tests for calendars/locations_map.py."""
+
 import os
 import tempfile
 import unittest
@@ -78,9 +79,7 @@ class TestGetLocationsMap(unittest.TestCase):
         """When a valid locations.yaml is present it overrides the built-in map."""
         import yaml
 
-        tmp = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False, encoding="utf-8"
-        )
+        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False, encoding="utf-8")
         data = {"Custom Arena": "Custom Arena (123 Fake St, Test City, ON)"}
         yaml.safe_dump(data, tmp)
         tmp.flush()
@@ -88,6 +87,7 @@ class TestGetLocationsMap(unittest.TestCase):
         tmp.close()
 
         from pathlib import Path
+
         try:
             with patch.object(
                 locations_map_mod,
@@ -106,9 +106,7 @@ class TestGetLocationsMap(unittest.TestCase):
         """Handles {locations: {...}} wrapper format."""
         import yaml
 
-        tmp = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False, encoding="utf-8"
-        )
+        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False, encoding="utf-8")
         data = {"locations": {"Wrapped Arena": "Wrapped Arena (1 Main St, City, ON)"}}
         yaml.safe_dump(data, tmp)
         tmp.flush()
@@ -116,6 +114,7 @@ class TestGetLocationsMap(unittest.TestCase):
         tmp.close()
 
         from pathlib import Path
+
         try:
             with patch.object(
                 locations_map_mod,
@@ -133,9 +132,7 @@ class TestGetLocationsMap(unittest.TestCase):
         """When YAML loading raises, falls back to ADDRESS_MAP."""
         from pathlib import Path
 
-        tmp = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False, encoding="utf-8"
-        )
+        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False, encoding="utf-8")
         tmp.write(": : : invalid yaml :::")
         tmp.flush()
         tmp_path = tmp.name
@@ -157,12 +154,11 @@ class TestGetLocationsMap(unittest.TestCase):
 
     def test_yaml_with_non_string_values_ignored(self):
         """YAML with non-string values should not be used (falls back)."""
-        import yaml
         from pathlib import Path
 
-        tmp = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False, encoding="utf-8"
-        )
+        import yaml
+
+        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False, encoding="utf-8")
         # value is a list not str → fails validation
         data = {"Bad Entry": ["not", "a", "string"]}
         yaml.safe_dump(data, tmp)
@@ -188,6 +184,7 @@ class TestGetLocationsMap(unittest.TestCase):
 class TestDefaultLocationsPaths(unittest.TestCase):
     def test_returns_list_of_paths(self):
         from pathlib import Path
+
         paths = locations_map_mod._default_locations_yaml_paths()
         self.assertIsInstance(paths, list)
         for p in paths:

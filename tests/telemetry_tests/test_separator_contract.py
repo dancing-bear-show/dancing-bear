@@ -6,13 +6,14 @@ passthrough intercepts on ``argv[0]`` and a leading bare ``--`` would hide the
 subcommand. That makes double-normalization a live hazard here in a way it is
 not for the other 17 apps.
 """
+
 from __future__ import annotations
 
 import unittest
 from unittest.mock import patch
 
-from tests.cli_separator_contract import SeparatorContractMixin
 from tests.cli_no_subcommand_contract import NoSubcommandContractMixin
+from tests.cli_separator_contract import SeparatorContractMixin
 
 
 class TestTelemetrySeparatorCLI(SeparatorContractMixin, unittest.TestCase):
@@ -85,13 +86,13 @@ class TestTelemetryArgvNormalizedOnce(unittest.TestCase):
         otel_main.assert_called_once_with(["query", "--", "--raw"])
 
 
-
 class TestTelemetryNoSubcommand(NoSubcommandContractMixin, unittest.TestCase):
     """Rule A7 — the no-subcommand exit code is deliberate."""
 
     MODULE_PATH = "telemetry.cli_sessions"
     EXPECTED_RC = 0
     EXPECTED_STREAM = "stdout"
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -6,13 +6,13 @@ import unittest
 from unittest.mock import patch
 
 from phone.device import (
+    _fallback_parse,
+    _first_value,
     _get_bundle_id,
     _parse_list_format,
     _parse_plist_format,
-    _fallback_parse,
-    _first_value,
-    resolve_p12_path,
     map_udid_to_ecid,
+    resolve_p12_path,
 )
 from tests.phone_tests.fixtures import make_ini_section, make_list_data, make_plist_data
 
@@ -85,7 +85,10 @@ class TestParsePlistFormat(unittest.TestCase):
         self.assertEqual(result, {"dock": [], "pages": []})
 
     def test_display_identifier_fallback(self):
-        data = {"buttonBar": [{"displayIdentifier": "com.dock"}], "iconLists": [[{"displayIdentifier": "com.app"}]]}
+        data = {
+            "buttonBar": [{"displayIdentifier": "com.dock"}],
+            "iconLists": [[{"displayIdentifier": "com.app"}]],
+        }
         result = _parse_plist_format(data)
         self.assertEqual(result["dock"], ["com.dock"])
         self.assertEqual(result["pages"][0]["apps"], ["com.app"])

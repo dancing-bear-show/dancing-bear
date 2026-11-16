@@ -6,15 +6,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from workflow.compiler import WorkflowCompileError, compile_workflow
-from workflow.models import OutputMode, StageKind
-
 from tests.workflow_tests.helpers.factories import (
     make_output_spec,
     make_stage_spec,
     make_workflow_definition,
 )
-
+from workflow.compiler import WorkflowCompileError, compile_workflow
+from workflow.models import OutputMode, StageKind
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -186,7 +184,13 @@ class TestTemplateResolution(unittest.TestCase):
     def test_ref_loaded_when_file_exists(self) -> None:
         cases = (
             ("template", "TEMPLATE.md", "template_ref", "# Template content", "template_content"),
-            ("writing_guide", "WRITING_GUIDE.md", "writing_guide_ref", "# Writing guide", "guide_content"),
+            (
+                "writing_guide",
+                "WRITING_GUIDE.md",
+                "writing_guide_ref",
+                "# Writing guide",
+                "guide_content",
+            ),
         )
         for case_name, filename, ref_kwarg, content, resolved_attr in cases:
             with self.subTest(case_name):

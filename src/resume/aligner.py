@@ -2,6 +2,7 @@
 
 Matches candidate profile against job requirements and produces alignment reports.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -33,7 +34,7 @@ def _missing_from_items(
     """Find canonical keywords from items not present in matched_set."""
     missing = []
     for item in items or []:
-        kw = ((item.get("skill") or item.get("name") or "") if isinstance(item, dict) else str(item))
+        kw = (item.get("skill") or item.get("name") or "") if isinstance(item, dict) else str(item)
         if kw:
             canon = matcher.canonicalize(kw)
             if canon not in matched_set:
@@ -80,19 +81,19 @@ def align_candidate_to_job(
     # Build matched keywords list with full metadata
     matched_keywords: list[dict[str, Any]] = []
     for kw, result in matches.items():
-        matched_keywords.append({
-            "skill": result.keyword,
-            "count": result.count,
-            "weight": result.weight,
-            "tier": result.tier,
-            "category": result.category,
-        })
+        matched_keywords.append(
+            {
+                "skill": result.keyword,
+                "count": result.count,
+                "weight": result.weight,
+                "tier": result.tier,
+                "category": result.category,
+            }
+        )
 
     # Sort by tier priority, then weight, then count
     tier_order = {"required": 0, "preferred": 1, "nice": 2}
-    matched_keywords.sort(
-        key=lambda d: (tier_order.get(d["tier"], 3), -d["weight"], -d["count"])
-    )
+    matched_keywords.sort(key=lambda d: (tier_order.get(d["tier"], 3), -d["weight"], -d["count"]))
 
     matched_set = set(matches.keys())
     missing_required = _find_missing_required(keyword_spec, matcher, matched_set)

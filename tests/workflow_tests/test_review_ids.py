@@ -73,21 +73,32 @@ UNSAFE_FILE_IDS = ("../x", "a/b", ".hidden", "..", "a$(id)b", "body 0", "a;rm", 
 # ---------------------------------------------------------------------------
 
 
-def _fetched(thread_id: str | None, path: str | None, line: int | None,
-             *, db_id: int | None, body: str) -> dict[str, Any]:
+def _fetched(
+    thread_id: str | None, path: str | None, line: int | None, *, db_id: int | None, body: str
+) -> dict[str, Any]:
     return {
-        "thread_id": thread_id, "path": path, "line": line,
+        "thread_id": thread_id,
+        "path": path,
+        "line": line,
         "comments": [{"author": "bot", "body": body, "database_id": db_id}],
     }
 
 
-def _triage(thread_id: str | None, path: str | None, line: int | None, *,
-            db_id: int | str | None = None,
-            discriminator: str | None = "database_id") -> dict[str, Any]:
+def _triage(
+    thread_id: str | None,
+    path: str | None,
+    line: int | None,
+    *,
+    db_id: int | str | None = None,
+    discriminator: str | None = "database_id",
+) -> dict[str, Any]:
     return {
-        "thread_id": thread_id, "path": path, "line": line,
+        "thread_id": thread_id,
+        "path": path,
+        "line": line,
         "discriminator": discriminator,
-        "comment_database_id": db_id, "body_fingerprint": None,
+        "comment_database_id": db_id,
+        "body_fingerprint": None,
         "id": thread_id or f"comment:{db_id}",
     }
 
@@ -102,7 +113,9 @@ def _triage_fp(thread_id: str, path: str, line: int, fingerprint: str | None) ->
 _ABSENT = object()
 
 
-def _entry(finding_id: object, file_id: object = _ABSENT, thread_id: str | None = None) -> dict[str, Any]:
+def _entry(
+    finding_id: object, file_id: object = _ABSENT, thread_id: str | None = None
+) -> dict[str, Any]:
     """A fix-index entry. file_id defaults to the parser's real _file_id(id).
     Pass _ABSENT as finding_id to leave ``id`` out; any explicit file_id,
     None included, is written as given."""
@@ -122,7 +135,10 @@ def _index(*groups: Sequence[dict[str, Any]], paths: Sequence[str] = ()) -> dict
     return {
         "total": len(groups),
         "items": [
-            {"index": str(i), "data": {"path": paths[i] if paths else f"f{i}.py", "threads": list(entries)}}
+            {
+                "index": str(i),
+                "data": {"path": paths[i] if paths else f"f{i}.py", "threads": list(entries)},
+            }
             for i, entries in enumerate(groups)
         ],
     }
@@ -150,7 +166,9 @@ class _JsonFiles(TempDirMixin, unittest.TestCase):
         return json.loads((self.root / name).read_text(encoding="utf-8"))
 
 
-def _call(handler: Callable[[argparse.Namespace], int], args: argparse.Namespace) -> tuple[int, str, str]:
+def _call(
+    handler: Callable[[argparse.Namespace], int], args: argparse.Namespace
+) -> tuple[int, str, str]:
     """Run a handler, returning (exit status, stdout, stderr)."""
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
@@ -164,7 +182,6 @@ def _call(handler: Callable[[argparse.Namespace], int], args: argparse.Namespace
 
 
 class TestBodyFingerprint(unittest.TestCase):
-
     def test_known_answer(self) -> None:
         """Pinned value: any change to the algorithm fails here first."""
         self.assertEqual(body_fingerprint(KNOWN_BODY), KNOWN_FINGERPRINT)
@@ -184,12 +201,16 @@ class TestBodyFingerprint(unittest.TestCase):
 
 
 class TestThreadFingerprints(_JsonFiles):
-
     def test_rows_by_position(self) -> None:
-        path = self.write("threads.json", {"threads": [
-            _fetched(REAL_ID_A, "a.py", 1, db_id=11, body=KNOWN_BODY),
-            {"thread_id": None, "path": None, "line": None, "comments": []},
-        ]})
+        path = self.write(
+            "threads.json",
+            {
+                "threads": [
+                    _fetched(REAL_ID_A, "a.py", 1, db_id=11, body=KNOWN_BODY),
+                    {"thread_id": None, "path": None, "line": None, "comments": []},
+                ]
+            },
+        )
         rows = thread_fingerprints(path)
         self.assertEqual([r.index for r in rows], [0, 1])
         self.assertEqual(rows[0].thread_id, REAL_ID_A)
@@ -207,9 +228,14 @@ class TestThreadFingerprints(_JsonFiles):
             thread_fingerprints(self.write("threads.json", {"threads": ["x"]}))
 
     def test_handler_emits_json(self) -> None:
-        path = self.write("threads.json", {"threads": [
-            _fetched(REAL_ID_A, "a.py", 1, db_id=11, body=KNOWN_BODY),
-        ]})
+        path = self.write(
+            "threads.json",
+            {
+                "threads": [
+                    _fetched(REAL_ID_A, "a.py", 1, db_id=11, body=KNOWN_BODY),
+                ]
+            },
+        )
         code, out, _ = _call(_cmd_thread_fingerprints, argparse.Namespace(file=path))
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(out)[0]["body_fingerprint"], KNOWN_FINGERPRINT)
@@ -226,13 +252,14 @@ class TestThreadFingerprints(_JsonFiles):
 
 
 class TestCheckFixIndex(_JsonFiles):
-
     def check(self, *groups: Sequence[dict[str, Any]]) -> FixIndexResult:
         return check_fix_index(self.write("fix-index.json", _index(*groups)))
 
     def test_real_ids_and_their_file_ids_pass(self) -> None:
-        result = self.check(_ids(REAL_ID_TRAILING_DASH, UNLINKED_A),
-                            _ids("comment:123456789", REAL_ID_A, UNLINKED_B))
+        result = self.check(
+            _ids(REAL_ID_TRAILING_DASH, UNLINKED_A),
+            _ids("comment:123456789", REAL_ID_A, UNLINKED_B),
+        )
         self.assertTrue(result.ok, result.failures)
         self.assertEqual(result.checked, 5)
 
@@ -251,7 +278,8 @@ class TestCheckFixIndex(_JsonFiles):
     def test_duplicate_id_across_items_fails(self) -> None:
         result = self.check([_entry(REAL_ID_A, "f-one")], [_entry(REAL_ID_A, "f-two")])
         self.assertEqual(
-            result.failures, ("items[1].data.threads[0]: id duplicates items[0].data.threads[0]",),
+            result.failures,
+            ("items[1].data.threads[0]: id duplicates items[0].data.threads[0]",),
         )
 
     def test_duplicate_file_id_fails(self) -> None:
@@ -263,8 +291,15 @@ class TestCheckFixIndex(_JsonFiles):
         )
 
     def test_several_missing_report_as_missing_not_duplicate(self) -> None:
-        result = self.check([_entry(_ABSENT, "f1"), _entry(None, "f2"), _entry("", "f3"),
-                             _entry("x1", None), _entry("x2", "")])
+        result = self.check(
+            [
+                _entry(_ABSENT, "f1"),
+                _entry(None, "f2"),
+                _entry("", "f3"),
+                _entry("x1", None),
+                _entry("x2", ""),
+            ]
+        )
         self.assertEqual(len(result.failures), 5)
         for failure in result.failures:
             with self.subTest(failure=failure):
@@ -299,8 +334,12 @@ class TestCheckFixIndex(_JsonFiles):
 
     def test_rejected_values_never_echoed(self) -> None:
         entries = [_entry(f"id-{n}", f) for n, f in enumerate(UNSAFE_FILE_IDS)]
-        entries += [_entry("dup-id", "f-a"), _entry("dup-id", "f-b"),
-                    _entry("i-a", "dup-file"), _entry("i-b", "dup-file")]
+        entries += [
+            _entry("dup-id", "f-a"),
+            _entry("dup-id", "f-b"),
+            _entry("i-a", "dup-file"),
+            _entry("i-b", "dup-file"),
+        ]
         text = "\n".join(self.check(entries).failures)
         for value in (*UNSAFE_FILE_IDS, "dup-id", "dup-file"):
             with self.subTest(value=value):
@@ -308,7 +347,9 @@ class TestCheckFixIndex(_JsonFiles):
 
     def test_malformed_index_raises(self) -> None:
         malformed: tuple[dict[str, object], ...] = (
-            {"items": {}}, {"items": [{"data": {}}]}, {"items": ["x"]},
+            {"items": {}},
+            {"items": [{"data": {}}]},
+            {"items": ["x"]},
         )
         for doc in malformed:
             with self.subTest(doc=doc), self.assertRaises(ValueError):
@@ -316,7 +357,6 @@ class TestCheckFixIndex(_JsonFiles):
 
 
 class TestCheckFixIndexHandler(_JsonFiles):
-
     def run_handler(self, doc: object) -> tuple[int, str, str]:
         path = self.write("fix-index.json", doc)
         return _call(_cmd_check_fix_index, argparse.Namespace(file=path))
@@ -366,19 +406,23 @@ class _Coherence(_JsonFiles):
 
     def setUp(self) -> None:
         super().setUp()
-        self.threads = self.write("threads.json", {"threads": [
-            _fetched(REAL_ID_A, "wf.yaml", 7, db_id=101, body=self.BODY_A),
-            _fetched(REAL_ID_B, "wf.yaml", 7, db_id=102, body=self.BODY_B),
-            _fetched(REAL_ID_TRAILING_DASH, "src/x.py", 40, db_id=103, body="x"),
-            _fetched(None, None, None, db_id=900, body="review body"),
-        ]})
+        self.threads = self.write(
+            "threads.json",
+            {
+                "threads": [
+                    _fetched(REAL_ID_A, "wf.yaml", 7, db_id=101, body=self.BODY_A),
+                    _fetched(REAL_ID_B, "wf.yaml", 7, db_id=102, body=self.BODY_B),
+                    _fetched(REAL_ID_TRAILING_DASH, "src/x.py", 40, db_id=103, body="x"),
+                    _fetched(None, None, None, db_id=900, body="review body"),
+                ]
+            },
+        )
 
     def triage(self, *entries: dict[str, Any], extra: dict[str, Any] | None = None) -> str:
         return self.write("triage.json", {"threads": list(entries), **(extra or {})})
 
 
 class TestCheckThreadIds(_Coherence):
-
     def test_coherent_triage_passes(self) -> None:
         result = check_thread_ids(self.threads, self.triage(*_coherent_triage()))
         self.assertEqual(result.halts(repair=False), ())
@@ -386,10 +430,14 @@ class TestCheckThreadIds(_Coherence):
 
     def test_null_ids_skipped_even_with_coordinates(self) -> None:
         """A review-body finding quoting a path:line must not halt the run."""
-        path = self.triage(_triage(None, "wf.yaml", 289, db_id=900),
-                           _triage(None, "other.py", 3, db_id=None, discriminator=None))
+        path = self.triage(
+            _triage(None, "wf.yaml", 289, db_id=900),
+            _triage(None, "other.py", 3, db_id=None, discriminator=None),
+        )
         result = check_thread_ids(self.threads, path)
-        self.assertEqual((result.checked, result.skipped_null, result.halts(repair=False)), (0, 2, ()))
+        self.assertEqual(
+            (result.checked, result.skipped_null, result.halts(repair=False)), (0, 2, ())
+        )
 
     def test_fabricated_id_halts(self) -> None:
         entry = _triage(REAL_ID_A + "_missing_defer_case", "wf.yaml", 7, db_id=101)
@@ -403,10 +451,13 @@ class TestCheckThreadIds(_Coherence):
             _triage(REAL_ID_B, "wf.yaml", 7, db_id=101),
         )
         result = check_thread_ids(self.threads, path)
-        self.assertEqual(result.issues, (
-            f"triage threads[0]: {ISSUE_MISMATCH}",
-            f"triage threads[1]: {ISSUE_MISMATCH}",
-        ))
+        self.assertEqual(
+            result.issues,
+            (
+                f"triage threads[0]: {ISSUE_MISMATCH}",
+                f"triage threads[1]: {ISSUE_MISMATCH}",
+            ),
+        )
         self.assertEqual(result.relabels, ())
         self.assertEqual(result.halts(repair=True), result.issues)
 
@@ -435,26 +486,38 @@ class TestCheckThreadIds(_Coherence):
         for disc in (None, "coordinates", ""):
             with self.subTest(discriminator=disc):
                 path = self.triage(_triage(REAL_ID_A, "wf.yaml", 7, db_id=101, discriminator=disc))
-                self.assertEqual(check_thread_ids(self.threads, path).issues,
-                                 (f"triage threads[0]: {ISSUE_BAD_DISCRIMINATOR}",))
+                self.assertEqual(
+                    check_thread_ids(self.threads, path).issues,
+                    (f"triage threads[0]: {ISSUE_BAD_DISCRIMINATOR}",),
+                )
 
     def test_named_discriminator_without_value_halts(self) -> None:
         path = self.triage(
             _triage(REAL_ID_A, "wf.yaml", 7, db_id=None),
             _triage_fp(REAL_ID_B, "wf.yaml", 7, None),
         )
-        self.assertEqual(check_thread_ids(self.threads, path).issues, (
-            f"triage threads[0]: {ISSUE_NO_RECORDED_VALUE}",
-            f"triage threads[1]: {ISSUE_NO_RECORDED_VALUE}",
-        ))
+        self.assertEqual(
+            check_thread_ids(self.threads, path).issues,
+            (
+                f"triage threads[0]: {ISSUE_NO_RECORDED_VALUE}",
+                f"triage threads[1]: {ISSUE_NO_RECORDED_VALUE}",
+            ),
+        )
 
     def test_fetch_without_database_id_halts(self) -> None:
-        threads = self.write("threads.json", {"threads": [
-            _fetched(REAL_ID_A, "wf.yaml", 7, db_id=None, body=self.BODY_A),
-        ]})
+        threads = self.write(
+            "threads.json",
+            {
+                "threads": [
+                    _fetched(REAL_ID_A, "wf.yaml", 7, db_id=None, body=self.BODY_A),
+                ]
+            },
+        )
         path = self.triage(_triage(REAL_ID_A, "wf.yaml", 7, db_id=101))
-        self.assertEqual(check_thread_ids(threads, path).issues,
-                         (f"triage threads[0]: {ISSUE_FETCH_HAS_NO_VALUE}",))
+        self.assertEqual(
+            check_thread_ids(threads, path).issues,
+            (f"triage threads[0]: {ISSUE_FETCH_HAS_NO_VALUE}",),
+        )
 
     def test_database_id_as_digit_string_matches(self) -> None:
         path = self.triage(_triage(REAL_ID_A, "wf.yaml", 7, db_id="101"))
@@ -473,10 +536,15 @@ class TestCheckThreadIds(_Coherence):
         self.assertEqual(result.halts(repair=True), ())
 
     def test_repeated_id_in_fetch_raises(self) -> None:
-        threads = self.write("threads.json", {"threads": [
-            _fetched(REAL_ID_A, "a", 1, db_id=1, body="a"),
-            _fetched(REAL_ID_A, "b", 2, db_id=2, body="b"),
-        ]})
+        threads = self.write(
+            "threads.json",
+            {
+                "threads": [
+                    _fetched(REAL_ID_A, "a", 1, db_id=1, body="a"),
+                    _fetched(REAL_ID_A, "b", 2, db_id=2, body="b"),
+                ]
+            },
+        )
         with self.assertRaises(ValueError):
             check_thread_ids(threads, self.triage())
 
@@ -486,7 +554,6 @@ class TestCheckThreadIds(_Coherence):
 
 
 class TestCheckThreadIdsHandler(_Coherence):
-
     def run_handler(self, triage_path: str, *, repair: bool) -> tuple[int, str, str]:
         args = argparse.Namespace(threads=self.threads, triage=triage_path, repair=repair)
         return _call(_cmd_check_thread_ids, args)
@@ -505,18 +572,25 @@ class TestCheckThreadIdsHandler(_Coherence):
         self.assertEqual(self.read("triage.json"), before)
 
     def test_repair_rewrites_coordinates_and_records_audit(self) -> None:
-        path = self.triage(_triage(REAL_ID_A, "wf.yaml", 9, db_id=101),
-                           extra={"_id_repairs": [{"earlier": True}]})
+        path = self.triage(
+            _triage(REAL_ID_A, "wf.yaml", 9, db_id=101), extra={"_id_repairs": [{"earlier": True}]}
+        )
         code, out, _ = self.run_handler(path, repair=True)
         self.assertEqual(code, 0)
         self.assertIn("repaired=1", out)
         doc = self.read("triage.json")
         self.assertEqual((doc["threads"][0]["path"], doc["threads"][0]["line"]), ("wf.yaml", 7))
-        self.assertEqual(doc["_id_repairs"], [
-            {"earlier": True},
-            {"thread_id": REAL_ID_A, "from": {"path": "wf.yaml", "line": 9},
-             "to": {"path": "wf.yaml", "line": 7}},
-        ])
+        self.assertEqual(
+            doc["_id_repairs"],
+            [
+                {"earlier": True},
+                {
+                    "thread_id": REAL_ID_A,
+                    "from": {"path": "wf.yaml", "line": 9},
+                    "to": {"path": "wf.yaml", "line": 7},
+                },
+            ],
+        )
         # Idempotent: a second pass finds nothing left to repair.
         self.assertIn("repaired=0", self.run_handler(path, repair=True)[1])
 
@@ -555,8 +629,12 @@ class TestReviewIdsEndToEnd(_Coherence):
 
     def workflow(self, *argv: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(  # nosec B603 - fixed argv, no shell, repo-owned binary
-            [str(bin_path("workflow")), *argv], capture_output=True, text=True,
-            cwd=str(repo_root()), check=False, timeout=_WRAPPER_TIMEOUT_S,
+            [str(bin_path("workflow")), *argv],
+            capture_output=True,
+            text=True,
+            cwd=str(repo_root()),
+            check=False,
+            timeout=_WRAPPER_TIMEOUT_S,
         )
 
     def test_check_fix_index_pass_and_fail(self) -> None:
@@ -568,20 +646,31 @@ class TestReviewIdsEndToEnd(_Coherence):
         self.assertNotIn("$(id)", proc.stdout + proc.stderr)
 
     def test_thread_fingerprints_known_answer(self) -> None:
-        path = self.write("threads.json", {"threads": [
-            _fetched(REAL_ID_A, "a.py", 1, db_id=1, body=KNOWN_BODY),
-        ]})
+        path = self.write(
+            "threads.json",
+            {
+                "threads": [
+                    _fetched(REAL_ID_A, "a.py", 1, db_id=1, body=KNOWN_BODY),
+                ]
+            },
+        )
         proc = self.workflow("thread-fingerprints", path)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(json.loads(proc.stdout)[0]["body_fingerprint"], KNOWN_FINGERPRINT)
 
     def test_check_thread_ids_pass_swap_and_repair(self) -> None:
         self.assertEqual(
-            self.workflow("check-thread-ids", self.threads, self.triage(*_coherent_triage())).returncode, 0
+            self.workflow(
+                "check-thread-ids", self.threads, self.triage(*_coherent_triage())
+            ).returncode,
+            0,
         )
-        swap = self.triage(_triage(REAL_ID_A, "wf.yaml", 7, db_id=102),
-                           _triage(REAL_ID_B, "wf.yaml", 7, db_id=101))
-        self.assertEqual(self.workflow("check-thread-ids", self.threads, swap, "--repair").returncode, 1)
+        swap = self.triage(
+            _triage(REAL_ID_A, "wf.yaml", 7, db_id=102), _triage(REAL_ID_B, "wf.yaml", 7, db_id=101)
+        )
+        self.assertEqual(
+            self.workflow("check-thread-ids", self.threads, swap, "--repair").returncode, 1
+        )
         relabel = self.triage(_triage(REAL_ID_A, "wf.yaml", 9, db_id=101))
         self.assertEqual(self.workflow("check-thread-ids", self.threads, relabel).returncode, 1)
         self.assertEqual(
@@ -598,8 +687,11 @@ class TestReviewIdsEndToEnd(_Coherence):
 def _result(finding_id: str, thread_id: str | None, **overrides: object) -> dict[str, Any]:
     """A thread-fixer result object with a passing fix, overridable per field."""
     base: dict[str, Any] = {
-        "id": finding_id, "thread_id": thread_id, "action": "fixed",
-        "files_changed": ["src/a.py"], "tests_added": [f"tests/test_{_file_id(finding_id)}.py"],
+        "id": finding_id,
+        "thread_id": thread_id,
+        "action": "fixed",
+        "files_changed": ["src/a.py"],
+        "tests_added": [f"tests/test_{_file_id(finding_id)}.py"],
         "test_result": "pass",
     }
     base.update(overrides)
@@ -618,12 +710,17 @@ class _Aggregate(_JsonFiles):
         self.index = self._write_index("src/b.py", "src/a.py")
 
     def _write_index(self, *paths: str) -> str:
-        return self.write("fix-index.json", _index(
-            [_entry(REAL_ID_A, thread_id=REAL_ID_A),
-             _entry(REAL_ID_TRAILING_DASH, thread_id=REAL_ID_TRAILING_DASH)],
-            _ids(UNLINKED_A, UNLINKED_B),
-            paths=paths,
-        ))
+        return self.write(
+            "fix-index.json",
+            _index(
+                [
+                    _entry(REAL_ID_A, thread_id=REAL_ID_A),
+                    _entry(REAL_ID_TRAILING_DASH, thread_id=REAL_ID_TRAILING_DASH),
+                ],
+                _ids(UNLINKED_A, UNLINKED_B),
+                paths=paths,
+            ),
+        )
 
     def _write_result(self, stem: str, doc: object) -> None:
         (self.fixes / f"{stem}.json").write_text(json.dumps(doc), encoding="utf-8")
@@ -633,8 +730,12 @@ class _Aggregate(_JsonFiles):
 
     def _write_all_valid(self) -> None:
         self._write_for(REAL_ID_A, _result(REAL_ID_A, REAL_ID_A, files_changed=["src/b.py"]))
-        self._write_for(REAL_ID_TRAILING_DASH, _result(REAL_ID_TRAILING_DASH, REAL_ID_TRAILING_DASH,
-                                                      action="rejected", files_changed=[]))
+        self._write_for(
+            REAL_ID_TRAILING_DASH,
+            _result(
+                REAL_ID_TRAILING_DASH, REAL_ID_TRAILING_DASH, action="rejected", files_changed=[]
+            ),
+        )
         self._write_for(UNLINKED_A, _result(UNLINKED_A, None))
         self._write_for(UNLINKED_B, _result(UNLINKED_B, None, files_changed=["src/a.py"]))
 
@@ -643,19 +744,23 @@ class _Aggregate(_JsonFiles):
 
 
 class TestAggregateFixResults(_Aggregate):
-
     def test_all_valid_results_are_credited_in_index_order(self) -> None:
         self._write_all_valid()
         doc = self._merged()
         self.assertEqual((doc["total_expected"], doc["total_results"]), (4, 4))
-        self.assertEqual([r["id"] for r in doc["results"]],
-                         [REAL_ID_A, REAL_ID_TRAILING_DASH, UNLINKED_A, UNLINKED_B])
-        self.assertEqual((doc["missing_results"], doc["key_mismatches"], doc["failed_tests"]), ([], [], []))
+        self.assertEqual(
+            [r["id"] for r in doc["results"]],
+            [REAL_ID_A, REAL_ID_TRAILING_DASH, UNLINKED_A, UNLINKED_B],
+        )
+        self.assertEqual(
+            (doc["missing_results"], doc["key_mismatches"], doc["failed_tests"]), ([], [], [])
+        )
         self.assertEqual(doc["by_action"], {"fixed": 3, "rejected": 1, "moot": 0, "deferred": 0})
         # REAL_ID_TRAILING_DASH is "rejected"; its tests_added must not be folded in
         # even though the fixture leaves that field at its "fixed" default.
-        test_files = sorted(f"tests/test_{_file_id(i)}.py"
-                            for i in (REAL_ID_A, UNLINKED_A, UNLINKED_B))
+        test_files = sorted(
+            f"tests/test_{_file_id(i)}.py" for i in (REAL_ID_A, UNLINKED_A, UNLINKED_B)
+        )
         self.assertEqual(doc["files_changed"], ["src/a.py", "src/b.py", *test_files])
 
     def test_test_files_are_committed_with_their_fix(self) -> None:
@@ -664,14 +769,22 @@ class TestAggregateFixResults(_Aggregate):
         stages exactly files_changed -- would have pushed the fix without
         its tests. The test file must be in the list."""
         self.index = self._write_index("src/b.py", "src/core/dryrun_sample.py")
-        self._write_for(UNLINKED_A, _result(
-            UNLINKED_A, None,
-            files_changed=["src/core/dryrun_sample.py"],
-            tests_added=["tests/core_tests/test_dryrun_sample.py::TestX::test_rejects_bool",
-                         "tests/core_tests/test_dryrun_sample.py::TestX::test_accepts_int"],
-        ))
-        self.assertEqual(self._merged()["files_changed"],
-                         ["src/core/dryrun_sample.py", "tests/core_tests/test_dryrun_sample.py"])
+        self._write_for(
+            UNLINKED_A,
+            _result(
+                UNLINKED_A,
+                None,
+                files_changed=["src/core/dryrun_sample.py"],
+                tests_added=[
+                    "tests/core_tests/test_dryrun_sample.py::TestX::test_rejects_bool",
+                    "tests/core_tests/test_dryrun_sample.py::TestX::test_accepts_int",
+                ],
+            ),
+        )
+        self.assertEqual(
+            self._merged()["files_changed"],
+            ["src/core/dryrun_sample.py", "tests/core_tests/test_dryrun_sample.py"],
+        )
 
     def test_rejected_results_tests_added_is_not_staged(self) -> None:
         """A rejected/moot/deferred result did not touch its test file --
@@ -679,10 +792,16 @@ class TestAggregateFixResults(_Aggregate):
         wrote. PR #406 review: the _write_all_valid fixture already had a
         rejected result carrying a leftover tests_added value and it was
         (before this fix) folded into files_changed anyway."""
-        self._write_for(UNLINKED_A, _result(
-            UNLINKED_A, None, action="rejected", files_changed=[],
-            tests_added=["tests/unrelated/test_untouched.py::T::test_y"],
-        ))
+        self._write_for(
+            UNLINKED_A,
+            _result(
+                UNLINKED_A,
+                None,
+                action="rejected",
+                files_changed=[],
+                tests_added=["tests/unrelated/test_untouched.py::T::test_y"],
+            ),
+        )
         self.assertEqual(self._merged()["files_changed"], [])
 
     def test_non_fixed_files_changed_is_not_authorized(self) -> None:
@@ -691,12 +810,19 @@ class TestAggregateFixResults(_Aggregate):
         reported as an unlisted edit. Only fixed results may authorize a
         commit; an edit a non-fixed result really made stays unlisted and
         fails the gate."""
-        self._write_for(UNLINKED_A, _result(
-            UNLINKED_A, None, action="moot", files_changed=["src/sneaky.py"],
-            tests_added=["tests/unrelated/test_untouched.py::T::test_y"],
-        ))
-        self._write_for(UNLINKED_B, _result(UNLINKED_B, None, files_changed=["src/a.py"],
-                                            tests_added=[]))
+        self._write_for(
+            UNLINKED_A,
+            _result(
+                UNLINKED_A,
+                None,
+                action="moot",
+                files_changed=["src/sneaky.py"],
+                tests_added=["tests/unrelated/test_untouched.py::T::test_y"],
+            ),
+        )
+        self._write_for(
+            UNLINKED_B, _result(UNLINKED_B, None, files_changed=["src/a.py"], tests_added=[])
+        )
         self.assertEqual(self._merged()["files_changed"], ["src/a.py"])
 
     def test_source_file_outside_the_fixers_scope_is_not_authorized(self) -> None:
@@ -704,8 +830,15 @@ class TestAggregateFixResults(_Aggregate):
         check-paths, and have check-unlisted subtract it -- so a compromised
         fixer's edit to an unrelated source file was committed. Only the
         group's own file and tests/ paths are authorized."""
-        self._write_for(UNLINKED_A, _result(UNLINKED_A, None, files_changed=["src/a.py", "src/other.py"],
-                                            tests_added=["tests/x/test_a.py::T::t"]))
+        self._write_for(
+            UNLINKED_A,
+            _result(
+                UNLINKED_A,
+                None,
+                files_changed=["src/a.py", "src/other.py"],
+                tests_added=["tests/x/test_a.py::T::t"],
+            ),
+        )
         doc = self._merged()
         self.assertEqual(doc["files_changed"], ["src/a.py", "tests/x/test_a.py"])
         self.assertEqual(doc["out_of_scope_paths"], [{"id": UNLINKED_A, "path": "src/other.py"}])
@@ -714,17 +847,39 @@ class TestAggregateFixResults(_Aggregate):
         """PR #406 round 13: results stay verbatim and verify-fixes read
         every tests_added id from disk, so ../../.envrc::x was a file-read
         instruction. Only validated ids are published for reading."""
-        self._write_for(UNLINKED_A, _result(UNLINKED_A, None, files_changed=["src/a.py"], tests_added=[
-            "tests/x/test_a.py::T::t", "../../.envrc::x", "/etc/passwd::t", ".claude/hooks/test_h.py::T::t"]))
+        self._write_for(
+            UNLINKED_A,
+            _result(
+                UNLINKED_A,
+                None,
+                files_changed=["src/a.py"],
+                tests_added=[
+                    "tests/x/test_a.py::T::t",
+                    "../../.envrc::x",
+                    "/etc/passwd::t",
+                    ".claude/hooks/test_h.py::T::t",
+                ],
+            ),
+        )
         doc = self._merged()
         self.assertEqual(doc["tests_added"], ["tests/x/test_a.py::T::t"])
         self.assertEqual(doc["tests_by_result"], {UNLINKED_A: ["tests/x/test_a.py::T::t"]})
-        self.assertEqual(sorted(r["test"] for r in doc["rejected_tests_added"]),
-                         ["../../.envrc::x", ".claude/hooks/test_h.py::T::t", "/etc/passwd::t"])
+        self.assertEqual(
+            sorted(r["test"] for r in doc["rejected_tests_added"]),
+            ["../../.envrc::x", ".claude/hooks/test_h.py::T::t", "/etc/passwd::t"],
+        )
 
     def test_non_fixed_results_publish_no_tests(self) -> None:
-        self._write_for(UNLINKED_A, _result(UNLINKED_A, None, action="rejected", files_changed=[],
-                                            tests_added=["tests/x/test_a.py::T::t"]))
+        self._write_for(
+            UNLINKED_A,
+            _result(
+                UNLINKED_A,
+                None,
+                action="rejected",
+                files_changed=[],
+                tests_added=["tests/x/test_a.py::T::t"],
+            ),
+        )
         doc = self._merged()
         self.assertEqual((doc["tests_added"], doc["tests_by_result"]), ([], {}))
 
@@ -732,9 +887,15 @@ class TestAggregateFixResults(_Aggregate):
         """PR #406 round 12: every path under tests/ was authorized, so a
         fixer could edit tests/other.py, list it, and have it committed.
         Only the test files its own tests_added ids name are in scope."""
-        self._write_for(UNLINKED_A, _result(UNLINKED_A, None,
-                                            files_changed=["src/a.py", "tests/x/test_a.py", "tests/other.py"],
-                                            tests_added=["tests/x/test_a.py::T::t"]))
+        self._write_for(
+            UNLINKED_A,
+            _result(
+                UNLINKED_A,
+                None,
+                files_changed=["src/a.py", "tests/x/test_a.py", "tests/other.py"],
+                tests_added=["tests/x/test_a.py::T::t"],
+            ),
+        )
         doc = self._merged()
         self.assertEqual(doc["files_changed"], ["src/a.py", "tests/x/test_a.py"])
         self.assertEqual(doc["out_of_scope_paths"], [{"id": UNLINKED_A, "path": "tests/other.py"}])
@@ -742,16 +903,30 @@ class TestAggregateFixResults(_Aggregate):
     def test_another_groups_file_is_out_of_scope(self) -> None:
         """src/b.py belongs to the threaded group; the unlinked group's fixer
         may not claim it."""
-        self._write_for(UNLINKED_A, _result(UNLINKED_A, None, files_changed=["src/b.py"], tests_added=[]))
+        self._write_for(
+            UNLINKED_A, _result(UNLINKED_A, None, files_changed=["src/b.py"], tests_added=[])
+        )
         doc = self._merged()
         self.assertEqual(doc["files_changed"], [])
         self.assertEqual(doc["out_of_scope_paths"], [{"id": UNLINKED_A, "path": "src/b.py"}])
 
     def test_group_with_no_file_authorizes_only_tests(self) -> None:
-        self.index = self.write("fix-index.json", {
-            "total": 1, "items": [{"index": "0", "data": {"path": None, "threads": _ids(UNLINKED_A)}}]})
-        self._write_for(UNLINKED_A, _result(UNLINKED_A, None, files_changed=["src/a.py"],
-                                            tests_added=["tests/x/test_a.py::T::t"]))
+        self.index = self.write(
+            "fix-index.json",
+            {
+                "total": 1,
+                "items": [{"index": "0", "data": {"path": None, "threads": _ids(UNLINKED_A)}}],
+            },
+        )
+        self._write_for(
+            UNLINKED_A,
+            _result(
+                UNLINKED_A,
+                None,
+                files_changed=["src/a.py"],
+                tests_added=["tests/x/test_a.py::T::t"],
+            ),
+        )
         doc = self._merged()
         self.assertEqual(doc["files_changed"], ["tests/x/test_a.py"])
         self.assertEqual(doc["out_of_scope_paths"], [{"id": UNLINKED_A, "path": "src/a.py"}])
@@ -760,26 +935,45 @@ class TestAggregateFixResults(_Aggregate):
         """A test id is the one route a file could take around files_changed.
         A "test" outside tests/ is outside the fixer's scope: it is reported,
         and left off files_changed so check-unlisted refuses the edit."""
-        self._write_for(UNLINKED_A, _result(UNLINKED_A, None, files_changed=["src/a.py"],
-                                            tests_added=[".claude/hooks/test_x.py::T::t"]))
+        self._write_for(
+            UNLINKED_A,
+            _result(
+                UNLINKED_A,
+                None,
+                files_changed=["src/a.py"],
+                tests_added=[".claude/hooks/test_x.py::T::t"],
+            ),
+        )
         doc = self._merged()
         self.assertNotIn(".claude/hooks/test_x.py", doc["files_changed"])
-        self.assertIn({"id": UNLINKED_A, "path": ".claude/hooks/test_x.py"}, doc["out_of_scope_paths"])
+        self.assertIn(
+            {"id": UNLINKED_A, "path": ".claude/hooks/test_x.py"}, doc["out_of_scope_paths"]
+        )
 
     def test_non_path_test_ids_are_not_guessed_into_paths(self) -> None:
-        self._write_for(UNLINKED_A, _result(
-            UNLINKED_A, None, files_changed=["src/a.py"],
-            tests_added=["tests.core_tests.test_x.TestX.test_y", "", "::orphan", 7],
-        ))
+        self._write_for(
+            UNLINKED_A,
+            _result(
+                UNLINKED_A,
+                None,
+                files_changed=["src/a.py"],
+                tests_added=["tests.core_tests.test_x.TestX.test_y", "", "::orphan", 7],
+            ),
+        )
         self.assertEqual(self._merged()["files_changed"], ["src/a.py"])
 
     def test_nested_safe_test_path_is_folded_in(self) -> None:
         """A multi-segment path built entirely from safe characters still
         reaches files_changed -- the allowlist must not over-reject."""
-        self._write_for(UNLINKED_A, _result(
-            UNLINKED_A, None, files_changed=["src/a.py"],
-            tests_added=["tests/workflow_tests/sub-dir/test_x.py::T::test_y"],
-        ))
+        self._write_for(
+            UNLINKED_A,
+            _result(
+                UNLINKED_A,
+                None,
+                files_changed=["src/a.py"],
+                tests_added=["tests/workflow_tests/sub-dir/test_x.py::T::test_y"],
+            ),
+        )
         self.assertIn("tests/workflow_tests/sub-dir/test_x.py", self._merged()["files_changed"])
 
     def test_shell_metacharacter_test_ids_are_rejected(self) -> None:
@@ -787,16 +981,21 @@ class TestAggregateFixResults(_Aggregate):
         files_changed: commit-and-push interpolates files_changed into shell
         command text (``git add <file1> <file2> ...``), not an argv array, so
         an unrejected ``$(...)`` or backtick would execute on staging."""
-        self._write_for(UNLINKED_A, _result(
-            UNLINKED_A, None, files_changed=["src/a.py"],
-            tests_added=[
-                "tests/$(id).py::T::test",
-                "tests/`id`.py::T::test",
-                "tests/../../etc/passwd.py::T::test",
-                "tests/a b.py::T::test",
-                "tests/te;st.py::T::test",
-            ],
-        ))
+        self._write_for(
+            UNLINKED_A,
+            _result(
+                UNLINKED_A,
+                None,
+                files_changed=["src/a.py"],
+                tests_added=[
+                    "tests/$(id).py::T::test",
+                    "tests/`id`.py::T::test",
+                    "tests/../../etc/passwd.py::T::test",
+                    "tests/a b.py::T::test",
+                    "tests/te;st.py::T::test",
+                ],
+            ),
+        )
         self.assertEqual(self._merged()["files_changed"], ["src/a.py"])
 
     def test_shell_metacharacter_files_changed_are_rejected(self) -> None:
@@ -806,29 +1005,37 @@ class TestAggregateFixResults(_Aggregate):
         ``git add <...>`` before check-paths runs over the built list, so an
         unrejected ``$(...)``, backtick, or embedded whitespace must not
         survive aggregation."""
-        self._write_for(UNLINKED_A, _result(
-            UNLINKED_A, None,
-            files_changed=[
-                "src/a.py",
-                "src/$(id).py",
-                "src/`id`.py",
-                "src/../../etc/passwd",
-                "src/a b.py",
-                "src/te;st.py",
-            ],
-            tests_added=[],
-        ))
+        self._write_for(
+            UNLINKED_A,
+            _result(
+                UNLINKED_A,
+                None,
+                files_changed=[
+                    "src/a.py",
+                    "src/$(id).py",
+                    "src/`id`.py",
+                    "src/../../etc/passwd",
+                    "src/a b.py",
+                    "src/te;st.py",
+                ],
+                tests_added=[],
+            ),
+        )
         self.assertEqual(self._merged()["files_changed"], ["src/a.py"])
 
     def test_safe_nested_files_changed_still_reaches_the_list(self) -> None:
         """The contract must not over-reject: a plain multi-segment path
         built from safe characters is still credited."""
         self.index = self._write_index("src/b.py", "src/workflow/sub-dir/mod_1.py")
-        self._write_for(UNLINKED_A, _result(
-            UNLINKED_A, None,
-            files_changed=["src/workflow/sub-dir/mod_1.py"],
-            tests_added=[],
-        ))
+        self._write_for(
+            UNLINKED_A,
+            _result(
+                UNLINKED_A,
+                None,
+                files_changed=["src/workflow/sub-dir/mod_1.py"],
+                tests_added=[],
+            ),
+        )
         self.assertEqual(self._merged()["files_changed"], ["src/workflow/sub-dir/mod_1.py"])
 
     def test_null_thread_findings_reconcile_on_id(self) -> None:
@@ -866,16 +1073,22 @@ class TestAggregateFixResults(_Aggregate):
         self.assertEqual(merged["missing_results"], [UNLINKED_A])
 
     def test_in_file_id_names_another_finding(self) -> None:
-        merged = self.assert_mismatch(_file_id(UNLINKED_A), _result(UNLINKED_B, None),
-                                      "id field does not equal")
+        merged = self.assert_mismatch(
+            _file_id(UNLINKED_A), _result(UNLINKED_B, None), "id field does not equal"
+        )
         self.assertEqual(merged["key_mismatches"][0]["id_in_file"], UNLINKED_B)
         self.assertEqual(merged["missing_results"], [UNLINKED_A])
 
     def test_thread_id_differs_from_index(self) -> None:
-        for finding_id, thread_id in ((UNLINKED_A, REAL_ID_A), (REAL_ID_A, None), (REAL_ID_A, REAL_ID_B)):
+        for finding_id, thread_id in (
+            (UNLINKED_A, REAL_ID_A),
+            (REAL_ID_A, None),
+            (REAL_ID_A, REAL_ID_B),
+        ):
             with self.subTest(finding_id=finding_id, thread_id=thread_id):
-                merged = self.assert_mismatch(_file_id(finding_id), _result(finding_id, thread_id),
-                                              "thread_id does not equal")
+                merged = self.assert_mismatch(
+                    _file_id(finding_id), _result(finding_id, thread_id), "thread_id does not equal"
+                )
                 self.assertEqual(merged["missing_results"], [finding_id])
 
     def test_stray_file_is_a_mismatch_not_a_missing_finding(self) -> None:
@@ -892,23 +1105,36 @@ class TestAggregateFixResults(_Aggregate):
 
     def test_failed_tests_lists_unproven_fixes_only(self) -> None:
         self._write_for(REAL_ID_A, _result(REAL_ID_A, REAL_ID_A, test_result="fail"))
-        self._write_for(REAL_ID_TRAILING_DASH, _result(REAL_ID_TRAILING_DASH, REAL_ID_TRAILING_DASH,
-                                                      test_result="maybe"))
-        self._write_for(UNLINKED_A, _result(UNLINKED_A, None, action="rejected", test_result="not-run"))
+        self._write_for(
+            REAL_ID_TRAILING_DASH,
+            _result(REAL_ID_TRAILING_DASH, REAL_ID_TRAILING_DASH, test_result="maybe"),
+        )
+        self._write_for(
+            UNLINKED_A, _result(UNLINKED_A, None, action="rejected", test_result="not-run")
+        )
         self._write_for(UNLINKED_B, _result(UNLINKED_B, None))
-        self.assertEqual(self._merged()["failed_tests"], [
-            {"id": REAL_ID_A, "thread_id": REAL_ID_A, "test_result": "fail"},
-            {"id": REAL_ID_TRAILING_DASH, "thread_id": REAL_ID_TRAILING_DASH,
-             "test_result": "not-run"},
-        ])
+        self.assertEqual(
+            self._merged()["failed_tests"],
+            [
+                {"id": REAL_ID_A, "thread_id": REAL_ID_A, "test_result": "fail"},
+                {
+                    "id": REAL_ID_TRAILING_DASH,
+                    "thread_id": REAL_ID_TRAILING_DASH,
+                    "test_result": "not-run",
+                },
+            ],
+        )
 
     def test_out_of_scope_requests_lifted_and_tagged_with_id(self) -> None:
         self._write_all_valid()
-        self._write_for(UNLINKED_A, _result(UNLINKED_A, None,
-                                            out_of_scope_requests=["edit .github/ci.yml"]))
+        self._write_for(
+            UNLINKED_A, _result(UNLINKED_A, None, out_of_scope_requests=["edit .github/ci.yml"])
+        )
         self._write_result("stray", _result("stray", None, out_of_scope_requests=["x"]))
-        self.assertEqual(self._merged()["out_of_scope_requests"],
-                         [{"id": UNLINKED_A, "request": "edit .github/ci.yml"}])
+        self.assertEqual(
+            self._merged()["out_of_scope_requests"],
+            [{"id": UNLINKED_A, "request": "edit .github/ci.yml"}],
+        )
 
     def test_absent_fixes_dir_reports_everything_missing(self) -> None:
         self.fixes.rmdir()
@@ -921,10 +1147,10 @@ class TestAggregateFixResults(_Aggregate):
 
 
 class TestAggregateFixResultsHandler(_Aggregate):
-
     def args(self, index: str) -> argparse.Namespace:
-        return argparse.Namespace(index=index, fixes_dir=str(self.fixes),
-                                  out=str(self.root / "fix-results.json"))
+        return argparse.Namespace(
+            index=index, fixes_dir=str(self.fixes), out=str(self.root / "fix-results.json")
+        )
 
     def test_writes_aggregate_and_counts(self) -> None:
         self._write_all_valid()
@@ -943,13 +1169,15 @@ class TestAggregateFixResultsHandler(_Aggregate):
 
 
 class TestAggregateFixResultsEndToEnd(_Aggregate):
-
     def test_real_wrapper(self) -> None:
         self._write_all_valid()
         out = str(self.root / "fix-results.json")
         proc = subprocess.run(  # nosec B603 - fixed argv, no shell, repo-owned binary
             [str(bin_path("workflow")), "aggregate-fix-results", self.index, str(self.fixes), out],
-            capture_output=True, text=True, cwd=str(repo_root()), check=False,
+            capture_output=True,
+            text=True,
+            cwd=str(repo_root()),
+            check=False,
             timeout=_WRAPPER_TIMEOUT_S,
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)

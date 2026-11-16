@@ -5,6 +5,7 @@ These tests assert that markup survives all the way to real runs on a
 paragraph, per candidate prose field, and that template-supplied chrome is
 deliberately left alone.
 """
+
 from __future__ import annotations
 
 import unittest
@@ -39,6 +40,7 @@ class TestBulletRendererMarkup(unittest.TestCase):
 
     def _get_renderer(self):
         from resume.docx_bullets import BulletRenderer
+
         return make_fake_renderer(BulletRenderer)
 
     def test_bold_markup_becomes_a_bold_run(self):
@@ -101,17 +103,13 @@ class TestBulletRendererMarkup(unittest.TestCase):
         """
         renderer, doc = self._get_renderer()
         renderer.add_joined_paragraph(["Leadership", "Planning"], " • ")
-        self.assertEqual(
-            runs_of(doc.paragraphs[0]), [("Leadership • Planning", False, False)]
-        )
+        self.assertEqual(runs_of(doc.paragraphs[0]), [("Leadership • Planning", False, False)])
 
     def test_joined_paragraph_with_literal_asterisks_stays_a_single_run(self):
         """A literal asterisk is not markup, so it must not trigger the split."""
         renderer, doc = self._get_renderer()
         renderer.add_joined_paragraph(["5 * 3", "file*.txt"], " • ")
-        self.assertEqual(
-            runs_of(doc.paragraphs[0]), [("5 * 3 • file*.txt", False, False)]
-        )
+        self.assertEqual(runs_of(doc.paragraphs[0]), [("5 * 3 • file*.txt", False, False)])
 
 
 @mock_docx_modules
@@ -120,6 +118,7 @@ class TestMarkupAndKeywordBolding(unittest.TestCase):
 
     def _get_renderer(self):
         from resume.docx_bullets import BulletRenderer
+
         return make_fake_renderer(BulletRenderer)
 
     def test_keyword_inside_bold_markup_stays_one_run(self):
@@ -156,9 +155,7 @@ class TestMarkupAndKeywordBolding(unittest.TestCase):
         renderer.add_bullet_line(
             "Used Terraform and **Ansible**", keywords=["Terraform"], glyph="•"
         )
-        self.assertEqual(
-            emphasised(doc), {"Terraform": (True, False), "Ansible": (True, False)}
-        )
+        self.assertEqual(emphasised(doc), {"Terraform": (True, False), "Ansible": (True, False)})
 
     def test_keyword_bolding_alone_is_unchanged_by_the_markup_pass(self):
         """Text with no markup behaves exactly as it did before this feature."""
@@ -168,9 +165,7 @@ class TestMarkupAndKeywordBolding(unittest.TestCase):
             keywords=["Python", "JavaScript"],
             glyph="•",
         )
-        self.assertEqual(
-            emphasised(doc), {"Python": (True, False), "JavaScript": (True, False)}
-        )
+        self.assertEqual(emphasised(doc), {"Python": (True, False), "JavaScript": (True, False)})
 
     def test_literal_asterisk_with_keywords_is_not_swallowed(self):
         renderer, doc = self._get_renderer()
@@ -184,6 +179,7 @@ class TestMarkupPerCandidateField(unittest.TestCase):
 
     def _render(self, renderer_class, candidate: dict, sec: dict | None = None, **kw):
         from tests.fakes.docx import FakeDocument
+
         doc = FakeDocument()
         renderer = renderer_class(doc)
         renderer.render(Resume.from_dict(candidate), sec, **kw)
@@ -191,17 +187,17 @@ class TestMarkupPerCandidateField(unittest.TestCase):
 
     def test_summary_items_honour_markup(self):
         from resume.docx_sections_skills import SummarySectionRenderer
+
         doc = self._render(
             SummarySectionRenderer,
             {"summary": [{"text": "Led **platform teams** across *three* orgs"}]},
         )
-        self.assertEqual(
-            emphasised(doc), {"platform teams": (True, False), "three": (False, True)}
-        )
+        self.assertEqual(emphasised(doc), {"platform teams": (True, False), "three": (False, True)})
 
     def test_prose_summary_honours_markup(self):
         """The scalar/prose summary branch, not just the bulleted one."""
         from resume.docx_sections_skills import SummarySectionRenderer
+
         doc = self._render(
             SummarySectionRenderer, {"summary": "Engineer with **deep** SRE experience"}
         )
@@ -209,6 +205,7 @@ class TestMarkupPerCandidateField(unittest.TestCase):
 
     def test_experience_bullets_honour_markup(self):
         from resume.docx_sections_exp import ExperienceSectionRenderer
+
         doc = self._render(
             ExperienceSectionRenderer,
             {
@@ -226,6 +223,7 @@ class TestMarkupPerCandidateField(unittest.TestCase):
 
     def test_skills_item_descriptions_honour_markup(self):
         from resume.docx_sections_skills import SkillsSectionRenderer
+
         doc = self._render(
             SkillsSectionRenderer,
             {
@@ -242,15 +240,15 @@ class TestMarkupPerCandidateField(unittest.TestCase):
 
     def test_interests_honour_markup(self):
         from resume.docx_sections_simple import InterestsSectionRenderer
+
         doc = self._render(
             InterestsSectionRenderer, {"interests": [{"text": "**Cycling** and *chess*"}]}
         )
-        self.assertEqual(
-            emphasised(doc), {"Cycling": (True, False), "chess": (False, True)}
-        )
+        self.assertEqual(emphasised(doc), {"Cycling": (True, False), "chess": (False, True)})
 
     def test_presentations_honour_markup(self):
         from resume.docx_sections_simple import PresentationsSectionRenderer
+
         doc = self._render(
             PresentationsSectionRenderer,
             {"presentations": [{"title": "Scaling **Nurse**", "event": "SREcon"}]},
@@ -259,6 +257,7 @@ class TestMarkupPerCandidateField(unittest.TestCase):
 
     def test_technologies_honour_markup(self):
         from resume.docx_sections_skills import TechnologiesSectionRenderer
+
         doc = self._render(
             TechnologiesSectionRenderer,
             {"technologies": [{"name": "**Kubernetes**"}]},
@@ -268,6 +267,7 @@ class TestMarkupPerCandidateField(unittest.TestCase):
 
     def test_coursework_honours_markup(self):
         from resume.docx_sections_simple import CourseworkSectionRenderer
+
         doc = self._render(
             CourseworkSectionRenderer,
             {"coursework": [{"name": "**Distributed Systems**"}]},
@@ -276,6 +276,7 @@ class TestMarkupPerCandidateField(unittest.TestCase):
 
     def test_languages_honour_markup(self):
         from resume.docx_sections_simple import LanguagesSectionRenderer
+
         doc = self._render(
             LanguagesSectionRenderer,
             {"languages": [{"name": "**English**", "level": "native"}]},
@@ -284,13 +285,13 @@ class TestMarkupPerCandidateField(unittest.TestCase):
 
     def test_certifications_honour_markup(self):
         from resume.docx_sections_simple import CertificationsSectionRenderer
-        doc = self._render(
-            CertificationsSectionRenderer, {"certifications": [{"name": "**CKA**"}]}
-        )
+
+        doc = self._render(CertificationsSectionRenderer, {"certifications": [{"name": "**CKA**"}]})
         self.assertEqual(emphasised(doc)["CKA"], (True, False))
 
     def test_teaching_honours_markup(self):
         from resume.docx_sections_simple import TeachingSectionRenderer
+
         doc = self._render(
             TeachingSectionRenderer, {"teaching": [{"name": "**Mentoring** juniors"}]}
         )
@@ -299,6 +300,7 @@ class TestMarkupPerCandidateField(unittest.TestCase):
     def test_literal_asterisks_survive_in_experience_bullets(self):
         """The backward-compatibility guarantee, asserted end to end."""
         from resume.docx_sections_exp import ExperienceSectionRenderer
+
         doc = self._render(
             ExperienceSectionRenderer,
             {"experience": [{"title": "SRE", "bullets": [{"text": "Ran 5 * 3 jobs"}]}]},
@@ -307,9 +309,7 @@ class TestMarkupPerCandidateField(unittest.TestCase):
         # Only the bullet paragraph is checked for stray emphasis: the header
         # line above it bolds the job title by design, independent of markup.
         bullet = doc.paragraphs[-1]
-        self.assertEqual(
-            runs_of(bullet), [("• ", False, False), ("Ran 5 * 3 jobs", False, False)]
-        )
+        self.assertEqual(runs_of(bullet), [("• ", False, False), ("Ran 5 * 3 jobs", False, False)])
 
 
 @mock_docx_modules
@@ -322,23 +322,21 @@ class TestChromeIgnoresMarkup(unittest.TestCase):
         A header is chrome assembled by the renderer, not authored prose, so an
         asterisk in it stays an asterisk rather than becoming emphasis.
         """
-        from tests.fakes.docx import FakeDocument
         from resume.docx_sections_exp import ExperienceSectionRenderer
+        from tests.fakes.docx import FakeDocument
+
         doc = FakeDocument()
         ExperienceSectionRenderer(doc).render(
             Resume.from_dict(
-                {
-                    "experience": [
-                        {"title": "**SRE**", "company": "Acme", "start": "2020"}
-                    ]
-                }
+                {"experience": [{"title": "**SRE**", "company": "Acme", "start": "2020"}]}
             )
         )
         self.assertIn("**SRE**", all_text(doc))
 
     def test_group_titles_are_not_parsed(self):
-        from tests.fakes.docx import FakeDocument
         from resume.docx_header import HeaderRenderer
+        from tests.fakes.docx import FakeDocument
+
         doc = FakeDocument()
         HeaderRenderer(doc).add_group_title("**Languages**", {})
         self.assertIn("**Languages**", all_text(doc))

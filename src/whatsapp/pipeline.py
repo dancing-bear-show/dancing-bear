@@ -1,11 +1,12 @@
 """WhatsApp pipeline primitives built on shared core scaffolding."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
 
 from core.cli_output import OutputFormat, OutputWriter
-from core.pipeline import BaseProducer, SafeProcessor, RequestConsumer
+from core.pipeline import BaseProducer, RequestConsumer, SafeProcessor
 
 from .search import MessageQuery, MessageRow, format_rows_json, format_rows_text, search_messages
 

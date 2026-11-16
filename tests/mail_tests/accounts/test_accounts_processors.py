@@ -10,46 +10,45 @@ from unittest.mock import MagicMock, patch
 
 from core.pipeline import ResultEnvelope
 from mail.accounts.pipeline_auth import (
-    SimpleConsumer,
     AccountsResultProducer,
+    SimpleConsumer,
     canonicalize_filter,
 )
 from mail.accounts.pipeline_list import (
-    AccountsListRequest,
     AccountInfo,
-    AccountsListResult,
-    AccountsListRequestConsumer,
     AccountsListProcessor,
     AccountsListProducer,
+    AccountsListRequest,
+    AccountsListRequestConsumer,
+    AccountsListResult,
 )
 from mail.accounts.pipeline_list_export import (
-    AccountsExportLabelsRequest,
-    ExportedLabelsInfo,
     AccountsExportFiltersRequest,
+    AccountsExportLabelsRequest,
     ExportedFiltersInfo,
+    ExportedLabelsInfo,
 )
 from mail.accounts.pipeline_list_plan import (
-    AccountsPlanLabelsRequest,
-    LabelsPlanInfo,
     AccountsPlanFiltersRequest,
+    AccountsPlanLabelsRequest,
     FiltersPlanInfo,
-)
-from mail.accounts.pipeline_list_sync import (
-    AccountsSyncLabelsRequest,
-    SyncedLabelInfo,
-    AccountsSyncFiltersRequest,
-    SyncedFiltersInfo,
+    LabelsPlanInfo,
 )
 from mail.accounts.pipeline_list_signatures import (
-    AccountsExportSignaturesRequest,
-    ExportedSignaturesInfo,
     AccountsExportSignaturesProcessor,
-    AccountsSyncSignaturesRequest,
-    SyncedSignaturesInfo,
+    AccountsExportSignaturesRequest,
     AccountsSyncSignaturesProcessor,
+    AccountsSyncSignaturesRequest,
+    ExportedSignaturesInfo,
+    SyncedSignaturesInfo,
+)
+from mail.accounts.pipeline_list_sync import (
+    AccountsSyncFiltersRequest,
+    AccountsSyncLabelsRequest,
+    SyncedFiltersInfo,
+    SyncedLabelInfo,
 )
 from tests.fixtures import capture_stderr, capture_stdout
-
 
 # -----------------------------------------------------------------------------
 # Account factories - reusable across tests
@@ -245,10 +244,12 @@ class TestAccountsListProducer(unittest.TestCase):
     """Tests for AccountsListProducer."""
 
     def test_produce_items_outputs_formatted_accounts(self):
-        result = AccountsListResult(accounts=[
-            make_account_info(name="personal", provider="gmail"),
-            make_account_info(name="work", provider="outlook"),
-        ])
+        result = AccountsListResult(
+            accounts=[
+                make_account_info(name="personal", provider="gmail"),
+                make_account_info(name="work", provider="outlook"),
+            ]
+        )
         envelope = ResultEnvelope(status="success", payload=result)
         producer = AccountsListProducer()
         with capture_stdout() as buf:
@@ -433,9 +434,7 @@ class TestAccountsExportSignaturesProcessor(unittest.TestCase):
     @patch("mail.accounts.helpers.build_provider_for_account")
     @patch("mail.accounts.helpers.iter_accounts")
     @patch("mail.accounts.helpers.load_accounts")
-    def test_process_exports_gmail_signatures_with_primary(
-        self, mock_load, mock_iter, mock_build
-    ):
+    def test_process_exports_gmail_signatures_with_primary(self, mock_load, mock_iter, mock_build):
         acct = make_account_dict(name="personal", provider="gmail")
         mock_load.return_value = [acct]
         mock_iter.return_value = [acct]
@@ -468,9 +467,7 @@ class TestAccountsExportSignaturesProcessor(unittest.TestCase):
     @patch("mail.accounts.helpers.build_provider_for_account")
     @patch("mail.accounts.helpers.iter_accounts")
     @patch("mail.accounts.helpers.load_accounts")
-    def test_process_exports_gmail_signatures_no_primary(
-        self, mock_load, mock_iter, mock_build
-    ):
+    def test_process_exports_gmail_signatures_no_primary(self, mock_load, mock_iter, mock_build):
         """No isPrimary signature means no default_html/ios asset gets written."""
         acct = make_account_dict(name="personal", provider="gmail")
         mock_load.return_value = [acct]
@@ -549,7 +546,7 @@ class TestAccountsSyncSignaturesProcessor(unittest.TestCase):
     @patch("mail.accounts.helpers.iter_accounts")
     @patch("mail.accounts.helpers.load_accounts")
     def test_process_delegates_gmail_sync(self, mock_load, mock_iter, mock_run_sync):
-        acct = make_account_dict(name="personal", provider="gmail", credentials="/c.json", token="/t.json")  # nosec B106 - test fixture path, not a credential
+        acct = make_account_dict(name="personal", provider="gmail", credentials="/c.json", token="/t.json")  # nosec B106 - test fixture path, not a credential  # fmt: skip
         mock_load.return_value = [acct]
         mock_iter.return_value = [acct]
 
@@ -598,9 +595,7 @@ class TestAccountsSyncSignaturesProcessor(unittest.TestCase):
             self.assertEqual(len(result.synced), 1)
             self.assertEqual(result.synced[0].provider, "outlook")
             self.assertEqual(result.synced[0].status, "wrote_guidance")
-            self.assertTrue(
-                (Path(tmpdir) / "signatures_assets" / "OUTLOOK_README.txt").exists()
-            )
+            self.assertTrue((Path(tmpdir) / "signatures_assets" / "OUTLOOK_README.txt").exists())
 
     @patch("mail.accounts.helpers.iter_accounts")
     @patch("mail.accounts.helpers.load_accounts")

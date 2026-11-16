@@ -15,10 +15,10 @@ import unittest
 from dataclasses import dataclass, field
 from typing import Any
 
-
 # ---------------------------------------------------------------------------
 # Fake service
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class _FakeSvc:
@@ -52,6 +52,7 @@ class _FakeSvc:
 # ---------------------------------------------------------------------------
 # Graph dict factories
 # ---------------------------------------------------------------------------
+
 
 def _single(
     event_id: str,
@@ -150,6 +151,7 @@ def _unsupported_master(master_id: str, subject: str, pattern_type: str) -> dict
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestProtocolConformance(unittest.TestCase):
     """isinstance check — proves shape, not behaviour."""
@@ -402,7 +404,9 @@ class TestSkippedResetPerCall(unittest.TestCase):
 
         # Second call with no unsupported events
         svc2 = _FakeSvc(
-            events=[_single("e1", "Synthetic Clean Event", "2026-06-01T09:00:00", "2026-06-01T10:00:00")]
+            events=[
+                _single("e1", "Synthetic Clean Event", "2026-06-01T09:00:00", "2026-06-01T10:00:00")
+            ]
         )
         provider2 = OutlookCalendarProvider(svc=svc2)
         provider2.list_events(("2026-01-01", "2026-12-31"))
@@ -413,8 +417,8 @@ class TestAddEventSingle(unittest.TestCase):
     """add_event creates a one-time Graph event."""
 
     def setUp(self):
-        from calendars.importer.outlook_provider import OutlookCalendarProvider
         from calendars.gmail_types import CalendarEvent
+        from calendars.importer.outlook_provider import OutlookCalendarProvider
 
         self.svc = _FakeSvc()
         self.provider = OutlookCalendarProvider(svc=self.svc, calendar_name="Work")
@@ -436,6 +440,7 @@ class TestAddEventSingle(unittest.TestCase):
 
     def test_returns_calendar_event(self):
         from calendars.gmail_types import CalendarEvent
+
         result = self.provider.add_event(self.event)
         self.assertIsInstance(result, CalendarEvent)
 
@@ -462,8 +467,8 @@ class TestAddEventRecurring(unittest.TestCase):
     """add_event routes to create_recurring_event when repeat is set."""
 
     def setUp(self):
-        from calendars.importer.outlook_provider import OutlookCalendarProvider
         from calendars.gmail_types import CalendarEvent
+        from calendars.importer.outlook_provider import OutlookCalendarProvider
 
         self.svc = _FakeSvc()
         self.provider = OutlookCalendarProvider(svc=self.svc, calendar_name="Activities")
@@ -490,6 +495,7 @@ class TestAddEventRecurring(unittest.TestCase):
 
     def test_returns_calendar_event(self):
         from calendars.gmail_types import CalendarEvent
+
         result = self.provider.add_event(self.event)
         self.assertIsInstance(result, CalendarEvent)
 

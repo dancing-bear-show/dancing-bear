@@ -29,7 +29,10 @@ _REGISTRY: dict[str, tuple[str, str]] = {
     "anomalies": ("telemetry.otel.cli.anomalies", "Detect anomalous sessions (z-score)"),
     "clusters": ("telemetry.otel.cli.clusters", "Cluster sessions by cost/tokens"),
     "otel-summary": ("telemetry.otel.cli.otel_summary", "Aggregated OTEL statistics dashboard"),
-    "workflow-cost": ("telemetry.otel.cli.workflow_cost", "Per-stage cost breakdown for workflow runs"),
+    "workflow-cost": (
+        "telemetry.otel.cli.workflow_cost",
+        "Per-stage cost breakdown for workflow runs",
+    ),
 }
 
 # Derived module lookup, kept as the dispatch surface.
@@ -43,18 +46,22 @@ _ALIASES: dict[str, str] = {
     "delete": "clear",
 }
 
-_SKIP_INFRA_ARGS = frozenset({
-    "--help", "-h", "help", "health",
-    "--agentic", "--agentic-format", "--agentic-compact",
-})
+_SKIP_INFRA_ARGS = frozenset(
+    {
+        "--help",
+        "-h",
+        "help",
+        "health",
+        "--agentic",
+        "--agentic-format",
+        "--agentic-compact",
+    }
+)
 
 
 def _should_skip_infrastructure_check(argv: list[str]) -> bool:
     """Return True if the command should skip the infrastructure health check."""
-    return any(
-        arg in _SKIP_INFRA_ARGS or arg.startswith("--agentic")
-        for arg in argv
-    )
+    return any(arg in _SKIP_INFRA_ARGS or arg.startswith("--agentic") for arg in argv)
 
 
 def _split_argv(argv: list[str]) -> tuple[str | None, list[str], bool]:
@@ -79,6 +86,7 @@ def _split_argv(argv: list[str]) -> tuple[str | None, list[str], bool]:
 def _check_infrastructure() -> int | None:
     """Run the infrastructure check. Returns an exit code on failure, None on success."""
     from telemetry.otel.health import require_otel_infrastructure
+
     require_otel_infrastructure()
     return None
 

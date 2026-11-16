@@ -1,9 +1,12 @@
 """Basic docx renderer tests: BulletRenderer, HeaderRenderer, ListSectionRenderer, misc."""
+
 from __future__ import annotations
+
 import unittest
-from tests.resume_tests.fixtures import make_fake_renderer, mock_docx_modules
+
 from resume.render_config import HeaderLineConfig
 from resume.schema import Resume
+from tests.resume_tests.fixtures import make_fake_renderer, mock_docx_modules
 
 
 @mock_docx_modules
@@ -12,6 +15,7 @@ class TestBulletRenderer(unittest.TestCase):
 
     def _get_renderer(self):
         from resume.docx_bullets import BulletRenderer
+
         return make_fake_renderer(BulletRenderer)
 
     def test_resolve_glyph_defaults(self):
@@ -39,6 +43,7 @@ class TestBulletRenderer(unittest.TestCase):
         """Section config wins over the constructor-level page config."""
         from resume.docx_bullets import BulletRenderer
         from tests.resume_tests.fixtures import FakeDocument
+
         renderer = BulletRenderer(FakeDocument(), {"bullets": {"glyph": "★"}})
         self.assertEqual(renderer.resolve_glyph({"bullets": {"glyph": "→"}}), "→")
 
@@ -96,6 +101,7 @@ class TestBulletRenderer(unittest.TestCase):
         """Constructor-level page_cfg supplies the glyph when sec is None."""
         from resume.docx_bullets import BulletRenderer
         from tests.resume_tests.fixtures import FakeDocument
+
         renderer = BulletRenderer(FakeDocument(), {"bullets": {"glyph": "★"}})
         self.assertEqual(renderer.resolve_glyph(None), "★")
 
@@ -180,6 +186,7 @@ class TestHeaderRenderer(unittest.TestCase):
 
     def _get_renderer(self):
         from resume.docx_header import HeaderRenderer
+
         return make_fake_renderer(HeaderRenderer)
 
     def test_add_header_line_title_only(self):
@@ -194,7 +201,9 @@ class TestHeaderRenderer(unittest.TestCase):
     def test_add_header_line_title_and_company(self):
         """Test header with title and company."""
         renderer, doc = self._get_renderer()
-        renderer.add_header_line(HeaderLineConfig(title_text="Software Engineer", company_text="Acme Corp"))
+        renderer.add_header_line(
+            HeaderLineConfig(title_text="Software Engineer", company_text="Acme Corp")
+        )
         runs = doc.paragraphs[0].runs
         texts = [r.text for r in runs]
         self.assertIn("Software Engineer", texts)
@@ -303,6 +312,7 @@ class TestListSectionRenderer(unittest.TestCase):
 
     def _get_renderer(self):
         from resume.docx_list_sections import ListSectionRenderer
+
         return make_fake_renderer(ListSectionRenderer)
 
     def test_extract_item_text_string(self):
@@ -359,21 +369,19 @@ class TestListSectionRenderer(unittest.TestCase):
     def test_extract_item_text_named_level_item(self):
         """A NamedLevelItem renders its name and level."""
         from resume.schema import NamedLevelItem
+
         renderer, _ = self._get_renderer()
         item = NamedLevelItem.from_dict({"language": "Spanish", "level": "Fluent"})
-        result = renderer._extract_item_text(
-            item, ("name", "language", "title"), "level", " — "
-        )
+        result = renderer._extract_item_text(item, ("name", "language", "title"), "level", " — ")
         self.assertEqual(result, "Spanish — Fluent")
 
     def test_extract_item_text_certification_item_year(self):
         """A CertificationItem renders its year as the description."""
         from resume.schema import CertificationItem
+
         renderer, _ = self._get_renderer()
         item = CertificationItem.from_dict({"cert": "AWS SAA", "year": "2021"})
-        result = renderer._extract_item_text(
-            item, ("name", "title", "cert"), "year", " — "
-        )
+        result = renderer._extract_item_text(item, ("name", "title", "cert"), "year", " — ")
         self.assertEqual(result, "AWS SAA — 2021")
 
     def test_extract_item_text_certification_label_is_rejected(self):
@@ -386,11 +394,10 @@ class TestListSectionRenderer(unittest.TestCase):
         silently regenerating a golden digest.
         """
         from resume.schema import CertificationItem
+
         renderer, _ = self._get_renderer()
         item = CertificationItem.from_dict({"label": "Internal Cert", "year": "2020"})
-        result = renderer._extract_item_text(
-            item, ("name", "title", "cert"), "year", " — "
-        )
+        result = renderer._extract_item_text(item, ("name", "title", "cert"), "year", " — ")
         self.assertIsNone(result)
 
     def test_item_name_prefers_renderer_key_order_over_schema(self):
@@ -402,11 +409,10 @@ class TestListSectionRenderer(unittest.TestCase):
         displayed spelling must follow the renderer.
         """
         from resume.schema import PriorityItem
+
         renderer, _ = self._get_renderer()
         item = PriorityItem.from_dict({"name": "Cycling", "text": "Chess"})
-        result = renderer._extract_item_text(
-            item, ("name", "title", "label", "text"), None, " — "
-        )
+        result = renderer._extract_item_text(item, ("name", "title", "label", "text"), None, " — ")
         self.assertEqual(result, "Cycling")
 
     def test_item_name_recovers_spelling_the_schema_filed_in_extra(self):
@@ -417,21 +423,19 @@ class TestListSectionRenderer(unittest.TestCase):
         the item as nothing at all.
         """
         from resume.schema import PriorityItem
+
         renderer, _ = self._get_renderer()
         item = PriorityItem.from_dict({"line": "Bullet form", "name": "Cycling"})
-        result = renderer._extract_item_text(
-            item, ("name", "title", "label", "text"), None, " — "
-        )
+        result = renderer._extract_item_text(item, ("name", "title", "label", "text"), None, " — ")
         self.assertEqual(result, "Cycling")
 
     def test_item_name_falls_back_to_primary_field(self):
         """With no competing spelling, the primary field is displayed."""
         from resume.schema import PriorityItem
+
         renderer, _ = self._get_renderer()
         item = PriorityItem.from_dict({"text": "Chess"})
-        result = renderer._extract_item_text(
-            item, ("name", "title", "label", "text"), None, " — "
-        )
+        result = renderer._extract_item_text(item, ("name", "title", "label", "text"), None, " — ")
         self.assertEqual(result, "Chess")
 
     def test_render_simple_list(self):
@@ -494,6 +498,7 @@ class TestSectionRenderers(unittest.TestCase):
     def test_interests_renderer(self):
         """Test InterestsSectionRenderer."""
         from resume.docx_sections_simple import InterestsSectionRenderer
+
         renderer, _ = make_fake_renderer(InterestsSectionRenderer)
         data = {"interests": ["Reading", "Hiking", "Photography"]}
         result = renderer.render(Resume.from_dict(data))
@@ -502,33 +507,42 @@ class TestSectionRenderers(unittest.TestCase):
     def test_languages_renderer(self):
         """Test LanguagesSectionRenderer."""
         from resume.docx_sections_simple import LanguagesSectionRenderer
+
         renderer, _ = make_fake_renderer(LanguagesSectionRenderer)
-        data = {"languages": [
-            {"name": "English", "level": "Native"},
-            {"language": "Spanish", "level": "Fluent"},
-        ]}
+        data = {
+            "languages": [
+                {"name": "English", "level": "Native"},
+                {"language": "Spanish", "level": "Fluent"},
+            ]
+        }
         result = renderer.render(Resume.from_dict(data))
         self.assertEqual(len(result), 2)
 
     def test_coursework_renderer(self):
         """Test CourseworkSectionRenderer."""
         from resume.docx_sections_simple import CourseworkSectionRenderer
+
         renderer, _ = make_fake_renderer(CourseworkSectionRenderer)
-        data = {"coursework": [
-            {"name": "Data Structures"},
-            {"course": "Algorithms"},
-        ]}
+        data = {
+            "coursework": [
+                {"name": "Data Structures"},
+                {"course": "Algorithms"},
+            ]
+        }
         result = renderer.render(Resume.from_dict(data))
         self.assertEqual(len(result), 2)
 
     def test_certifications_renderer(self):
         """Test CertificationsSectionRenderer."""
         from resume.docx_sections_simple import CertificationsSectionRenderer
+
         renderer, _ = make_fake_renderer(CertificationsSectionRenderer)
-        data = {"certifications": [
-            {"name": "AWS Certified", "year": "2023"},
-            {"cert": "GCP Professional"},
-        ]}
+        data = {
+            "certifications": [
+                {"name": "AWS Certified", "year": "2023"},
+                {"cert": "GCP Professional"},
+            ]
+        }
         result = renderer.render(Resume.from_dict(data))
         self.assertEqual(len(result), 2)
 
@@ -542,6 +556,7 @@ class TestSectionRenderers(unittest.TestCase):
     def test_certifications_renderer_renders_label_keyed_entry(self):
         """A certification spelled with 'label' renders its text."""
         from resume.docx_sections_simple import CertificationsSectionRenderer
+
         renderer, _ = make_fake_renderer(CertificationsSectionRenderer)
         data = {"certifications": [{"label": "Alias-Keyed Certification"}]}
         result = renderer.render(Resume.from_dict(data))
@@ -550,6 +565,7 @@ class TestSectionRenderers(unittest.TestCase):
     def test_coursework_renderer_renders_label_keyed_entry(self):
         """A coursework item spelled with 'label' renders its text."""
         from resume.docx_sections_simple import CourseworkSectionRenderer
+
         renderer, _ = make_fake_renderer(CourseworkSectionRenderer)
         data = {"coursework": [{"label": "Distributed Systems"}]}
         result = renderer.render(Resume.from_dict(data))
@@ -558,6 +574,7 @@ class TestSectionRenderers(unittest.TestCase):
     def test_languages_renderer_renders_label_keyed_entry(self):
         """A language spelled with 'label' renders its text."""
         from resume.docx_sections_simple import LanguagesSectionRenderer
+
         renderer, _ = make_fake_renderer(LanguagesSectionRenderer)
         data = {"languages": [{"label": "Portuguese", "level": "Fluent"}]}
         result = renderer.render(Resume.from_dict(data))
@@ -566,6 +583,7 @@ class TestSectionRenderers(unittest.TestCase):
     def test_certifications_renderer_prefers_name_over_label(self):
         """Precedence guard: 'label' was appended last, so 'name' still wins."""
         from resume.docx_sections_simple import CertificationsSectionRenderer
+
         renderer, _ = make_fake_renderer(CertificationsSectionRenderer)
         data = {"certifications": [{"name": "Canonical Name", "label": "Losing Label"}]}
         result = renderer.render(Resume.from_dict(data))
@@ -574,6 +592,7 @@ class TestSectionRenderers(unittest.TestCase):
     def test_coursework_renderer_prefers_name_over_label(self):
         """Precedence guard for coursework."""
         from resume.docx_sections_simple import CourseworkSectionRenderer
+
         renderer, _ = make_fake_renderer(CourseworkSectionRenderer)
         data = {"coursework": [{"name": "Canonical Course", "label": "Losing Label"}]}
         result = renderer.render(Resume.from_dict(data))
@@ -582,6 +601,7 @@ class TestSectionRenderers(unittest.TestCase):
     def test_languages_renderer_prefers_name_over_label(self):
         """Precedence guard for languages."""
         from resume.docx_sections_simple import LanguagesSectionRenderer
+
         renderer, _ = make_fake_renderer(LanguagesSectionRenderer)
         data = {"languages": [{"name": "Canonical Lang", "label": "Losing Label"}]}
         result = renderer.render(Resume.from_dict(data))
@@ -590,22 +610,28 @@ class TestSectionRenderers(unittest.TestCase):
     def test_certifications_renderer_canonical_spellings_unaffected(self):
         """Regression guard: the spellings that already worked still render."""
         from resume.docx_sections_simple import CertificationsSectionRenderer
+
         renderer, _ = make_fake_renderer(CertificationsSectionRenderer)
-        data = {"certifications": [
-            {"name": "AWS Certified", "year": "2023"},
-            {"cert": "GCP Professional"},
-        ]}
+        data = {
+            "certifications": [
+                {"name": "AWS Certified", "year": "2023"},
+                {"cert": "GCP Professional"},
+            ]
+        }
         result = renderer.render(Resume.from_dict(data))
         self.assertEqual(result, ["AWS Certified — 2023", "GCP Professional"])
 
     def test_presentations_renderer(self):
         """Test PresentationsSectionRenderer."""
         from resume.docx_sections_simple import PresentationsSectionRenderer
+
         renderer, _ = make_fake_renderer(PresentationsSectionRenderer)
-        data = {"presentations": [
-            {"title": "Intro to Python", "event": "PyCon", "year": "2023"},
-            "Another Talk",
-        ]}
+        data = {
+            "presentations": [
+                {"title": "Intro to Python", "event": "PyCon", "year": "2023"},
+                "Another Talk",
+            ]
+        }
         result = renderer.render(Resume.from_dict(data))
         self.assertEqual(len(result), 2)
 
@@ -618,10 +644,13 @@ class TestSectionRenderers(unittest.TestCase):
         cleaned display URL), not the raw URL as plain text first.
         """
         from resume.docx_sections_simple import PresentationsSectionRenderer
+
         renderer, doc = make_fake_renderer(PresentationsSectionRenderer)
-        data = {"presentations": [
-            {"link": "https://slides.example.com/my-talk"},
-        ]}
+        data = {
+            "presentations": [
+                {"link": "https://slides.example.com/my-talk"},
+            ]
+        }
         result = renderer.render(Resume.from_dict(data))
 
         # Exactly one item rendered.
@@ -636,17 +665,21 @@ class TestSectionRenderers(unittest.TestCase):
         raw_url = "https://slides.example.com/my-talk"
         plain_runs_with_raw_url = [r for r in bullet_para.runs if r.text == raw_url]
         self.assertEqual(
-            plain_runs_with_raw_url, [],
+            plain_runs_with_raw_url,
+            [],
             "Raw URL must not appear as a plain-text run — only as hyperlink display text.",
         )
 
     def test_presentations_unsafe_link_renders_as_plain_text(self):
         """Presentation with a file: link must NOT create a w:hyperlink — renders plain."""
         from resume.docx_sections_simple import PresentationsSectionRenderer
+
         renderer, doc = make_fake_renderer(PresentationsSectionRenderer)
-        data = {"presentations": [
-            {"title": "Secret", "link": "file:///etc/passwd"},
-        ]}
+        data = {
+            "presentations": [
+                {"title": "Secret", "link": "file:///etc/passwd"},
+            ]
+        }
         result = renderer.render(Resume.from_dict(data))
         self.assertEqual(len(result), 1)
         # The display should be the title, not any URL.
@@ -666,11 +699,14 @@ class TestSectionRenderers(unittest.TestCase):
         other bulleted line.
         """
         from resume.docx_sections_simple import PresentationsSectionRenderer
+
         renderer, doc = make_fake_renderer(PresentationsSectionRenderer)
         sec = {"plain_bullets": False, "bullets": {"style": "list"}}
-        data = {"presentations": [
-            {"title": "My Talk", "event": "PyCon", "year": "2024"},
-        ]}
+        data = {
+            "presentations": [
+                {"title": "My Talk", "event": "PyCon", "year": "2024"},
+            ]
+        }
         renderer.render(Resume.from_dict(data), sec=sec)
         styles = [getattr(p.style, "name", None) for p in doc.paragraphs]
         self.assertNotIn("List Bullet", styles)

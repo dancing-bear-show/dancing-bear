@@ -2,6 +2,7 @@
 
 Provides common functionality for resume rendering.
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -10,19 +11,20 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from docx.document import Document
 
-from docx.shared import Pt, Inches, RGBColor
+from datetime import UTC
 
-from .io_utils import safe_import
+from docx.shared import Inches, Pt, RGBColor
+
+from .docx_links import normalize_link_url
 from .docx_styles import (
     StyleManager,
     TextFormatter,
-    _parse_hex_color,
-    _is_dark,
     _format_link_display,
+    _is_dark,
+    _parse_hex_color,
 )
-from .docx_links import normalize_link_url
+from .io_utils import safe_import
 from .schema import Resume
-
 
 STYLE_HEADING_1 = "Heading 1"
 
@@ -214,16 +216,15 @@ def _stamp_metadata_dates(cp, page_cfg: dict[str, Any], name: str) -> None:
     """
     if not bool(page_cfg.get("metadata_stamp_dates", True)):
         return
-    from datetime import datetime, timezone
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    from datetime import datetime
+
+    now = datetime.now(UTC).replace(tzinfo=None)
     cp.created = now
     cp.modified = now
     cp.last_modified_by = name or cp.last_modified_by
 
 
-def set_document_metadata_on_doc(
-    doc, resume: Resume, page_cfg: dict[str, Any]
-) -> None:
+def set_document_metadata_on_doc(doc, resume: Resume, page_cfg: dict[str, Any]) -> None:
     """Set document core properties (title, author, keywords).
 
     Shared implementation used by both ResumeWriterBase and legacy module helpers.
@@ -247,9 +248,7 @@ def set_document_metadata_on_doc(
         if comments is not None:
             cp.comments = str(comments)
 
-        kw = _metadata_keywords(
-            cp, resume, page_cfg, [name, email, phone, location], include_pii
-        )
+        kw = _metadata_keywords(cp, resume, page_cfg, [name, email, phone, location], include_pii)
         # OPC caps core properties at 255 chars and python-docx raises rather
         # than truncating. Trim on a separator boundary so the field degrades
         # to fewer whole keywords instead of being dropped entirely — the
@@ -342,9 +341,7 @@ class ResumeWriterBase(ABC):
         AttributeError on None deep in a section renderer.
         """
         if self.doc is None:
-            raise RuntimeError(
-                "render called before write(): no Document has been created yet"
-            )
+            raise RuntimeError("render called before write(): no Document has been created yet")
         return self.doc
 
     def write(self, out_path: str, seed: dict[str, Any] | None = None) -> None:
@@ -359,6 +356,7 @@ class ResumeWriterBase(ABC):
             raise RuntimeError("Rendering DOCX requires python-docx; install python-docx.")
 
         from docx import Document
+
         self.doc = Document()
 
         self._apply_page_styles()
@@ -369,7 +367,6 @@ class ResumeWriterBase(ABC):
     @abstractmethod
     def _render_content(self, seed: dict[str, Any] | None = None) -> None:
         """Render the main document content. Subclasses must implement."""
-        pass
 
     # -------------------------------------------------------------------------
     # Page setup and metadata
@@ -407,7 +404,7 @@ class ResumeWriterBase(ABC):
             if val:
                 items.append((_format_link_display(val), normalize_link_url(val)))
         links_list = self._get_contact_field("links") or []
-        for val in (links_list if isinstance(links_list, list) else []):
+        for val in links_list if isinstance(links_list, list) else []:
             if isinstance(val, str) and val.strip():
                 items.append((_format_link_display(val), normalize_link_url(val)))
         return items
@@ -471,7 +468,8 @@ def create_resume_writer(
 
     if layout_type == "sidebar":
         from .docx_sidebar import SidebarResumeWriter
+
         return SidebarResumeWriter(data, template)
-    else:
-        from .docx_standard import StandardResumeWriter
-        return StandardResumeWriter(data, template)
+    from .docx_standard import StandardResumeWriter
+
+    return StandardResumeWriter(data, template)

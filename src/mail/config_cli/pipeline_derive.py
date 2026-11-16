@@ -1,4 +1,5 @@
 """Pipeline primitives for derive and optimize config commands."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -11,7 +12,6 @@ from core.pipeline import (
     RequestConsumer,
     SafeProcessor,
 )
-
 
 # -----------------------------------------------------------------------------
 # Derive labels pipeline
@@ -42,7 +42,8 @@ DeriveLabelsRequestConsumer = RequestConsumer[DeriveLabelsRequest]
 
 class DeriveLabelsProcessor(SafeProcessor[DeriveLabelsRequest, DeriveLabelsResult]):
     def _process_safe(self, payload: DeriveLabelsRequest) -> DeriveLabelsResult:
-        from core.yamlio import load_config, dump_config
+        from core.yamlio import dump_config, load_config
+
         from ..dsl import normalize_labels_for_outlook
 
         doc = load_config(payload.in_path) if payload.in_path else {}
@@ -68,7 +69,9 @@ class DeriveLabelsProcessor(SafeProcessor[DeriveLabelsRequest, DeriveLabelsResul
 
 
 class DeriveLabelsProducer(BaseProducer):
-    def _produce_success(self, payload: DeriveLabelsResult, diagnostics: dict[str, Any] | None) -> None:
+    def _produce_success(
+        self, payload: DeriveLabelsResult, diagnostics: dict[str, Any] | None
+    ) -> None:
         print(f"Derived labels -> gmail:{payload.gmail_path} outlook:{payload.outlook_path}")
 
 
@@ -121,9 +124,7 @@ def _strip_keep_in_inbox(out_specs: list[dict]) -> None:
             action["noMoveToFolder"] = True
 
 
-def _pair_specs_with_sources(
-    out_specs: list[dict], filters: list[dict]
-) -> list[tuple[dict, dict]]:
+def _pair_specs_with_sources(out_specs: list[dict], filters: list[dict]) -> list[tuple[dict, dict]]:
     """Pair each normalized spec with the source filter it came from.
 
     ``normalize_filters_for_outlook`` drops entries that normalize to ``None``
@@ -239,7 +240,8 @@ def _drop_actionless_specs(out_specs: list[dict]) -> list[dict]:
 
 class DeriveFiltersProcessor(SafeProcessor[DeriveFiltersRequest, DeriveFiltersResult]):
     def _process_safe(self, payload: DeriveFiltersRequest) -> DeriveFiltersResult:
-        from core.yamlio import load_config, dump_config
+        from core.yamlio import dump_config, load_config
+
         from ..dsl import normalize_filters_for_outlook
 
         doc = load_config(payload.in_path) if payload.in_path else {}
@@ -275,7 +277,9 @@ class DeriveFiltersProcessor(SafeProcessor[DeriveFiltersRequest, DeriveFiltersRe
 
 
 class DeriveFiltersProducer(BaseProducer):
-    def _produce_success(self, payload: DeriveFiltersResult, diagnostics: dict[str, Any] | None) -> None:
+    def _produce_success(
+        self, payload: DeriveFiltersResult, diagnostics: dict[str, Any] | None
+    ) -> None:
         print(f"Derived filters -> gmail:{payload.gmail_path} outlook:{payload.outlook_path}")
 
 
@@ -320,6 +324,7 @@ OptimizeFiltersRequestConsumer = RequestConsumer[OptimizeFiltersRequest]
 def _partition_rules_by_dest(rules: list) -> tuple:
     """Split filter rules into (groups_by_dest, passthrough) for merging."""
     from collections import defaultdict
+
     groups: dict[str, list] = defaultdict(list)
     passthrough = []
     for r in rules:
@@ -328,7 +333,9 @@ def _partition_rules_by_dest(rules: list) -> tuple:
         m = r.get("match") or {}
         a = r.get("action") or {}
         adds = a.get("add") or []
-        has_only_from = bool(m.get("from")) and not any(m.get(k) for k in ("to", "subject", "query", "negatedQuery"))
+        has_only_from = bool(m.get("from")) and not any(
+            m.get(k) for k in ("to", "subject", "query", "negatedQuery")
+        )
         if adds and has_only_from:
             groups[str(adds[0])].append(r)
         else:
@@ -362,7 +369,7 @@ def _merge_group(dest: str, items: list) -> tuple:
 
 class OptimizeFiltersProcessor(SafeProcessor[OptimizeFiltersRequest, OptimizeFiltersResult]):
     def _process_safe(self, payload: OptimizeFiltersRequest) -> OptimizeFiltersResult:
-        from core.yamlio import load_config, dump_config
+        from core.yamlio import dump_config, load_config
 
         doc = load_config(payload.in_path) if payload.in_path else {}
         rules = doc.get("filters") or []
@@ -403,9 +410,15 @@ class OptimizeFiltersProducer(BaseProducer):
         super().__init__(writer)
         self._preview = preview
 
-    def _produce_success(self, payload: OptimizeFiltersResult, diagnostics: dict[str, Any] | None) -> None:
+    def _produce_success(
+        self, payload: OptimizeFiltersResult, diagnostics: dict[str, Any] | None
+    ) -> None:
         if self._preview and payload.merged_groups:
-            print('Merged groups:')
+            print("Merged groups:")
             for g in sorted(payload.merged_groups, key=lambda x: -x.rules_merged):
-                print(f'- {g.destination}: merged {g.rules_merged} rules into 1 (unique from terms={g.unique_from_terms})')
-        print(f"Optimized filters written to {payload.out_path}. Original={payload.original_count} Optimized={payload.optimized_count}")
+                print(
+                    f"- {g.destination}: merged {g.rules_merged} rules into 1 (unique from terms={g.unique_from_terms})"
+                )
+        print(
+            f"Optimized filters written to {payload.out_path}. Original={payload.original_count} Optimized={payload.optimized_count}"
+        )

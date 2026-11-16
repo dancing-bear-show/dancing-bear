@@ -7,9 +7,9 @@ picture requires running both and merging (plan F2).
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Sequence
 
 from .models import Finding, Scope, Source, WireFormat
 from .runner import QltyRunner
@@ -52,15 +52,13 @@ class ScanResult:
         grouped: dict[str, list[Finding]] = {}
         for finding in self.findings:
             grouped.setdefault(finding.rule, []).append(finding)
-        return dict(
-            sorted(grouped.items(), key=lambda kv: (-len(kv[1]), kv[0]))
-        )
+        return dict(sorted(grouped.items(), key=lambda kv: (-len(kv[1]), kv[0])))
 
     def identities(self) -> set[tuple[str, str, int]]:
         """Finding identities, for comparing runs without trusting totals."""
         return {f.identity for f in self.findings}
 
-    def filter_by_rules(self, rules: tuple[str, ...]) -> "ScanResult":
+    def filter_by_rules(self, rules: tuple[str, ...]) -> ScanResult:
         """Return a copy restricted to findings matching any of the named rules.
 
         An unknown rule name yields zero findings for that rule rather than an
@@ -194,9 +192,7 @@ class _Accumulator:
             )
         )
 
-    def build(
-        self, *, iterations: int, stable: bool, scope: Scope
-    ) -> ScanResult:
+    def build(self, *, iterations: int, stable: bool, scope: Scope) -> ScanResult:
         return ScanResult(
             findings=self.ordered(),
             degradations=tuple(self.degradations),
@@ -211,12 +207,12 @@ class _Accumulator:
 class Scanner:
     """Runs qlty check + smells and merges the results."""
 
-    def __init__(self, runner: Optional[QltyRunner] = None) -> None:
+    def __init__(self, runner: QltyRunner | None = None) -> None:
         self._runner = runner or QltyRunner()
 
     def scan(
         self,
-        request: Optional[ScanRequest] = None,
+        request: ScanRequest | None = None,
         *,
         rescan_until_stable: bool = False,
         max_iterations: int = _MAX_RESCAN_ITERATIONS,
@@ -241,9 +237,7 @@ class Scanner:
             if dry_streak < 1:
                 raise ValueError(f"dry_streak must be >= 1, got {dry_streak}")
             if max_iterations < 1:
-                raise ValueError(
-                    f"max_iterations must be >= 1, got {max_iterations}"
-                )
+                raise ValueError(f"max_iterations must be >= 1, got {max_iterations}")
         req = request or ScanRequest()
         result = self._scan_once(req)
         if not rescan_until_stable:
@@ -308,9 +302,7 @@ class Scanner:
                 consecutive = 0
                 previous = identities
 
-        return accumulated.build(
-            iterations=iterations, stable=False, scope=request.scope
-        )
+        return accumulated.build(iterations=iterations, stable=False, scope=request.scope)
 
     def _scan_once(self, request: ScanRequest) -> ScanResult:
         accumulated = _Accumulator()
@@ -326,14 +318,10 @@ class Scanner:
                 accumulated.note_degradation(invocation.degrade_reason)
             accumulated.note_format(invocation.wire_format)
 
-        return accumulated.build(
-            iterations=1, stable=True, scope=request.scope
-        )
+        return accumulated.build(iterations=1, stable=True, scope=request.scope)
 
 
-def sibling_uses_params_object(
-    module_path: str, root: Optional[Path] = None
-) -> bool:
+def sibling_uses_params_object(module_path: str, root: Path | None = None) -> bool:
     """Whether a module already contains a params-object style dataclass.
 
     This is the cross-reference that separates signal from noise for
@@ -361,7 +349,7 @@ def sibling_uses_params_object(
         stripped = line.strip()
         if not stripped.startswith("class "):
             continue
-        name = stripped[len("class "):].split("(")[0].split(":")[0].strip()
+        name = stripped[len("class ") :].split("(")[0].split(":")[0].strip()
         if name.endswith(suffixes):
             return True
     return False

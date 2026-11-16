@@ -1,4 +1,5 @@
 """Forwarding command group registration for Mail Assistant CLI."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -22,23 +23,33 @@ _AUTH_ARGS: tuple[ArgSpec, ...] = (
 def register_forwarding_commands(app: CLIApp) -> object:
     """Register all forwarding subcommands on app and return the forwarding group."""
     from ..forwarding.commands import (
-        run_forwarding_list,
         run_forwarding_add,
-        run_forwarding_status,
-        run_forwarding_enable,
         run_forwarding_disable,
+        run_forwarding_enable,
+        run_forwarding_list,
+        run_forwarding_status,
     )
 
     # (subcommand, help, handler, extra args appended after the shared auth pair)
     specs: list[tuple[str, str, Any, list[ArgSpec]]] = [
         ("list", "List forwarding addresses", run_forwarding_list, []),
-        ("add", "Add a forwarding address", run_forwarding_add, [
-            (("--email",), {"required": True, "help": "Email address to add"}),
-        ]),
+        (
+            "add",
+            "Add a forwarding address",
+            run_forwarding_add,
+            [
+                (("--email",), {"required": True, "help": "Email address to add"}),
+            ],
+        ),
         ("status", "Check forwarding status", run_forwarding_status, []),
-        ("enable", "Enable forwarding", run_forwarding_enable, [
-            (("--email",), {"required": True, "help": "Address to forward to"}),
-        ]),
+        (
+            "enable",
+            "Enable forwarding",
+            run_forwarding_enable,
+            [
+                (("--email",), {"required": True, "help": "Address to forward to"}),
+            ],
+        ),
         ("disable", "Disable forwarding", run_forwarding_disable, []),
     ]
 

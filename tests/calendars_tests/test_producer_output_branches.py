@@ -19,6 +19,7 @@ Targets:
 - calendars/scan_common.py 96-97 (infer_meta_from_text with unparseable date range)
 - calendars/pipeline_base.py 63 (GmailServiceBuilder.build with explicit service_cls)
 """
+
 from __future__ import annotations
 
 import io
@@ -37,6 +38,7 @@ class TestGmailSweepTopProducerOutPath(unittest.TestCase):
 
     def test_produce_no_senders_prints_no_stats(self):
         from calendars.gmail_pipeline_sweep_top import GmailSweepTopProducer, GmailSweepTopResult
+
         payload = GmailSweepTopResult(top_senders=[], freq_days=30, inbox_only=True, out_path=None)
         env = ResultEnvelope(status="success", payload=payload)
         buf = io.StringIO()
@@ -46,6 +48,7 @@ class TestGmailSweepTopProducerOutPath(unittest.TestCase):
 
     def test_produce_with_out_path_writes_filters_yaml(self):
         from calendars.gmail_pipeline_sweep_top import GmailSweepTopProducer, GmailSweepTopResult
+
         with tempfile.TemporaryDirectory() as tmpdir:
             out_path = Path(tmpdir) / "filters.yaml"
             payload = GmailSweepTopResult(
@@ -69,6 +72,7 @@ class TestGmailSweepTopProducerOutPath(unittest.TestCase):
 
     def test_produce_with_senders_no_out_path(self):
         from calendars.gmail_pipeline_sweep_top import GmailSweepTopProducer, GmailSweepTopResult
+
         payload = GmailSweepTopResult(
             top_senders=[("sender@example.com", 5)],
             freq_days=7,
@@ -91,6 +95,7 @@ class TestGmailServiceBuildActiveRHQueryDefault(unittest.TestCase):
 
     def test_build_activerh_query_uses_default_programs(self):
         from calendars.gmail_service import GmailService
+
         result = GmailService.build_activerh_query(days=30)
         # Without explicit programs, defaults include Swimmer, Chess, etc.
         # Result must be a non-empty string
@@ -99,11 +104,13 @@ class TestGmailServiceBuildActiveRHQueryDefault(unittest.TestCase):
 
     def test_build_activerh_query_with_explicit_programs(self):
         from calendars.gmail_service import GmailService
+
         result = GmailService.build_activerh_query(days=7, programs=["Tennis"])
         self.assertIn("Tennis", result)
 
     def test_build_activerh_query_programs_none_uses_default(self):
         from calendars.gmail_service import GmailService
+
         # programs=None should trigger the default list
         result_none = GmailService.build_activerh_query(days=30, programs=None)
         result_default = GmailService.build_activerh_query(days=30)
@@ -115,7 +122,10 @@ class TestOutlookAddProducerOutput(unittest.TestCase):
 
     def test_produce_dry_run(self):
         from calendars.outlook_pipelines.add import OutlookAddProducer, OutlookAddResult
-        payload = OutlookAddResult(logs=["[1] Dry-run: would create event"], created=2, dry_run=True)
+
+        payload = OutlookAddResult(
+            logs=["[1] Dry-run: would create event"], created=2, dry_run=True
+        )
         env = ResultEnvelope(status="success", payload=payload)
         buf = io.StringIO()
         with redirect_stdout(buf):
@@ -126,7 +136,10 @@ class TestOutlookAddProducerOutput(unittest.TestCase):
 
     def test_produce_apply(self):
         from calendars.outlook_pipelines.add import OutlookAddProducer, OutlookAddResult
-        payload = OutlookAddResult(logs=["[1] Created event: abc123 Meeting"], created=1, dry_run=False)
+
+        payload = OutlookAddResult(
+            logs=["[1] Created event: abc123 Meeting"], created=1, dry_run=False
+        )
         env = ResultEnvelope(status="success", payload=payload)
         buf = io.StringIO()
         with redirect_stdout(buf):
@@ -142,6 +155,7 @@ class TestOutlookDedupProducerDeletedCount(unittest.TestCase):
 
     def _make_dup(self):
         from calendars.outlook_pipelines.dedup import OutlookDedupDuplicate
+
         return OutlookDedupDuplicate(
             subject="Swim Class",
             weekday="mo",
@@ -153,6 +167,7 @@ class TestOutlookDedupProducerDeletedCount(unittest.TestCase):
 
     def test_produce_apply_true_shows_deleted_count(self):
         from calendars.outlook_pipelines.dedup import OutlookDedupProducer, OutlookDedupResult
+
         payload = OutlookDedupResult(
             duplicates=[self._make_dup()],
             apply=True,
@@ -169,6 +184,7 @@ class TestOutlookDedupProducerDeletedCount(unittest.TestCase):
 
     def test_produce_apply_false_shows_plan_only(self):
         from calendars.outlook_pipelines.dedup import OutlookDedupProducer, OutlookDedupResult
+
         payload = OutlookDedupResult(
             duplicates=[self._make_dup()],
             apply=False,
@@ -185,6 +201,7 @@ class TestOutlookDedupProducerDeletedCount(unittest.TestCase):
 
     def test_produce_no_duplicates(self):
         from calendars.outlook_pipelines.dedup import OutlookDedupProducer, OutlookDedupResult
+
         payload = OutlookDedupResult(
             duplicates=[],
             apply=False,
@@ -203,10 +220,11 @@ class TestOutlookRemoveProducerApplyBranch(unittest.TestCase):
 
     def test_produce_apply_true_shows_deleted(self):
         from calendars.outlook_pipelines.remove import (
+            OutlookRemovePlanEntry,
             OutlookRemoveProducer,
             OutlookRemoveResult,
-            OutlookRemovePlanEntry,
         )
+
         plan = [OutlookRemovePlanEntry(subject="Swim", series_ids=["s1"], event_ids=[])]
         payload = OutlookRemoveResult(
             plan=plan,
@@ -224,10 +242,11 @@ class TestOutlookRemoveProducerApplyBranch(unittest.TestCase):
 
     def test_produce_apply_false_shows_plan(self):
         from calendars.outlook_pipelines.remove import (
+            OutlookRemovePlanEntry,
             OutlookRemoveProducer,
             OutlookRemoveResult,
-            OutlookRemovePlanEntry,
         )
+
         plan = [OutlookRemovePlanEntry(subject="Swim", series_ids=["s1"], event_ids=["e1"])]
         payload = OutlookRemoveResult(plan=plan, apply=False, deleted=0, logs=[])
         env = ResultEnvelope(status="success", payload=payload)
@@ -243,7 +262,11 @@ class TestOutlookRemindersProducerApplyBranch(unittest.TestCase):
     """Tests for OutlookRemindersProducer._produce_success non-set_off apply branch."""
 
     def test_produce_apply_set_off(self):
-        from calendars.outlook_pipelines.reminders import OutlookRemindersProducer, OutlookRemindersResult
+        from calendars.outlook_pipelines.reminders import (
+            OutlookRemindersProducer,
+            OutlookRemindersResult,
+        )
+
         payload = OutlookRemindersResult(logs=[], updated=3, dry_run=False, set_off=True)
         env = ResultEnvelope(status="success", payload=payload)
         buf = io.StringIO()
@@ -252,7 +275,11 @@ class TestOutlookRemindersProducerApplyBranch(unittest.TestCase):
         self.assertIn("Disabled reminders on 3", buf.getvalue())
 
     def test_produce_apply_set_minutes(self):
-        from calendars.outlook_pipelines.reminders import OutlookRemindersProducer, OutlookRemindersResult
+        from calendars.outlook_pipelines.reminders import (
+            OutlookRemindersProducer,
+            OutlookRemindersResult,
+        )
+
         payload = OutlookRemindersResult(logs=[], updated=5, dry_run=False, set_off=False)
         env = ResultEnvelope(status="success", payload=payload)
         buf = io.StringIO()
@@ -261,8 +288,14 @@ class TestOutlookRemindersProducerApplyBranch(unittest.TestCase):
         self.assertIn("Updated reminders on 5", buf.getvalue())
 
     def test_produce_dry_run(self):
-        from calendars.outlook_pipelines.reminders import OutlookRemindersProducer, OutlookRemindersResult
-        payload = OutlookRemindersResult(logs=["Would update reminder"], updated=2, dry_run=True, set_off=False)
+        from calendars.outlook_pipelines.reminders import (
+            OutlookRemindersProducer,
+            OutlookRemindersResult,
+        )
+
+        payload = OutlookRemindersResult(
+            logs=["Would update reminder"], updated=2, dry_run=True, set_off=False
+        )
         env = ResultEnvelope(status="success", payload=payload)
         buf = io.StringIO()
         with redirect_stdout(buf):
@@ -276,7 +309,11 @@ class TestOutlookSettingsProducerApplyBranch(unittest.TestCase):
     """Tests for OutlookSettingsProducer._produce_success apply branch."""
 
     def test_produce_apply(self):
-        from calendars.outlook_pipelines.settings import OutlookSettingsProducer, OutlookSettingsResult
+        from calendars.outlook_pipelines.settings import (
+            OutlookSettingsProducer,
+            OutlookSettingsResult,
+        )
+
         payload = OutlookSettingsResult(logs=[], selected=10, changed=7, dry_run=False)
         env = ResultEnvelope(status="success", payload=payload)
         buf = io.StringIO()
@@ -285,7 +322,11 @@ class TestOutlookSettingsProducerApplyBranch(unittest.TestCase):
         self.assertIn("Applied settings to 7", buf.getvalue())
 
     def test_produce_dry_run(self):
-        from calendars.outlook_pipelines.settings import OutlookSettingsProducer, OutlookSettingsResult
+        from calendars.outlook_pipelines.settings import (
+            OutlookSettingsProducer,
+            OutlookSettingsResult,
+        )
+
         payload = OutlookSettingsResult(logs=[], selected=5, changed=0, dry_run=True)
         env = ResultEnvelope(status="success", payload=payload)
         buf = io.StringIO()
@@ -300,7 +341,11 @@ class TestOutlookCalendarShareProducerOutput(unittest.TestCase):
     """Tests for OutlookCalendarShareProducer._produce_success."""
 
     def test_produce_outputs_share_details(self):
-        from calendars.outlook_pipelines.share import OutlookCalendarShareProducer, OutlookCalendarShareResult
+        from calendars.outlook_pipelines.share import (
+            OutlookCalendarShareProducer,
+            OutlookCalendarShareResult,
+        )
+
         payload = OutlookCalendarShareResult(
             calendar="Work",
             recipient="alice@example.com",
@@ -321,6 +366,7 @@ class TestOutlookVerifyProducerNoMatch(unittest.TestCase):
 
     def test_produce_outputs_counts(self):
         from calendars.outlook_pipelines.verify import OutlookVerifyProducer, OutlookVerifyResult
+
         payload = OutlookVerifyResult(
             logs=["[1] missing: Swim MO 09:00-10:00 in 'Primary'"],
             total=3,
@@ -339,6 +385,7 @@ class TestOutlookVerifyProducerNoMatch(unittest.TestCase):
 
     def test_produce_all_zeros(self):
         from calendars.outlook_pipelines.verify import OutlookVerifyProducer, OutlookVerifyResult
+
         payload = OutlookVerifyResult(logs=[], total=0, duplicates=0, missing=0)
         env = ResultEnvelope(status="success", payload=payload)
         buf = io.StringIO()
@@ -355,6 +402,7 @@ class TestOutlookScheduleImportProducerApplyBranch(unittest.TestCase):
             OutlookScheduleImportProducer,
             OutlookScheduleImportResult,
         )
+
         payload = OutlookScheduleImportResult(
             logs=["Created recurring 'Swim Class'"],
             created=3,
@@ -375,6 +423,7 @@ class TestOutlookScheduleImportProducerApplyBranch(unittest.TestCase):
             OutlookScheduleImportProducer,
             OutlookScheduleImportResult,
         )
+
         payload = OutlookScheduleImportResult(logs=[], created=0, dry_run=True, calendar="Primary")
         env = ResultEnvelope(status="success", payload=payload)
         buf = io.StringIO()
@@ -391,6 +440,7 @@ class TestOutlookAddRecurringProducerOutput(unittest.TestCase):
             OutlookAddRecurringProducer,
             OutlookAddRecurringResult,
         )
+
         payload = OutlookAddRecurringResult(event_id="rec123", subject="Weekly Swim")
         env = ResultEnvelope(status="success", payload=payload)
         buf = io.StringIO()
@@ -412,6 +462,7 @@ class TestFilterEventsByDayTimeNoStartTime(unittest.TestCase):
 
     def test_no_filters_returns_all_with_start(self):
         from calendars.selection import filter_events_by_day_time
+
         events = [
             self._make_event("2025-01-06T09:00:00"),  # Monday
             self._make_event("2025-01-07T10:00:00"),  # Tuesday
@@ -421,15 +472,20 @@ class TestFilterEventsByDayTimeNoStartTime(unittest.TestCase):
 
     def test_events_without_start_are_skipped(self):
         from calendars.selection import filter_events_by_day_time
+
         events = [
             {"start": {}, "end": {}},
-            {"start": {"dateTime": "2025-01-06T09:00:00"}, "end": {"dateTime": "2025-01-06T10:00:00"}},
+            {
+                "start": {"dateTime": "2025-01-06T09:00:00"},
+                "end": {"dateTime": "2025-01-06T10:00:00"},
+            },
         ]
         result = filter_events_by_day_time(events)
         self.assertEqual(len(result), 1)
 
     def test_byday_filter_with_no_start_time(self):
         from calendars.selection import filter_events_by_day_time
+
         events = [
             self._make_event("2025-01-06T09:00:00"),  # Monday
             self._make_event("2025-01-07T09:00:00"),  # Tuesday
@@ -441,6 +497,7 @@ class TestFilterEventsByDayTimeNoStartTime(unittest.TestCase):
 
     def test_start_time_filter(self):
         from calendars.selection import filter_events_by_day_time
+
         events = [
             self._make_event("2025-01-06T09:00:00", "2025-01-06T10:00:00"),
             self._make_event("2025-01-06T11:00:00", "2025-01-06T12:00:00"),
@@ -454,9 +511,12 @@ class TestOutlookContextEnsureClient(unittest.TestCase):
 
     def test_ensure_client_raises_when_no_client_id(self):
         from calendars.context import OutlookContext
+
         ctx = OutlookContext(client_id=None, tenant="consumers", token_path=None)
         fake_client_cls = MagicMock()
-        with patch("calendars.context.resolve_outlook_credentials", return_value=(None, "consumers", None)):
+        with patch(
+            "calendars.context.resolve_outlook_credentials", return_value=(None, "consumers", None)
+        ):
             with patch("core.outlook.OutlookClient", fake_client_cls):
                 with self.assertRaises(RuntimeError) as cm:
                     ctx.ensure_client()
@@ -464,10 +524,11 @@ class TestOutlookContextEnsureClient(unittest.TestCase):
 
     def test_ensure_client_authenticates_when_client_id_present(self):
         from calendars.context import OutlookContext
+
         ctx = OutlookContext(client_id="fake-id", tenant="consumers", token_path="/tmp/token.json")  # nosec B106 B108 - test string only
         fake_client = MagicMock()
         fake_client_cls = MagicMock(return_value=fake_client)
-        with patch("calendars.context.resolve_outlook_credentials", return_value=("fake-id", "consumers", "/tmp/token.json")):  # nosec B108 - test string only
+        with patch("calendars.context.resolve_outlook_credentials", return_value=("fake-id", "consumers", "/tmp/token.json")):  # nosec B108 - test string only  # fmt: skip
             with patch("core.outlook.OutlookClient", fake_client_cls):
                 result = ctx.ensure_client()
         fake_client.authenticate.assert_called_once()
@@ -475,8 +536,11 @@ class TestOutlookContextEnsureClient(unittest.TestCase):
 
     def test_resolve_returns_consumers_when_tenant_none(self):
         from calendars.context import OutlookContext
+
         ctx = OutlookContext(client_id="some-id", tenant=None)
-        with patch("calendars.context.resolve_outlook_credentials", return_value=("some-id", None, None)):
+        with patch(
+            "calendars.context.resolve_outlook_credentials", return_value=("some-id", None, None)
+        ):
             _, tenant, _ = ctx.resolve()
         self.assertEqual(tenant, "consumers")
 
@@ -487,15 +551,17 @@ class TestNormalizeEventEdgeCases(unittest.TestCase):
     def test_normalize_event_with_bool_like_flag(self):
         """Covers bool/truthy coercion path in normalize_event."""
         from calendars.model import normalize_event
+
         ev = {
             "subject": "Meeting",
-            "all_day": "off",   # should normalize to False via _normalize_bool
+            "all_day": "off",  # should normalize to False via _normalize_bool
         }
         result = normalize_event(ev)
         self.assertEqual(result["subject"], "Meeting")
 
     def test_normalize_event_bool_normalize_on(self):
         from calendars.model import normalize_event
+
         # The _normalize_bool helper inside model
         ev = {"subject": "Test", "all_day": "true"}
         result = normalize_event(ev)
@@ -504,6 +570,7 @@ class TestNormalizeEventEdgeCases(unittest.TestCase):
     def test_normalize_event_bool_normalize_none_for_invalid(self):
         """Covers the None return branch in _normalize_reminder_on (line 97)."""
         from calendars.model import _normalize_reminder_on
+
         # Strings not matching any known truthy/falsy value return None
         self.assertIsNone(_normalize_reminder_on("maybe"))
         self.assertIsNone(_normalize_reminder_on("unknown"))
@@ -517,6 +584,7 @@ class TestLocationSyncResolveEventLocationNone(unittest.TestCase):
 
     def test_returns_none_for_non_dict(self):
         from calendars.location_sync import LocationSync
+
         sync = LocationSync(svc=MagicMock())
         # cast exercises the isinstance(ev, dict) guard — intentional wrong type.
         result = sync._resolve_event_location(cast(Any, "not a dict"), calendar=None)
@@ -524,6 +592,7 @@ class TestLocationSyncResolveEventLocationNone(unittest.TestCase):
 
     def test_returns_none_when_no_location(self):
         from calendars.location_sync import LocationSync
+
         sync = LocationSync(svc=MagicMock())
         # Event has subject but no location
         result = sync._resolve_event_location({"subject": "Meeting"}, calendar=None)
@@ -531,12 +600,14 @@ class TestLocationSyncResolveEventLocationNone(unittest.TestCase):
 
     def test_returns_none_when_no_subject(self):
         from calendars.location_sync import LocationSync
+
         sync = LocationSync(svc=MagicMock())
         result = sync._resolve_event_location({"location": "Room 1"}, calendar=None)
         self.assertIsNone(result)
 
     def test_returns_tuple_when_both_present(self):
         from calendars.location_sync import LocationSync
+
         sync = LocationSync(svc=MagicMock())
         result = sync._resolve_event_location(
             {"subject": "Meeting", "location": "Room 1"},
@@ -552,13 +623,16 @@ class TestInferMetaFromTextFallback(unittest.TestCase):
 
     def test_no_date_range_in_text(self):
         from calendars.scan_common import infer_meta_from_text
+
         result = infer_meta_from_text("No dates here")
         self.assertNotIn("range", result)
 
     def test_unparseable_month_in_date_range(self):
         """Trigger the except branch in _infer_date_range."""
-        from calendars.scan_common import infer_meta_from_text, MetaParserConfig
         import re
+
+        from calendars.scan_common import MetaParserConfig, infer_meta_from_text
+
         # Use a date_range_pat that matches but produces month keys not in MONTH_MAP
         bad_pat = re.compile(
             r"(xxx)\s+(\d{1,2})(,\s*\d{4})?\s*-\s*(yyy)\s+(\d{1,2})(,\s*\d{4})?",
@@ -570,7 +644,8 @@ class TestInferMetaFromTextFallback(unittest.TestCase):
         self.assertNotIn("range", result)
 
     def test_with_valid_date_range(self):
-        from calendars.scan_common import infer_meta_from_text, MetaParserConfig
+        from calendars.scan_common import MetaParserConfig, infer_meta_from_text
+
         cfg = MetaParserConfig(default_year=2025)
         result = infer_meta_from_text("January 10 - March 20", config=cfg)
         self.assertIn("range", result)
@@ -581,10 +656,13 @@ class TestGmailServiceBuilderWithExplicitClass(unittest.TestCase):
     """Tests for GmailServiceBuilder.build with an explicit service_cls (line 63+)."""
 
     def test_build_passes_custom_service_cls(self):
-        from calendars.pipeline_base import GmailServiceBuilder, GmailAuth
+        from calendars.pipeline_base import GmailAuth, GmailServiceBuilder
+
         custom_svc = MagicMock()
         auth = GmailAuth(profile=None, credentials=None, token=None, cache_dir=None)
-        with patch("calendars.pipeline_base._build_gmail_service", return_value="fake_svc") as mock_build:
+        with patch(
+            "calendars.pipeline_base._build_gmail_service", return_value="fake_svc"
+        ) as mock_build:
             result = GmailServiceBuilder.build(auth, service_cls=custom_svc)
         mock_build.assert_called_once_with(
             profile=None,
@@ -596,10 +674,13 @@ class TestGmailServiceBuilderWithExplicitClass(unittest.TestCase):
         self.assertEqual(result, "fake_svc")
 
     def test_build_uses_default_gmail_service_when_no_cls(self):
-        from calendars.pipeline_base import GmailServiceBuilder, GmailAuth
         from calendars.gmail_service import GmailService
+        from calendars.pipeline_base import GmailAuth, GmailServiceBuilder
+
         auth = GmailAuth(profile=None, credentials=None, token=None, cache_dir=None)
-        with patch("calendars.pipeline_base._build_gmail_service", return_value="svc") as mock_build:
+        with patch(
+            "calendars.pipeline_base._build_gmail_service", return_value="svc"
+        ) as mock_build:
             GmailServiceBuilder.build(auth)
         _, kwargs = mock_build.call_args
         self.assertEqual(kwargs["service_cls"], GmailService)
@@ -610,7 +691,10 @@ class TestOutlookRemindersProducerErrorBranch(unittest.TestCase):
 
     def test_produce_error_status_prints_message_and_skips_success(self):
         from calendars.outlook_pipelines.reminders import OutlookRemindersProducer
-        env = ResultEnvelope(status="error", payload=None, diagnostics={"message": "Calendar not found: Bogus"})
+
+        env = ResultEnvelope(
+            status="error", payload=None, diagnostics={"message": "Calendar not found: Bogus"}
+        )
         buf = io.StringIO()
         err_buf = io.StringIO()
         with redirect_stdout(buf), redirect_stderr(err_buf):
@@ -626,7 +710,10 @@ class TestOutlookAddProducerErrorBranch(unittest.TestCase):
 
     def test_produce_error_status_skips_success_output(self):
         from calendars.outlook_pipelines.add import OutlookAddProducer
-        env = ResultEnvelope(status="error", payload=None, diagnostics={"message": "events.yaml not found"})
+
+        env = ResultEnvelope(
+            status="error", payload=None, diagnostics={"message": "events.yaml not found"}
+        )
         buf = io.StringIO()
         err_buf = io.StringIO()
         with redirect_stdout(buf), redirect_stderr(err_buf):
@@ -640,7 +727,10 @@ class TestOutlookRemoveProducerErrorBranch(unittest.TestCase):
 
     def test_produce_error_status_skips_plan_and_deleted_output(self):
         from calendars.outlook_pipelines.remove import OutlookRemoveProducer
-        env = ResultEnvelope(status="error", payload=None, diagnostics={"message": "service is required"})
+
+        env = ResultEnvelope(
+            status="error", payload=None, diagnostics={"message": "service is required"}
+        )
         buf = io.StringIO()
         err_buf = io.StringIO()
         with redirect_stdout(buf), redirect_stderr(err_buf):
@@ -656,10 +746,13 @@ class TestOutlookSettingsProducerErrorBranch(unittest.TestCase):
 
     def test_produce_error_status_skips_success_output(self):
         from calendars.outlook_pipelines.settings import OutlookSettingsProducer
+
         env = ResultEnvelope(
             status="error",
             payload=None,
-            diagnostics={"message": "Config must contain settings.rules: [] or top-level rules: []"},
+            diagnostics={
+                "message": "Config must contain settings.rules: [] or top-level rules: []"
+            },
         )
         buf = io.StringIO()
         err_buf = io.StringIO()
@@ -676,7 +769,10 @@ class TestOutlookScheduleImportProducerErrorBranch(unittest.TestCase):
 
     def test_produce_error_status_skips_success_output(self):
         from calendars.outlook_pipelines.schedule_import import OutlookScheduleImportProducer
-        env = ResultEnvelope(status="error", payload=None, diagnostics={"message": "service is required"})
+
+        env = ResultEnvelope(
+            status="error", payload=None, diagnostics={"message": "service is required"}
+        )
         buf = io.StringIO()
         err_buf = io.StringIO()
         with redirect_stdout(buf), redirect_stderr(err_buf):
@@ -692,7 +788,10 @@ class TestOutlookCalendarShareProducerErrorBranch(unittest.TestCase):
 
     def test_produce_error_status_skips_success_output(self):
         from calendars.outlook_pipelines.share import OutlookCalendarShareProducer
-        env = ResultEnvelope(status="error", payload=None, diagnostics={"message": "service is required"})
+
+        env = ResultEnvelope(
+            status="error", payload=None, diagnostics={"message": "service is required"}
+        )
         buf = io.StringIO()
         err_buf = io.StringIO()
         with redirect_stdout(buf), redirect_stderr(err_buf):
@@ -705,7 +804,11 @@ class TestOutlookRemindersProcessorCalendarNotFound(unittest.TestCase):
     """Sad-path: OutlookRemindersProcessor raises when the named calendar is missing."""
 
     def test_process_raises_value_error_for_unknown_calendar(self):
-        from calendars.outlook_pipelines.reminders import OutlookRemindersProcessor, OutlookRemindersRequest
+        from calendars.outlook_pipelines.reminders import (
+            OutlookRemindersProcessor,
+            OutlookRemindersRequest,
+        )
+
         svc = MagicMock()
         svc.get_calendar_id_by_name.return_value = None
         req = OutlookRemindersRequest(
@@ -727,9 +830,12 @@ class TestOutlookRemoveProcessorServiceRequired(unittest.TestCase):
 
     def test_process_raises_value_error_when_service_missing(self):
         from calendars.outlook_pipelines.remove import OutlookRemoveProcessor, OutlookRemoveRequest
+
         with patch(
             "calendars.outlook_pipelines.remove.load_events_config",
-            return_value=[{"subject": "Swim", "start": "2025-01-06T09:00:00", "end": "2025-01-06T10:00:00"}],
+            return_value=[
+                {"subject": "Swim", "start": "2025-01-06T09:00:00", "end": "2025-01-06T10:00:00"}
+            ],
         ):
             req = OutlookRemoveRequest(
                 config_path=Path("events.yaml"),
@@ -747,7 +853,11 @@ class TestOutlookSettingsProcessorInvalidRules(unittest.TestCase):
     """Sad-path: OutlookSettingsProcessor raises when config rules are malformed."""
 
     def test_process_raises_value_error_when_rules_not_a_list(self):
-        from calendars.outlook_pipelines.settings import OutlookSettingsProcessor, OutlookSettingsRequest
+        from calendars.outlook_pipelines.settings import (
+            OutlookSettingsProcessor,
+            OutlookSettingsRequest,
+        )
+
         bad_loader = MagicMock(return_value={"settings": {"rules": "not-a-list"}})
         req = OutlookSettingsRequest(
             config_path=Path("settings.yaml"),
@@ -770,6 +880,7 @@ class TestOutlookScheduleImportProcessorServiceRequired(unittest.TestCase):
             OutlookScheduleImportProcessor,
             OutlookScheduleImportRequest,
         )
+
         req = OutlookScheduleImportRequest(
             source="schedule.csv",
             kind=None,
@@ -793,6 +904,7 @@ class TestOutlookCalendarShareProcessorServiceRequired(unittest.TestCase):
             OutlookCalendarShareProcessor,
             OutlookCalendarShareRequest,
         )
+
         req = OutlookCalendarShareRequest(
             service=None,
             calendar="Work",

@@ -137,7 +137,9 @@ class TestFindIconstateFile(unittest.TestCase):
                     relativePath TEXT
                 )
             """)
-            conn.execute("INSERT INTO Files VALUES ('abc123', 'HomeDomain', 'Library/Other/file.txt')")
+            conn.execute(
+                "INSERT INTO Files VALUES ('abc123', 'HomeDomain', 'Library/Other/file.txt')"
+            )
             conn.commit()
             conn.close()
 
@@ -158,9 +160,15 @@ class TestFindIconstateFile(unittest.TestCase):
                     relativePath TEXT
                 )
             """)
-            conn.execute("INSERT INTO Files VALUES ('aaa111', 'HomeDomain', 'Library/SpringBoard/IconState.plist')")
-            conn.execute("INSERT INTO Files VALUES ('bbb222', 'HomeDomain', 'Library/SpringBoard/IconState~ipad.plist')")
-            conn.execute("INSERT INTO Files VALUES ('ccc333', 'HomeDomain', 'Library/SpringBoard/DesiredIconState.plist')")
+            conn.execute(
+                "INSERT INTO Files VALUES ('aaa111', 'HomeDomain', 'Library/SpringBoard/IconState.plist')"
+            )
+            conn.execute(
+                "INSERT INTO Files VALUES ('bbb222', 'HomeDomain', 'Library/SpringBoard/IconState~ipad.plist')"
+            )
+            conn.execute(
+                "INSERT INTO Files VALUES ('ccc333', 'HomeDomain', 'Library/SpringBoard/DesiredIconState.plist')"
+            )
             conn.commit()
             conn.close()
 
@@ -186,8 +194,12 @@ class TestFindIconstateFile(unittest.TestCase):
                     relativePath TEXT
                 )
             """)
-            conn.execute("INSERT INTO Files VALUES ('aaa111', 'HomeDomain', 'Library/SpringBoard/IconState.plist')")
-            conn.execute("INSERT INTO Files VALUES ('ccc333', 'HomeDomain', 'Library/SpringBoard/DesiredIconState.plist')")
+            conn.execute(
+                "INSERT INTO Files VALUES ('aaa111', 'HomeDomain', 'Library/SpringBoard/IconState.plist')"
+            )
+            conn.execute(
+                "INSERT INTO Files VALUES ('ccc333', 'HomeDomain', 'Library/SpringBoard/DesiredIconState.plist')"
+            )
             conn.commit()
             conn.close()
 
@@ -213,7 +225,9 @@ class TestFindIconstateFile(unittest.TestCase):
                     relativePath TEXT
                 )
             """)
-            conn.execute("INSERT INTO Files VALUES ('aaa111', 'HomeDomain', 'Library/SpringBoard/IconState.plist')")
+            conn.execute(
+                "INSERT INTO Files VALUES ('aaa111', 'HomeDomain', 'Library/SpringBoard/IconState.plist')"
+            )
             conn.commit()
             conn.close()
 
@@ -248,9 +262,7 @@ class TestLoadPlist(unittest.TestCase):
         try:
             data = {
                 "buttonBar": [{"bundleIdentifier": "com.apple.safari"}],
-                "iconLists": [
-                    [{"bundleIdentifier": "com.app1"}, {"bundleIdentifier": "com.app2"}]
-                ],
+                "iconLists": [[{"bundleIdentifier": "com.app1"}, {"bundleIdentifier": "com.app2"}]],
             }
             with open(plist_path, "wb") as f:
                 plistlib.dump(data, f)

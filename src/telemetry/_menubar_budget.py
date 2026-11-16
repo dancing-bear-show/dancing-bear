@@ -1,4 +1,5 @@
 """Budget scoring and safe-coerce helpers extracted from _menubar_app.py."""
+
 from __future__ import annotations
 
 
@@ -41,10 +42,10 @@ def _to_int(v: object) -> int:
     Neither int(str(v)) nor int(float(v)) alone handles both cases correctly.
     """
     if isinstance(v, int) and not isinstance(v, bool):
-        return v                    # exact: avoids float precision loss on ns timestamps
+        return v  # exact: avoids float precision loss on ns timestamps
     if isinstance(v, float):
-        return int(v)               # tolerant: handles 123.0 -> 123
+        return int(v)  # tolerant: handles 123.0 -> 123
     try:
-        return int(float(str(v)))   # strings: handles "123.0" and "456"
+        return int(float(str(v)))  # strings: handles "123.0" and "456"
     except (TypeError, ValueError, OverflowError):
         return 0

@@ -277,9 +277,7 @@ class TestAddTableToSlide(unittest.TestCase):
     def test_top_override_used_when_provided(self):
         table, _ = _make_table(2, 1)
         slide = _make_slide_with_add_table(table)
-        self.mixin._add_table_to_slide(
-            slide, ["H"], [["v"]], self.theme, top_override=2.0
-        )
+        self.mixin._add_table_to_slide(slide, ["H"], [["v"]], self.theme, top_override=2.0)
         args = slide.shapes.add_table.call_args[0]
         self.assertEqual(args[3], Inches(2.0))  # top argument
 
@@ -500,9 +498,7 @@ class TestStyleTableDataRowsSeverityColors(unittest.TestCase):
 
         rows: list[list[object]] = [["Service A", "P0"]]
 
-        self.generator._style_table_data_rows(
-            mock_table, rows, MSO_THEME_COLOR.LIGHT_2
-        )
+        self.generator._style_table_data_rows(mock_table, rows, MSO_THEME_COLOR.LIGHT_2)
 
         self.assertEqual(mock_run.font.color.rgb, SEVERITY_COLORS["P0"])
         self.assertTrue(mock_run.font.bold)
@@ -520,9 +516,7 @@ class TestStyleTableDataRowsSeverityColors(unittest.TestCase):
 
             rows = [[sev_label]]
 
-            self.generator._style_table_data_rows(
-                mock_table, rows, MSO_THEME_COLOR.LIGHT_2
-            )
+            self.generator._style_table_data_rows(mock_table, rows, MSO_THEME_COLOR.LIGHT_2)
 
             self.assertEqual(mock_run.font.color.rgb, expected_color)
             self.assertTrue(mock_run.font.bold)
@@ -541,9 +535,7 @@ class TestStyleTableDataRowsSeverityColors(unittest.TestCase):
         rows: list[list[object]] = [["Normal value"]]
 
         with patch.object(self.generator, "_style_run") as mock_style:
-            self.generator._style_table_data_rows(
-                mock_table, rows, MSO_THEME_COLOR.LIGHT_2
-            )
+            self.generator._style_table_data_rows(mock_table, rows, MSO_THEME_COLOR.LIGHT_2)
             mock_style.assert_called()
 
 
@@ -606,9 +598,7 @@ class TestPopulateTableSlideSubtitle(unittest.TestCase):
             rows=[["a", "b"]],
         )
 
-        self.generator._populate_table_slide(
-            mock_slide, content, MSO_THEME_COLOR.LIGHT_2
-        )
+        self.generator._populate_table_slide(mock_slide, content, MSO_THEME_COLOR.LIGHT_2)
 
         mock_title.text_frame.add_paragraph.assert_called_once()
         self.assertEqual(mock_sub_run.text, "Table Subtitle")
@@ -624,9 +614,7 @@ class TestPopulateTableSlideSubtitle(unittest.TestCase):
             rows=[["a", "b"]],
         )
 
-        self.generator._populate_table_slide(
-            mock_slide, content, MSO_THEME_COLOR.LIGHT_2
-        )
+        self.generator._populate_table_slide(mock_slide, content, MSO_THEME_COLOR.LIGHT_2)
 
         mock_title.text_frame.add_paragraph.assert_not_called()
 
@@ -642,13 +630,10 @@ class TestPopulateTableSlideSubtitle(unittest.TestCase):
         )
 
         with patch.object(self.generator, "_style_run") as mock_style:
-            self.generator._populate_table_slide(
-                mock_slide, content, MSO_THEME_COLOR.LIGHT_2
-            )
+            self.generator._populate_table_slide(mock_slide, content, MSO_THEME_COLOR.LIGHT_2)
 
             subtitle_calls = [
-                c for c in mock_style.call_args_list
-                if c.kwargs.get("font_size") == Pt(18)
+                c for c in mock_style.call_args_list if c.kwargs.get("font_size") == Pt(18)
             ]
             self.assertEqual(len(subtitle_calls), 1)
             self.assertEqual(subtitle_calls[0].args[0], mock_sub_run)
@@ -667,13 +652,10 @@ class TestPopulateTableSlideSubtitle(unittest.TestCase):
         )
 
         with patch.object(self.generator, "_style_run") as mock_style:
-            self.generator._populate_table_slide(
-                mock_slide, content, MSO_THEME_COLOR.LIGHT_2
-            )
+            self.generator._populate_table_slide(mock_slide, content, MSO_THEME_COLOR.LIGHT_2)
 
             title_calls = [
-                c for c in mock_style.call_args_list
-                if c.kwargs.get("font_size") == Pt(28)
+                c for c in mock_style.call_args_list if c.kwargs.get("font_size") == Pt(28)
             ]
             self.assertEqual(len(title_calls), 1)
             self.assertEqual(title_calls[0].args[0], mock_title_run)
@@ -704,9 +686,7 @@ class TestPopulateTableSlideWithBullets(unittest.TestCase):
 
         mock_slide = MagicMock()
         mock_slide.shapes = MagicMock()
-        mock_slide.shapes.__iter__ = MagicMock(
-            return_value=iter([mock_title, mock_text_box])
-        )
+        mock_slide.shapes.__iter__ = MagicMock(return_value=iter([mock_title, mock_text_box]))
 
         mock_table_shape = MagicMock()
         mock_table = MagicMock()
@@ -739,9 +719,7 @@ class TestPopulateTableSlideWithBullets(unittest.TestCase):
         )
 
         with patch.object(self.generator, "_add_bullets_below") as mock_add_bullets:
-            self.generator._populate_table_slide(
-                mock_slide, content, MSO_THEME_COLOR.LIGHT_2
-            )
+            self.generator._populate_table_slide(mock_slide, content, MSO_THEME_COLOR.LIGHT_2)
             mock_add_bullets.assert_called_once()
             call_args = mock_add_bullets.call_args
             bullets_top = call_args[0][3]
@@ -759,9 +737,7 @@ class TestPopulateTableSlideWithBullets(unittest.TestCase):
         )
 
         with patch.object(self.generator, "_add_bullets_below") as mock_add_bullets:
-            self.generator._populate_table_slide(
-                mock_slide, content, MSO_THEME_COLOR.LIGHT_2
-            )
+            self.generator._populate_table_slide(mock_slide, content, MSO_THEME_COLOR.LIGHT_2)
             mock_add_bullets.assert_not_called()
 
 

@@ -12,8 +12,16 @@ import sys
 from pathlib import Path
 
 from core.fileutil import atomic_write_text
-from memory.commands._common import ArgSpec, DRY_RUN_ARG, STORE_ARG, YES_ARG, format_arg, select_single_store, validation_error
 from memory.bundle import build_bundle, serialize_bundle
+from memory.commands._common import (
+    DRY_RUN_ARG,
+    STORE_ARG,
+    YES_ARG,
+    ArgSpec,
+    format_arg,
+    select_single_store,
+    validation_error,
+)
 from memory.models import Memory, MemoryStore
 from memory.redaction import SEVERITY_WARN, Redaction, has_blocking
 
@@ -79,7 +87,6 @@ def _write_bundle_output(content: str, output: str | None) -> int:
         return 1
 
 
-
 ARGUMENTS: list[ArgSpec] = [
     STORE_ARG,
     (("--slug",), {"action": "append", "dest": "slugs", "help": "Include this slug (repeatable)"}),
@@ -98,7 +105,9 @@ def run(args: argparse.Namespace) -> int:
     # At least one selector is required
     has_selector = bool(args.slugs) or bool(args.types) or args.all
     if not has_selector:
-        return validation_error("selector", "export requires at least one selector: --slug, --type, or --all")
+        return validation_error(
+            "selector", "export requires at least one selector: --slug, --type, or --all"
+        )
 
     store = select_single_store(args.store)
     if isinstance(store, int):
@@ -117,9 +126,7 @@ def run(args: argparse.Namespace) -> int:
     bundle = build_bundle(selected)
 
     # Collect all redactions from every exported memory
-    all_redactions: list[Redaction] = [
-        r for em in bundle.memories for r in em.redactions
-    ]
+    all_redactions: list[Redaction] = [r for em in bundle.memories for r in em.redactions]
 
     # Block-severity findings always refuse export — --allow-warn has no effect here
     if has_blocking(tuple(all_redactions)):

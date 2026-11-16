@@ -50,6 +50,7 @@ class DualSeriesContext:
 # Theme / label helpers (shared by all chart kinds)
 # ---------------------------------------------------------------------------
 
+
 def _apply_theme(fig: Figure, ax: Axes, theme: ChartTheme) -> None:
     fig.patch.set_facecolor(theme.background)
     ax.set_facecolor(theme.axes_bg)
@@ -82,7 +83,8 @@ def _apply_legend(ax: Axes, theme: ChartTheme) -> None:
     if not handles:
         return
     legend = ax.legend(
-        handles, labels,
+        handles,
+        labels,
         loc="best",
         facecolor=theme.legend_color,
         framealpha=0.8,
@@ -96,11 +98,12 @@ def _apply_legend(ax: Axes, theme: ChartTheme) -> None:
 # Shared x-value / series utilities (used by bar, line, area, dual)
 # ---------------------------------------------------------------------------
 
+
 def _parse_iso_to_datetime(value: str) -> datetime.datetime:
     try:
         dt = datetime.datetime.fromisoformat(value)
         if dt.tzinfo is not None:
-            dt = dt.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+            dt = dt.astimezone(datetime.UTC).replace(tzinfo=None)
         return dt
     except ValueError:
         pass
@@ -108,9 +111,7 @@ def _parse_iso_to_datetime(value: str) -> datetime.datetime:
 
 
 def _parse_x_values(series: list[SeriesSpec], x_field: str) -> tuple[list[_XValue], bool]:
-    unique_raw = list(dict.fromkeys(
-        str(row[x_field]) for s in series for row in s.data
-    ))
+    unique_raw = list(dict.fromkeys(str(row[x_field]) for s in series for row in s.data))
 
     if not unique_raw:
         return [], False
@@ -145,9 +146,7 @@ def _row_key(raw_key: Any, is_dates: bool) -> _XValue:
         return str(raw_key)
 
 
-def _build_row_map(
-    series: SeriesSpec, x_field: str, is_dates: bool
-) -> dict[_XValue, float]:
+def _build_row_map(series: SeriesSpec, x_field: str, is_dates: bool) -> dict[_XValue, float]:
     m: dict[_XValue, float] = {}
     for row in series.data:
         m[_row_key(row[x_field], is_dates)] = float(row["value"])  # type: ignore[arg-type]
@@ -157,10 +156,13 @@ def _build_row_map(
 def _configure_date_axis(ax: Axes, spec: ChartSpec) -> None:
     import matplotlib.dates as mdates
     import matplotlib.pyplot as plt
+
     locator = mdates.AutoDateLocator(minticks=15, maxticks=30)
     ax.xaxis.set_major_locator(locator)
     if spec.date_format:
-        formatter: mdates.DateFormatter | mdates.AutoDateFormatter = mdates.DateFormatter(spec.date_format)
+        formatter: mdates.DateFormatter | mdates.AutoDateFormatter = mdates.DateFormatter(
+            spec.date_format
+        )
     else:
         formatter = mdates.AutoDateFormatter(locator)
     ax.xaxis.set_major_formatter(formatter)
@@ -183,8 +185,10 @@ def _maybe_configure_date_axis(ax: Axes, is_dates: bool, spec: ChartSpec) -> Non
 # Line / area / dual rendering
 # ---------------------------------------------------------------------------
 
+
 def _shade_weekends(ax: Axes, x_values: list[_XValue], theme: ChartTheme) -> None:
     import matplotlib.dates as mdates
+
     seen: set[datetime.date] = set()
     for val in x_values:
         if not isinstance(val, datetime.date):
@@ -220,6 +224,7 @@ def _plot_series_smooth(
     style: LineSeriesStyle,
 ) -> bool:
     import numpy as np
+
     x_num = np.arange(len(x_values), dtype=float)
     x_dense = np.linspace(0, len(x_values) - 1, len(x_values) * 4)
     finite_mask = np.isfinite(y_values)
@@ -228,10 +233,14 @@ def _plot_series_smooth(
     x_finite = x_num[finite_mask]
     y_finite = np.array(y_values)[finite_mask]
     y_smooth = np.interp(x_dense, x_finite, y_finite)
-    plot_x = x_dense if not is_dates else [
-        x_values[int(round(min(xi, len(x_values) - 1)))] for xi in x_dense
-    ]
-    ax.plot(cast(Any, plot_x), y_smooth, color=style.color, linewidth=style.linewidth, label=style.label)
+    plot_x = (
+        x_dense
+        if not is_dates
+        else [x_values[int(round(min(xi, len(x_values) - 1)))] for xi in x_dense]
+    )
+    ax.plot(
+        cast(Any, plot_x), y_smooth, color=style.color, linewidth=style.linewidth, label=style.label
+    )
     return True
 
 
@@ -246,12 +255,18 @@ def _render_line(ax: Axes, spec: LineChartSpec, theme: ChartTheme) -> None:
         y_values = [row_map.get(x, float("nan")) for x in x_values]
         label = series.label or series.name
 
-        if spec.smooth and len(x_values) >= 3:
-            if _plot_series_smooth(ax, x_values, y_values, is_dates, LineSeriesStyle(color, spec.line_width, label)):
-                continue
+        if (
+            spec.smooth
+            and len(x_values) >= 3
+            and _plot_series_smooth(
+                ax, x_values, y_values, is_dates, LineSeriesStyle(color, spec.line_width, label)
+            )
+        ):
+            continue
 
         ax.plot(
-            cast(Any, x_values), y_values,
+            cast(Any, x_values),
+            y_values,
             color=color,
             linewidth=spec.line_width,
             marker=spec.marker,
@@ -263,6 +278,7 @@ def _render_line(ax: Axes, spec: LineChartSpec, theme: ChartTheme) -> None:
 
 def _render_area(ax: Axes, spec: AreaChartSpec, theme: ChartTheme) -> None:
     import numpy as np
+
     x_values, is_dates = _parse_x_values(spec.series, spec.x_field)
 
     _maybe_shade_weekends(ax, x_values, is_dates, spec, theme)
@@ -277,7 +293,13 @@ def _render_area(ax: Axes, spec: AreaChartSpec, theme: ChartTheme) -> None:
         fill_bottom = baseline if spec.stacked else np.zeros(len(x_values))
 
         ax.fill_between(cast(Any, x_values), fill_bottom, y_top, color=color, alpha=spec.alpha)
-        ax.plot(cast(Any, x_values), y_top, color=color, linewidth=1.5, label=series.label or series.name)
+        ax.plot(
+            cast(Any, x_values),
+            y_top,
+            color=color,
+            linewidth=1.5,
+            label=series.label or series.name,
+        )
 
         if spec.stacked:
             baseline = y_top
@@ -325,15 +347,20 @@ def _plot_dual_series(
         row_map = _build_row_map(series, ctx.x_field, ctx.is_dates)
         y = [row_map.get(x, float("nan")) for x in ctx.x_values]
         label = series.label or series.name
-        (line,) = ax.plot(cast(Any, ctx.x_values), y, color=color, linewidth=2.0, linestyle=ctx.linestyle, label=label)
+        (line,) = ax.plot(
+            cast(Any, ctx.x_values),
+            y,
+            color=color,
+            linewidth=2.0,
+            linestyle=ctx.linestyle,
+            label=label,
+        )
         handles.append(line)
         labels.append(label)
     return handles, labels
 
 
-def _apply_secondary_axis_style(
-    ax2: Axes, spec: DualAxisChartSpec, theme: ChartTheme
-) -> None:
+def _apply_secondary_axis_style(ax2: Axes, spec: DualAxisChartSpec, theme: ChartTheme) -> None:
     if spec.y_right_label:
         ax2.set_ylabel(spec.y_right_label)
         ax2.yaxis.label.set_color(theme.text_color)
@@ -353,15 +380,20 @@ def _render_dual(fig: Figure, ax: Axes, spec: DualAxisChartSpec, theme: ChartThe
     _maybe_shade_weekends(ax, x_values, is_dates, spec, theme)
 
     left_handles, left_labels = _plot_dual_series(
-        ax, left_series,
+        ax,
+        left_series,
         DualSeriesContext(x_values=x_values, x_field=spec.x_field, is_dates=is_dates),
         theme,
     )
     right_handles, right_labels = _plot_dual_series(
-        ax2, right_series,
+        ax2,
+        right_series,
         DualSeriesContext(
-            x_values=x_values, x_field=spec.x_field, is_dates=is_dates,
-            palette_offset=len(left_series), linestyle="--",
+            x_values=x_values,
+            x_field=spec.x_field,
+            is_dates=is_dates,
+            palette_offset=len(left_series),
+            linestyle="--",
         ),
         theme,
     )

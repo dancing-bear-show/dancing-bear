@@ -19,10 +19,11 @@ from telemetry.otel.analytics.perf import (
     _extract_all_events,
     _parse_token_attribute,
 )
-from telemetry.otel.cost_models import DailyCost, ModelPerformance
 from telemetry.otel.cost_models import (
     CostMetrics,
+    DailyCost,
     ModelCost,
+    ModelPerformance,
     SessionCost,
     SessionPerf,
 )
@@ -181,11 +182,7 @@ def _build_model_costs(model_data: dict[str, dict]) -> list[ModelCost]:
             ),
             model_name,
         )
-        eff = (
-            (data["output_tokens"] / data["input_tokens"])
-            if data["input_tokens"] > 0
-            else 0.0
-        )
+        eff = (data["output_tokens"] / data["input_tokens"]) if data["input_tokens"] > 0 else 0.0
         model_costs.append(
             ModelCost(
                 model_name=model_name,

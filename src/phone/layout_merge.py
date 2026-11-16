@@ -14,7 +14,6 @@ from typing import Any
 
 from .classify import classify_app
 
-
 # Mapping from classify_app() categories to the user's actual folder names.
 # classify_app returns: Work, Media, Social, Finance, Travel, Health, Shopping, Utilities
 # User's actual folders: Work, Finance, Travel, Fitness, Shopping, Media, Social,
@@ -192,8 +191,7 @@ class MergePlan:
             "pins": self.pins,
             "folders": {k: list(v) for k, v in self.folders.items()},
             "pages": {
-                str(k): {"apps": v["apps"], "folders": v["folders"]}
-                for k, v in self.pages.items()
+                str(k): {"apps": v["apps"], "folders": v["folders"]} for k, v in self.pages.items()
             },
         }
 
@@ -296,9 +294,7 @@ def _collect_existing_folders(
             if name not in folders_by_name:
                 folders_by_name[name] = []
                 folder_page[name] = page_num
-            folders_by_name[name].extend(
-                bid for bid in (folder.get("apps") or []) if bid
-            )
+            folders_by_name[name].extend(bid for bid in (folder.get("apps") or []) if bid)
     return folders_by_name, folder_page
 
 
@@ -315,16 +311,12 @@ def _collect_apps_to_file(
     for page_idx, page in enumerate(pages_raw):
         if page_idx > 0:
             # Pages >= 2: loose apps get filed into folders
-            to_file.extend(
-                bid for bid in (page.get("apps") or [])
-                if bid and bid not in dock_set
-            )
+            to_file.extend(bid for bid in (page.get("apps") or []) if bid and bid not in dock_set)
         # All pages (including page 1): dump-folder members get redistributed
         for folder in page.get("folders") or []:
             if (folder.get("name") or "") in dump_set:
                 to_file.extend(
-                    bid for bid in (folder.get("apps") or [])
-                    if bid and bid not in dock_set
+                    bid for bid in (folder.get("apps") or []) if bid and bid not in dock_set
                 )
     return to_file
 
@@ -361,19 +353,14 @@ def _build_pins(
     """Build page-1 pins from first page loose apps plus keep_set extras."""
     pins: list[str] = []
     if pages_raw:
-        pins.extend(
-            bid for bid in (pages_raw[0].get("apps") or [])
-            if bid and bid not in dock_set
-        )
+        pins.extend(bid for bid in (pages_raw[0].get("apps") or []) if bid and bid not in dock_set)
     for bid in sorted(keep_set):  # sorted: deterministic pin order across runs
         if bid not in pins and bid not in dock_set:
             pins.append(bid)
     return pins
 
 
-def _build_pages_dict(
-    pins: list[str], folder_page: dict[str, int]
-) -> dict[int, dict[str, Any]]:
+def _build_pages_dict(pins: list[str], folder_page: dict[str, int]) -> dict[int, dict[str, Any]]:
     """Build pages dict from pins (page 1) and folder page assignments.
 
     Page 1 always contains the pin apps plus any non-dump folders originally
@@ -427,9 +414,7 @@ def merge_folders(
     existing_folders: set[str] = set(folders_by_name.keys())
 
     if not existing_folders:
-        raise ValueError(
-            "No existing (non-dump) folders in layout; cannot redistribute apps"
-        )
+        raise ValueError("No existing (non-dump) folders in layout; cannot redistribute apps")
 
     all_layout_ids: set[str] = set(_collect_layout_ids(layout))
     effective_keep: set[str] = set()

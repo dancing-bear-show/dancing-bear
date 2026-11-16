@@ -46,6 +46,8 @@ from worker.queue_ops import (
     reap_stale_processing_jobs,
     recover_staged_requeues,
     requeue_processing,
+)
+from worker.queue_ops import (
     start_processing as _real_start,
 )
 
@@ -167,7 +169,9 @@ class TestDrainRequeuesOnlyConfirmedClaims(unittest.TestCase, QueueRootIsolation
         self.contested = _ContestedStart(self.root, "theirs")
         base = _patch_queue_root(self.root)
         base.enter_context(patch.dict("worker.job_runtime.HANDLERS", {"slow": _gated}))
-        base.enter_context(patch("worker.job_runtime.q.start_processing", side_effect=self.contested))
+        base.enter_context(
+            patch("worker.job_runtime.q.start_processing", side_effect=self.contested)
+        )
         self.addCleanup(base.close)
         self._threads_before = set(threading.enumerate())
         # LIFO: release everything, then join, then drop the patches.
@@ -186,7 +190,9 @@ class TestDrainRequeuesOnlyConfirmedClaims(unittest.TestCase, QueueRootIsolation
         enqueue(Job(id="theirs", type="slow", payload={}), root=self.root)
 
         runner.tick()
-        self.assertTrue(self.contested.other_claimed.wait(timeout=5), "contested claim never attempted")
+        self.assertTrue(
+            self.contested.other_claimed.wait(timeout=5), "contested claim never attempted"
+        )
         other = self.contested.other_path
         if other is None:
             self.fail("the other worker's claim did not happen")
@@ -306,15 +312,18 @@ class TestStagedRecordNormalisation(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_unrewritten_staged_record_is_normalised(self) -> None:
         """A staged record still saying ``processing`` is published as pending."""
-        self._plant_staged("crashed1", {
-            "id": "crashed1",
-            "type": "slow",
-            "payload": {"k": "v"},
-            "status": "processing",
-            "attempts": 2,
-            "not_before": "2000-01-01T00:00:00Z",
-            "processing_started_at": "2000-01-01T00:00:05Z",
-        })
+        self._plant_staged(
+            "crashed1",
+            {
+                "id": "crashed1",
+                "type": "slow",
+                "payload": {"k": "v"},
+                "status": "processing",
+                "attempts": 2,
+                "not_before": "2000-01-01T00:00:00Z",
+                "processing_started_at": "2000-01-01T00:00:05Z",
+            },
+        )
 
         self.assertEqual(recover_staged_requeues(root=self.root), ["crashed1"])
 
@@ -323,20 +332,25 @@ class TestStagedRecordNormalisation(unittest.TestCase, QueueRootIsolationMixin):
         self.assertEqual(data["last_error"], _REASON)
         self.assertEqual(data["attempts"], 2, "recovery must not consume an attempt")
         self.assertEqual(data["payload"], {"k": "v"})
-        self.assertNotEqual(data["not_before"], "2000-01-01T00:00:00Z", "not_before must be reset to now")
+        self.assertNotEqual(
+            data["not_before"], "2000-01-01T00:00:00Z", "not_before must be reset to now"
+        )
         self.assertEqual([p.stem for p, _ in list_pending(root=self.root)], ["crashed1"])
         self.assertEqual(list(self.processing.iterdir()), [])
 
     def test_already_normalised_staged_record_is_published_unchanged(self) -> None:
-        staged = self._plant_staged("done-rewrite", {
-            "id": "done-rewrite",
-            "type": "slow",
-            "status": "pending",
-            "attempts": 1,
-            "not_before": "2026-01-01T00:00:00Z",
-            "updated_at": "2026-01-01T00:00:00Z",
-            "last_error": "some earlier reason",
-        })
+        staged = self._plant_staged(
+            "done-rewrite",
+            {
+                "id": "done-rewrite",
+                "type": "slow",
+                "status": "pending",
+                "attempts": 1,
+                "not_before": "2026-01-01T00:00:00Z",
+                "updated_at": "2026-01-01T00:00:00Z",
+                "last_error": "some earlier reason",
+            },
+        )
         before = staged.read_bytes()
 
         self.assertEqual(recover_staged_requeues(root=self.root), ["done-rewrite"])
@@ -403,7 +417,9 @@ class TestStagedRecordNormalisation(unittest.TestCase, QueueRootIsolationMixin):
                 visible.replace(self.processing / "stale.json")
             real_write(path, payload, **kw)
 
-        with patch("worker.queue_ops.atomic_write_json", side_effect=_other_worker_claims_then_write):
+        with patch(
+            "worker.queue_ops.atomic_write_json", side_effect=_other_worker_claims_then_write
+        ):
             reaped = reap_stale_processing_jobs(60, root=self.root)
 
         self.assertEqual(reaped, ["stale"])
@@ -463,9 +479,11 @@ class TestStopHandlersInstalledBeforeRecovery(unittest.TestCase, QueueRootIsolat
         # stop_event set immediately so the daemon loop exits right away
         runner.stop_event.set()
 
-        with patch("worker.job_runtime._install_stop_handlers", side_effect=_recording_install), \
-             patch("worker.job_runtime.q.recover_staged_requeues", side_effect=_recording_recover), \
-             patch("worker.job_runtime.os.chdir"):
+        with (
+            patch("worker.job_runtime._install_stop_handlers", side_effect=_recording_install),
+            patch("worker.job_runtime.q.recover_staged_requeues", side_effect=_recording_recover),
+            patch("worker.job_runtime.os.chdir"),
+        ):
             runner.run_daemon()
 
         self.assertEqual(
@@ -500,9 +518,13 @@ class TestStopHandlersInstalledBeforeRecovery(unittest.TestCase, QueueRootIsolat
             runner.stop_event.set()
             return []
 
-        with patch("worker.job_runtime.q.recover_staged_requeues", side_effect=_signal_during_recovery), \
-             patch("worker.job_runtime.os.chdir"), \
-             patch.object(jr.DaemonRunner, "drain_live_threads", _recording_drain):
+        with (
+            patch(
+                "worker.job_runtime.q.recover_staged_requeues", side_effect=_signal_during_recovery
+            ),
+            patch("worker.job_runtime.os.chdir"),
+            patch.object(jr.DaemonRunner, "drain_live_threads", _recording_drain),
+        ):
             result = runner.run_daemon()
 
         self.assertTrue(
@@ -532,9 +554,11 @@ class TestShutdownGraceNonFinite(unittest.TestCase):
     def _exit_code(self, argv: list[str]) -> int:
         from worker.cli import main
 
-        with patch("worker.cli.DaemonRunner") as runner_cls, \
-             patch("worker.cli.JobProcessor"), \
-             patch("sys.stderr"):
+        with (
+            patch("worker.cli.DaemonRunner") as runner_cls,
+            patch("worker.cli.JobProcessor"),
+            patch("sys.stderr"),
+        ):
             runner_cls.return_value.run_daemon.return_value = 0
             return main(argv)
 
@@ -562,8 +586,9 @@ class TestShutdownGraceNonFinite(unittest.TestCase):
         -inf regardless of which check catches it.
         """
         import argparse
-        from worker.cli import _parse_shutdown_grace
+
         from core.cli_errors import UsageError
+        from worker.cli import _parse_shutdown_grace
 
         ns = argparse.Namespace(shutdown_grace=float("-inf"))
         with self.assertRaises(UsageError):
@@ -604,10 +629,11 @@ class TestNoResourceWarnings(unittest.TestCase, QueueRootIsolationMixin):
         Post-fix: ``with path.open(...) as fh:`` closes it immediately.
         """
         import gc
-        import warnings
         import json as _json
         import tempfile
+        import warnings
         from pathlib import Path as _Path
+
         from worker.commands import StatusCommand
 
         # Write a minimal perf-log file with one matching record.
@@ -615,8 +641,20 @@ class TestNoResourceWarnings(unittest.TestCase, QueueRootIsolationMixin):
             mode="w", suffix=".jsonl", delete=False, encoding="utf-8"
         ) as tf:
             log_path = _Path(tf.name)
-            tf.write(_json.dumps({"args": ["daemon", "run_cli", "ok"], "ts": "2026-01-01T00:00:00Z", "duration_ms": 10}) + "\n")
-            tf.write(_json.dumps({"args": ["other"], "ts": "2026-01-01T00:00:01Z", "duration_ms": 5}) + "\n")
+            tf.write(
+                _json.dumps(
+                    {
+                        "args": ["daemon", "run_cli", "ok"],
+                        "ts": "2026-01-01T00:00:00Z",
+                        "duration_ms": 10,
+                    }
+                )
+                + "\n"
+            )
+            tf.write(
+                _json.dumps({"args": ["other"], "ts": "2026-01-01T00:00:01Z", "duration_ms": 5})
+                + "\n"
+            )
 
         self.addCleanup(log_path.unlink, missing_ok=True)
 
@@ -627,7 +665,8 @@ class TestNoResourceWarnings(unittest.TestCase, QueueRootIsolationMixin):
 
         resource_warnings = [x for x in w if issubclass(x.category, ResourceWarning)]
         self.assertEqual(
-            resource_warnings, [],
+            resource_warnings,
+            [],
             f"Unexpected ResourceWarning(s): {[str(x.message) for x in resource_warnings]}",
         )
         self.assertEqual(len(rows), 1, "should parse exactly one matching record")
@@ -665,6 +704,7 @@ class TestRealQueueUntouched(unittest.TestCase, QueueRootIsolationMixin):
         Post-fix: setup_queue_root sets the var to the temp root.
         """
         import os
+
         from worker._helpers import WORKER_STATE_DIR_ENV, get_worker_state_dir
 
         env_val = os.environ.get(WORKER_STATE_DIR_ENV, "")
@@ -678,6 +718,7 @@ class TestRealQueueUntouched(unittest.TestCase, QueueRootIsolationMixin):
         # Use resolve() to canonicalize both paths so that macOS symlink
         # differences (/var → /private/var) do not cause a false failure.
         import pathlib
+
         resolved = get_worker_state_dir("queue").resolve()
         tmp_resolved = pathlib.Path(self.tmp.name).resolve()
         self.assertTrue(

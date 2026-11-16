@@ -9,9 +9,11 @@ shrink only the fields whose cells are narrow, and leave the rest alone.
 
 PyMuPDF is imported lazily so importing this module never requires it.
 """
+
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Iterable, Mapping
+from collections.abc import Iterable, Mapping
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     import fitz
@@ -19,12 +21,12 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 __all__ = [
     "DEFAULT_FONT_SIZES",
     "FALLBACK_FONT_SIZE",
+    "fill_text_fields",
     "font_size_for",
     "format_da",
     "pdf_string",
-    "set_text_field",
-    "fill_text_fields",
     "set_checkbox",
+    "set_text_field",
 ]
 
 # Field-name prefix -> point size. Derived from Sun Life EHC/HSA claim forms,

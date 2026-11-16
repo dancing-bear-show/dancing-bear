@@ -13,31 +13,37 @@ class TestPreviewCriteria(unittest.TestCase):
 
     def test_empty_criteria(self):
         from mail.utils.cli_helpers import preview_criteria
+
         result = preview_criteria({})
         self.assertEqual(result, "<complex>")
 
     def test_none_criteria(self):
         from mail.utils.cli_helpers import preview_criteria
+
         result = preview_criteria(None)
         self.assertEqual(result, "<complex>")
 
     def test_from_only(self):
         from mail.utils.cli_helpers import preview_criteria
+
         result = preview_criteria({"from": "user@example.com"})
         self.assertEqual(result, "from:user@example.com")
 
     def test_to_only(self):
         from mail.utils.cli_helpers import preview_criteria
+
         result = preview_criteria({"to": "recipient@example.com"})
         self.assertEqual(result, "to:recipient@example.com")
 
     def test_subject_only(self):
         from mail.utils.cli_helpers import preview_criteria
+
         result = preview_criteria({"subject": "Important"})
         self.assertEqual(result, "subject:Important")
 
     def test_multiple_fields(self):
         from mail.utils.cli_helpers import preview_criteria
+
         result = preview_criteria({"from": "a@b.com", "to": "c@d.com", "subject": "Hi"})
         self.assertIn("from:a@b.com", result)
         self.assertIn("to:c@d.com", result)
@@ -45,11 +51,13 @@ class TestPreviewCriteria(unittest.TestCase):
 
     def test_query_shows_ellipsis(self):
         from mail.utils.cli_helpers import preview_criteria
+
         result = preview_criteria({"query": "some long query string"})
         self.assertIn("query=", result)
 
     def test_complex_criteria_without_known_fields(self):
         from mail.utils.cli_helpers import preview_criteria
+
         result = preview_criteria({"unknown_field": "value"})
         self.assertEqual(result, "<complex>")
 
@@ -59,26 +67,34 @@ class TestIsOutlookProfile(unittest.TestCase):
 
     def test_none_profile_returns_false(self):
         from mail.utils.cli_helpers import is_outlook_profile
+
         self.assertFalse(is_outlook_profile(None))
 
     def test_empty_string_returns_false(self):
         from mail.utils.cli_helpers import is_outlook_profile
+
         self.assertFalse(is_outlook_profile(""))
 
     def test_profile_with_no_client_id_returns_false(self):
         from mail.utils.cli_helpers import is_outlook_profile
+
         with patch("mail.utils.cli_helpers.get_outlook_client_id_for_profile", return_value=None):
             result = is_outlook_profile("gmail_personal")
         self.assertFalse(result)
 
     def test_profile_with_client_id_returns_true(self):
         from mail.utils.cli_helpers import is_outlook_profile
-        with patch("mail.utils.cli_helpers.get_outlook_client_id_for_profile", return_value="some-client-id"):
+
+        with patch(
+            "mail.utils.cli_helpers.get_outlook_client_id_for_profile",
+            return_value="some-client-id",
+        ):
             result = is_outlook_profile("outlook_personal")
         self.assertTrue(result)
 
     def test_profile_with_empty_client_id_returns_false(self):
         from mail.utils.cli_helpers import is_outlook_profile
+
         with patch("mail.utils.cli_helpers.get_outlook_client_id_for_profile", return_value=""):
             result = is_outlook_profile("some_profile")
         self.assertFalse(result)
@@ -92,6 +108,7 @@ class TestGmailProviderFromArgs(unittest.TestCase):
     @patch("mail.utils.cli_helpers.GmailProvider")
     def test_returns_provider(self, mock_provider_cls, mock_resolve, mock_persist):
         from mail.utils.cli_helpers import gmail_provider_from_args
+
         mock_instance = MagicMock()
         mock_provider_cls.return_value = mock_instance
 
@@ -103,6 +120,7 @@ class TestGmailProviderFromArgs(unittest.TestCase):
     @patch("mail.utils.cli_helpers.GmailProvider")
     def test_passes_cache_dir(self, mock_provider_cls, mock_resolve, mock_persist):
         from mail.utils.cli_helpers import gmail_provider_from_args
+
         mock_provider_cls.return_value = MagicMock()
 
         gmail_provider_from_args(_make_args(cache="/tmp/cache"))  # nosec B108 - test-only temp file, not a security concern
@@ -119,6 +137,7 @@ class TestGmailProviderFromArgs(unittest.TestCase):
     def test_does_not_authenticate(self, mock_provider_cls, mock_resolve, mock_persist):
         """gmail_provider_from_args should NOT call authenticate."""
         from mail.utils.cli_helpers import gmail_provider_from_args
+
         mock_instance = MagicMock()
         mock_provider_cls.return_value = mock_instance
 
@@ -132,6 +151,7 @@ class TestWithGmailClientDecorator(unittest.TestCase):
     @patch("mail.utils.cli_helpers.gmail_provider_from_args")
     def test_decorator_injects_client(self, mock_from_args):
         from mail.utils.cli_helpers import with_gmail_client
+
         mock_client = MagicMock()
         mock_from_args.return_value = mock_client
         captured = {}
@@ -149,6 +169,7 @@ class TestWithGmailClientDecorator(unittest.TestCase):
     @patch("mail.utils.cli_helpers.gmail_provider_from_args")
     def test_decorator_calls_wrapped_function(self, mock_from_args):
         from mail.utils.cli_helpers import with_gmail_client
+
         mock_from_args.return_value = MagicMock()
         called = []
 
@@ -168,6 +189,7 @@ class TestGmailClientAuthenticated(unittest.TestCase):
     @patch("mail.utils.cli_helpers.gmail_provider_from_args")
     def test_returns_authenticated_client(self, mock_from_args):
         from mail.utils.cli_helpers import gmail_client_authenticated
+
         mock_client = MagicMock()
         mock_from_args.return_value = mock_client
 
@@ -181,6 +203,7 @@ class TestOutlookClientFromArgs(unittest.TestCase):
 
     def test_raises_on_none_client(self):
         from mail.utils.cli_helpers import outlook_client_from_args
+
         with patch("mail.outlook.helpers.get_outlook_client", return_value=(None, "some_error")):
             with self.assertRaises(RuntimeError) as ctx:
                 outlook_client_from_args(_make_args())
@@ -188,13 +211,17 @@ class TestOutlookClientFromArgs(unittest.TestCase):
 
     def test_raises_on_error(self):
         from mail.utils.cli_helpers import outlook_client_from_args
+
         mock_client = MagicMock()
-        with patch("mail.outlook.helpers.get_outlook_client", return_value=(mock_client, "some_error")):
+        with patch(
+            "mail.outlook.helpers.get_outlook_client", return_value=(mock_client, "some_error")
+        ):
             with self.assertRaises(RuntimeError):
                 outlook_client_from_args(_make_args())
 
     def test_returns_client_on_success(self):
         from mail.utils.cli_helpers import outlook_client_from_args
+
         mock_client = MagicMock()
         with patch("mail.outlook.helpers.get_outlook_client", return_value=(mock_client, None)):
             result = outlook_client_from_args(_make_args())

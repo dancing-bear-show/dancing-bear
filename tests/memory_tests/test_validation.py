@@ -222,12 +222,8 @@ class TestIndexDangling(MemoryTestCase):
 
 class TestIndexDuplicateEntry(MemoryTestCase):
     def test_duplicate_entry_detected(self) -> None:
-        entry1 = IndexEntry(
-            target="dup.md", title="Dup", hook="h", section="Feedback", line_no=2
-        )
-        entry2 = IndexEntry(
-            target="dup.md", title="Dup2", hook="h2", section="Feedback", line_no=4
-        )
+        entry1 = IndexEntry(target="dup.md", title="Dup", hook="h", section="Feedback", line_no=2)
+        entry2 = IndexEntry(target="dup.md", title="Dup2", hook="h2", section="Feedback", line_no=4)
         store = _make_store(self.tmp, index_entries=(entry1, entry2))
         results = run_checks(store, checks=("index-duplicate-entry",))
         dup_entries = [r for r in results if r.check_id == "index-duplicate-entry"]
@@ -240,18 +236,11 @@ class TestIndexDuplicateSection(MemoryTestCase):
         """A '## Reference' header appearing twice in the real file must fire."""
         index_path = self.tmp / "MEMORY.md"
         index_path.write_text(
-            "## Reference\n"
-            "- [a.md](a.md) — first\n"
-            "## Reference\n"
-            "- [b.md](b.md) — second\n",
+            "## Reference\n- [a.md](a.md) — first\n## Reference\n- [b.md](b.md) — second\n",
             encoding="utf-8",
         )
-        entry1 = IndexEntry(
-            target="a.md", title="A", hook="h", section="Reference", line_no=2
-        )
-        entry2 = IndexEntry(
-            target="b.md", title="B", hook="h", section="Reference", line_no=4
-        )
+        entry1 = IndexEntry(target="a.md", title="A", hook="h", section="Reference", line_no=2)
+        entry2 = IndexEntry(target="b.md", title="B", hook="h", section="Reference", line_no=4)
         store = _make_store(
             self.tmp,
             index_entries=(entry1, entry2),
@@ -662,9 +651,7 @@ class TestFixApplication(MemoryTestCase):
         from memory.validation import _FIXERS
 
         raw_path = self.tmp / "no_frontmatter.md"
-        raw_path.write_text(
-            "Just a plain markdown file, no frontmatter.\n", encoding="utf-8"
-        )
+        raw_path.write_text("Just a plain markdown file, no frontmatter.\n", encoding="utf-8")
         store = _make_store(self.tmp, non_memory_files=(str(raw_path),))
 
         finding = CheckResult(
@@ -976,7 +963,9 @@ class TestSchemaAmbiguous(MemoryTestCase):
             (None, None, None, "has description"),
         ]
         for why, how_to_apply, name, description in cases:
-            with self.subTest(why=why, how_to_apply=how_to_apply, name=name, description=description):
+            with self.subTest(
+                why=why, how_to_apply=how_to_apply, name=name, description=description
+            ):
                 fm = MemoryFrontmatter(
                     name=name,
                     description=description,
@@ -1164,9 +1153,7 @@ class TestRefDeadCli(MemoryTestCase):
 
         with patch("memory.validation.subprocess.check_output") as mock_sub:
             mock_sub.return_value = str(real_repo)
-            results = run_checks(
-                store, checks=("ref-dead-cli",), repo=str(garbled_repo)
-            )
+            results = run_checks(store, checks=("ref-dead-cli",), repo=str(garbled_repo))
 
         dead = [r for r in results if r.check_id == "ref-dead-cli"]
         self.assertEqual(dead, [])
@@ -1187,9 +1174,7 @@ class TestRefDeadCli(MemoryTestCase):
 
         with patch("memory.validation.subprocess.check_output") as mock_sub:
             mock_sub.side_effect = subprocess.CalledProcessError(1, "git")
-            results = run_checks(
-                store, checks=("ref-dead-cli",), repo=str(garbled_repo)
-            )
+            results = run_checks(store, checks=("ref-dead-cli",), repo=str(garbled_repo))
 
         dead = [r for r in results if r.check_id == "ref-dead-cli"]
         self.assertEqual(dead, [])
@@ -1209,9 +1194,7 @@ class TestRefDeadCli(MemoryTestCase):
 
         with patch("memory.validation.subprocess.check_output") as mock_sub:
             mock_sub.return_value = str(also_no_bin)
-            results = run_checks(
-                store, checks=("ref-dead-cli",), repo=str(garbled_repo)
-            )
+            results = run_checks(store, checks=("ref-dead-cli",), repo=str(garbled_repo))
 
         dead = [r for r in results if r.check_id == "ref-dead-cli"]
         self.assertEqual(dead, [])
@@ -1460,7 +1443,9 @@ class TestRewriteFrontmatterTypeNested(MemoryTestCase):
         self.assertFalse(_rewrite_frontmatter_type(broken_path, MemoryType.PROJECT))
 
         # Unterminated block: left unchanged, no second block prepended.
-        self.assertEqual(broken_path.read_text(encoding="utf-8"), "---\nname: broken\nno closing dashes here\n")
+        self.assertEqual(
+            broken_path.read_text(encoding="utf-8"), "---\nname: broken\nno closing dashes here\n"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1530,9 +1515,7 @@ class TestRunChecksGivenRepo(MemoryTestCase):
         """When claude_md kwarg is given, default CLAUDE.md path discovery is skipped."""
         repo_dir = self.tmp / "repo"
         repo_dir.mkdir()
-        (repo_dir / "CLAUDE.md").write_text(
-            "Use `worktree` isolation.\n", encoding="utf-8"
-        )
+        (repo_dir / "CLAUDE.md").write_text("Use `worktree` isolation.\n", encoding="utf-8")
         nonexistent_path = str(self.tmp / "DOES_NOT_EXIST.md")
 
         m = _make_memory(
@@ -1617,7 +1600,7 @@ class TestStaleSupersededPrCheck(MemoryTestCase):
         return parse_memory_file(f, project_slug="test-slug")
 
     def test_fires_on_closed_pr(self) -> None:
-        from memory.validation import _CheckContext, _check_stale_superseded_pr
+        from memory.validation import _check_stale_superseded_pr, _CheckContext
 
         m = self._make_project_memory("project_foo", "See PR #42 for details.")
         store = _make_store(self.tmp, memories=(m,))
@@ -1633,7 +1616,7 @@ class TestStaleSupersededPrCheck(MemoryTestCase):
         self.assertIn("closed", results[0].message)
 
     def test_fires_on_merged_pr(self) -> None:
-        from memory.validation import _CheckContext, _check_stale_superseded_pr
+        from memory.validation import _check_stale_superseded_pr, _CheckContext
 
         m = self._make_project_memory("project_bar", "See PR #99 for details.")
         store = _make_store(self.tmp, memories=(m,))
@@ -1646,19 +1629,17 @@ class TestStaleSupersededPrCheck(MemoryTestCase):
         self.assertIn("merged", results[0].message)
 
     def test_skips_open_pr(self) -> None:
-        from memory.validation import _CheckContext, _check_stale_superseded_pr
+        from memory.validation import _check_stale_superseded_pr, _CheckContext
 
         m = self._make_project_memory("project_open", "Tracking PR #7.")
         store = _make_store(self.tmp, memories=(m,))
         ctx = _CheckContext(repo=None, claude_md_paths=(), fix=False)
 
-        results = _check_stale_superseded_pr(
-            store, ctx, github_caller=lambda _n: {"state": "open"}
-        )
+        results = _check_stale_superseded_pr(store, ctx, github_caller=lambda _n: {"state": "open"})
         self.assertEqual(results, ())
 
     def test_skips_on_network_failure(self) -> None:
-        from memory.validation import _CheckContext, _check_stale_superseded_pr
+        from memory.validation import _check_stale_superseded_pr, _CheckContext
 
         m = self._make_project_memory("project_net", "See PR #5.")
         store = _make_store(self.tmp, memories=(m,))
@@ -1671,7 +1652,7 @@ class TestStaleSupersededPrCheck(MemoryTestCase):
         self.assertEqual(results, ())
 
     def test_only_runs_on_project_memories(self) -> None:
-        from memory.validation import _CheckContext, _check_stale_superseded_pr
+        from memory.validation import _check_stale_superseded_pr, _CheckContext
 
         m = self._make_feedback_memory("feedback_pr", "See PR #123 for details.")
         store = _make_store(self.tmp, memories=(m,))
@@ -1830,7 +1811,9 @@ class TestFixWriteSafety(MemoryTestCase):
             encoding="utf-8",
         )
         self.assertTrue(_rewrite_frontmatter_type(path, MemoryType.FEEDBACK))
-        self.assertIn("\n    type: feedback\n    node_type: memory\n", path.read_text(encoding="utf-8"))
+        self.assertIn(
+            "\n    type: feedback\n    node_type: memory\n", path.read_text(encoding="utf-8")
+        )
 
     def test_unterminated_frontmatter_unchanged_and_not_fixable(self) -> None:
         from memory.models import MemoryType
@@ -1886,7 +1869,7 @@ class TestFixWriteSafety(MemoryTestCase):
 class TestContradictionExcerptWindow(MemoryTestCase):
     def test_memory_excerpt_is_windowed_around_anchor(self) -> None:
         from memory.parser import extract_anchors
-        from memory.validation import _CheckContext, _check_contradiction_topic_overlap
+        from memory.validation import _check_contradiction_topic_overlap, _CheckContext
 
         probe = "Never use `rm -rf` in scripts."
         anchors = extract_anchors(probe)
@@ -1915,7 +1898,7 @@ class TestStaleSupersededPrNoCwdFallback(MemoryTestCase):
     def test_cwd_checkout_bin_github_is_never_executed(self) -> None:
         import os
 
-        from memory.validation import _CheckContext, _check_stale_superseded_pr
+        from memory.validation import _check_stale_superseded_pr, _CheckContext
 
         evil = self.tmp / "evil"
         (evil / "bin").mkdir(parents=True)
@@ -1924,9 +1907,10 @@ class TestStaleSupersededPrNoCwdFallback(MemoryTestCase):
         cwd = os.getcwd()
         self.addCleanup(os.chdir, cwd)
         os.chdir(evil)
-        with patch("memory.validation._git_toplevel", return_value=evil), patch(
-            "memory.validation.subprocess.run"
-        ) as run:
+        with (
+            patch("memory.validation._git_toplevel", return_value=evil),
+            patch("memory.validation.subprocess.run") as run,
+        ):
             m = _make_project_memory(self.tmp, "project_x", "See PR #7.")
             results = _check_stale_superseded_pr(_make_store(self.tmp, memories=(m,)), ctx)
         self.assertEqual(results, ())

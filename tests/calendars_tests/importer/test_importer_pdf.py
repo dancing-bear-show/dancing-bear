@@ -1,11 +1,11 @@
 """Tests for calendars/importer/pdf_parser.py."""
 
-import unittest
-from unittest.mock import patch, MagicMock
 import datetime
+import unittest
+from unittest.mock import MagicMock, patch
 
-from calendars.importer.pdf_parser import PDFParser
 from calendars.importer.model import ScheduleItem
+from calendars.importer.pdf_parser import PDFParser
 
 
 class TestPDFParserPdfminerMissing(unittest.TestCase):
@@ -14,12 +14,12 @@ class TestPDFParserPdfminerMissing(unittest.TestCase):
     def test_parse_raises_when_pdfminer_missing(self):
         """Test parse() raises RuntimeError when pdfminer.six not installed."""
         parser = PDFParser()
-        with patch.dict('sys.modules', {'pdfminer': None, 'pdfminer.high_level': None}):
+        with patch.dict("sys.modules", {"pdfminer": None, "pdfminer.high_level": None}):
             # Force import to fail
-            with patch('builtins.__import__', side_effect=ImportError('No module named pdfminer')):
+            with patch("builtins.__import__", side_effect=ImportError("No module named pdfminer")):
                 with self.assertRaises(RuntimeError) as ctx:
-                    parser.parse('/fake/path.pdf')
-                self.assertIn('pdfminer.six is required', str(ctx.exception))
+                    parser.parse("/fake/path.pdf")
+                self.assertIn("pdfminer.six is required", str(ctx.exception))
 
 
 class TestPDFParserTryPdfplumber(unittest.TestCase):
@@ -28,9 +28,11 @@ class TestPDFParserTryPdfplumber(unittest.TestCase):
     def test_try_pdfplumber_returns_empty_when_not_installed(self):
         """Test _try_pdfplumber returns empty list when pdfplumber not available."""
         parser = PDFParser()
-        with patch.dict('sys.modules', {'pdfplumber': None}):
-            with patch('builtins.__import__', side_effect=ImportError('No module named pdfplumber')):
-                result = parser._try_pdfplumber('/fake/path.pdf')
+        with patch.dict("sys.modules", {"pdfplumber": None}):
+            with patch(
+                "builtins.__import__", side_effect=ImportError("No module named pdfplumber")
+            ):
+                result = parser._try_pdfplumber("/fake/path.pdf")
                 self.assertEqual(result, [])
 
     def test_try_pdfplumber_extracts_leisure_swim(self):
@@ -41,9 +43,9 @@ class TestPDFParserTryPdfplumber(unittest.TestCase):
         mock_page = MagicMock()
         mock_page.extract_tables.return_value = [
             [
-                ['Day', 'Lane Swim', 'Leisure Swim'],
-                ['Monday', '6:00am-8:00am', '10:00 a.m. - 12:00 p.m.'],
-                ['Tuesday', '6:00am-8:00am', '2:00 p.m. - 4:00 p.m.'],
+                ["Day", "Lane Swim", "Leisure Swim"],
+                ["Monday", "6:00am-8:00am", "10:00 a.m. - 12:00 p.m."],
+                ["Tuesday", "6:00am-8:00am", "2:00 p.m. - 4:00 p.m."],
             ]
         ]
 
@@ -55,26 +57,26 @@ class TestPDFParserTryPdfplumber(unittest.TestCase):
         mock_pdfplumber = MagicMock()
         mock_pdfplumber.open.return_value = mock_pdf
 
-        with patch.dict('sys.modules', {'pdfplumber': mock_pdfplumber}):
-            result = parser._try_pdfplumber('/fake/path.pdf')
+        with patch.dict("sys.modules", {"pdfplumber": mock_pdfplumber}):
+            result = parser._try_pdfplumber("/fake/path.pdf")
 
         self.assertEqual(len(result), 2)
-        self.assertEqual(result[0].subject, 'Leisure Swim')
-        self.assertEqual(result[0].byday, ['MO'])
-        self.assertEqual(result[0].start_time, '10:00')
-        self.assertEqual(result[0].end_time, '12:00')
-        self.assertEqual(result[1].byday, ['TU'])
+        self.assertEqual(result[0].subject, "Leisure Swim")
+        self.assertEqual(result[0].byday, ["MO"])
+        self.assertEqual(result[0].start_time, "10:00")
+        self.assertEqual(result[0].end_time, "12:00")
+        self.assertEqual(result[1].byday, ["TU"])
 
     def test_try_pdfplumber_skips_tables_missing_required_header(self):
         """Test _try_pdfplumber skips tables missing the Day or Leisure column."""
         cases = {
-            'missing Day column': [
-                ['Activity', 'Leisure Swim'],
-                ['Morning', '10:00am - 11:00am'],
+            "missing Day column": [
+                ["Activity", "Leisure Swim"],
+                ["Morning", "10:00am - 11:00am"],
             ],
-            'missing Leisure column': [
-                ['Day', 'Lane Swim'],
-                ['Monday', '6:00am-8:00am'],
+            "missing Leisure column": [
+                ["Day", "Lane Swim"],
+                ["Monday", "6:00am-8:00am"],
             ],
         }
         for case_name, table in cases.items():
@@ -92,8 +94,8 @@ class TestPDFParserTryPdfplumber(unittest.TestCase):
                 mock_pdfplumber = MagicMock()
                 mock_pdfplumber.open.return_value = mock_pdf
 
-                with patch.dict('sys.modules', {'pdfplumber': mock_pdfplumber}):
-                    result = parser._try_pdfplumber('/fake/path.pdf')
+                with patch.dict("sys.modules", {"pdfplumber": mock_pdfplumber}):
+                    result = parser._try_pdfplumber("/fake/path.pdf")
 
                 self.assertEqual(result, [])
 
@@ -104,9 +106,9 @@ class TestPDFParserTryPdfplumber(unittest.TestCase):
         mock_page = MagicMock()
         mock_page.extract_tables.return_value = [
             [
-                ['Day', 'Leisure Swim'],
-                ['Monday', ''],
-                ['Tuesday', '10:00 a.m. - 11:00 a.m.'],
+                ["Day", "Leisure Swim"],
+                ["Monday", ""],
+                ["Tuesday", "10:00 a.m. - 11:00 a.m."],
             ]
         ]
 
@@ -118,21 +120,21 @@ class TestPDFParserTryPdfplumber(unittest.TestCase):
         mock_pdfplumber = MagicMock()
         mock_pdfplumber.open.return_value = mock_pdf
 
-        with patch.dict('sys.modules', {'pdfplumber': mock_pdfplumber}):
-            result = parser._try_pdfplumber('/fake/path.pdf')
+        with patch.dict("sys.modules", {"pdfplumber": mock_pdfplumber}):
+            result = parser._try_pdfplumber("/fake/path.pdf")
 
         self.assertEqual(len(result), 1)
-        self.assertEqual(result[0].byday, ['TU'])
+        self.assertEqual(result[0].byday, ["TU"])
 
     def test_try_pdfplumber_handles_oserror(self):
         """Test _try_pdfplumber handles OSError gracefully."""
         parser = PDFParser()
 
         mock_pdfplumber = MagicMock()
-        mock_pdfplumber.open.side_effect = OSError('File not found')
+        mock_pdfplumber.open.side_effect = OSError("File not found")
 
-        with patch.dict('sys.modules', {'pdfplumber': mock_pdfplumber}):
-            result = parser._try_pdfplumber('/fake/path.pdf')
+        with patch.dict("sys.modules", {"pdfplumber": mock_pdfplumber}):
+            result = parser._try_pdfplumber("/fake/path.pdf")
 
         self.assertEqual(result, [])
 
@@ -151,8 +153,8 @@ class TestPDFParserTryPdfplumber(unittest.TestCase):
         mock_pdfplumber = MagicMock()
         mock_pdfplumber.open.return_value = mock_pdf
 
-        with patch.dict('sys.modules', {'pdfplumber': mock_pdfplumber}):
-            result = parser._try_pdfplumber('/fake/path.pdf')
+        with patch.dict("sys.modules", {"pdfplumber": mock_pdfplumber}):
+            result = parser._try_pdfplumber("/fake/path.pdf")
 
         self.assertEqual(result, [])
 
@@ -163,8 +165,8 @@ class TestPDFParserTryPdfplumber(unittest.TestCase):
         mock_page = MagicMock()
         mock_page.extract_tables.return_value = [
             [
-                ['Day', 'Lane Swim', 'Leisure Swim'],
-                ['Monday'],  # Too short
+                ["Day", "Lane Swim", "Leisure Swim"],
+                ["Monday"],  # Too short
             ]
         ]
 
@@ -176,8 +178,8 @@ class TestPDFParserTryPdfplumber(unittest.TestCase):
         mock_pdfplumber = MagicMock()
         mock_pdfplumber.open.return_value = mock_pdf
 
-        with patch.dict('sys.modules', {'pdfplumber': mock_pdfplumber}):
-            result = parser._try_pdfplumber('/fake/path.pdf')
+        with patch.dict("sys.modules", {"pdfplumber": mock_pdfplumber}):
+            result = parser._try_pdfplumber("/fake/path.pdf")
 
         self.assertEqual(result, [])
 
@@ -188,8 +190,8 @@ class TestPDFParserTryPdfplumber(unittest.TestCase):
         mock_page = MagicMock()
         mock_page.extract_tables.return_value = [
             [
-                ['Day\nof Week', 'Lane\nSwim', 'Leisure\nSwim'],
-                ['Monday', '6:00am', '10:00 a.m. - 11:00 a.m.'],
+                ["Day\nof Week", "Lane\nSwim", "Leisure\nSwim"],
+                ["Monday", "6:00am", "10:00 a.m. - 11:00 a.m."],
             ]
         ]
 
@@ -201,8 +203,8 @@ class TestPDFParserTryPdfplumber(unittest.TestCase):
         mock_pdfplumber = MagicMock()
         mock_pdfplumber.open.return_value = mock_pdf
 
-        with patch.dict('sys.modules', {'pdfplumber': mock_pdfplumber}):
-            result = parser._try_pdfplumber('/fake/path.pdf')
+        with patch.dict("sys.modules", {"pdfplumber": mock_pdfplumber}):
+            result = parser._try_pdfplumber("/fake/path.pdf")
 
         self.assertEqual(len(result), 1)
 
@@ -223,13 +225,13 @@ Monday
 Tuesday
 2:00 p.m. - 4:00 p.m.
 """
-        result = parser._parse_aurora_text(text, '/fake/path.pdf')
+        result = parser._parse_aurora_text(text, "/fake/path.pdf")
 
         self.assertEqual(len(result), 2)
-        self.assertEqual(result[0].subject, 'Leisure Swim')
-        self.assertEqual(result[0].byday, ['MO'])
-        self.assertEqual(result[0].start_time, '10:00')
-        self.assertEqual(result[0].end_time, '12:00')
+        self.assertEqual(result[0].subject, "Leisure Swim")
+        self.assertEqual(result[0].byday, ["MO"])
+        self.assertEqual(result[0].start_time, "10:00")
+        self.assertEqual(result[0].end_time, "12:00")
 
     def test_parse_aurora_text_handles_day_ranges(self):
         """Test _parse_aurora_text handles day ranges like 'Mon to Fri'."""
@@ -240,11 +242,11 @@ Leisure
 Mon to Fri
 10:00 a.m. - 11:00 a.m.
 """
-        result = parser._parse_aurora_text(text, '/fake/path.pdf')
+        result = parser._parse_aurora_text(text, "/fake/path.pdf")
 
         self.assertEqual(len(result), 5)
         days = [item.byday[0] for item in result]
-        self.assertEqual(days, ['MO', 'TU', 'WE', 'TH', 'FR'])
+        self.assertEqual(days, ["MO", "TU", "WE", "TH", "FR"])
 
     def test_parse_aurora_text_skips_blocks_without_leisure(self):
         """Test _parse_aurora_text skips blocks without Leisure header."""
@@ -255,7 +257,7 @@ Lane Swim
 Monday
 6:00 a.m. - 8:00 a.m.
 """
-        result = parser._parse_aurora_text(text, '/fake/path.pdf')
+        result = parser._parse_aurora_text(text, "/fake/path.pdf")
         self.assertEqual(result, [])
 
     def test_parse_aurora_text_skips_blocks_without_weekday(self):
@@ -267,7 +269,7 @@ Leisure
 Holiday
 10:00 a.m. - 11:00 a.m.
 """
-        result = parser._parse_aurora_text(text, '/fake/path.pdf')
+        result = parser._parse_aurora_text(text, "/fake/path.pdf")
         self.assertEqual(result, [])
 
     def test_parse_aurora_text_handles_multiple_time_ranges(self):
@@ -280,17 +282,17 @@ Saturday
 10:00 a.m. - 12:00 p.m.
 2:00 p.m. - 4:00 p.m.
 """
-        result = parser._parse_aurora_text(text, '/fake/path.pdf')
+        result = parser._parse_aurora_text(text, "/fake/path.pdf")
 
         self.assertEqual(len(result), 2)
-        self.assertEqual(result[0].start_time, '10:00')
-        self.assertEqual(result[1].start_time, '14:00')
+        self.assertEqual(result[0].start_time, "10:00")
+        self.assertEqual(result[1].start_time, "14:00")
 
     def test_parse_aurora_text_normalizes_carriage_returns(self):
         """Test _parse_aurora_text normalizes carriage returns."""
         parser = PDFParser()
         text = "Day\r\nLeisure\r\nMonday\r\n10:00 a.m. - 11:00 a.m.\r\n"
-        result = parser._parse_aurora_text(text, '/fake/path.pdf')
+        result = parser._parse_aurora_text(text, "/fake/path.pdf")
 
         self.assertEqual(len(result), 1)
 
@@ -301,11 +303,11 @@ class TestPDFParserParse(unittest.TestCase):
     def test_parse_returns_pdfplumber_results_when_available(self):
         """Test parse() returns pdfplumber results when extraction succeeds."""
         parser = PDFParser()
-        expected = [ScheduleItem(subject='Leisure Swim', byday=['MO'])]
+        expected = [ScheduleItem(subject="Leisure Swim", byday=["MO"])]
 
-        with patch.object(parser, '_try_pdfplumber', return_value=expected):
-            with patch('pdfminer.high_level.extract_text', return_value=''):
-                result = parser.parse('/fake/path.pdf')
+        with patch.object(parser, "_try_pdfplumber", return_value=expected):
+            with patch("pdfminer.high_level.extract_text", return_value=""):
+                result = parser.parse("/fake/path.pdf")
 
         self.assertEqual(result, expected)
 
@@ -319,32 +321,32 @@ Leisure Swim
 Monday
 10:00 a.m. - 11:00 a.m.
 """
-        with patch.object(parser, '_try_pdfplumber', return_value=[]):
-            with patch('pdfminer.high_level.extract_text', return_value=aurora_text):
-                result = parser.parse('/fake/path.pdf')
+        with patch.object(parser, "_try_pdfplumber", return_value=[]):
+            with patch("pdfminer.high_level.extract_text", return_value=aurora_text):
+                result = parser.parse("/fake/path.pdf")
 
         self.assertEqual(len(result), 1)
-        self.assertEqual(result[0].subject, 'Leisure Swim')
+        self.assertEqual(result[0].subject, "Leisure Swim")
 
     def test_parse_raises_for_unsupported_pdf(self):
         """Test parse() raises NotImplementedError for unsupported PDFs."""
         parser = PDFParser()
 
-        with patch.object(parser, '_try_pdfplumber', return_value=[]):
-            with patch('pdfminer.high_level.extract_text', return_value='Random PDF content'):
+        with patch.object(parser, "_try_pdfplumber", return_value=[]):
+            with patch("pdfminer.high_level.extract_text", return_value="Random PDF content"):
                 with self.assertRaises(NotImplementedError) as ctx:
-                    parser.parse('/fake/path.pdf')
-                self.assertIn('Aurora drop-in schedules', str(ctx.exception))
+                    parser.parse("/fake/path.pdf")
+                self.assertIn("Aurora drop-in schedules", str(ctx.exception))
 
     def test_parse_raises_on_extraction_failure(self):
         """Test parse() raises RuntimeError on text extraction failure."""
         parser = PDFParser()
 
-        with patch.object(parser, '_try_pdfplumber', return_value=[]):
-            with patch('pdfminer.high_level.extract_text', side_effect=Exception('Corrupt PDF')):
+        with patch.object(parser, "_try_pdfplumber", return_value=[]):
+            with patch("pdfminer.high_level.extract_text", side_effect=Exception("Corrupt PDF")):
                 with self.assertRaises(RuntimeError) as ctx:
-                    parser.parse('/fake/path.pdf')
-                self.assertIn('Failed to extract text', str(ctx.exception))
+                    parser.parse("/fake/path.pdf")
+                self.assertIn("Failed to extract text", str(ctx.exception))
 
     def test_parse_recognizes_drop_in_lane_schedules(self):
         """Test parse() recognizes alternate Aurora header format."""
@@ -356,9 +358,9 @@ Leisure
 Saturday
 10:00 a.m. - 11:00 a.m.
 """
-        with patch.object(parser, '_try_pdfplumber', return_value=[]):
-            with patch('pdfminer.high_level.extract_text', return_value=aurora_text):
-                result = parser.parse('/fake/path.pdf')
+        with patch.object(parser, "_try_pdfplumber", return_value=[]):
+            with patch("pdfminer.high_level.extract_text", return_value=aurora_text):
+                result = parser.parse("/fake/path.pdf")
 
         self.assertEqual(len(result), 1)
 
@@ -375,9 +377,9 @@ Leisure
 Monday
 10:00 a.m. - 11:00 a.m.
 """
-        result = parser._parse_aurora_text(text, '/path/test.pdf')
+        result = parser._parse_aurora_text(text, "/path/test.pdf")
 
-        self.assertEqual(result[0].recurrence, 'weekly')
+        self.assertEqual(result[0].recurrence, "weekly")
 
     def test_result_has_location(self):
         """Test parsed items have Aurora Pools location."""
@@ -388,9 +390,9 @@ Leisure
 Monday
 10:00 a.m. - 11:00 a.m.
 """
-        result = parser._parse_aurora_text(text, '/path/test.pdf')
+        result = parser._parse_aurora_text(text, "/path/test.pdf")
 
-        self.assertEqual(result[0].location, 'Aurora Pools')
+        self.assertEqual(result[0].location, "Aurora Pools")
 
     def test_result_has_notes_with_path(self):
         """Test parsed items include source path in notes."""
@@ -401,9 +403,9 @@ Leisure
 Monday
 10:00 a.m. - 11:00 a.m.
 """
-        result = parser._parse_aurora_text(text, '/path/test.pdf')
+        result = parser._parse_aurora_text(text, "/path/test.pdf")
 
-        self.assertIn('/path/test.pdf', result[0].notes)
+        self.assertIn("/path/test.pdf", result[0].notes)
 
     def test_result_has_range_start(self):
         """Test parsed items have range_start set to today."""
@@ -414,10 +416,10 @@ Leisure
 Monday
 10:00 a.m. - 11:00 a.m.
 """
-        result = parser._parse_aurora_text(text, '/path/test.pdf')
+        result = parser._parse_aurora_text(text, "/path/test.pdf")
 
         self.assertEqual(result[0].range_start, datetime.date.today().isoformat())
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

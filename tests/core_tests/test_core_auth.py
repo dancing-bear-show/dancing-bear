@@ -48,10 +48,13 @@ class TestResolveOutlookCredentials(unittest.TestCase):
         self.assertEqual(tenant, "explicit-tenant")
         self.assertEqual(token, "/explicit/outlook_token.json")
 
-    @patch.dict(os.environ, {
-        "MAIL_ASSISTANT_OUTLOOK_CLIENT_ID": "env-client-id",
-        "MAIL_ASSISTANT_OUTLOOK_TENANT": "env-tenant",
-    })
+    @patch.dict(
+        os.environ,
+        {
+            "MAIL_ASSISTANT_OUTLOOK_CLIENT_ID": "env-client-id",
+            "MAIL_ASSISTANT_OUTLOOK_TENANT": "env-tenant",
+        },
+    )
     def test_env_vars_used_when_no_args(self):
         client_id, tenant, _token = resolve_outlook_credentials(
             profile=None,

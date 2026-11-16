@@ -46,6 +46,7 @@ class TestRenderProjEntryLink(unittest.TestCase):
 
     def setUp(self):
         from resume.docx_sidebar_sections import _render_proj_entry
+
         self._fn = _render_proj_entry
 
     def test_link_calls_add_hyperlink(self):
@@ -55,9 +56,14 @@ class TestRenderProjEntryLink(unittest.TestCase):
         cell, _ = _make_cell()
         proj = Project.from_dict({"name": "My Project", "link": "https://github.com/user/repo"})
 
-        with patch("resume.docx_sidebar_sections.add_hyperlink") as mock_hl, \
-             patch("resume.docx_sidebar_sections.normalize_link_url", return_value="https://github.com/user/repo"), \
-             patch("resume.docx_sidebar_sections.display_url", return_value="github.com/user/repo"):
+        with (
+            patch("resume.docx_sidebar_sections.add_hyperlink") as mock_hl,
+            patch(
+                "resume.docx_sidebar_sections.normalize_link_url",
+                return_value="https://github.com/user/repo",
+            ),
+            patch("resume.docx_sidebar_sections.display_url", return_value="github.com/user/repo"),
+        ):
             self._fn(cell, proj, {"body_pt": 10}, "#4A90A4")
 
         mock_hl.assert_called_once()
@@ -95,6 +101,7 @@ class TestRenderProjEntryKeywordBolding(unittest.TestCase):
 
     def setUp(self):
         from resume.docx_sidebar_sections import _render_proj_entry
+
         self._fn = _render_proj_entry
 
     def test_keyword_bolding_called_with_keywords(self):
@@ -102,10 +109,12 @@ class TestRenderProjEntryKeywordBolding(unittest.TestCase):
         from resume.schema import Project
 
         cell, _ = _make_cell()
-        proj = Project.from_dict({
-            "name": "Project",
-            "bullets": [{"text": "Built with Python"}],
-        })
+        proj = Project.from_dict(
+            {
+                "name": "Project",
+                "bullets": [{"text": "Built with Python"}],
+            }
+        )
         keywords = ["Python"]
 
         with patch("resume.docx_sidebar_sections.bold_text_in_paragraph") as mock_bold:
@@ -121,10 +130,12 @@ class TestRenderProjEntryKeywordBolding(unittest.TestCase):
         from resume.schema import Project
 
         cell, _ = _make_cell()
-        proj = Project.from_dict({
-            "name": "Project",
-            "bullets": [{"text": "Plain bullet"}],
-        })
+        proj = Project.from_dict(
+            {
+                "name": "Project",
+                "bullets": [{"text": "Plain bullet"}],
+            }
+        )
 
         with patch("resume.docx_sidebar_sections.bold_text_in_paragraph") as mock_bold:
             self._fn(cell, proj, {"body_pt": 10}, "#4A90A4")
@@ -140,6 +151,7 @@ class TestRenderProjEntryBulletNormalisation(unittest.TestCase):
 
     def setUp(self):
         from resume.docx_sidebar_sections import _render_proj_entry
+
         self._fn = _render_proj_entry
 
     def test_normalize_bullet_called_for_each_bullet(self):
@@ -147,13 +159,20 @@ class TestRenderProjEntryBulletNormalisation(unittest.TestCase):
         from resume.schema import Project
 
         cell, _ = _make_cell()
-        proj = Project.from_dict({
-            "name": "Project",
-            "bullets": [{"text": "Built APIs."}, {"text": "Wrote tests."}],
-        })
+        proj = Project.from_dict(
+            {
+                "name": "Project",
+                "bullets": [{"text": "Built APIs."}, {"text": "Wrote tests."}],
+            }
+        )
 
-        with patch("resume.docx_sidebar_sections.TextFormatter.normalize_bullet", side_effect=lambda t, **_: t) as mock_norm, \
-             patch("resume.docx_sidebar_sections.bold_text_in_paragraph"):
+        with (
+            patch(
+                "resume.docx_sidebar_sections.TextFormatter.normalize_bullet",
+                side_effect=lambda t, **_: t,
+            ) as mock_norm,
+            patch("resume.docx_sidebar_sections.bold_text_in_paragraph"),
+        ):
             self._fn(cell, proj, {"body_pt": 10}, "#4A90A4")
 
         self.assertEqual(mock_norm.call_count, 2)
@@ -163,10 +182,12 @@ class TestRenderProjEntryBulletNormalisation(unittest.TestCase):
         from resume.schema import Project
 
         cell, paras = _make_cell()
-        proj = Project.from_dict({
-            "name": "Project",
-            "bullets": [{"text": ""}],
-        })
+        proj = Project.from_dict(
+            {
+                "name": "Project",
+                "bullets": [{"text": ""}],
+            }
+        )
         # name para only; no bullet para
         self._fn(cell, proj, {"body_pt": 10}, "#4A90A4")
         # Only the name paragraph should be present
@@ -186,12 +207,15 @@ class TestRenderMainProjectsKeywordsThreaded(unittest.TestCase):
         from resume.docx_sidebar_sections import SidebarResumeWriter
         from resume.schema import Resume
 
-        data = Resume.from_dict({
-            "name": "Casey Synthetic",
-            "projects": [{"name": "P1", "bullets": [{"text": "Built in Python"}]}],
-        })
+        data = Resume.from_dict(
+            {
+                "name": "Casey Synthetic",
+                "projects": [{"name": "P1", "bullets": [{"text": "Built in Python"}]}],
+            }
+        )
         template = {
-            "page": {}, "layout": {},
+            "page": {},
+            "layout": {},
             "sections": [{"key": "projects", "title": "Projects"}],
         }
         writer = SidebarResumeWriter(data, template)
@@ -199,8 +223,10 @@ class TestRenderMainProjectsKeywordsThreaded(unittest.TestCase):
         cell = MagicMock()
         cell.paragraphs = []
 
-        with patch("resume.docx_sidebar_sections.bold_text_in_paragraph") as mock_bold, \
-             patch("resume.docx_sidebar_sections._render_main_section_heading"):
+        with (
+            patch("resume.docx_sidebar_sections.bold_text_in_paragraph") as mock_bold,
+            patch("resume.docx_sidebar_sections._render_main_section_heading"),
+        ):
             writer._render_main_content(cell, keywords=["Python"])
 
         # bold_text_in_paragraph must have been called with the keyword list,
@@ -217,20 +243,25 @@ class TestRenderMainProjectsKeywordsThreaded(unittest.TestCase):
         from resume.docx_sidebar_sections import SidebarResumeWriter
         from resume.schema import Resume
 
-        data = Resume.from_dict({
-            "name": "Casey Synthetic",
-            "projects": [{"name": "P1", "bullets": [{"text": "Some bullet"}]}],
-        })
+        data = Resume.from_dict(
+            {
+                "name": "Casey Synthetic",
+                "projects": [{"name": "P1", "bullets": [{"text": "Some bullet"}]}],
+            }
+        )
         template = {
-            "page": {}, "layout": {},
+            "page": {},
+            "layout": {},
             "sections": [{"key": "projects", "title": "Projects"}],
         }
         writer = SidebarResumeWriter(data, template)
         cell = MagicMock()
         cell.paragraphs = []
 
-        with patch("resume.docx_sidebar_sections.bold_text_in_paragraph") as mock_bold, \
-             patch("resume.docx_sidebar_sections._render_main_section_heading"):
+        with (
+            patch("resume.docx_sidebar_sections.bold_text_in_paragraph") as mock_bold,
+            patch("resume.docx_sidebar_sections._render_main_section_heading"),
+        ):
             writer._render_main_content(cell)
 
         self.assertTrue(mock_bold.called)

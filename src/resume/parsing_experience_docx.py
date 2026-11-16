@@ -9,6 +9,7 @@ Extracted from parsing_experience. Provides:
   - _key_from_heading, _looks_like_company_line, _looks_like_section_heading
   - parse_resume_docx: public API
 """
+
 from __future__ import annotations
 
 import re
@@ -82,7 +83,9 @@ def _docx_try_extract_headline(helper: _DocxParaHelper, i: int, txt: str) -> str
     return ""
 
 
-def _docx_extract_name_headline(helper: _DocxParaHelper, first_h1: int) -> tuple[str, str, list[str]]:
+def _docx_extract_name_headline(
+    helper: _DocxParaHelper, first_h1: int
+) -> tuple[str, str, list[str]]:
     """Extract name, headline, and early lines from docx."""
     name = _docx_try_extract_name(helper)
     headline = ""
@@ -206,8 +209,7 @@ def _role_header_or_none(text: str) -> dict[str, Any] | None:
 
 
 def _process_exp_paragraph(
-    style: str, text: str, current: dict[str, Any] | None, last_company: str,
-    is_next_h2: bool
+    style: str, text: str, current: dict[str, Any] | None, last_company: str, is_next_h2: bool
 ) -> tuple[dict[str, Any] | None, str, dict[str, Any] | None]:
     """Process a single experience paragraph. Returns (current, last_company, completed_role)."""
     # _role_header_or_none, not _parse_experience_entry: a glyph-prefixed line
@@ -234,7 +236,9 @@ def _docx_extract_experience(
     helper: _DocxParaHelper, sections: dict[str, dict[str, int]]
 ) -> list[dict[str, Any]]:
     """Extract experience entries from docx."""
-    exp_key = next((k for k in ("experience", "work experiences", "work experience") if k in sections), None)
+    exp_key = next(
+        (k for k in ("experience", "work experiences", "work experience") if k in sections), None
+    )
     if not exp_key:
         return []
 
@@ -302,8 +306,11 @@ def _key_from_heading(text: str) -> str | None:
         # "core abilities" / "technical stack" are the headings this repo's own
         # templates render, so a resume produced here must round-trip back in.
         "skills": [
-            "technical skills", "technical stack", "core abilities",
-            "skills", "technologies",
+            "technical skills",
+            "technical stack",
+            "core abilities",
+            "skills",
+            "technologies",
         ],
         "summary": ["summary", "profile", "about"],
     }
@@ -376,11 +383,7 @@ def parse_resume_docx(path: str) -> dict[str, Any]:
         s = sections["skills"]
         # Keep the raw lines: _parse_skills and parse_skill_groups both need the
         # leading bullet glyph to tell a category heading from its entries.
-        block = [
-            helper.text(i)
-            for i in range(s["start"] + 1, s["end"] + 1)
-            if helper.text(i)
-        ]
+        block = [helper.text(i) for i in range(s["start"] + 1, s["end"] + 1) if helper.text(i)]
         skills = _parse_skills(block)
         skills_groups = parse_skill_groups(block)
 

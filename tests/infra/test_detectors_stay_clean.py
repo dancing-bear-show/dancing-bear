@@ -140,17 +140,14 @@ class DetectorsStayCleanTests(unittest.TestCase):
                 str(test_dir),
             )
 
-        self.assertEqual(
-            proc.returncode, 0, msg=f"{proc.stdout}\n{proc.stderr}"
-        )
+        self.assertEqual(proc.returncode, 0, msg=f"{proc.stdout}\n{proc.stderr}")
         payload = json.loads(proc.stdout)
         self.assertEqual(
             payload["total_findings"],
             1,
             msg=(
                 "detector did not report the injected violation; a zero count "
-                "elsewhere in this suite cannot be trusted\n"
-                + json.dumps(payload, indent=2)
+                "elsewhere in this suite cannot be trusted\n" + json.dumps(payload, indent=2)
             ),
         )
         finding = payload["findings"][0]

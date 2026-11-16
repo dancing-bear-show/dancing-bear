@@ -1,4 +1,5 @@
 """Consumers for mail filters pipelines."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -7,10 +8,10 @@ from typing import TYPE_CHECKING
 
 from core.cli_errors import UsageError
 from core.pipeline import Consumer
+from core.yamlio import load_config
 
 from ..context import MailContext
 from ..providers.base import BaseProvider
-from core.yamlio import load_config
 
 if TYPE_CHECKING:
     from .processors_sweep import SweepConfig
@@ -147,7 +148,9 @@ class FiltersSyncConsumer(Consumer[FiltersSyncPayload]):
         client = self.context.get_gmail_client()
         return FiltersSyncPayload(
             **payload,
-            require_forward_verified=bool(getattr(self.context.args, "require_forward_verified", False)),
+            require_forward_verified=bool(
+                getattr(self.context.args, "require_forward_verified", False)
+            ),
             verified_forward_addresses=set(client.get_verified_forwarding_addresses()),
         )
 
@@ -261,7 +264,9 @@ class FiltersSweepRangeConsumer(Consumer[FiltersSweepRangePayload]):
         to_days = int(getattr(args, "to_days", 0))
         step_days = int(getattr(args, "step_days", 0))
         if step_days <= 0 or to_days <= from_days:
-            raise UsageError("Invalid range/step: --to-days must exceed --from-days and --step-days must be positive.")
+            raise UsageError(
+                "Invalid range/step: --to-days must exceed --from-days and --step-days must be positive."
+            )
         pages = int(getattr(args, "pages", 50) or 50)
         batch_size = int(getattr(args, "batch_size", 500) or 500)
         max_msgs = getattr(args, "max_msgs", None)
@@ -387,7 +392,9 @@ class FiltersRemoveTokenConsumer(Consumer[FiltersRemoveTokenPayload]):
         if not label_prefix:
             raise UsageError(_ERR_LABEL_PREFIX)
         needle = str(getattr(args, "needle", "")).strip().lower()
-        tokens = [str(x).strip().lower() for x in (getattr(args, "remove", []) or []) if str(x).strip()]
+        tokens = [
+            str(x).strip().lower() for x in (getattr(args, "remove", []) or []) if str(x).strip()
+        ]
         if not needle or not tokens:
             raise UsageError("Missing --needle or --remove")
         client = self.context.get_gmail_client()

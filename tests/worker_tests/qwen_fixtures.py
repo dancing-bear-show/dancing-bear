@@ -28,12 +28,12 @@ import json
 import logging
 import os
 import unittest
+import unittest.mock as mock
 import urllib.error
 import urllib.request
 from email.message import Message
 from pathlib import Path
 from typing import Any, TypeVar, cast
-import unittest.mock as mock
 
 from tests.fixtures import TempDirMixin
 from worker import qwen, qwen_telemetry
@@ -73,7 +73,9 @@ def edit_block(path: str, search: str, replace: str) -> str:
     single blank line. To search for or insert one literal blank line,
     pass BLANK_LINE instead of "".
     """
-    return f"FILE: {path}\n<<<<<<< SEARCH{_body(search)}\n======={_body(replace)}\n>>>>>>> REPLACE\n"
+    return (
+        f"FILE: {path}\n<<<<<<< SEARCH{_body(search)}\n======={_body(replace)}\n>>>>>>> REPLACE\n"
+    )
 
 
 GREET_EDIT = edit_block(GREET_PATH, '    print("hello " + name)', '    return f"hello {name}"')
@@ -151,7 +153,9 @@ class FakeResponse:
 
 
 def http_error(code: int) -> urllib.error.HTTPError:
-    return urllib.error.HTTPError("http://localhost:11434/api/generate", code, "error", Message(), None)
+    return urllib.error.HTTPError(
+        "http://localhost:11434/api/generate", code, "error", Message(), None
+    )
 
 
 class QwenHandlerCase(TempDirMixin, unittest.TestCase):
@@ -173,7 +177,9 @@ class QwenHandlerCase(TempDirMixin, unittest.TestCase):
         self.generate_response: dict[str, object] = dict(REAL_RESPONSE)
         self.generate_raw: bytes | None = None
         self.generate_error: BaseException | None = None
-        self.tags_response: dict[str, object] = {"models": [{"name": MODEL, "digest": RUNNING_DIGEST}]}
+        self.tags_response: dict[str, object] = {
+            "models": [{"name": MODEL, "digest": RUNNING_DIGEST}]
+        }
         self.tags_error: BaseException | None = None
         # /api/ps: no model loaded unless a test says otherwise.
         self.ps_response: dict[str, object] = {"models": []}
@@ -197,7 +203,9 @@ class QwenHandlerCase(TempDirMixin, unittest.TestCase):
             os.environ.pop(var, None)
 
         self.post = self._start(mock.patch("worker.qwen_telemetry._post"))
-        self.export = self._start(mock.patch("worker.qwen.export_job_span", wraps=REAL_EXPORT_JOB_SPAN))
+        self.export = self._start(
+            mock.patch("worker.qwen.export_job_span", wraps=REAL_EXPORT_JOB_SPAN)
+        )
         self.export_metrics = self._start(
             mock.patch("worker.qwen.export_job_metrics", wraps=REAL_EXPORT_JOB_METRICS)
         )
@@ -232,7 +240,9 @@ class QwenHandlerCase(TempDirMixin, unittest.TestCase):
         return started
 
     def _wait_for_exports(self) -> None:
-        self.assertTrue(qwen_telemetry.wait_for_exports(timeout=10), "a telemetry export thread did not finish")
+        self.assertTrue(
+            qwen_telemetry.wait_for_exports(timeout=10), "a telemetry export thread did not finish"
+        )
 
     def _assert_no_unexpected_egress(self) -> None:
         self.assertEqual(self.unexpected_urls, [], "a test reached an unmocked network endpoint")
@@ -262,9 +272,14 @@ class QwenHandlerCase(TempDirMixin, unittest.TestCase):
 
     # -- helpers -----------------------------------------------------------
 
-    def job(self, payload: dict[str, object] | None = None, **overrides: object) -> dict[str, object]:
+    def job(
+        self, payload: dict[str, object] | None = None, **overrides: object
+    ) -> dict[str, object]:
         """A full job record as JobSafeProcessor hands it to the handler."""
-        base_payload: dict[str, object] = {"files": [GREET_PATH], "instruction": "return the greeting"}
+        base_payload: dict[str, object] = {
+            "files": [GREET_PATH],
+            "instruction": "return the greeting",
+        }
         base_payload.update(payload or {})
         record: dict[str, object] = {
             "id": "qwen-test-job",
@@ -276,7 +291,9 @@ class QwenHandlerCase(TempDirMixin, unittest.TestCase):
         record.update(overrides)
         return record
 
-    def run_handler(self, payload: dict[str, object] | None = None, **overrides: object) -> tuple[bool, object]:
+    def run_handler(
+        self, payload: dict[str, object] | None = None, **overrides: object
+    ) -> tuple[bool, object]:
         result = qwen.handle_qwen_patch(self.job(payload, **overrides))
         self._wait_for_exports()
         return result
@@ -295,7 +312,8 @@ class QwenHandlerCase(TempDirMixin, unittest.TestCase):
     def metrics_calls(self) -> list[tuple[dict[str, object], float, int | None, int | None]]:
         """(attrs, duration_ms, prompt_tokens, completion_tokens) per export_job_metrics call."""
         return [
-            (dict(c.args[0]), c.args[1], c.args[2], c.args[3]) for c in self.export_metrics.call_args_list
+            (dict(c.args[0]), c.args[1], c.args[2], c.args[3])
+            for c in self.export_metrics.call_args_list
         ]
 
     def otlp_posts(self, *, path_suffix: str) -> list[Any]:
@@ -344,12 +362,16 @@ class PinRecordCase(TempDirMixin, unittest.TestCase):
         env.start()
         self.addCleanup(env.stop)
         os.environ.pop(qwen.OLLAMA_HOST_ENV, None)
-        self.tags_response: dict[str, object] = {"models": [{"name": MODEL, "digest": RUNNING_DIGEST}]}
+        self.tags_response: dict[str, object] = {
+            "models": [{"name": MODEL, "digest": RUNNING_DIGEST}]
+        }
         self.tags_error: BaseException | None = None
         self.tags_hosts: list[str] = []
         for patcher in (
             mock.patch("worker.qwen._ollama_tags", side_effect=self._tags),
-            mock.patch("urllib.request.urlopen", side_effect=AssertionError("unexpected network egress")),
+            mock.patch(
+                "urllib.request.urlopen", side_effect=AssertionError("unexpected network egress")
+            ),
         ):
             patcher.start()
             self.addCleanup(patcher.stop)

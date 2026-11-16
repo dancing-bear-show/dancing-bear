@@ -13,4 +13,4 @@ build_parser = _core_llm_cli.build_parser
 run = _core_llm_cli.run
 main = _core_llm_cli.main
 
-__all__ = ["LlmConfig", "build_parser", "run", "main"]
+__all__ = ["LlmConfig", "build_parser", "main", "run"]

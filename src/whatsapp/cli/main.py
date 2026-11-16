@@ -17,7 +17,6 @@ from ..meta import META
 from ..pipeline import SearchProcessor, SearchProducer, SearchRequest, SearchRequestConsumer
 from ..search import default_db_path
 
-
 assistant = BaseAssistant(META.app_id, META.agentic_fallback)
 
 app = CLIApp(
@@ -37,12 +36,31 @@ def _lazy_agentic():
 # Note: @argument decorators must come BEFORE @command (decorators apply bottom-up)
 @app.command("search", help="Search local WhatsApp ChatStorage.sqlite for text matches")
 @app.argument("--db", help="Path to ChatStorage.sqlite (defaults to macOS group container)")
-@app.argument("--contains", action="append", default=[], help="Text to search for (repeatable; case-insensitive)")
-@app.argument("--any", dest="match_any", action="store_true", help="Match ANY of the --contains terms (default)")
-@app.argument("--all", dest="match_all", action="store_true", help="Match ALL of the --contains terms")
-@app.argument("--contact", help="Filter by contact display name (substring match, case-insensitive)")
+@app.argument(
+    "--contains",
+    action="append",
+    default=[],
+    help="Text to search for (repeatable; case-insensitive)",
+)
+@app.argument(
+    "--any",
+    dest="match_any",
+    action="store_true",
+    help="Match ANY of the --contains terms (default)",
+)
+@app.argument(
+    "--all", dest="match_all", action="store_true", help="Match ALL of the --contains terms"
+)
+@app.argument(
+    "--contact", help="Filter by contact display name (substring match, case-insensitive)"
+)
 @app.argument("--from-me", dest="from_me", action="store_true", help="Only messages sent by me")
-@app.argument("--from-them", dest="from_them", action="store_true", help="Only messages received (not from me)")
+@app.argument(
+    "--from-them",
+    dest="from_them",
+    action="store_true",
+    help="Only messages received (not from me)",
+)
 @app.argument("--since-days", type=int, help="Restrict to messages in the last N days")
 @app.argument("--limit", type=int, default=50, help="Max rows to return (default 50)")
 @app.argument("--json", action="store_true", help="Output JSON instead of text table")
@@ -94,6 +112,7 @@ def cmd_search(args) -> int:
 def _install_output_masking() -> None:
     """Install output masking for secret shielding."""
     from core.secrets import install_output_masking_from_env
+
     install_output_masking_from_env()
 
 

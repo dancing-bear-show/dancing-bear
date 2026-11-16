@@ -9,7 +9,9 @@ def build_agentic_capsule() -> str:
     lines.append("agentic: charts")
     lines.append("purpose: Render time-series charts from JSON (line/bar/area/dual)")
     lines.append("commands:")
-    lines.append("  - render single chart: ./bin/charts render --input spec.json --output chart.png")
+    lines.append(
+        "  - render single chart: ./bin/charts render --input spec.json --output chart.png"
+    )
     lines.append("  - render grid:         ./bin/charts grid --config grid.yaml --output grid.png")
     lines.append("  - reshape row data:    ./bin/charts reshape --x ts --y val --input rows.json")
     lines.append("notes:")

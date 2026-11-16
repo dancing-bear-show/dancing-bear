@@ -7,6 +7,7 @@ The telemetry CLI is now argparse-based (CLIApp). These tests verify:
 * normal subcommand dispatch is unaffected
 * --help still works and advertises the new flags
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -82,7 +83,7 @@ class HelpAndDispatchTests(unittest.TestCase):
         try:
             with contextlib.redirect_stdout(buf):
                 main(["--help"])
-        except SystemExit as e:  # NOSONAR - argparse --help exits by design; re-raising would defeat the assertion
+        except (SystemExit) as e:  # NOSONAR - argparse --help exits by design; re-raising would defeat the assertion  # fmt: skip
             self.assertEqual(e.code, 0)
         out = buf.getvalue()
         self.assertIn("--agentic", out)
@@ -109,7 +110,7 @@ class HelpAndDispatchTests(unittest.TestCase):
         try:
             with contextlib.redirect_stdout(buf):
                 main(["cost", "--help"])
-        except SystemExit as e:  # NOSONAR - argparse --help exits by design; re-raising would defeat the assertion
+        except (SystemExit) as e:  # NOSONAR - argparse --help exits by design; re-raising would defeat the assertion  # fmt: skip
             self.assertEqual(e.code, 0)
         out = buf.getvalue()
         self.assertIn("cost breakdown", out.lower())

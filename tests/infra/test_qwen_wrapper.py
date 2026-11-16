@@ -23,11 +23,11 @@ import shlex
 import sys
 import tempfile
 import unittest
+import unittest.mock as mock
 from collections.abc import Iterator
 from contextlib import redirect_stdout
 from pathlib import Path
 from types import ModuleType
-import unittest.mock as mock
 
 from tests.worker_tests.qwen_fixtures import MODEL as PIN_MODEL
 from tests.worker_tests.qwen_fixtures import RUNNING_DIGEST, PinRecordCase
@@ -64,7 +64,9 @@ _SPAWN_ROUTES = (
 def _no_process_spawn() -> Iterator[None]:
     with contextlib.ExitStack() as stack:
         for target in _SPAWN_ROUTES:
-            stack.enter_context(mock.patch(target, side_effect=AssertionError(f"--apply spawned via {target}")))
+            stack.enter_context(
+                mock.patch(target, side_effect=AssertionError(f"--apply spawned via {target}"))
+            )
         yield
 
 
@@ -80,7 +82,9 @@ def _load_module() -> ModuleType:
     try:
         with (
             mock.patch.dict(os.environ),
-            mock.patch("os.execv", side_effect=AssertionError("bin/qwen tried to re-exec the test runner")),
+            mock.patch(
+                "os.execv", side_effect=AssertionError("bin/qwen tried to re-exec the test runner")
+            ),
         ):
             spec.loader.exec_module(module)
     finally:
@@ -92,14 +96,18 @@ class QwenWrapperBuildPayloadTests(unittest.TestCase):
     def test_build_payload_from_files_and_instruction(self) -> None:
         bq = _load_module()
 
-        payload = bq.build_payload(files=["src/worker/qwen.py"], instruction="add logging", explain=False)
+        payload = bq.build_payload(
+            files=["src/worker/qwen.py"], instruction="add logging", explain=False
+        )
 
         self.assertEqual(payload, {"files": ["src/worker/qwen.py"], "instruction": "add logging"})
 
     def test_build_payload_explain_flag_set(self) -> None:
         bq = _load_module()
 
-        payload = bq.build_payload(files=["src/worker/qwen.py"], instruction="add logging", explain=True)
+        payload = bq.build_payload(
+            files=["src/worker/qwen.py"], instruction="add logging", explain=True
+        )
 
         self.assertIs(payload["explain"], True)
 
@@ -110,7 +118,15 @@ class QwenWrapperBuildPayloadTests(unittest.TestCase):
             instr_path = Path(td) / "instruction.txt"
             instr_path.write_text("do the thing\n", encoding="utf-8")
             with redirect_stdout(io.StringIO()):
-                bq.main(["patch", "--files", "src/worker/qwen.py", "--instruction-file", str(instr_path)])
+                bq.main(
+                    [
+                        "patch",
+                        "--files",
+                        "src/worker/qwen.py",
+                        "--instruction-file",
+                        str(instr_path),
+                    ]
+                )
 
         (called_job,) = mock_enqueue.call_args.args
         self.assertEqual(called_job.payload["instruction"], "do the thing")
@@ -165,19 +181,28 @@ class QwenWrapperMainTests(unittest.TestCase):
         bq = _load_module()
 
         with mock.patch.object(bq, "enqueue") as mock_enqueue, redirect_stdout(io.StringIO()):
-            exit_code = bq.main(["patch", "--files", "src/worker/qwen.py", "--instruction", "add a test"])
+            exit_code = bq.main(
+                ["patch", "--files", "src/worker/qwen.py", "--instruction", "add a test"]
+            )
 
         self.assertEqual(exit_code, 0)
         (job,), kwargs = mock_enqueue.call_args
         self.assertEqual(job.type, "qwen_patch")
-        self.assertEqual(job.payload, {"files": ["src/worker/qwen.py"], "instruction": "add a test"})
-        self.assertEqual(job.timeout_sec, 0, "a positive timeout_sec would arm the reaper against qwen jobs")
+        self.assertEqual(
+            job.payload, {"files": ["src/worker/qwen.py"], "instruction": "add a test"}
+        )
+        self.assertEqual(
+            job.timeout_sec, 0, "a positive timeout_sec would arm the reaper against qwen jobs"
+        )
         self.assertEqual(kwargs, {"root": bq.QUEUE_ROOT})
 
     def test_main_show_returns_nonzero_for_unknown_job(self) -> None:
         bq = _load_module()
 
-        with mock.patch.object(bq, "find_job_path_by_id", return_value=None), contextlib.redirect_stderr(io.StringIO()):
+        with (
+            mock.patch.object(bq, "find_job_path_by_id", return_value=None),
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
             exit_code = bq.main(["--show", "does-not-exist"])
 
         self.assertEqual(exit_code, 1)

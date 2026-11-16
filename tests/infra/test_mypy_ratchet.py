@@ -44,9 +44,7 @@ class ParseTotalTests(unittest.TestCase):
 
     def test_parses_singular_summary(self):
         # `Found 1 error in 1 file` — no trailing 's' on either noun.
-        self.assertEqual(
-            mr._parse_total("Found 1 error in 1 file (checked 3 source files)"), 1
-        )
+        self.assertEqual(mr._parse_total("Found 1 error in 1 file (checked 3 source files)"), 1)
 
     def test_success_line_is_zero(self):
         self.assertEqual(mr._parse_total("Success: no issues found in 6 source files"), 0)
@@ -212,9 +210,11 @@ class RatchetPlatformTests(unittest.TestCase):
     def _run(self, platform: str, output: str) -> int:
         import argparse
 
-        with mock.patch.object(mr, "_load_baseline", return_value=self.BASE), mock.patch.object(
-            mr, "_run_mypy", return_value=output
-        ), mock.patch.object(sys, "platform", platform):
+        with (
+            mock.patch.object(mr, "_load_baseline", return_value=self.BASE),
+            mock.patch.object(mr, "_run_mypy", return_value=output),
+            mock.patch.object(sys, "platform", platform),
+        ):
             return mr.cmd_ratchet(argparse.Namespace())
 
     def test_regression_fails_on_baseline_platform(self):
@@ -253,9 +253,7 @@ class CliTests(unittest.TestCase):
 
     def test_invocation_error_exits_two(self):
         """A broken invocation is distinct from a type-error failure (1)."""
-        with mock.patch.object(
-            mr, "cmd_ratchet", side_effect=mr.MypyInvocationError("boom")
-        ):
+        with mock.patch.object(mr, "cmd_ratchet", side_effect=mr.MypyInvocationError("boom")):
             self.assertEqual(mr.main(["ratchet"]), 2)
 
 

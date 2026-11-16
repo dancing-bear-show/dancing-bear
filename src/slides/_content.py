@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Protocol
 
+from slides._styling import TextStyle
 from slides.constants import (
     CONTENT_LEFT,
     CONTENT_WIDTH,
@@ -15,7 +16,6 @@ from slides.constants import (
     SPACING_BEFORE_BULLET,
     SPACING_BEFORE_HEADER,
 )
-from slides._styling import TextStyle
 from slides.schema import BulletItem, ResolvedBullet
 
 if TYPE_CHECKING:
@@ -35,7 +35,10 @@ class _ContentHost(Protocol):
     # --- From StylingMixin ---
     def _format_bullet_text(self, text: str, level: int) -> str: ...
     def _add_text_to_paragraph(
-        self, paragraph: object, text: str, style: TextStyle,
+        self,
+        paragraph: object,
+        text: str,
+        style: TextStyle,
     ) -> None: ...
     def _apply_native_bullet(self, paragraph: object, level: int) -> None: ...
     def _style_run(
@@ -69,11 +72,17 @@ class _ContentHost(Protocol):
     @staticmethod
     def _find_body_placeholder(slide: object) -> Any: ...
     def _remove_unused_placeholders(
-        self, slide: object, *, keep_body: bool = ...,
+        self,
+        slide: object,
+        *,
+        keep_body: bool = ...,
     ) -> None: ...
     def _has_body_placeholder(self, slide: object) -> bool: ...
     def _reposition_textbox(
-        self, slide: object, left: float, width: float,
+        self,
+        slide: object,
+        left: float,
+        width: float,
     ) -> None: ...
     @staticmethod
     def _slide_width(slide: object) -> int: ...
@@ -146,7 +155,7 @@ class ContentMixin:
         return font_size, effective_theme, Pt(SPACING_BEFORE_BULLET), Pt(SPACING_AFTER_BULLET)
 
     def _format_body_paragraph(
-        self: "_ContentHost",
+        self: _ContentHost,
         paragraph,
         item,
         theme_color: MSO_THEME_COLOR,
@@ -183,7 +192,10 @@ class ContentMixin:
             self._apply_native_bullet(paragraph, bullet.level)
 
         font_size, effective_theme, space_before, space_after = self._resolve_font_and_spacing(
-            is_header, bullet.level, theme_color, use_template_style,
+            is_header,
+            bullet.level,
+            theme_color,
+            use_template_style,
         )
         self._add_text_to_paragraph(
             paragraph,
@@ -200,7 +212,7 @@ class ContentMixin:
         paragraph.space_after = space_after
 
     def _set_slide_content(
-        self: "_ContentHost",
+        self: _ContentHost,
         slide,
         title_text: str,
         body_lines: list,
@@ -213,7 +225,9 @@ class ContentMixin:
         from pptx.enum.shapes import MSO_SHAPE_TYPE
         from pptx.enum.text import PP_ALIGN
 
-        self._set_slide_title(slide, title_text, theme_color, subtitle=subtitle, inherit_style=inherit_style)
+        self._set_slide_title(
+            slide, title_text, theme_color, subtitle=subtitle, inherit_style=inherit_style
+        )
 
         # Find body shape: prefer text box, fall back to body placeholder (idx 1)
         shape = self._find_shape(
@@ -238,10 +252,22 @@ class ContentMixin:
             p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
             if use_template_style and not inherit_style:
                 p.alignment = PP_ALIGN.CENTER
-            self._format_body_paragraph(p, item, theme_color, use_template_style=use_template_style, inherit_style=inherit_style)
+            self._format_body_paragraph(
+                p,
+                item,
+                theme_color,
+                use_template_style=use_template_style,
+                inherit_style=inherit_style,
+            )
 
     def _populate_bullet_slide(
-        self: "_ContentHost", slide, content, theme_color, *, is_title_slide: bool = False, inherit_style: bool = False,
+        self: _ContentHost,
+        slide,
+        content,
+        theme_color,
+        *,
+        is_title_slide: bool = False,
+        inherit_style: bool = False,
     ) -> None:
         """Populate a slide with bullet content."""
         has_body_content = bool(content.bullets) and not is_title_slide
@@ -250,27 +276,36 @@ class ContentMixin:
             self._populate_title_slide(slide, content, theme_color)
         elif inherit_style:
             # Template-style: write text into placeholders without overriding formatting
-            self._set_slide_content(slide, content.title, content.bullets, theme_color, subtitle=content.subtitle, inherit_style=True)
+            self._set_slide_content(
+                slide,
+                content.title,
+                content.bullets,
+                theme_color,
+                subtitle=content.subtitle,
+                inherit_style=True,
+            )
         else:
             # Only reposition text box if one exists (legacy mode);
             # layout_map mode uses body placeholder (idx 1) directly
             has_body = self._has_body_placeholder(slide)
             if not has_body:
                 self._reposition_textbox(slide, CONTENT_LEFT, CONTENT_WIDTH)
-            self._set_slide_content(slide, content.title, content.bullets, theme_color, subtitle=content.subtitle)
+            self._set_slide_content(
+                slide, content.title, content.bullets, theme_color, subtitle=content.subtitle
+            )
 
     def _populate_title_slide(
-        self: "_ContentHost", slide, content, theme_color,
+        self: _ContentHost,
+        slide,
+        content,
+        theme_color,
     ) -> None:
         """Populate a centered title slide."""
         from pptx.enum.text import PP_ALIGN
         from pptx.util import Inches, Pt
 
         # Remove all non-title placeholders (including page number)
-        to_remove = [
-            s for s in slide.shapes
-            if s.is_placeholder and s.placeholder_format.idx != 0
-        ]
+        to_remove = [s for s in slide.shapes if s.is_placeholder and s.placeholder_format.idx != 0]
         for s in to_remove:
             s._element.getparent().remove(s._element)
 
@@ -291,7 +326,7 @@ class ContentMixin:
 
         self._populate_title_subtitle(slide, content, theme_color)
 
-    def _populate_title_subtitle(self: "_ContentHost", slide, content, theme_color) -> None:
+    def _populate_title_subtitle(self: _ContentHost, slide, content, theme_color) -> None:
         """Render a title slide's bullets as centered, bullet-free subtitle lines."""
         from pptx.enum.shapes import MSO_SHAPE_TYPE
         from pptx.enum.text import PP_ALIGN

@@ -22,6 +22,7 @@ class _FromDict(Protocol):
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Any: ...
 
+
 # Filenames
 METRICS_FILE = "metrics.jsonl"
 EVENTS_FILE = "events.jsonl"
@@ -103,9 +104,6 @@ class OTLPReader:
         """
         sizes = {}
         for filename in (METRICS_FILE, EVENTS_FILE, SPANS_FILE):
-            total = sum(
-                fpath.stat().st_size
-                for fpath in self._find_all_files(filename)
-            )
+            total = sum(fpath.stat().st_size for fpath in self._find_all_files(filename))
             sizes[filename] = total
         return sizes

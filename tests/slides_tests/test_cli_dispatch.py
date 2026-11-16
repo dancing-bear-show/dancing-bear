@@ -70,21 +70,15 @@ class TestGenerateSubcommandFlags(unittest.TestCase):
         ns = self.parser.parse_args(["generate", "deck.yaml", "-o", "out.pptx"])
         self.assertEqual(ns.output, "out.pptx")
 
-        ns_long = self.parser.parse_args(
-            ["generate", "deck.yaml", "--output", "out2.pptx"]
-        )
+        ns_long = self.parser.parse_args(["generate", "deck.yaml", "--output", "out2.pptx"])
         self.assertEqual(ns_long.output, "out2.pptx")
 
     def test_generate_has_template_flag(self):
         """Generate subcommand accepts -t/--template flag."""
-        ns = self.parser.parse_args(
-            ["generate", "deck.yaml", "--template", "/tpl.pptx"]
-        )
+        ns = self.parser.parse_args(["generate", "deck.yaml", "--template", "/tpl.pptx"])
         self.assertEqual(ns.template, "/tpl.pptx")
 
-        ns_short = self.parser.parse_args(
-            ["generate", "deck.yaml", "-t", "/tpl.pptx"]
-        )
+        ns_short = self.parser.parse_args(["generate", "deck.yaml", "-t", "/tpl.pptx"])
         self.assertEqual(ns_short.template, "/tpl.pptx")
 
     def test_generate_output_default_is_none(self):
@@ -99,9 +93,7 @@ class TestGenerateSubcommandFlags(unittest.TestCase):
 
     def test_generate_has_layout_map_flag(self):
         """Generate subcommand accepts --layout-map flag."""
-        ns = self.parser.parse_args(
-            ["generate", "deck.yaml", "--layout-map", "section=0,bullet=1"]
-        )
+        ns = self.parser.parse_args(["generate", "deck.yaml", "--layout-map", "section=0,bullet=1"])
         self.assertEqual(ns.layout_map, "section=0,bullet=1")
 
     def test_generate_layout_map_default_is_none(self):
@@ -189,12 +181,14 @@ class TestCommandDispatch(unittest.TestCase):
 # _apply_layout_map: a CLI layout map overrides the deck's own
 # ---------------------------------------------------------------------------
 
+
 class TestApplyLayoutMap(unittest.TestCase):
     """Tests for _apply_layout_map."""
 
     def test_cli_layout_map_overrides_deck_layout_map(self):
         """_apply_layout_map sets deck.metadata.layout_map when cli_layout_map is provided."""
         from slides.cli import _apply_layout_map
+
         deck = argparse.Namespace(metadata=argparse.Namespace(layout_map=None), template_path=None)
         _apply_layout_map(deck, {"bullet": 0})
         self.assertEqual(deck.metadata.layout_map, {"bullet": 0})
@@ -204,18 +198,21 @@ class TestApplyLayoutMap(unittest.TestCase):
 # _lazy_agentic: lru_cache lazy import (lines 38-40)
 # ---------------------------------------------------------------------------
 
+
 class TestLazyAgentic(unittest.TestCase):
     """Tests for the _lazy_agentic lru_cache helper."""
 
     def test_returns_callable(self):
         """_lazy_agentic() returns a callable (emit_agentic_context)."""
         from slides.cli import _lazy_agentic
+
         fn = _lazy_agentic()
         self.assertTrue(callable(fn))
 
     def test_second_call_returns_same_object(self):
         """_lazy_agentic() is cached — second call returns the exact same function."""
         from slides.cli import _lazy_agentic
+
         fn1 = _lazy_agentic()
         fn2 = _lazy_agentic()
         self.assertIs(fn1, fn2)
@@ -225,12 +222,14 @@ class TestLazyAgentic(unittest.TestCase):
 # _parse_layout_map_entry: empty name and reserved name errors (lines 59, 103)
 # ---------------------------------------------------------------------------
 
+
 class TestParseLayoutMapEntry(unittest.TestCase):
     """Tests for _parse_layout_map_entry ValueErrors."""
 
     def test_empty_name_raises_value_error(self):
         """An entry like '=0' (empty name) raises ValueError."""
         from slides.cli import _parse_layout_map_entry
+
         with self.assertRaises(ValueError) as ctx:
             _parse_layout_map_entry("=0")
         self.assertIn("empty", str(ctx.exception).lower())
@@ -239,6 +238,7 @@ class TestParseLayoutMapEntry(unittest.TestCase):
         """An entry using the reserved layout key raises ValueError."""
         from slides.cli import _parse_layout_map_entry
         from slides.constants import RESERVED_LAYOUT_KEY
+
         with self.assertRaises(ValueError) as ctx:
             _parse_layout_map_entry(f"{RESERVED_LAYOUT_KEY}=0")
         self.assertIn("reserved", str(ctx.exception).lower())
@@ -246,6 +246,7 @@ class TestParseLayoutMapEntry(unittest.TestCase):
     def test_valid_entry_returns_tuple(self):
         """A valid 'name=index' entry returns (name, index) tuple."""
         from slides.cli import _parse_layout_map_entry
+
         name, index = _parse_layout_map_entry("bullet=1")
         self.assertEqual(name, "bullet")
         self.assertEqual(index, 1)
@@ -255,18 +256,21 @@ class TestParseLayoutMapEntry(unittest.TestCase):
 # main() entry point (line 281)
 # ---------------------------------------------------------------------------
 
+
 class TestMain(unittest.TestCase):
     """Tests for the main() entry point."""
 
     def test_main_no_args_returns_int(self):
         """main() with no subcommand returns an integer exit code."""
         from slides.cli import main
+
         result = main([])
         self.assertIsInstance(result, int)
 
     def test_main_help_exits_zero(self):
         """main(['--help']) exits with code 0."""
         from slides.cli import main
+
         with self.assertRaises(SystemExit) as ctx:
             main(["--help"])
         self.assertEqual(ctx.exception.code, 0)

@@ -1,4 +1,5 @@
 """Auth helpers and shared pipeline primitives for accounts commands."""
+
 from __future__ import annotations
 
 from typing import Any, Generic, TypeVar
@@ -54,7 +55,7 @@ class AccountAuthenticator:
         Yields:
             Tuple of (account_dict, authenticated_client)
         """
-        from .helpers import load_accounts, iter_accounts, build_provider_for_account
+        from .helpers import build_provider_for_account, iter_accounts, load_accounts
 
         accts = load_accounts(config_path)
         for account in iter_accounts(accts, accounts_filter):
@@ -69,14 +70,16 @@ def canonicalize_filter(f: dict[str, Any]) -> str:
     act = f.get("action") or {}
     _raw_ids = act.get("addLabelIds") or act.get("add") or []
     add_ids: list = _raw_ids if isinstance(_raw_ids, list) else []
-    return str({
-        "from": crit.get("from"),
-        "to": crit.get("to"),
-        "subject": crit.get("subject"),
-        "query": crit.get("query"),
-        "add": tuple(sorted(add_ids)),
-        "forward": act.get("forward"),
-    })
+    return str(
+        {
+            "from": crit.get("from"),
+            "to": crit.get("to"),
+            "subject": crit.get("subject"),
+            "query": crit.get("query"),
+            "add": tuple(sorted(add_ids)),
+            "forward": act.get("forward"),
+        }
+    )
 
 
 def _build_label_id_to_name_map(labels: list) -> dict[str, str]:
@@ -91,11 +94,22 @@ def _convert_label_ids_to_names(ids: list | None, id_to_name: dict[str, str]) ->
 
 def _extract_filter_criteria(criteria_dict: dict[str, Any]) -> dict[str, Any]:
     """Extract relevant filter criteria fields."""
-    allowed_fields = ("from", "to", "subject", "query", "negatedQuery", "hasAttachment", "size", "sizeComparison")
+    allowed_fields = (
+        "from",
+        "to",
+        "subject",
+        "query",
+        "negatedQuery",
+        "hasAttachment",
+        "size",
+        "sizeComparison",
+    )
     return {k: v for k, v in criteria_dict.items() if k in allowed_fields and v not in (None, "")}
 
 
-def _build_filter_dsl_entry(filter_obj: dict[str, Any], id_to_name: dict[str, str]) -> dict[str, Any]:
+def _build_filter_dsl_entry(
+    filter_obj: dict[str, Any], id_to_name: dict[str, str]
+) -> dict[str, Any]:
     """Build a DSL filter entry from a raw filter object."""
     crit = filter_obj.get("criteria", {}) or {}
     act = filter_obj.get("action", {}) or {}
@@ -110,7 +124,9 @@ def _build_filter_dsl_entry(filter_obj: dict[str, Any], id_to_name: dict[str, st
     if act.get("addLabelIds"):
         entry["action"]["add"] = _convert_label_ids_to_names(act.get("addLabelIds"), id_to_name)
     if act.get("removeLabelIds"):
-        entry["action"]["remove"] = _convert_label_ids_to_names(act.get("removeLabelIds"), id_to_name)
+        entry["action"]["remove"] = _convert_label_ids_to_names(
+            act.get("removeLabelIds"), id_to_name
+        )
 
     return entry
 
@@ -123,7 +139,9 @@ _LABEL_UPDATE_FIELDS_BY_PROVIDER: dict[str, tuple[str, ...]] = {
 }
 
 
-def _changed_label_fields(spec: dict[str, Any], current: dict[str, Any], provider: str) -> dict[str, Any]:
+def _changed_label_fields(
+    spec: dict[str, Any], current: dict[str, Any], provider: str
+) -> dict[str, Any]:
     """Return the subset of provider-relevant fields that differ between spec and current."""
     fields = _LABEL_UPDATE_FIELDS_BY_PROVIDER.get(provider, ())
     return {k: spec[k] for k in fields if spec.get(k) and spec.get(k) != current.get(k)}
@@ -134,13 +152,17 @@ def _needs_label_update(spec: dict[str, Any], current: dict[str, Any], provider:
     return bool(_changed_label_fields(spec, current, provider))
 
 
-def _build_label_update_dict(name: str, spec: dict[str, Any], current: dict[str, Any], provider: str) -> dict[str, Any] | None:
+def _build_label_update_dict(
+    name: str, spec: dict[str, Any], current: dict[str, Any], provider: str
+) -> dict[str, Any] | None:
     """Build update dict for a label if changes are needed."""
     changed = _changed_label_fields(spec, current, provider)
     return {"name": name, **changed} if changed else None
 
 
-def _build_outlook_filter_action(action_spec: dict[str, Any], name_to_id: dict[str, str]) -> dict[str, Any]:
+def _build_outlook_filter_action(
+    action_spec: dict[str, Any], name_to_id: dict[str, str]
+) -> dict[str, Any]:
     """Build Outlook filter action from spec."""
     from ..outlook.helpers import norm_label_name_outlook
 
@@ -190,7 +212,9 @@ def _sync_one_outlook_filter(
         return 0, 1
 
 
-def _sync_outlook_filters(client, desired_filters: list, existing_filters: list, name_to_id: dict[str, str], dry_run: bool) -> tuple[int, int]:
+def _sync_outlook_filters(
+    client, desired_filters: list, existing_filters: list, name_to_id: dict[str, str], dry_run: bool
+) -> tuple[int, int]:
     """Sync Outlook filters and return (created, errors) counts."""
     existing_keys = {canonicalize_filter(f) for f in existing_filters}
     created = errors = 0
@@ -201,7 +225,9 @@ def _sync_outlook_filters(client, desired_filters: list, existing_filters: list,
     return created, errors
 
 
-def _sync_one_label(client, spec: dict[str, Any], existing: dict[str, Any], provider: str, dry_run: bool) -> tuple[int, int]:
+def _sync_one_label(
+    client, spec: dict[str, Any], existing: dict[str, Any], provider: str, dry_run: bool
+) -> tuple[int, int]:
     """Sync a single label spec. Returns (created_delta, updated_delta)."""
     name = spec.get("name")
     if not name:
@@ -220,7 +246,9 @@ def _sync_one_label(client, spec: dict[str, Any], existing: dict[str, Any], prov
     return 0, 1
 
 
-def _sync_labels_for_account(client, desired: list, existing: dict[str, Any], provider: str, dry_run: bool) -> tuple[int, int]:
+def _sync_labels_for_account(
+    client, desired: list, existing: dict[str, Any], provider: str, dry_run: bool
+) -> tuple[int, int]:
     """Sync labels for an account and return (created, updated) counts."""
     created = updated = 0
     for spec in desired:

@@ -20,7 +20,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-
 _BUNDLE_ID_RE = re.compile(r"^[A-Za-z0-9][\w.\-]*\.[A-Za-z0-9][\w.\-]*$")
 _MAX_DOCK_ITEMS = 4
 _MAX_FOLDER_PAGE_APPS = 9
@@ -56,16 +55,12 @@ def _validate_dock(dock: object, issues: list[ValidationIssue]) -> set[str]:
     for item in dock:
         if not isinstance(item, str):
             issues.append(
-                ValidationIssue(
-                    "error", f"dock item must be a string, got: {type(item).__name__}"
-                )
+                ValidationIssue("error", f"dock item must be a string, got: {type(item).__name__}")
             )
 
     if len(dock) > _MAX_DOCK_ITEMS:
         issues.append(
-            ValidationIssue(
-                "error", f"dock has {len(dock)} items; max is {_MAX_DOCK_ITEMS}"
-            )
+            ValidationIssue("error", f"dock has {len(dock)} items; max is {_MAX_DOCK_ITEMS}")
         )
 
     return set(item for item in dock if isinstance(item, str))
@@ -80,14 +75,10 @@ def _validate_bundle_id(
     ctx.all_bundle_ids.append(app)
     if not _is_bundle_id(app):
         ctx.issues.append(
-            ValidationIssue(
-                "warning", f"'{app}' does not look like a bundle ID (no dot)"
-            )
+            ValidationIssue("warning", f"'{app}' does not look like a bundle ID (no dot)")
         )
     if app in ctx.dock_set:
-        ctx.issues.append(
-            ValidationIssue("error", f"'{app}' appears in both dock and {context}")
-        )
+        ctx.issues.append(ValidationIssue("error", f"'{app}' appears in both dock and {context}"))
 
 
 def _validate_folder_page(
@@ -107,9 +98,7 @@ def _validate_folder_page(
         )
     if len(page) == 0:
         ctx.issues.append(
-            ValidationIssue(
-                "warning", f"folder '{folder_name}' page {page_index} is empty"
-            )
+            ValidationIssue("warning", f"folder '{folder_name}' page {page_index} is empty")
         )
 
     for app in page:
@@ -212,9 +201,7 @@ def _check_unplaced(
     placed = set(all_bundle_ids)
     for app in device_apps:
         if app not in placed:
-            issues.append(
-                ValidationIssue("warning", f"device app not placed in layout: '{app}'")
-            )
+            issues.append(ValidationIssue("warning", f"device app not placed in layout: '{app}'"))
 
 
 def validate_layout_json(

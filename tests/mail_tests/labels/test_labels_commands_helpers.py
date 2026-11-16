@@ -5,15 +5,14 @@ from unittest.mock import MagicMock, patch
 
 from tests.fixtures import capture_stdout
 from tests.mail_tests.fixtures import (
+    IMAP_STYLE_LABELS,
+    NESTED_LABELS,
     FakeGmailClient,
-    make_user_label,
-    make_system_label,
     make_label_with_visibility,
     make_message,
-    NESTED_LABELS,
-    IMAP_STYLE_LABELS,
+    make_system_label,
+    make_user_label,
 )
-
 
 # -----------------------------------------------------------------------------
 # Local test helpers
@@ -38,6 +37,7 @@ class TestExtractEmailFromHeader(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from mail.utils.senders import extract_sender_email
+
         cls.extract = staticmethod(extract_sender_email)
 
     def test_simple_email(self):
@@ -62,6 +62,7 @@ class TestExtractDomain(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from mail.utils.senders import extract_domain
+
         cls.extract = staticmethod(extract_domain)
 
     def test_extracts_domain(self):
@@ -83,6 +84,7 @@ class TestIsProtectedSender(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from mail.utils.senders import is_protected_email
+
         cls.is_protected = staticmethod(is_protected_email)
 
     def test_exact_email_match(self):
@@ -110,6 +112,7 @@ class TestClassifyDomain(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from mail.labels.commands_doctor import _classify_domain
+
         cls.classify = staticmethod(_classify_domain)
 
     def test_commercial_classification(self):
@@ -136,6 +139,7 @@ class TestGetEmptyUserLabels(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from mail.labels.commands_doctor import _get_empty_user_labels
+
         cls.get_empty = staticmethod(_get_empty_user_labels)
 
     def test_filters_empty_labels(self):
@@ -165,6 +169,7 @@ class TestAnalyzeLabels(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from mail.labels.commands_plan import _analyze_labels
+
         cls.analyze = staticmethod(_analyze_labels)
 
     def test_counts_total(self):
@@ -189,6 +194,7 @@ class TestFixLabelVisibility(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from mail.labels.commands_doctor import _fix_label_visibility
+
         cls.fix_visibility = staticmethod(_fix_label_visibility)
 
     def test_updates_missing_visibility(self):
@@ -210,13 +216,16 @@ class TestDeleteImapLabels(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from mail.labels.commands_doctor import _delete_imap_labels
+
         cls.delete_labels = staticmethod(_delete_imap_labels)
 
     def test_deletes_existing_labels(self):
-        client = FakeGmailClient(labels=[
-            make_user_label("ToDelete", "L1"),
-            make_user_label("Keep", "L2"),
-        ])
+        client = FakeGmailClient(
+            labels=[
+                make_user_label("ToDelete", "L1"),
+                make_user_label("Keep", "L2"),
+            ]
+        )
         changed = self.delete_labels(client, ["ToDelete"])
         self.assertEqual(changed, 1)
         self.assertEqual(len(client.labels), 1)
@@ -234,6 +243,7 @@ class TestDeleteLabelWithRetry(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from mail.labels.commands_doctor import _delete_label_with_retry
+
         cls.delete_retry = staticmethod(_delete_label_with_retry)
 
     def test_successful_delete(self):
@@ -264,24 +274,29 @@ class TestCollectDomainStats(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from mail.labels.commands_doctor import _collect_domain_stats
+
         cls.collect_stats = staticmethod(_collect_domain_stats)
 
     def test_counts_domains(self):
-        client = make_mock_client_with_headers([
-            {"from": "user1@example.com"},
-            {"from": "user2@example.com"},
-            {"from": "other@different.com"},
-        ])
+        client = make_mock_client_with_headers(
+            [
+                {"from": "user1@example.com"},
+                {"from": "user2@example.com"},
+                {"from": "other@different.com"},
+            ]
+        )
         msgs = [make_message("1"), make_message("2"), make_message("3")]
         counts, _ = self.collect_stats(client, msgs, [])
         self.assertEqual(counts["example.com"], 2)
         self.assertEqual(counts["different.com"], 1)
 
     def test_skips_protected_senders(self):
-        client = make_mock_client_with_headers([
-            {"from": "user@protected.com"},
-            {"from": "user@allowed.com"},
-        ])
+        client = make_mock_client_with_headers(
+            [
+                {"from": "user@protected.com"},
+                {"from": "user@allowed.com"},
+            ]
+        )
         msgs = [make_message("1"), make_message("2")]
         counts, _ = self.collect_stats(client, msgs, ["@protected.com"])
         self.assertNotIn("protected.com", counts)
@@ -311,6 +326,7 @@ class TestResolveLabelsIds(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from mail.utils.filters import _resolve_label_ids
+
         cls.resolve = staticmethod(_resolve_label_ids)
 
     def test_resolves_existing_labels(self):

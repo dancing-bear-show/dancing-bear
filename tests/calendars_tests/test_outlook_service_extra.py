@@ -1,13 +1,14 @@
 """Additional tests for calendars/outlook_service.py — list_calendar_view, delete_event_by_id, list_messages, etc."""
+
 import unittest
 from unittest.mock import MagicMock, patch
 
 from calendars.outlook_service import OutlookService
 
-
 # ---------------------------------------------------------------------------
 # Fake client / context
 # ---------------------------------------------------------------------------
+
 
 class _FakeClient:
     GRAPH = "https://graph.microsoft.com/v1.0"
@@ -88,9 +89,11 @@ def _make_svc():
 # Tests
 # ---------------------------------------------------------------------------
 
+
 class TestOutlookServiceDelegation(unittest.TestCase):
     def test_list_events_in_range_delegates(self):
         from calendars.outlook_service import ListEventsRequest
+
         svc = _make_svc()
         params = ListEventsRequest(start_iso="2025-01-01T00:00:00", end_iso="2025-01-31T23:59:59")
         result = svc.list_events_in_range(params)
@@ -124,18 +127,26 @@ class TestOutlookServiceDelegation(unittest.TestCase):
 
     def test_create_event_delegates(self):
         from core.outlook.models import EventCreationParams
+
         svc = _make_svc()
-        params = EventCreationParams(subject="Meeting", start_iso="2025-01-01T10:00", end_iso="2025-01-01T11:00")
+        params = EventCreationParams(
+            subject="Meeting", start_iso="2025-01-01T10:00", end_iso="2025-01-01T11:00"
+        )
         result = svc.create_event(params)
         self.assertEqual(result["id"], "new_single")
 
     def test_create_recurring_event_delegates(self):
         from core.outlook.models import RecurringEventCreationParams
+
         svc = _make_svc()
         params = RecurringEventCreationParams(
-            subject="Weekly", repeat="weekly", byday=["MO"],
-            start_time="10:00", end_time="11:00",
-            range_start_date="2025-01-01", range_until="2025-06-30",
+            subject="Weekly",
+            repeat="weekly",
+            byday=["MO"],
+            start_time="10:00",
+            end_time="11:00",
+            range_start_date="2025-01-01",
+            range_until="2025-06-30",
         )
         result = svc.create_recurring_event(params)
         self.assertEqual(result["id"], "new_recurring")
@@ -186,12 +197,16 @@ class TestOutlookServiceDelegation(unittest.TestCase):
 
     def test_update_event_location(self):
         from core.outlook.models import UpdateEventLocationRequest
+
         svc = _make_svc()
-        svc.update_event_location(UpdateEventLocationRequest(event_id="e1", location_str="Test Location"))
+        svc.update_event_location(
+            UpdateEventLocationRequest(event_id="e1", location_str="Test Location")
+        )
         self.assertEqual(len(svc.client.location_updates), 1)
 
     def test_update_event_reminder(self):
         from core.outlook.models import UpdateEventReminderRequest
+
         svc = _make_svc()
         params = UpdateEventReminderRequest(event_id="e1", is_on=False)
         svc.update_event_reminder(params)
@@ -199,6 +214,7 @@ class TestOutlookServiceDelegation(unittest.TestCase):
 
     def test_update_event_settings(self):
         from core.outlook.models import EventSettingsPatch
+
         svc = _make_svc()
         params = EventSettingsPatch(event_id="e1")
         svc.update_event_settings(params)
@@ -206,6 +222,7 @@ class TestOutlookServiceDelegation(unittest.TestCase):
 
     def test_update_event_subject(self):
         from core.outlook.models import UpdateEventSubjectRequest
+
         svc = _make_svc()
         svc.update_event_subject(UpdateEventSubjectRequest(event_id="e1", subject="New Title"))
         self.assertIn(("e1", "New Title"), svc.client.subject_updates)
@@ -237,6 +254,7 @@ class TestOutlookServiceHTTP(unittest.TestCase):
 
     def test_list_calendar_view_single_page(self):
         from core.outlook.models import ListCalendarViewRequest
+
         svc = _make_svc()
         page_data = {"value": [{"id": "e1"}, {"id": "e2"}]}
         mock_resp = self._make_response(page_data)
@@ -256,14 +274,22 @@ class TestOutlookServiceHTTP(unittest.TestCase):
 
     def test_list_calendar_view_pagination(self):
         from core.outlook.models import ListCalendarViewRequest
+
         svc = _make_svc()
-        page1 = {"value": [{"id": "e1"}], "@odata.nextLink": "https://graph.microsoft.com/v1.0/next"}
+        page1 = {
+            "value": [{"id": "e1"}],
+            "@odata.nextLink": "https://graph.microsoft.com/v1.0/next",
+        }
         page2 = {"value": [{"id": "e2"}]}
 
-        with patch.object(svc._http, "get", side_effect=[
-            self._make_response(page1),
-            self._make_response(page2),
-        ]) as mock_get:
+        with patch.object(
+            svc._http,
+            "get",
+            side_effect=[
+                self._make_response(page1),
+                self._make_response(page2),
+            ],
+        ) as mock_get:
             params = ListCalendarViewRequest(
                 calendar_id=None,
                 start_iso="2025-01-01T00:00:00",
@@ -319,13 +345,20 @@ class TestOutlookServiceHTTP(unittest.TestCase):
 
     def test_list_messages_multiple_pages(self):
         svc = _make_svc()
-        page1 = {"value": [{"id": "m1"}], "@odata.nextLink": "https://graph.microsoft.com/v1.0/next"}
+        page1 = {
+            "value": [{"id": "m1"}],
+            "@odata.nextLink": "https://graph.microsoft.com/v1.0/next",
+        }
         page2 = {"value": [{"id": "m2"}]}
 
-        with patch.object(svc._http, "get", side_effect=[
-            self._make_response(page1),
-            self._make_response(page2),
-        ]):
+        with patch.object(
+            svc._http,
+            "get",
+            side_effect=[
+                self._make_response(page1),
+                self._make_response(page2),
+            ],
+        ):
             msgs = svc.list_messages(folder="inbox", top=1, pages=2)
 
         self.assertEqual(len(msgs), 2)
@@ -346,6 +379,7 @@ class TestOutlookServiceHTTP(unittest.TestCase):
     def test_list_calendar_view_no_calendar_id(self):
         """calendar_id=None should use /me/calendarView endpoint."""
         from core.outlook.models import ListCalendarViewRequest
+
         svc = _make_svc()
         page_data = {"value": []}
         mock_resp = self._make_response(page_data)

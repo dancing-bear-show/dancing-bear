@@ -3,8 +3,10 @@
 Generate a simple fixed-length toilet paper rod as a cylinder.
 Requires: numpy, trimesh
 """
-from pathlib import Path
+
 import argparse
+from pathlib import Path
+
 import trimesh
 
 
@@ -19,15 +21,15 @@ def make_rod(length_mm: float, diameter_mm: float) -> trimesh.Trimesh:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument('--length', type=float, default=170.0, help='End-to-end length in mm')
-    ap.add_argument('--diameter', type=float, default=24.0, help='Rod outer diameter in mm')
-    ap.add_argument('--outfile', type=Path, default=Path('tp_rod_170mm_d24mm.stl'))
+    ap.add_argument("--length", type=float, default=170.0, help="End-to-end length in mm")
+    ap.add_argument("--diameter", type=float, default=24.0, help="Rod outer diameter in mm")
+    ap.add_argument("--outfile", type=Path, default=Path("tp_rod_170mm_d24mm.stl"))
     args = ap.parse_args()
 
     mesh = make_rod(args.length, args.diameter)
     mesh.export(args.outfile)
-    print(f'Wrote {args.outfile} (L={args.length}mm, D={args.diameter}mm)')
+    print(f"Wrote {args.outfile} (L={args.length}mm, D={args.diameter}mm)")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

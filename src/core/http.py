@@ -6,7 +6,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
@@ -74,9 +74,15 @@ class HttpClient:
         self.base_url = base_url.rstrip("/")
         self.default_headers: dict[str, str] = default_headers or {}
         self.timeout: float | tuple[float, float] = (
-            timeout if timeout is not None else _parse_env_float(ENV_HTTP_TIMEOUT, DEFAULT_HTTP_TIMEOUT)
+            timeout
+            if timeout is not None
+            else _parse_env_float(ENV_HTTP_TIMEOUT, DEFAULT_HTTP_TIMEOUT)
         )
-        raw_retries = retries if retries is not None else _parse_env_int(ENV_HTTP_RETRIES, DEFAULT_HTTP_RETRIES)
+        raw_retries = (
+            retries
+            if retries is not None
+            else _parse_env_int(ENV_HTTP_RETRIES, DEFAULT_HTTP_RETRIES)
+        )
         self.retries = max(1, raw_retries)  # always allow at least one attempt
         self.logger = logging.getLogger(f"http.{self.__class__.__name__}")
         self._session = session if session is not None else _make_session()
@@ -115,8 +121,9 @@ class HttpClient:
                 pass
             # Try HTTP-date format (e.g. "Wed, 25 Jun 2026 15:00:00 GMT")
             from email.utils import parsedate_to_datetime  # noqa: PLC0415 - stdlib lazy import
+
             dt = parsedate_to_datetime(value)
-            delta = (dt - datetime.now(timezone.utc)).total_seconds()
+            delta = (dt - datetime.now(UTC)).total_seconds()
             return max(0, int(delta))
         except Exception:  # nosec B110 - header may be absent or malformed
             pass
@@ -127,7 +134,12 @@ class HttpClient:
             return
         self.logger.debug(
             "%s %s (attempt %d/%d, timeout=%ss) headers=%s",
-            method, mask_url(url), attempt + 1, self.retries, self.timeout, mask_headers(hdrs),
+            method,
+            mask_url(url),
+            attempt + 1,
+            self.retries,
+            self.timeout,
+            mask_headers(hdrs),
         )
 
     def _log_response(self, method: str, url: str, status: int, length: int | str) -> None:
@@ -135,7 +147,9 @@ class HttpClient:
             return
         self.logger.debug("%s %s -> %d (%s bytes)", method, mask_url(url), status, length)
 
-    def _log_transient(self, status: int, method: str, url: str, attempt: int, retry_after: int | None) -> None:
+    def _log_transient(
+        self, status: int, method: str, url: str, attempt: int, retry_after: int | None
+    ) -> None:
         if status == 429:
             msg = f"HTTP 429 rate limited: {method} {mask_url(url)} (attempt {attempt + 1}/{self.retries})"
             if retry_after is not None:
@@ -144,7 +158,11 @@ class HttpClient:
         elif self.logger.isEnabledFor(logging.DEBUG):
             self.logger.debug(
                 "HTTP %d transient error for %s %s (attempt %d/%d)",
-                status, method, mask_url(url), attempt + 1, self.retries,
+                status,
+                method,
+                mask_url(url),
+                attempt + 1,
+                self.retries,
             )
 
     def _sleep_for_retry(self, attempt: int, retry_after: int | None) -> None:
@@ -177,7 +195,11 @@ class HttpClient:
         if self.logger.isEnabledFor(logging.DEBUG):
             self.logger.debug(
                 "%s %s network error: %s (attempt %d/%d)",
-                method, mask_url(url), mask_text(str(exc)), attempt + 1, self.retries,
+                method,
+                mask_url(url),
+                mask_text(str(exc)),
+                attempt + 1,
+                self.retries,
             )
         if attempt < self.retries - 1:
             self._sleep_for_retry(attempt, None)
@@ -189,7 +211,10 @@ class HttpClient:
         if self.logger.isEnabledFor(logging.DEBUG):
             self.logger.debug(
                 "%s %s timed out (attempt %d/%d)",
-                method, mask_url(url), attempt + 1, self.retries,
+                method,
+                mask_url(url),
+                attempt + 1,
+                self.retries,
             )
         if attempt < self.retries - 1:
             self._sleep_for_retry(attempt, None)
@@ -211,8 +236,14 @@ class HttpClient:
         self._log_request(method, url, hdrs, attempt)
         try:
             resp = self._session.request(
-                method.upper(), url, headers=hdrs, data=b.data, json=b.json,
-                files=b.files, timeout=self.timeout, stream=b.stream,
+                method.upper(),
+                url,
+                headers=hdrs,
+                data=b.data,
+                json=b.json,
+                files=b.files,
+                timeout=self.timeout,
+                stream=b.stream,
             )
             if self.logger.isEnabledFor(logging.DEBUG):
                 content_len: int | str = "<streamed>" if b.stream else len(resp.content)
@@ -251,10 +282,14 @@ class HttpClient:
             if resp is not None:
                 return resp
 
-        raise RuntimeError(f"request failed after {self.retries} attempts: {method} {mask_url(url)}")
+        raise RuntimeError(
+            f"request failed after {self.retries} attempts: {method} {mask_url(url)}"
+        )
 
     def get(
-        self, path: str, *,
+        self,
+        path: str,
+        *,
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
         body: HttpRequestBody | None = None,
@@ -263,7 +298,9 @@ class HttpClient:
         return self.request("GET", path, params=params, headers=headers, body=body)
 
     def post(
-        self, path: str, *,
+        self,
+        path: str,
+        *,
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
         body: HttpRequestBody | None = None,
@@ -272,7 +309,9 @@ class HttpClient:
         return self.request("POST", path, params=params, headers=headers, body=body)
 
     def patch(
-        self, path: str, *,
+        self,
+        path: str,
+        *,
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
         body: HttpRequestBody | None = None,
@@ -281,7 +320,9 @@ class HttpClient:
         return self.request("PATCH", path, params=params, headers=headers, body=body)
 
     def put(
-        self, path: str, *,
+        self,
+        path: str,
+        *,
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
         body: HttpRequestBody | None = None,
@@ -290,7 +331,9 @@ class HttpClient:
         return self.request("PUT", path, params=params, headers=headers, body=body)
 
     def delete(
-        self, path: str, *,
+        self,
+        path: str,
+        *,
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
         body: HttpRequestBody | None = None,

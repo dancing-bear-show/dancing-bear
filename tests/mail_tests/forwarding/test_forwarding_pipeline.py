@@ -8,25 +8,25 @@ from contextlib import redirect_stdout
 
 from mail.context import MailContext
 from mail.forwarding.consumers import (
-    ForwardingListConsumer,
     ForwardingAddConsumer,
-    ForwardingStatusConsumer,
-    ForwardingEnableConsumer,
     ForwardingDisableConsumer,
+    ForwardingEnableConsumer,
+    ForwardingListConsumer,
+    ForwardingStatusConsumer,
 )
 from mail.forwarding.processors import (
-    ForwardingListProcessor,
     ForwardingAddProcessor,
-    ForwardingStatusProcessor,
-    ForwardingEnableProcessor,
     ForwardingDisableProcessor,
+    ForwardingEnableProcessor,
+    ForwardingListProcessor,
+    ForwardingStatusProcessor,
 )
 from mail.forwarding.producers import (
-    ForwardingListProducer,
     ForwardingAddProducer,
-    ForwardingStatusProducer,
-    ForwardingEnableProducer,
     ForwardingDisableProducer,
+    ForwardingEnableProducer,
+    ForwardingListProducer,
+    ForwardingStatusProducer,
 )
 from tests.mail_tests.fixtures import FakeForwardingClient, make_args
 
@@ -153,9 +153,7 @@ class ForwardingStatusPipelineTests(unittest.TestCase):
         self.assertEqual(envelope.payload.disposition, "leaveInInbox")
 
     def test_status_returns_disabled(self):
-        client = FakeForwardingClient(
-            auto_forwarding={"enabled": False}
-        )
+        client = FakeForwardingClient(auto_forwarding={"enabled": False})
         ctx = _make_context_with_client(client)
 
         consumer = ForwardingStatusConsumer(context=ctx)
@@ -194,9 +192,7 @@ class ForwardingEnablePipelineTests(unittest.TestCase):
     """Tests for forwarding enable pipeline."""
 
     def test_enable_sets_forwarding(self):
-        client = FakeForwardingClient(
-            verified_addresses={"verified@example.com"}
-        )
+        client = FakeForwardingClient(verified_addresses={"verified@example.com"})
         ctx = _make_context_with_client(client)
 
         consumer = ForwardingEnableConsumer(
@@ -214,9 +210,7 @@ class ForwardingEnablePipelineTests(unittest.TestCase):
         self.assertTrue(client.forwarding_settings[-1]["enabled"])
 
     def test_enable_fails_for_unverified_address(self):
-        client = FakeForwardingClient(
-            verified_addresses={"other@example.com"}
-        )
+        client = FakeForwardingClient(verified_addresses={"other@example.com"})
         ctx = _make_context_with_client(client)
 
         consumer = ForwardingEnableConsumer(
@@ -233,9 +227,7 @@ class ForwardingEnablePipelineTests(unittest.TestCase):
         self.assertIn("not verified", envelope.diagnostics.get("error", ""))
 
     def test_enable_producer_outputs_success(self):
-        client = FakeForwardingClient(
-            verified_addresses={"good@example.com"}
-        )
+        client = FakeForwardingClient(verified_addresses={"good@example.com"})
         ctx = _make_context_with_client(client)
 
         consumer = ForwardingEnableConsumer(

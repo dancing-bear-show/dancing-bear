@@ -50,39 +50,63 @@ def _linked(anchor: str, title: str, severity: str = "High") -> str:
 
 def _body(*sections: str, claimed: int = 1) -> str:
     return "\n".join(
-        [OVERVIEW_MARKER, "", "## Copilot review overview", "",
-         f"**Findings:** {claimed} <picture></picture>", "", *sections]
+        [
+            OVERVIEW_MARKER,
+            "",
+            "## Copilot review overview",
+            "",
+            f"**Findings:** {claimed} <picture></picture>",
+            "",
+            *sections,
+        ]
     )
 
 
 def _section(name: str, count: int, *lines: str) -> str:
     return "\n".join(
-        ["<details open>",
-         f"<summary><strong>{name} ({count})</strong></summary>",
-         "", *lines, "</details>"]
+        [
+            "<details open>",
+            f"<summary><strong>{name} ({count})</strong></summary>",
+            "",
+            *lines,
+            "</details>",
+        ]
     )
 
 
-def _unlinked(title: str, path: str, line: int, severity: str = "Medium",
-              text: str = "The finding body.") -> str:
+def _unlinked(
+    title: str, path: str, line: int, severity: str = "Medium", text: str = "The finding body."
+) -> str:
     """An inline finding: no anchor, nested details, ZWSP-injected path."""
     zwsp_path = path.replace("/", f"/{ZWSP}")
-    return "\n".join([
-        "<details>",
-        f"<summary>{_badge(severity)} {title}</summary>",
-        "",
-        f"`{zwsp_path}:{line}`",
-        "",
-        text,
-        "</details>",
-    ])
+    return "\n".join(
+        [
+            "<details>",
+            f"<summary>{_badge(severity)} {title}</summary>",
+            "",
+            f"`{zwsp_path}:{line}`",
+            "",
+            text,
+            "</details>",
+        ]
+    )
 
 
-def _review(body: str, *, review_id: int = 1, author: str = "copilot-pull-request-reviewer",
-            author_kind: str = "bot", submitted_at: str = "2026-09-23T00:00:00Z") -> dict:
+def _review(
+    body: str,
+    *,
+    review_id: int = 1,
+    author: str = "copilot-pull-request-reviewer",
+    author_kind: str = "bot",
+    submitted_at: str = "2026-09-23T00:00:00Z",
+) -> dict:
     return {
-        "review_id": review_id, "author": author, "author_kind": author_kind,
-        "state": "COMMENTED", "submitted_at": submitted_at, "body": body,
+        "review_id": review_id,
+        "author": author,
+        "author_kind": author_kind,
+        "state": "COMMENTED",
+        "submitted_at": submitted_at,
+        "body": body,
     }
 
 
@@ -124,15 +148,15 @@ class TestAuthorGate(unittest.TestCase):
         A login check alone would accept this. author_kind comes from the API's
         own account type, which a user-controlled display name cannot forge.
         """
-        review = _review(_body(), author="copilot-pull-request-reviewer",
-                         author_kind="human")
+        review = _review(_body(), author="copilot-pull-request-reviewer", author_kind="human")
         self.assertFalse(is_copilot_overview(review))
 
     def test_a_human_review_never_reaches_the_findings_map(self):
         """End-to-end: a forged body must not steer triage."""
         forged = _review(
             _body(_section("Open", 1, _linked("111", "Reopen this"))),
-            author="attacker", author_kind="human",
+            author="attacker",
+            author_kind="human",
         )
         out = parse_overview([forged], [_thread("PRRT_a", 111)])
 
@@ -147,9 +171,11 @@ class TestAuthorGate(unittest.TestCase):
 
     def test_bot_suffix_is_stripped_only_in_its_exact_form(self):
         """GitHub spells it `[bot]`; a case variant is a different login."""
-        for login in ("copilot-pull-request-reviewer[Bot]",
-                      "copilot-pull-request-reviewer[BOT]",
-                      "Copilot-Pull-Request-Reviewer"):
+        for login in (
+            "copilot-pull-request-reviewer[Bot]",
+            "copilot-pull-request-reviewer[BOT]",
+            "Copilot-Pull-Request-Reviewer",
+        ):
             with self.subTest(login=login):
                 self.assertFalse(is_copilot_overview(_review(_body(), author=login)))
         self.assertEqual(normalize_login("x[Bot]"), "x[Bot]")
@@ -203,8 +229,9 @@ class TestUnlinkedFindings(unittest.TestCase):
     """Findings with no anchor and no thread anywhere on the PR."""
 
     def test_unlinked_finding_is_parsed(self):
-        body = _body(_section("Previously missed", 1,
-                              _unlinked("Bad guard", "src/workflow/linter.py", 408)))
+        body = _body(
+            _section("Previously missed", 1, _unlinked("Bad guard", "src/workflow/linter.py", 408))
+        )
         out = parse_overview([_review(body)], [])
 
         key = "unlinked:src/workflow/linter.py:408"
@@ -218,8 +245,7 @@ class TestUnlinkedFindings(unittest.TestCase):
         self.assertTrue(entry["previously_missed"])
 
     def test_zero_width_spaces_are_stripped_from_paths(self):
-        body = _body(_section("Previously missed", 1,
-                              _unlinked("T", "a/b/c.py", 10)))
+        body = _body(_section("Previously missed", 1, _unlinked("T", "a/b/c.py", 10)))
         out = parse_overview([_review(body)], [])
 
         path = out["findings"]["unlinked:a/b/c.py:10"]["path"]
@@ -240,9 +266,14 @@ class TestUnlinkedFindings(unittest.TestCase):
 class TestFileIds(unittest.TestCase):
     def test_sanitised_ids_that_would_collide_stay_distinct(self):
         """`a/b.py` and `a-b.py` sanitise identically; the hash separates them."""
-        body = _body(_section("Previously missed", 2,
-                              _unlinked("One", "a/b.py", 10),
-                              _unlinked("Two", "a-b.py", 10)))
+        body = _body(
+            _section(
+                "Previously missed",
+                2,
+                _unlinked("One", "a/b.py", 10),
+                _unlinked("Two", "a-b.py", 10),
+            )
+        )
         out = parse_overview([_review(body)], [])
 
         file_ids = [v["file_id"] for v in out["findings"].values()]
@@ -260,10 +291,16 @@ class TestFileIds(unittest.TestCase):
 
 class TestFold(unittest.TestCase):
     def test_newest_review_wins_the_section(self):
-        older = _review(_body(_section("Open", 1, _linked("111", "X"))),
-                        review_id=1, submitted_at="2026-09-22T22:17:00Z")
-        newer = _review(_body(_section("Resolved since last review", 1, _linked("111", "X"))),
-                        review_id=2, submitted_at="2026-09-22T22:32:00Z")
+        older = _review(
+            _body(_section("Open", 1, _linked("111", "X"))),
+            review_id=1,
+            submitted_at="2026-09-22T22:17:00Z",
+        )
+        newer = _review(
+            _body(_section("Resolved since last review", 1, _linked("111", "X"))),
+            review_id=2,
+            submitted_at="2026-09-22T22:32:00Z",
+        )
         out = parse_overview([older, newer], [_thread("PRRT_a", 111)])
 
         self.assertEqual(out["findings"]["111"]["section"], "Resolved since last review")
@@ -274,19 +311,27 @@ class TestFold(unittest.TestCase):
 
     def test_identical_timestamps_break_on_review_id(self):
         same = "2026-09-22T22:17:00Z"
-        a = _review(_body(_section("Open", 1, _linked("111", "X"))),
-                    review_id=1, submitted_at=same)
-        b = _review(_body(_section("Resolved since last review", 1, _linked("111", "X"))),
-                    review_id=2, submitted_at=same)
+        a = _review(_body(_section("Open", 1, _linked("111", "X"))), review_id=1, submitted_at=same)
+        b = _review(
+            _body(_section("Resolved since last review", 1, _linked("111", "X"))),
+            review_id=2,
+            submitted_at=same,
+        )
         out = parse_overview([b, a], [_thread("PRRT_a", 111)])
 
         self.assertEqual(out["findings"]["111"]["section"], "Resolved since last review")
 
     def test_previously_missed_survives_later_resolution(self):
-        older = _review(_body(_section("Previously missed", 1, _linked("111", "X"))),
-                        review_id=1, submitted_at="2026-09-22T22:00:00Z")
-        newer = _review(_body(_section("Resolved since last review", 1, _linked("111", "X"))),
-                        review_id=2, submitted_at="2026-09-22T23:00:00Z")
+        older = _review(
+            _body(_section("Previously missed", 1, _linked("111", "X"))),
+            review_id=1,
+            submitted_at="2026-09-22T22:00:00Z",
+        )
+        newer = _review(
+            _body(_section("Resolved since last review", 1, _linked("111", "X"))),
+            review_id=2,
+            submitted_at="2026-09-22T23:00:00Z",
+        )
         out = parse_overview([older, newer], [_thread("PRRT_a", 111)])
 
         self.assertTrue(out["findings"]["111"]["previously_missed"])
@@ -294,10 +339,16 @@ class TestFold(unittest.TestCase):
 
     def test_source_timestamp_is_per_finding_not_global(self):
         """A later review that omits a finding must not restamp it."""
-        older = _review(_body(_section("Open", 1, _linked("111", "X"))),
-                        review_id=1, submitted_at="2026-09-22T22:00:00Z")
-        newer = _review(_body(_section("Open", 1, _linked("222", "Y"))),
-                        review_id=2, submitted_at="2026-09-22T23:00:00Z")
+        older = _review(
+            _body(_section("Open", 1, _linked("111", "X"))),
+            review_id=1,
+            submitted_at="2026-09-22T22:00:00Z",
+        )
+        newer = _review(
+            _body(_section("Open", 1, _linked("222", "Y"))),
+            review_id=2,
+            submitted_at="2026-09-22T23:00:00Z",
+        )
         out = parse_overview([older, newer], [_thread("A", 111), _thread("B", 222)])
 
         self.assertEqual(out["findings"]["111"]["source_submitted_at"], "2026-09-22T22:00:00Z")
@@ -308,10 +359,14 @@ class TestFold(unittest.TestCase):
         """A fix round moves the cited line; the history must stay together."""
         older = _review(
             _body(_section("Previously missed", 1, _unlinked("Same title", "a.py", 100))),
-            review_id=1, submitted_at="2026-09-22T22:00:00Z")
+            review_id=1,
+            submitted_at="2026-09-22T22:00:00Z",
+        )
         newer = _review(
             _body(_section("Open", 1, _unlinked("Same title", "a.py", 140))),
-            review_id=2, submitted_at="2026-09-22T23:00:00Z")
+            review_id=2,
+            submitted_at="2026-09-22T23:00:00Z",
+        )
         out = parse_overview([older, newer], [])
 
         unlinked = [v for v in out["findings"].values() if not v["linked"]]
@@ -339,8 +394,9 @@ class TestShortfall(unittest.TestCase):
 
     def test_zero_parsed_against_a_claim_is_partial(self):
         """A shape change returns nothing; that must not read as a clean PR."""
-        body = "\n".join([OVERVIEW_MARKER, "**Findings:** 4 <picture></picture>",
-                          "<totally-new-markup/>"])
+        body = "\n".join(
+            [OVERVIEW_MARKER, "**Findings:** 4 <picture></picture>", "<totally-new-markup/>"]
+        )
         out = parse_overview([_review(body)], [])
 
         self.assertTrue(out["present"])
@@ -358,18 +414,24 @@ class TestShortfall(unittest.TestCase):
         below declares one entry but has no severity-badge summary line, so
         nothing is recorded under it.
         """
-        body = "\n".join([
-            OVERVIEW_MARKER, "", "## Copilot review overview", "",
-            "**Findings:** None", "",
-            "<details>",
-            "<summary><strong>Previously missed (1)</strong></summary>",
-            "",
-            "<details>",
-            "<summary>Not a real finding block</summary>",
-            "some text with no path line",
-            "</details>",
-            "</details>",
-        ])
+        body = "\n".join(
+            [
+                OVERVIEW_MARKER,
+                "",
+                "## Copilot review overview",
+                "",
+                "**Findings:** None",
+                "",
+                "<details>",
+                "<summary><strong>Previously missed (1)</strong></summary>",
+                "",
+                "<details>",
+                "<summary>Not a real finding block</summary>",
+                "some text with no path line",
+                "</details>",
+                "</details>",
+            ]
+        )
         out = parse_overview([_review(body)], [])
 
         self.assertEqual(out["newest"]["findings_claimed"], 0)
@@ -379,13 +441,18 @@ class TestShortfall(unittest.TestCase):
 
     def test_fully_parsed_non_open_section_stays_ok(self):
         """A section that parses in full must not itself trip the tripwire."""
-        body = "\n".join([
-            OVERVIEW_MARKER, "", "## Copilot review overview", "",
-            "**Findings:** 1 <picture></picture>", "",
-            _section("Open", 1, _linked("111", "A")),
-            _section("Resolved since last review", 2,
-                     _linked("222", "B"), _linked("333", "C")),
-        ])
+        body = "\n".join(
+            [
+                OVERVIEW_MARKER,
+                "",
+                "## Copilot review overview",
+                "",
+                "**Findings:** 1 <picture></picture>",
+                "",
+                _section("Open", 1, _linked("111", "A")),
+                _section("Resolved since last review", 2, _linked("222", "B"), _linked("333", "C")),
+            ]
+        )
         threads = [_thread(f"T{i}", d) for i, d in enumerate((111, 222, 333))]
 
         out = parse_overview([_review(body)], threads)
@@ -400,26 +467,32 @@ class TestShortfall(unittest.TestCase):
         entry parses → shortfall must be 2, not 1.  A max-only implementation
         would report 1 and miss that an entire section went unread.
         """
-        body = "\n".join([
-            OVERVIEW_MARKER, "", "## Copilot review overview", "",
-            "**Findings:** None", "",
-            "<details>",
-            "<summary><strong>Open (1)</strong></summary>",
-            "",
-            "<details>",
-            "<summary>Not a real finding block</summary>",
-            "some text with no path line",
-            "</details>",
-            "</details>",
-            "<details>",
-            "<summary><strong>Previously missed (1)</strong></summary>",
-            "",
-            "<details>",
-            "<summary>Also not a real finding block</summary>",
-            "some text with no path line",
-            "</details>",
-            "</details>",
-        ])
+        body = "\n".join(
+            [
+                OVERVIEW_MARKER,
+                "",
+                "## Copilot review overview",
+                "",
+                "**Findings:** None",
+                "",
+                "<details>",
+                "<summary><strong>Open (1)</strong></summary>",
+                "",
+                "<details>",
+                "<summary>Not a real finding block</summary>",
+                "some text with no path line",
+                "</details>",
+                "</details>",
+                "<details>",
+                "<summary><strong>Previously missed (1)</strong></summary>",
+                "",
+                "<details>",
+                "<summary>Also not a real finding block</summary>",
+                "some text with no path line",
+                "</details>",
+                "</details>",
+            ]
+        )
         out = parse_overview([_review(body)], [])
 
         self.assertEqual(out["findings"], {})
@@ -438,18 +511,24 @@ class TestShortfall(unittest.TestCase):
         # a declared section.  Headline is 1.  Previously missed (1) declared
         # but its inner block has no severity-badge summary line → nothing
         # parses out of it.
-        body = "\n".join([
-            OVERVIEW_MARKER, "", "## Copilot review overview", "",
-            "**Findings:** 1 <picture></picture>", "",
-            "<details>",
-            "<summary><strong>Previously missed (1)</strong></summary>",
-            "",
-            "<details>",
-            "<summary>Not a real finding block</summary>",
-            "some text with no path line",
-            "</details>",
-            "</details>",
-        ])
+        body = "\n".join(
+            [
+                OVERVIEW_MARKER,
+                "",
+                "## Copilot review overview",
+                "",
+                "**Findings:** 1 <picture></picture>",
+                "",
+                "<details>",
+                "<summary><strong>Previously missed (1)</strong></summary>",
+                "",
+                "<details>",
+                "<summary>Not a real finding block</summary>",
+                "some text with no path line",
+                "</details>",
+                "</details>",
+            ]
+        )
         out = parse_overview([_review(body)], [])
 
         self.assertEqual(out["findings"], {})
@@ -468,26 +547,32 @@ class TestShortfall(unittest.TestCase):
         ``test_two_sections_each_missing_one_entry_sums_to_two`` — re-checked
         here to confirm Open is counted exactly once, not twice.
         """
-        body = "\n".join([
-            OVERVIEW_MARKER, "", "## Copilot review overview", "",
-            "**Findings:** None", "",
-            "<details>",
-            "<summary><strong>Open (1)</strong></summary>",
-            "",
-            "<details>",
-            "<summary>Not a real finding block</summary>",
-            "some text with no path line",
-            "</details>",
-            "</details>",
-            "<details>",
-            "<summary><strong>Previously missed (1)</strong></summary>",
-            "",
-            "<details>",
-            "<summary>Also not a real finding block</summary>",
-            "some text with no path line",
-            "</details>",
-            "</details>",
-        ])
+        body = "\n".join(
+            [
+                OVERVIEW_MARKER,
+                "",
+                "## Copilot review overview",
+                "",
+                "**Findings:** None",
+                "",
+                "<details>",
+                "<summary><strong>Open (1)</strong></summary>",
+                "",
+                "<details>",
+                "<summary>Not a real finding block</summary>",
+                "some text with no path line",
+                "</details>",
+                "</details>",
+                "<details>",
+                "<summary><strong>Previously missed (1)</strong></summary>",
+                "",
+                "<details>",
+                "<summary>Also not a real finding block</summary>",
+                "some text with no path line",
+                "</details>",
+                "</details>",
+            ]
+        )
         out = parse_overview([_review(body)], [])
 
         self.assertEqual(out["findings"], {})
@@ -501,18 +586,24 @@ class TestShortfall(unittest.TestCase):
         ``open_component = max(1, 1) = 1``, ``non_open_sum = 0`` → total 1,
         not 2.  Open must not be double-counted.
         """
-        body = "\n".join([
-            OVERVIEW_MARKER, "", "## Copilot review overview", "",
-            "**Findings:** 1 <picture></picture>", "",
-            "<details>",
-            "<summary><strong>Open (1)</strong></summary>",
-            "",
-            "<details>",
-            "<summary>Not a real finding block</summary>",
-            "some text with no path line",
-            "</details>",
-            "</details>",
-        ])
+        body = "\n".join(
+            [
+                OVERVIEW_MARKER,
+                "",
+                "## Copilot review overview",
+                "",
+                "**Findings:** 1 <picture></picture>",
+                "",
+                "<details>",
+                "<summary><strong>Open (1)</strong></summary>",
+                "",
+                "<details>",
+                "<summary>Not a real finding block</summary>",
+                "some text with no path line",
+                "</details>",
+                "</details>",
+            ]
+        )
         out = parse_overview([_review(body)], [])
 
         self.assertEqual(out["findings"], {})
@@ -555,7 +646,8 @@ class TestStaleFetchGuard(unittest.TestCase):
             path = Path(tmp) / "threads.json"
             path.write_text(json.dumps(payload), encoding="utf-8")
             args = argparse.Namespace(
-                threads_json=str(path), pr_number="1",
+                threads_json=str(path),
+                pr_number="1",
                 out_path=str(Path(tmp) / "out.json"),
             )
             try:
@@ -593,7 +685,7 @@ class TestThreadsNotCited(unittest.TestCase):
         body = _body(_section("Open", 1, _linked("111", "X")))
         threads = [
             _thread("PRRT_a", 111),
-            _thread("PRRT_b", 222),          # real thread, uncited
+            _thread("PRRT_b", 222),  # real thread, uncited
             {"thread_id": None, "comments": [{"database_id": 333}]},
         ]
 
@@ -605,7 +697,7 @@ class TestThreadsNotCited(unittest.TestCase):
 
 class TestSectionMatching(unittest.TestCase):
     def test_dismissed_section_is_not_previously_missed(self):
-        """"Dismissed" contains "missed" but inverts the meaning."""
+        """ "Dismissed" contains "missed" but inverts the meaning."""
         body = _body(_section("Dismissed", 1, _linked("111", "X")))
         out = parse_overview([_review(body)], [_thread("A", 111)])
 
@@ -623,17 +715,26 @@ class TestClaimedCount(unittest.TestCase):
     """The headline count is a per-severity breakdown, matched to Open."""
 
     def _multi_severity_body(self, sections: str) -> str:
-        return "\n".join([
-            OVERVIEW_MARKER, "",
-            "**Findings:** 2 <picture>H</picture> · 1 <picture>M</picture>",
-            "", sections,
-        ])
+        return "\n".join(
+            [
+                OVERVIEW_MARKER,
+                "",
+                "**Findings:** 2 <picture>H</picture> · 1 <picture>M</picture>",
+                "",
+                sections,
+            ]
+        )
 
     def test_every_severity_count_is_summed(self):
-        body = self._multi_severity_body(_section(
-            "Open", 3,
-            _linked("111", "A"), _linked("222", "B"), _linked("333", "C"),
-        ))
+        body = self._multi_severity_body(
+            _section(
+                "Open",
+                3,
+                _linked("111", "A"),
+                _linked("222", "B"),
+                _linked("333", "C"),
+            )
+        )
         threads = [_thread(f"T{i}", d) for i, d in enumerate((111, 222, 333))]
 
         out = parse_overview([_review(body)], threads)
@@ -644,12 +745,16 @@ class TestClaimedCount(unittest.TestCase):
 
     def test_shortfall_counts_open_findings_only(self):
         """Resolved entries must not mask a missing open one."""
-        body = "\n".join([
-            OVERVIEW_MARKER, "", "**Findings:** 3 <picture>H</picture>", "",
-            _section("Open", 3, _linked("111", "A")),
-            _section("Resolved since last review", 2,
-                     _linked("222", "B"), _linked("333", "C")),
-        ])
+        body = "\n".join(
+            [
+                OVERVIEW_MARKER,
+                "",
+                "**Findings:** 3 <picture>H</picture>",
+                "",
+                _section("Open", 3, _linked("111", "A")),
+                _section("Resolved since last review", 2, _linked("222", "B"), _linked("333", "C")),
+            ]
+        )
         threads = [_thread(f"T{i}", d) for i, d in enumerate((111, 222, 333))]
 
         out = parse_overview([_review(body)], threads)
@@ -664,13 +769,20 @@ class TestNewestBlock(unittest.TestCase):
     """The fragment documents these fields, so the parser must emit them."""
 
     def _verdict_body(self, verdict: str) -> str:
-        return "\n".join([
-            OVERVIEW_MARKER, "", "## Copilot review overview", "",
-            f"### {verdict}", "",
-            "**Findings:** 1 <picture></picture>", "",
-            _section("Open", 1, _linked("111", "X")),
-            _section("Resolved since last review", 2, _linked("222", "Y")),
-        ])
+        return "\n".join(
+            [
+                OVERVIEW_MARKER,
+                "",
+                "## Copilot review overview",
+                "",
+                f"### {verdict}",
+                "",
+                "**Findings:** 1 <picture></picture>",
+                "",
+                _section("Open", 1, _linked("111", "X")),
+                _section("Resolved since last review", 2, _linked("222", "Y")),
+            ]
+        )
 
     def test_verdict_is_extracted_without_the_status_emoji(self):
         out = parse_overview(
@@ -705,13 +817,17 @@ class TestDriftMerge(unittest.TestCase):
     def test_newer_body_wins_when_lines_drift(self):
         """The merged finding is the one triage and the fixer act on."""
         older = _review(
-            _body(_section("Previously missed", 1,
-                           _unlinked("Same", "a.py", 100, text="OLD BODY"))),
-            review_id=1, submitted_at="2026-09-22T22:00:00Z")
+            _body(
+                _section("Previously missed", 1, _unlinked("Same", "a.py", 100, text="OLD BODY"))
+            ),
+            review_id=1,
+            submitted_at="2026-09-22T22:00:00Z",
+        )
         newer = _review(
-            _body(_section("Open", 1,
-                           _unlinked("Same", "a.py", 140, text="NEW BODY"))),
-            review_id=2, submitted_at="2026-09-22T23:00:00Z")
+            _body(_section("Open", 1, _unlinked("Same", "a.py", 140, text="NEW BODY"))),
+            review_id=2,
+            submitted_at="2026-09-22T23:00:00Z",
+        )
 
         out = parse_overview([older, newer], [])
 
@@ -729,13 +845,19 @@ class TestDriftMerge(unittest.TestCase):
             "\n`src/foo.py:{line}`\n\n{text}\n</details>"
         )
         older = _review(
-            _body(_section("Previously missed", 1,
-                           titleless.format(line=10, text="Issue about A"))),
-            review_id=1, submitted_at="2026-09-22T22:00:00Z")
+            _body(
+                _section("Previously missed", 1, titleless.format(line=10, text="Issue about A"))
+            ),
+            review_id=1,
+            submitted_at="2026-09-22T22:00:00Z",
+        )
         newer = _review(
-            _body(_section("Previously missed", 1,
-                           titleless.format(line=20, text="Issue about B"))),
-            review_id=2, submitted_at="2026-09-22T23:00:00Z")
+            _body(
+                _section("Previously missed", 1, titleless.format(line=20, text="Issue about B"))
+            ),
+            review_id=2,
+            submitted_at="2026-09-22T23:00:00Z",
+        )
 
         out = parse_overview([older, newer], [])
 
@@ -744,11 +866,16 @@ class TestDriftMerge(unittest.TestCase):
 
     def test_same_title_findings_from_one_review_are_not_merged(self):
         """Drift is cross-review; side-by-side findings are distinct."""
-        review = _review(_body(_section(
-            "Previously missed", 2,
-            _unlinked("Same", "a.py", 10, text="first"),
-            _unlinked("Same", "a.py", 30, text="second"),
-        )))
+        review = _review(
+            _body(
+                _section(
+                    "Previously missed",
+                    2,
+                    _unlinked("Same", "a.py", 10, text="first"),
+                    _unlinked("Same", "a.py", 30, text="second"),
+                )
+            )
+        )
 
         out = parse_overview([review], [])
 
@@ -787,10 +914,15 @@ class TestPathSafety(unittest.TestCase):
                 self.assertIsNone(safe_repo_path(raw))
 
     def test_traversal_path_is_reported_but_never_dispatchable(self):
-        review = _review(_body(_section(
-            "Previously missed", 1,
-            _unlinked("Crafted", "../../../.github/workflows/ci.yml", 1),
-        )))
+        review = _review(
+            _body(
+                _section(
+                    "Previously missed",
+                    1,
+                    _unlinked("Crafted", "../../../.github/workflows/ci.yml", 1),
+                )
+            )
+        )
 
         out = parse_overview([review], [])
 
@@ -803,8 +935,9 @@ class TestPathSafety(unittest.TestCase):
     def test_cited_path_is_normalised_into_path_and_id(self):
         """`./src//foo.py` and `src/foo.py` are one file and must be one id,
         or a single finding splits in two across reviews."""
-        review = _review(_body(_section(
-            "Previously missed", 1, _unlinked("Fine", "./src//foo.py", 3))))
+        review = _review(
+            _body(_section("Previously missed", 1, _unlinked("Fine", "./src//foo.py", 3)))
+        )
 
         out = parse_overview([review], [])
 
@@ -812,8 +945,9 @@ class TestPathSafety(unittest.TestCase):
         self.assertEqual(out["findings"]["unlinked:src/foo.py:3"]["path"], "src/foo.py")
 
     def test_safe_path_leaves_path_rejected_null(self):
-        review = _review(_body(_section(
-            "Previously missed", 1, _unlinked("Fine", "src/foo.py", 3))))
+        review = _review(
+            _body(_section("Previously missed", 1, _unlinked("Fine", "src/foo.py", 3)))
+        )
 
         (entry,) = parse_overview([review], [])["findings"].values()
 
@@ -848,16 +982,25 @@ class TestProtectedPaths(unittest.TestCase):
 
     def test_lookalike_names_are_not_protected(self):
         """Only whole segments match: `.github` at the top, not `.github-x`."""
-        for raw in ("docs/.github-notes.md", "src/git/x.py", "notes/.envrc.md",
-                    "src/.claude_helper.py"):
+        for raw in (
+            "docs/.github-notes.md",
+            "src/git/x.py",
+            "notes/.envrc.md",
+            "src/.claude_helper.py",
+        ):
             with self.subTest(raw=raw):
                 self.assertEqual(classify_repo_path(raw), (raw, None))
 
     def test_protected_finding_is_reported_with_a_stable_id(self):
-        review = _review(_body(_section(
-            "Previously missed", 1,
-            _unlinked("Hook edge case", ".claude/hooks/guard.sh", 12),
-        )))
+        review = _review(
+            _body(
+                _section(
+                    "Previously missed",
+                    1,
+                    _unlinked("Hook edge case", ".claude/hooks/guard.sh", 12),
+                )
+            )
+        )
 
         out = parse_overview([review], [])
 
@@ -868,8 +1011,7 @@ class TestProtectedPaths(unittest.TestCase):
         self.assertEqual(entry["line"], 12)
 
     def test_escaping_finding_records_its_reason(self):
-        review = _review(_body(_section(
-            "Previously missed", 1, _unlinked("Bad", "../../x.py", 1))))
+        review = _review(_body(_section("Previously missed", 1, _unlinked("Bad", "../../x.py", 1))))
 
         (entry,) = parse_overview([review], [])["findings"].values()
 
@@ -883,13 +1025,21 @@ class TestCrossReviewIdentity(unittest.TestCase):
         """A fix frees a line; the next finding lands there. The newcomer must
         neither erase the old finding nor inherit its history."""
         older = _review(
-            _body(_section("Previously missed", 1,
-                           _unlinked("Missing null check", "src/a.py", 10, text="old"))),
-            review_id=1, submitted_at="2026-09-22T22:00:00Z")
+            _body(
+                _section(
+                    "Previously missed",
+                    1,
+                    _unlinked("Missing null check", "src/a.py", 10, text="old"),
+                )
+            ),
+            review_id=1,
+            submitted_at="2026-09-22T22:00:00Z",
+        )
         newer = _review(
-            _body(_section("Open", 1,
-                           _unlinked("SQL injection risk", "src/a.py", 10, text="new"))),
-            review_id=2, submitted_at="2026-09-22T23:00:00Z")
+            _body(_section("Open", 1, _unlinked("SQL injection risk", "src/a.py", 10, text="new"))),
+            review_id=2,
+            submitted_at="2026-09-22T23:00:00Z",
+        )
 
         out = parse_overview([older, newer], [])
 
@@ -904,18 +1054,24 @@ class TestCrossReviewIdentity(unittest.TestCase):
 
     def test_ids_do_not_depend_on_listing_order(self):
         def review(order, review_id, stamp):
-            blocks = {"A": _unlinked("Alpha", "src/a.py", 10, text="alpha"),
-                      "B": _unlinked("Beta", "src/a.py", 10, text="beta")}
-            return _review(_body(_section("Previously missed", 2,
-                                          *(blocks[k] for k in order))),
-                           review_id=review_id, submitted_at=stamp)
+            blocks = {
+                "A": _unlinked("Alpha", "src/a.py", 10, text="alpha"),
+                "B": _unlinked("Beta", "src/a.py", 10, text="beta"),
+            }
+            return _review(
+                _body(_section("Previously missed", 2, *(blocks[k] for k in order))),
+                review_id=review_id,
+                submitted_at=stamp,
+            )
 
-        out = parse_overview([review("AB", 1, "2026-09-22T22:00:00Z"),
-                              review("BA", 2, "2026-09-22T23:00:00Z")], [])
+        out = parse_overview(
+            [review("AB", 1, "2026-09-22T22:00:00Z"), review("BA", 2, "2026-09-22T23:00:00Z")], []
+        )
 
         titles = {k: v["title"] for k, v in out["findings"].items()}
-        self.assertEqual(titles, {"unlinked:src/a.py:10": "Alpha",
-                                  "unlinked:src/a.py:10#2": "Beta"})
+        self.assertEqual(
+            titles, {"unlinked:src/a.py:10": "Alpha", "unlinked:src/a.py:10#2": "Beta"}
+        )
         self.assertEqual(out["findings"]["unlinked:src/a.py:10"]["body"], "alpha")
 
 
@@ -923,22 +1079,27 @@ class TestDegradedOverview(unittest.TestCase):
     """The shape Copilot posts when its full suite fails, as seen on PR #400."""
 
     def _degraded(self) -> str:
-        return "\n".join([
-            "> [!NOTE]",
-            "> Copilot was unable to run its full agentic suite in this review.",
-            "",
-            OVERVIEW_MARKER,
-            "",
-            "## Copilot review overview",
-            "",
-            "**Review effort:** Lite  ",
-            f"**Findings:** 2 {_badge('High')} · 1 {_badge('Medium')}",
-            "",
-            _section("Open", 3,
-                     _linked("111", "A", "High"),
-                     _linked("222", "B", "High"),
-                     _linked("333", "C", "Medium")),
-        ])
+        return "\n".join(
+            [
+                "> [!NOTE]",
+                "> Copilot was unable to run its full agentic suite in this review.",
+                "",
+                OVERVIEW_MARKER,
+                "",
+                "## Copilot review overview",
+                "",
+                "**Review effort:** Lite  ",
+                f"**Findings:** 2 {_badge('High')} · 1 {_badge('Medium')}",
+                "",
+                _section(
+                    "Open",
+                    3,
+                    _linked("111", "A", "High"),
+                    _linked("222", "B", "High"),
+                    _linked("333", "C", "Medium"),
+                ),
+            ]
+        )
 
     def test_note_before_marker_and_no_verdict_still_parses(self):
         threads = [_thread(f"T{i}", d) for i, d in enumerate((111, 222, 333))]
@@ -986,11 +1147,16 @@ class TestSameLineFindings(unittest.TestCase):
     def test_two_findings_on_one_line_both_survive(self):
         """The second must not overwrite the first — status stays ok, so
         nothing else would ever reveal the loss."""
-        review = _review(_body(_section(
-            "Previously missed", 2,
-            _unlinked("Missing docstring", "src/foo.py", 10, text="first issue"),
-            _unlinked("Missing docstring", "src/foo.py", 10, text="second issue"),
-        )))
+        review = _review(
+            _body(
+                _section(
+                    "Previously missed",
+                    2,
+                    _unlinked("Missing docstring", "src/foo.py", 10, text="first issue"),
+                    _unlinked("Missing docstring", "src/foo.py", 10, text="second issue"),
+                )
+            )
+        )
 
         out = parse_overview([review], [])
 
@@ -1005,7 +1171,8 @@ class TestSameLineFindings(unittest.TestCase):
 
     def test_ids_are_stable_when_a_later_review_repeats_the_pair(self):
         pair = _section(
-            "Previously missed", 2,
+            "Previously missed",
+            2,
             _unlinked("Missing docstring", "src/foo.py", 10, text="first issue"),
             _unlinked("Missing docstring", "src/foo.py", 10, text="second issue"),
         )
@@ -1020,11 +1187,15 @@ class TestSameLineFindings(unittest.TestCase):
 class TestBracketTitles(unittest.TestCase):
     def test_title_containing_brackets_is_parsed(self):
         """`list[str]` in a title must not end the capture at the first `]`."""
-        body = _body(_section(
-            "Open", 2,
-            _linked("444", "Handle `list[str]` return type"),
-            _linked("445", "Plain title"),
-        ), claimed=2)
+        body = _body(
+            _section(
+                "Open",
+                2,
+                _linked("444", "Handle `list[str]` return type"),
+                _linked("445", "Plain title"),
+            ),
+            claimed=2,
+        )
 
         out = parse_overview([_review(body)], [_thread("A", 444), _thread("B", 445)])
 
@@ -1074,7 +1245,8 @@ class TestParseOverviewCli(unittest.TestCase):
             )
             out_path = Path(tmp) / "nested" / "out.json"
             args = argparse.Namespace(
-                threads_json=str(path), pr_number=pr_number,
+                threads_json=str(path),
+                pr_number=pr_number,
                 out_path=str(out_path) if out else "",
             )
             stdout = io.StringIO()
@@ -1106,8 +1278,9 @@ class TestParseOverviewCli(unittest.TestCase):
         from core.cli_errors import CLIError
         from workflow.cli_dispatch_review import _cmd_parse_overview
 
-        args = argparse.Namespace(threads_json="/nonexistent/threads.json",
-                                  pr_number="1", out_path="")
+        args = argparse.Namespace(
+            threads_json="/nonexistent/threads.json", pr_number="1", out_path=""
+        )
         with self.assertRaises(CLIError):
             _cmd_parse_overview(args)
 
@@ -1150,8 +1323,9 @@ class TestRealPayload(unittest.TestCase):
         from pathlib import Path
 
         data = json.loads(
-            (Path(__file__).parent / "data" / "copilot_overview_pr395.json")
-            .read_text(encoding="utf-8")
+            (Path(__file__).parent / "data" / "copilot_overview_pr395.json").read_text(
+                encoding="utf-8"
+            )
         )
 
         out = parse_overview(data["review_bodies"], data["threads"], pr_number="395")
@@ -1163,10 +1337,13 @@ class TestRealPayload(unittest.TestCase):
         self.assertEqual(sum(f["linked"] for f in findings.values()), 19)
         self.assertEqual(out["cited_not_found"], [])
         self.assertEqual(out["threads_not_cited"], [])
-        self.assertEqual(out["previously_missed"], [
-            "unlinked:.claude/hooks/block-readonly-role-writes.sh:357",
-            "unlinked:src/workflow/linter.py:408",
-        ])
+        self.assertEqual(
+            out["previously_missed"],
+            [
+                "unlinked:.claude/hooks/block-readonly-role-writes.sh:357",
+                "unlinked:src/workflow/linter.py:408",
+            ],
+        )
         # A real finding in an ordinary source file: dispatchable.
         linter = findings["unlinked:src/workflow/linter.py:408"]
         self.assertEqual(linter["path"], "src/workflow/linter.py")
@@ -1196,7 +1373,8 @@ class TestRealPayload(unittest.TestCase):
         )
         self.assertEqual(out["newest"]["verdict"], "Changes recommended")
         self.assertEqual(
-            out["newest"]["sections"], {"Open": 4, "Resolved since last review": 2},
+            out["newest"]["sections"],
+            {"Open": 4, "Resolved since last review": 2},
         )
 
 
@@ -1206,13 +1384,15 @@ class TestCurrentAndStaleUnlinked(unittest.TestCase):
     def test_finding_from_newest_review_is_current(self):
         """A finding whose source_review_id equals the newest review is current."""
         older = _review(
-            _body(_section("Previously missed", 1,
-                           _unlinked("Old concern", "src/a.py", 10))),
-            review_id=1, submitted_at="2026-09-22T22:00:00Z")
+            _body(_section("Previously missed", 1, _unlinked("Old concern", "src/a.py", 10))),
+            review_id=1,
+            submitted_at="2026-09-22T22:00:00Z",
+        )
         newer = _review(
-            _body(_section("Previously missed", 1,
-                           _unlinked("New concern", "src/b.py", 20))),
-            review_id=2, submitted_at="2026-09-22T23:00:00Z")
+            _body(_section("Previously missed", 1, _unlinked("New concern", "src/b.py", 20))),
+            review_id=2,
+            submitted_at="2026-09-22T23:00:00Z",
+        )
 
         out = parse_overview([older, newer], [])
 
@@ -1221,13 +1401,15 @@ class TestCurrentAndStaleUnlinked(unittest.TestCase):
 
     def test_stale_unlinked_contains_non_current_unlinked_ids(self):
         older = _review(
-            _body(_section("Previously missed", 1,
-                           _unlinked("Old concern", "src/a.py", 10))),
-            review_id=1, submitted_at="2026-09-22T22:00:00Z")
+            _body(_section("Previously missed", 1, _unlinked("Old concern", "src/a.py", 10))),
+            review_id=1,
+            submitted_at="2026-09-22T22:00:00Z",
+        )
         newer = _review(
-            _body(_section("Previously missed", 1,
-                           _unlinked("New concern", "src/b.py", 20))),
-            review_id=2, submitted_at="2026-09-22T23:00:00Z")
+            _body(_section("Previously missed", 1, _unlinked("New concern", "src/b.py", 20))),
+            review_id=2,
+            submitted_at="2026-09-22T23:00:00Z",
+        )
 
         out = parse_overview([older, newer], [])
 
@@ -1236,10 +1418,14 @@ class TestCurrentAndStaleUnlinked(unittest.TestCase):
     def test_linked_finding_is_never_stale_unlinked(self):
         older = _review(
             _body(_section("Open", 1, _linked("111", "X"))),
-            review_id=1, submitted_at="2026-09-22T22:00:00Z")
+            review_id=1,
+            submitted_at="2026-09-22T22:00:00Z",
+        )
         newer = _review(
             _body(_section("Open", 1, _linked("222", "Y"))),
-            review_id=2, submitted_at="2026-09-22T23:00:00Z")
+            review_id=2,
+            submitted_at="2026-09-22T23:00:00Z",
+        )
 
         out = parse_overview([older, newer], [_thread("A", 111), _thread("B", 222)])
 
@@ -1252,31 +1438,42 @@ class TestCurrentAndStaleUnlinked(unittest.TestCase):
     def test_prior_same_path_joins_protected_path_findings(self):
         """A protected path is withheld from `path`, but still links repeats."""
         older = _review(
-            _body(_section("Previously missed", 1,
-                           _unlinked("Old title", ".claude/hooks/a:b.sh", 10))),
-            review_id=1, submitted_at="2026-09-22T22:00:00Z")
+            _body(
+                _section("Previously missed", 1, _unlinked("Old title", ".claude/hooks/a:b.sh", 10))
+            ),
+            review_id=1,
+            submitted_at="2026-09-22T22:00:00Z",
+        )
         newer = _review(
-            _body(_section("Previously missed", 1,
-                           _unlinked("New title", ".claude/hooks/a:b.sh", 20))),
-            review_id=2, submitted_at="2026-09-22T23:00:00Z")
+            _body(
+                _section("Previously missed", 1, _unlinked("New title", ".claude/hooks/a:b.sh", 20))
+            ),
+            review_id=2,
+            submitted_at="2026-09-22T23:00:00Z",
+        )
 
         out = parse_overview([older, newer], [])
 
         current = out["findings"]["unlinked:.claude/hooks/a:b.sh:20"]
         self.assertIsNone(current["path"])
-        self.assertEqual(current["prior_same_path"],
-                         ["unlinked:.claude/hooks/a:b.sh:10"])
+        self.assertEqual(current["prior_same_path"], ["unlinked:.claude/hooks/a:b.sh:10"])
 
     def test_colon_in_protected_path_does_not_join_different_files(self):
         """Paths are matched whole, never recovered by splitting the id on ':'."""
         older = _review(
-            _body(_section("Previously missed", 1,
-                           _unlinked("Old title", ".claude/hooks/a:b.sh", 10))),
-            review_id=1, submitted_at="2026-09-22T22:00:00Z")
+            _body(
+                _section("Previously missed", 1, _unlinked("Old title", ".claude/hooks/a:b.sh", 10))
+            ),
+            review_id=1,
+            submitted_at="2026-09-22T22:00:00Z",
+        )
         newer = _review(
-            _body(_section("Previously missed", 1,
-                           _unlinked("New title", ".claude/hooks/a:c.sh", 20))),
-            review_id=2, submitted_at="2026-09-22T23:00:00Z")
+            _body(
+                _section("Previously missed", 1, _unlinked("New title", ".claude/hooks/a:c.sh", 20))
+            ),
+            review_id=2,
+            submitted_at="2026-09-22T23:00:00Z",
+        )
 
         out = parse_overview([older, newer], [])
 
@@ -1287,13 +1484,15 @@ class TestCurrentAndStaleUnlinked(unittest.TestCase):
         """A current unlinked finding with the same path as a stale one carries
         the stale id in prior_same_path — even if the title changed."""
         older = _review(
-            _body(_section("Previously missed", 1,
-                           _unlinked("Old title", "src/a.py", 10))),
-            review_id=1, submitted_at="2026-09-22T22:00:00Z")
+            _body(_section("Previously missed", 1, _unlinked("Old title", "src/a.py", 10))),
+            review_id=1,
+            submitted_at="2026-09-22T22:00:00Z",
+        )
         newer = _review(
-            _body(_section("Previously missed", 1,
-                           _unlinked("New title", "src/a.py", 20))),
-            review_id=2, submitted_at="2026-09-22T23:00:00Z")
+            _body(_section("Previously missed", 1, _unlinked("New title", "src/a.py", 20))),
+            review_id=2,
+            submitted_at="2026-09-22T23:00:00Z",
+        )
 
         out = parse_overview([older, newer], [])
 
@@ -1310,13 +1509,15 @@ class TestCurrentAndStaleUnlinked(unittest.TestCase):
     def test_prior_same_path_empty_for_different_path(self):
         """A stale finding on a DIFFERENT path does not appear in prior_same_path."""
         older = _review(
-            _body(_section("Previously missed", 1,
-                           _unlinked("Old concern", "src/other.py", 5))),
-            review_id=1, submitted_at="2026-09-22T22:00:00Z")
+            _body(_section("Previously missed", 1, _unlinked("Old concern", "src/other.py", 5))),
+            review_id=1,
+            submitted_at="2026-09-22T22:00:00Z",
+        )
         newer = _review(
-            _body(_section("Previously missed", 1,
-                           _unlinked("New concern", "src/a.py", 20))),
-            review_id=2, submitted_at="2026-09-22T23:00:00Z")
+            _body(_section("Previously missed", 1, _unlinked("New concern", "src/a.py", 20))),
+            review_id=2,
+            submitted_at="2026-09-22T23:00:00Z",
+        )
 
         out = parse_overview([older, newer], [])
 
@@ -1325,13 +1526,15 @@ class TestCurrentAndStaleUnlinked(unittest.TestCase):
     def test_finding_re_listed_in_newest_stays_current(self):
         """A finding that was in review_id=1 and also in review_id=2 is current."""
         older = _review(
-            _body(_section("Previously missed", 1,
-                           _unlinked("Persistent bug", "src/a.py", 10))),
-            review_id=1, submitted_at="2026-09-22T22:00:00Z")
+            _body(_section("Previously missed", 1, _unlinked("Persistent bug", "src/a.py", 10))),
+            review_id=1,
+            submitted_at="2026-09-22T22:00:00Z",
+        )
         newer = _review(
-            _body(_section("Previously missed", 1,
-                           _unlinked("Persistent bug", "src/a.py", 10))),
-            review_id=2, submitted_at="2026-09-22T23:00:00Z")
+            _body(_section("Previously missed", 1, _unlinked("Persistent bug", "src/a.py", 10))),
+            review_id=2,
+            submitted_at="2026-09-22T23:00:00Z",
+        )
 
         out = parse_overview([older, newer], [])
 
@@ -1348,10 +1551,16 @@ class TestCurrentAndStaleUnlinked(unittest.TestCase):
 
     def test_linked_finding_current_field_reflects_newest_review(self):
         """Linked findings also carry current; it follows source_review_id."""
-        older = _review(_body(_section("Open", 1, _linked("111", "X"))),
-                        review_id=1, submitted_at="2026-09-22T22:00:00Z")
-        newer = _review(_body(_section("Open", 1, _linked("222", "Y"))),
-                        review_id=2, submitted_at="2026-09-22T23:00:00Z")
+        older = _review(
+            _body(_section("Open", 1, _linked("111", "X"))),
+            review_id=1,
+            submitted_at="2026-09-22T22:00:00Z",
+        )
+        newer = _review(
+            _body(_section("Open", 1, _linked("222", "Y"))),
+            review_id=2,
+            submitted_at="2026-09-22T23:00:00Z",
+        )
 
         out = parse_overview([older, newer], [_thread("A", 111), _thread("B", 222)])
 
@@ -1363,11 +1572,13 @@ class TestClaimedCountNone(unittest.TestCase):
     """**Findings:** None means zero open findings, not unknown."""
 
     def test_findings_none_returns_claimed_zero(self):
-        body = "\n".join([
-            OVERVIEW_MARKER,
-            "**Findings:** None",
-            _section("Open", 1, _linked("111", "A")),
-        ])
+        body = "\n".join(
+            [
+                OVERVIEW_MARKER,
+                "**Findings:** None",
+                _section("Open", 1, _linked("111", "A")),
+            ]
+        )
         out = parse_overview([_review(body)], [_thread("A", 111)])
 
         self.assertEqual(out["newest"]["findings_claimed"], 0)
@@ -1381,8 +1592,9 @@ class TestClaimedCountNone(unittest.TestCase):
         from pathlib import Path
 
         data = json.loads(
-            (Path(__file__).parent / "data" / "copilot_overview_pr436.json")
-            .read_text(encoding="utf-8")
+            (Path(__file__).parent / "data" / "copilot_overview_pr436.json").read_text(
+                encoding="utf-8"
+            )
         )
 
         out = parse_overview(data["review_bodies"], data["threads"], pr_number="436")
@@ -1402,8 +1614,9 @@ class TestClaimedCountNone(unittest.TestCase):
             with self.subTest(text=text):
                 body = "\n".join([OVERVIEW_MARKER, f"**Findings:** {text}"])
                 out = parse_overview([_review(body)], [])
-                self.assertEqual(out["newest"]["findings_claimed"], 0,
-                                 f"Expected 0 for 'Findings: {text}'")
+                self.assertEqual(
+                    out["newest"]["findings_claimed"], 0, f"Expected 0 for 'Findings: {text}'"
+                )
 
 
 class TestRealPayloadPr436(unittest.TestCase):
@@ -1420,8 +1633,9 @@ class TestRealPayloadPr436(unittest.TestCase):
         from pathlib import Path
 
         data = json.loads(
-            (Path(__file__).parent / "data" / "copilot_overview_pr436.json")
-            .read_text(encoding="utf-8")
+            (Path(__file__).parent / "data" / "copilot_overview_pr436.json").read_text(
+                encoding="utf-8"
+            )
         )
 
         out = parse_overview(data["review_bodies"], data["threads"], pr_number="436")
@@ -1466,8 +1680,9 @@ class TestRealPayloadPr473(unittest.TestCase):
         from pathlib import Path
 
         return json.loads(
-            (Path(__file__).parent / "data" / "copilot_overview_pr473.json")
-            .read_text(encoding="utf-8")
+            (Path(__file__).parent / "data" / "copilot_overview_pr473.json").read_text(
+                encoding="utf-8"
+            )
         )
 
     def test_pr473_known_counts(self):
@@ -1520,27 +1735,35 @@ class TestNewFormatBody(unittest.TestCase):
 
     def _new_section(self, count: int, name: str, *lines: str) -> str:
         return "\n".join(
-            ["<details open>",
-             f"<summary><strong>{count} {name}</strong></summary>",
-             "", *lines, "</details>"]
+            [
+                "<details open>",
+                f"<summary><strong>{count} {name}</strong></summary>",
+                "",
+                *lines,
+                "</details>",
+            ]
         )
 
-    def _full_url_linked(self, anchor: str, title: str, severity: str = "High",
-                         pr: int = 1) -> str:
+    def _full_url_linked(self, anchor: str, title: str, severity: str = "High", pr: int = 1) -> str:
         url = f"https://github.com/example/repo/pull/{pr}#discussion_r{anchor}"
         return f"- {_badge(severity)} [{title}]({url}) · New"
 
     def _no_open_body(self, *sections: str) -> str:
         return "\n".join(
-            [OVERVIEW_MARKER, "", "### 🟢 Approval recommended", "",
-             "**No open issues** \U0001f389", "", *sections]
+            [
+                OVERVIEW_MARKER,
+                "",
+                "### 🟢 Approval recommended",
+                "",
+                "**No open issues** \U0001f389",
+                "",
+                *sections,
+            ]
         )
 
     def _new_format_open_body(self, *sections: str) -> str:
         """Body with count-first open section and no ``**Findings:**`` line."""
-        return "\n".join(
-            [OVERVIEW_MARKER, "", "### 🟡 Changes recommended", "", *sections]
-        )
+        return "\n".join([OVERVIEW_MARKER, "", "### 🟡 Changes recommended", "", *sections])
 
     def test_count_first_header_parses_as_findings_section(self):
         """``N open issues`` is a valid findings section header."""
@@ -1571,8 +1794,9 @@ class TestNewFormatBody(unittest.TestCase):
     def test_no_open_issues_line_gives_findings_claimed_zero(self):
         """``**No open issues**`` is an explicit zero, not unknown."""
         body = self._no_open_body(
-            self._new_section(2, "resolved since last review",
-                              _linked("111", "Done"), _linked("222", "Done2"))
+            self._new_section(
+                2, "resolved since last review", _linked("111", "Done"), _linked("222", "Done2")
+            )
         )
         out = parse_overview([_review(body)], [_thread("A", 111), _thread("B", 222)])
 
@@ -1616,23 +1840,25 @@ class TestNewFormatBody(unittest.TestCase):
         Lines and even stray links under it must not be attributed to the
         previous findings section.
         """
-        body = "\n".join([
-            OVERVIEW_MARKER,
-            "### 🟡 Changes recommended",
-            "",
-            self._new_section(1, "open issues", self._full_url_linked("111", "Real finding")),
-            "",
-            "<details>",
-            "<summary><strong>What changed in this PR</strong></summary>",
-            "",
-            "Some description.",
-            "",
-            "| File | Description |",
-            "| ---- | ----------- |",
-            "| src/foo.py | Fixed it. |",
-            "",
-            "</details>",
-        ])
+        body = "\n".join(
+            [
+                OVERVIEW_MARKER,
+                "### 🟡 Changes recommended",
+                "",
+                self._new_section(1, "open issues", self._full_url_linked("111", "Real finding")),
+                "",
+                "<details>",
+                "<summary><strong>What changed in this PR</strong></summary>",
+                "",
+                "Some description.",
+                "",
+                "| File | Description |",
+                "| ---- | ----------- |",
+                "| src/foo.py | Fixed it. |",
+                "",
+                "</details>",
+            ]
+        )
         out = parse_overview([_review(body)], [_thread("A", 111)])
 
         # Only the one real finding from the open section — the What changed
@@ -1653,12 +1879,12 @@ class TestNewFormatBody(unittest.TestCase):
     def test_section_counts_key_identical_across_formats(self):
         """Old and new format headers produce the same ``sections`` dict keys."""
         new_body = self._no_open_body(
-            self._new_section(2, "resolved since last review",
-                              _linked("111", "A"), _linked("222", "B"))
+            self._new_section(
+                2, "resolved since last review", _linked("111", "A"), _linked("222", "B")
+            )
         )
         old_body = _body(
-            _section("Resolved since last review", 2,
-                     _linked("111", "A"), _linked("222", "B")),
+            _section("Resolved since last review", 2, _linked("111", "A"), _linked("222", "B")),
             claimed=0,
         )
         for label, body in (("new-format", new_body), ("old-format", old_body)):

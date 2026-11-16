@@ -117,6 +117,5 @@ class SeparatorContractMixin:
         self.assertEqual(
             plain_bytes,
             sep_bytes,
-            f"separator form differs: plain={len(plain_bytes)} bytes, "
-            f"sep={len(sep_bytes)} bytes",
+            f"separator form differs: plain={len(plain_bytes)} bytes, sep={len(sep_bytes)} bytes",
         )

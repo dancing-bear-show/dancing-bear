@@ -9,6 +9,7 @@ looked absent from the config and was deleted.
 
 Each test asserts on the client calls, not only on the tally.
 """
+
 from __future__ import annotations
 
 import unittest
@@ -32,18 +33,32 @@ def _make_client(live: list[dict]) -> MagicMock:
     return client
 
 
-def _sync(client: MagicMock, *, dry_run: bool = False, delete_missing: bool = False,
-          reconcile: bool = False):
-    return OutlookRulesSyncProcessor().process(OutlookRulesSyncPayload(
-        client=client, config_path="/test.yaml", dry_run=dry_run,
-        delete_missing=delete_missing, reconcile=reconcile,
-    ))
+def _sync(
+    client: MagicMock,
+    *,
+    dry_run: bool = False,
+    delete_missing: bool = False,
+    reconcile: bool = False,
+):
+    return OutlookRulesSyncProcessor().process(
+        OutlookRulesSyncPayload(
+            client=client,
+            config_path="/test.yaml",
+            dry_run=dry_run,
+            delete_missing=delete_missing,
+            reconcile=reconcile,
+        )
+    )
 
 
 def _plan(client: MagicMock, *, reconcile: bool = False):
-    return OutlookRulesPlanProcessor().process(OutlookRulesPlanPayload(
-        client=client, config_path="/test.yaml", reconcile=reconcile,
-    ))
+    return OutlookRulesPlanProcessor().process(
+        OutlookRulesPlanPayload(
+            client=client,
+            config_path="/test.yaml",
+            reconcile=reconcile,
+        )
+    )
 
 
 def _spec(frm: str, forward: str = "kids@example.com") -> dict:
@@ -82,7 +97,6 @@ class TestKeyFoldsCriteria(unittest.TestCase):
 
 
 class TestDefaultSyncMatchesCaseInsensitively(unittest.TestCase):
-
     @patch(_NORM)
     @patch(_LOAD)
     def test_dry_run_uppercase_live_is_not_created(self, mock_load, mock_norm):
@@ -200,8 +214,10 @@ class TestPlanSyncParityDefaultMode(unittest.TestCase):
     ]
 
     def _run(self, reconcile: bool):
-        with patch(_LOAD, return_value={"filters": []}), \
-                patch(_NORM, return_value=[dict(s) for s in self.DESIRED]):
+        with (
+            patch(_LOAD, return_value={"filters": []}),
+            patch(_NORM, return_value=[dict(s) for s in self.DESIRED]),
+        ):
             client = _make_client(self.LIVE)
             plan_env = _plan(client, reconcile=reconcile)
             sync_env = _sync(client, dry_run=True, reconcile=reconcile)

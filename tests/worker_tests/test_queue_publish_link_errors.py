@@ -93,9 +93,11 @@ class TestOtherErrnoReraises(_Base):
 
     def test_failed_replace_leaves_no_temp(self) -> None:
         """A failure inside the fallback's replace also cleans up the temp."""
-        with _link_error(errno.EPERM), patch.object(
-            Path, "replace", side_effect=OSError(errno.EIO, "replace failed")
-        ), self.assertRaises(OSError):
+        with (
+            _link_error(errno.EPERM),
+            patch.object(Path, "replace", side_effect=OSError(errno.EIO, "replace failed")),
+            self.assertRaises(OSError),
+        ):
             q._copy_exclusive(self.staged, self.dest)
         self.assertEqual(self._pending_names(), [])
 

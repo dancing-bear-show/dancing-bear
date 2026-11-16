@@ -1,7 +1,9 @@
 """Shared calendar data model for Gmail pipelines."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+
 
 @dataclass(frozen=True)
 class CalendarEvent:
@@ -17,6 +19,7 @@ class CalendarEvent:
     - range: {"start_date": "YYYY-MM-DD", "until": "YYYY-MM-DD"} or None
     - exdates / count: exclusion dates and occurrence count for bounded series
     """
+
     id: str
     subject: str
     start: str
@@ -33,4 +36,3 @@ class CalendarEvent:
     end_time: str | None = None
     exdates: list[str] = field(default_factory=list)
     count: int | None = None
-

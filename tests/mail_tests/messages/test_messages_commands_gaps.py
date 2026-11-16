@@ -7,20 +7,20 @@ Covers paths not exercised by existing tests:
 - _fetch_message_record: get_message failure, get_message_text failure
 - run_messages_get: Outlook RuntimeError, empty resolution after selector
 """
+
 from __future__ import annotations
 
 import unittest
 from unittest.mock import MagicMock, patch
 
-from tests.fixtures import capture_stdout
-from tests.mail_tests.fixtures import make_args
 from mail.messages_cli.commands import (
     _fetch_id_and_thread,
     _fetch_message_record,
     run_messages_get,
     run_messages_summarize,
 )
-
+from tests.fixtures import capture_stdout
+from tests.mail_tests.fixtures import make_args
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -141,9 +141,13 @@ class MessagesGetOutlookErrorTests(unittest.TestCase):
 
     def test_outlook_client_build_failure_returns_1(self):
         """RuntimeError from outlook_client_from_args returns exit code 1."""
-        with patch("mail.utils.cli_helpers.is_outlook_profile", return_value=True), \
-             patch("mail.utils.cli_helpers.outlook_client_from_args",
-                   side_effect=RuntimeError("MSAL config missing")):
+        with (
+            patch("mail.utils.cli_helpers.is_outlook_profile", return_value=True),
+            patch(
+                "mail.utils.cli_helpers.outlook_client_from_args",
+                side_effect=RuntimeError("MSAL config missing"),
+            ),
+        ):
             with capture_stdout():
                 rc = run_messages_get(_outlook_get_args())
         self.assertEqual(rc, 1)
@@ -154,8 +158,10 @@ class MessagesGetOutlookErrorTests(unittest.TestCase):
         # get_message raises so _fetch_outlook_message_record returns None
         client.get_message.side_effect = Exception("not found")
 
-        with patch("mail.utils.cli_helpers.is_outlook_profile", return_value=True), \
-             patch("mail.utils.cli_helpers.outlook_client_from_args", return_value=client):
+        with (
+            patch("mail.utils.cli_helpers.is_outlook_profile", return_value=True),
+            patch("mail.utils.cli_helpers.outlook_client_from_args", return_value=client),
+        ):
             with capture_stdout():
                 rc = run_messages_get(_outlook_get_args(id="MISSING_ID"))
         # record list is empty → return 1
@@ -164,8 +170,10 @@ class MessagesGetOutlookErrorTests(unittest.TestCase):
     def test_no_selector_returns_1_for_gmail_path(self):
         """No --id, --ids, or --query on Gmail path returns 1 immediately."""
         client = MagicMock()
-        with patch("mail.utils.cli_helpers.is_outlook_profile", return_value=False), \
-             patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
+        with (
+            patch("mail.utils.cli_helpers.is_outlook_profile", return_value=False),
+            patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client),
+        ):
             with capture_stdout():
                 rc = run_messages_get(_gmail_get_args(id=None, ids=None, query=None))
         self.assertEqual(rc, 1)
@@ -177,8 +185,10 @@ class MessagesGetOutlookErrorTests(unittest.TestCase):
         # list_message_ids returns nothing, so select_message_id yields (None, None)
         client.list_message_ids.return_value = []
 
-        with patch("mail.utils.cli_helpers.is_outlook_profile", return_value=False), \
-             patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
+        with (
+            patch("mail.utils.cli_helpers.is_outlook_profile", return_value=False),
+            patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client),
+        ):
             with capture_stdout():
                 rc = run_messages_get(_gmail_get_args(id=None, ids=None, query="subject:nothing"))
         self.assertEqual(rc, 1)
@@ -196,8 +206,10 @@ class OutlookSummarizePathTests(unittest.TestCase):
         """Missing both --id and --query prints an error and returns 1."""
         client = MagicMock()
 
-        with patch("mail.utils.cli_helpers.is_outlook_profile", return_value=True), \
-             patch("mail.utils.cli_helpers.outlook_client_from_args", return_value=client):
+        with (
+            patch("mail.utils.cli_helpers.is_outlook_profile", return_value=True),
+            patch("mail.utils.cli_helpers.outlook_client_from_args", return_value=client),
+        ):
             with capture_stdout():
                 rc = run_messages_summarize(_outlook_summarize_args(id=None, query=None))
 
@@ -208,8 +220,10 @@ class OutlookSummarizePathTests(unittest.TestCase):
         client = MagicMock()
         client.search_inbox_message_dicts.return_value = []
 
-        with patch("mail.utils.cli_helpers.is_outlook_profile", return_value=True), \
-             patch("mail.utils.cli_helpers.outlook_client_from_args", return_value=client):
+        with (
+            patch("mail.utils.cli_helpers.is_outlook_profile", return_value=True),
+            patch("mail.utils.cli_helpers.outlook_client_from_args", return_value=client),
+        ):
             with capture_stdout():
                 rc = run_messages_summarize(_outlook_summarize_args(id=None, query="orphan query"))
 
@@ -225,9 +239,11 @@ class OutlookSummarizePathTests(unittest.TestCase):
             "body": {"contentType": "text", "content": "Plain text body."},
         }
 
-        with patch("mail.utils.cli_helpers.is_outlook_profile", return_value=True), \
-             patch("mail.utils.cli_helpers.outlook_client_from_args", return_value=client), \
-             patch("mail.llm_adapter.summarize_text", return_value="Plain text body."):
+        with (
+            patch("mail.utils.cli_helpers.is_outlook_profile", return_value=True),
+            patch("mail.utils.cli_helpers.outlook_client_from_args", return_value=client),
+            patch("mail.llm_adapter.summarize_text", return_value="Plain text body."),
+        ):
             with capture_stdout() as buf:
                 rc = run_messages_summarize(_outlook_summarize_args(id=None, query="report"))
 
@@ -240,8 +256,10 @@ class OutlookSummarizePathTests(unittest.TestCase):
         client = MagicMock()
         client.get_message.side_effect = Exception("fetch failed")
 
-        with patch("mail.utils.cli_helpers.is_outlook_profile", return_value=True), \
-             patch("mail.utils.cli_helpers.outlook_client_from_args", return_value=client):
+        with (
+            patch("mail.utils.cli_helpers.is_outlook_profile", return_value=True),
+            patch("mail.utils.cli_helpers.outlook_client_from_args", return_value=client),
+        ):
             with capture_stdout():
                 rc = run_messages_summarize(_outlook_summarize_args(id="OLK_BAD"))
 
@@ -256,9 +274,11 @@ class OutlookSummarizePathTests(unittest.TestCase):
             "body": {"contentType": "text", "content": "Details."},
         }
 
-        with patch("mail.utils.cli_helpers.is_outlook_profile", return_value=True), \
-             patch("mail.utils.cli_helpers.outlook_client_from_args", return_value=client), \
-             patch("mail.llm_adapter.summarize_text", return_value="Summary: already prefixed"):
+        with (
+            patch("mail.utils.cli_helpers.is_outlook_profile", return_value=True),
+            patch("mail.utils.cli_helpers.outlook_client_from_args", return_value=client),
+            patch("mail.llm_adapter.summarize_text", return_value="Summary: already prefixed"),
+        ):
             with capture_stdout() as buf:
                 rc = run_messages_summarize(_outlook_summarize_args(id="OLK3"))
 
@@ -270,9 +290,13 @@ class OutlookSummarizePathTests(unittest.TestCase):
 
     def test_outlook_client_build_failure_returns_1(self):
         """RuntimeError from outlook_client_from_args in summarize path returns 1."""
-        with patch("mail.utils.cli_helpers.is_outlook_profile", return_value=True), \
-             patch("mail.utils.cli_helpers.outlook_client_from_args",
-                   side_effect=RuntimeError("MSAL config error")):
+        with (
+            patch("mail.utils.cli_helpers.is_outlook_profile", return_value=True),
+            patch(
+                "mail.utils.cli_helpers.outlook_client_from_args",
+                side_effect=RuntimeError("MSAL config error"),
+            ),
+        ):
             with capture_stdout():
                 rc = run_messages_summarize(_outlook_summarize_args(id="OLK1"))
         self.assertEqual(rc, 1)
@@ -292,8 +316,10 @@ class OutlookSearchProcessorErrorTests(unittest.TestCase):
 
         args = make_args(query="swim", profile="outlook_personal")
 
-        with patch("mail.utils.cli_helpers.outlook_client_from_args",
-                   side_effect=RuntimeError("missing config")):
+        with patch(
+            "mail.utils.cli_helpers.outlook_client_from_args",
+            side_effect=RuntimeError("missing config"),
+        ):
             with capture_stdout() as buf:
                 processor = _outlook_search_processor(args, query="swim")
 
@@ -319,8 +345,7 @@ class OutlookSearchProcessorErrorTests(unittest.TestCase):
 
         args = make_args(query="test", profile="outlook_personal")
 
-        with patch("mail.utils.cli_helpers.outlook_client_from_args",
-                   side_effect=RuntimeError("")):
+        with patch("mail.utils.cli_helpers.outlook_client_from_args", side_effect=RuntimeError("")):
             with capture_stdout() as buf:
                 processor = _outlook_search_processor(args, query="test")
 

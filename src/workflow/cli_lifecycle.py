@@ -128,8 +128,7 @@ def _cmd_seed_pr_lifecycle(args: argparse.Namespace) -> int:
         print(f"Error: {exc}", file=sys.stderr)
         return ExitCode.ERROR
     rows: list[dict[str, object]] = [
-        {"index": s.stage_index, "stage": s.stage_name, "path": str(s.path)}
-        for s in seeded
+        {"index": s.stage_index, "stage": s.stage_name, "path": str(s.path)} for s in seeded
     ]
     emit_rows(rows, fmt=args.format, headers=["index", "stage", "path"])
     return ExitCode.SUCCESS

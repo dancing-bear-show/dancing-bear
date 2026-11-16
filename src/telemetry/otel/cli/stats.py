@@ -68,9 +68,7 @@ def _aggregate_by_resource(metrics: list, events: list, spans: list) -> dict:
         svc = record.resource.service_name
         if svc not in resource_stats:
             resource_stats[svc] = {"metrics": 0, "events": 0, "spans": 0}
-        metric_points = sum(
-            len(m.data_points) for m in record.metrics
-        )
+        metric_points = sum(len(m.data_points) for m in record.metrics)
         resource_stats[svc]["metrics"] += metric_points
 
     for record in events:
@@ -88,7 +86,7 @@ def _aggregate_by_resource(metrics: list, events: list, spans: list) -> dict:
     return resource_stats
 
 
-def _output_stats(stats: dict, title: str, format_type: str) -> int:  # NOSONAR python:S3516 - always returns 0 by design; no error conditions
+def _output_stats(stats: dict, title: str, format_type: str) -> int:  # NOSONAR python:S3516 - always returns 0 by design; no error conditions  # fmt: skip
     """Output statistics in requested format."""
     if format_type == "json":
         emit_one(stats, "json")

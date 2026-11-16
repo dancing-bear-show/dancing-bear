@@ -2,54 +2,54 @@
 
 from __future__ import annotations
 
-from tests.fixtures import test_path
 import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
-from mail.outlook.processors_rules_helpers import _canon_rule
-from mail.outlook.processors_rules import (
-    OutlookRulesListResult,
-    OutlookRulesExportResult,
-    OutlookRulesListProcessor,
-    OutlookRulesExportProcessor,
-)
-from mail.outlook.processors_rules_write import (
-    OutlookRulesSyncResult,
-    OutlookRulesSyncProcessor,
-    OutlookRulesDeleteProcessor,
-    OutlookRulesSweepProcessor,
-)
-from mail.outlook.processors_rules_plan import (
-    OutlookRulesPlanResult,
-    OutlookRulesPlanProcessor,
-)
-from mail.outlook.processors_calendar import (
-    OutlookCategoriesSyncResult,
-    OutlookCalendarAddResult,
-    OutlookCategoriesListProcessor,
-    OutlookCategoriesExportProcessor,
-    OutlookCategoriesSyncProcessor,
-    OutlookFoldersSyncProcessor,
-    OutlookCalendarAddProcessor,
-    OutlookCalendarAddRecurringProcessor,
-    OutlookCalendarAddFromConfigProcessor,
-)
 from mail.outlook.consumers import (
-    OutlookRulesListPayload,
-    OutlookRulesExportPayload,
-    OutlookRulesSyncPayload,
-    OutlookRulesPlanPayload,
-    OutlookRulesDeletePayload,
-    OutlookRulesSweepPayload,
-    OutlookCategoriesListPayload,
-    OutlookCategoriesExportPayload,
-    OutlookCategoriesSyncPayload,
-    OutlookFoldersSyncPayload,
+    OutlookCalendarAddFromConfigPayload,
     OutlookCalendarAddPayload,
     OutlookCalendarAddRecurringPayload,
-    OutlookCalendarAddFromConfigPayload,
+    OutlookCategoriesExportPayload,
+    OutlookCategoriesListPayload,
+    OutlookCategoriesSyncPayload,
+    OutlookFoldersSyncPayload,
+    OutlookRulesDeletePayload,
+    OutlookRulesExportPayload,
+    OutlookRulesListPayload,
+    OutlookRulesPlanPayload,
+    OutlookRulesSweepPayload,
+    OutlookRulesSyncPayload,
 )
+from mail.outlook.processors_calendar import (
+    OutlookCalendarAddFromConfigProcessor,
+    OutlookCalendarAddProcessor,
+    OutlookCalendarAddRecurringProcessor,
+    OutlookCalendarAddResult,
+    OutlookCategoriesExportProcessor,
+    OutlookCategoriesListProcessor,
+    OutlookCategoriesSyncProcessor,
+    OutlookCategoriesSyncResult,
+    OutlookFoldersSyncProcessor,
+)
+from mail.outlook.processors_rules import (
+    OutlookRulesExportProcessor,
+    OutlookRulesExportResult,
+    OutlookRulesListProcessor,
+    OutlookRulesListResult,
+)
+from mail.outlook.processors_rules_helpers import _canon_rule
+from mail.outlook.processors_rules_plan import (
+    OutlookRulesPlanProcessor,
+    OutlookRulesPlanResult,
+)
+from mail.outlook.processors_rules_write import (
+    OutlookRulesDeleteProcessor,
+    OutlookRulesSweepProcessor,
+    OutlookRulesSyncProcessor,
+    OutlookRulesSyncResult,
+)
+from tests.fixtures import test_path
 
 
 class TestCanonRule(unittest.TestCase):
@@ -291,7 +291,9 @@ class TestOutlookRulesSweepProcessor(unittest.TestCase):
     def test_process_success_dry_run(self, mock_norm, mock_load):
         """Test successful rules sweep dry run."""
         mock_load.return_value = {"filters": []}
-        mock_norm.return_value = [{"match": {"from": "news@e.com"}, "action": {"moveToFolder": "Archive"}}]
+        mock_norm.return_value = [
+            {"match": {"from": "news@e.com"}, "action": {"moveToFolder": "Archive"}}
+        ]
 
         mock_client = MagicMock()
         mock_client.get_folder_path_map.return_value = {"Archive": "f1"}
@@ -349,7 +351,9 @@ class TestOutlookCategoriesSyncProcessor(unittest.TestCase):
         mock_client = MagicMock()
         mock_client.list_labels.return_value = []
 
-        payload = OutlookCategoriesSyncPayload(client=mock_client, config_path="/t.yaml", dry_run=True)
+        payload = OutlookCategoriesSyncPayload(
+            client=mock_client, config_path="/t.yaml", dry_run=True
+        )
         envelope = OutlookCategoriesSyncProcessor().process(payload)
 
         self.assertEqual(envelope.status, "success")
@@ -407,7 +411,10 @@ class TestOutlookCalendarAddProcessor(unittest.TestCase):
         mock_client.create_event.return_value = {"id": "e123", "subject": "Meet"}
 
         payload = OutlookCalendarAddPayload(
-            client=mock_client, subject="Meet", start_iso="2024-01-15T10:00", end_iso="2024-01-15T11:00"
+            client=mock_client,
+            subject="Meet",
+            start_iso="2024-01-15T10:00",
+            end_iso="2024-01-15T11:00",
         )
         envelope = OutlookCalendarAddProcessor().process(payload)
 
@@ -420,7 +427,10 @@ class TestOutlookCalendarAddProcessor(unittest.TestCase):
         mock_client.create_event.side_effect = Exception("Calendar error")
 
         payload = OutlookCalendarAddPayload(
-            client=mock_client, subject="Meet", start_iso="2024-01-15T10:00", end_iso="2024-01-15T11:00"
+            client=mock_client,
+            subject="Meet",
+            start_iso="2024-01-15T10:00",
+            end_iso="2024-01-15T11:00",
         )
         envelope = OutlookCalendarAddProcessor().process(payload)
         self.assertEqual(envelope.status, "error")
@@ -435,8 +445,12 @@ class TestOutlookCalendarAddRecurringProcessor(unittest.TestCase):
         mock_client.create_recurring_event.return_value = {"id": "r123", "subject": "Weekly"}
 
         payload = OutlookCalendarAddRecurringPayload(
-            client=mock_client, subject="Weekly", start_time="09:00", end_time="09:30",
-            repeat="weekly", range_start="2024-01-15"
+            client=mock_client,
+            subject="Weekly",
+            start_time="09:00",
+            end_time="09:30",
+            repeat="weekly",
+            range_start="2024-01-15",
         )
         envelope = OutlookCalendarAddRecurringProcessor().process(payload)
 
@@ -450,7 +464,9 @@ class TestOutlookCalendarAddFromConfigProcessor(unittest.TestCase):
     @patch("core.yamlio.load_config")
     def test_process_success_single(self, mock_load):
         """Test successful single event creation."""
-        mock_load.return_value = {"events": [{"subject": "Meet", "start": "2024-01-15T10:00", "end": "2024-01-15T11:00"}]}
+        mock_load.return_value = {
+            "events": [{"subject": "Meet", "start": "2024-01-15T10:00", "end": "2024-01-15T11:00"}]
+        }
 
         mock_client = MagicMock()
         mock_client.create_event.return_value = {"id": "e1"}
@@ -464,7 +480,17 @@ class TestOutlookCalendarAddFromConfigProcessor(unittest.TestCase):
     @patch("core.yamlio.load_config")
     def test_process_success_recurring(self, mock_load):
         """Test successful recurring event creation."""
-        mock_load.return_value = {"events": [{"subject": "Weekly", "repeat": "weekly", "start_time": "09:00", "end_time": "09:30", "start_date": "2024-01-15"}]}
+        mock_load.return_value = {
+            "events": [
+                {
+                    "subject": "Weekly",
+                    "repeat": "weekly",
+                    "start_time": "09:00",
+                    "end_time": "09:30",
+                    "start_date": "2024-01-15",
+                }
+            ]
+        }
 
         mock_client = MagicMock()
         mock_client.create_recurring_event.return_value = {"id": "r1"}

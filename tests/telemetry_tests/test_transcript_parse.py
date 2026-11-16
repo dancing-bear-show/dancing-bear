@@ -1,5 +1,6 @@
 """Tests for TranscriptProvider parsing methods (TestParseAssistantRecord,
 TestParseUserRecord, TestComputeTokenCost, TestParseSessionWithAgents)."""
+
 from __future__ import annotations
 
 import json
@@ -7,7 +8,6 @@ import unittest
 from datetime import datetime
 
 from telemetry.providers.transcript import TranscriptProvider
-
 from tests.telemetry_tests.shared_fixtures import (
     TempProjectsDirMixin,
     _write_jsonl,
@@ -163,9 +163,7 @@ class TestParseUserRecord(TempProjectsDirMixin, unittest.TestCase):
 
     def test_cost_computed_from_sub_usage(self):
         record = make_user_record(
-            tool_use_result=make_agent_tool_use_result(
-                input_tokens=1_000_000, output_tokens=0
-            ),
+            tool_use_result=make_agent_tool_use_result(input_tokens=1_000_000, output_tokens=0),
             tool_use_id="t1",
         )
         agent_tool_inputs = {"t1": {"model": "claude-opus-4-6"}}
@@ -175,9 +173,7 @@ class TestParseUserRecord(TempProjectsDirMixin, unittest.TestCase):
 
 class TestComputeTokenCost(unittest.TestCase):
     def test_delegates_to_compute_cost(self):
-        cost = TranscriptProvider._compute_token_cost(
-            "claude-opus-4-6", 1_000_000, 0, 0, 0
-        )
+        cost = TranscriptProvider._compute_token_cost("claude-opus-4-6", 1_000_000, 0, 0, 0)
         self.assertAlmostEqual(cost, 5.0, places=2)
 
     def test_zero_tokens_zero_cost(self):
@@ -237,9 +233,7 @@ class TestParseSessionWithAgents(TempProjectsDirMixin, unittest.TestCase):
         self.assertEqual(agents, [])
 
     def test_unknown_record_type_ignored(self):
-        path = _write_jsonl(
-            self.projects_dir, "session.jsonl", [{"type": "system", "foo": "bar"}]
-        )
+        path = _write_jsonl(self.projects_dir, "session.jsonl", [{"type": "system", "foo": "bar"}])
         events, agents = self.provider.parse_session_with_agents(path)
         self.assertEqual(events, [])
         self.assertEqual(agents, [])

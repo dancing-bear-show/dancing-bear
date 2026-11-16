@@ -13,6 +13,6 @@ class TestLLMInventory(unittest.TestCase):
         self.assertEqual(rc, 0)
         data = json.loads(buf.getvalue())
         # Expected top-level keys
-        self.assertIn('wrappers', data)
-        self.assertIn('areas', data)
-        self.assertIn('mail_groups', data)
+        self.assertIn("wrappers", data)
+        self.assertIn("areas", data)
+        self.assertIn("mail_groups", data)

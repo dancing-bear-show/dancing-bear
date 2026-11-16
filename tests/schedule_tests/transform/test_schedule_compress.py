@@ -1,15 +1,16 @@
 import io
 import unittest
-from pathlib import Path
 from contextlib import redirect_stdout
+from pathlib import Path
 
 
 class TestScheduleCompress(unittest.TestCase):
-
     def test_compress_infers_weekly_series_with_exdates(self):
         import tempfile
         import textwrap
+
         from schedule.cli import main as sa
+
         plan = textwrap.dedent(
             """
             events:
@@ -31,7 +32,11 @@ class TestScheduleCompress(unittest.TestCase):
             inp = Path(td) / "in.yaml"
             inp.write_text(plan, encoding="utf-8")
             outp = Path(td) / "out.yaml"
-            args = type("Args", (), {"in_path": str(inp), "out": str(outp), "calendar": "Activities", "min_occur": 2})
+            args = type(
+                "Args",
+                (),
+                {"in_path": str(inp), "out": str(outp), "calendar": "Activities", "min_occur": 2},
+            )
             buf = io.StringIO()
             with redirect_stdout(buf):
                 rc = sa.cmd_compress(args)
@@ -51,4 +56,3 @@ class TestScheduleCompress(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

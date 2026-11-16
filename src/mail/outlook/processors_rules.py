@@ -4,6 +4,7 @@ Read-only processors live here. Write/mutation processors are in processors_rule
 and the plan (dry-run preview) processor is in processors_rules_plan.py.
 Helper/builder functions are in processors_rules_helpers.py.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -12,29 +13,30 @@ from typing import Any
 from core.pipeline import Processor, ResultEnvelope
 
 from .consumers import (
-    OutlookRulesListPayload,
     OutlookRulesExportPayload,
+    OutlookRulesListPayload,
 )
 from .processors_rules_helpers import (  # noqa: F401
     RuleContext,
-    _canon_rule,
-    _fetch_rules_with_resilience,
-    _build_rule_criteria,
-    _build_rule_action,
-    _create_rule_key,
     _build_plan_action,
-    _format_plan_action,
+    _build_rule_action,
+    _build_rule_criteria,
     _build_search_query,
-    _resolve_destination_folder,
+    _canon_rule,
+    _create_rule_key,
     _export_rule_entry,
+    _fetch_rules_with_resilience,
+    _format_plan_action,
+    _resolve_destination_folder,
 )
 
-
 # Result dataclasses for read-only operations
+
 
 @dataclass
 class OutlookRulesListResult:
     """Result of rules list."""
+
     rules: list[dict[str, Any]] = field(default_factory=list)
     id_to_name: dict[str, str] = field(default_factory=dict)
     folder_path_rev: dict[str, str] = field(default_factory=dict)
@@ -43,13 +45,17 @@ class OutlookRulesListResult:
 @dataclass
 class OutlookRulesExportResult:
     """Result of rules export."""
+
     count: int = 0
     out_path: str = ""
 
 
 # Read-only processor classes
 
-class OutlookRulesListProcessor(Processor[OutlookRulesListPayload, ResultEnvelope[OutlookRulesListResult]]):
+
+class OutlookRulesListProcessor(
+    Processor[OutlookRulesListPayload, ResultEnvelope[OutlookRulesListResult]]
+):
     """List Outlook inbox rules."""
 
     def process(self, payload: OutlookRulesListPayload) -> ResultEnvelope[OutlookRulesListResult]:
@@ -58,7 +64,9 @@ class OutlookRulesListProcessor(Processor[OutlookRulesListPayload, ResultEnvelop
             rules = client.list_filters(use_cache=payload.use_cache, ttl=payload.cache_ttl)
             name_to_id = client.get_label_id_map()
             id_to_name = {v: k for k, v in name_to_id.items() if v}
-            folder_path_rev = {fid: path for path, fid in (client.get_folder_path_map() or {}).items()}
+            folder_path_rev = {
+                fid: path for path, fid in (client.get_folder_path_map() or {}).items()
+            }
             return ResultEnvelope(
                 status="success",
                 payload=OutlookRulesListResult(
@@ -75,12 +83,17 @@ class OutlookRulesListProcessor(Processor[OutlookRulesListPayload, ResultEnvelop
             )
 
 
-class OutlookRulesExportProcessor(Processor[OutlookRulesExportPayload, ResultEnvelope[OutlookRulesExportResult]]):
+class OutlookRulesExportProcessor(
+    Processor[OutlookRulesExportPayload, ResultEnvelope[OutlookRulesExportResult]]
+):
     """Export Outlook inbox rules to YAML."""
 
-    def process(self, payload: OutlookRulesExportPayload) -> ResultEnvelope[OutlookRulesExportResult]:
+    def process(
+        self, payload: OutlookRulesExportPayload
+    ) -> ResultEnvelope[OutlookRulesExportResult]:
         try:
             from pathlib import Path
+
             client = payload.client
             rules = client.list_filters(use_cache=payload.use_cache, ttl=payload.cache_ttl)
             id_to_name = {v: k for k, v in client.get_label_id_map().items() if v}
@@ -90,9 +103,11 @@ class OutlookRulesExportProcessor(Processor[OutlookRulesExportPayload, ResultEnv
 
             data = {"filters": out_filters}
             from ..config_resolver import expand_path
+
             outp = Path(expand_path(payload.out_path))
             outp.parent.mkdir(parents=True, exist_ok=True)
             from core.yamlio import dump_config
+
             dump_config(str(outp), data)
 
             return ResultEnvelope(

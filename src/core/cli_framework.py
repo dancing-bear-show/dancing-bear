@@ -7,11 +7,13 @@ Provides a declarative way to build CLI applications with:
 - Output formatting
 - Common arguments (--profile, --dry-run, --verbose, --output)
 """
+
 from __future__ import annotations
 
 import argparse
 import sys
-from typing import Any, Callable, Iterable, Sequence, TypeVar
+from collections.abc import Callable, Iterable, Sequence
+from typing import Any, TypeVar
 
 from .cli_errors import CLIError, ExitCode, handle_error
 from .cli_framework_group import CommandGroup
@@ -25,7 +27,6 @@ from .cli_help_text import (
     HELP_VERBOSE,
 )
 from .cli_output import OutputConfig, OutputFormat, OutputWriter
-
 
 T = TypeVar("T")
 
@@ -71,7 +72,7 @@ class CLIApp:
         self.add_common_args = add_common_args
 
         self._commands: dict[str, CommandDef] = {}
-        self._groups: dict[str, "CommandGroup"] = {}
+        self._groups: dict[str, CommandGroup] = {}
         self._parser: argparse.ArgumentParser | None = None
         self._pending_arguments: list[Argument] = []
 
@@ -113,6 +114,7 @@ class CLIApp:
         Returns:
             Decorator function.
         """
+
         def decorator(func: CommandFunc) -> CommandFunc:
             # Collect any pending arguments from @argument decorators
             arguments = list(reversed(self._pending_arguments))
@@ -135,6 +137,7 @@ class CLIApp:
             self._commands[full_name] = cmd_def
 
             return func
+
         return decorator
 
     def argument(
@@ -153,9 +156,11 @@ class CLIApp:
         Returns:
             Decorator function.
         """
+
         def decorator(func: CommandFunc) -> CommandFunc:
             self._pending_arguments.append(Argument(name_or_flags, kwargs))
             return func
+
         return decorator
 
     def add_arguments(
@@ -178,7 +183,7 @@ class CLIApp:
         *,
         help: str = "",
         description: str = "",
-    ) -> "CommandGroup":
+    ) -> CommandGroup:
         """Create a command group for nested commands.
 
         Args:
@@ -204,7 +209,8 @@ class CLIApp:
 
         if self.version:
             parser.add_argument(
-                "--version", "-V",
+                "--version",
+                "-V",
                 action="version",
                 version=f"%(prog)s {self.version}",
             )
@@ -243,16 +249,19 @@ class CLIApp:
     def _add_common_arguments(self, parser: argparse.ArgumentParser) -> None:
         """Add common arguments to the parser."""
         parser.add_argument(
-            "--profile", "-p",
+            "--profile",
+            "-p",
             help=HELP_PROFILE,
         )
         parser.add_argument(
-            "--verbose", "-v",
+            "--verbose",
+            "-v",
             action="store_true",
             help=HELP_VERBOSE,
         )
         parser.add_argument(
-            "--quiet", "-q",
+            "--quiet",
+            "-q",
             action="store_true",
             help=HELP_QUIET,
         )
@@ -262,7 +271,8 @@ class CLIApp:
             help=HELP_DRY_RUN,
         )
         parser.add_argument(
-            "--output", "-o",
+            "--output",
+            "-o",
             choices=["text", "json", "yaml", "table"],
             default="text",
             help=HELP_OUTPUT,
@@ -300,7 +310,7 @@ class CLIApp:
             return argv_list
         if idx == len(argv_list) - 1:
             return argv_list
-        return argv_list[:idx] + argv_list[idx + 1:]
+        return argv_list[:idx] + argv_list[idx + 1 :]
 
     @staticmethod
     def _run_cmd_func_with_error_handling(
@@ -360,7 +370,10 @@ class CLIApp:
             try:
                 pre_run_hook()
             except Exception as e:  # nosec B110 - best-effort hook, safe to continue
-                print(f"Warning: Pre-run hook failed ({type(e).__name__}), continuing", file=sys.stderr)
+                print(
+                    f"Warning: Pre-run hook failed ({type(e).__name__}), continuing",
+                    file=sys.stderr,
+                )
 
         # Build parser and add agentic flags
         parser = self.build_parser()

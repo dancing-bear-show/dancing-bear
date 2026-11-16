@@ -9,11 +9,11 @@ from typing import Any
 from core.cli_errors import CLIError, ExitCode
 from core.cli_framework import CLIApp
 
-from .args import PROFILE_HELP_OUT, OUT_DIR_HELP
+from .args import OUT_DIR_HELP, PROFILE_HELP_OUT
 from .helpers import _resolve_out
 
 
-def _read_docx_document(path: str) -> "tuple[str, list[str]] | None":
+def _read_docx_document(path: str) -> tuple[str, list[str]] | None:
     """Return (document.xml text, archive member names), or None after reporting.
 
     Errors are printed to stderr and signalled as None so both docx-text modes
@@ -126,11 +126,18 @@ def register_docx_commands(app: CLIApp) -> None:
     """Register the docx-text and export-pdf commands on app."""
     _DOCX_TEXT_ARGS: list[tuple[tuple[str, ...], dict[str, Any]]] = [
         (("path",), {"help": "Path to the .docx file"}),
-        (("--structure",), {"action": "store_true",
-                            "help": "Report layout markup counts (tables/textboxes/columns) instead of text"}),
+        (
+            ("--structure",),
+            {
+                "action": "store_true",
+                "help": "Report layout markup counts (tables/textboxes/columns) instead of text",
+            },
+        ),
     ]
     app.add_arguments(_DOCX_TEXT_ARGS)
-    app.command("docx-text", help="Dump visible text from a .docx file (for verification)")(cmd_docx_text)
+    app.command("docx-text", help="Dump visible text from a .docx file (for verification)")(
+        cmd_docx_text
+    )
 
     _EXPORT_PDF_ARGS: list[tuple[tuple[str, ...], dict[str, Any]]] = [
         (("--docx",), {"required": True, "help": "Input .docx file to convert"}),

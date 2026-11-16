@@ -33,7 +33,7 @@ class ResolvedBullet:
     url: str | None = None
 
     @classmethod
-    def from_item(cls, item: "str | BulletItem") -> "ResolvedBullet":
+    def from_item(cls, item: str | BulletItem) -> ResolvedBullet:
         """Normalize a BulletItem or plain string into a ResolvedBullet."""
         if isinstance(item, BulletItem):
             return cls(
@@ -76,7 +76,9 @@ class DeckMetadata:
     title: str
     author: str | None = None
     date: str | None = None  # May be str or datetime.date from YAML parsing
-    template_slide_index: int = 0  # 0-indexed fallback for legacy mode; ignored when master layouts resolve
+    template_slide_index: int = (
+        0  # 0-indexed fallback for legacy mode; ignored when master layouts resolve
+    )
     theme_color: str = "LIGHT_2"  # MSO_THEME_COLOR value
     layout_map: dict[str, int] | None = None  # Maps layout names to template slide indices
 

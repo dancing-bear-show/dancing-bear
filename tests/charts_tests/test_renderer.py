@@ -12,13 +12,14 @@ from unittest.mock import MagicMock, patch
 
 from tests.charts_tests.conftest_helpers import _fake_ax, _make_series
 
-
 # ---------------------------------------------------------------------------
 # Shared factories
 # ---------------------------------------------------------------------------
 
+
 def _make_line_spec(series=None, *, x_field="ts"):
     from charts.types.line import LineChartSpec
+
     if series is None:
         series = [_make_series("s", ["2024-01-01", "2024-01-02"], [1.0, 2.0])]
     return LineChartSpec(title="Test Line", x_field=x_field, series=series)
@@ -26,6 +27,7 @@ def _make_line_spec(series=None, *, x_field="ts"):
 
 def _make_bar_spec(series=None, *, x_field="x"):
     from charts.types.bar import BarChartSpec
+
     if series is None:
         series = [_make_series("s", ["a", "b"], [1.0, 2.0], x_field=x_field)]
     return BarChartSpec(title="Test Bar", x_field=x_field, series=series)
@@ -33,6 +35,7 @@ def _make_bar_spec(series=None, *, x_field="x"):
 
 def _make_area_spec(series=None):
     from charts.types.area import AreaChartSpec
+
     if series is None:
         series = [_make_series("s", ["2024-01-01"], [1.0])]
     return AreaChartSpec(title="Test Area", x_field="ts", series=series)
@@ -40,6 +43,7 @@ def _make_area_spec(series=None):
 
 def _make_dual_spec(series=None):
     from charts.types.dual import DualAxisChartSpec
+
     if series is None:
         series = [_make_series("s", ["2024-01-01"], [1.0])]
     return DualAxisChartSpec(title="Test Dual", x_field="ts", series=series)
@@ -49,20 +53,33 @@ def _make_dual_spec(series=None):
 # _base_kwargs
 # ---------------------------------------------------------------------------
 
+
 class TestBaseKwargs(unittest.TestCase):
     def test_all_expected_keys_present(self):
         from charts.renderer import _base_kwargs
+
         spec = _make_line_spec()
         result = _base_kwargs(spec)
         expected_keys = {
-            "title", "x_field", "series", "kind", "width_px", "height_px",
-            "dpi", "x_label", "y_label", "y_right_label", "show_legend",
-            "date_format", "shade_weekends",
+            "title",
+            "x_field",
+            "series",
+            "kind",
+            "width_px",
+            "height_px",
+            "dpi",
+            "x_label",
+            "y_label",
+            "y_right_label",
+            "show_legend",
+            "date_format",
+            "shade_weekends",
         }
         self.assertEqual(set(result.keys()), expected_keys)
 
     def test_values_match_spec(self):
         from charts.renderer import _base_kwargs
+
         spec = _make_line_spec()
         result = _base_kwargs(spec)
         self.assertEqual(result["title"], spec.title)
@@ -75,9 +92,11 @@ class TestBaseKwargs(unittest.TestCase):
 # _hide_unused_axes
 # ---------------------------------------------------------------------------
 
+
 class TestHideUnusedAxes(unittest.TestCase):
     def test_used_cell_not_hidden(self):
         from charts.renderer import _hide_unused_axes
+
         ax00 = MagicMock()
         ax01 = MagicMock()
         ax10 = MagicMock()
@@ -89,6 +108,7 @@ class TestHideUnusedAxes(unittest.TestCase):
 
     def test_unused_cell_hidden(self):
         from charts.renderer import _hide_unused_axes
+
         ax00 = MagicMock()
         ax01 = MagicMock()
         ax10 = MagicMock()
@@ -101,6 +121,7 @@ class TestHideUnusedAxes(unittest.TestCase):
 
     def test_all_cells_used_nothing_hidden(self):
         from charts.renderer import _hide_unused_axes
+
         ax00 = MagicMock()
         grid = [[ax00]]
         _hide_unused_axes(grid, rows=1, cols=1, used_cells={(0, 0)})
@@ -108,6 +129,7 @@ class TestHideUnusedAxes(unittest.TestCase):
 
     def test_empty_used_cells_hides_all(self):
         from charts.renderer import _hide_unused_axes
+
         ax00 = MagicMock()
         ax01 = MagicMock()
         grid = [[ax00, ax01]]
@@ -120,19 +142,24 @@ class TestHideUnusedAxes(unittest.TestCase):
 # _dispatch
 # ---------------------------------------------------------------------------
 
+
 class TestDispatch(unittest.TestCase):
     def _run(self, spec):
         from charts.renderer import _dispatch
         from charts.theme import get_theme
+
         ax = _fake_ax()
         fig = MagicMock()
         mock_mdates = MagicMock()
         mock_plt = MagicMock()
         mock_plt.setp = MagicMock()
-        with patch.dict("sys.modules", {
-            "matplotlib.dates": mock_mdates,
-            "matplotlib.pyplot": mock_plt,
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "matplotlib.dates": mock_mdates,
+                "matplotlib.pyplot": mock_plt,
+            },
+        ):
             _dispatch(fig, ax, spec, get_theme("dark"))
         return ax
 
@@ -141,6 +168,7 @@ class TestDispatch(unittest.TestCase):
         with patch("charts.renderer._render_line") as mock_rl:
             from charts.renderer import _dispatch
             from charts.theme import get_theme
+
             ax = _fake_ax()
             _dispatch(MagicMock(), ax, spec, get_theme("dark"))
         mock_rl.assert_called_once()
@@ -150,6 +178,7 @@ class TestDispatch(unittest.TestCase):
         with patch("charts.renderer._render_bar") as mock_rb:
             from charts.renderer import _dispatch
             from charts.theme import get_theme
+
             ax = _fake_ax()
             _dispatch(MagicMock(), ax, spec, get_theme("dark"))
         mock_rb.assert_called_once()
@@ -159,6 +188,7 @@ class TestDispatch(unittest.TestCase):
         with patch("charts.renderer._render_area") as mock_ra:
             from charts.renderer import _dispatch
             from charts.theme import get_theme
+
             ax = _fake_ax()
             _dispatch(MagicMock(), ax, spec, get_theme("dark"))
         mock_ra.assert_called_once()
@@ -168,6 +198,7 @@ class TestDispatch(unittest.TestCase):
         with patch("charts.renderer._render_dual") as mock_rd:
             from charts.renderer import _dispatch
             from charts.theme import get_theme
+
             ax = _fake_ax()
             _dispatch(MagicMock(), ax, spec, get_theme("dark"))
         mock_rd.assert_called_once()
@@ -175,6 +206,7 @@ class TestDispatch(unittest.TestCase):
     def test_dispatch_unknown_kind_raises(self):
         from charts.renderer import _dispatch
         from charts.theme import get_theme
+
         spec = _make_line_spec()
         # Patch kind to something unsupported
         bad_spec = MagicMock(spec=spec)
@@ -186,7 +218,8 @@ class TestDispatch(unittest.TestCase):
         """When a plain ChartSpec with kind=line is passed, _dispatch wraps it."""
         from charts.renderer import _dispatch
         from charts.theme import get_theme
-        from charts.types.base import ChartSpec, ChartKind, SeriesSpec
+        from charts.types.base import ChartKind, ChartSpec, SeriesSpec
+
         s = SeriesSpec(name="s", data=[{"ts": "2024-01-01", "value": 1}])
         spec = ChartSpec(title="T", x_field="ts", series=[s], kind=ChartKind.line)
         with patch("charts.renderer._render_line") as mock_rl:
@@ -198,9 +231,11 @@ class TestDispatch(unittest.TestCase):
 # render_chart
 # ---------------------------------------------------------------------------
 
+
 class TestRenderChart(unittest.TestCase):
     def _mock_matplotlib_and_patch(self):
         import sys
+
         mock_mpl = MagicMock()
         mock_plt = MagicMock()
         fig = MagicMock()
@@ -208,14 +243,22 @@ class TestRenderChart(unittest.TestCase):
         ax = _fake_ax()
         mock_plt.subplots.return_value = (fig, ax)
         mock_mpl.pyplot = mock_plt
-        return patch.dict(sys.modules, {
-            "matplotlib": mock_mpl,
-            "matplotlib.pyplot": mock_plt,
-            "matplotlib.dates": MagicMock(),
-        }), fig, ax
+        return (
+            patch.dict(
+                sys.modules,
+                {
+                    "matplotlib": mock_mpl,
+                    "matplotlib.pyplot": mock_plt,
+                    "matplotlib.dates": MagicMock(),
+                },
+            ),
+            fig,
+            ax,
+        )
 
     def test_happy_path_returns_path(self):
         from charts.renderer import render_chart
+
         spec = _make_line_spec()
         mpl_ctx, _, _ = self._mock_matplotlib_and_patch()
         with (
@@ -232,6 +275,7 @@ class TestRenderChart(unittest.TestCase):
 
     def test_svg_format_accepted(self):
         from charts.renderer import render_chart
+
         spec = _make_line_spec()
         mpl_ctx, _, _ = self._mock_matplotlib_and_patch()
         with (
@@ -247,6 +291,7 @@ class TestRenderChart(unittest.TestCase):
 
     def test_unsupported_format_raises(self):
         from charts.renderer import render_chart
+
         spec = _make_line_spec()
         with patch("charts.renderer._require_matplotlib"):
             with self.assertRaises(ValueError) as cm:
@@ -255,6 +300,7 @@ class TestRenderChart(unittest.TestCase):
 
     def test_negative_dpi_raises(self):
         from charts.renderer import render_chart
+
         spec = _make_line_spec()
         with patch("charts.renderer._require_matplotlib"):
             with self.assertRaises(ValueError):
@@ -262,6 +308,7 @@ class TestRenderChart(unittest.TestCase):
 
     def test_zero_dpi_raises(self):
         from charts.renderer import render_chart
+
         spec = _make_line_spec()
         with patch("charts.renderer._require_matplotlib"):
             with self.assertRaises(ValueError):
@@ -269,6 +316,7 @@ class TestRenderChart(unittest.TestCase):
 
     def test_dpi_override_used(self):
         from charts.renderer import render_chart
+
         spec = _make_line_spec()
         mpl_ctx, _, _ = self._mock_matplotlib_and_patch()
         mpl_ctx_patch = mpl_ctx
@@ -288,6 +336,7 @@ class TestRenderChart(unittest.TestCase):
 
     def test_custom_theme_applied(self):
         from charts.renderer import render_chart
+
         spec = _make_line_spec()
         mpl_ctx, _, _ = self._mock_matplotlib_and_patch()
         with (
@@ -304,6 +353,7 @@ class TestRenderChart(unittest.TestCase):
 
     def test_savefig_called(self):
         from charts.renderer import render_chart
+
         spec = _make_line_spec()
         mpl_ctx, fig, _ = self._mock_matplotlib_and_patch()
         with (
@@ -322,11 +372,22 @@ class TestRenderChart(unittest.TestCase):
 # render_grid
 # ---------------------------------------------------------------------------
 
+
 class TestRenderGrid(unittest.TestCase):
-    def _make_grid_cfg(self, rows=1, cols=1, panels=None, theme="dark",
-                       output="/tmp/grid_test.png", title="Grid",  # nosec B108 - mock path, savefig is mocked
-                       dpi=150, width_px=1200, height_px=400):
+    def _make_grid_cfg(
+        self,
+        rows=1,
+        cols=1,
+        panels=None,
+        theme="dark",
+        output="/tmp/grid_test.png",
+        title="Grid",  # nosec B108 - mock path, savefig is mocked
+        dpi=150,
+        width_px=1200,
+        height_px=400,
+    ):
         from charts.config import GridConfig, PanelConfig
+
         if panels is None:
             panels = [PanelConfig(input="dummy.json", row=0, col=0)]
         return GridConfig(
@@ -343,6 +404,7 @@ class TestRenderGrid(unittest.TestCase):
 
     def _mock_matplotlib(self, rows=1, cols=1):
         import sys
+
         mock_mpl = MagicMock()
         mock_plt = MagicMock()
         fig = MagicMock()
@@ -358,14 +420,18 @@ class TestRenderGrid(unittest.TestCase):
             axes = [[_fake_ax() for _ in range(cols)] for _ in range(rows)]
             mock_plt.subplots.return_value = (fig, axes)
         mock_mpl.pyplot = mock_plt
-        return patch.dict(sys.modules, {
-            "matplotlib": mock_mpl,
-            "matplotlib.pyplot": mock_plt,
-            "matplotlib.dates": MagicMock(),
-        }), fig
+        return patch.dict(
+            sys.modules,
+            {
+                "matplotlib": mock_mpl,
+                "matplotlib.pyplot": mock_plt,
+                "matplotlib.dates": MagicMock(),
+            },
+        ), fig
 
     def test_spec_count_mismatch_raises(self):
         from charts.renderer import render_grid
+
         grid_cfg = self._make_grid_cfg()
         spec = _make_line_spec()
         with patch("charts.renderer._require_matplotlib"):
@@ -375,6 +441,7 @@ class TestRenderGrid(unittest.TestCase):
 
     def test_negative_dpi_raises(self):
         from charts.renderer import render_grid
+
         grid_cfg = self._make_grid_cfg(dpi=-1)
         spec = _make_line_spec()
         with patch("charts.renderer._require_matplotlib"):
@@ -383,6 +450,7 @@ class TestRenderGrid(unittest.TestCase):
 
     def test_zero_width_px_raises(self):
         from charts.renderer import render_grid
+
         grid_cfg = self._make_grid_cfg(width_px=0)
         spec = _make_line_spec()
         with patch("charts.renderer._require_matplotlib"):
@@ -391,6 +459,7 @@ class TestRenderGrid(unittest.TestCase):
 
     def test_unsupported_output_format_raises(self):
         from charts.renderer import render_grid
+
         grid_cfg = self._make_grid_cfg(output="/tmp/out.bmp")  # nosec B108 - raises before any file op
         spec = _make_line_spec()
         with patch("charts.renderer._require_matplotlib"):
@@ -399,6 +468,7 @@ class TestRenderGrid(unittest.TestCase):
 
     def test_happy_path_returns_path(self):
         from charts.renderer import render_grid
+
         grid_cfg = self._make_grid_cfg()
         spec = _make_line_spec()
         mpl_ctx, _ = self._mock_matplotlib(rows=1, cols=1)
@@ -416,6 +486,7 @@ class TestRenderGrid(unittest.TestCase):
 
     def test_savefig_called_with_correct_output(self):
         from charts.renderer import render_grid
+
         grid_cfg = self._make_grid_cfg(output="/tmp/my_grid.png")  # nosec B108 - mock path, savefig is mocked
         spec = _make_line_spec()
         mpl_ctx, fig = self._mock_matplotlib(rows=1, cols=1)
@@ -435,6 +506,7 @@ class TestRenderGrid(unittest.TestCase):
 
     def test_suptitle_set_when_title_present(self):
         from charts.renderer import render_grid
+
         grid_cfg = self._make_grid_cfg(title="My Grid")
         spec = _make_line_spec()
         mpl_ctx, fig = self._mock_matplotlib(rows=1, cols=1)
@@ -454,8 +526,9 @@ class TestRenderGrid(unittest.TestCase):
         self.assertEqual(title_set, "My Grid")
 
     def test_multi_panel_renders_each_spec(self):
-        from charts.renderer import render_grid
         from charts.config import PanelConfig
+        from charts.renderer import render_grid
+
         panels = [
             PanelConfig(input="a.json", row=0, col=0),
             PanelConfig(input="b.json", row=0, col=1),
@@ -467,7 +540,9 @@ class TestRenderGrid(unittest.TestCase):
         dispatch_calls = []
         with (
             patch("charts.renderer._require_matplotlib"),
-            patch("charts.renderer._dispatch", side_effect=lambda *a, **kw: dispatch_calls.append(1)),
+            patch(
+                "charts.renderer._dispatch", side_effect=lambda *a, **kw: dispatch_calls.append(1)
+            ),
             patch("charts.renderer._apply_theme"),
             patch("charts.renderer._apply_labels"),
             patch("charts.renderer._hide_unused_axes"),

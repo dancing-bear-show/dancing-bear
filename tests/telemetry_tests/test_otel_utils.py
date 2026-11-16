@@ -1,8 +1,8 @@
 """Tests for telemetry.otel.utils — parse_time_window."""
 
 import unittest
-from datetime import datetime, timedelta, timezone
 import unittest.mock as mock
+from datetime import UTC, datetime, timedelta
 
 from telemetry.otel.utils import parse_time_window
 
@@ -17,7 +17,7 @@ class TestParseTimeWindowFalsy(unittest.TestCase):
 
 class TestParseTimeWindowValid(unittest.TestCase):
     def _frozen_now(self):
-        return datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+        return datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC)
 
     def test_one_hour_window(self):
         frozen = self._frozen_now()

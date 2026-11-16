@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import time
-import hashlib
 from dataclasses import dataclass, field
 
-from .utils import expand_paths, parse_size, parse_duration, human_size
+from .utils import expand_paths, human_size, parse_duration, parse_size
 
 
 @dataclass
@@ -49,24 +49,30 @@ def _collect_file(
     buckets.by_dir[parent] = buckets.by_dir.get(parent, 0) + size
 
     if size >= criteria.min_bytes:
-        buckets.large.append({
-            "path": fp,
-            "size": size,
-            "size_h": human_size(size),
-            "mtime": int(mtime),
-        })
+        buckets.large.append(
+            {
+                "path": fp,
+                "size": size,
+                "size_h": human_size(size),
+                "mtime": int(mtime),
+            }
+        )
     if criteria.older_secs is not None and (criteria.now - mtime) >= criteria.older_secs:
-        buckets.stale.append({
-            "path": fp,
-            "age_days": round((criteria.now - mtime) / 86400, 1),
-            "size": size,
-            "size_h": human_size(size),
-        })
+        buckets.stale.append(
+            {
+                "path": fp,
+                "age_days": round((criteria.now - mtime) / 86400, 1),
+                "size": size,
+                "size_h": human_size(size),
+            }
+        )
     if criteria.include_duplicates and size >= 1024 * 1024:
         buckets.files_for_dupes.append((fp, size))
 
 
-def _collect_dir_files(dirpath: str, filenames: list[str], criteria: ScanCriteria, buckets: ScanBuckets) -> None:
+def _collect_dir_files(
+    dirpath: str, filenames: list[str], criteria: ScanCriteria, buckets: ScanBuckets
+) -> None:
     """Stat and classify every file in a single directory listing."""
     for name in filenames:
         fp = os.path.join(dirpath, name)
@@ -108,12 +114,8 @@ def run_scan(
     buckets.stale.sort(key=lambda x: (x["age_days"], x["size"]), reverse=True)
 
     # top directories by size
-    top_dirs_list = sorted(
-        buckets.by_dir.items(), key=lambda kv: kv[1], reverse=True
-    )[:top_dirs]
-    top_dirs_report = [
-        {"dir": d, "size": s, "size_h": human_size(s)} for d, s in top_dirs_list
-    ]
+    top_dirs_list = sorted(buckets.by_dir.items(), key=lambda kv: kv[1], reverse=True)[:top_dirs]
+    top_dirs_report = [{"dir": d, "size": s, "size_h": human_size(s)} for d, s in top_dirs_list]
 
     duplicates: list[list[str]] = []
     if include_duplicates and buckets.files_for_dupes:

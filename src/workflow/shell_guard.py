@@ -34,10 +34,26 @@ __all__ = ["refused_construct"]
 # `patch` are handled separately in _is_mutating because the guard's own
 # contract for them is conditional on their flags, not on the bare command
 # name -- see the "Written" table's `sed` and `patch` rows.
-_MUTATING_COMMANDS = frozenset({
-    "rm", "rmdir", "unlink", "shred", "chmod", "chown", "chgrp", "mv", "cp",
-    "ln", "install", "touch", "tee", "truncate", "dd", "mkdir",
-})
+_MUTATING_COMMANDS = frozenset(
+    {
+        "rm",
+        "rmdir",
+        "unlink",
+        "shred",
+        "chmod",
+        "chown",
+        "chgrp",
+        "mv",
+        "cp",
+        "ln",
+        "install",
+        "touch",
+        "tee",
+        "truncate",
+        "dd",
+        "mkdir",
+    }
+)
 # Shells whose ``-c`` string both guards treat as code: h_shell in
 # .claude/hooks/_bash_write_targets.py, and the nested-shell check in
 # block-destructive-bash.sh (which adds fish).
@@ -153,7 +169,7 @@ def _takes_long_value(raw: str) -> bool:
     return len(matches) == 1
 
 
-_DQUOTE_ESCAPE_CHARS = frozenset(('$', '`', '"', '\\', '\n'))
+_DQUOTE_ESCAPE_CHARS = frozenset(("$", "`", '"', "\\", "\n"))
 
 
 def _scan_double_quoted(raw: str, start: int) -> tuple[bool, int]:
@@ -164,17 +180,17 @@ def _scan_double_quoted(raw: str, start: int) -> tuple[bool, int]:
     closing ``"`` (or ``len(raw)`` if unterminated).
 
     Inside ``"..."``: single quotes are literal; ``$`` and backtick expand;
-    backslash only escapes ``$``, ``\```, ``"``, ``\\``, and newline.
+    backslash only escapes ``$``, ``\\```, ``"``, ``\\``, and newline.
     """
     i = start
     while i < len(raw):
         ch = raw[i]
         if ch == '"':
             return False, i + 1
-        if ch == '\\' and i + 1 < len(raw) and raw[i + 1] in _DQUOTE_ESCAPE_CHARS:
+        if ch == "\\" and i + 1 < len(raw) and raw[i + 1] in _DQUOTE_ESCAPE_CHARS:
             i += 2
             continue
-        if ch in ('$', '`'):
+        if ch in ("$", "`"):
             return True, i + 1
         i += 1
     return False, len(raw)
@@ -191,7 +207,7 @@ def _raw_has_dynamic_expansion(raw: str) -> bool:
     Double-quote state is tracked separately: inside ``"..."``, a single quote
     is a literal character (not a quote), so ``"'$CMD'"`` is dynamic because
     ``$CMD`` expands.  Inside double quotes, backslash only escapes ``$``,
-    ``\```, ``"``, ``\\``, and newline; other backslashes are literal.
+    ``\\```, ``"``, ``\\``, and newline; other backslashes are literal.
     """
     in_single = False
     i = 0
@@ -383,7 +399,9 @@ def _inner_script(cmd: SimpleCommand) -> ShellScript | None:
     if cmd.name == "find":
         bodies = _find_parts(cmd)[1]
         return ShellScript(
-            tuple(command_from_words(body, cmd.in_loop, cmd.depth) for body in bodies), (), (),
+            tuple(command_from_words(body, cmd.in_loop, cmd.depth) for body in bodies),
+            (),
+            (),
             max_depth=cmd.depth,
         )
     if cmd.name in _SHELLS:
@@ -422,7 +440,12 @@ def _expanded(script: ShellScript) -> ShellScript:
             heredocs.extend(inner.heredocs)
             pending.append(iter(inner.commands))
     return ShellScript(
-        tuple(commands), tuple(heredocs), script.loop_variables, script.comments, max_depth, too_nested
+        tuple(commands),
+        tuple(heredocs),
+        script.loop_variables,
+        script.comments,
+        max_depth,
+        too_nested,
     )
 
 
@@ -443,7 +466,7 @@ def _is_nested_shell(cmd: SimpleCommand) -> bool:
         return True
     if cmd.name not in _SHELLS:
         return False
-    if any(w.text.rsplit("/", 1)[-1] == "xargs" for w in cmd.words[:cmd.command_index]):
+    if any(w.text.rsplit("/", 1)[-1] == "xargs" for w in cmd.words[: cmd.command_index]):
         return True
     return "/" not in word.text and _has_nested_c_cluster(cmd.args)
 
@@ -507,4 +530,3 @@ def refused_construct(script: ShellScript) -> str:
     if any(cmd.name in _STDIN_CHECKED_SHELLS and _shell_reads_stdin(cmd) for cmd in commands):
         return "shell reading its program from stdin"
     return ""
-

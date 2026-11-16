@@ -2,9 +2,11 @@
 
 Generic functions for list manipulation, deduplication, etc.
 """
+
 from __future__ import annotations
 
-from typing import Callable, Hashable, TypeVar
+from collections.abc import Callable, Hashable
+from typing import TypeVar
 
 __all__ = ["dedupe"]
 
@@ -27,8 +29,10 @@ def dedupe(items: list[T], key_fn: Callable[[T], Hashable] | None = None) -> lis
         dedupe([{'a': 1}, {'a': 1}, {'a': 2}], key_fn=lambda x: x['a']) -> [{'a': 1}, {'a': 2}]
     """
     if key_fn is None:
+
         def _identity(x: T) -> Hashable:
             return x
+
         key_fn = _identity
 
     seen: set[Hashable] = set()

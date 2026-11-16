@@ -2,6 +2,7 @@
 
 Provides consistent error codes across all assistant CLIs.
 """
+
 from __future__ import annotations
 
 import sys
@@ -11,6 +12,7 @@ from enum import IntEnum
 
 class ExitCode(IntEnum):
     """Standard CLI exit codes."""
+
     SUCCESS = 0
     ERROR = 1
     USAGE = 2
@@ -24,6 +26,7 @@ class ExitCode(IntEnum):
 @dataclass
 class CLIError(Exception):
     """CLI error with exit code and message."""
+
     message: str
     code: ExitCode = ExitCode.ERROR
     hint: str | None = None
@@ -34,30 +37,35 @@ class CLIError(Exception):
 
 class ConfigError(CLIError):
     """Configuration-related error."""
+
     def __init__(self, message: str, hint: str | None = None):
         super().__init__(message, ExitCode.CONFIG_ERROR, hint)
 
 
 class AuthError(CLIError):
     """Authentication-related error."""
+
     def __init__(self, message: str, hint: str | None = None):
         super().__init__(message, ExitCode.AUTH_ERROR, hint)
 
 
 class NetworkError(CLIError):
     """Network-related error."""
+
     def __init__(self, message: str, hint: str | None = None):
         super().__init__(message, ExitCode.NETWORK_ERROR, hint)
 
 
 class NotFoundError(CLIError):
     """Resource not found error."""
+
     def __init__(self, message: str, hint: str | None = None):
         super().__init__(message, ExitCode.NOT_FOUND, hint)
 
 
 class UsageError(CLIError):
     """Usage/argument error."""
+
     def __init__(self, message: str, hint: str | None = None):
         super().__init__(message, ExitCode.USAGE, hint)
 
@@ -86,5 +94,6 @@ def handle_error(error: Exception, verbose: bool = False) -> int:
     print(f"Error: {error}", file=sys.stderr)
     if verbose:
         import traceback
+
         traceback.print_exc()
     return ExitCode.ERROR

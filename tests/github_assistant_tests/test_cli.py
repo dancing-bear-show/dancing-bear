@@ -30,7 +30,6 @@ from unittest.mock import patch
 
 from core.gh_cli import GhCLI
 
-
 # ---------------------------------------------------------------------------
 # Fake gh runner
 # ---------------------------------------------------------------------------
@@ -100,24 +99,35 @@ class FakeGhRunner:
     responses: list[tuple[list[str], SimpleNamespace]] = field(default_factory=list)
     calls: list[RecordedCall] = field(default_factory=list)
 
-    def add(self, keywords: list[str], *, returncode: int = 0, stdout: str = "", stderr: str = "") -> None:
-        self.responses.append((keywords, SimpleNamespace(
-            returncode=returncode, stdout=stdout, stderr=stderr,
-        )))
+    def add(
+        self, keywords: list[str], *, returncode: int = 0, stdout: str = "", stderr: str = ""
+    ) -> None:
+        self.responses.append(
+            (
+                keywords,
+                SimpleNamespace(
+                    returncode=returncode,
+                    stdout=stdout,
+                    stderr=stderr,
+                ),
+            )
+        )
 
     def __call__(self, cmd: list[str], **kwargs: Any) -> SimpleNamespace:
         query_text = _query_text_of(cmd, kwargs)
         text = "\n".join([*cmd, query_text])
         for keywords, resp in self.responses:
             if all(kw in text for kw in keywords):
-                self.calls.append(RecordedCall(
-                    argv=list(cmd),
-                    input_text=kwargs.get("input"),
-                    query_text=query_text,
-                    returncode=resp.returncode,
-                    stdout=resp.stdout,
-                    stderr=resp.stderr,
-                ))
+                self.calls.append(
+                    RecordedCall(
+                        argv=list(cmd),
+                        input_text=kwargs.get("input"),
+                        query_text=query_text,
+                        returncode=resp.returncode,
+                        stdout=resp.stdout,
+                        stderr=resp.stderr,
+                    )
+                )
                 return resp
         raise AssertionError(f"no fake response registered for gh call: {cmd!r}")
 
@@ -158,9 +168,14 @@ class TestRepo(unittest.TestCase):
         with _install_client(fake):
             rc, out, _ = _run_cli(["repo", "--repo", "acme/widgets", "--format", "json"])
         self.assertEqual(rc, 0)
-        self.assertEqual(json.loads(out), {
-            "owner": "acme", "name": "widgets", "nameWithOwner": "acme/widgets",
-        })
+        self.assertEqual(
+            json.loads(out),
+            {
+                "owner": "acme",
+                "name": "widgets",
+                "nameWithOwner": "acme/widgets",
+            },
+        )
         self.assertEqual(fake.calls, [])
 
 
@@ -193,8 +208,13 @@ def _thread_chain_response(comments: list[str | tuple[str, str]]) -> SimpleNames
                     "totalCount": len(pairs),
                     "pageInfo": {"hasNextPage": False, "endCursor": None},
                     "nodes": [
-                        {"databaseId": i, "author": {"login": a, "__typename": "User"},
-                         "body": b, "createdAt": "2026-01-01T00:00:00Z", "url": "https://x/y"}
+                        {
+                            "databaseId": i,
+                            "author": {"login": a, "__typename": "User"},
+                            "body": b,
+                            "createdAt": "2026-01-01T00:00:00Z",
+                            "url": "https://x/y",
+                        }
                         for i, (a, b) in enumerate(pairs)
                     ],
                 }
@@ -211,8 +231,12 @@ def _posted_body(fake) -> str:
     return str((payload.get("variables") or {})["body"])
 
 
-def _reply_success_response(comment_id: str = "IC_kwABC", url: str = "https://x/c/1") -> SimpleNamespace:
-    payload = {"data": {"addPullRequestReviewThreadReply": {"comment": {"id": comment_id, "url": url}}}}
+def _reply_success_response(
+    comment_id: str = "IC_kwABC", url: str = "https://x/c/1"
+) -> SimpleNamespace:
+    payload = {
+        "data": {"addPullRequestReviewThreadReply": {"comment": {"id": comment_id, "url": url}}}
+    }
     return SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="")
 
 
@@ -247,11 +271,16 @@ class TestThreadsReplyBodyFilePassthrough(unittest.TestCase):
             body_path = Path(td) / "reply.md"
             body_path.write_text(body, encoding="utf-8")
             with _install_client(fake):
-                rc, _out, _err = _run_cli([
-                    "threads", "reply",
-                    "--thread", "PRT_kwABC",
-                    "--body-file", str(body_path),
-                ])
+                rc, _out, _err = _run_cli(
+                    [
+                        "threads",
+                        "reply",
+                        "--thread",
+                        "PRT_kwABC",
+                        "--body-file",
+                        str(body_path),
+                    ]
+                )
 
         self.assertEqual(rc, 0, _err)
         self.assertEqual(len(fake.calls), 1)
@@ -279,10 +308,12 @@ class TestThreadsReplyErrorsPayloadBlocksResolve(unittest.TestCase):
         # status: failed, exit 1, and MUST NOT proceed to resolve.
         failure = SimpleNamespace(
             returncode=0,
-            stdout=json.dumps({
-                "data": {"addPullRequestReviewThreadReply": {"comment": None}},
-                "errors": [{"message": "x"}],
-            }),
+            stdout=json.dumps(
+                {
+                    "data": {"addPullRequestReviewThreadReply": {"comment": None}},
+                    "errors": [{"message": "x"}],
+                }
+            ),
             stderr="",
         )
         fake = FakeGhRunner()
@@ -296,12 +327,17 @@ class TestThreadsReplyErrorsPayloadBlocksResolve(unittest.TestCase):
             body_path = Path(td) / "reply.md"
             body_path.write_text("please look again", encoding="utf-8")
             with _install_client(fake):
-                rc, out, _err = _run_cli([
-                    "threads", "reply",
-                    "--thread", "PRT_kwABC",
-                    "--body-file", str(body_path),
-                    "--resolve",
-                ])
+                rc, out, _err = _run_cli(
+                    [
+                        "threads",
+                        "reply",
+                        "--thread",
+                        "PRT_kwABC",
+                        "--body-file",
+                        str(body_path),
+                        "--resolve",
+                    ]
+                )
 
         self.assertEqual(rc, 1, "reply failure must exit 1")
         payload = json.loads(out)
@@ -312,7 +348,8 @@ class TestThreadsReplyErrorsPayloadBlocksResolve(unittest.TestCase):
         # in the GraphQL tempfile, so match on the call's captured all_text().
         for call in fake.calls:
             self.assertNotIn(
-                "resolveReviewThread", call.all_text(),
+                "resolveReviewThread",
+                call.all_text(),
                 f"resolve mutation must not fire on failed reply: {call.argv!r}",
             )
 
@@ -323,10 +360,12 @@ class TestThreadsReplyIdempotencyMarker(unittest.TestCase):
     def test_already_replied_posts_nothing(self):
         # Chain already carries the marker for run R.
         fake = FakeGhRunner()
-        chain = _thread_chain_response([
-            "old comment",
-            (ACTOR, "<!-- dancing-bear-run: R -->\nreply from a prior run"),
-        ])
+        chain = _thread_chain_response(
+            [
+                "old comment",
+                (ACTOR, "<!-- dancing-bear-run: R -->\nreply from a prior run"),
+            ]
+        )
         fake.add(["viewer"], **_viewer_response().__dict__)
         fake.add(["node"], **chain.__dict__)
         # If the code errantly proceeds to post, this stub would be picked up.
@@ -337,12 +376,18 @@ class TestThreadsReplyIdempotencyMarker(unittest.TestCase):
             body_path = Path(td) / "reply.md"
             body_path.write_text("should not be posted", encoding="utf-8")
             with _install_client(fake):
-                rc, out, _err = _run_cli([
-                    "threads", "reply",
-                    "--thread", "PRT_kwABC",
-                    "--body-file", str(body_path),
-                    "--run-id", "R",
-                ])
+                rc, out, _err = _run_cli(
+                    [
+                        "threads",
+                        "reply",
+                        "--thread",
+                        "PRT_kwABC",
+                        "--body-file",
+                        str(body_path),
+                        "--run-id",
+                        "R",
+                    ]
+                )
 
         self.assertEqual(rc, 0)
         payload = json.loads(out)
@@ -352,7 +397,8 @@ class TestThreadsReplyIdempotencyMarker(unittest.TestCase):
         # the GraphQL tempfile, so match on the call's captured all_text().
         for call in fake.calls:
             self.assertNotIn(
-                "addPullRequestReviewThreadReply", call.all_text(),
+                "addPullRequestReviewThreadReply",
+                call.all_text(),
                 f"reply mutation must not fire when marker already present: {call.argv!r}",
             )
 
@@ -371,10 +417,19 @@ class TestThreadsReplyMarkerFetchFailure(unittest.TestCase):
             body_path = Path(td) / "reply.md"
             body_path.write_text("fixed", encoding="utf-8")
             with _install_client(fake):
-                rc, out, _err = _run_cli([
-                    "threads", "reply", "--thread", "PRT_kwABC",
-                    "--body-file", str(body_path), "--run-id", "R", "--resolve",
-                ])
+                rc, out, _err = _run_cli(
+                    [
+                        "threads",
+                        "reply",
+                        "--thread",
+                        "PRT_kwABC",
+                        "--body-file",
+                        str(body_path),
+                        "--run-id",
+                        "R",
+                        "--resolve",
+                    ]
+                )
 
         self.assertEqual(rc, 1)
         payload = json.loads(out)
@@ -402,10 +457,12 @@ class TestThreadsReplyAlreadyRepliedWithResolve(unittest.TestCase):
         fake.add(["viewer"], **_viewer_response().__dict__)
         fake.add(
             ["node"],
-            **_thread_chain_response([
-                "prior comment",
-                (ACTOR, "<!-- dancing-bear-run: R3 -->\nposted on the run that died"),
-            ]).__dict__,
+            **_thread_chain_response(
+                [
+                    "prior comment",
+                    (ACTOR, "<!-- dancing-bear-run: R3 -->\nposted on the run that died"),
+                ]
+            ).__dict__,
         )
         # A resolve response is registered; the test asserts exactly one call.
         fake.add(["resolveReviewThread"], **_resolve_success_response("PRT_1").__dict__)
@@ -416,13 +473,19 @@ class TestThreadsReplyAlreadyRepliedWithResolve(unittest.TestCase):
             body_path = Path(td) / "reply.md"
             body_path.write_text("would-be duplicate", encoding="utf-8")
             with _install_client(fake):
-                rc, out, _err = _run_cli([
-                    "threads", "reply",
-                    "--thread", "PRT_1",
-                    "--body-file", str(body_path),
-                    "--run-id", "R3",
-                    "--resolve",
-                ])
+                rc, out, _err = _run_cli(
+                    [
+                        "threads",
+                        "reply",
+                        "--thread",
+                        "PRT_1",
+                        "--body-file",
+                        str(body_path),
+                        "--run-id",
+                        "R3",
+                        "--resolve",
+                    ]
+                )
 
         self.assertEqual(rc, 0)
         payload = json.loads(out)
@@ -441,18 +504,50 @@ def _reply(fake, body: str, *extra: str):
         body_path = Path(td) / "reply.md"
         body_path.write_text(body, encoding="utf-8")
         with _install_client(fake):
-            return _run_cli(["threads", "reply", "--thread", "PRT_kwABC",
-                             "--body-file", str(body_path), *extra])
+            return _run_cli(
+                ["threads", "reply", "--thread", "PRT_kwABC", "--body-file", str(body_path), *extra]
+            )
 
 
 def _threads_page(total: int, node_ids: list[str]) -> str:
-    nodes = [{"id": i, "isResolved": False, "isOutdated": False, "path": "a.py", "line": 1,
-              "comments": {"totalCount": 1, "pageInfo": {"hasNextPage": False, "endCursor": None},
-                           "nodes": [{"databaseId": n, "author": {"login": "rev", "__typename": "User"},
-                                      "body": "b", "createdAt": "2026-01-01T00:00:00Z", "url": "u"}]}}
-             for n, i in enumerate(node_ids, start=1)]
-    return json.dumps({"data": {"repository": {"pullRequest": {"reviewThreads": {
-        "totalCount": total, "pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": nodes}}}}})
+    nodes = [
+        {
+            "id": i,
+            "isResolved": False,
+            "isOutdated": False,
+            "path": "a.py",
+            "line": 1,
+            "comments": {
+                "totalCount": 1,
+                "pageInfo": {"hasNextPage": False, "endCursor": None},
+                "nodes": [
+                    {
+                        "databaseId": n,
+                        "author": {"login": "rev", "__typename": "User"},
+                        "body": "b",
+                        "createdAt": "2026-01-01T00:00:00Z",
+                        "url": "u",
+                    }
+                ],
+            },
+        }
+        for n, i in enumerate(node_ids, start=1)
+    ]
+    return json.dumps(
+        {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "reviewThreads": {
+                            "totalCount": total,
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            "nodes": nodes,
+                        }
+                    }
+                }
+            }
+        }
+    )
 
 
 class TestThreadsFetchFailsClosed(unittest.TestCase):
@@ -465,9 +560,18 @@ class TestThreadsFetchFailsClosed(unittest.TestCase):
         with TemporaryDirectory() as td:
             out_path = Path(td) / "threads.json"
             with _install_client(fake):
-                rc, _out, err = _run_cli([
-                    "threads", "fetch", "--repo", "acme/widgets", "--pr", "7", "--out", str(out_path),
-                ])
+                rc, _out, err = _run_cli(
+                    [
+                        "threads",
+                        "fetch",
+                        "--repo",
+                        "acme/widgets",
+                        "--pr",
+                        "7",
+                        "--out",
+                        str(out_path),
+                    ]
+                )
             doc = json.loads(out_path.read_text(encoding="utf-8"))
         return rc, err, doc
 
@@ -492,9 +596,14 @@ class TestThreadsReplyForgedMarker(unittest.TestCase):
     def test_marker_pasted_by_someone_else_does_not_suppress_the_reply(self):
         fake = FakeGhRunner()
         fake.add(["viewer"], **_viewer_response().__dict__)
-        fake.add(["node"], **_thread_chain_response([
-            ("mallory", "ignore this <!-- dancing-bear-run: R -->"),
-        ]).__dict__)
+        fake.add(
+            ["node"],
+            **_thread_chain_response(
+                [
+                    ("mallory", "ignore this <!-- dancing-bear-run: R -->"),
+                ]
+            ).__dict__,
+        )
         fake.add(["addPullRequestReviewThreadReply"], **_reply_success_response().__dict__)
         fake.add(["resolveReviewThread"], **_resolve_success_response().__dict__)
 
@@ -509,9 +618,14 @@ class TestThreadsReplyForgedMarker(unittest.TestCase):
     def test_actor_match_ignores_the_bot_suffix(self):
         fake = FakeGhRunner()
         fake.add(["viewer"], **_viewer_response("dancing-app[bot]").__dict__)
-        fake.add(["node"], **_thread_chain_response([
-            ("dancing-app", "done\n<!-- dancing-bear-run: R -->"),
-        ]).__dict__)
+        fake.add(
+            ["node"],
+            **_thread_chain_response(
+                [
+                    ("dancing-app", "done\n<!-- dancing-bear-run: R -->"),
+                ]
+            ).__dict__,
+        )
 
         rc, out, _ = _reply(fake, "again", "--run-id", "R")
 
@@ -539,8 +653,16 @@ class TestThreadsReplyUnreadableBodyFile(unittest.TestCase):
         fake = FakeGhRunner()
         fake.add(["addPullRequestReviewThreadReply"], **_reply_success_response().__dict__)
         with TemporaryDirectory() as td, _install_client(fake):
-            rc, _out, err = _run_cli(["threads", "reply", "--thread", "PRT_kwABC",
-                                      "--body-file", str(Path(td) / "absent.md")])
+            rc, _out, err = _run_cli(
+                [
+                    "threads",
+                    "reply",
+                    "--thread",
+                    "PRT_kwABC",
+                    "--body-file",
+                    str(Path(td) / "absent.md"),
+                ]
+            )
         self.assertEqual(rc, 2)
         self.assertIn("cannot read --body-file", err)
         self.assertNotIn("Traceback", err)
@@ -559,16 +681,26 @@ class TestThreadsReplyWhitespaceOnlyBody(unittest.TestCase):
             body_path = Path(td) / "reply.md"
             body_path.write_text("   \n\t\n", encoding="utf-8")
             with _install_client(fake):
-                rc, out, _err = _run_cli([
-                    "threads", "reply", "--thread", "PRT_kwABC",
-                    "--body-file", str(body_path), "--run-id", "R",
-                ])
+                rc, out, _err = _run_cli(
+                    [
+                        "threads",
+                        "reply",
+                        "--thread",
+                        "PRT_kwABC",
+                        "--body-file",
+                        str(body_path),
+                        "--run-id",
+                        "R",
+                    ]
+                )
         self.assertEqual(rc, 1)
         # Same JSON shape as every other failed reply, so the resolve
         # fragment can record it rather than finding no output at all.
         self.assertEqual(json.loads(out)["status"], "failed")
         self.assertIn("empty or whitespace-only", json.loads(out)["error"])
-        self.assertEqual(fake.calls, [], "no gh call must fire for a body that is empty after stripping")
+        self.assertEqual(
+            fake.calls, [], "no gh call must fire for a body that is empty after stripping"
+        )
 
     def test_marker_only_body_is_refused_with_no_gh_call(self):
         # Only a stale run marker, no reviewer-visible content at all.
@@ -578,10 +710,18 @@ class TestThreadsReplyWhitespaceOnlyBody(unittest.TestCase):
             body_path = Path(td) / "reply.md"
             body_path.write_text("<!-- dancing-bear-run: stale -->", encoding="utf-8")
             with _install_client(fake):
-                rc, out, _err = _run_cli([
-                    "threads", "reply", "--thread", "PRT_kwABC",
-                    "--body-file", str(body_path), "--run-id", "R2",
-                ])
+                rc, out, _err = _run_cli(
+                    [
+                        "threads",
+                        "reply",
+                        "--thread",
+                        "PRT_kwABC",
+                        "--body-file",
+                        str(body_path),
+                        "--run-id",
+                        "R2",
+                    ]
+                )
         self.assertEqual(rc, 1)
         self.assertEqual(json.loads(out)["status"], "failed")
         self.assertIn("empty or whitespace-only", json.loads(out)["error"])
@@ -630,12 +770,18 @@ class TestThreadsReplyMarkerAppendedOnFirstRun(unittest.TestCase):
             body_path = Path(td) / "reply.md"
             body_path.write_text("fixed in commit abc", encoding="utf-8")
             with _install_client(fake):
-                rc, out, _err = _run_cli([
-                    "threads", "reply",
-                    "--thread", "PRT_kwABC",
-                    "--body-file", str(body_path),
-                    "--run-id", "R2",
-                ])
+                rc, out, _err = _run_cli(
+                    [
+                        "threads",
+                        "reply",
+                        "--thread",
+                        "PRT_kwABC",
+                        "--body-file",
+                        str(body_path),
+                        "--run-id",
+                        "R2",
+                    ]
+                )
 
         self.assertEqual(rc, 0)
         self.assertEqual(json.loads(out)["status"], "replied")
@@ -673,9 +819,16 @@ class TestPrView(unittest.TestCase):
             stdout=json.dumps({"number": 123, "title": "hi"}),
         )
         with _install_client(fake):
-            rc, out, _err = _run_cli([
-                "pr", "view", "--pr", "123", "--fields", "number,title",
-            ])
+            rc, out, _err = _run_cli(
+                [
+                    "pr",
+                    "view",
+                    "--pr",
+                    "123",
+                    "--fields",
+                    "number,title",
+                ]
+            )
         self.assertEqual(rc, 0)
         self.assertEqual(json.loads(out), {"number": 123, "title": "hi"})
 
@@ -754,9 +907,16 @@ class TestPrEditVerifiesReadback(unittest.TestCase):
             body_path = Path(td) / "body.md"
             body_path.write_text("what we sent", encoding="utf-8")
             with _install_client(fake):
-                rc, _out, err = _run_cli([
-                    "pr", "edit", "--pr", "123", "--body-file", str(body_path),
-                ])
+                rc, _out, err = _run_cli(
+                    [
+                        "pr",
+                        "edit",
+                        "--pr",
+                        "123",
+                        "--body-file",
+                        str(body_path),
+                    ]
+                )
 
         self.assertEqual(rc, 1)
         self.assertIn("body did not update", err.lower() + err)
@@ -770,9 +930,16 @@ class TestPrEditVerifiesReadback(unittest.TestCase):
             body_path = Path(td) / "body.md"
             body_path.write_text("what we sent", encoding="utf-8")
             with _install_client(fake):
-                rc, _out, _err = _run_cli([
-                    "pr", "edit", "--pr", "123", "--body-file", str(body_path),
-                ])
+                rc, _out, _err = _run_cli(
+                    [
+                        "pr",
+                        "edit",
+                        "--pr",
+                        "123",
+                        "--body-file",
+                        str(body_path),
+                    ]
+                )
 
         self.assertEqual(rc, 0)
 
@@ -799,8 +966,9 @@ class TestPrTitleFile(unittest.TestCase):
                 title_path.write_text(title_text, encoding="utf-8")
             args = [a.replace("TITLE_FILE", str(title_path)) for a in title_args]
             with _install_client(fake):
-                rc, _out, err = _run_cli(["pr", "create", "--base", "main",
-                                          "--body-file", str(body_path), *args])
+                rc, _out, err = _run_cli(
+                    ["pr", "create", "--base", "main", "--body-file", str(body_path), *args]
+                )
         return rc, err, fake
 
     def test_title_file_is_passed_verbatim_as_one_argv_element(self):
@@ -820,11 +988,16 @@ class TestPrTitleFile(unittest.TestCase):
     def test_both_from_stdin_is_refused_before_anything_is_read(self):
         # One stdin cannot carry two values; pr edit would otherwise read the
         # title, hit EOF for the body, and blank the PR body.
-        for argv in (["pr", "create", "--base", "main", "--title-file", "-", "--body-file", "-"],
-                     ["pr", "edit", "--pr", "3", "--title-file", "-", "--body-file", "-"]):
+        for argv in (
+            ["pr", "create", "--base", "main", "--title-file", "-", "--body-file", "-"],
+            ["pr", "edit", "--pr", "3", "--title-file", "-", "--body-file", "-"],
+        ):
             fake = FakeGhRunner()
-            with self.subTest(cmd=argv[1]), _install_client(fake), \
-                    patch("sys.stdin", io.StringIO("title\nbody text\n")) as stdin:
+            with (
+                self.subTest(cmd=argv[1]),
+                _install_client(fake),
+                patch("sys.stdin", io.StringIO("title\nbody text\n")) as stdin,
+            ):
                 rc, _out, err = _run_cli(argv)
                 self.assertEqual(rc, 2)
                 self.assertIn("cannot both be -", err)
@@ -836,9 +1009,18 @@ class TestPrTitleFile(unittest.TestCase):
             body_path = Path(td) / "pr.md"
             body_path.write_text("body", encoding="utf-8")
             with _install_client(FakeGhRunner()):
-                rc, _out, err = _run_cli(["pr", "create", "--base", "main",
-                                          "--title-file", str(Path(td) / "absent.txt"),
-                                          "--body-file", str(body_path)])
+                rc, _out, err = _run_cli(
+                    [
+                        "pr",
+                        "create",
+                        "--base",
+                        "main",
+                        "--title-file",
+                        str(Path(td) / "absent.txt"),
+                        "--body-file",
+                        str(body_path),
+                    ]
+                )
         self.assertEqual(rc, 2)
         self.assertIn("cannot read --title-file", err)
         self.assertNotIn("--body-file", err)
@@ -856,8 +1038,12 @@ class TestPrTitleFile(unittest.TestCase):
         self.assertEqual(fake.calls, [])
 
     def test_empty_or_multiline_title_file_is_refused(self):
-        for text, needle in (("  \n", "is empty"), ("line one\nline two\n", "more than one line"),
-                             ("title\n\n", "more than one line"), ("title\r\n\r\n", "more than one line")):
+        for text, needle in (
+            ("  \n", "is empty"),
+            ("line one\nline two\n", "more than one line"),
+            ("title\n\n", "more than one line"),
+            ("title\r\n\r\n", "more than one line"),
+        ):
             rc, err, fake = self._create("--title-file", "TITLE_FILE", title_text=text)
             with self.subTest(text=text):
                 self.assertEqual(rc, 2)
@@ -872,7 +1058,9 @@ class TestPrTitleFile(unittest.TestCase):
             title_path = Path(td) / "title.txt"
             title_path.write_text(self.HOSTILE, encoding="utf-8")
             with _install_client(fake):
-                rc, _out, _err = _run_cli(["pr", "edit", "--pr", "3", "--title-file", str(title_path)])
+                rc, _out, _err = _run_cli(
+                    ["pr", "edit", "--pr", "3", "--title-file", str(title_path)]
+                )
         self.assertEqual(rc, 0)
         argv = fake.calls[0].argv
         self.assertEqual(argv[argv.index("--title") + 1], self.HOSTILE)
@@ -884,25 +1072,37 @@ class TestPrCreate(unittest.TestCase):
         # gh pr create prints the URL of the new PR on stdout.
         fake.add(["pr", "create"], returncode=0, stdout="https://github.com/acme/widgets/pull/9\n")
         # gh pr view read-back returns {number, url}.
-        fake.add(["pr", "view"], stdout=json.dumps({"number": 9, "url": "https://github.com/acme/widgets/pull/9"}))
+        fake.add(
+            ["pr", "view"],
+            stdout=json.dumps({"number": 9, "url": "https://github.com/acme/widgets/pull/9"}),
+        )
 
         with TemporaryDirectory() as td:
             body_path = Path(td) / "pr.md"
             body_path.write_text("PR body", encoding="utf-8")
             with _install_client(fake):
-                rc, out, _err = _run_cli([
-                    "pr", "create",
-                    "--base", "main",
-                    "--title", "Add feature X",
-                    "--body-file", str(body_path),
-                    "--draft",
-                ])
+                rc, out, _err = _run_cli(
+                    [
+                        "pr",
+                        "create",
+                        "--base",
+                        "main",
+                        "--title",
+                        "Add feature X",
+                        "--body-file",
+                        str(body_path),
+                        "--draft",
+                    ]
+                )
 
         self.assertEqual(rc, 0)
-        self.assertEqual(json.loads(out), {
-            "number": 9,
-            "url": "https://github.com/acme/widgets/pull/9",
-        })
+        self.assertEqual(
+            json.loads(out),
+            {
+                "number": 9,
+                "url": "https://github.com/acme/widgets/pull/9",
+            },
+        )
         # Draft flag reached gh; body went on stdin, not argv.
         create_call = fake.calls[0]
         self.assertIn("--draft", create_call.argv)
@@ -915,9 +1115,18 @@ class TestPrList(unittest.TestCase):
         rows = [{"number": 1, "title": "one"}, {"number": 2, "title": "two"}]
         fake.add(["pr", "list"], stdout=json.dumps(rows))
         with _install_client(fake):
-            rc, out, _err = _run_cli([
-                "pr", "list", "--fields", "number,title", "--limit", "5", "--state", "open",
-            ])
+            rc, out, _err = _run_cli(
+                [
+                    "pr",
+                    "list",
+                    "--fields",
+                    "number,title",
+                    "--limit",
+                    "5",
+                    "--state",
+                    "open",
+                ]
+            )
         self.assertEqual(rc, 0)
         self.assertEqual(json.loads(out), rows)
 
@@ -947,14 +1156,23 @@ class TestPrChecks(unittest.TestCase):
 class TestPrComment(unittest.TestCase):
     def test_comment_reads_body_and_prints_url(self):
         fake = FakeGhRunner()
-        fake.add(["pr", "comment"], stdout="https://github.com/acme/widgets/pull/1#issuecomment-5\n")
+        fake.add(
+            ["pr", "comment"], stdout="https://github.com/acme/widgets/pull/1#issuecomment-5\n"
+        )
         with TemporaryDirectory() as td:
             body_path = Path(td) / "note.md"
             body_path.write_text("thanks!", encoding="utf-8")
             with _install_client(fake):
-                rc, out, _err = _run_cli([
-                    "pr", "comment", "--pr", "1", "--body-file", str(body_path),
-                ])
+                rc, out, _err = _run_cli(
+                    [
+                        "pr",
+                        "comment",
+                        "--pr",
+                        "1",
+                        "--body-file",
+                        str(body_path),
+                    ]
+                )
         self.assertEqual(rc, 0)
         self.assertIn("#issuecomment-5", out.strip())
         # Body went on stdin, not argv.
@@ -971,10 +1189,22 @@ class TestPrReviewComment(unittest.TestCase):
             body_path = Path(td) / "summary.md"
             body_path.write_text(body_text, encoding="utf-8")
             with _install_client(fake):
-                rc, out, _err = _run_cli([
-                    "pr", "review-comment", "--repo", "acme/widgets", "--pr", "3",
-                    "--path", "src/a.py", "--line", "10", "--body-file", str(body_path),
-                ])
+                rc, out, _err = _run_cli(
+                    [
+                        "pr",
+                        "review-comment",
+                        "--repo",
+                        "acme/widgets",
+                        "--pr",
+                        "3",
+                        "--path",
+                        "src/a.py",
+                        "--line",
+                        "10",
+                        "--body-file",
+                        str(body_path),
+                    ]
+                )
         self.assertEqual(rc, 0)
         self.assertEqual(json.loads(out), {"id": "5", "url": "https://x/r5"})
         post = fake.calls[-1]
@@ -997,9 +1227,18 @@ class TestPrComments(unittest.TestCase):
         # explicit --repo skips repo resolve; only the paginated api call runs.
         fake.add(["api", "--paginate"], stdout=json.dumps([[{"id": 1}]]))
         with _install_client(fake):
-            rc, out, _err = _run_cli([
-                "pr", "comments", "--repo", "acme/widgets", "--pr", "3", "--kind", "review",
-            ])
+            rc, out, _err = _run_cli(
+                [
+                    "pr",
+                    "comments",
+                    "--repo",
+                    "acme/widgets",
+                    "--pr",
+                    "3",
+                    "--kind",
+                    "review",
+                ]
+            )
         self.assertEqual(rc, 0)
         # Flattened across pages.
         self.assertEqual(json.loads(out), [{"id": 1}])
@@ -1031,18 +1270,36 @@ class TestThreadsState(unittest.TestCase):
                             "totalCount": 2,
                             "pageInfo": {"hasNextPage": False, "endCursor": None},
                             "nodes": [
-                                {"id": "T1", "isResolved": False, "isOutdated": False,
-                                 "isCollapsed": False, "path": "a.py", "line": 1,
-                                 "startLine": None, "diffSide": "RIGHT",
-                                 "comments": {"totalCount": 0,
-                                              "pageInfo": {"hasNextPage": False, "endCursor": None},
-                                              "nodes": []}},
-                                {"id": "T2", "isResolved": True, "isOutdated": False,
-                                 "isCollapsed": False, "path": "b.py", "line": 2,
-                                 "startLine": None, "diffSide": "RIGHT",
-                                 "comments": {"totalCount": 0,
-                                              "pageInfo": {"hasNextPage": False, "endCursor": None},
-                                              "nodes": []}},
+                                {
+                                    "id": "T1",
+                                    "isResolved": False,
+                                    "isOutdated": False,
+                                    "isCollapsed": False,
+                                    "path": "a.py",
+                                    "line": 1,
+                                    "startLine": None,
+                                    "diffSide": "RIGHT",
+                                    "comments": {
+                                        "totalCount": 0,
+                                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                                        "nodes": [],
+                                    },
+                                },
+                                {
+                                    "id": "T2",
+                                    "isResolved": True,
+                                    "isOutdated": False,
+                                    "isCollapsed": False,
+                                    "path": "b.py",
+                                    "line": 2,
+                                    "startLine": None,
+                                    "diffSide": "RIGHT",
+                                    "comments": {
+                                        "totalCount": 0,
+                                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                                        "nodes": [],
+                                    },
+                                },
                             ],
                         }
                     }
@@ -1053,22 +1310,42 @@ class TestThreadsState(unittest.TestCase):
         with _install_client(fake):
             rc, out, _err = _run_cli(["threads", "state", "--repo", "acme/widgets", "--pr", "10"])
         self.assertEqual(rc, 0)
-        self.assertEqual(json.loads(out), {
-            "total": 2,
-            "unresolved": 1,
-            "unresolved_ids": ["T1"],
-            "truncated": False,
-        })
+        self.assertEqual(
+            json.loads(out),
+            {
+                "total": 2,
+                "unresolved": 1,
+                "unresolved_ids": ["T1"],
+                "truncated": False,
+            },
+        )
 
     def test_truncated_refetch_reports_null_not_a_partial_count(self):
         # GitHub reports 3 threads, 1 comes back: any count would be unverified.
         fake = FakeGhRunner()
-        payload = {"data": {"repository": {"pullRequest": {"reviewThreads": {
-            "totalCount": 3,
-            "pageInfo": {"hasNextPage": False, "endCursor": None},
-            "nodes": [{"id": "T1", "isResolved": False, "comments": {
-                "totalCount": 0, "pageInfo": {"hasNextPage": False}, "nodes": []}}],
-        }}}}}
+        payload = {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "reviewThreads": {
+                            "totalCount": 3,
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            "nodes": [
+                                {
+                                    "id": "T1",
+                                    "isResolved": False,
+                                    "comments": {
+                                        "totalCount": 0,
+                                        "pageInfo": {"hasNextPage": False},
+                                        "nodes": [],
+                                    },
+                                }
+                            ],
+                        }
+                    }
+                }
+            }
+        }
         fake.add(["reviewThreads"], stdout=json.dumps(payload))
         with _install_client(fake):
             rc, out, _err = _run_cli(["threads", "state", "--repo", "acme/widgets", "--pr", "10"])

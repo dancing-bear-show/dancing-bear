@@ -17,8 +17,8 @@ import unittest.mock as mock
 from collections.abc import Callable
 from typing import Any
 
-from worker import qwen, qwen_telemetry
 from tests.worker_tests.qwen_fixtures import QwenHandlerCase
+from worker import qwen, qwen_telemetry
 
 _Case = tuple[str, Callable[[], Any], dict[str, object], dict[str, object]]
 
@@ -29,17 +29,49 @@ class QwenEveryExitEmitsTelemetryTests(QwenHandlerCase):
         return (
             (
                 "terminal-lane-over-capacity",
-                lambda: mock.patch("worker.qwen._lane_depth", return_value=qwen.THRESHOLDS.max_lane_depth),
+                lambda: mock.patch(
+                    "worker.qwen._lane_depth", return_value=qwen.THRESHOLDS.max_lane_depth
+                ),
                 {},
                 {},
             ),
-            ("deferred-low-memory", lambda: mock.patch("worker.qwen._available_memory_bytes", return_value=1024), {}, {}),
-            ("terminal-prompt-too-large", contextlib.nullcontext, {"max_tokens": qwen.THRESHOLDS.num_ctx - 1}, {}),
-            ("deferred-low-disk", lambda: mock.patch("worker.qwen._free_disk_bytes", return_value=1024), {}, {}),
-            ("deferred-qwen-busy", lambda: mock.patch("worker.qwen._acquire_model_lock", return_value=False), {}, {}),
+            (
+                "deferred-low-memory",
+                lambda: mock.patch("worker.qwen._available_memory_bytes", return_value=1024),
+                {},
+                {},
+            ),
+            (
+                "terminal-prompt-too-large",
+                contextlib.nullcontext,
+                {"max_tokens": qwen.THRESHOLDS.num_ctx - 1},
+                {},
+            ),
+            (
+                "deferred-low-disk",
+                lambda: mock.patch("worker.qwen._free_disk_bytes", return_value=1024),
+                {},
+                {},
+            ),
+            (
+                "deferred-qwen-busy",
+                lambda: mock.patch("worker.qwen._acquire_model_lock", return_value=False),
+                {},
+                {},
+            ),
             (qwen.INVALID_JOB_ID_OUTCOME, contextlib.nullcontext, {}, {"id": "../x"}),
-            ("terminal-invalid-payload: files must be a non-empty list[str]", contextlib.nullcontext, {"files": []}, {}),
-            ("terminal-path-not-allowed: src/missing.py", contextlib.nullcontext, {"files": ["src/missing.py"]}, {}),
+            (
+                "terminal-invalid-payload: files must be a non-empty list[str]",
+                contextlib.nullcontext,
+                {"files": []},
+                {},
+            ),
+            (
+                "terminal-path-not-allowed: src/missing.py",
+                contextlib.nullcontext,
+                {"files": ["src/missing.py"]},
+                {},
+            ),
             (
                 "terminal-internal-error: ValueError",
                 lambda: mock.patch("worker.qwen._build_prompt", side_effect=ValueError("boom")),
@@ -65,7 +97,9 @@ class QwenEveryExitEmitsTelemetryTests(QwenHandlerCase):
                 self.assertNotIn("qwen.prompt_tokens", attrs)
                 self.assertNotIn("qwen.completion_tokens", attrs)
 
-                [(metric_attrs, duration_ms, prompt_tokens, completion_tokens)] = self.metrics_calls()
+                [(metric_attrs, duration_ms, prompt_tokens, completion_tokens)] = (
+                    self.metrics_calls()
+                )
                 self.assertEqual(metric_attrs["qwen.outcome"], outcome)
                 self.assertGreaterEqual(duration_ms, 0)
                 self.assertEqual((prompt_tokens, completion_tokens), (None, None))
@@ -77,7 +111,9 @@ class QwenEveryExitEmitsTelemetryTests(QwenHandlerCase):
             ok, out = self.run_handler()
 
         self.assertEqual((ok, out), (False, "terminal-deferral-limit: low-memory"))
-        self.assertEqual([a["qwen.outcome"] for a in self.span_attrs()], ["terminal-deferral-limit: low-memory"])
+        self.assertEqual(
+            [a["qwen.outcome"] for a in self.span_attrs()], ["terminal-deferral-limit: low-memory"]
+        )
 
     def test_success_still_emits_exactly_one_span_with_tokens(self) -> None:
         ok, _ = self.run_handler()

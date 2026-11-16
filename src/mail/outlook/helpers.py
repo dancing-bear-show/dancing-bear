@@ -1,4 +1,5 @@
 """Shared helpers for Outlook pipeline."""
+
 from __future__ import annotations
 
 import os
@@ -20,7 +21,14 @@ def norm_label_name_outlook(name: str | None, mode: str = "join-dash") -> str:
 
 
 OUTLOOK_COLOR_NAMES = {
-    "preset0", "preset1", "preset2", "preset3", "preset4", "preset5", "preset6", "preset7",
+    "preset0",
+    "preset1",
+    "preset2",
+    "preset3",
+    "preset4",
+    "preset5",
+    "preset6",
+    "preset7",
 }
 
 
@@ -47,6 +55,7 @@ def _find_outlook_account(cfg_path: str | None, acc_name: str | None) -> dict | 
     if not cfg_path or not os.path.exists(cfg_path):
         return None
     from core.yamlio import load_config
+
     accts = (load_config(cfg_path) or {}).get("accounts") or []
     if acc_name:
         chosen = next((a for a in accts if a.get("name") == acc_name), None)
@@ -74,7 +83,9 @@ def resolve_outlook_args(args) -> tuple[str | None, str | None, str | None, str 
     if not client_id:
         chosen = _find_outlook_account(cfg_path, acc_name)
         if chosen:
-            client_id = chosen.get("client_id") or chosen.get("application_id") or chosen.get("credentials")
+            client_id = (
+                chosen.get("client_id") or chosen.get("application_id") or chosen.get("credentials")
+            )
             tenant = chosen.get("tenant") or tenant
             token_path = token_path or chosen.get("token")
             cache_dir = chosen.get("cache") or cache_dir
@@ -101,9 +112,14 @@ def get_outlook_client(args):
 
     client_id, tenant, token_path, cache_dir = resolve_outlook_args(args)
     if not client_id:
-        print("Missing --client-id. Set MAIL_ASSISTANT_OUTLOOK_CLIENT_ID, or provide --accounts-config with an Outlook account.", file=sys.stderr)
+        print(
+            "Missing --client-id. Set MAIL_ASSISTANT_OUTLOOK_CLIENT_ID, or provide --accounts-config with an Outlook account.",
+            file=sys.stderr,
+        )
         return None, 2
 
-    client = OutlookClient(client_id=client_id, tenant=tenant, token_path=token_path, cache_dir=cache_dir)
+    client = OutlookClient(
+        client_id=client_id, tenant=tenant, token_path=token_path, cache_dir=cache_dir
+    )
     client.authenticate()
     return client, 0

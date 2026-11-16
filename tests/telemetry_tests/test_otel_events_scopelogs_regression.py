@@ -14,9 +14,7 @@ from telemetry.otel.models import OTLPEventsRecord
 
 class TestOTLPEventsRecordEmptyScopeLogs(unittest.TestCase):
     def test_otlp_wrapper_empty_scope_logs_returns_empty_record(self):
-        record = OTLPEventsRecord.from_dict(
-            {"resourceLogs": [{"resource": {}, "scopeLogs": []}]}
-        )
+        record = OTLPEventsRecord.from_dict({"resourceLogs": [{"resource": {}, "scopeLogs": []}]})
         self.assertEqual(record.log_records, [])
 
     def test_simplified_format_empty_scope_logs_returns_empty_record(self):

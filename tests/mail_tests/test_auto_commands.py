@@ -5,8 +5,9 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock, patch
 
-from mail.auto.commands import run_auto_propose, run_auto_summary, run_auto_apply
-from tests.mail_tests.fixtures import make_args as _make_base_args, make_success_envelope, make_error_envelope
+from mail.auto.commands import run_auto_apply, run_auto_propose, run_auto_summary
+from tests.mail_tests.fixtures import make_args as _make_base_args
+from tests.mail_tests.fixtures import make_error_envelope, make_success_envelope
 
 
 def _make_args(**kwargs):
@@ -40,7 +41,9 @@ class TestRunAutoPropose(unittest.TestCase):
     @patch("mail.auto.commands.AutoProposeProcessor")
     @patch("mail.auto.commands.AutoProposeConsumer")
     @patch("mail.auto.commands.MailContext")
-    def test_returns_zero_on_success(self, mock_ctx_cls, mock_consumer_cls, mock_processor_cls, mock_producer_cls):
+    def test_returns_zero_on_success(
+        self, mock_ctx_cls, mock_consumer_cls, mock_processor_cls, mock_producer_cls
+    ):
         envelope = _make_ok_envelope()
         mock_processor_cls.return_value.process.return_value = envelope
         mock_consumer_cls.return_value.consume.return_value = MagicMock()
@@ -53,7 +56,9 @@ class TestRunAutoPropose(unittest.TestCase):
     @patch("mail.auto.commands.AutoProposeProcessor")
     @patch("mail.auto.commands.AutoProposeConsumer")
     @patch("mail.auto.commands.MailContext")
-    def test_returns_nonzero_on_error(self, mock_ctx_cls, mock_consumer_cls, mock_processor_cls, mock_producer_cls):
+    def test_returns_nonzero_on_error(
+        self, mock_ctx_cls, mock_consumer_cls, mock_processor_cls, mock_producer_cls
+    ):
         envelope = _make_error_envelope(code=2)
         mock_processor_cls.return_value.process.return_value = envelope
         mock_consumer_cls.return_value.consume.return_value = MagicMock()
@@ -66,7 +71,9 @@ class TestRunAutoPropose(unittest.TestCase):
     @patch("mail.auto.commands.AutoProposeProcessor")
     @patch("mail.auto.commands.AutoProposeConsumer")
     @patch("mail.auto.commands.MailContext")
-    def test_consumer_receives_correct_params(self, mock_ctx_cls, mock_consumer_cls, mock_processor_cls, mock_producer_cls):
+    def test_consumer_receives_correct_params(
+        self, mock_ctx_cls, mock_consumer_cls, mock_processor_cls, mock_producer_cls
+    ):
         envelope = _make_ok_envelope()
         mock_processor_cls.return_value.process.return_value = envelope
         mock_consumer_cls.return_value.consume.return_value = MagicMock()
@@ -86,7 +93,9 @@ class TestRunAutoPropose(unittest.TestCase):
     @patch("mail.auto.commands.AutoProposeProcessor")
     @patch("mail.auto.commands.AutoProposeConsumer")
     @patch("mail.auto.commands.MailContext")
-    def test_error_with_no_code_defaults_to_one(self, mock_ctx_cls, mock_consumer_cls, mock_processor_cls, mock_producer_cls):
+    def test_error_with_no_code_defaults_to_one(
+        self, mock_ctx_cls, mock_consumer_cls, mock_processor_cls, mock_producer_cls
+    ):
         envelope = MagicMock()
         envelope.ok.return_value = False
         envelope.diagnostics = None
@@ -101,7 +110,9 @@ class TestRunAutoPropose(unittest.TestCase):
     @patch("mail.auto.commands.AutoProposeProcessor")
     @patch("mail.auto.commands.AutoProposeConsumer")
     @patch("mail.auto.commands.MailContext")
-    def test_protect_defaults_to_empty_list(self, mock_ctx_cls, mock_consumer_cls, mock_processor_cls, mock_producer_cls):
+    def test_protect_defaults_to_empty_list(
+        self, mock_ctx_cls, mock_consumer_cls, mock_processor_cls, mock_producer_cls
+    ):
         envelope = _make_ok_envelope()
         mock_processor_cls.return_value.process.return_value = envelope
         mock_consumer_cls.return_value.consume.return_value = MagicMock()
@@ -121,7 +132,9 @@ class TestRunAutoSummary(unittest.TestCase):
     @patch("mail.auto.commands.AutoSummaryProducer")
     @patch("mail.auto.commands.AutoSummaryProcessor")
     @patch("mail.auto.commands.AutoSummaryConsumer")
-    def test_returns_zero_on_success(self, mock_consumer_cls, mock_processor_cls, mock_producer_cls):
+    def test_returns_zero_on_success(
+        self, mock_consumer_cls, mock_processor_cls, mock_producer_cls
+    ):
         envelope = _make_ok_envelope()
         mock_processor_cls.return_value.process.return_value = envelope
         mock_consumer_cls.return_value.consume.return_value = MagicMock()
@@ -132,7 +145,9 @@ class TestRunAutoSummary(unittest.TestCase):
     @patch("mail.auto.commands.AutoSummaryProducer")
     @patch("mail.auto.commands.AutoSummaryProcessor")
     @patch("mail.auto.commands.AutoSummaryConsumer")
-    def test_returns_nonzero_on_error(self, mock_consumer_cls, mock_processor_cls, mock_producer_cls):
+    def test_returns_nonzero_on_error(
+        self, mock_consumer_cls, mock_processor_cls, mock_producer_cls
+    ):
         envelope = _make_error_envelope(code=3)
         mock_processor_cls.return_value.process.return_value = envelope
         mock_consumer_cls.return_value.consume.return_value = MagicMock()
@@ -143,7 +158,9 @@ class TestRunAutoSummary(unittest.TestCase):
     @patch("mail.auto.commands.AutoSummaryProducer")
     @patch("mail.auto.commands.AutoSummaryProcessor")
     @patch("mail.auto.commands.AutoSummaryConsumer")
-    def test_consumer_receives_proposal_path(self, mock_consumer_cls, mock_processor_cls, mock_producer_cls):
+    def test_consumer_receives_proposal_path(
+        self, mock_consumer_cls, mock_processor_cls, mock_producer_cls
+    ):
         envelope = _make_ok_envelope()
         mock_processor_cls.return_value.process.return_value = envelope
         mock_consumer_cls.return_value.consume.return_value = MagicMock()
@@ -152,12 +169,15 @@ class TestRunAutoSummary(unittest.TestCase):
         run_auto_summary(args)
 
         from pathlib import Path
+
         mock_consumer_cls.assert_called_once_with(proposal_path=Path("/tmp/my_proposal.json"))  # nosec B108 - test-only temp file, not a security concern
 
     @patch("mail.auto.commands.AutoSummaryProducer")
     @patch("mail.auto.commands.AutoSummaryProcessor")
     @patch("mail.auto.commands.AutoSummaryConsumer")
-    def test_pipeline_called_in_order(self, mock_consumer_cls, mock_processor_cls, mock_producer_cls):
+    def test_pipeline_called_in_order(
+        self, mock_consumer_cls, mock_processor_cls, mock_producer_cls
+    ):
         """consume -> process -> produce is called in order."""
         envelope = _make_ok_envelope()
         mock_processor = mock_processor_cls.return_value
@@ -179,7 +199,9 @@ class TestRunAutoApply(unittest.TestCase):
     @patch("mail.auto.commands.AutoApplyProcessor")
     @patch("mail.auto.commands.AutoApplyConsumer")
     @patch("mail.auto.commands.MailContext")
-    def test_returns_zero_on_success(self, mock_ctx_cls, mock_consumer_cls, mock_processor_cls, mock_producer_cls):
+    def test_returns_zero_on_success(
+        self, mock_ctx_cls, mock_consumer_cls, mock_processor_cls, mock_producer_cls
+    ):
         envelope = _make_ok_envelope()
         mock_processor_cls.return_value.process.return_value = envelope
         mock_consumer_cls.return_value.consume.return_value = MagicMock()
@@ -192,7 +214,9 @@ class TestRunAutoApply(unittest.TestCase):
     @patch("mail.auto.commands.AutoApplyProcessor")
     @patch("mail.auto.commands.AutoApplyConsumer")
     @patch("mail.auto.commands.MailContext")
-    def test_returns_nonzero_on_error(self, mock_ctx_cls, mock_consumer_cls, mock_processor_cls, mock_producer_cls):
+    def test_returns_nonzero_on_error(
+        self, mock_ctx_cls, mock_consumer_cls, mock_processor_cls, mock_producer_cls
+    ):
         envelope = _make_error_envelope(code=5)
         mock_processor_cls.return_value.process.return_value = envelope
         mock_consumer_cls.return_value.consume.return_value = MagicMock()
@@ -205,7 +229,9 @@ class TestRunAutoApply(unittest.TestCase):
     @patch("mail.auto.commands.AutoApplyProcessor")
     @patch("mail.auto.commands.AutoApplyConsumer")
     @patch("mail.auto.commands.MailContext")
-    def test_consumer_receives_correct_params(self, mock_ctx_cls, mock_consumer_cls, mock_processor_cls, mock_producer_cls):
+    def test_consumer_receives_correct_params(
+        self, mock_ctx_cls, mock_consumer_cls, mock_processor_cls, mock_producer_cls
+    ):
         envelope = _make_ok_envelope()
         mock_processor_cls.return_value.process.return_value = envelope
         mock_consumer_cls.return_value.consume.return_value = MagicMock()

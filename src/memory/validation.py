@@ -11,8 +11,8 @@ import json
 import re
 import subprocess
 from collections.abc import Callable
-from functools import partial
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 
 from core.fileutil import atomic_write_text
@@ -82,9 +82,7 @@ def _check_staleness(store: MemoryStore, ctx: _CheckContext) -> tuple[CheckResul
     )
 
 
-def _check_index_orphan(
-    store: MemoryStore, ctx: _CheckContext
-) -> tuple[CheckResult, ...]:
+def _check_index_orphan(store: MemoryStore, ctx: _CheckContext) -> tuple[CheckResult, ...]:
     indexed_targets = {e.target for e in store.index_entries}
     return tuple(
         CheckResult(
@@ -99,9 +97,7 @@ def _check_index_orphan(
     )
 
 
-def _check_index_dangling(
-    store: MemoryStore, ctx: _CheckContext
-) -> tuple[CheckResult, ...]:
+def _check_index_dangling(store: MemoryStore, ctx: _CheckContext) -> tuple[CheckResult, ...]:
     memories_by_filename = {f"{m.slug}.md" for m in store.memories}
     return tuple(
         CheckResult(
@@ -116,9 +112,7 @@ def _check_index_dangling(
     )
 
 
-def _check_index_duplicate_entry(
-    store: MemoryStore, ctx: _CheckContext
-) -> tuple[CheckResult, ...]:
+def _check_index_duplicate_entry(store: MemoryStore, ctx: _CheckContext) -> tuple[CheckResult, ...]:
     seen: set[str] = set()
     results = []
     for entry in store.index_entries:
@@ -180,9 +174,7 @@ def _tokenize(text: str) -> set[str]:
     return set(re.findall(r"[a-z0-9]+", text.lower()))
 
 
-def _check_index_hook_drift(
-    store: MemoryStore, ctx: _CheckContext
-) -> tuple[CheckResult, ...]:
+def _check_index_hook_drift(store: MemoryStore, ctx: _CheckContext) -> tuple[CheckResult, ...]:
     by_target = {e.target: e for e in store.index_entries}
     results = []
     for memory in store.memories:
@@ -233,9 +225,7 @@ def _check_contradiction_topic_overlap(
             for path, text in claude_texts.items():
                 if anchor in text:
                     mem_idx = memory.body.find(anchor)
-                    excerpt_memory = memory.body[
-                        max(0, mem_idx - 40) : mem_idx + len(anchor) + 40
-                    ]
+                    excerpt_memory = memory.body[max(0, mem_idx - 40) : mem_idx + len(anchor) + 40]
                     idx = text.find(anchor)
                     excerpt_claude = text[max(0, idx - 40) : idx + len(anchor) + 40]
                     results.append(
@@ -251,9 +241,7 @@ def _check_contradiction_topic_overlap(
     return tuple(results)
 
 
-def _check_schema_no_frontmatter(
-    store: MemoryStore, ctx: _CheckContext
-) -> tuple[CheckResult, ...]:
+def _check_schema_no_frontmatter(store: MemoryStore, ctx: _CheckContext) -> tuple[CheckResult, ...]:
     return tuple(
         CheckResult(
             check_id="schema-no-frontmatter",
@@ -288,9 +276,7 @@ def _shape_of_path(path_str: str) -> SchemaShape | None:
         return None
 
 
-def _check_schema_unparseable(
-    store: MemoryStore, ctx: _CheckContext
-) -> tuple[CheckResult, ...]:
+def _check_schema_unparseable(store: MemoryStore, ctx: _CheckContext) -> tuple[CheckResult, ...]:
     from memory.parser import parse_frontmatter
 
     results = []
@@ -322,9 +308,7 @@ def _is_unterminated_file(path_str: str) -> bool:
     return _has_unterminated_frontmatter(text)
 
 
-def _check_schema_missing_type(
-    store: MemoryStore, ctx: _CheckContext
-) -> tuple[CheckResult, ...]:
+def _check_schema_missing_type(store: MemoryStore, ctx: _CheckContext) -> tuple[CheckResult, ...]:
     return tuple(
         CheckResult(
             check_id="schema-missing-type",
@@ -334,14 +318,11 @@ def _check_schema_missing_type(
             fixable=not _is_unterminated_file(m.path),
         )
         for m in store.memories
-        if m.frontmatter.shape != SchemaShape.NO_FRONTMATTER
-        and m.frontmatter.type is None
+        if m.frontmatter.shape != SchemaShape.NO_FRONTMATTER and m.frontmatter.type is None
     )
 
 
-def _check_schema_ambiguous(
-    store: MemoryStore, ctx: _CheckContext
-) -> tuple[CheckResult, ...]:
+def _check_schema_ambiguous(store: MemoryStore, ctx: _CheckContext) -> tuple[CheckResult, ...]:
     results = []
     for m in store.memories:
         node_type_ok = m.frontmatter.node_type == "memory"
@@ -360,9 +341,7 @@ def _check_schema_ambiguous(
     return tuple(results)
 
 
-def _check_schema_flat_dialect(
-    store: MemoryStore, ctx: _CheckContext
-) -> tuple[CheckResult, ...]:
+def _check_schema_flat_dialect(store: MemoryStore, ctx: _CheckContext) -> tuple[CheckResult, ...]:
     return tuple(
         CheckResult(
             check_id="schema-flat-dialect",
@@ -376,9 +355,7 @@ def _check_schema_flat_dialect(
     )
 
 
-def _check_schema_unknown_key(
-    store: MemoryStore, ctx: _CheckContext
-) -> tuple[CheckResult, ...]:
+def _check_schema_unknown_key(store: MemoryStore, ctx: _CheckContext) -> tuple[CheckResult, ...]:
     return tuple(
         CheckResult(
             check_id="schema-unknown-key",
@@ -417,9 +394,7 @@ def _check_schema_name_slug_mismatch(
     return tuple(results)
 
 
-def _check_ref_broken_wikilink(
-    store: MemoryStore, ctx: _CheckContext
-) -> tuple[CheckResult, ...]:
+def _check_ref_broken_wikilink(store: MemoryStore, ctx: _CheckContext) -> tuple[CheckResult, ...]:
     known_slugs = {normalize_slug(m.slug) for m in store.memories}
     results = []
     for m in store.memories:
@@ -444,9 +419,7 @@ _PATH_MENTION_RE = re.compile(r"(?<![\w./-])(?:src|\.llm|workflows)/[A-Za-z0-9_.
 _CLI_MENTION_RE = re.compile(r"\./bin/([A-Za-z0-9_-]+)")
 
 
-def _check_ref_dead_path(
-    store: MemoryStore, ctx: _CheckContext
-) -> tuple[CheckResult, ...]:
+def _check_ref_dead_path(store: MemoryStore, ctx: _CheckContext) -> tuple[CheckResult, ...]:
     # A repo that does not exist (deleted project, worktree slug decoded to a
     # garbled path) cannot tell us which paths are dead; skip rather than flag all.
     if ctx.repo is None or not ctx.repo.is_dir():
@@ -506,9 +479,7 @@ def _resolve_repo_root(
     return None
 
 
-def _check_ref_dead_cli(
-    store: MemoryStore, ctx: _CheckContext
-) -> tuple[CheckResult, ...]:
+def _check_ref_dead_cli(store: MemoryStore, ctx: _CheckContext) -> tuple[CheckResult, ...]:
     if ctx.repo is None:
         return ()
     root = _resolve_repo_root(ctx.repo, "bin")
@@ -576,9 +547,7 @@ def _check_stale_superseded_pr(
     """
     caller = github_caller
     if caller is None:
-        root = _resolve_repo_root(
-            ctx.repo, "bin/github", allow_toplevel_fallback=False
-        )
+        root = _resolve_repo_root(ctx.repo, "bin/github", allow_toplevel_fallback=False)
         if root is None:
             return ()
         caller = partial(_default_github_caller, root / "bin" / "github")
@@ -645,9 +614,7 @@ def _default_claude_md_paths(repo: Path | None, *, cwd_default: bool = True) -> 
     return tuple(paths)
 
 
-def _apply_fix_index_orphan(
-    store: MemoryStore, findings: tuple[CheckResult, ...]
-) -> None:
+def _apply_fix_index_orphan(store: MemoryStore, findings: tuple[CheckResult, ...]) -> None:
     if not store.index_path:
         return
     by_slug = {m.slug: m for m in store.memories}
@@ -656,9 +623,7 @@ def _apply_fix_index_orphan(
             append_entry(store.index_path, by_slug[finding.target])
 
 
-def _apply_fix_index_dangling(
-    store: MemoryStore, findings: tuple[CheckResult, ...]
-) -> None:
+def _apply_fix_index_dangling(store: MemoryStore, findings: tuple[CheckResult, ...]) -> None:
     if not store.index_path:
         return
     for finding in findings:
@@ -675,9 +640,7 @@ def _apply_fix_index_duplicate_section(
         merge_duplicate_sections(store.index_path)
 
 
-def _apply_fix_schema_missing_type(
-    store: MemoryStore, findings: tuple[CheckResult, ...]
-) -> None:
+def _apply_fix_schema_missing_type(store: MemoryStore, findings: tuple[CheckResult, ...]) -> None:
     by_slug = {m.slug: m for m in store.memories}
     for finding in findings:
         if finding.check_id != "schema-missing-type" or not finding.fixable:
@@ -706,9 +669,7 @@ def _free_archive_path(archive_dir: Path, name: str) -> Path:
         n += 1
 
 
-def _apply_fix_schema_no_frontmatter(
-    store: MemoryStore, findings: tuple[CheckResult, ...]
-) -> None:
+def _apply_fix_schema_no_frontmatter(store: MemoryStore, findings: tuple[CheckResult, ...]) -> None:
     for finding in findings:
         if finding.check_id != "schema-no-frontmatter":
             continue

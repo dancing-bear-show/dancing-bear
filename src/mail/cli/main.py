@@ -11,29 +11,27 @@ This CLI provides Gmail and Outlook mail management operations including:
 
 from __future__ import annotations
 
-
 from core.assistant import BaseAssistant
-from ..meta import META
 from core.cli_framework import CLIApp
 
+from ..config_cli.commands import run_auth, run_backup
 from ..config_resolver import (
     default_gmail_credentials_path,
     default_gmail_token_path,
 )
-from ..config_cli.commands import run_auth, run_backup
-from .cmd_labels import register_labels_commands
-from .cmd_filters import register_filters_commands
-from .cmd_messages import register_messages_commands
-from .cmd_cache import register_cache_commands
-from .cmd_auto import register_auto_commands
-from .cmd_forwarding import register_forwarding_commands
-from .cmd_signatures import register_signatures_commands
-from .cmd_config import register_config_commands
-from .cmd_workflows import register_workflows_commands
-from .cmd_env import register_env_commands
+from ..meta import META
 from .cmd_accounts import register_accounts_commands
+from .cmd_auto import register_auto_commands
+from .cmd_cache import register_cache_commands
+from .cmd_config import register_config_commands
+from .cmd_env import register_env_commands
+from .cmd_filters import register_filters_commands
+from .cmd_forwarding import register_forwarding_commands
+from .cmd_labels import register_labels_commands
+from .cmd_messages import register_messages_commands
 from .cmd_outlook import register_outlook_commands
-
+from .cmd_signatures import register_signatures_commands
+from .cmd_workflows import register_workflows_commands
 
 assistant = BaseAssistant(META.app_id, META.agentic_fallback)
 
@@ -54,6 +52,7 @@ HELP_TOKEN = "Path to token.json"  # nosec B105 - argparse help text, not a cred
 
 def _lazy_emit_agentic():
     from ..agentic import emit_agentic_context
+
     return emit_agentic_context
 
 
@@ -61,7 +60,9 @@ def _lazy_emit_agentic():
 @app.command("auth", help="Authenticate with the mail provider")
 @app.argument("--credentials", help=f"{HELP_CREDENTIALS} (default: {_default_gmail_credentials})")
 @app.argument("--token", help=f"{HELP_TOKEN} (default: {_default_gmail_token})")
-@app.argument("--validate", action="store_true", help="Validate existing Gmail token non-interactively")
+@app.argument(
+    "--validate", action="store_true", help="Validate existing Gmail token non-interactively"
+)
 def cmd_auth(args) -> int:
     return run_auth(args)
 
@@ -115,6 +116,7 @@ outlook_group = register_outlook_commands(app)
 def _install_output_masking() -> None:
     """Install output masking for secret shielding."""
     from core.secrets import install_output_masking_from_env
+
     install_output_masking_from_env()
 
 

@@ -10,8 +10,18 @@ from memory.models import MemoryStore
 
 ArgSpec = tuple[tuple[str, ...], dict[str, Any]]
 
-STORE_ARG: ArgSpec = (("--store",), {"metavar": "SLUG", "default": None, "help": "Project slug of one store; write --store=SLUG (slugs start with -)"})
-ALL_STORES_ARG: ArgSpec = (("--all-stores",), {"action": "store_true", "help": "Use every discovered store"})
+STORE_ARG: ArgSpec = (
+    ("--store",),
+    {
+        "metavar": "SLUG",
+        "default": None,
+        "help": "Project slug of one store; write --store=SLUG (slugs start with -)",
+    },
+)
+ALL_STORES_ARG: ArgSpec = (
+    ("--all-stores",),
+    {"action": "store_true", "help": "Use every discovered store"},
+)
 DRY_RUN_ARG: ArgSpec = (("--dry-run",), {"action": "store_true", "help": "Preview without writing"})
 YES_ARG: ArgSpec = (("--yes",), {"action": "store_true", "help": "Skip confirmation"})
 
@@ -37,7 +47,7 @@ def select_single_store(store_slug: str | None) -> MemoryStore | int:
     if store_slug:
         try:
             return load_store(store_slug)
-        except Exception as exc:  # NOSONAR - CLI boundary: surface as a validation error, never a raw traceback
+        except (Exception) as exc:  # NOSONAR - CLI boundary: surface as a validation error, never a raw traceback  # fmt: skip
             return validation_error("--store", str(exc))
     all_stores = discover_stores()
     if not all_stores:

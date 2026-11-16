@@ -5,7 +5,6 @@ from datetime import datetime
 from unittest import mock
 
 from telemetry.otel.analytics.prompts import (
-    _PromptAccumulator,
     _accumulate_prompt_events,
     _build_prompt_metrics,
     _dispatch_prompt_event,
@@ -13,16 +12,22 @@ from telemetry.otel.analytics.prompts import (
     _process_api_request,
     _process_tool_result,
     _process_user_prompt,
+    _PromptAccumulator,
     _update_time_range,
 )
-from telemetry.otel.models import OTLPAttribute, OTLPEvent, OTLPEventsRecord, OTLPResource, OTLPValue
-
+from telemetry.otel.models import (
+    OTLPAttribute,
+    OTLPEvent,
+    OTLPEventsRecord,
+    OTLPResource,
+    OTLPValue,
+)
 from tests.telemetry_tests.otel_analytics._shared_helpers import _utc
-
 
 # ---------------------------------------------------------------------------
 # Fixture helpers
 # ---------------------------------------------------------------------------
+
 
 def _nano(dt: datetime) -> int:
     return int(dt.timestamp() * 1_000_000_000)
@@ -118,8 +123,8 @@ def _make_tool_result_event(
 # _update_time_range
 # ---------------------------------------------------------------------------
 
-class TestUpdateTimeRange(unittest.TestCase):
 
+class TestUpdateTimeRange(unittest.TestCase):
     def test_sets_first_ts_when_none(self):
         acc = _PromptAccumulator()
         ts = _utc(2026, 7, 1)
@@ -169,8 +174,8 @@ class TestUpdateTimeRange(unittest.TestCase):
 # _process_user_prompt
 # ---------------------------------------------------------------------------
 
-class TestProcessUserPrompt(unittest.TestCase):
 
+class TestProcessUserPrompt(unittest.TestCase):
     def test_updates_time_range(self):
         acc = _PromptAccumulator()
         event = _make_user_prompt_event(prompt_length=42)
@@ -201,8 +206,8 @@ class TestProcessUserPrompt(unittest.TestCase):
 # _process_api_request (prompts version)
 # ---------------------------------------------------------------------------
 
-class TestProcessApiRequestPrompts(unittest.TestCase):
 
+class TestProcessApiRequestPrompts(unittest.TestCase):
     def test_increments_api_calls(self):
         acc = _PromptAccumulator()
         event = _make_api_request_event(input_tokens=100, output_tokens=50)
@@ -247,8 +252,8 @@ class TestProcessApiRequestPrompts(unittest.TestCase):
 # _process_tool_result (prompts version)
 # ---------------------------------------------------------------------------
 
-class TestProcessToolResultPrompts(unittest.TestCase):
 
+class TestProcessToolResultPrompts(unittest.TestCase):
     def test_increments_tool_calls(self):
         acc = _PromptAccumulator()
         event = _make_tool_result_event(success="true")
@@ -280,8 +285,8 @@ class TestProcessToolResultPrompts(unittest.TestCase):
 # _dispatch_prompt_event
 # ---------------------------------------------------------------------------
 
-class TestDispatchPromptEvent(unittest.TestCase):
 
+class TestDispatchPromptEvent(unittest.TestCase):
     def test_dispatches_user_prompt(self):
         acc = _PromptAccumulator()
         event = _make_user_prompt_event(prompt_length=10)
@@ -313,8 +318,8 @@ class TestDispatchPromptEvent(unittest.TestCase):
 # _int_attr
 # ---------------------------------------------------------------------------
 
-class TestIntAttr(unittest.TestCase):
 
+class TestIntAttr(unittest.TestCase):
     def test_float_attr_returns_int(self):
         event = _make_event("x", [_attr_float("input_tokens", 100.5)])
         result = _int_attr(event, "input_tokens")
@@ -361,8 +366,8 @@ class TestIntAttr(unittest.TestCase):
 # _build_prompt_metrics
 # ---------------------------------------------------------------------------
 
-class TestBuildPromptMetrics(unittest.TestCase):
 
+class TestBuildPromptMetrics(unittest.TestCase):
     def test_empty_dict_returns_empty_list(self):
         result = _build_prompt_metrics({})
         self.assertEqual(result, [])
@@ -387,6 +392,7 @@ class TestBuildPromptMetrics(unittest.TestCase):
 
     def test_duration_ms_computed_from_timestamps(self):
         from datetime import timedelta
+
         acc = _PromptAccumulator()
         acc.first_ts = _utc(2026, 7, 1, 12, 0)
         acc.last_ts = _utc(2026, 7, 1, 12, 0) + timedelta(seconds=5)
@@ -436,8 +442,8 @@ class TestBuildPromptMetrics(unittest.TestCase):
 # _accumulate_prompt_events
 # ---------------------------------------------------------------------------
 
-class TestAccumulatePromptEvents(unittest.TestCase):
 
+class TestAccumulatePromptEvents(unittest.TestCase):
     def test_empty_records_returns_empty(self):
         result = _accumulate_prompt_events([], since_dt=None, session_id=None)
         self.assertEqual(dict(result), {})
@@ -493,12 +499,13 @@ class TestAccumulatePromptEvents(unittest.TestCase):
 # get_prompt_metrics — integration via mock
 # ---------------------------------------------------------------------------
 
-class TestGetPromptMetrics(unittest.TestCase):
 
+class TestGetPromptMetrics(unittest.TestCase):
     @mock.patch("telemetry.otel.analytics.prompts.OTLPReader")
     @mock.patch("telemetry.otel.analytics.prompts.OTLPDataDir")
     def test_no_data_dir_uses_from_env(self, mock_data_dir_cls, mock_reader_cls):
         from telemetry.otel.analytics.prompts import get_prompt_metrics
+
         mock_data_dir_cls.from_env.return_value = mock.MagicMock()
         mock_reader_cls.return_value.read_events.return_value = []
         get_prompt_metrics()
@@ -508,6 +515,7 @@ class TestGetPromptMetrics(unittest.TestCase):
     def test_empty_events_returns_empty_list(self, mock_reader_cls):
         from telemetry.otel.analytics.prompts import get_prompt_metrics
         from telemetry.otel.reader import OTLPDataDir
+
         mock_reader_cls.return_value.read_events.return_value = []
         result = get_prompt_metrics(data_dir=OTLPDataDir.default())
         self.assertEqual(result, [])
@@ -516,6 +524,7 @@ class TestGetPromptMetrics(unittest.TestCase):
     def test_returns_prompt_metrics_for_events(self, mock_reader_cls):
         from telemetry.otel.analytics.prompts import get_prompt_metrics
         from telemetry.otel.reader import OTLPDataDir
+
         e1 = _make_user_prompt_event(prompt_id="p1", prompt_length=100)
         e2 = _make_api_request_event(prompt_id="p1", input_tokens=500, output_tokens=100)
         record = _make_record([e1, e2])
@@ -530,9 +539,11 @@ class TestGetPromptMetrics(unittest.TestCase):
     @mock.patch("telemetry.otel.analytics.prompts.parse_window")
     @mock.patch("telemetry.otel.analytics.prompts.OTLPReader")
     def test_since_string_parsed_to_cutoff(self, mock_reader_cls, mock_parse_window, mock_now_utc):
+        from datetime import timedelta
+
         from telemetry.otel.analytics.prompts import get_prompt_metrics
         from telemetry.otel.reader import OTLPDataDir
-        from datetime import timedelta
+
         now = _utc(2026, 7, 15)
         mock_now_utc.return_value = now
         mock_parse_window.return_value = timedelta(days=7)
@@ -544,6 +555,7 @@ class TestGetPromptMetrics(unittest.TestCase):
     def test_session_id_filter_applied(self, mock_reader_cls):
         from telemetry.otel.analytics.prompts import get_prompt_metrics
         from telemetry.otel.reader import OTLPDataDir
+
         e_a = _make_user_prompt_event(prompt_id="pa", session_id="sess-a")
         e_b = _make_user_prompt_event(prompt_id="pb", session_id="sess-b")
         record = _make_record([e_a, e_b])

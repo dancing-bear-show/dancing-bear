@@ -4,6 +4,7 @@ The mixin writes formatted strings into .title attributes on SimpleNamespace
 objects that stand in for rumps.MenuItem instances.  Every assertion pins the
 formatted output string, never mock call counts.
 """
+
 from __future__ import annotations
 
 import dataclasses
@@ -138,7 +139,9 @@ class TestUpdateOtelSectionsAOtelUsage(unittest.TestCase):
     """otel_usage section: window labels, cost suffix, token math."""
 
     def _host_with_usage(self, window_idx: int = 0, **usage_kwargs):
-        usage = dataclasses.replace(_zero_usage(), **usage_kwargs) if usage_kwargs else _zero_usage()
+        usage = (
+            dataclasses.replace(_zero_usage(), **usage_kwargs) if usage_kwargs else _zero_usage()
+        )
         host = _make_host(window_idx=window_idx)
         host._update_otel_sections_a(
             _avail(otel_usage=usage),
@@ -245,10 +248,12 @@ class TestUpdateOtelSectionsAOtelModels(unittest.TestCase):
         self.assertEqual(host._hdr_otel_models.title, "-- OTel Models --")
 
     def test_two_models_fills_first_two_slots_clears_rest(self):
-        host = self._host_with_models([
-            ("claude.claude-3-5-sonnet-20241022", 1.50, 2_000_000),
-            ("anthropic.claude-3-haiku-20240307", 0.25, 500_000),
-        ])
+        host = self._host_with_models(
+            [
+                ("claude.claude-3-5-sonnet-20241022", 1.50, 2_000_000),
+                ("anthropic.claude-3-haiku-20240307", 0.25, 500_000),
+            ]
+        )
         self.assertEqual(
             host._otel_model_rows[0].title,
             "  claude-3-5-sonnet-20241022  $1.50  2000k tok",
@@ -396,10 +401,13 @@ class TestUpdateOtelSectionsBTools(unittest.TestCase):
 
     def _host_with_tools(self, **kwargs):
         defaults = dict(
-            tool_calls_today=42, accept_rate_pct=85.3,
+            tool_calls_today=42,
+            accept_rate_pct=85.3,
             top_tools=[("Bash", 20), ("Read", 15)],
-            tool_error_count=3, bash_error_rate_pct=7.1,
-            avg_input_bytes=1234.5, avg_output_bytes=2345.6,
+            tool_error_count=3,
+            bash_error_rate_pct=7.1,
+            avg_input_bytes=1234.5,
+            avg_output_bytes=2345.6,
         )
         defaults.update(kwargs)
         ta = ToolActivity(**defaults)
@@ -446,7 +454,8 @@ class TestUpdateOtelSectionsBCode(unittest.TestCase):
 
     def _host_with_code(self, **kwargs):
         defaults = dict(
-            lines_added_today=100, lines_removed_today=40,
+            lines_added_today=100,
+            lines_removed_today=40,
             top_languages=[("Python", 50), ("YAML", 20), ("Shell", 5)],
             commits_today=3,
             compaction_count=1,
@@ -469,10 +478,10 @@ class TestUpdateOtelSectionsBCode(unittest.TestCase):
         self.assertEqual(host._code_rows[0].title, "  Lines: +100 / -40  Commits: 3")
 
     def test_languages_top_3(self):
-        host = self._host_with_code(
-            top_languages=[("Python", 50), ("YAML", 20), ("Shell", 5)]
+        host = self._host_with_code(top_languages=[("Python", 50), ("YAML", 20), ("Shell", 5)])
+        self.assertEqual(
+            host._code_rows[1].title, "  Languages: Python \xd750, YAML \xd720, Shell \xd75"
         )
-        self.assertEqual(host._code_rows[1].title, "  Languages: Python \xd750, YAML \xd720, Shell \xd75")
 
     def test_compaction_count(self):
         host = self._host_with_code(compaction_count=2)
@@ -536,7 +545,9 @@ class TestUpdateOtelSectionsBSessionPatterns(unittest.TestCase):
         return host
 
     def test_header_set(self):
-        self.assertEqual(self._host_with_sessions()._hdr_session_patterns.title, "-- Session Patterns --")
+        self.assertEqual(
+            self._host_with_sessions()._hdr_session_patterns.title, "-- Session Patterns --"
+        )
 
     def test_model_mix_uses_second_dash_segment(self):
         host = self._host_with_sessions(
@@ -581,9 +592,13 @@ class TestUpdateOtelSectionsDelegates(unittest.TestCase):
             "otel_tools": {"enabled": True},
         }
         ta = ToolActivity(
-            tool_calls_today=10, accept_rate_pct=100.0,
-            top_tools=[], tool_error_count=0, bash_error_rate_pct=0.0,
-            avg_input_bytes=0.0, avg_output_bytes=0.0,
+            tool_calls_today=10,
+            accept_rate_pct=100.0,
+            top_tools=[],
+            tool_error_count=0,
+            bash_error_rate_pct=0.0,
+            avg_input_bytes=0.0,
+            avg_output_bytes=0.0,
         )
         host._update_otel_sections(_avail(tool_activity=ta), s)
         self.assertIn("OTel Usage", host._hdr_otel_usage.title)

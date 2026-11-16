@@ -101,10 +101,7 @@ def fingerprint_docx(path: str) -> DocxFingerprint:
     """
     with zipfile.ZipFile(path) as zf:
         names = sorted(zf.namelist())
-        digests = {
-            name: hashlib.sha256(_scrub(name, zf.read(name))).hexdigest()
-            for name in names
-        }
+        digests = {name: hashlib.sha256(_scrub(name, zf.read(name))).hexdigest() for name in names}
     return DocxFingerprint(members=tuple(names), digests=digests)
 
 

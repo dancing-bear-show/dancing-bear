@@ -1,4 +1,5 @@
 """Pipeline primitives for audit and env-setup config commands."""
+
 from __future__ import annotations
 
 import os
@@ -12,7 +13,6 @@ from core.pipeline import (
     RequestConsumer,
     SafeProcessor,
 )
-
 
 # -----------------------------------------------------------------------------
 # Audit filters pipeline
@@ -96,12 +96,13 @@ def _token_matches(frm: str, toks: set) -> bool:
 @dataclass(frozen=True)
 class _FilterScore:
     """Coverage classification for a single simple filter."""
+
     dest: str
     frm: str
     covered: bool
 
 
-def _score_one_filter(f: dict, dest_to_tokens: dict[str, set]) -> "_FilterScore | None":
+def _score_one_filter(f: dict, dest_to_tokens: dict[str, set]) -> _FilterScore | None:
     """Score a single exported filter, or None if it is not a 'simple' from-based rule."""
     if not isinstance(f, dict):
         return None
@@ -130,7 +131,9 @@ class AuditFiltersProcessor(SafeProcessor[AuditFiltersRequest, AuditFiltersResul
         from core.yamlio import load_config
 
         unified = (load_config(payload.in_path) if payload.in_path else {}).get("filters") or []
-        exported = (load_config(payload.export_path) if payload.export_path else {}).get("filters") or []
+        exported = (load_config(payload.export_path) if payload.export_path else {}).get(
+            "filters"
+        ) or []
 
         dest_to_tokens = _build_dest_token_map(unified)
         simple_total, covered, missing_samples = _score_exported_filters(exported, dest_to_tokens)
@@ -152,7 +155,9 @@ class AuditFiltersProducer(BaseProducer):
         super().__init__(writer)
         self._preview_missing = preview_missing
 
-    def _produce_success(self, payload: AuditFiltersResult, diagnostics: dict[str, Any] | None) -> None:
+    def _produce_success(
+        self, payload: AuditFiltersResult, diagnostics: dict[str, Any] | None
+    ) -> None:
         print(f"Simple Gmail rules: {payload.simple_total}")
         print(f"Covered by unified: {payload.covered}")
         print(f"Not unified: {payload.not_covered} ({payload.percentage:.1f}%)")
@@ -225,6 +230,7 @@ def _setup_venv(venv_dir: Path, skip_install: bool) -> bool:
     venv_created = False
     if not venv_dir.exists():
         import venv as _venv
+
         _venv.EnvBuilder(with_pip=True).create(str(venv_dir))
         venv_created = True
     if not skip_install:
@@ -236,6 +242,7 @@ def _setup_venv(venv_dir: Path, skip_install: bool) -> bool:
 def _resolve_gmail_cred_paths(payload: Any, expand_path, default_cred_fn, default_tok_fn) -> tuple:
     """Resolve credential/token paths, optionally copying the example credentials file."""
     import sys
+
     cred_path = payload.credentials
     tok_path = payload.token
     if payload.copy_gmail_example and not cred_path:
@@ -278,16 +285,21 @@ class EnvSetupProcessor(SafeProcessor[EnvSetupRequest, EnvSetupResult]):
                     pass
 
         profile_saved = False
-        if any([cred_path, tok_path, payload.outlook_client_id, payload.tenant, payload.outlook_token]):
+        if any(
+            [cred_path, tok_path, payload.outlook_client_id, payload.tenant, payload.outlook_token]
+        ):
             from mail.config_resolver import ProfileSettings
-            persist_profile_settings(ProfileSettings(
-                profile=payload.profile,
-                credentials=cred_path,
-                token=tok_path,
-                outlook_client_id=payload.outlook_client_id,
-                tenant=payload.tenant,
-                outlook_token=payload.outlook_token,
-            ))
+
+            persist_profile_settings(
+                ProfileSettings(
+                    profile=payload.profile,
+                    credentials=cred_path,
+                    token=tok_path,
+                    outlook_client_id=payload.outlook_client_id,
+                    tenant=payload.tenant,
+                    outlook_token=payload.outlook_token,
+                )
+            )
             profile_saved = True
 
         return EnvSetupResult(

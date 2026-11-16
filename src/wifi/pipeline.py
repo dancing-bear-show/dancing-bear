@@ -1,13 +1,15 @@
 """Wi-Fi diagnostics pipeline components."""
+
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from core.cli_output import OutputFormat
-from core.pipeline import BaseProducer, SafeProcessor, RequestConsumer
+from core.pipeline import BaseProducer, RequestConsumer, SafeProcessor
 
 from .diagnostics_probes import DnsResult, HttpResult, run_diagnosis
 from .diagnostics_report import DiagnoseConfig, Report, render_report, report_to_dict

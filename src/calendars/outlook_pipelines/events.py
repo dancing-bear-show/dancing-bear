@@ -1,16 +1,17 @@
 """Outlook List One-Offs Pipeline - list single calendar events."""
 
+from calendars.selection import is_one_off_event
+
 from ._base import (
-    dataclass,
-    Path,
     Any,
-    SafeProcessor,
     BaseProducer,
     DateWindowResolver,
+    Path,
     RequestConsumer,
+    SafeProcessor,
     check_service_required,
+    dataclass,
 )
-from calendars.selection import is_one_off_event
 
 
 @dataclass
@@ -35,7 +36,9 @@ class OutlookListOneOffsResult:
     out_path: Path | None
 
 
-class OutlookListOneOffsProcessor(SafeProcessor[OutlookListOneOffsRequest, OutlookListOneOffsResult]):
+class OutlookListOneOffsProcessor(
+    SafeProcessor[OutlookListOneOffsRequest, OutlookListOneOffsResult]
+):
     def __init__(self, today_factory=None) -> None:
         self._window = DateWindowResolver(today_factory)
 
@@ -55,13 +58,16 @@ class OutlookListOneOffsProcessor(SafeProcessor[OutlookListOneOffsRequest, Outlo
         start_date = payload.from_date or start_iso[:10]
         end_date = payload.to_date or end_iso[:10]
         from calendars.outlook_service import ListEventsRequest
-        evs = svc.list_events_in_range(ListEventsRequest(
-            start_iso=start_iso,
-            end_iso=end_iso,
-            calendar_name=payload.calendar,
-        ))
+
+        evs = svc.list_events_in_range(
+            ListEventsRequest(
+                start_iso=start_iso,
+                end_iso=end_iso,
+                calendar_name=payload.calendar,
+            )
+        )
         one_offs = [ev for ev in (evs or []) if is_one_off_event(ev)]
-        rows = [self._event_to_row(ev) for ev in one_offs[:max(0, payload.limit)]]
+        rows = [self._event_to_row(ev) for ev in one_offs[: max(0, payload.limit)]]
         return OutlookListOneOffsResult(
             rows=rows,
             start=start_date,
@@ -72,7 +78,9 @@ class OutlookListOneOffsProcessor(SafeProcessor[OutlookListOneOffsRequest, Outlo
 
 
 class OutlookListOneOffsProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookListOneOffsResult, diagnostics: dict[str, Any] | None) -> None:
+    def _produce_success(
+        self, payload: OutlookListOneOffsResult, diagnostics: dict[str, Any] | None
+    ) -> None:
         rows = payload.rows
         print(f"Found {len(rows)} single events from {payload.start} to {payload.end}.")
         for ev in rows[: payload.limit]:
@@ -89,9 +97,9 @@ class OutlookListOneOffsProducer(BaseProducer):
 
 
 __all__ = [
+    "OutlookListOneOffsProcessor",
+    "OutlookListOneOffsProducer",
     "OutlookListOneOffsRequest",
     "OutlookListOneOffsRequestConsumer",
     "OutlookListOneOffsResult",
-    "OutlookListOneOffsProcessor",
-    "OutlookListOneOffsProducer",
 ]

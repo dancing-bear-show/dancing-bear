@@ -3,6 +3,7 @@
 Pure Python with no third-party imports, so either generator can use it
 without pulling in the other's backend (python-pptx or openpyxl).
 """
+
 from __future__ import annotations
 
 from collections.abc import Mapping

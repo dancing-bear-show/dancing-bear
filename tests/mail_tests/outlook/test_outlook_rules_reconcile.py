@@ -8,25 +8,26 @@ Each test class documents:
 - The invariant being asserted.
 - The regression it guards against.
 """
+
 from __future__ import annotations
 
 import unittest
 from unittest.mock import MagicMock, patch
 
 from mail.outlook import processors_rules_plan, processors_rules_write
-from mail.outlook.processors_rules_write import OutlookRulesSyncProcessor
-from mail.outlook.processors_rules_plan import OutlookRulesPlanProcessor
-from mail.outlook.processors_rules_index import _build_reconcile_index
+from mail.outlook.consumers import OutlookRulesPlanPayload, OutlookRulesSyncPayload
 from mail.outlook.processors_rules_helpers import (
     _criteria_key,
     _norm_criteria_field,
 )
-from mail.outlook.consumers import OutlookRulesSyncPayload, OutlookRulesPlanPayload
-
+from mail.outlook.processors_rules_index import _build_reconcile_index
+from mail.outlook.processors_rules_plan import OutlookRulesPlanProcessor
+from mail.outlook.processors_rules_write import OutlookRulesSyncProcessor
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_client(**kwargs) -> MagicMock:
     """Return a MagicMock client pre-configured with sensible defaults."""
@@ -58,6 +59,7 @@ def _sync_payload(
 # ---------------------------------------------------------------------------
 # _norm_criteria_field -- unit tests for the normalisation primitive
 # ---------------------------------------------------------------------------
+
 
 class TestNormCriteriaField(unittest.TestCase):
     """Unit tests for the OR-list normalisation helper."""
@@ -97,6 +99,7 @@ class TestNormCriteriaField(unittest.TestCase):
 # _criteria_key -- case-insensitive criteria matching
 # ---------------------------------------------------------------------------
 
+
 class TestCriteriaKey(unittest.TestCase):
     """_criteria_key must produce identical output for UPPERCASE live criteria
     and lowercase desired criteria.
@@ -128,6 +131,7 @@ class TestCriteriaKey(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Reconcile OFF -- existing behaviour unchanged
 # ---------------------------------------------------------------------------
+
 
 class TestReconcileOff(unittest.TestCase):
     """When reconcile=False (the default), an action change is seen as a new rule.
@@ -193,6 +197,7 @@ class TestReconcileOff(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Reconcile ON -- action-change case
 # ---------------------------------------------------------------------------
+
 
 class TestReconcileActionChange(unittest.TestCase):
     """With --reconcile, a criteria match with a different action is updated.
@@ -261,6 +266,7 @@ class TestReconcileActionChange(unittest.TestCase):
 # Case-insensitive criteria matching
 # ---------------------------------------------------------------------------
 
+
 class TestReconcileCaseInsensitive(unittest.TestCase):
     """Live criteria UPPERCASE must match desired criteria lowercase.
 
@@ -302,6 +308,7 @@ class TestReconcileCaseInsensitive(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Duplicate live criteria handling
 # ---------------------------------------------------------------------------
+
 
 class TestReconcileDuplicateLiveCriteria(unittest.TestCase):
     """When two live rules share criteria, only the first is reconciled.
@@ -382,6 +389,7 @@ class TestReconcileDuplicateLiveCriteria(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # --delete-missing combined with reconcile -- no double-delete
 # ---------------------------------------------------------------------------
+
 
 class TestReconcileWithDeleteMissing(unittest.TestCase):
     """Reconciliation and --delete-missing must not double-delete.
@@ -479,6 +487,7 @@ class TestReconcileWithDeleteMissing(unittest.TestCase):
 # dry_run=True -- preview agrees with live run
 # ---------------------------------------------------------------------------
 
+
 class TestReconcileDryRun(unittest.TestCase):
     """dry_run=True must report the same counts as the live run without mutating.
 
@@ -539,6 +548,7 @@ class TestReconcileDryRun(unittest.TestCase):
 # Defect A: delete fails -> no create, failure visible
 # ---------------------------------------------------------------------------
 
+
 class TestReconcileDeleteFails(unittest.TestCase):
     """When delete_filter raises during reconcile, no create must follow.
 
@@ -589,6 +599,7 @@ class TestReconcileDeleteFails(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Defect B: create fails after delete -> rule is lost, failure visible
 # ---------------------------------------------------------------------------
+
 
 class TestReconcileCreateFails(unittest.TestCase):
     """When create_filter raises after a successful delete, the rule is lost.
@@ -645,6 +656,7 @@ class TestReconcileCreateFails(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Defect C: identical action differing only in case must not churn
 # ---------------------------------------------------------------------------
+
 
 class TestReconcileCaseChurn(unittest.TestCase):
     """A live rule whose action already matches must not be churned on every run.
@@ -754,6 +766,7 @@ class TestReconcileCaseChurn(unittest.TestCase):
 # dry_run with failure-path semantics
 # ---------------------------------------------------------------------------
 
+
 class TestReconcileDryRunFailurePaths(unittest.TestCase):
     """dry_run must report what the live run would ATTEMPT, not predict API outcomes.
 
@@ -821,10 +834,10 @@ class TestReconcileDryRunFailurePaths(unittest.TestCase):
         client.create_filter.assert_not_called()
 
 
-
 # ============================================================
 # NEW TESTS ADDED: plan preview + data-loss regression fixes
 # ============================================================
+
 
 def _plan_payload(client, *, reconcile=False):
     return OutlookRulesPlanPayload(
@@ -837,6 +850,7 @@ def _plan_payload(client, *, reconcile=False):
 # ---------------------------------------------------------------------------
 # DATA-LOSS REGRESSION: case-only no-op + --delete-missing must NOT delete
 # ---------------------------------------------------------------------------
+
 
 class TestCaseOnlyNoOpDeleteMissing(unittest.TestCase):
     """--reconcile --delete-missing must NOT delete a live rule that already has
@@ -913,6 +927,7 @@ class TestCaseOnlyNoOpDeleteMissing(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # PLAN PREVIEW: --reconcile flag on rules.plan
 # ---------------------------------------------------------------------------
+
 
 class TestPlanReconcilePreview(unittest.TestCase):
     """rules.plan --reconcile must report 'Would reconcile' for rules that would
@@ -1010,6 +1025,7 @@ class TestPlanReconcilePreview(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # PLAN/SYNC PARITY: plan --reconcile and sync --dry-run agree
 # ---------------------------------------------------------------------------
+
 
 class TestPlanSyncParity(unittest.TestCase):
     """rules.plan --reconcile and rules.sync --reconcile --dry-run must report
@@ -1121,6 +1137,7 @@ class TestPlanSyncParity(unittest.TestCase):
 # SEQUENCE PRESERVATION
 # ---------------------------------------------------------------------------
 
+
 class TestDryRunNeverCreatesFolders(unittest.TestCase):
     """``rules.sync --dry-run`` must not mutate the mailbox -- including folders.
 
@@ -1158,11 +1175,17 @@ class TestDryRunNeverCreatesFolders(unittest.TestCase):
     def _run(self, dry_run, folder_map):
         client = self._client(folder_map)
         payload = OutlookRulesSyncPayload(
-            client=client, config_path="/test.yaml", dry_run=dry_run,
-            move_to_folders=True, delete_missing=False, reconcile=True,
+            client=client,
+            config_path="/test.yaml",
+            dry_run=dry_run,
+            move_to_folders=True,
+            delete_missing=False,
+            reconcile=True,
         )
-        with patch("core.yamlio.load_config", return_value={"filters": []}), \
-                patch("mail.dsl.normalize_filters_for_outlook", return_value=list(self.DESIRED)):
+        with (
+            patch("core.yamlio.load_config", return_value={"filters": []}),
+            patch("mail.dsl.normalize_filters_for_outlook", return_value=list(self.DESIRED)),
+        ):
             envelope = OutlookRulesSyncProcessor().process(payload)
         return envelope, client
 
@@ -1171,7 +1194,8 @@ class TestDryRunNeverCreatesFolders(unittest.TestCase):
         envelope, client = self._run(dry_run=True, folder_map={})
 
         self.assertEqual(
-            client.ensure_folder_path.call_count, 0,
+            client.ensure_folder_path.call_count,
+            0,
             "a dry run called ensure_folder_path, which creates folders via Graph",
         )
         self.assertEqual(client.create_filter.call_count, 0)
@@ -1207,6 +1231,7 @@ class TestDryRunNeverCreatesFolders(unittest.TestCase):
 
 class _GraphOutage(Exception):
     """A non-auth Graph failure (e.g. 503), which triggers the cache fallback."""
+
     response = type("_Resp", (), {"status_code": 503})()
 
 
@@ -1234,16 +1259,26 @@ class TestDestructiveModesRefuseFallbackData(unittest.TestCase):
         if mode == "empty":
             client.list_filters.side_effect = _GraphOutage()
         elif mode == "fallback":
+
             def lf(use_cache=False, ttl=600):
                 if not use_cache:
                     raise _GraphOutage()
-                return [{"id": "OLD-ID", "criteria": {"from": "a.example"},
-                         "action": {"forward": "stale@x.com"}}]
+                return [
+                    {
+                        "id": "OLD-ID",
+                        "criteria": {"from": "a.example"},
+                        "action": {"forward": "stale@x.com"},
+                    }
+                ]
+
             client.list_filters.side_effect = lf
         else:
             client.list_filters.return_value = [
-                {"id": "live-1", "criteria": {"from": "a.example"},
-                 "action": {"forward": "old@x.com"}}
+                {
+                    "id": "live-1",
+                    "criteria": {"from": "a.example"},
+                    "action": {"forward": "old@x.com"},
+                }
             ]
         client.get_label_id_map.return_value = {}
         client.get_folder_path_map.return_value = {}
@@ -1251,8 +1286,10 @@ class TestDestructiveModesRefuseFallbackData(unittest.TestCase):
 
     def _run(self, mode, **flags):
         client = self._client(mode)
-        with patch("core.yamlio.load_config", return_value={"filters": []}), \
-                patch("mail.dsl.normalize_filters_for_outlook", return_value=list(self.DESIRED)):
+        with (
+            patch("core.yamlio.load_config", return_value={"filters": []}),
+            patch("mail.dsl.normalize_filters_for_outlook", return_value=list(self.DESIRED)),
+        ):
             envelope = OutlookRulesSyncProcessor().process(_sync_payload(client, **flags))
         return envelope, client
 
@@ -1312,8 +1349,10 @@ class TestDestructiveModesRefuseFallbackData(unittest.TestCase):
         client.get_label_id_map.return_value = {}
         client.get_folder_path_map.return_value = {}
 
-        with patch("core.yamlio.load_config", return_value={"filters": []}), \
-                patch("mail.dsl.normalize_filters_for_outlook", return_value=list(self.DESIRED)):
+        with (
+            patch("core.yamlio.load_config", return_value={"filters": []}),
+            patch("mail.dsl.normalize_filters_for_outlook", return_value=list(self.DESIRED)),
+        ):
             envelope = OutlookRulesSyncProcessor().process(
                 _sync_payload(client, reconcile=True, dry_run=False)
             )
@@ -1361,15 +1400,19 @@ class TestReconcileFailureExitCode(unittest.TestCase):
     from the thing that actually matters to a caller.
     """
 
-    LIVE = [{
-        "id": "bank-rule",
-        "criteria": {"from": "bank.example"},
-        "action": {"forward": "old@other.com"},
-    }]
-    DESIRED = [{
-        "match": {"from": "bank.example"},
-        "action": {"forward": "new@other.com"},
-    }]
+    LIVE = [
+        {
+            "id": "bank-rule",
+            "criteria": {"from": "bank.example"},
+            "action": {"forward": "old@other.com"},
+        }
+    ]
+    DESIRED = [
+        {
+            "match": {"from": "bank.example"},
+            "action": {"forward": "new@other.com"},
+        }
+    ]
 
     @staticmethod
     def _exit_code(envelope):
@@ -1392,7 +1435,8 @@ class TestReconcileFailureExitCode(unittest.TestCase):
         )
 
         self.assertNotEqual(
-            self._exit_code(envelope), 0,
+            self._exit_code(envelope),
+            0,
             "a reconcile that lost a rule exited 0, indistinguishable from success",
         )
         self.assertEqual(envelope.payload.failed, 1)
@@ -1435,10 +1479,12 @@ class TestReconcileFailureExitCode(unittest.TestCase):
         A user who opted into a mode that tracks failures should see this one too.
         """
         mock_load.return_value = {"filters": []}
-        mock_norm.return_value = [{
-            "match": {"from": "brand-new@example.com"},
-            "action": {"forward": "x@other.com"},
-        }]
+        mock_norm.return_value = [
+            {
+                "match": {"from": "brand-new@example.com"},
+                "action": {"forward": "x@other.com"},
+            }
+        ]
         client = _make_client(list_filters=[])  # no live rules: fresh-create path
         client.create_filter.side_effect = Exception("graph 500")
 
@@ -1448,7 +1494,8 @@ class TestReconcileFailureExitCode(unittest.TestCase):
 
         self.assertEqual(envelope.payload.failed, 1)
         self.assertEqual(
-            envelope.payload.created, 0,
+            envelope.payload.created,
+            0,
             "a rule that was never created was counted as created",
         )
         self.assertNotEqual(self._exit_code(envelope), 0)
@@ -1463,10 +1510,12 @@ class TestReconcileFailureExitCode(unittest.TestCase):
         behavioural decision from fixing reconcile's lost-rule case.
         """
         mock_load.return_value = {"filters": []}
-        mock_norm.return_value = [{
-            "match": {"from": "brand-new@example.com"},
-            "action": {"forward": "x@other.com"},
-        }]
+        mock_norm.return_value = [
+            {
+                "match": {"from": "brand-new@example.com"},
+                "action": {"forward": "x@other.com"},
+            }
+        ]
         client = _make_client(list_filters=[])
         client.create_filter.side_effect = Exception("graph 500")
 
@@ -1551,10 +1600,12 @@ class TestUnmappableConditionsAreNotRewritten(unittest.TestCase):
         "stopProcessingRules": False,
         "unmappedConditions": ["bodyContains"],
     }
-    DESIRED = [{
-        "match": {"from": "bank.example"},
-        "action": {"forward": "new@other.com"},
-    }]
+    DESIRED = [
+        {
+            "match": {"from": "bank.example"},
+            "action": {"forward": "new@other.com"},
+        }
+    ]
 
     @patch("core.yamlio.load_config")
     @patch("mail.dsl.normalize_filters_for_outlook")
@@ -1572,11 +1623,13 @@ class TestUnmappableConditionsAreNotRewritten(unittest.TestCase):
         self.assertEqual(envelope.payload.created, 0)
         self.assertEqual(envelope.payload.failed, 0)
         self.assertEqual(
-            client.delete_filter.call_count, 0,
+            client.delete_filter.call_count,
+            0,
             "reconcile deleted a rule whose extra condition it cannot recreate",
         )
         self.assertEqual(
-            client.create_filter.call_count, 0,
+            client.create_filter.call_count,
+            0,
             "a second, broader rule was created beside the protected one",
         )
 
@@ -1594,7 +1647,8 @@ class TestUnmappableConditionsAreNotRewritten(unittest.TestCase):
 
         self.assertEqual(envelope.payload.deleted, 0)
         self.assertEqual(
-            client.delete_filter.call_count, 0,
+            client.delete_filter.call_count,
+            0,
             "--delete-missing deleted a rule the reconcile pass deliberately skipped",
         )
 
@@ -1606,9 +1660,7 @@ class TestUnmappableConditionsAreNotRewritten(unittest.TestCase):
         mock_norm.return_value = list(self.DESIRED)
 
         plan_client = _make_client(list_filters=[dict(self.LIVE_RULE)])
-        plan_env = OutlookRulesPlanProcessor().process(
-            _plan_payload(plan_client, reconcile=True)
-        )
+        plan_env = OutlookRulesPlanProcessor().process(_plan_payload(plan_client, reconcile=True))
         sync_client = _make_client(list_filters=[dict(self.LIVE_RULE)])
         sync_env = OutlookRulesSyncProcessor().process(
             _sync_payload(sync_client, reconcile=True, dry_run=True)
@@ -1659,10 +1711,12 @@ class TestUnmappableConditionsAreNotRewritten(unittest.TestCase):
         index up front rather than per spec.
         """
         mock_load.return_value = {"filters": []}
-        mock_norm.return_value = [{
-            "match": {"from": "bank.example"},
-            "action": {"forward": "new@other.com"},
-        }]
+        mock_norm.return_value = [
+            {
+                "match": {"from": "bank.example"},
+                "action": {"forward": "new@other.com"},
+            }
+        ]
         live = [
             {
                 "id": "unmappable",
@@ -1687,7 +1741,8 @@ class TestUnmappableConditionsAreNotRewritten(unittest.TestCase):
 
         deleted_ids = [c.args[0] for c in client.delete_filter.call_args_list]
         self.assertNotIn(
-            "unmappable", deleted_ids,
+            "unmappable",
+            deleted_ids,
             "the unmappable rule was deleted despite the reconcile skip",
         )
         self.assertEqual(envelope.payload.deleted, 0)
@@ -1704,17 +1759,25 @@ class TestUnmappableConditionsAreNotRewritten(unittest.TestCase):
         rule, since each is individually impossible to recreate faithfully.
         """
         mock_load.return_value = {"filters": []}
-        mock_norm.return_value = [{
-            "match": {"from": "bank.example"},
-            "action": {"forward": "new@other.com"},
-        }]
+        mock_norm.return_value = [
+            {
+                "match": {"from": "bank.example"},
+                "action": {"forward": "new@other.com"},
+            }
+        ]
         live = [
-            {"id": "unmappable-a", "criteria": {"from": "bank.example"},
-             "action": {"forward": "a@other.com"},
-             "unmappedConditions": ["bodyContains"]},
-            {"id": "unmappable-b", "criteria": {"from": "bank.example"},
-             "action": {"forward": "b@other.com"},
-             "unmappedConditions": ["hasAttachments"]},
+            {
+                "id": "unmappable-a",
+                "criteria": {"from": "bank.example"},
+                "action": {"forward": "a@other.com"},
+                "unmappedConditions": ["bodyContains"],
+            },
+            {
+                "id": "unmappable-b",
+                "criteria": {"from": "bank.example"},
+                "action": {"forward": "b@other.com"},
+                "unmappedConditions": ["hasAttachments"],
+            },
         ]
         client = _make_client(list_filters=[dict(r) for r in live])
 
@@ -1723,7 +1786,8 @@ class TestUnmappableConditionsAreNotRewritten(unittest.TestCase):
         )
 
         self.assertEqual(
-            [c.args[0] for c in client.delete_filter.call_args_list], [],
+            [c.args[0] for c in client.delete_filter.call_args_list],
+            [],
             "an unmappable duplicate was deleted; only the first was protected",
         )
         self.assertEqual(envelope.payload.deleted, 0)
@@ -1780,10 +1844,12 @@ class TestUnmappableConditionsAreNotRewritten(unittest.TestCase):
     def test_rule_with_unmapped_action_is_not_reconciled(self, mock_norm, mock_load):
         """A rule whose action includes `delete` is left entirely alone."""
         mock_load.return_value = {"filters": []}
-        mock_norm.return_value = [{
-            "match": {"from": "spam.example"},
-            "action": {"add": ["Junk", "Extra"]},
-        }]
+        mock_norm.return_value = [
+            {
+                "match": {"from": "spam.example"},
+                "action": {"add": ["Junk", "Extra"]},
+            }
+        ]
         live_rule = {
             "id": "del-rule",
             "criteria": {"from": "spam.example"},
@@ -1801,7 +1867,8 @@ class TestUnmappableConditionsAreNotRewritten(unittest.TestCase):
         self.assertEqual(envelope.payload.reconciled, 0)
         self.assertEqual(envelope.payload.deleted, 0)
         self.assertEqual(
-            client.delete_filter.call_count, 0,
+            client.delete_filter.call_count,
+            0,
             "a rule that deletes mail was rewritten without its delete action",
         )
         self.assertEqual(client.create_filter.call_count, 0)
@@ -1852,10 +1919,12 @@ class TestUnmappableConditionsAreNotRewritten(unittest.TestCase):
     def test_rule_with_exceptions_is_not_reconciled(self, mock_norm, mock_load):
         """A rule carrying an exception is left entirely alone."""
         mock_load.return_value = {"filters": []}
-        mock_norm.return_value = [{
-            "match": {"from": "newsletter.example"},
-            "action": {"add": ["News", "Extra"]},
-        }]
+        mock_norm.return_value = [
+            {
+                "match": {"from": "newsletter.example"},
+                "action": {"add": ["News", "Extra"]},
+            }
+        ]
         live_rule = {
             "id": "exc-rule",
             "criteria": {"from": "newsletter.example"},
@@ -1874,7 +1943,8 @@ class TestUnmappableConditionsAreNotRewritten(unittest.TestCase):
         self.assertEqual(envelope.payload.reconciled, 0)
         self.assertEqual(envelope.payload.deleted, 0)
         self.assertEqual(
-            client.delete_filter.call_count, 0,
+            client.delete_filter.call_count,
+            0,
             "a rule with an exception was rewritten without it, broadening what it acts on",
         )
         self.assertEqual(client.create_filter.call_count, 0)
@@ -1983,10 +2053,12 @@ class TestIsEnabledPreservation(unittest.TestCase):
     def test_disabled_rule_stays_disabled(self, mock_norm, mock_load):
         """isEnabled=False is passed through to the replacement."""
         mock_load.return_value = {"filters": []}
-        mock_norm.return_value = [{
-            "match": {"from": "news@example.com"},
-            "action": {"forward": "new@other.com"},
-        }]
+        mock_norm.return_value = [
+            {
+                "match": {"from": "news@example.com"},
+                "action": {"forward": "new@other.com"},
+            }
+        ]
         live_rule = {
             "id": "disabled-rule",
             "criteria": {"from": "news@example.com"},
@@ -2004,7 +2076,8 @@ class TestIsEnabledPreservation(unittest.TestCase):
         self.assertEqual(envelope.payload.reconciled, 1)
         client.create_filter.assert_called_once()
         self.assertIs(
-            client.create_filter.call_args.kwargs.get("is_enabled"), False,
+            client.create_filter.call_args.kwargs.get("is_enabled"),
+            False,
             "a rule the user disabled was silently re-enabled",
         )
 
@@ -2013,10 +2086,12 @@ class TestIsEnabledPreservation(unittest.TestCase):
     def test_enabled_rule_stays_enabled(self, mock_norm, mock_load):
         """Contrast: an enabled rule is recreated enabled."""
         mock_load.return_value = {"filters": []}
-        mock_norm.return_value = [{
-            "match": {"from": "news@example.com"},
-            "action": {"forward": "new@other.com"},
-        }]
+        mock_norm.return_value = [
+            {
+                "match": {"from": "news@example.com"},
+                "action": {"forward": "new@other.com"},
+            }
+        ]
         live_rule = {
             "id": "enabled-rule",
             "criteria": {"from": "news@example.com"},
@@ -2025,9 +2100,7 @@ class TestIsEnabledPreservation(unittest.TestCase):
         }
         client = _make_client(list_filters=[live_rule])
 
-        OutlookRulesSyncProcessor().process(
-            _sync_payload(client, reconcile=True, dry_run=False)
-        )
+        OutlookRulesSyncProcessor().process(_sync_payload(client, reconcile=True, dry_run=False))
 
         self.assertIs(client.create_filter.call_args.kwargs.get("is_enabled"), True)
 
@@ -2055,6 +2128,7 @@ class TestIsEnabledPreservation(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # delete_failed + --delete-missing: the surviving rule must not be destroyed
 # ---------------------------------------------------------------------------
+
 
 class TestDeleteFailedDeleteMissing(unittest.TestCase):
     """After a failed reconcile delete, ``--delete-missing`` must not retry it.
@@ -2129,6 +2203,7 @@ class TestDeleteFailedDeleteMissing(unittest.TestCase):
 # create_failed + --delete-missing: no spurious second delete
 # ---------------------------------------------------------------------------
 
+
 class TestCreateFailedDeleteMissing(unittest.TestCase):
     """After create_failed the reconcile delete already succeeded: the rule is gone.
 
@@ -2193,6 +2268,7 @@ class TestCreateFailedDeleteMissing(unittest.TestCase):
 # CLI: --reconcile is registered on rules.plan
 # ---------------------------------------------------------------------------
 
+
 class TestRulesPlanCLIReconcileFlag(unittest.TestCase):
     """rules.plan --reconcile must be a registered CLI flag.
 
@@ -2210,18 +2286,24 @@ class TestRulesPlanCLIReconcileFlag(unittest.TestCase):
         # Build the actual parser
         parser = app.build_parser()
         # rules.plan is a dotted subcommand; parse it
-        ns = parser.parse_args([
-            "outlook", "rules.plan",
-            "--config", "/dev/null",
-            "--client-id", "x",
-            "--reconcile",
-        ])
+        ns = parser.parse_args(
+            [
+                "outlook",
+                "rules.plan",
+                "--config",
+                "/dev/null",
+                "--client-id",
+                "x",
+                "--reconcile",
+            ]
+        )
         self.assertTrue(ns.reconcile, "--reconcile not parsed correctly on rules.plan")
 
 
 # ---------------------------------------------------------------------------
 # Folder resolution parity on a stale snapshot
 # ---------------------------------------------------------------------------
+
 
 class TestExistingFolderCacheMissParity(unittest.TestCase):
     """A folder that EXISTS but is missing from the cached snapshot.
@@ -2249,11 +2331,13 @@ class TestExistingFolderCacheMissParity(unittest.TestCase):
 
     def _client(self, folder_map):
         client = _make_client(
-            list_filters=[{
-                "id": "news-rule",
-                "criteria": {"from": "news.example"},
-                "action": {"moveToFolderId": self.REAL_ID},
-            }],
+            list_filters=[
+                {
+                    "id": "news-rule",
+                    "criteria": {"from": "news.example"},
+                    "action": {"moveToFolderId": self.REAL_ID},
+                }
+            ],
             folder_path_map=dict(folder_map),
         )
         client.ensure_folder_path.return_value = self.REAL_ID
@@ -2264,20 +2348,31 @@ class TestExistingFolderCacheMissParity(unittest.TestCase):
     def _plan(self, folder_map):
         client = self._client(folder_map)
         payload = OutlookRulesPlanPayload(
-            client=client, config_path="/test.yaml", move_to_folders=True, reconcile=False,
+            client=client,
+            config_path="/test.yaml",
+            move_to_folders=True,
+            reconcile=False,
         )
-        with patch("core.yamlio.load_config", return_value={"filters": []}), \
-                patch("mail.dsl.normalize_filters_for_outlook", return_value=list(self.DESIRED)):
+        with (
+            patch("core.yamlio.load_config", return_value={"filters": []}),
+            patch("mail.dsl.normalize_filters_for_outlook", return_value=list(self.DESIRED)),
+        ):
             return OutlookRulesPlanProcessor().process(payload), client
 
     def _sync(self, folder_map, dry_run):
         client = self._client(folder_map)
         payload = OutlookRulesSyncPayload(
-            client=client, config_path="/test.yaml", dry_run=dry_run,
-            move_to_folders=True, delete_missing=False, reconcile=False,
+            client=client,
+            config_path="/test.yaml",
+            dry_run=dry_run,
+            move_to_folders=True,
+            delete_missing=False,
+            reconcile=False,
         )
-        with patch("core.yamlio.load_config", return_value={"filters": []}), \
-                patch("mail.dsl.normalize_filters_for_outlook", return_value=list(self.DESIRED)):
+        with (
+            patch("core.yamlio.load_config", return_value={"filters": []}),
+            patch("mail.dsl.normalize_filters_for_outlook", return_value=list(self.DESIRED)),
+        ):
             return OutlookRulesSyncProcessor().process(payload), client
 
     def test_stale_snapshot_plan_agrees_with_live(self):
@@ -2287,7 +2382,8 @@ class TestExistingFolderCacheMissParity(unittest.TestCase):
 
         self.assertEqual(plan_env.payload.would_create, live_env.payload.created)
         self.assertEqual(
-            plan_env.payload.plan_items, [],
+            plan_env.payload.plan_items,
+            [],
             "plan reported an action for a rule that already points at the folder",
         )
 
@@ -2300,8 +2396,10 @@ class TestExistingFolderCacheMissParity(unittest.TestCase):
 
     def test_fresh_snapshot_unchanged(self):
         """Contrast: when the snapshot has the folder, nothing changes."""
-        for surface in (lambda: self._plan({"Archive/News": self.REAL_ID})[0],
-                        lambda: self._sync({"Archive/News": self.REAL_ID}, True)[0]):
+        for surface in (
+            lambda: self._plan({"Archive/News": self.REAL_ID})[0],
+            lambda: self._sync({"Archive/News": self.REAL_ID}, True)[0],
+        ):
             env = surface()
             count = getattr(env.payload, "would_create", None)
             if count is None:
@@ -2316,7 +2414,8 @@ class TestExistingFolderCacheMissParity(unittest.TestCase):
         for label, client in (("plan", plan_client), ("dry-run", dry_client)):
             with self.subTest(surface=label):
                 self.assertEqual(
-                    client.ensure_folder_path.call_count, 0,
+                    client.ensure_folder_path.call_count,
+                    0,
                     f"{label} called ensure_folder_path, which creates folders",
                 )
 
@@ -2328,12 +2427,17 @@ class TestExistingFolderCacheMissParity(unittest.TestCase):
         path keeps the preview usable, and "would create" is then correct.
         """
         client = self._client({})
-        client.resolve_folder_path.return_value = ""   # folder genuinely absent
+        client.resolve_folder_path.return_value = ""  # folder genuinely absent
         payload = OutlookRulesPlanPayload(
-            client=client, config_path="/test.yaml", move_to_folders=True, reconcile=False,
+            client=client,
+            config_path="/test.yaml",
+            move_to_folders=True,
+            reconcile=False,
         )
-        with patch("core.yamlio.load_config", return_value={"filters": []}), \
-                patch("mail.dsl.normalize_filters_for_outlook", return_value=list(self.DESIRED)):
+        with (
+            patch("core.yamlio.load_config", return_value={"filters": []}),
+            patch("mail.dsl.normalize_filters_for_outlook", return_value=list(self.DESIRED)),
+        ):
             env = OutlookRulesPlanProcessor().process(payload)
 
         self.assertEqual(env.payload.would_create, 1)
@@ -2343,6 +2447,7 @@ class TestExistingFolderCacheMissParity(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Live folder lookups: memoise, and do not guess from a failed read
 # ---------------------------------------------------------------------------
+
 
 class TestLiveFolderLookupBehaviour(unittest.TestCase):
     """Three review findings on the live ``resolve_folder_path`` fallback.
@@ -2385,7 +2490,8 @@ class TestLiveFolderLookupBehaviour(unittest.TestCase):
             _resolve_folder_id(path, ctx.folder_map, ctx.client)
 
         self.assertEqual(
-            client.calls, 1,
+            client.calls,
+            1,
             "the same destination triggered more than one full tree walk",
         )
 
@@ -2428,14 +2534,19 @@ class TestLiveFolderLookupBehaviour(unittest.TestCase):
         user can act on -- otherwise the fix trades a wrong answer for a traceback.
         """
         mock_load.return_value = {"filters": []}
-        mock_norm.return_value = [{
-            "match": {"from": "news.example"},
-            "action": {"moveToFolder": "Archive/News"},
-        }]
+        mock_norm.return_value = [
+            {
+                "match": {"from": "news.example"},
+                "action": {"moveToFolder": "Archive/News"},
+            }
+        ]
         client = _make_client()
         client.resolve_folder_path.side_effect = RuntimeError("401 Unauthorized")
         payload = OutlookRulesPlanPayload(
-            client=client, config_path="/test.yaml", move_to_folders=True, reconcile=False,
+            client=client,
+            config_path="/test.yaml",
+            move_to_folders=True,
+            reconcile=False,
         )
 
         envelope = OutlookRulesPlanProcessor().process(payload)

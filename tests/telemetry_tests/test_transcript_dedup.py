@@ -6,12 +6,13 @@ climbs to its final value across those copies. A resumed session also copies
 earlier records into a new file. Every aggregation must bill such a call once,
 from its completed copy.
 """
+
 from __future__ import annotations
 
 import os
 import unittest
 import unittest.mock as mock
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from tests.telemetry_tests.shared_fixtures import (
     TempProjectsDirMixin,
@@ -21,7 +22,7 @@ from tests.telemetry_tests.shared_fixtures import (
     make_user_record,
 )
 
-_SINCE = datetime(2026, 4, 16, 9, 0, tzinfo=timezone.utc)
+_SINCE = datetime(2026, 4, 16, 9, 0, tzinfo=UTC)
 _SONNET_IN = 3.0  # claude-sonnet-4-6 $/M input
 _SONNET_OUT = 15.0  # claude-sonnet-4-6 $/M output
 
@@ -103,7 +104,9 @@ class TestAssistantRecordParsing(_ListPriceMixin, unittest.TestCase):
 
     def test_one_hour_cache_writes_priced_at_2x(self):
         # Scalar total plus the separate tier-split dict (current transcript shape).
-        record = make_assistant_record(input_tokens=0, output_tokens=0, cache_creation_tokens=1_000_000)
+        record = make_assistant_record(
+            input_tokens=0, output_tokens=0, cache_creation_tokens=1_000_000
+        )
         record["message"]["usage"]["cache_creation"] = {
             "ephemeral_5m_input_tokens": 0,
             "ephemeral_1h_input_tokens": 1_000_000,
@@ -112,7 +115,9 @@ class TestAssistantRecordParsing(_ListPriceMixin, unittest.TestCase):
         self.assertAlmostEqual(event.cost_usd, _SONNET_IN * 2.0, places=6)
 
     def test_untiered_cache_writes_priced_at_1_25x(self):
-        record = make_assistant_record(input_tokens=0, output_tokens=0, cache_creation_tokens=1_000_000)
+        record = make_assistant_record(
+            input_tokens=0, output_tokens=0, cache_creation_tokens=1_000_000
+        )
         [event] = self._api_events(record)
         self.assertAlmostEqual(event.cost_usd, _SONNET_IN * 1.25, places=6)
 
@@ -192,7 +197,7 @@ class TestCallCopiedAcrossSessions(_ListPriceMixin, unittest.TestCase):
         old = _write_jsonl(
             pdir, "old.jsonl", [_snapshot(161, session_id="old", timestamp="2020-01-01T00:00:00Z")]
         )
-        old_ts = datetime(2020, 1, 1, tzinfo=timezone.utc).timestamp()
+        old_ts = datetime(2020, 1, 1, tzinfo=UTC).timestamp()
         os.utime(old, (old_ts, old_ts))
         _write_jsonl(pdir, "new.jsonl", [_snapshot(3, session_id="new")])
         [summary] = self.provider.get_sessions(since=_SINCE)

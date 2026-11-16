@@ -87,9 +87,9 @@ class TargetsTest(unittest.TestCase):
         ("cp --target-directory=src /tmp/e.py", ["T1src"]),
         ("cp --target=src /tmp/e.py", ["T1src"]),
         ("install -tsrc /tmp/e.py", ["T1src"]),
-        ("ln -tsrc /tmp/x", ["T1src", "T0/tmp/x"]),       # -t's value is not -s
-        ("ln -vs src/a.py /tmp/l", ["T1/tmp/l"]),          # a real -s cluster
-        ("truncate -s 0 /tmp/log", ["T1/tmp/log"]),       # 0 is -s's value
+        ("ln -tsrc /tmp/x", ["T1src", "T0/tmp/x"]),  # -t's value is not -s
+        ("ln -vs src/a.py /tmp/l", ["T1/tmp/l"]),  # a real -s cluster
+        ("truncate -s 0 /tmp/log", ["T1/tmp/log"]),  # 0 is -s's value
         ("touch -t 202301010000 /tmp/x", ["T1/tmp/x"]),
         ("rm -- -probe.py", ["T0-probe.py"]),
         # Reads through mutating commands are not targets.
@@ -188,9 +188,9 @@ class RefusalsTest(unittest.TestCase):
         ('eval "$CMD"', "eval"),
         ("echo 'rm -rf src' | bash", "stdin"),
         ("xargs rm < /tmp/list", "rm"),
-        ('cp "$f" /tmp/ws/', "cp"),            # "$f" may be --target-directory=src
-        ('sed -n "$r" src/a.py', None),       # "$r" may be -i
-        ('find . -name "$p"', "find"),         # "$p" may be -delete
+        ('cp "$f" /tmp/ws/', "cp"),  # "$f" may be --target-directory=src
+        ('sed -n "$r" src/a.py', None),  # "$r" may be -i
+        ('find . -name "$p"', "find"),  # "$p" may be -delete
         ("dd $X", "dd"),
         ("env -S 'rm -rf src'", "env -S"),
         ("patch -p1 < fix.patch", "patch"),
@@ -215,8 +215,13 @@ class RefusalsTest(unittest.TestCase):
     def test_unknown_words_in_read_positions_are_fine(self) -> None:
         # Refusing every variable would make the role useless; only positions that
         # can decide a write matter.
-        for command in ('cat "$f"', 'grep "$pat" src/', "wc -l $(git ls-files)",
-                        'for f in src/*.py; do wc -l "$f"; done', 'cp src/a.py "/tmp/x"'):
+        for command in (
+            'cat "$f"',
+            'grep "$pat" src/',
+            "wc -l $(git ls-files)",
+            'for f in src/*.py; do wc -l "$f"; done',
+            'cp src/a.py "/tmp/x"',
+        ):
             with self.subTest(command=command):
                 _, refusals = records(command)
                 self.assertEqual(refusals, [])

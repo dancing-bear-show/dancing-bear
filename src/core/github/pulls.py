@@ -44,7 +44,9 @@ def _json(text: str, what: str) -> Any:
         raise GhError(f"{what} returned non-JSON output: {exc}") from exc
 
 
-def pr_view(gh: GhCLI, pr: int | str | None, fields: list[str], *, repo: str | None = None) -> dict[str, Any]:
+def pr_view(
+    gh: GhCLI, pr: int | str | None, fields: list[str], *, repo: str | None = None
+) -> dict[str, Any]:
     """Return the requested ``gh pr view --json`` fields as a dict."""
     if not fields:
         raise GhError("pr view needs at least one field")
@@ -55,7 +57,9 @@ def pr_view(gh: GhCLI, pr: int | str | None, fields: list[str], *, repo: str | N
     return data
 
 
-def pr_diff(gh: GhCLI, pr: int | str | None, *, name_only: bool = False, repo: str | None = None) -> str:
+def pr_diff(
+    gh: GhCLI, pr: int | str | None, *, name_only: bool = False, repo: str | None = None
+) -> str:
     """Return the PR's unified diff, or its changed paths one per line."""
     args = ["pr", "diff", *_pr_args(pr), *_repo_args(repo)]
     if name_only:
@@ -65,7 +69,9 @@ def pr_diff(gh: GhCLI, pr: int | str | None, *, name_only: bool = False, repo: s
 
 def pr_files(gh: GhCLI, pr: int | str | None, *, repo: str | None = None) -> list[str]:
     """Changed paths in the PR."""
-    return [line for line in pr_diff(gh, pr, name_only=True, repo=repo).splitlines() if line.strip()]
+    return [
+        line for line in pr_diff(gh, pr, name_only=True, repo=repo).splitlines() if line.strip()
+    ]
 
 
 def pr_create(
@@ -147,7 +153,11 @@ def pr_checks(gh: GhCLI, pr: int | str | None, *, repo: str | None = None) -> li
 
 
 def pr_checks_watch(
-    gh: GhCLI, pr: int | str | None, *, interval: int = 60, repo: str | None = None,
+    gh: GhCLI,
+    pr: int | str | None,
+    *,
+    interval: int = 60,
+    repo: str | None = None,
 ) -> int:
     """Block until checks finish; return gh's exit code (0 means all passed).
 
@@ -173,7 +183,17 @@ def pr_list(
     repo: str | None = None,
 ) -> list[dict[str, Any]]:
     """Return ``gh pr list --json`` rows."""
-    args = ["pr", "list", "--state", state, "--limit", str(limit), "--json", ",".join(fields), *_repo_args(repo)]
+    args = [
+        "pr",
+        "list",
+        "--state",
+        state,
+        "--limit",
+        str(limit),
+        "--json",
+        ",".join(fields),
+        *_repo_args(repo),
+    ]
     if author:
         args += ["--author", author]
     if head:
@@ -240,9 +260,17 @@ def pr_comments(gh: GhCLI, owner: str, repo: str, pr: int, *, kind: str = "revie
     raise GhError(f"unknown comment kind {kind!r}; expected review or issue")
 
 
-def run_log(gh: GhCLI, run_id: int | str, *, failed_only: bool = True, repo: str | None = None) -> str:
+def run_log(
+    gh: GhCLI, run_id: int | str, *, failed_only: bool = True, repo: str | None = None
+) -> str:
     """Return a workflow run's log, by default only the failed steps."""
-    args = ["run", "view", str(run_id), *_repo_args(repo), "--log-failed" if failed_only else "--log"]
+    args = [
+        "run",
+        "view",
+        str(run_id),
+        *_repo_args(repo),
+        "--log-failed" if failed_only else "--log",
+    ]
     return _checked(gh.run(args), "gh run view")
 
 

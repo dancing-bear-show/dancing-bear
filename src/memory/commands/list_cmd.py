@@ -28,10 +28,20 @@ _NON_MEMORY_HEADERS = ["path", "store"]
 ARGUMENTS: list[ArgSpec] = [
     format_arg(["table", "json", "yaml", "csv"], "table"),
     (("--limit",), {"type": int, "default": 0, "help": "Max rows (0 = all)"}),
-    (("--type",), {"choices": [t.value for t in MemoryType], "default": None, "help": "Filter by memory type"}),
+    (
+        ("--type",),
+        {
+            "choices": [t.value for t in MemoryType],
+            "default": None,
+            "help": "Filter by memory type",
+        },
+    ),
     (("--non-memory",), {"action": "store_true", "help": "List non-memory files instead"}),
     (("--unindexed",), {"action": "store_true", "help": "Only memories missing from MEMORY.md"}),
-    (("--stale-days",), {"type": int, "default": None, "metavar": "N", "help": "Only memories older than N days"}),
+    (
+        ("--stale-days",),
+        {"type": int, "default": None, "metavar": "N", "help": "Only memories older than N days"},
+    ),
     STORE_ARG,
     ALL_STORES_ARG,
 ]
@@ -59,9 +69,7 @@ def _filter_memories(
     result = list(memories)
     if type_filter:
         result = [
-            m
-            for m in result
-            if m.frontmatter.type and m.frontmatter.type.value == type_filter
+            m for m in result if m.frontmatter.type and m.frontmatter.type.value == type_filter
         ]
     if unindexed_only:
         result = [m for m in result if not m.indexed]
@@ -81,7 +89,7 @@ def run(args: argparse.Namespace) -> int:
     if args.store:
         try:
             stores: tuple[MemoryStore, ...] = (load_store(args.store),)
-        except Exception as exc:  # NOSONAR - CLI boundary: surface as a validation error, never a raw traceback
+        except (Exception) as exc:  # NOSONAR - CLI boundary: surface as a validation error, never a raw traceback  # fmt: skip
             return validation_error("--store", f"could not load store {args.store!r}: {exc}")
     elif args.all_stores:
         stores = all_stores

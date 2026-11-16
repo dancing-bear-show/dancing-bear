@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from telemetry.timeutil import format_latency, nano_to_datetime
 
@@ -68,7 +68,7 @@ class TestNanoToDatetime(unittest.TestCase):
         # 1_700_000_000_000_000_000 ns -> 2023-11-14T22:13:20Z
         result = nano_to_datetime(1_700_000_000_000_000_000)
         self.assertIsInstance(result, datetime)
-        self.assertEqual(result.tzinfo, timezone.utc)
+        self.assertEqual(result.tzinfo, UTC)
         self.assertEqual(result.year, 2023)
         self.assertEqual(result.month, 11)
         self.assertEqual(result.day, 14)
@@ -81,4 +81,4 @@ class TestNanoToDatetime(unittest.TestCase):
 
     def test_zero_nanoseconds_is_epoch(self):
         result = nano_to_datetime(0)
-        self.assertEqual(result, datetime(1970, 1, 1, tzinfo=timezone.utc))
+        self.assertEqual(result, datetime(1970, 1, 1, tzinfo=UTC))

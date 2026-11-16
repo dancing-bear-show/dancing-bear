@@ -1,4 +1,5 @@
 """Aurora Aquatics venue-specific website schedule parser."""
+
 from __future__ import annotations
 
 import re
@@ -12,8 +13,8 @@ from .model import ScheduleItem
 from .web_parser_base import (
     LEISURE_SWIM,
     ScheduleItemParams,
-    _make_schedule_item_from_params,
     _fetch_html,
+    _make_schedule_item_from_params,
 )
 
 
@@ -25,8 +26,8 @@ class AuroraAquaticsParser(ScheduleParser):
         html = _fetch_html(url)
         items: list[ScheduleItem] = []
 
-        for tbl in re.findall(r'<table[\s\S]*?</table>', html, re.I):
-            if not re.search(r'Leisure\s*Swim', tbl, re.I):
+        for tbl in re.findall(r"<table[\s\S]*?</table>", html, re.I):
+            if not re.search(r"Leisure\s*Swim", tbl, re.I):
                 continue
 
             headers = self._extract_headers(tbl)
@@ -40,7 +41,9 @@ class AuroraAquaticsParser(ScheduleParser):
 
     def _extract_headers(self, table: str) -> list[str]:
         """Extract column headers from table."""
-        header = re.search(r'<thead[\s\S]*?<tr[\s\S]*?>([\s\S]*?)</tr>[\s\S]*?</thead>', table, re.I)
+        header = re.search(
+            r"<thead[\s\S]*?<tr[\s\S]*?>([\s\S]*?)</tr>[\s\S]*?</thead>", table, re.I
+        )
         if header:
             return [html_to_text(h) for h in re.findall(RE_TABLE_CELL, header.group(1), re.I)]
 
@@ -55,17 +58,23 @@ class AuroraAquaticsParser(ScheduleParser):
         day_idx = leisure_idx = None
         for i, h in enumerate(headers):
             hl = h.lower()
-            if day_idx is None and 'day' in hl:
+            if day_idx is None and "day" in hl:
                 day_idx = i
-            if leisure_idx is None and 'leisure' in hl:
+            if leisure_idx is None and "leisure" in hl:
                 leisure_idx = i
         return day_idx, leisure_idx
 
-    def _parse_table_rows(self, table: str, day_idx: int, leisure_idx: int, url: str) -> list[ScheduleItem]:
+    def _parse_table_rows(
+        self, table: str, day_idx: int, leisure_idx: int, url: str
+    ) -> list[ScheduleItem]:
         """Parse table rows and create ScheduleItems."""
         items: list[ScheduleItem] = []
-        body = re.search(r'<tbody[\s\S]*?>([\s\S]*?)</tbody>', table, re.I)
-        rows = re.findall(RE_TABLE_ROW, body.group(1), re.I) if body else re.findall(RE_TABLE_ROW, table, re.I)
+        body = re.search(r"<tbody[\s\S]*?>([\s\S]*?)</tbody>", table, re.I)
+        rows = (
+            re.findall(RE_TABLE_ROW, body.group(1), re.I)
+            if body
+            else re.findall(RE_TABLE_ROW, table, re.I)
+        )
 
         for row in rows:
             cols = re.findall(RE_TABLE_CELL, row, re.I)
@@ -79,6 +88,10 @@ class AuroraAquaticsParser(ScheduleParser):
 
             for code in normalize_days(day_spec):
                 for st, en in extract_time_ranges(leisure_cell):
-                    items.append(_make_schedule_item_from_params(ScheduleItemParams(LEISURE_SWIM, [code], st, en, 'Aurora Pools', url)))
+                    items.append(
+                        _make_schedule_item_from_params(
+                            ScheduleItemParams(LEISURE_SWIM, [code], st, en, "Aurora Pools", url)
+                        )
+                    )
 
         return items

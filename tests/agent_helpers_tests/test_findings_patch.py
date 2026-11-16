@@ -16,10 +16,18 @@ class TestSummarizeFindings(TempDirMixin, unittest.TestCase):
 
     def test_groups_by_severity_with_unknown_bucket(self):
         path = self._findings(
-            [{"severity": "major"}, {"severity": "major"}, {"severity": "minor"}, {"other": 1}, "not-an-object"]
+            [
+                {"severity": "major"},
+                {"severity": "major"},
+                {"severity": "minor"},
+                {"other": 1},
+                "not-an-object",
+            ]
         )
         result = run_json(["summarize-findings", "--input", path])
-        self.assertEqual(result, {"total": 5, "by_severity": {"major": 2, "minor": 1, "unknown": 2}})
+        self.assertEqual(
+            result, {"total": 5, "by_severity": {"major": 2, "minor": 1, "unknown": 2}}
+        )
 
     def test_group_by_other_field_and_non_string_values(self):
         path = self._findings([{"n": 1}, {"n": 1}, {"n": None}])
@@ -39,7 +47,9 @@ class TestSummarizeFindings(TempDirMixin, unittest.TestCase):
 
     def test_csv_empty_findings_emits_header(self):
         """An empty findings list with --format csv must still write the header row."""
-        rc, out, _err = run_main(["summarize-findings", "--input", self._findings([]), "--format", "csv"])
+        rc, out, _err = run_main(
+            ["summarize-findings", "--input", self._findings([]), "--format", "csv"]
+        )
         self.assertEqual(rc, 0)
         self.assertEqual(out.strip(), "group,count")
 
@@ -97,7 +107,9 @@ class TestAnalyzePatch(TempDirMixin, unittest.TestCase):
         self.assertEqual(self._extract("all-list")["results"], ["alpha", "beta"])
 
     def test_dispatch_map_from_post_image(self):
-        self.assertEqual(self._extract("dispatch-map")["results"], {"a": "pkg.a:main", "b": "pkg.b:main"})
+        self.assertEqual(
+            self._extract("dispatch-map")["results"], {"a": "pkg.a:main", "b": "pkg.b:main"}
+        )
 
     def test_dispatch_map_keeps_non_literal_values_as_source(self):
         patch = "@@ -0,0 +1,1 @@\n+forward_map = {'x': some.func}\n"
@@ -114,7 +126,9 @@ class TestAnalyzePatch(TempDirMixin, unittest.TestCase):
         self.assertEqual(self._extract("added-functions", patch)["results"], [])
 
     def test_missing_patch_file_reports_error(self):
-        result = run_json(["analyze-patch", "--patch", self.tmpdir + "/nope.diff", "--extract", "imports"])
+        result = run_json(
+            ["analyze-patch", "--patch", self.tmpdir + "/nope.diff", "--extract", "imports"]
+        )
         self.assertEqual(result["results"], [])
         self.assertTrue(result["error"])
 

@@ -3,12 +3,11 @@
 from datetime import timedelta
 from pathlib import Path
 
-from core.date_utils import now_utc
-
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.widgets import DataTable, Footer
 
+from core.date_utils import now_utc
 from telemetry.blame import BlameEngine
 from telemetry.classify import ClassifyEngine
 from telemetry.models import AgentSummary, SessionEvent, Tip, ToolStats
@@ -26,11 +25,11 @@ from telemetry.tui._renderers import (
 from telemetry.tui._summary import SummaryConfig, compute_summary
 from telemetry.tui._widgets import (
     APP_CSS,
-    _DetailModal,
     FooterInfo,
     HeaderPanel,
     SessionPickerScreen,
     TipsPanel,
+    _DetailModal,
 )
 
 
@@ -82,9 +81,7 @@ class TelemetryTranscriptsApp(App):
         if self._session_id is None:
             self._session_id = self._transcript.get_current_session_id()
         if self._session_id:
-            self._session_file = self._transcript.find_session_file(
-                self._session_id
-            )
+            self._session_file = self._transcript.find_session_file(self._session_id)
 
         tools_tbl = self.query_one("#tools-table", DataTable)
         tools_tbl.cursor_type = "row"
@@ -92,9 +89,7 @@ class TelemetryTranscriptsApp(App):
 
         agents_tbl = self.query_one("#agents-table", DataTable)
         agents_tbl.cursor_type = "row"
-        agents_tbl.add_columns(
-            "Description", "Type", "Model", "Duration", "Tools", "Cost"
-        )
+        agents_tbl.add_columns("Description", "Type", "Model", "Duration", "Tools", "Cost")
 
         timeline = self.query_one("#timeline", DataTable)
         timeline.cursor_type = "row"
@@ -119,9 +114,7 @@ class TelemetryTranscriptsApp(App):
             return
 
         try:
-            events, agents = self._transcript.parse_session_with_agents(
-                self._session_file
-            )
+            events, agents = self._transcript.parse_session_with_agents(self._session_file)
         except Exception:
             return
 
@@ -131,11 +124,10 @@ class TelemetryTranscriptsApp(App):
         self._classify.classify(events)
         self._blame.attribute(events)
 
-        project_path = (
-            str(self._session_file.parent) if self._session_file else None
-        )
+        project_path = str(self._session_file.parent) if self._session_file else None
         summary = compute_summary(
-            events, agents,
+            events,
+            agents,
             SummaryConfig(self._session_id, project_path, cost_is_estimated=True),
         )
 
@@ -145,8 +137,10 @@ class TelemetryTranscriptsApp(App):
         self._tips_list = tips
         self._refresh_tips_table(tips)
         self.query_one("#footer-info", FooterInfo).update_info(
-            self._session_id, summary.total_events,
-            self._refresh, summary.cost_is_estimated,
+            self._session_id,
+            summary.total_events,
+            self._refresh,
+            summary.cost_is_estimated,
         )
 
         self._tool_stats_list = sorted(
@@ -156,9 +150,7 @@ class TelemetryTranscriptsApp(App):
 
         self._refresh_agents_table(agents)
 
-        tool_count = sum(
-            1 for e in events if e.event_type == "tool_use" and e.tool_name
-        )
+        tool_count = sum(1 for e in events if e.event_type == "tool_use" and e.tool_name)
         if tool_count != self._last_event_count:
             self._refresh_timeline(events)
             self._last_event_count = tool_count
@@ -179,8 +171,11 @@ class TelemetryTranscriptsApp(App):
             frac = stat.cost / max_cost if max_cost > 0 else 0.0
             avoid_str = str(stat.avoidable_count) if stat.avoidable_count else "—"
             tbl.add_row(
-                stat.tool_name, str(stat.count),
-                f"${stat.cost:.3f}", _bar(frac, 8), avoid_str,
+                stat.tool_name,
+                str(stat.count),
+                f"${stat.cost:.3f}",
+                _bar(frac, 8),
+                avoid_str,
             )
 
     def _refresh_agents_table(self, agents: list[AgentSummary]) -> None:
@@ -192,10 +187,12 @@ class TelemetryTranscriptsApp(App):
         tbl = self.query_one("#agents-table", DataTable)
         tbl.clear()
         for a in agents:
-            desc = (a.description[:25] if a.description else "—")
+            desc = a.description[:25] if a.description else "—"
             model_short = a.model.split("/")[-1] if a.model else "—"
             tbl.add_row(
-                desc, a.agent_type, model_short,
+                desc,
+                a.agent_type,
+                model_short,
                 f"{a.duration_ms / 1000:.1f}s",
                 str(a.total_tool_uses),
                 _format_cost(a.cost_usd, a.cost_is_estimated),
@@ -204,10 +201,7 @@ class TelemetryTranscriptsApp(App):
     def _refresh_timeline(self, events: list[SessionEvent]) -> None:
         timeline = self.query_one("#timeline", DataTable)
         timeline.clear()
-        tool_events = [
-            e for e in events
-            if e.event_type == "tool_use" and e.tool_name
-        ]
+        tool_events = [e for e in events if e.event_type == "tool_use" and e.tool_name]
         for evt in tool_events:
             ts = evt.timestamp.strftime("%H:%M:%S")
             cls = evt.classification or "neutral"
@@ -217,13 +211,16 @@ class TelemetryTranscriptsApp(App):
             cost_str = f"${evt.cost_usd:.4f}" if evt.cost_usd else ""
             tag = ""
             if evt.waste_reason:
-                tag = _WASTE_TAGS.get(
-                    evt.waste_reason, evt.waste_reason[:4].upper()
-                )
+                tag = _WASTE_TAGS.get(evt.waste_reason, evt.waste_reason[:4].upper())
             elif evt.success is False:
                 tag = "FAIL"
             timeline.add_row(
-                ts, sym, tool, desc, cost_str, tag,
+                ts,
+                sym,
+                tool,
+                desc,
+                cost_str,
+                tag,
                 key=str(evt.sequence),
             )
 
@@ -247,8 +244,11 @@ class TelemetryTranscriptsApp(App):
             sym = "✗" if tip.severity == "avoidable" else "⚠"
             source = tip.blame_target.name if tip.blame_target else "session"
             tbl.add_row(
-                sym, source[:20], tip.waste_reason,
-                str(tip.count), f"${tip.cost_impact:.2f}",
+                sym,
+                source[:20],
+                tip.waste_reason,
+                str(tip.count),
+                f"${tip.cost_impact:.2f}",
             )
 
     # ------------------------------------------------------------------
@@ -256,9 +256,7 @@ class TelemetryTranscriptsApp(App):
     # ------------------------------------------------------------------
 
     def _show_timeline_detail(self, row_idx: int) -> None:
-        tool_events = [
-            e for e in self._all_events if e.event_type == "tool_use" and e.tool_name
-        ]
+        tool_events = [e for e in self._all_events if e.event_type == "tool_use" and e.tool_name]
         if row_idx < len(tool_events):
             self.push_screen(_DetailModal("Event Detail", _tool_event_detail(tool_events[row_idx])))
 
@@ -306,9 +304,7 @@ class TelemetryTranscriptsApp(App):
         def on_dismiss(session_id: str | None) -> None:
             if session_id:
                 self._session_id = session_id
-                self._session_file = self._transcript.find_session_file(
-                    session_id
-                )
+                self._session_file = self._transcript.find_session_file(session_id)
                 self._last_event_count = 0  # force timeline repopulate
                 self._refresh_data()
 
@@ -322,6 +318,8 @@ def run_live(  # pragma: no cover - blocks on the Textual event loop
 ) -> None:
     """Run the interactive TUI dashboard."""
     app = TelemetryTranscriptsApp(
-        session_id=session_id, refresh=refresh, rules_path=rules_path,
+        session_id=session_id,
+        refresh=refresh,
+        rules_path=rules_path,
     )
     app.run()

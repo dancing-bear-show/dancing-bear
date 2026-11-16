@@ -1,4 +1,5 @@
 """Pipeline primitives for auth, backup, and cache config commands."""
+
 from __future__ import annotations
 
 import os
@@ -11,7 +12,6 @@ from core.pipeline import (
     RequestConsumer,
     SafeProcessor,
 )
-
 
 # -----------------------------------------------------------------------------
 # Auth pipeline
@@ -54,6 +54,7 @@ class AuthProcessor(SafeProcessor[AuthRequest, AuthResult]):
             return self._validate_gmail_token(token_path)
 
         from ..gmail_api import GmailClient
+
         client = GmailClient(credentials_path=creds_path, token_path=token_path)
         # The one entrypoint whose entire purpose is to (re-)consent, so it is
         # the only caller permitted to open a browser for a stale-scope token.
@@ -67,6 +68,7 @@ class AuthProcessor(SafeProcessor[AuthRequest, AuthResult]):
             from google.auth.transport.requests import Request
             from google.oauth2.credentials import Credentials
             from googleapiclient.discovery import build
+
             from ..gmail_api import SCOPES as GMAIL_SCOPES
         except Exception as e:
             raise ValueError(f"Gmail validation unavailable: {e}")
@@ -74,7 +76,7 @@ class AuthProcessor(SafeProcessor[AuthRequest, AuthResult]):
             raise ValueError(f"Token file not found: {token_path or '<unspecified>'}")
         try:
             creds = Credentials.from_authorized_user_file(token_path, scopes=GMAIL_SCOPES)
-            if creds and creds.expired and getattr(creds, 'refresh_token', None):
+            if creds and creds.expired and getattr(creds, "refresh_token", None):
                 creds.refresh(Request())
             svc = build("gmail", "v1", credentials=creds)
             _ = svc.users().getProfile(userId="me").execute()
@@ -121,12 +123,14 @@ class BackupProcessor(SafeProcessor[BackupRequest, BackupResult]):
     def _process_safe(self, payload: BackupRequest) -> BackupResult:
         import argparse
         from datetime import datetime
-        from ..utils.cli_helpers import gmail_provider_from_args
+
         from core.yamlio import dump_config
+
         from ..accounts.pipeline_auth import (
-            _build_label_id_to_name_map,
             _build_filter_dsl_entry,
+            _build_label_id_to_name_map,
         )
+        from ..utils.cli_helpers import gmail_provider_from_args
 
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         out_dir = Path(payload.out_dir) if payload.out_dir else Path("backups") / ts
@@ -145,8 +149,13 @@ class BackupProcessor(SafeProcessor[BackupRequest, BackupResult]):
         labels = client.list_labels()
         labels_doc = {
             "labels": [
-                {k: v for k, v in lab.items() if k in ("name", "color", "labelListVisibility", "messageListVisibility")}
-                for lab in labels if lab.get("type") != "system"
+                {
+                    k: v
+                    for k, v in lab.items()
+                    if k in ("name", "color", "labelListVisibility", "messageListVisibility")
+                }
+                for lab in labels
+                if lab.get("type") != "system"
             ],
             "redirects": [],
         }
@@ -211,8 +220,12 @@ class CacheStatsProcessor(SafeProcessor[CacheStatsRequest, CacheStatsResult]):
 
 
 class CacheStatsProducer(BaseProducer):
-    def _produce_success(self, payload: CacheStatsResult, diagnostics: dict[str, Any] | None) -> None:
-        self._writer.print(f"Cache: {payload.path} files={payload.files} size={payload.size_bytes} bytes")
+    def _produce_success(
+        self, payload: CacheStatsResult, diagnostics: dict[str, Any] | None
+    ) -> None:
+        self._writer.print(
+            f"Cache: {payload.path} files={payload.files} size={payload.size_bytes} bytes"
+        )
 
 
 # -----------------------------------------------------------------------------
@@ -251,7 +264,9 @@ class CacheClearProcessor(SafeProcessor[CacheClearRequest, CacheClearResult]):
 
 
 class CacheClearProducer(BaseProducer):
-    def _produce_success(self, payload: CacheClearResult, diagnostics: dict[str, Any] | None) -> None:
+    def _produce_success(
+        self, payload: CacheClearResult, diagnostics: dict[str, Any] | None
+    ) -> None:
         if payload.cleared:
             self._writer.print(f"Cleared cache: {payload.path}")
         else:
@@ -304,8 +319,12 @@ class CachePruneProcessor(SafeProcessor[CachePruneRequest, CachePruneResult]):
 
 
 class CachePruneProducer(BaseProducer):
-    def _produce_success(self, payload: CachePruneResult, diagnostics: dict[str, Any] | None) -> None:
-        self._writer.print(f"Pruned {payload.removed} files older than {payload.days} days from {payload.path}")
+    def _produce_success(
+        self, payload: CachePruneResult, diagnostics: dict[str, Any] | None
+    ) -> None:
+        self._writer.print(
+            f"Pruned {payload.removed} files older than {payload.days} days from {payload.path}"
+        )
 
 
 # -----------------------------------------------------------------------------
@@ -344,6 +363,7 @@ ConfigInspectRequestConsumer = RequestConsumer[ConfigInspectRequest]
 class ConfigInspectProcessor(SafeProcessor[ConfigInspectRequest, ConfigInspectResult]):
     def _process_safe(self, payload: ConfigInspectRequest) -> ConfigInspectResult:
         import configparser
+
         from ..utils.shield import mask_value as _mask_value
 
         ini = Path(os.path.expanduser(payload.path))
@@ -362,16 +382,20 @@ class ConfigInspectProcessor(SafeProcessor[ConfigInspectRequest, ConfigInspectRe
 
         result_sections = []
         for s in sections:
-            result_sections.append(ConfigSection(
-                name=s,
-                items=[(k, _mask_value(k, v)) for k, v in cp.items(s)],
-            ))
+            result_sections.append(
+                ConfigSection(
+                    name=s,
+                    items=[(k, _mask_value(k, v)) for k, v in cp.items(s)],
+                )
+            )
 
         return ConfigInspectResult(sections=result_sections)
 
 
 class ConfigInspectProducer(BaseProducer):
-    def _produce_success(self, payload: ConfigInspectResult, diagnostics: dict[str, Any] | None) -> None:
+    def _produce_success(
+        self, payload: ConfigInspectResult, diagnostics: dict[str, Any] | None
+    ) -> None:
         for section in payload.sections:
             self._writer.print(f"[{section.name}]")
             for k, v in section.items:

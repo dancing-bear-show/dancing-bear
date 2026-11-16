@@ -6,6 +6,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.workflow_tests.helpers.factories import (
+    make_stage_result,
+    make_workflow_manifest,
+)
 from workflow.dispatch import WORKSPACE_ROOT_PREFIXES
 from workflow.models import StageStatus
 from workflow.persistence import (
@@ -15,11 +19,6 @@ from workflow.persistence import (
     read_stage_result,
     write_manifest,
     write_stage_result,
-)
-
-from tests.workflow_tests.helpers.factories import (
-    make_stage_result,
-    make_workflow_manifest,
 )
 
 # ---------------------------------------------------------------------------
@@ -46,7 +45,9 @@ class TestInitWorkspace(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             workspace = init_workspace("my-workflow", "run-001", base_dir=tmp_dir)
             for subdir in _SUBDIRS:
-                self.assertTrue((workspace / subdir).is_dir(), f"Expected subdir '{subdir}' to exist")
+                self.assertTrue(
+                    (workspace / subdir).is_dir(), f"Expected subdir '{subdir}' to exist"
+                )
 
     def test_init_workspace_returns_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

@@ -3,6 +3,7 @@
 Ported from Click to CLIApp. All business logic is unchanged; only the CLI
 wiring is replaced.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -50,6 +51,7 @@ assistant = BaseAssistant(META.app_id, META.agentic_fallback)
 @lru_cache(maxsize=1)
 def _lazy_agentic():
     from telemetry import agentic as _agentic
+
     return _agentic.emit_agentic_context
 
 
@@ -80,7 +82,13 @@ def cmd_live(args: argparse.Namespace) -> int:
 @app.argument("--rules", dest="rules_path", default=None, help="Path to custom rules YAML.")
 def cmd_stats(args: argparse.Namespace) -> int:
     from telemetry.tui._stats import run_stats
-    run_stats(session_id=args.session, refresh=args.refresh, compact=args.compact, rules_path=args.rules_path)
+
+    run_stats(
+        session_id=args.session,
+        refresh=args.refresh,
+        compact=args.compact,
+        rules_path=args.rules_path,
+    )
     return 0
 
 
@@ -89,6 +97,7 @@ def cmd_stats(args: argparse.Namespace) -> int:
 @app.argument("--rules", dest="rules_path", default=None, help="Path to custom rules YAML.")
 def cmd_summary(args: argparse.Namespace) -> int:
     from telemetry.tui._stats import print_summary
+
     print_summary(session_id=args.session, rules_path=args.rules_path)
     return 0
 
@@ -128,11 +137,19 @@ def cmd_history(args: argparse.Namespace) -> int:  # NOSONAR S3516
     return 0
 
 
-@app.command("sessions", help="List sessions with cost and token breakdown, parsed from JSONL transcripts.")
+@app.command(
+    "sessions", help="List sessions with cost and token breakdown, parsed from JSONL transcripts."
+)
 @app.argument("--since", default="7d", help="Time window (e.g. 2d, 7d, 24h).")
-@app.argument("--format", dest="fmt", default="table", choices=["table", "json"], help="Output format.")
+@app.argument(
+    "--format", dest="fmt", default="table", choices=["table", "json"], help="Output format."
+)
 @app.argument("--limit", type=int, default=0, help="Show only top N sessions by cost (0 = all).")
-@app.argument("--errors-only", action="store_true", help="Show only sessions that spawned at least one subagent.")
+@app.argument(
+    "--errors-only",
+    action="store_true",
+    help="Show only sessions that spawned at least one subagent.",
+)
 @app.argument("--projects-dir", default=None, help="Override ~/.claude/projects directory.")
 def cmd_sessions(args: argparse.Namespace) -> int:  # NOSONAR S3516
     from telemetry.providers.transcript import TranscriptProvider
@@ -147,7 +164,7 @@ def cmd_sessions(args: argparse.Namespace) -> int:  # NOSONAR S3516
         all_sessions = [s for s in all_sessions if s.agents]
     all_sessions.sort(key=lambda s: s.total_cost, reverse=True)
     if args.limit > 0:
-        all_sessions = all_sessions[:args.limit]
+        all_sessions = all_sessions[: args.limit]
 
     if args.fmt == "json":
         emit_one(_sessions_json_payload(all_sessions), fmt="json")
@@ -183,10 +200,12 @@ def _run_agents(request: AgentQueryRequest, fmt: str) -> None:
     all_rows = provider.aggregate_agents(since=since_dt)
 
     if request.model:
-        all_rows = [r for r in all_rows if any(request.model.lower() in m.lower() for m in r.models)]
+        all_rows = [
+            r for r in all_rows if any(request.model.lower() in m.lower() for m in r.models)
+        ]
 
     all_rows.sort(key=_AGENT_SORT_KEYS[request.sort], reverse=True)
-    rows = all_rows[:request.limit] if request.limit > 0 else all_rows
+    rows = all_rows[: request.limit] if request.limit > 0 else all_rows
 
     if fmt == "json":
         _print_agents_json(all_rows, rows, request.since)
@@ -205,11 +224,18 @@ def _run_agents(request: AgentQueryRequest, fmt: str) -> None:
 
 @app.command("agents", help="Per-agent token and cost breakdown.")
 @app.argument("--since", default="7d", help="Time window (e.g. 2d, 7d, 24h).")
-@app.argument("--format", dest="fmt", default="table", choices=["table", "json", "csv"], help="Output format.")
-@app.argument("--limit", type=int, default=0, help="Show only top N agents (0 = all).")
-@app.argument("--model", default=None, help="Filter to agents that used this model (substring match).")
 @app.argument(
-    "--sort", default="cost", choices=list(_AGENT_SORT_KEYS), help="Sort column.",
+    "--format", dest="fmt", default="table", choices=["table", "json", "csv"], help="Output format."
+)
+@app.argument("--limit", type=int, default=0, help="Show only top N agents (0 = all).")
+@app.argument(
+    "--model", default=None, help="Filter to agents that used this model (substring match)."
+)
+@app.argument(
+    "--sort",
+    default="cost",
+    choices=list(_AGENT_SORT_KEYS),
+    help="Sort column.",
 )
 @app.argument("--projects-dir", default=None, help="Override ~/.claude/projects directory.")
 def cmd_agents(args: argparse.Namespace) -> int:
@@ -289,10 +315,7 @@ def _add_rule_row(table: Table, category: str, rule_name: str, cfg: dict) -> Non
     """Add one rule's row to the rules table."""
     enabled = cfg.get("enabled", True)
     enabled_str = "[green]yes[/]" if enabled else "[dim]no[/]"
-    config_items = {
-        k: v for k, v in cfg.items()
-        if k != "enabled" and not isinstance(v, list)
-    }
+    config_items = {k: v for k, v in cfg.items() if k != "enabled" and not isinstance(v, list)}
     config_str = "  ".join(f"{k}={v}" for k, v in config_items.items())
     table.add_row(rule_name, category, enabled_str, config_str or "—")
 
@@ -326,8 +349,15 @@ def _rules_list() -> None:
 
 
 @app.command("rules", help="Manage telemetry classification rules.")
-@app.argument("--init", dest="do_init", action="store_true", help="Scaffold ~/.telemetry-transcripts/rules.yaml.")
-@app.argument("--validate", dest="do_validate", action="store_true", help="Validate rules and report errors.")
+@app.argument(
+    "--init",
+    dest="do_init",
+    action="store_true",
+    help="Scaffold ~/.telemetry-transcripts/rules.yaml.",
+)
+@app.argument(
+    "--validate", dest="do_validate", action="store_true", help="Validate rules and report errors."
+)
 @app.argument("--explain", default=None, metavar="NAME", help="Show config + fix hint for a rule.")
 def cmd_rules(args: argparse.Namespace) -> int:
     config_path = Path.home() / ".telemetry-transcripts" / "rules.yaml"
@@ -345,8 +375,16 @@ def cmd_rules(args: argparse.Namespace) -> int:
 
 @app.command("cost-breakdown", help="Per-agent or per-day cost breakdown.", aliases=["cost"])
 @app.argument("--since", default="7d", help="Time window (e.g. 2d, 7d, 24h).")
-@app.argument("--format", dest="fmt", default="table", choices=["table", "json", "csv"], help="Output format.")
-@app.argument("--group-by", dest="group_by", default="agent", choices=["agent", "day"], help="Group by agent or day.")
+@app.argument(
+    "--format", dest="fmt", default="table", choices=["table", "json", "csv"], help="Output format."
+)
+@app.argument(
+    "--group-by",
+    dest="group_by",
+    default="agent",
+    choices=["agent", "day"],
+    help="Group by agent or day.",
+)
 @app.argument("--limit", type=int, default=0, help="Top N entries (0 = all).")
 @app.argument("--projects-dir", default=None, help="Override ~/.claude/projects directory.")
 def cmd_cost_breakdown(args: argparse.Namespace) -> int:  # NOSONAR S3516
@@ -363,7 +401,7 @@ def cmd_cost_breakdown(args: argparse.Namespace) -> int:  # NOSONAR S3516
         rows = _breakdown_by_day(provider.get_sessions(since=since_dt))
 
     if args.limit > 0:
-        rows = rows[:args.limit]
+        rows = rows[: args.limit]
 
     if args.fmt == "json":
         emit_one({"group_by": args.group_by, "since": args.since, "rows": rows}, fmt="json")
@@ -384,9 +422,20 @@ def cmd_cost_breakdown(args: argparse.Namespace) -> int:  # NOSONAR S3516
 @app.command("parse-transcripts", help="Pre-parse JSONL transcripts into a structured JSON index.")
 @app.argument("--since", default="all", help="Time window to process (e.g. 7d, 30d, all).")
 @app.argument("--projects-dir", default=None, help="Override ~/.claude/projects.")
-@app.argument("--index-dir", default=None, help="Override default index dir (~/.config/dancing-bear/work/prompt-index/).")
-@app.argument("--force", action="store_true", default=False, help="Reprocess all files, ignoring high-water marks.")
-@app.argument("--format", dest="fmt", default="table", choices=["json", "table"], help="Output format.")
+@app.argument(
+    "--index-dir",
+    default=None,
+    help="Override default index dir (~/.config/dancing-bear/work/prompt-index/).",
+)
+@app.argument(
+    "--force",
+    action="store_true",
+    default=False,
+    help="Reprocess all files, ignoring high-water marks.",
+)
+@app.argument(
+    "--format", dest="fmt", default="table", choices=["json", "table"], help="Output format."
+)
 @app.argument("--limit", type=int, default=0, help="Process at most N sessions (0 = all).")
 def cmd_parse_transcripts(args: argparse.Namespace) -> int:
     from telemetry.parse_transcripts import (
@@ -414,6 +463,7 @@ def cmd_parse_transcripts(args: argparse.Namespace) -> int:
 def cmd_otel_stub(args: argparse.Namespace) -> int:  # pragma: no cover
     # Never reached — otel is intercepted in main() before parse_args
     from telemetry.otel.cli import main as otel_main
+
     return otel_main([])
 
 
@@ -465,6 +515,7 @@ def main(argv: list[str] | None = None) -> int:
     probe = raw_argv[1:] if raw_argv and raw_argv[0] == "--" else raw_argv
     if probe and probe[0] == "otel":
         from telemetry.otel.cli import main as otel_main
+
         return otel_main(probe[1:])
 
     # Pass RAW argv, not `probe`. run_with_assistant normalizes internally, and

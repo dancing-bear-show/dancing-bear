@@ -77,7 +77,6 @@ class TestStripCssBoilerplate(unittest.TestCase):
         self.assertEqual(strip_css_boilerplate(body), body)
 
 
-
 class TestSlugify(unittest.TestCase):
     def test_lowercases_and_joins_with_underscore(self):
         self.assertEqual(slugify("Run It, Do Not Just Read It"), "run_it_do_not_just_read_it")
@@ -94,6 +93,7 @@ class TestSlugify(unittest.TestCase):
     def test_no_alphanumerics_returns_empty(self):
         self.assertEqual(slugify("!!! ---"), "")
         self.assertEqual(slugify(""), "")
+
 
 if __name__ == "__main__":
     unittest.main()

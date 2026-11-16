@@ -54,7 +54,9 @@ class TestPruneMain(unittest.TestCase):
         with patch("telemetry.otel.cli.prune.OTLPDataDir.from_env"):
             with patch("telemetry.otel.cli.prune.OTLPReader", return_value=mock_reader):
                 with patch("telemetry.otel.cli.prune.load_retention_config"):
-                    with patch("telemetry.otel.cli.prune.TelemetryPruner", return_value=mock_pruner):
+                    with patch(
+                        "telemetry.otel.cli.prune.TelemetryPruner", return_value=mock_pruner
+                    ):
                         buf = io.StringIO()
                         with patch("sys.stdout", buf):
                             result = main(argv)
@@ -115,12 +117,15 @@ class TestPruneMain(unittest.TestCase):
         with patch("telemetry.otel.cli.prune.OTLPDataDir.from_env"):
             with patch("telemetry.otel.cli.prune.OTLPReader", return_value=mock_reader):
                 with patch("telemetry.otel.cli.prune.load_retention_config"):
-                    with patch("telemetry.otel.cli.prune.TelemetryPruner", return_value=mock_pruner):
+                    with patch(
+                        "telemetry.otel.cli.prune.TelemetryPruner", return_value=mock_pruner
+                    ):
                         result = main([])
         self.assertEqual(result, 2)
 
     def test_data_dir_flag(self):
         import tempfile
+
         mock_reader = MagicMock()
         mock_pruner = MagicMock()
         mock_pruner.prune_all.return_value = [_make_prune_result()]
@@ -128,7 +133,9 @@ class TestPruneMain(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             with patch("telemetry.otel.cli.prune.OTLPReader", return_value=mock_reader):
                 with patch("telemetry.otel.cli.prune.load_retention_config"):
-                    with patch("telemetry.otel.cli.prune.TelemetryPruner", return_value=mock_pruner):
+                    with patch(
+                        "telemetry.otel.cli.prune.TelemetryPruner", return_value=mock_pruner
+                    ):
                         result = main(["--data-dir", td])
         self.assertEqual(result, 0)
 

@@ -57,12 +57,7 @@ class TestFlowchartBuilderDirection(unittest.TestCase):
 
 class TestFlowchartBuilderStyleMethod(unittest.TestCase):
     def test_style_appended_to_output(self):
-        out = (
-            FlowchartBuilder()
-            .node("A", "Start")
-            .style("A", "fill:#f9f,stroke:#333")
-            .render()
-        )
+        out = FlowchartBuilder().node("A", "Start").style("A", "fill:#f9f,stroke:#333").render()
         self.assertIn("style A fill:#f9f,stroke:#333", out)
 
     def test_multiple_styles(self):
@@ -99,12 +94,7 @@ class TestFlowchartBuilderNodeLabel(unittest.TestCase):
 
 class TestSequenceDiagramBuilderWithTitle(unittest.TestCase):
     def test_with_title_adds_frontmatter(self):
-        out = (
-            SequenceDiagramBuilder()
-            .with_title("Auth Flow")
-            .participant("A", "Alice")
-            .render()
-        )
+        out = SequenceDiagramBuilder().with_title("Auth Flow").participant("A", "Alice").render()
         self.assertIn("---", out)
         self.assertIn("title: Auth Flow", out)
 
@@ -252,11 +242,7 @@ class TestFlowchartBuilderSubgraph(unittest.TestCase):
 
     def test_subgraph_with_raw_body_string_renders_verbatim(self):
         """Legacy raw body string is emitted verbatim inside the subgraph block."""
-        out = (
-            FlowchartBuilder()
-            .subgraph("sg2", "Legacy Group", body="    A[Custom]")
-            .render()
-        )
+        out = FlowchartBuilder().subgraph("sg2", "Legacy Group", body="    A[Custom]").render()
         self.assertIn('subgraph sg2["Legacy Group"]', out)
         # Raw body line must appear verbatim inside the subgraph block
         self.assertIn("    A[Custom]", out)

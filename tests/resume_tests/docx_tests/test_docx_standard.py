@@ -5,10 +5,9 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock, patch
 
+from resume.schema import Resume
 from tests.resume_tests.docx_tests.fixtures import make_mock_doc as _make_mock_doc
 from tests.resume_tests.fixtures import mock_docx_modules
-
-from resume.schema import Resume
 
 
 @mock_docx_modules
@@ -18,6 +17,7 @@ class TestStandardResumeWriterInit(unittest.TestCase):
     def test_creates_writer_with_data_and_template(self):
         """Writer requires a typed Resume; the caller lifts. No self.data mirror."""
         from resume.docx_standard import StandardResumeWriter
+
         data = {"name": "John Doe"}
         template = {"sections": [], "page": {"compact": False}}
         writer = StandardResumeWriter(Resume.from_dict(data), template)
@@ -28,6 +28,7 @@ class TestStandardResumeWriterInit(unittest.TestCase):
 
     def test_empty_page_cfg(self):
         from resume.docx_standard import StandardResumeWriter
+
         data = {"name": "Jane"}
         template = {"sections": []}
         writer = StandardResumeWriter(Resume.from_dict(data), template)
@@ -40,19 +41,31 @@ class TestSectionRenderers(unittest.TestCase):
 
     def test_section_renderers_registry(self):
         from resume.docx_standard import SECTION_RENDERERS
+
         expected = {
-            "summary", "skills", "technologies", "interests",
-            "presentations", "projects", "languages", "coursework",
-            "certifications", "experience", "education", "teaching",
+            "summary",
+            "skills",
+            "technologies",
+            "interests",
+            "presentations",
+            "projects",
+            "languages",
+            "coursework",
+            "certifications",
+            "experience",
+            "education",
+            "teaching",
         }
         self.assertEqual(set(SECTION_RENDERERS.keys()), expected)
 
     def test_sections_with_keywords_is_subset(self):
         from resume.docx_standard import SECTION_RENDERERS, SECTIONS_WITH_KEYWORDS
+
         self.assertTrue(SECTIONS_WITH_KEYWORDS.issubset(set(SECTION_RENDERERS.keys())))
 
     def test_sections_with_keywords_contains_expected(self):
         from resume.docx_standard import SECTIONS_WITH_KEYWORDS
+
         self.assertIn("summary", SECTIONS_WITH_KEYWORDS)
         self.assertIn("experience", SECTIONS_WITH_KEYWORDS)
 
@@ -63,6 +76,7 @@ class TestResolveSections(unittest.TestCase):
 
     def _make_writer(self, sections):
         from resume.docx_standard import StandardResumeWriter
+
         return StandardResumeWriter(Resume(), {"sections": sections})
 
     def test_returns_sections_from_template(self):
@@ -78,6 +92,7 @@ class TestResolveSections(unittest.TestCase):
 
     def test_returns_empty_when_template_missing_sections(self):
         from resume.docx_standard import StandardResumeWriter
+
         writer = StandardResumeWriter(Resume(), {})
         result = writer._resolve_sections()
         self.assertEqual(result, [])
@@ -89,6 +104,7 @@ class TestRenderDocumentHeader(unittest.TestCase):
 
     def _make_writer(self, data, template=None):
         from resume.docx_standard import StandardResumeWriter
+
         writer = StandardResumeWriter(Resume.from_dict(data), template or {})
         writer.doc = _make_mock_doc()
         return writer
@@ -152,6 +168,7 @@ class TestRenderSectionHeading(unittest.TestCase):
 
     def _make_writer(self, page_cfg=None):
         from resume.docx_standard import StandardResumeWriter
+
         writer = StandardResumeWriter(Resume(), {"page": page_cfg or {}})
         writer.doc = _make_mock_doc()
         return writer
@@ -179,6 +196,7 @@ class TestRenderContent(unittest.TestCase):
 
     def _make_writer_with_doc(self, data, sections, page_cfg=None):
         from resume.docx_standard import StandardResumeWriter
+
         template = {"sections": sections, "page": page_cfg or {}}
         writer = StandardResumeWriter(Resume.from_dict(data), template)
         writer.doc = _make_mock_doc()

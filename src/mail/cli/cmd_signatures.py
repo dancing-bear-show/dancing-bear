@@ -1,4 +1,5 @@
 """Signatures command group registration for Mail Assistant CLI."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -24,23 +25,38 @@ def register_signatures_commands(app: CLIApp) -> object:
     """Register all signatures subcommands on app and return the signatures group."""
     from ..signatures.commands import (
         run_signatures_export,
-        run_signatures_sync,
         run_signatures_normalize,
+        run_signatures_sync,
     )
 
     # (subcommand, help, handler, extra args appended after the shared auth pair)
     specs: list[tuple[str, str, Any, list[ArgSpec]]] = [
-        ("export", "Export Gmail signatures to files", run_signatures_export, [
-            (("--out-dir",), {"required": True, "help": HELP_OUT_DIR}),
-        ]),
-        ("sync", "Sync signatures from files to Gmail", run_signatures_sync, [
-            (("--in-dir",), {"required": True, "help": "Input directory with signatures"}),
-            (("--dry-run",), {"action": "store_true", "help": "Preview changes"}),
-        ]),
-        ("normalize", "Normalize signature HTML", run_signatures_normalize, [
-            (("--input",), {"required": True, "help": "Input HTML file"}),
-            (("--output",), {"required": True, "help": "Output HTML file"}),
-        ]),
+        (
+            "export",
+            "Export Gmail signatures to files",
+            run_signatures_export,
+            [
+                (("--out-dir",), {"required": True, "help": HELP_OUT_DIR}),
+            ],
+        ),
+        (
+            "sync",
+            "Sync signatures from files to Gmail",
+            run_signatures_sync,
+            [
+                (("--in-dir",), {"required": True, "help": "Input directory with signatures"}),
+                (("--dry-run",), {"action": "store_true", "help": "Preview changes"}),
+            ],
+        ),
+        (
+            "normalize",
+            "Normalize signature HTML",
+            run_signatures_normalize,
+            [
+                (("--input",), {"required": True, "help": "Input HTML file"}),
+                (("--output",), {"required": True, "help": "Output HTML file"}),
+            ],
+        ),
     ]
 
     signatures_group = app.group("signatures", help="Gmail signatures operations")

@@ -1,4 +1,5 @@
 """Plan (dry-run preview) processor for Outlook rules pipelines."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -9,35 +10,39 @@ from core.pipeline import Processor, ResultEnvelope
 from .consumers import OutlookRulesPlanPayload
 from .processors_rules_helpers import (
     RuleContext,
-    _criteria_key,
-    _fetch_rules_with_resilience,
+    _build_plan_action,
     _build_rule_criteria,
     _create_rule_key,
-    _build_plan_action,
+    _criteria_key,
+    _fetch_rules_with_resilience,
     _format_plan_action,
     _has_explicit_destination,
 )
 from .processors_rules_index import (
-    _index_live_rules,
     _build_reconcile_index,
     _build_unmappable_criteria_index,
+    _index_live_rules,
 )
 
 
 @dataclass
 class OutlookRulesPlanResult:
     """Result of rules plan."""
+
     would_create: int = 0
     would_reconcile: int = 0
     plan_items: list[str] = field(default_factory=list)
 
 
-class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelope[OutlookRulesPlanResult]]):
+class OutlookRulesPlanProcessor(
+    Processor[OutlookRulesPlanPayload, ResultEnvelope[OutlookRulesPlanResult]]
+):
     """Plan Outlook inbox rules sync (dry-run)."""
 
     def process(self, payload: OutlookRulesPlanPayload) -> ResultEnvelope[OutlookRulesPlanResult]:
         try:
             from core.yamlio import load_config
+
             from ..dsl import normalize_filters_for_outlook
 
             client = payload.client
@@ -93,8 +98,12 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
             folder_map = client.get_folder_path_map() if need_folders else {}
 
             plan_items, would_reconcile = self._build_plan_items(
-                desired, existing_map, name_to_id, folder_map,
-                payload.move_to_folders, payload.reconcile,
+                desired,
+                existing_map,
+                name_to_id,
+                folder_map,
+                payload.move_to_folders,
+                payload.reconcile,
                 # Read-only client, for non-mutating folder lookups only. Without
                 # it plan falls back to the folder path string on a cache miss
                 # while sync resolves the real Graph id, so the two key the same
@@ -167,8 +176,7 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
                 live_id = live_rule.get("id", "<unknown>")
                 disp = _format_plan_action(action, folder_map)
                 return (
-                    f"Would reconcile: delete rule id={live_id} "
-                    f"criteria={criteria} action={disp}",
+                    f"Would reconcile: delete rule id={live_id} criteria={criteria} action={disp}",
                     True,
                 )
 
@@ -211,7 +219,12 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
 
         for spec in desired:
             item = self._plan_item_for_spec(
-                spec, existing_map, ctx, folder_map, reconcile_index, unmappable_index,
+                spec,
+                existing_map,
+                ctx,
+                folder_map,
+                reconcile_index,
+                unmappable_index,
             )
             if item is None:
                 continue

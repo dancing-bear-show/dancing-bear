@@ -2,10 +2,8 @@
 
 import unittest
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from telemetry.otel.models import OTLPAttribute, OTLPEvent, OTLPEventsRecord, OTLPResource, OTLPValue
-from telemetry.otel.cost_models import SessionPerf
 from telemetry.otel.analytics.perf import (
     _build_session_perf_objects,
     _calc_p95,
@@ -19,34 +17,51 @@ from telemetry.otel.analytics.perf import (
     _process_user_prompt,
     get_session_id,
 )
-
+from telemetry.otel.cost_models import SessionPerf
+from telemetry.otel.models import (
+    OTLPAttribute,
+    OTLPEvent,
+    OTLPEventsRecord,
+    OTLPResource,
+    OTLPValue,
+)
 
 # ---------------------------------------------------------------------------
 # Fixture helpers
 # ---------------------------------------------------------------------------
 
-def _attr(key: str, string_value: str | None = None, int_value: int | None = None,
-          double_value: float | None = None, bool_value: bool | None = None) -> OTLPAttribute:
+
+def _attr(
+    key: str,
+    string_value: str | None = None,
+    int_value: int | None = None,
+    double_value: float | None = None,
+    bool_value: bool | None = None,
+) -> OTLPAttribute:
     """Build a real OTLPAttribute with a typed value."""
-    return OTLPAttribute(key=key, value=OTLPValue(
-        string_value=string_value,
-        int_value=int_value,
-        double_value=double_value,
-        bool_value=bool_value,
-    ))
+    return OTLPAttribute(
+        key=key,
+        value=OTLPValue(
+            string_value=string_value,
+            int_value=int_value,
+            double_value=double_value,
+            bool_value=bool_value,
+        ),
+    )
 
 
 # Unix nano for a known UTC moment: 2026-01-01 00:00:00 UTC
 _TS_2026_NANO = 1_767_225_600_000_000_000
-_TS_2026 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+_TS_2026 = datetime(2026, 1, 1, tzinfo=UTC)
 
 # A slightly earlier timestamp for cutoff tests
 _TS_2025_NANO = 1_735_689_600_000_000_000  # 2025-01-01 00:00:00 UTC
-_TS_2025 = datetime(2025, 1, 1, tzinfo=timezone.utc)
+_TS_2025 = datetime(2025, 1, 1, tzinfo=UTC)
 
 
-def _make_event(body: str, attrs: list[OTLPAttribute] | None = None,
-                time_nano: int = _TS_2026_NANO) -> OTLPEvent:
+def _make_event(
+    body: str, attrs: list[OTLPAttribute] | None = None, time_nano: int = _TS_2026_NANO
+) -> OTLPEvent:
     """Build a real OTLPEvent with the given body and attributes."""
     return OTLPEvent(
         time_unix_nano=time_nano,
@@ -77,8 +92,8 @@ def _fresh_acc() -> dict:
 # _parse_token_attribute
 # ---------------------------------------------------------------------------
 
-class TestParseTokenAttribute(unittest.TestCase):
 
+class TestParseTokenAttribute(unittest.TestCase):
     def _event_dict(self) -> dict:
         return {
             "input_tokens": 0,
@@ -137,13 +152,16 @@ class TestParseTokenAttribute(unittest.TestCase):
 # _process_api_request
 # ---------------------------------------------------------------------------
 
-class TestProcessApiRequest(unittest.TestCase):
 
-    def _make_api_event(self, model: str = "claude-sonnet-4-6",
-                        duration_ms: float | None = 250.0,
-                        terminal: str | None = None,
-                        input_tokens: int = 10,
-                        output_tokens: int = 5) -> OTLPEvent:
+class TestProcessApiRequest(unittest.TestCase):
+    def _make_api_event(
+        self,
+        model: str = "claude-sonnet-4-6",
+        duration_ms: float | None = 250.0,
+        terminal: str | None = None,
+        input_tokens: int = 10,
+        output_tokens: int = 5,
+    ) -> OTLPEvent:
         attrs = [
             _attr("model", string_value=model),
             _attr("input_tokens", string_value=str(input_tokens)),
@@ -252,8 +270,8 @@ class TestProcessApiRequest(unittest.TestCase):
 # _process_api_error
 # ---------------------------------------------------------------------------
 
-class TestProcessApiError(unittest.TestCase):
 
+class TestProcessApiError(unittest.TestCase):
     def _make_error_event(self, status_code: str | None = "429") -> OTLPEvent:
         attrs = []
         if status_code is not None:
@@ -294,10 +312,11 @@ class TestProcessApiError(unittest.TestCase):
 # _process_tool_result
 # ---------------------------------------------------------------------------
 
-class TestProcessToolResult(unittest.TestCase):
 
-    def _make_tool_event(self, tool_name: str | None = "Bash",
-                         success: str | bool | None = "true") -> OTLPEvent:
+class TestProcessToolResult(unittest.TestCase):
+    def _make_tool_event(
+        self, tool_name: str | None = "Bash", success: str | bool | None = "true"
+    ) -> OTLPEvent:
         attrs = []
         if tool_name is not None:
             attrs.append(_attr("tool_name", string_value=tool_name))
@@ -362,14 +381,21 @@ class TestProcessToolResult(unittest.TestCase):
 # _new_perf_accumulator
 # ---------------------------------------------------------------------------
 
-class TestNewPerfAccumulator(unittest.TestCase):
 
+class TestNewPerfAccumulator(unittest.TestCase):
     def test_returns_dict_with_all_expected_keys(self):
         acc = _new_perf_accumulator()
         expected_keys = {
-            "error_count", "error_status_codes", "tool_calls",
-            "tool_failures", "api_latencies", "prompt_count",
-            "api_calls", "model_mix", "terminal_type", "tool_usage",
+            "error_count",
+            "error_status_codes",
+            "tool_calls",
+            "tool_failures",
+            "api_latencies",
+            "prompt_count",
+            "api_calls",
+            "model_mix",
+            "terminal_type",
+            "tool_usage",
         }
         self.assertEqual(set(acc.keys()), expected_keys)
 
@@ -406,19 +432,25 @@ class TestNewPerfAccumulator(unittest.TestCase):
 # get_session_id
 # ---------------------------------------------------------------------------
 
-class TestGetSessionId(unittest.TestCase):
 
+class TestGetSessionId(unittest.TestCase):
     def test_session_dot_id_preferred(self):
-        event = _make_event("body", [
-            _attr("session.id", string_value="dotid-123"),
-            _attr("session_id", string_value="underscoreid-456"),
-        ])
+        event = _make_event(
+            "body",
+            [
+                _attr("session.id", string_value="dotid-123"),
+                _attr("session_id", string_value="underscoreid-456"),
+            ],
+        )
         self.assertEqual(get_session_id(event), "dotid-123")
 
     def test_falls_back_to_session_id_when_dot_absent(self):
-        event = _make_event("body", [
-            _attr("session_id", string_value="underscoreid-456"),
-        ])
+        event = _make_event(
+            "body",
+            [
+                _attr("session_id", string_value="underscoreid-456"),
+            ],
+        )
         self.assertEqual(get_session_id(event), "underscoreid-456")
 
     def test_falls_back_to_unknown_when_both_absent(self):
@@ -426,10 +458,13 @@ class TestGetSessionId(unittest.TestCase):
         self.assertEqual(get_session_id(event), "unknown")
 
     def test_falls_back_to_unknown_when_both_empty(self):
-        event = _make_event("body", [
-            _attr("session.id", string_value=""),
-            _attr("session_id", string_value=""),
-        ])
+        event = _make_event(
+            "body",
+            [
+                _attr("session.id", string_value=""),
+                _attr("session_id", string_value=""),
+            ],
+        )
         self.assertEqual(get_session_id(event), "unknown")
 
 
@@ -437,8 +472,8 @@ class TestGetSessionId(unittest.TestCase):
 # _process_user_prompt
 # ---------------------------------------------------------------------------
 
-class TestProcessUserPrompt(unittest.TestCase):
 
+class TestProcessUserPrompt(unittest.TestCase):
     def test_prompt_count_incremented(self):
         acc = _fresh_acc()
         _process_user_prompt(acc)
@@ -456,12 +491,15 @@ class TestProcessUserPrompt(unittest.TestCase):
 # _dispatch_event / _EVENT_DISPATCH
 # ---------------------------------------------------------------------------
 
-class TestDispatchEvent(unittest.TestCase):
 
+class TestDispatchEvent(unittest.TestCase):
     def test_dispatches_api_request(self):
-        event = _make_event("claude_code.api_request", [
-            _attr("model", string_value="claude-sonnet-4-6"),
-        ])
+        event = _make_event(
+            "claude_code.api_request",
+            [
+                _attr("model", string_value="claude-sonnet-4-6"),
+            ],
+        )
         acc = _fresh_acc()
         reqs: list[dict] = []
         _dispatch_event(event, "s1", acc, reqs)
@@ -469,19 +507,25 @@ class TestDispatchEvent(unittest.TestCase):
         self.assertEqual(len(reqs), 1)
 
     def test_dispatches_api_error(self):
-        event = _make_event("claude_code.api_error", [
-            _attr("status_code", string_value="500"),
-        ])
+        event = _make_event(
+            "claude_code.api_error",
+            [
+                _attr("status_code", string_value="500"),
+            ],
+        )
         acc = _fresh_acc()
         reqs: list[dict] = []
         _dispatch_event(event, "s1", acc, reqs)
         self.assertEqual(acc["error_count"], 1)
 
     def test_dispatches_tool_result(self):
-        event = _make_event("claude_code.tool_result", [
-            _attr("tool_name", string_value="Bash"),
-            _attr("success", string_value="true"),
-        ])
+        event = _make_event(
+            "claude_code.tool_result",
+            [
+                _attr("tool_name", string_value="Bash"),
+                _attr("success", string_value="true"),
+            ],
+        )
         acc = _fresh_acc()
         reqs: list[dict] = []
         _dispatch_event(event, "s1", acc, reqs)
@@ -508,9 +552,12 @@ class TestDispatchEvent(unittest.TestCase):
 
     def test_dispatch_uses_substring_matching(self):
         """Key in body check — "api_request" in "some.api_request.event" is True."""
-        event = _make_event("prefix.api_request.suffix", [
-            _attr("model", string_value="claude-sonnet-4-6"),
-        ])
+        event = _make_event(
+            "prefix.api_request.suffix",
+            [
+                _attr("model", string_value="claude-sonnet-4-6"),
+            ],
+        )
         acc = _fresh_acc()
         reqs: list[dict] = []
         _dispatch_event(event, "s1", acc, reqs)
@@ -522,16 +569,21 @@ class TestDispatchEvent(unittest.TestCase):
 # _extract_all_events
 # ---------------------------------------------------------------------------
 
-class TestExtractAllEvents(unittest.TestCase):
 
-    def _api_request_event(self, session_id: str = "s1",
-                           time_nano: int = _TS_2026_NANO) -> OTLPEvent:
-        return _make_event("claude_code.api_request", [
-            _attr("session.id", string_value=session_id),
-            _attr("model", string_value="claude-sonnet-4-6"),
-            _attr("input_tokens", string_value="10"),
-            _attr("duration_ms", double_value=100.0),
-        ], time_nano=time_nano)
+class TestExtractAllEvents(unittest.TestCase):
+    def _api_request_event(
+        self, session_id: str = "s1", time_nano: int = _TS_2026_NANO
+    ) -> OTLPEvent:
+        return _make_event(
+            "claude_code.api_request",
+            [
+                _attr("session.id", string_value=session_id),
+                _attr("model", string_value="claude-sonnet-4-6"),
+                _attr("input_tokens", string_value="10"),
+                _attr("duration_ms", double_value=100.0),
+            ],
+            time_nano=time_nano,
+        )
 
     def test_empty_input_returns_empty_structures(self):
         reqs, sessions = _extract_all_events([])
@@ -549,7 +601,7 @@ class TestExtractAllEvents(unittest.TestCase):
         old_event = self._api_request_event(time_nano=_TS_2025_NANO)
         new_event = self._api_request_event(time_nano=_TS_2026_NANO)
         record = _make_record([old_event, new_event])
-        cutoff = datetime(2025, 6, 1, tzinfo=timezone.utc)
+        cutoff = datetime(2025, 6, 1, tzinfo=UTC)
         reqs, _ = _extract_all_events([record], since=cutoff)
         self.assertEqual(len(reqs), 1)
 
@@ -598,8 +650,8 @@ class TestExtractAllEvents(unittest.TestCase):
 # _calc_p95
 # ---------------------------------------------------------------------------
 
-class TestCalcP95(unittest.TestCase):
 
+class TestCalcP95(unittest.TestCase):
     def test_empty_list_returns_zero(self):
         self.assertEqual(_calc_p95([]), 0.0)
 
@@ -636,8 +688,8 @@ class TestCalcP95(unittest.TestCase):
 # _build_session_perf_objects
 # ---------------------------------------------------------------------------
 
-class TestBuildSessionPerfObjects(unittest.TestCase):
 
+class TestBuildSessionPerfObjects(unittest.TestCase):
     def _acc_with(self, **overrides) -> dict:
         acc = _new_perf_accumulator()
         for k, v in overrides.items():

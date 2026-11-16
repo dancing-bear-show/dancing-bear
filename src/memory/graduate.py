@@ -47,9 +47,7 @@ def _find_memory_by_slug(store: MemoryStore, slug: str) -> Memory:
     if len(prefix) == 1:
         return prefix[0]
     if not prefix:
-        raise GraduateError(
-            f"no memory matches '{slug}' in store '{store.project_slug}'"
-        )
+        raise GraduateError(f"no memory matches '{slug}' in store '{store.project_slug}'")
     candidates = ", ".join(m.slug for m in prefix)
     raise GraduateError(f"ambiguous — matches: {candidates}")
 
@@ -72,9 +70,7 @@ def graduate_memory(
     With yes=True a diverged destination is copied to ``<name>.md.bak`` first.
     """
     if source.root == canonical.root:
-        raise GraduateError(
-            f"source store '{source.project_slug}' is already the canonical store"
-        )
+        raise GraduateError(f"source store '{source.project_slug}' is already the canonical store")
 
     memory = _find_memory_by_slug(source, slug)
     src_path = Path(memory.path)

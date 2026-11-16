@@ -26,8 +26,12 @@ def _run_experience_overlay_render(case, tmpdir, profile, template):
         "name": "Overlay Test",
         "experience": [
             {
-                "title": "Old Role", "company": "OldCo", "start": "2020",
-                "end": "2021", "location": "Remote", "bullets": ["Old bullet"],
+                "title": "Old Role",
+                "company": "OldCo",
+                "start": "2020",
+                "end": "2021",
+                "location": "Remote",
+                "bullets": ["Old bullet"],
             }
         ],
     }
@@ -49,13 +53,22 @@ def _run_experience_overlay_render(case, tmpdir, profile, template):
             "      - New bullet B\n"
         )
     try:
-        proc = run([
-            sys.executable, "-m", "resume", "render",
-            "--data", data_path,
-            "--template", template,
-            "--profile", profile,
-            "--out", out_path,
-        ])
+        proc = run(
+            [
+                sys.executable,
+                "-m",
+                "resume",
+                "render",
+                "--data",
+                data_path,
+                "--template",
+                template,
+                "--profile",
+                profile,
+                "--out",
+                out_path,
+            ]
+        )
         case.assertEqual(proc.returncode, 0, msg=proc.stderr)
         case.assertTrue(os.path.exists(out_path))
 
@@ -79,10 +92,16 @@ class TestResumeCLIExtract(unittest.TestCase):
         """Test extract with no inputs still works (produces empty data)."""
         with tempfile.TemporaryDirectory() as tmpdir:
             out_path = os.path.join(tmpdir, "data.json")
-            proc = run([
-                sys.executable, "-m", "resume", "extract",
-                "--out", out_path,
-            ])
+            proc = run(
+                [
+                    sys.executable,
+                    "-m",
+                    "resume",
+                    "extract",
+                    "--out",
+                    out_path,
+                ]
+            )
             self.assertEqual(proc.returncode, 0, msg=proc.stderr)
             self.assertTrue(os.path.exists(out_path))
 
@@ -90,11 +109,18 @@ class TestResumeCLIExtract(unittest.TestCase):
         """Test extract with nonexistent file reports error."""
         with tempfile.TemporaryDirectory() as tmpdir:
             out_path = os.path.join(tmpdir, "data.json")
-            proc = run([
-                sys.executable, "-m", "resume", "extract",
-                "--linkedin", "/nonexistent/file.txt",
-                "--out", out_path,
-            ])
+            proc = run(
+                [
+                    sys.executable,
+                    "-m",
+                    "resume",
+                    "extract",
+                    "--linkedin",
+                    "/nonexistent/file.txt",
+                    "--out",
+                    out_path,
+                ]
+            )
             # Command may succeed with empty data or fail - check stderr for error message
             # The io_utils.read_text_any handles missing files gracefully
             # Just verify it doesn't crash unexpectedly
@@ -121,11 +147,18 @@ class TestResumeCLISummarize(unittest.TestCase):
         with temp_yaml_file(data) as data_path:
             with tempfile.TemporaryDirectory() as tmpdir:
                 out_path = os.path.join(tmpdir, "summary.md")
-                proc = run([
-                    sys.executable, "-m", "resume", "summarize",
-                    "--data", data_path,
-                    "--out", out_path,
-                ])
+                proc = run(
+                    [
+                        sys.executable,
+                        "-m",
+                        "resume",
+                        "summarize",
+                        "--data",
+                        data_path,
+                        "--out",
+                        out_path,
+                    ]
+                )
                 self.assertEqual(proc.returncode, 0, msg=proc.stderr)
                 self.assertTrue(os.path.exists(out_path))
 
@@ -144,11 +177,18 @@ class TestResumeCLICandidateInit(unittest.TestCase):
         with temp_yaml_file(data) as data_path:
             with tempfile.TemporaryDirectory() as tmpdir:
                 out_path = os.path.join(tmpdir, "candidate.yaml")
-                proc = run([
-                    sys.executable, "-m", "resume", "candidate-init",
-                    "--data", data_path,
-                    "--out", out_path,
-                ])
+                proc = run(
+                    [
+                        sys.executable,
+                        "-m",
+                        "resume",
+                        "candidate-init",
+                        "--data",
+                        data_path,
+                        "--out",
+                        out_path,
+                    ]
+                )
                 self.assertEqual(proc.returncode, 0, msg=proc.stderr)
                 self.assertTrue(os.path.exists(out_path))
 
@@ -178,12 +218,20 @@ class TestResumeCLIAlign(unittest.TestCase):
             with temp_yaml_file(job) as job_path:
                 with tempfile.TemporaryDirectory() as tmpdir:
                     out_path = os.path.join(tmpdir, "alignment.json")
-                    proc = run([
-                        sys.executable, "-m", "resume", "align",
-                        "--data", cand_path,
-                        "--job", job_path,
-                        "--out", out_path,
-                    ])
+                    proc = run(
+                        [
+                            sys.executable,
+                            "-m",
+                            "resume",
+                            "align",
+                            "--data",
+                            cand_path,
+                            "--job",
+                            job_path,
+                            "--out",
+                            out_path,
+                        ]
+                    )
                     self.assertEqual(proc.returncode, 0, msg=proc.stderr)
                     self.assertTrue(os.path.exists(out_path))
 
@@ -218,12 +266,20 @@ class TestResumeCLIRender(unittest.TestCase):
             with temp_yaml_file(template) as template_path:
                 with tempfile.TemporaryDirectory() as tmpdir:
                     out_path = os.path.join(tmpdir, "resume.docx")
-                    proc = run([
-                        sys.executable, "-m", "resume", "render",
-                        "--data", data_path,
-                        "--template", template_path,
-                        "--out", out_path,
-                    ])
+                    proc = run(
+                        [
+                            sys.executable,
+                            "-m",
+                            "resume",
+                            "render",
+                            "--data",
+                            data_path,
+                            "--template",
+                            template_path,
+                            "--out",
+                            out_path,
+                        ]
+                    )
                     self.assertEqual(proc.returncode, 0, msg=proc.stderr)
                     self.assertTrue(os.path.exists(out_path))
 
@@ -236,12 +292,20 @@ class TestResumeCLIRender(unittest.TestCase):
         with temp_yaml_file(data) as data_path:
             with tempfile.TemporaryDirectory() as tmpdir:
                 out_path = os.path.join(tmpdir, "resume.docx")
-                proc = run([
-                    sys.executable, "-m", "resume", "render",
-                    "--data", data_path,
-                    "--seed", "keywords=python,aws",
-                    "--out", out_path,
-                ])
+                proc = run(
+                    [
+                        sys.executable,
+                        "-m",
+                        "resume",
+                        "render",
+                        "--data",
+                        data_path,
+                        "--seed",
+                        "keywords=python,aws",
+                        "--out",
+                        out_path,
+                    ]
+                )
                 self.assertEqual(proc.returncode, 0, msg=proc.stderr)
 
     def test_render_without_template_emits_body_sections(self):
@@ -272,24 +336,27 @@ class TestResumeCLIRender(unittest.TestCase):
                     "bullets": ["Cut latency by 40%"],
                 }
             ],
-            "education": [
-                {"degree": "BSc", "institution": "State University", "year": "2015"}
-            ],
+            "education": [{"degree": "BSc", "institution": "State University", "year": "2015"}],
         }
         with temp_yaml_file(data) as data_path:
             with tempfile.TemporaryDirectory() as tmpdir:
                 out_path = os.path.join(tmpdir, "resume.docx")
-                proc = run([
-                    sys.executable, "-m", "resume", "render",
-                    "--data", data_path,
-                    "--out", out_path,
-                ])
+                proc = run(
+                    [
+                        sys.executable,
+                        "-m",
+                        "resume",
+                        "render",
+                        "--data",
+                        data_path,
+                        "--out",
+                        out_path,
+                    ]
+                )
                 self.assertEqual(proc.returncode, 0, msg=proc.stderr)
                 self.assertTrue(os.path.exists(out_path))
 
-                text = "\n".join(
-                    p.text for p in Document(out_path).paragraphs if p.text.strip()
-                )
+                text = "\n".join(p.text for p in Document(out_path).paragraphs if p.text.strip())
 
                 # Header alone is what the bug produced; it is not sufficient.
                 self.assertIn("Test User", text)
@@ -315,11 +382,18 @@ class TestResumeCLIRender(unittest.TestCase):
         with temp_yaml_file(data) as data_path:
             with tempfile.TemporaryDirectory() as tmpdir:
                 out_path = os.path.join(tmpdir, "resume.pdf")
-                proc = run([
-                    sys.executable, "-m", "resume", "render",
-                    "--data", data_path,
-                    "--out", out_path,
-                ])
+                proc = run(
+                    [
+                        sys.executable,
+                        "-m",
+                        "resume",
+                        "render",
+                        "--data",
+                        data_path,
+                        "--out",
+                        out_path,
+                    ]
+                )
                 # ExitCode.USAGE == 2 (C5 fix replaced RuntimeError with CLIError(..., ExitCode.USAGE))
                 self.assertEqual(proc.returncode, 2)
                 # The stub message directs the user to the new subcommand; assert on that
@@ -342,14 +416,16 @@ class TestResumeCLIRender(unittest.TestCase):
             out_path = os.path.join(tmpdir, "out.docx")
             exp = []
             for i in range(1, 6):
-                exp.append({
-                    "title": f"Engineer {i}",
-                    "company": f"Co{i}",
-                    "start": f"202{i}",
-                    "end": f"202{i + 1}",
-                    "location": "Remote",
-                    "bullets": [f"Did thing {j} for role {i}" for j in range(1, 6)],
-                })
+                exp.append(
+                    {
+                        "title": f"Engineer {i}",
+                        "company": f"Co{i}",
+                        "start": f"202{i}",
+                        "end": f"202{i + 1}",
+                        "location": "Remote",
+                        "bullets": [f"Did thing {j} for role {i}" for j in range(1, 6)],
+                    }
+                )
             payload = {
                 "name": "Test Person",
                 "email": "test@example.com",
@@ -358,7 +434,10 @@ class TestResumeCLIRender(unittest.TestCase):
                 "summary": "Impactful engineer. Builds reliable systems. Ships results.",
                 "skills_groups": [
                     {"title": "Platform", "items": ["AWS", "Kubernetes", "Architecture"]},
-                    {"title": "Reliability", "items": ["SLOs", "On-call", "Incidents", "Postmortems"]},
+                    {
+                        "title": "Reliability",
+                        "items": ["SLOs", "On-call", "Incidents", "Postmortems"],
+                    },
                 ],
                 "experience": exp,
                 "education": [{"degree": "BS CS", "institution": "Uni", "year": "2012"}],
@@ -366,12 +445,20 @@ class TestResumeCLIRender(unittest.TestCase):
             with open(data_path, "w", encoding="utf-8") as f:
                 json.dump(payload, f)
 
-            proc = run([
-                sys.executable, "-m", "resume", "render",
-                "--data", data_path,
-                "--template", "src/resume/config/template.onepage.yaml",
-                "--out", out_path,
-            ])
+            proc = run(
+                [
+                    sys.executable,
+                    "-m",
+                    "resume",
+                    "render",
+                    "--data",
+                    data_path,
+                    "--template",
+                    "src/resume/config/template.onepage.yaml",
+                    "--out",
+                    out_path,
+                ]
+            )
             self.assertEqual(proc.returncode, 0, msg=proc.stderr)
             self.assertTrue(os.path.exists(out_path))
 
@@ -404,7 +491,8 @@ class TestResumeCLIRender(unittest.TestCase):
             self.skipTest("python-docx not installed")
         with tempfile.TemporaryDirectory() as tmpdir:
             _run_experience_overlay_render(
-                self, tmpdir,
+                self,
+                tmpdir,
                 profile="test_exp_overlay_profile",
                 template="src/resume/config/template.onepage.yaml",
             )
@@ -463,11 +551,19 @@ class TestResumeCLIStyleBuild(unittest.TestCase):
                 f.write("Built microservices and REST APIs.\n")
             with tempfile.TemporaryDirectory() as out_dir:
                 out_path = os.path.join(out_dir, "style.json")
-                proc = run([
-                    sys.executable, "-m", "resume", "style", "build",
-                    "--corpus-dir", corpus_dir,
-                    "--out", out_path,
-                ])
+                proc = run(
+                    [
+                        sys.executable,
+                        "-m",
+                        "resume",
+                        "style",
+                        "build",
+                        "--corpus-dir",
+                        corpus_dir,
+                        "--out",
+                        out_path,
+                    ]
+                )
                 self.assertEqual(proc.returncode, 0, msg=proc.stderr)
                 self.assertTrue(os.path.exists(out_path))
 
@@ -485,14 +581,24 @@ class TestResumeCLIFilesTidy(unittest.TestCase):
                     f.write("{}")
                 # Modify mtime to simulate age
                 import time
+
                 os.utime(path, (time.time() - i * 86400, time.time() - i * 86400))
 
-            proc = run([
-                sys.executable, "-m", "resume", "files", "tidy",
-                "--dir", tmpdir,
-                "--suffixes", ".json",
-                "--keep", "2",
-            ])
+            proc = run(
+                [
+                    sys.executable,
+                    "-m",
+                    "resume",
+                    "files",
+                    "tidy",
+                    "--dir",
+                    tmpdir,
+                    "--suffixes",
+                    ".json",
+                    "--keep",
+                    "2",
+                ]
+            )
             self.assertEqual(proc.returncode, 0, msg=proc.stderr)
 
     def test_files_tidy_delete(self):
@@ -504,15 +610,25 @@ class TestResumeCLIFilesTidy(unittest.TestCase):
                 with open(path, "w") as f:
                     f.write("{}")
                 import time
+
                 os.utime(path, (time.time() - i * 86400, time.time() - i * 86400))
 
-            proc = run([
-                sys.executable, "-m", "resume", "files", "tidy",
-                "--dir", tmpdir,
-                "--suffixes", ".json",
-                "--keep", "2",
-                "--delete",
-            ])
+            proc = run(
+                [
+                    sys.executable,
+                    "-m",
+                    "resume",
+                    "files",
+                    "tidy",
+                    "--dir",
+                    tmpdir,
+                    "--suffixes",
+                    ".json",
+                    "--keep",
+                    "2",
+                    "--delete",
+                ]
+            )
             self.assertEqual(proc.returncode, 0, msg=proc.stderr)
 
     def test_files_tidy_purge_temp(self):
@@ -523,11 +639,18 @@ class TestResumeCLIFilesTidy(unittest.TestCase):
             with open(temp_path, "w") as f:
                 f.write("temp")
 
-            proc = run([
-                sys.executable, "-m", "resume", "files", "tidy",
-                "--dir", tmpdir,
-                "--purge-temp",
-            ])
+            proc = run(
+                [
+                    sys.executable,
+                    "-m",
+                    "resume",
+                    "files",
+                    "tidy",
+                    "--dir",
+                    tmpdir,
+                    "--purge-temp",
+                ]
+            )
             self.assertEqual(proc.returncode, 0, msg=proc.stderr)
             # Temp file should be removed
             self.assertFalse(os.path.exists(temp_path))
@@ -553,11 +676,19 @@ class TestResumeCLIExperienceExport(unittest.TestCase):
         with temp_yaml_file(data) as data_path:
             with tempfile.TemporaryDirectory() as tmpdir:
                 out_path = os.path.join(tmpdir, "experience.yaml")
-                proc = run([
-                    sys.executable, "-m", "resume", "experience", "export",
-                    "--data", data_path,
-                    "--out", out_path,
-                ])
+                proc = run(
+                    [
+                        sys.executable,
+                        "-m",
+                        "resume",
+                        "experience",
+                        "export",
+                        "--data",
+                        data_path,
+                        "--out",
+                        out_path,
+                    ]
+                )
                 self.assertEqual(proc.returncode, 0, msg=proc.stderr)
                 self.assertTrue(os.path.exists(out_path))
 
@@ -576,22 +707,38 @@ class TestResumeCLIExperienceExport(unittest.TestCase):
         with temp_yaml_file(data) as data_path:
             with tempfile.TemporaryDirectory() as tmpdir:
                 out_path = os.path.join(tmpdir, "experience.yaml")
-                proc = run([
-                    sys.executable, "-m", "resume", "experience", "export",
-                    "--data", data_path,
-                    "--max-bullets", "2",
-                    "--out", out_path,
-                ])
+                proc = run(
+                    [
+                        sys.executable,
+                        "-m",
+                        "resume",
+                        "experience",
+                        "export",
+                        "--data",
+                        data_path,
+                        "--max-bullets",
+                        "2",
+                        "--out",
+                        out_path,
+                    ]
+                )
                 self.assertEqual(proc.returncode, 0, msg=proc.stderr)
 
     def test_experience_export_missing_args(self):
         """Test experience export with no --data or --resume raises error."""
         with tempfile.TemporaryDirectory() as tmpdir:
             out_path = os.path.join(tmpdir, "experience.yaml")
-            proc = run([
-                sys.executable, "-m", "resume", "experience", "export",
-                "--out", out_path,
-            ])
+            proc = run(
+                [
+                    sys.executable,
+                    "-m",
+                    "resume",
+                    "experience",
+                    "export",
+                    "--out",
+                    out_path,
+                ]
+            )
             self.assertEqual(proc.returncode, 1)
             self.assertIn("--data", proc.stderr.lower() + proc.stdout.lower())
 
@@ -619,17 +766,26 @@ class TestResumeCLICandidateInitExtended(unittest.TestCase):
         with temp_yaml_file(data) as data_path:
             with tempfile.TemporaryDirectory() as tmpdir:
                 out_path = os.path.join(tmpdir, "candidate.yaml")
-                proc = run([
-                    sys.executable, "-m", "resume", "candidate-init",
-                    "--data", data_path,
-                    "--include-experience",
-                    "--max-bullets", "2",
-                    "--out", out_path,
-                ])
+                proc = run(
+                    [
+                        sys.executable,
+                        "-m",
+                        "resume",
+                        "candidate-init",
+                        "--data",
+                        data_path,
+                        "--include-experience",
+                        "--max-bullets",
+                        "2",
+                        "--out",
+                        out_path,
+                    ]
+                )
                 self.assertEqual(proc.returncode, 0, msg=proc.stderr)
                 self.assertTrue(os.path.exists(out_path))
                 # Verify experience is included with limited bullets
                 import yaml
+
                 with open(out_path) as f:
                     result = yaml.safe_load(f)
                 self.assertIn("experience", result)
@@ -671,14 +827,16 @@ class TestResumeCLIOnePageTemplateE2E(unittest.TestCase):
             out_path = os.path.join(tmpdir, "out.docx")
             exp = []
             for i in range(1, 6):
-                exp.append({
-                    "title": f"Engineer {i}",
-                    "company": f"Co{i}",
-                    "start": f"202{i}",
-                    "end": f"202{i + 1}",
-                    "location": "Remote",
-                    "bullets": [f"Did thing {j} for role {i}" for j in range(1, 6)],
-                })
+                exp.append(
+                    {
+                        "title": f"Engineer {i}",
+                        "company": f"Co{i}",
+                        "start": f"202{i}",
+                        "end": f"202{i + 1}",
+                        "location": "Remote",
+                        "bullets": [f"Did thing {j} for role {i}" for j in range(1, 6)],
+                    }
+                )
             payload = {
                 "name": "Test Person",
                 "email": "test@example.com",
@@ -687,7 +845,10 @@ class TestResumeCLIOnePageTemplateE2E(unittest.TestCase):
                 "summary": "Impactful engineer. Builds reliable systems. Ships results.",
                 "skills_groups": [
                     {"title": "Platform", "items": ["AWS", "Kubernetes", "Architecture"]},
-                    {"title": "Reliability", "items": ["SLOs", "On-call", "Incidents", "Postmortems"]},
+                    {
+                        "title": "Reliability",
+                        "items": ["SLOs", "On-call", "Incidents", "Postmortems"],
+                    },
                 ],
                 "experience": exp,
                 "education": [{"degree": "BS CS", "institution": "Uni", "year": "2012"}],
@@ -695,12 +856,20 @@ class TestResumeCLIOnePageTemplateE2E(unittest.TestCase):
             with open(data_path, "w", encoding="utf-8") as f:
                 json.dump(payload, f)
 
-            proc = run([
-                sys.executable, "-m", "resume", "render",
-                "--data", data_path,
-                "--template", "config/template.onepage.yaml",
-                "--out", out_path,
-            ])
+            proc = run(
+                [
+                    sys.executable,
+                    "-m",
+                    "resume",
+                    "render",
+                    "--data",
+                    data_path,
+                    "--template",
+                    "config/template.onepage.yaml",
+                    "--out",
+                    out_path,
+                ]
+            )
             self.assertEqual(proc.returncode, 0, msg=proc.stderr)
             self.assertTrue(os.path.exists(out_path))
 
@@ -731,7 +900,8 @@ class TestResumeCLIOnePageTemplateE2E(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             _run_experience_overlay_render(
-                self, tmpdir,
+                self,
+                tmpdir,
                 profile="test_profile",
                 template="config/template.onepage.yaml",
             )
@@ -752,11 +922,23 @@ class TestResumeCLIAlignExtended(unittest.TestCase):
             "skills": ["Python", "AWS", "Docker", "Kubernetes", "Grafana"],
             "experience": [
                 {
-                    "title": "SRE", "company": "Acme", "start": "2020", "end": "2024", "location": "Remote",
-                    "bullets": ["Managed Kubernetes clusters", "Built dashboards in Grafana", "Automated deployments with Docker"],
+                    "title": "SRE",
+                    "company": "Acme",
+                    "start": "2020",
+                    "end": "2024",
+                    "location": "Remote",
+                    "bullets": [
+                        "Managed Kubernetes clusters",
+                        "Built dashboards in Grafana",
+                        "Automated deployments with Docker",
+                    ],
                 },
                 {
-                    "title": "DevOps", "company": "Other", "start": "2018", "end": "2020", "location": "Remote",
+                    "title": "DevOps",
+                    "company": "Other",
+                    "start": "2018",
+                    "end": "2020",
+                    "location": "Remote",
                     "bullets": ["Provisioned AWS infrastructure", "Wrote Python tooling"],
                 },
             ],
@@ -792,14 +974,24 @@ keywords:
             with open(job_path, "w", encoding="utf-8") as f:
                 f.write(job_yaml)
 
-            proc = run([
-                sys.executable, "-m", "resume", "align",
-                "--data", cand_path,
-                "--job", job_path,
-                "--out", align_out,
-                "--tailored", tailored_out,
-                "--max-bullets", "2",
-            ])
+            proc = run(
+                [
+                    sys.executable,
+                    "-m",
+                    "resume",
+                    "align",
+                    "--data",
+                    cand_path,
+                    "--job",
+                    job_path,
+                    "--out",
+                    align_out,
+                    "--tailored",
+                    tailored_out,
+                    "--max-bullets",
+                    "2",
+                ]
+            )
             self.assertEqual(proc.returncode, 0, msg=proc.stderr)
 
             with open(align_out, encoding="utf-8") as f:
@@ -813,10 +1005,13 @@ keywords:
             with open(tailored_out, encoding="utf-8") as f:
                 t = json.load(f)
             self.assertIn("experience", t)
-            self.assertTrue(any(
-                "Kubernetes" in b or "Grafana" in b or "AWS" in b
-                for e in t["experience"] for b in e.get("bullets", [])
-            ))
+            self.assertTrue(
+                any(
+                    "Kubernetes" in b or "Grafana" in b or "AWS" in b
+                    for e in t["experience"]
+                    for b in e.get("bullets", [])
+                )
+            )
 
     def test_align_with_tailored_output(self):
         """Test align with --tailored flag produces tailored candidate."""
@@ -840,14 +1035,24 @@ keywords:
                 with tempfile.TemporaryDirectory() as tmpdir:
                     align_path = os.path.join(tmpdir, "alignment.json")
                     tailored_path = os.path.join(tmpdir, "tailored.yaml")
-                    proc = run([
-                        sys.executable, "-m", "resume", "align",
-                        "--data", cand_path,
-                        "--job", job_path,
-                        "--tailored", tailored_path,
-                        "--max-bullets", "2",
-                        "--out", align_path,
-                    ])
+                    proc = run(
+                        [
+                            sys.executable,
+                            "-m",
+                            "resume",
+                            "align",
+                            "--data",
+                            cand_path,
+                            "--job",
+                            job_path,
+                            "--tailored",
+                            tailored_path,
+                            "--max-bullets",
+                            "2",
+                            "--out",
+                            align_path,
+                        ]
+                    )
                     self.assertEqual(proc.returncode, 0, msg=proc.stderr)
                     self.assertTrue(os.path.exists(tailored_path))
 
@@ -866,11 +1071,18 @@ class TestResumeCLISummarizeExtended(unittest.TestCase):
         with temp_yaml_file(data) as data_path:
             with tempfile.TemporaryDirectory() as tmpdir:
                 out_path = os.path.join(tmpdir, "summary.yaml")
-                proc = run([
-                    sys.executable, "-m", "resume", "summarize",
-                    "--data", data_path,
-                    "--out", out_path,
-                ])
+                proc = run(
+                    [
+                        sys.executable,
+                        "-m",
+                        "resume",
+                        "summarize",
+                        "--data",
+                        data_path,
+                        "--out",
+                        out_path,
+                    ]
+                )
                 self.assertEqual(proc.returncode, 0, msg=proc.stderr)
                 self.assertTrue(os.path.exists(out_path))
 
@@ -884,12 +1096,20 @@ class TestResumeCLISummarizeExtended(unittest.TestCase):
         with temp_yaml_file(data) as data_path:
             with tempfile.TemporaryDirectory() as tmpdir:
                 out_path = os.path.join(tmpdir, "summary.md")
-                proc = run([
-                    sys.executable, "-m", "resume", "summarize",
-                    "--data", data_path,
-                    "--seed", "keywords=python,cloud",
-                    "--out", out_path,
-                ])
+                proc = run(
+                    [
+                        sys.executable,
+                        "-m",
+                        "resume",
+                        "summarize",
+                        "--data",
+                        data_path,
+                        "--seed",
+                        "keywords=python,cloud",
+                        "--out",
+                        out_path,
+                    ]
+                )
                 self.assertEqual(proc.returncode, 0, msg=proc.stderr)
 
 
@@ -915,6 +1135,7 @@ class TestResumeCLIExportPdf(unittest.TestCase):
         override the entire environment (e.g. to scrub PATH of soffice).
         """
         import subprocess  # nosec B404
+
         cmd = [sys.executable, "-m", "resume", "export-pdf"] + args
         return subprocess.run(  # nosec B603
             cmd,
@@ -935,6 +1156,7 @@ class TestResumeCLIExportPdf(unittest.TestCase):
         valid.  Requires soffice on PATH; skipped when absent.
         """
         import shutil
+
         if not shutil.which("soffice"):
             self.skipTest("soffice not installed — happy-path test skipped")
         try:
@@ -949,10 +1171,14 @@ class TestResumeCLIExportPdf(unittest.TestCase):
             out_path = os.path.join(tmpdir, "myresume.pdf")
             Document().save(docx_path)
 
-            proc = self._run_export_pdf([
-                "--docx", docx_path,
-                "--out", out_path,
-            ])
+            proc = self._run_export_pdf(
+                [
+                    "--docx",
+                    docx_path,
+                    "--out",
+                    out_path,
+                ]
+            )
             self.assertEqual(proc.returncode, 0, msg=proc.stderr)
             self.assertTrue(os.path.exists(out_path), msg=f"PDF not found; stderr={proc.stderr}")
 
@@ -973,6 +1199,7 @@ class TestResumeCLIExportPdf(unittest.TestCase):
             docx_path = os.path.join(tmpdir, "resume.docx")
             try:
                 from docx import Document
+
                 Document().save(docx_path)
             except Exception:
                 # Fallback: write a stub file that passes the existence check.
@@ -984,15 +1211,24 @@ class TestResumeCLIExportPdf(unittest.TestCase):
             # raise FileNotFoundError, which is returned as False → CLIError exit 1.
             empty_path_env = dict(os.environ, PATH="/nonexistent")
 
-            proc = self._run_export_pdf([
-                "--docx", docx_path,
-                "--out", out_path,
-            ], env=empty_path_env)
+            proc = self._run_export_pdf(
+                [
+                    "--docx",
+                    docx_path,
+                    "--out",
+                    out_path,
+                ],
+                env=empty_path_env,
+            )
 
             # BLOCKER 6: conversion failure is ERROR (1)
             self.assertEqual(proc.returncode, 1, msg=f"expected exit 1; stderr={proc.stderr}")
             # BLOCKER 5: stderr must mention LibreOffice (the remedy named in the error message)
-            self.assertIn("LibreOffice", proc.stderr, msg=f"expected 'LibreOffice' in stderr; got: {proc.stderr!r}")
+            self.assertIn(
+                "LibreOffice",
+                proc.stderr,
+                msg=f"expected 'LibreOffice' in stderr; got: {proc.stderr!r}",
+            )
 
     # --------------------------------------------------------------------------
     # Sad path: missing --docx file
@@ -1009,15 +1245,23 @@ class TestResumeCLIExportPdf(unittest.TestCase):
             out_path = os.path.join(tmpdir, "ghost.pdf")
             # absent_docx deliberately not created
 
-            proc = self._run_export_pdf([
-                "--docx", absent_docx,
-                "--out", out_path,
-            ])
+            proc = self._run_export_pdf(
+                [
+                    "--docx",
+                    absent_docx,
+                    "--out",
+                    out_path,
+                ]
+            )
 
             # BLOCKER 6: missing file → USAGE (2)
             self.assertEqual(proc.returncode, 2, msg=f"expected exit 2; stderr={proc.stderr}")
             # BLOCKER 5: stderr must say something about the file not being found
-            self.assertIn("not found", proc.stderr.lower(), msg=f"expected 'not found' in stderr; got: {proc.stderr!r}")
+            self.assertIn(
+                "not found",
+                proc.stderr.lower(),
+                msg=f"expected 'not found' in stderr; got: {proc.stderr!r}",
+            )
 
     # --------------------------------------------------------------------------
     # Regression: distinct inputs must not collide on the same output path
@@ -1031,8 +1275,9 @@ class TestResumeCLIExportPdf(unittest.TestCase):
         'beta.docx' → '<data-home>/.../beta.pdf'.  They must differ.
         This test verifies the _resolve_out behaviour without actually running soffice.
         """
-        from resume.cli.helpers import _resolve_out
         import argparse
+
+        from resume.cli.helpers import _resolve_out
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Simulate args with no explicit --out and a custom --out-dir so

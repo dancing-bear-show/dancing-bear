@@ -124,7 +124,9 @@ def head_commit(repo: str | Path) -> str:
     """
     run = run_binary(_HEAD_CMD, cwd=Path(repo), timeout=_GIT_STATUS_TIMEOUT)
     if run.returncode != 0:
-        raise RuntimeError(f"git rev-parse HEAD failed (exit {run.returncode}): {run.stderr.strip()}")
+        raise RuntimeError(
+            f"git rev-parse HEAD failed (exit {run.returncode}): {run.stderr.strip()}"
+        )
     return run.stdout.strip()
 
 
@@ -181,8 +183,16 @@ def committed_since(repo: str | Path, baseline_head: str) -> set[str]:
             f"(git merge-base exit {ancestry.returncode}): {ancestry.stderr.strip()}"
         )
     run = run_binary(
-        ("git", "log", "--name-only", "--no-renames", "-m", "-z", "--pretty=format:",
-         f"{baseline_head}..HEAD"),
+        (
+            "git",
+            "log",
+            "--name-only",
+            "--no-renames",
+            "-m",
+            "-z",
+            "--pretty=format:",
+            f"{baseline_head}..HEAD",
+        ),
         cwd=Path(repo),
         timeout=_GIT_STATUS_TIMEOUT,
     )

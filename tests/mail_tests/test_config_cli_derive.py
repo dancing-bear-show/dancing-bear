@@ -6,38 +6,37 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import TestCase
 
-from tests.fixtures import test_path
 from core.pipeline import ResultEnvelope
-
-from mail.config_cli.pipeline_derive import (
-    # Derive labels
-    DeriveLabelsRequest,
-    DeriveLabelsRequestConsumer,
-    DeriveLabelsProcessor,
-    DeriveLabelsProducer,
-    DeriveLabelsResult,
-    # Derive filters
-    DeriveFiltersRequest,
-    DeriveFiltersRequestConsumer,
-    DeriveFiltersProcessor,
-    DeriveFiltersProducer,
-    DeriveFiltersResult,
-    # Optimize filters
-    OptimizeFiltersRequest,
-    OptimizeFiltersRequestConsumer,
-    OptimizeFiltersProcessor,
-    OptimizeFiltersProducer,
-    OptimizeFiltersResult,
-    MergedGroup,
-)
 from mail.config_cli.pipeline_audit import (
+    AuditFiltersProcessor,
+    AuditFiltersProducer,
     # Audit filters
     AuditFiltersRequest,
     AuditFiltersRequestConsumer,
-    AuditFiltersProcessor,
-    AuditFiltersProducer,
     AuditFiltersResult,
 )
+from mail.config_cli.pipeline_derive import (
+    DeriveFiltersProcessor,
+    DeriveFiltersProducer,
+    # Derive filters
+    DeriveFiltersRequest,
+    DeriveFiltersRequestConsumer,
+    DeriveFiltersResult,
+    DeriveLabelsProcessor,
+    DeriveLabelsProducer,
+    # Derive labels
+    DeriveLabelsRequest,
+    DeriveLabelsRequestConsumer,
+    DeriveLabelsResult,
+    MergedGroup,
+    OptimizeFiltersProcessor,
+    OptimizeFiltersProducer,
+    # Optimize filters
+    OptimizeFiltersRequest,
+    OptimizeFiltersRequestConsumer,
+    OptimizeFiltersResult,
+)
+from tests.fixtures import test_path
 
 
 class DeriveLabelsTests(TestCase):
@@ -120,7 +119,9 @@ class DeriveFiltersTests(TestCase):
         """DeriveFiltersProcessor creates gmail and outlook filter files."""
         with tempfile.TemporaryDirectory() as tmpdir:
             in_path = Path(tmpdir) / "filters.yaml"
-            in_path.write_text("filters:\n  - match:\n      from: test@example.com\n    action:\n      add: [Label]\n")
+            in_path.write_text(
+                "filters:\n  - match:\n      from: test@example.com\n    action:\n      add: [Label]\n"
+            )
 
             out_gmail = Path(tmpdir) / "gmail.yaml"
             out_outlook = Path(tmpdir) / "outlook.yaml"
@@ -674,7 +675,9 @@ class OptimizeFiltersTests(TestCase):
                 out_path=test_path("optimized.yaml"),  # noqa: S108 - test fixture path
                 original_count=10,
                 optimized_count=5,
-                merged_groups=[MergedGroup(destination="Label", rules_merged=3, unique_from_terms=3)],
+                merged_groups=[
+                    MergedGroup(destination="Label", rules_merged=3, unique_from_terms=3)
+                ],
             ),
         )
         buf = io.StringIO()
@@ -692,7 +695,9 @@ class OptimizeFiltersTests(TestCase):
                 out_path=test_path("optimized.yaml"),  # noqa: S108 - test fixture path
                 original_count=10,
                 optimized_count=5,
-                merged_groups=[MergedGroup(destination="Label", rules_merged=3, unique_from_terms=3)],
+                merged_groups=[
+                    MergedGroup(destination="Label", rules_merged=3, unique_from_terms=3)
+                ],
             ),
         )
         buf = io.StringIO()
@@ -834,6 +839,7 @@ class DeriveToRuleActionSeamTests(TestCase):
         from the first add label — moving the mail out of the inbox.
         """
         from unittest.mock import MagicMock
+
         from mail.outlook.processors_rules_helpers import RuleContext, _build_rule_action
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -873,6 +879,7 @@ class DeriveToRuleActionSeamTests(TestCase):
         Contrast test: the fix must not disable folder derivation for every rule.
         """
         from unittest.mock import MagicMock
+
         from mail.outlook.processors_rules_helpers import RuleContext, _build_rule_action
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -907,6 +914,7 @@ class DeriveToRuleActionSeamTests(TestCase):
         in the inbox and one must be moved to a folder.
         """
         from unittest.mock import MagicMock
+
         from mail.outlook.processors_rules_helpers import RuleContext, _build_rule_action
 
         with tempfile.TemporaryDirectory() as tmpdir:

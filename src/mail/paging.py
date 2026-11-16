@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Iterable, Iterator
+from collections.abc import Iterable, Iterator
 
 
 def paginate_gmail_messages(
@@ -29,7 +29,9 @@ def paginate_gmail_messages(
             break
 
 
-def gather_pages(pages: Iterable[list[str]], *, max_pages: int | None = None, limit: int | None = None) -> list[str]:
+def gather_pages(
+    pages: Iterable[list[str]], *, max_pages: int | None = None, limit: int | None = None
+) -> list[str]:
     out: list[str] = []
     count = 0
     for ids in pages:

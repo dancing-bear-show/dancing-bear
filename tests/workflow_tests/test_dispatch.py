@@ -7,6 +7,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.workflow_tests.helpers.factories import (
+    make_agent_spec,
+    make_domain_rule,
+    make_resolved_stage,
+    make_stage_spec,
+    make_validation_spec,
+)
 from workflow.dispatch import (
     KNOWN_ROLES,
     WORKSPACE_ROOT_PREFIXES,
@@ -17,14 +24,6 @@ from workflow.dispatch import (
 )
 from workflow.dispatchers import LocalDispatcher
 from workflow.models import StageKind
-
-from tests.workflow_tests.helpers.factories import (
-    make_agent_spec,
-    make_domain_rule,
-    make_resolved_stage,
-    make_stage_spec,
-    make_validation_spec,
-)
 
 # ---------------------------------------------------------------------------
 # KNOWN_ROLES completeness
@@ -385,7 +384,9 @@ class TestWorkspacePlaceholderResolved(unittest.TestCase):
     path, and the agent had to guess the two were the same directory.
     """
 
-    def _render(self, stage_kind: StageKind = StageKind.execute, **overrides: object) -> tuple[str, str]:
+    def _render(
+        self, stage_kind: StageKind = StageKind.execute, **overrides: object
+    ) -> tuple[str, str]:
         with tempfile.TemporaryDirectory() as tmp_dir:
             spec = make_stage_spec(name="s", kind=stage_kind, **overrides)
             prompt = build_agent_prompt(make_resolved_stage(spec=spec, index=1), "wf", tmp_dir)
@@ -410,10 +411,12 @@ class TestWorkspacePlaceholderResolved(unittest.TestCase):
     def test_validate_criteria_and_rules_are_resolved(self) -> None:
         spec = make_validation_spec(
             criteria=("{workspace}/outputs/a.json exists",),
-            domain_rules=(make_domain_rule(
-                description="count rows in {workspace}/outputs/a.json",
-                source_cmd="wc -l {workspace}/outputs/a.json",
-            ),),
+            domain_rules=(
+                make_domain_rule(
+                    description="count rows in {workspace}/outputs/a.json",
+                    source_cmd="wc -l {workspace}/outputs/a.json",
+                ),
+            ),
         )
         prompt, ws = self._render(stage_kind=StageKind.validate, validation=spec)
         self.assertIn(f"{ws}/outputs/a.json exists", prompt)
@@ -477,7 +480,9 @@ class TestFanOutPrompt(unittest.TestCase):
         from workflow.models import FanOutSpec
 
         spec = make_stage_spec(
-            name="fix", kind=StageKind.execute, description="Fix {service}.",
+            name="fix",
+            kind=StageKind.execute,
+            description="Fix {service}.",
             fan_out=FanOutSpec(source="dispatch", field="items", key="service"),
         )
         prompt = build_agent_prompt(make_resolved_stage(spec=spec, index=5), "wf", "/ws")
@@ -540,7 +545,9 @@ class TestFanOutReservedKeys(unittest.TestCase):
         for key in ("", "  "):
             with self.subTest(key=key):
                 with self.assertRaisesRegex(ValueError, "fan_out.key must be a non-empty name"):
-                    build_agent_prompt(make_resolved_stage(spec=self._spec(key), index=5), "wf", "/ws")
+                    build_agent_prompt(
+                        make_resolved_stage(spec=self._spec(key), index=5), "wf", "/ws"
+                    )
 
     def test_ordinary_key_still_builds_a_prompt(self) -> None:
         """Happy path: a non-reserved key renders normally, unaffected."""
@@ -584,7 +591,9 @@ class TestSkillFanOutSummaryPropagatesFailure(unittest.TestCase):
     def test_stage_summary_fails_when_any_item_failed(self) -> None:
         skill = Path(__file__).resolve().parents[2] / ".claude/skills/workflow/SKILL.md"
         text = " ".join(skill.read_text(encoding="utf-8").split())
-        self.assertIn('Its `status` is `"success"` only when EVERY per-position result is `"success"`', text)
+        self.assertIn(
+            'Its `status` is `"success"` only when EVERY per-position result is `"success"`', text
+        )
         self.assertIn('write `"status": "failed"` and list each failed position in `errors`', text)
         self.assertIn("never write a successful summary over a failed item", text)
 

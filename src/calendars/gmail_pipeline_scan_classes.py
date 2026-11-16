@@ -1,4 +1,5 @@
 """Gmail scan-classes pipeline for calendar assistant."""
+
 from __future__ import annotations
 
 import re
@@ -10,24 +11,23 @@ from core.pipeline import SafeProcessor
 from core.text_utils import html_to_text
 
 from .gmail_service import QueryParams
-from .scan_common import (
-    DEFAULT_CLASS_SUBJECT,
-    RANGE_PAT,
-    MONTH_MAP,
-    infer_meta_from_text,
-    is_enrollment_notice,
-    is_plausible_session,
-    parse_clock_time,
-)
 from .pipeline_base import (
+    DAY_MAP,
     BaseProducer,
     GmailAuth,
     GmailServiceBuilderMixin,
     RequestConsumer,
     dedupe_events,
-    DAY_MAP,
 )
-
+from .scan_common import (
+    DEFAULT_CLASS_SUBJECT,
+    MONTH_MAP,
+    RANGE_PAT,
+    infer_meta_from_text,
+    is_enrollment_notice,
+    is_plausible_session,
+    parse_clock_time,
+)
 
 # Transfer notices restate the superseded enrollment alongside the new one.
 # Everything from "New Enrollment:" onward is the authoritative block; the
@@ -42,6 +42,7 @@ _MAKEUP_TOKEN_PAT = re.compile(r"\bmakeup\s+token\b", re.I)
 # =============================================================================
 # Gmail Scan Classes Pipeline
 # =============================================================================
+
 
 @dataclass
 class GmailScanClassesRequest:
@@ -101,8 +102,12 @@ class GmailScanClassesProcessor(
             extracted.extend(self._extract_events(text, payload.calendar))
         events = dedupe_events(extracted)
         if not events:
-            return GmailScanClassesResult(events=[], message_count=len(ids), out_path=payload.out_path)
-        return GmailScanClassesResult(events=events, message_count=len(ids), out_path=payload.out_path)
+            return GmailScanClassesResult(
+                events=[], message_count=len(ids), out_path=payload.out_path
+            )
+        return GmailScanClassesResult(
+            events=events, message_count=len(ids), out_path=payload.out_path
+        )
 
     def _extract_events(self, message_text: str, calendar: str | None) -> list[dict[str, Any]]:
         plain = self._html_to_text(message_text)
@@ -130,7 +135,7 @@ class GmailScanClassesProcessor(
         parsing the full body emits the stale slot alongside the current one.
         """
         m_new = _NEW_ENROLLMENT_PAT.search(plain)
-        return plain[m_new.end():] if m_new else plain
+        return plain[m_new.end() :] if m_new else plain
 
     def _build_event(
         self, match: re.Match[str], meta: dict[str, Any], calendar: str | None
@@ -142,12 +147,8 @@ class GmailScanClassesProcessor(
         than emitted with clamped values, since a silently corrected time is
         indistinguishable from a real one downstream.
         """
-        start_time = parse_clock_time(
-            match.group("h1"), match.group("m1"), match.group("ampm1")
-        )
-        end_time = parse_clock_time(
-            match.group("h2"), match.group("m2"), match.group("ampm2")
-        )
+        start_time = parse_clock_time(match.group("h1"), match.group("m1"), match.group("ampm1"))
+        end_time = parse_clock_time(match.group("h2"), match.group("m2"), match.group("ampm2"))
         if not (start_time and end_time):
             return None
         if not is_plausible_session(start_time, end_time):
@@ -177,7 +178,9 @@ class GmailScanClassesProcessor(
 
 
 class GmailScanClassesProducer(BaseProducer):
-    def _produce_success(self, payload: GmailScanClassesResult, diagnostics: dict[str, Any] | None) -> None:
+    def _produce_success(
+        self, payload: GmailScanClassesResult, diagnostics: dict[str, Any] | None
+    ) -> None:
         events = payload.events
         if not events:
             if payload.message_count:
@@ -187,7 +190,9 @@ class GmailScanClassesProducer(BaseProducer):
             if not payload.out_path:
                 self._writer.print("Use --out plan.yaml to write YAML.")
             return
-        self._writer.print(f"Found {len(events)} candidate recurring class entries from {payload.message_count} messages.")
+        self._writer.print(
+            f"Found {len(events)} candidate recurring class entries from {payload.message_count} messages."
+        )
         if payload.out_path:
             from core.yamlio import dump_config
 
@@ -196,5 +201,7 @@ class GmailScanClassesProducer(BaseProducer):
             return
         for ev in events:
             byday = ",".join(ev.get("byday") or [])
-            self._writer.print(f"- {byday} {ev.get('start_time')}-{ev.get('end_time')} calendar={ev.get('calendar') or '<default>'}")
+            self._writer.print(
+                f"- {byday} {ev.get('start_time')}-{ev.get('end_time')} calendar={ev.get('calendar') or '<default>'}"
+            )
         self._writer.print("Use --out plan.yaml to write YAML.")

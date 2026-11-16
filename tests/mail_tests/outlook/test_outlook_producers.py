@@ -5,42 +5,41 @@ from io import StringIO
 
 from core.cli_output import OutputConfig, OutputWriter
 from core.pipeline import ResultEnvelope
-from tests.fixtures import capture_stdout, test_path
-
-from mail.outlook.processors_rules import (
-    OutlookRulesListResult,
-    OutlookRulesExportResult,
-)
-from mail.outlook.processors_rules_write import (
-    OutlookRulesSyncResult,
-    OutlookRulesDeleteResult,
-    OutlookRulesSweepResult,
-)
-from mail.outlook.processors_rules_plan import OutlookRulesPlanResult
 from mail.outlook.processors_calendar import (
-    OutlookCategoriesListResult,
+    OutlookCalendarAddFromConfigResult,
+    OutlookCalendarAddRecurringResult,
+    OutlookCalendarAddResult,
     OutlookCategoriesExportResult,
+    OutlookCategoriesListResult,
     OutlookCategoriesSyncResult,
     OutlookFoldersSyncResult,
-    OutlookCalendarAddResult,
-    OutlookCalendarAddRecurringResult,
-    OutlookCalendarAddFromConfigResult,
+)
+from mail.outlook.processors_rules import (
+    OutlookRulesExportResult,
+    OutlookRulesListResult,
+)
+from mail.outlook.processors_rules_plan import OutlookRulesPlanResult
+from mail.outlook.processors_rules_write import (
+    OutlookRulesDeleteResult,
+    OutlookRulesSweepResult,
+    OutlookRulesSyncResult,
 )
 from mail.outlook.producers import (
-    OutlookRulesListProducer,
-    OutlookRulesExportProducer,
-    OutlookRulesSyncProducer,
-    OutlookRulesPlanProducer,
-    OutlookRulesDeleteProducer,
-    OutlookRulesSweepProducer,
-    OutlookCategoriesListProducer,
-    OutlookCategoriesExportProducer,
-    OutlookCategoriesSyncProducer,
-    OutlookFoldersSyncProducer,
+    OutlookCalendarAddFromConfigProducer,
     OutlookCalendarAddProducer,
     OutlookCalendarAddRecurringProducer,
-    OutlookCalendarAddFromConfigProducer,
+    OutlookCategoriesExportProducer,
+    OutlookCategoriesListProducer,
+    OutlookCategoriesSyncProducer,
+    OutlookFoldersSyncProducer,
+    OutlookRulesDeleteProducer,
+    OutlookRulesExportProducer,
+    OutlookRulesListProducer,
+    OutlookRulesPlanProducer,
+    OutlookRulesSweepProducer,
+    OutlookRulesSyncProducer,
 )
+from tests.fixtures import capture_stdout, test_path
 
 
 def _writer(buf: StringIO) -> OutputWriter:
@@ -132,10 +131,12 @@ class TestOutlookRulesListProducer(unittest.TestCase):
     def test_success_no_failure_text(self):
         buf = StringIO()
         producer = OutlookRulesListProducer(writer=_writer(buf))
-        producer.produce(ResultEnvelope(
-            status="success",
-            payload=OutlookRulesListResult(rules=[], id_to_name={}, folder_path_rev={}),
-        ))
+        producer.produce(
+            ResultEnvelope(
+                status="success",
+                payload=OutlookRulesListResult(rules=[], id_to_name={}, folder_path_rev={}),
+            )
+        )
         self.assertNotIn("Failed to list rules", buf.getvalue())
 
     def test_payload_none_uses_fallback(self):
@@ -297,10 +298,12 @@ class TestOutlookRulesSyncProducer(unittest.TestCase):
         """
         producer = OutlookRulesSyncProducer(dry_run=False, reconcile=True)
         with capture_stdout() as buf:
-            producer.produce(ResultEnvelope(
-                status="success",
-                payload=OutlookRulesSyncResult(created=2, deleted=0, reconciled=0),
-            ))
+            producer.produce(
+                ResultEnvelope(
+                    status="success",
+                    payload=OutlookRulesSyncResult(created=2, deleted=0, reconciled=0),
+                )
+            )
         out = buf.getvalue()
         self.assertIn("Created: 2", out)
         self.assertNotIn("Reconciled", out)
@@ -329,16 +332,14 @@ class TestOutlookRulesSyncProducer(unittest.TestCase):
 
     def test_reconciled_and_failed_both_reported_together(self):
         """A partial run reports both halves — some reconciled, some failed."""
-        producer = OutlookRulesSyncProducer(
-            dry_run=False, delete_missing=True, reconcile=True
-        )
+        producer = OutlookRulesSyncProducer(dry_run=False, delete_missing=True, reconcile=True)
         with capture_stdout() as buf:
-            producer.produce(ResultEnvelope(
-                status="success",
-                payload=OutlookRulesSyncResult(
-                    created=1, deleted=1, reconciled=2, failed=1
-                ),
-            ))
+            producer.produce(
+                ResultEnvelope(
+                    status="success",
+                    payload=OutlookRulesSyncResult(created=1, deleted=1, reconciled=2, failed=1),
+                )
+            )
         out = buf.getvalue()
         for expected in ("Created: 1", "Reconciled: 2", "Failed: 1", "Deleted: 1"):
             self.assertIn(expected, out)
@@ -347,10 +348,12 @@ class TestOutlookRulesSyncProducer(unittest.TestCase):
         """Contrast: a clean run must not mention failures."""
         producer = OutlookRulesSyncProducer(dry_run=False, reconcile=True)
         with capture_stdout() as buf:
-            producer.produce(ResultEnvelope(
-                status="success",
-                payload=OutlookRulesSyncResult(created=1, deleted=0, reconciled=0, failed=0),
-            ))
+            producer.produce(
+                ResultEnvelope(
+                    status="success",
+                    payload=OutlookRulesSyncResult(created=1, deleted=0, reconciled=0, failed=0),
+                )
+            )
         self.assertNotIn("Failed", buf.getvalue())
 
     def test_failed_not_reported_without_reconcile(self):
@@ -361,10 +364,12 @@ class TestOutlookRulesSyncProducer(unittest.TestCase):
         """
         producer = OutlookRulesSyncProducer(dry_run=False, delete_missing=True)
         with capture_stdout() as buf:
-            producer.produce(ResultEnvelope(
-                status="success",
-                payload=OutlookRulesSyncResult(created=1, deleted=1, reconciled=2, failed=1),
-            ))
+            producer.produce(
+                ResultEnvelope(
+                    status="success",
+                    payload=OutlookRulesSyncResult(created=1, deleted=1, reconciled=2, failed=1),
+                )
+            )
         out = buf.getvalue()
         self.assertIn("Created: 1", out)
         self.assertIn("Deleted: 1", out)
@@ -379,10 +384,12 @@ class TestOutlookRulesSyncProducer(unittest.TestCase):
         """
         producer = OutlookRulesSyncProducer(dry_run=False, delete_missing=True)
         with capture_stdout() as buf:
-            producer.produce(ResultEnvelope(
-                status="success",
-                payload=OutlookRulesSyncResult(created=2, deleted=1, reconciled=3),
-            ))
+            producer.produce(
+                ResultEnvelope(
+                    status="success",
+                    payload=OutlookRulesSyncResult(created=2, deleted=1, reconciled=3),
+                )
+            )
         out = buf.getvalue()
         self.assertIn("Created: 2", out)
         self.assertIn("Deleted: 1", out)
@@ -466,10 +473,12 @@ class TestOutlookRulesPlanProducer(unittest.TestCase):
     def test_success_no_failure_text(self):
         buf = StringIO()
         producer = OutlookRulesPlanProducer(writer=_writer(buf))
-        producer.produce(ResultEnvelope(
-            status="success",
-            payload=OutlookRulesPlanResult(would_create=0, plan_items=[]),
-        ))
+        producer.produce(
+            ResultEnvelope(
+                status="success",
+                payload=OutlookRulesPlanResult(would_create=0, plan_items=[]),
+            )
+        )
         self.assertNotIn("Failed to plan rules", buf.getvalue())
 
 
@@ -563,10 +572,12 @@ class TestOutlookRulesSweepProducer(unittest.TestCase):
     def test_success_no_failure_text(self):
         buf = StringIO()
         producer = OutlookRulesSweepProducer(dry_run=False, writer=_writer(buf))
-        producer.produce(ResultEnvelope(
-            status="success",
-            payload=OutlookRulesSweepResult(moved=0),
-        ))
+        producer.produce(
+            ResultEnvelope(
+                status="success",
+                payload=OutlookRulesSweepResult(moved=0),
+            )
+        )
         self.assertNotIn("Failed to sweep", buf.getvalue())
 
 
@@ -628,10 +639,12 @@ class TestOutlookCategoriesListProducer(unittest.TestCase):
     def test_success_no_failure_text(self):
         buf = StringIO()
         producer = OutlookCategoriesListProducer(writer=_writer(buf))
-        producer.produce(ResultEnvelope(
-            status="success",
-            payload=OutlookCategoriesListResult(categories=[]),
-        ))
+        producer.produce(
+            ResultEnvelope(
+                status="success",
+                payload=OutlookCategoriesListResult(categories=[]),
+            )
+        )
         self.assertNotIn("Failed to list categories", buf.getvalue())
 
 
@@ -674,10 +687,12 @@ class TestOutlookCategoriesExportProducer(unittest.TestCase):
     def test_success_no_failure_text(self):
         buf = StringIO()
         producer = OutlookCategoriesExportProducer(writer=_writer(buf))
-        producer.produce(ResultEnvelope(
-            status="success",
-            payload=OutlookCategoriesExportResult(count=0, out_path="/tmp/out.yaml"),  # nosec B108 - test fixture path, never written
-        ))
+        producer.produce(
+            ResultEnvelope(
+                status="success",
+                payload=OutlookCategoriesExportResult(count=0, out_path="/tmp/out.yaml"),  # nosec B108 - test fixture path, never written
+            )
+        )
         self.assertNotIn("Failed to export categories", buf.getvalue())
 
 
@@ -701,10 +716,12 @@ class TestOutlookCategoriesSyncProducer(unittest.TestCase):
     def test_dry_run(self):
         buf = StringIO()
         producer = OutlookCategoriesSyncProducer(dry_run=True, writer=_writer(buf))
-        producer.produce(ResultEnvelope(
-            status="success",
-            payload=OutlookCategoriesSyncResult(created=1, skipped=0),
-        ))
+        producer.produce(
+            ResultEnvelope(
+                status="success",
+                payload=OutlookCategoriesSyncResult(created=1, skipped=0),
+            )
+        )
         self.assertIn("[dry-run]", buf.getvalue())
         self.assertIn("Created: 1", buf.getvalue())
 
@@ -732,10 +749,12 @@ class TestOutlookCategoriesSyncProducer(unittest.TestCase):
     def test_success_no_failure_text(self):
         buf = StringIO()
         producer = OutlookCategoriesSyncProducer(writer=_writer(buf))
-        producer.produce(ResultEnvelope(
-            status="success",
-            payload=OutlookCategoriesSyncResult(created=0, skipped=0),
-        ))
+        producer.produce(
+            ResultEnvelope(
+                status="success",
+                payload=OutlookCategoriesSyncResult(created=0, skipped=0),
+            )
+        )
         self.assertNotIn("Failed to sync categories", buf.getvalue())
 
 
@@ -758,10 +777,12 @@ class TestOutlookFoldersSyncProducer(unittest.TestCase):
     def test_dry_run(self):
         buf = StringIO()
         producer = OutlookFoldersSyncProducer(dry_run=True, writer=_writer(buf))
-        producer.produce(ResultEnvelope(
-            status="success",
-            payload=OutlookFoldersSyncResult(created=3, skipped=2),
-        ))
+        producer.produce(
+            ResultEnvelope(
+                status="success",
+                payload=OutlookFoldersSyncResult(created=3, skipped=2),
+            )
+        )
         self.assertIn("[dry-run]", buf.getvalue())
         self.assertIn("Created: 3", buf.getvalue())
 
@@ -789,10 +810,12 @@ class TestOutlookFoldersSyncProducer(unittest.TestCase):
     def test_success_no_failure_text(self):
         buf = StringIO()
         producer = OutlookFoldersSyncProducer(writer=_writer(buf))
-        producer.produce(ResultEnvelope(
-            status="success",
-            payload=OutlookFoldersSyncResult(created=0, skipped=0),
-        ))
+        producer.produce(
+            ResultEnvelope(
+                status="success",
+                payload=OutlookFoldersSyncResult(created=0, skipped=0),
+            )
+        )
         self.assertNotIn("Failed to sync folders", buf.getvalue())
 
 
@@ -837,10 +860,12 @@ class TestOutlookCalendarAddProducer(unittest.TestCase):
     def test_success_no_failure_text(self):
         buf = StringIO()
         producer = OutlookCalendarAddProducer(writer=_writer(buf))
-        producer.produce(ResultEnvelope(
-            status="success",
-            payload=OutlookCalendarAddResult(event_id="e1", subject="S"),
-        ))
+        producer.produce(
+            ResultEnvelope(
+                status="success",
+                payload=OutlookCalendarAddResult(event_id="e1", subject="S"),
+            )
+        )
         self.assertNotIn("Failed to create event", buf.getvalue())
 
 
@@ -850,9 +875,7 @@ class TestOutlookCalendarAddRecurringProducer(unittest.TestCase):
     def test_success(self):
         result = ResultEnvelope(
             status="success",
-            payload=OutlookCalendarAddRecurringResult(
-                event_id="series-abc", subject="Standup"
-            ),
+            payload=OutlookCalendarAddRecurringResult(event_id="series-abc", subject="Standup"),
         )
         producer = OutlookCalendarAddRecurringProducer()
 
@@ -886,10 +909,12 @@ class TestOutlookCalendarAddRecurringProducer(unittest.TestCase):
     def test_success_no_failure_text(self):
         buf = StringIO()
         producer = OutlookCalendarAddRecurringProducer(writer=_writer(buf))
-        producer.produce(ResultEnvelope(
-            status="success",
-            payload=OutlookCalendarAddRecurringResult(event_id="e1", subject="S"),
-        ))
+        producer.produce(
+            ResultEnvelope(
+                status="success",
+                payload=OutlookCalendarAddRecurringResult(event_id="e1", subject="S"),
+            )
+        )
         self.assertNotIn("Failed to create recurring event", buf.getvalue())
 
 
@@ -932,10 +957,12 @@ class TestOutlookCalendarAddFromConfigProducer(unittest.TestCase):
     def test_success_no_failure_text(self):
         buf = StringIO()
         producer = OutlookCalendarAddFromConfigProducer(writer=_writer(buf))
-        producer.produce(ResultEnvelope(
-            status="success",
-            payload=OutlookCalendarAddFromConfigResult(created=0),
-        ))
+        producer.produce(
+            ResultEnvelope(
+                status="success",
+                payload=OutlookCalendarAddFromConfigResult(created=0),
+            )
+        )
         self.assertNotIn("Failed to add events from config", buf.getvalue())
 
 

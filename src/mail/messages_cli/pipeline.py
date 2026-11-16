@@ -1,4 +1,5 @@
 """Pipeline primitives for messages commands."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -6,8 +7,7 @@ from typing import Any
 
 from core.cli_output import OutputWriter, emit_one
 from core.date_utils import parse_iso_utc
-from core.pipeline import RequestConsumer, SafeProcessor, BaseProducer
-
+from core.pipeline import BaseProducer, RequestConsumer, SafeProcessor
 
 # -----------------------------------------------------------------------------
 # Search pipeline
@@ -89,8 +89,8 @@ class MessagesSearchProcessor(SafeProcessor[MessagesSearchRequest, MessagesSearc
         self._client = client
 
     def _process_safe(self, payload: MessagesSearchRequest) -> MessagesSearchResult:
-        from ..utils.filters import build_gmail_query
         from ..messages import candidates_from_metadata
+        from ..utils.filters import build_gmail_query
 
         crit = search_request_to_criteria(payload)
         q = build_gmail_query(crit, days=payload.days, only_inbox=payload.only_inbox)
@@ -147,8 +147,7 @@ class OutlookMessagesSearchProcessor(SafeProcessor[MessagesSearchRequest, Messag
         # candidate needs, so there is no per-message get_message round trip.
         msgs = self._client.search_inbox_message_dicts(params)
         candidates = [
-            _outlook_msg_to_candidate(msg.get("id", ""), msg)
-            for msg in msgs[:payload.max_results]
+            _outlook_msg_to_candidate(msg.get("id", ""), msg) for msg in msgs[: payload.max_results]
         ]
         return MessagesSearchResult(candidates=candidates)
 
@@ -214,10 +213,7 @@ class MessagesSearchProducer(BaseProducer):
         if self._output_json:
             # Drop None-valued keys so an UNKNOWN has_attachment (Gmail) is
             # absent rather than rendered as null/false. See MessageCandidate.
-            rows = [
-                {k: v for k, v in c.__dict__.items() if v is not None}
-                for c in candidates
-            ]
+            rows = [{k: v for k, v in c.__dict__.items() if v is not None} for c in candidates]
             emit_one(rows)
         else:
             for c in candidates:

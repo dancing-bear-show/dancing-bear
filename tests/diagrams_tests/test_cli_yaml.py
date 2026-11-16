@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import builtins
 import unittest
 from io import StringIO
 from unittest.mock import patch
 
-import builtins
 _real_import = builtins.__import__
 
 

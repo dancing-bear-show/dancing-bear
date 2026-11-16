@@ -7,7 +7,7 @@ import logging
 import os
 import tempfile
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -52,7 +52,7 @@ def _format_timestamp(epoch: int | None) -> str | None:
     """Render a unix timestamp as a UTC ISO-8601 string, or None when absent."""
     if epoch is None:
         return None
-    return datetime.fromtimestamp(epoch, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+    return datetime.fromtimestamp(epoch, tz=UTC).isoformat().replace("+00:00", "Z")
 
 
 def save_credential_value(config_path: Path, profile: str, key: str, value: str) -> None:
@@ -70,7 +70,9 @@ def save_credential_value(config_path: Path, profile: str, key: str, value: str)
     parser.set(profile, key, value)
 
     original_mode = config_path.stat().st_mode & 0o777
-    fd, tmp_name = tempfile.mkstemp(dir=str(config_path.parent), prefix=".credentials-", suffix=".tmp")
+    fd, tmp_name = tempfile.mkstemp(
+        dir=str(config_path.parent), prefix=".credentials-", suffix=".tmp"
+    )
     tmp_path = Path(tmp_name)
     try:
         os.fchmod(fd, original_mode)

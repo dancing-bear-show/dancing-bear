@@ -341,9 +341,7 @@ class TestApplyPlanReal(MemoryTestCase):
         non_canonical_archive_dir = archive_dir / Path(non_canonical.root).name
 
         self.assertTrue(non_canonical_archive_dir.is_dir())
-        archived_files = {
-            f.name for f in non_canonical_archive_dir.iterdir() if f.is_file()
-        }
+        archived_files = {f.name for f in non_canonical_archive_dir.iterdir() if f.is_file()}
         self.assertIn("shared.md", archived_files)
         self.assertEqual(
             (non_canonical_archive_dir / "shared.md").read_text(encoding="utf-8"),
@@ -636,9 +634,7 @@ class TestKeepNewest(MemoryTestCase):
         result = apply_plan(plan, archive_dest=archive, dry_run=False)
 
         self.assertEqual(winner.read_text(encoding="utf-8"), newer_text)
-        archived_texts = {
-            p.read_text(encoding="utf-8") for p in archive.rglob("*.md")
-        }
+        archived_texts = {p.read_text(encoding="utf-8") for p in archive.rglob("*.md")}
         self.assertIn(old_canonical_text, archived_texts)
         self.assertIn(str(winner), result.copied)
 
@@ -652,9 +648,7 @@ class TestKeepNewest(MemoryTestCase):
         apply_plan(plan, archive_dest=archive, dry_run=False)
 
         self.assertEqual(winner.read_text(encoding="utf-8"), canonical_text)
-        archived_texts = {
-            p.read_text(encoding="utf-8") for p in archive.rglob("*.md")
-        }
+        archived_texts = {p.read_text(encoding="utf-8") for p in archive.rglob("*.md")}
         self.assertIn(older_text, archived_texts)
 
 
@@ -696,9 +690,7 @@ class TestAbortBeforeAnyWrite(MemoryTestCase):
         archive = self.tmp / "archive_abort"
 
         with self.assertRaises(ConsolidationAborted):
-            apply_plan(
-                plan, archive_dest=archive, dry_run=False, _stdin=io.StringIO("q\n")
-            )
+            apply_plan(plan, archive_dest=archive, dry_run=False, _stdin=io.StringIO("q\n"))
 
         self.assertEqual({p.name for p in canonical_dir.iterdir()}, before)
         self.assertFalse(archive.exists())

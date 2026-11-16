@@ -36,9 +36,7 @@ def _extract_tool_result_detail(event: OTLPEvent) -> str:
     return f"{tool_name}, {outcome}{dur_str}"
 
 
-def _format_api_request_detail(
-    model: str, duration: float | None, tokens: int
-) -> str:
+def _format_api_request_detail(model: str, duration: float | None, tokens: int) -> str:
     """Format api_request detail string."""
     model_lower = model.lower()
     if "opus" in model_lower:
@@ -126,11 +124,7 @@ def _output_timeline(
         for event in record.log_records:
             if since and event.timestamp < since:
                 continue
-            sid = (
-                event.get_attr("session.id")
-                or event.get_attr("session_id")
-                or "unknown"
-            )
+            sid = event.get_attr("session.id") or event.get_attr("session_id") or "unknown"
             if sid != session_id:
                 continue
             events.append(_event_to_timeline_entry(event))

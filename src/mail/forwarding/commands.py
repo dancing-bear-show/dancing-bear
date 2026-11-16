@@ -1,27 +1,28 @@
 """Convenience orchestration helpers for forwarding commands."""
+
 from __future__ import annotations
 
 from ..context import MailContext
 from .consumers import (
-    ForwardingListConsumer,
     ForwardingAddConsumer,
-    ForwardingStatusConsumer,
-    ForwardingEnableConsumer,
     ForwardingDisableConsumer,
+    ForwardingEnableConsumer,
+    ForwardingListConsumer,
+    ForwardingStatusConsumer,
 )
 from .processors import (
-    ForwardingListProcessor,
     ForwardingAddProcessor,
-    ForwardingStatusProcessor,
-    ForwardingEnableProcessor,
     ForwardingDisableProcessor,
+    ForwardingEnableProcessor,
+    ForwardingListProcessor,
+    ForwardingStatusProcessor,
 )
 from .producers import (
-    ForwardingListProducer,
     ForwardingAddProducer,
-    ForwardingStatusProducer,
-    ForwardingEnableProducer,
     ForwardingDisableProducer,
+    ForwardingEnableProducer,
+    ForwardingListProducer,
+    ForwardingStatusProducer,
 )
 
 

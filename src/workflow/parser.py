@@ -9,13 +9,13 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
-from .models import WorkflowDefinition
 from .include import (
     FragmentContext,
-    collect_include_params,
-    _parse_include,
     _expand_includes,
+    _parse_include,
+    collect_include_params,
 )
+from .models import WorkflowDefinition
 from .param_rules import check_rules_declared
 from .parser_errors import WorkflowParseError
 from .parser_fields import _parse_stage, _parse_trigger
@@ -56,6 +56,7 @@ def parse_workflow_str(content: str, source: str = "<string>") -> WorkflowDefini
     Useful for testing. *source* is used in error messages.
     """
     import yaml  # lazy — optional dep
+
     try:
         data = yaml.safe_load(content)
     except yaml.YAMLError as exc:
@@ -77,7 +78,9 @@ def parse_workflow_str(content: str, source: str = "<string>") -> WorkflowDefini
 
     raw_includes = data.get("include") or []
     if not isinstance(raw_includes, list):
-        raise WorkflowParseError(f"{source}: 'include' must be a list, got {type(raw_includes).__name__}")
+        raise WorkflowParseError(
+            f"{source}: 'include' must be a list, got {type(raw_includes).__name__}"
+        )
     includes = tuple(_parse_include(inc, source) for inc in raw_includes)
     if includes:
         source_path = Path(source) if source != "<string>" else None

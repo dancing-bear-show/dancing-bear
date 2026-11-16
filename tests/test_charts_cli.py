@@ -12,7 +12,6 @@ from io import StringIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -252,6 +251,7 @@ class TestHandleRenderViaMain(unittest.TestCase):
                 with patch("charts.renderer.render_chart", mock_render):
                     with patch("sys.stdout", stdout):
                         from charts.cli import main
+
                         rc = main(["render", "--input", path, "--output", "out/chart.png"])
             self.assertEqual(rc, 0)
             mock_render.assert_called_once()
@@ -261,8 +261,10 @@ class TestHandleRenderViaMain(unittest.TestCase):
     def test_grid_subcommand_happy_path_exits_0(self):
         """main() grid subcommand: patch render_grid, expect exit 0."""
         import tempfile
+
         try:
             import yaml
+
             _have_yaml = True
         except ImportError:
             _have_yaml = False
@@ -279,6 +281,7 @@ class TestHandleRenderViaMain(unittest.TestCase):
         }
         if _have_yaml:
             import yaml
+
             cfg_content = yaml.dump(grid_raw)
             suffix = ".yaml"
         else:
@@ -301,6 +304,7 @@ class TestHandleRenderViaMain(unittest.TestCase):
                 with patch("charts.renderer.render_grid", mock_render_grid):
                     with patch("sys.stdout", stdout):
                         from charts.cli import main
+
                         rc = main(["grid", "--config", cfg_path])
             self.assertEqual(rc, 0)
             mock_render_grid.assert_called_once()
@@ -330,6 +334,7 @@ class TestHandleGrid(unittest.TestCase):
             err = StringIO()
             with patch("sys.stderr", err):
                 from charts.cli import main
+
                 main(["grid"])
         self.assertNotEqual(cm.exception.code, 0)
 

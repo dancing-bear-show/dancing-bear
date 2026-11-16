@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
 
 
 class Tier(str, Enum):
@@ -95,9 +94,9 @@ class Finding:
     source: Source
     wire_format: WireFormat
     tool: str = ""
-    value: Optional[int] = None
+    value: int | None = None
     other_locations: tuple[Location, ...] = field(default_factory=tuple)
-    group_key: Optional[str] = None
+    group_key: str | None = None
 
     @property
     def file(self) -> str:

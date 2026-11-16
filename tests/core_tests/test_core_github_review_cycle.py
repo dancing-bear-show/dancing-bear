@@ -25,8 +25,14 @@ ACTOR = "alice"
 
 def _thread(tid: str, *comments: dict[str, Any], resolved: bool = False) -> dict[str, Any]:
     return {
-        "id": tid, "isResolved": resolved, "isOutdated": False, "isCollapsed": False,
-        "path": "src/a.py", "line": 3, "startLine": None, "diffSide": "RIGHT",
+        "id": tid,
+        "isResolved": resolved,
+        "isOutdated": False,
+        "isCollapsed": False,
+        "path": "src/a.py",
+        "line": 3,
+        "startLine": None,
+        "diffSide": "RIGHT",
         "comments": {
             "totalCount": len(comments),
             "pageInfo": {"hasNextPage": False, "endCursor": None},
@@ -51,27 +57,51 @@ class Scripted:
 
     def __call__(self, call: GhCall):
         if "reviewThreads" in call.query:
-            return ok({"data": {"repository": {"pullRequest": {"reviewThreads": {
-                "totalCount": self.total,
-                "pageInfo": {"hasNextPage": False, "endCursor": None},
-                "nodes": self.nodes,
-            }}}}})
+            return ok(
+                {
+                    "data": {
+                        "repository": {
+                            "pullRequest": {
+                                "reviewThreads": {
+                                    "totalCount": self.total,
+                                    "pageInfo": {"hasNextPage": False, "endCursor": None},
+                                    "nodes": self.nodes,
+                                }
+                            }
+                        }
+                    }
+                }
+            )
         if "addPullRequestReviewThreadReply" in call.query:
             tid = call.value("threadId") or ""
             if tid in self.reply_fail:
                 return ok({"data": None, "errors": [{"message": "reply refused"}]})
-            return ok({"data": {"addPullRequestReviewThreadReply": {"comment": {"id": f"C_{tid}", "url": "u"}}}})
+            return ok(
+                {
+                    "data": {
+                        "addPullRequestReviewThreadReply": {
+                            "comment": {"id": f"C_{tid}", "url": "u"}
+                        }
+                    }
+                }
+            )
         if "resolveReviewThread" in call.query:
             tid = call.value("threadId") or ""
             resolved = tid not in self.resolve_fail
-            return ok({"data": {"resolveReviewThread": {"thread": {"id": tid, "isResolved": resolved}}}})
+            return ok(
+                {"data": {"resolveReviewThread": {"thread": {"id": tid, "isResolved": resolved}}}}
+            )
         if "viewer" in call.query:
             return ok({"data": {"viewer": {"login": ACTOR}}})
         if "--paginate" in call.argv:
             return ok([[]])
         if "requested_reviewers" in " ".join(call.argv):
             if self.request_rc:
-                return ok("", returncode=self.request_rc, stderr="HTTP 422: Reviews may only be requested from collaborators")
+                return ok(
+                    "",
+                    returncode=self.request_rc,
+                    stderr="HTTP 422: Reviews may only be requested from collaborators",
+                )
             return ok({"number": 7, "requested_reviewers": [{"login": "Copilot"}]})
         raise AssertionError(f"unexpected gh call {call.argv}")
 
@@ -96,7 +126,9 @@ class TestCopilotSwitch(unittest.TestCase):
 
     def test_false_values_disable(self):
         for raw in ("0", "false", "OFF", "no"):
-            self.assertFalse(copilot.copilot_review_switch({copilot.COPILOT_REVIEW_ENV: raw}).enabled)
+            self.assertFalse(
+                copilot.copilot_review_switch({copilot.COPILOT_REVIEW_ENV: raw}).enabled
+            )
 
     def test_typo_stays_enabled_with_warning(self):
         got = copilot.copilot_review_switch({copilot.COPILOT_REVIEW_ENV: "flase"})
@@ -106,8 +138,12 @@ class TestCopilotSwitch(unittest.TestCase):
 
 class TestCopilotThreadSelection(unittest.TestCase):
     def _entry(self, login: str, kind: str, **over: Any) -> dict[str, Any]:
-        entry = {"source": "graphql-thread", "thread_id": "T", "is_resolved": False,
-                 "comments": [{"author": login, "author_kind": kind}]}
+        entry = {
+            "source": "graphql-thread",
+            "thread_id": "T",
+            "is_resolved": False,
+            "comments": [{"author": login, "author_kind": kind}],
+        }
         entry.update(over)
         return entry
 
@@ -122,7 +158,11 @@ class TestCopilotThreadSelection(unittest.TestCase):
         self.assertFalse(copilot.is_copilot_thread(self._entry("github-code-quality", "bot")))
 
     def test_rest_entry_and_empty_thread_do_not_match(self):
-        self.assertFalse(copilot.is_copilot_thread(self._entry(COPILOT, "bot", source="review-body", thread_id=None)))
+        self.assertFalse(
+            copilot.is_copilot_thread(
+                self._entry(COPILOT, "bot", source="review-body", thread_id=None)
+            )
+        )
         self.assertFalse(copilot.is_copilot_thread(self._entry(COPILOT, "bot", comments=[])))
 
     def test_resolved_filtered_unless_asked(self):
@@ -135,9 +175,15 @@ class TestCopilotThreadSelection(unittest.TestCase):
 
     def test_mixed_author_thread_is_in_skipped_not_selected(self):
         """A Copilot-opened thread with a human reply is skipped, not selected."""
-        entry = {"source": "graphql-thread", "thread_id": "T", "is_resolved": False,
-                 "comments": [{"author": COPILOT, "author_kind": "bot"},
-                               {"author": "alice", "author_kind": "human"}]}
+        entry = {
+            "source": "graphql-thread",
+            "thread_id": "T",
+            "is_resolved": False,
+            "comments": [
+                {"author": COPILOT, "author_kind": "bot"},
+                {"author": "alice", "author_kind": "human"},
+            ],
+        }
         doc = {"threads": [entry]}
         selected, skipped = copilot.copilot_threads(doc)
         self.assertEqual(selected, [])
@@ -188,12 +234,14 @@ class TestRunReviewCycle(unittest.TestCase):
         return review_cycle.run_review_cycle(gh, "octo-org", "demo-repo", 7, opts), fake
 
     def test_only_unresolved_copilot_threads_are_replied_and_resolved(self):
-        script = Scripted([
-            _copilot_thread("CP1"),
-            _copilot_thread("CP_DONE", resolved=True),
-            _thread("HUMAN", comment_node(2, "bob", "User")),
-            _thread("IMPOSTOR", comment_node(3, COPILOT, "User")),
-        ])
+        script = Scripted(
+            [
+                _copilot_thread("CP1"),
+                _copilot_thread("CP_DONE", resolved=True),
+                _thread("HUMAN", comment_node(2, "bob", "User")),
+                _thread("IMPOSTOR", comment_node(3, COPILOT, "User")),
+            ]
+        )
         result, fake = self._run(script)
         self.assertEqual(_mutations(fake, "addPullRequestReviewThreadReply"), ["CP1"])
         self.assertEqual(_mutations(fake, "resolveReviewThread"), ["CP1"])
@@ -250,7 +298,9 @@ class TestRunReviewCycle(unittest.TestCase):
 
     def test_run_id_retry_still_skips_unmarked_viewer_comment(self):
         """A viewer comment without this run's marker is a human follow-up, not a retry."""
-        other = comment_node(9, ACTOR, "User", body="Fixed.\n\n" + mutations.run_marker("other-run"))
+        other = comment_node(
+            9, ACTOR, "User", body="Fixed.\n\n" + mutations.run_marker("other-run")
+        )
         result, fake = self._run(Scripted([_copilot_thread("CP1", other)]), run_id="r1")
         self.assertEqual(_mutations(fake, "addPullRequestReviewThreadReply"), [])
         self.assertEqual(_mutations(fake, "resolveReviewThread"), [])
@@ -271,13 +321,17 @@ class TestRunReviewCycle(unittest.TestCase):
         script = Scripted([_copilot_thread("CP1")], total=5)
         gh, fake = _gh(script)
         with self.assertRaisesRegex(GhError, "incomplete"):
-            review_cycle.run_review_cycle(gh, "octo-org", "demo-repo", 7, review_cycle.CycleOptions(body="x"))
+            review_cycle.run_review_cycle(
+                gh, "octo-org", "demo-repo", 7, review_cycle.CycleOptions(body="x")
+            )
         self.assertEqual(fake.graphql_calls("mutation"), [])
 
     def test_empty_body_raises_before_any_call(self):
         gh, fake = _gh(Scripted([]))
         with self.assertRaises(GhError):
-            review_cycle.run_review_cycle(gh, "octo-org", "demo-repo", 7, review_cycle.CycleOptions(body="  \n"))
+            review_cycle.run_review_cycle(
+                gh, "octo-org", "demo-repo", 7, review_cycle.CycleOptions(body="  \n")
+            )
         self.assertEqual(fake.calls, [])
 
     def test_kill_switch_skips_request(self):

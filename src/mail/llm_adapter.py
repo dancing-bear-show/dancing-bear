@@ -4,8 +4,8 @@ Defaults to a heuristic (extractive) summary to avoid optional deps.
 If an external LLM is configured via environment variables, this module can
 be extended to call out to that provider. Keep imports lazy.
 """
-from __future__ import annotations
 
+from __future__ import annotations
 
 
 def _take_sentences_within_budget(parts: list[str], max_words: int) -> list[str]:
@@ -63,4 +63,3 @@ def summarize_text(
         # Prepend brief instruction context to guide interpretation when used
         return f"Summary: {summary}"
     return summary
-

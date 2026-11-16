@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from tests.fixtures import test_path
 import argparse
 import unittest
-from unittest.mock import MagicMock, patch
 from io import StringIO
+from unittest.mock import MagicMock, patch
+
+from tests.fixtures import test_path
 
 
 class TestRunOutlookCalendarAddRecurring(unittest.TestCase):
@@ -40,6 +41,7 @@ class TestRunOutlookCalendarAddRecurring(unittest.TestCase):
 
     def test_requires_until_or_count(self):
         from mail.outlook.commands import run_outlook_calendar_add_recurring
+
         args = self._make_args(until=None, count=None)
         with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
             result = run_outlook_calendar_add_recurring(args)
@@ -48,6 +50,7 @@ class TestRunOutlookCalendarAddRecurring(unittest.TestCase):
 
     def test_weekly_requires_byday(self):
         from mail.outlook.commands import run_outlook_calendar_add_recurring
+
         args = self._make_args(repeat="weekly", until="2024-12-31", byday=None)
         with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
             result = run_outlook_calendar_add_recurring(args)
@@ -57,13 +60,20 @@ class TestRunOutlookCalendarAddRecurring(unittest.TestCase):
     @patch("mail.outlook.commands.get_outlook_client")
     def test_parses_byday_string(self, mock_get_client):
         from mail.outlook.commands import run_outlook_calendar_add_recurring
+
         mock_client = MagicMock()
         mock_get_client.return_value = (mock_client, 0)
 
         # Mock the consumer/processor/producer chain
-        with patch("mail.outlook.commands.OutlookCalendarAddRecurringConsumer") as mock_consumer_cls:
-            with patch("mail.outlook.commands.OutlookCalendarAddRecurringProcessor") as mock_proc_cls:
-                with patch("mail.outlook.commands.OutlookCalendarAddRecurringProducer") as mock_prod_cls:
+        with patch(
+            "mail.outlook.commands.OutlookCalendarAddRecurringConsumer"
+        ) as mock_consumer_cls:
+            with patch(
+                "mail.outlook.commands.OutlookCalendarAddRecurringProcessor"
+            ) as mock_proc_cls:
+                with patch(
+                    "mail.outlook.commands.OutlookCalendarAddRecurringProducer"
+                ) as mock_prod_cls:
                     mock_consumer = MagicMock()
                     mock_consumer.consume.return_value = {}
                     mock_consumer_cls.return_value = mock_consumer
@@ -108,6 +118,7 @@ class TestRunOutlookRulesList(unittest.TestCase):
     @patch("mail.outlook.commands.get_outlook_client")
     def test_returns_error_when_client_fails(self, mock_get_client):
         from mail.outlook.commands import run_outlook_rules_list
+
         mock_get_client.return_value = (None, 1)
         args = self._make_args()
         result = run_outlook_rules_list(args)
@@ -116,6 +127,7 @@ class TestRunOutlookRulesList(unittest.TestCase):
     @patch("mail.outlook.commands.get_outlook_client")
     def test_executes_pipeline(self, mock_get_client):
         from mail.outlook.commands import run_outlook_rules_list
+
         mock_client = MagicMock()
         mock_get_client.return_value = (mock_client, 0)
 
@@ -162,6 +174,7 @@ class TestRunOutlookRulesSync(unittest.TestCase):
     @patch("mail.outlook.commands.get_outlook_client")
     def test_passes_sync_options(self, mock_get_client):
         from mail.outlook.commands import run_outlook_rules_sync
+
         mock_client = MagicMock()
         mock_get_client.return_value = (mock_client, 0)
 
@@ -213,6 +226,7 @@ class TestRunOutlookCategoriesSync(unittest.TestCase):
     @patch("mail.outlook.commands.get_outlook_client")
     def test_returns_error_when_client_fails(self, mock_get_client):
         from mail.outlook.commands import run_outlook_categories_sync
+
         mock_get_client.return_value = (None, 1)
         args = self._make_args()
         result = run_outlook_categories_sync(args)
@@ -223,6 +237,7 @@ class TestRunOutlookCategoriesSync(unittest.TestCase):
     @patch("mail.dsl.normalize_labels_for_outlook")
     def test_dry_run_does_not_create(self, mock_normalize, mock_load, mock_get_client):
         from mail.outlook.commands import run_outlook_categories_sync
+
         mock_client = MagicMock()
         mock_client.list_labels.return_value = []
         mock_get_client.return_value = (mock_client, 0)
@@ -263,6 +278,7 @@ class TestRunOutlookCalendarAdd(unittest.TestCase):
     @patch("mail.outlook.commands.get_outlook_client")
     def test_returns_error_when_client_fails(self, mock_get_client):
         from mail.outlook.commands import run_outlook_calendar_add
+
         mock_get_client.return_value = (None, 1)
         args = self._make_args()
         result = run_outlook_calendar_add(args)
@@ -271,6 +287,7 @@ class TestRunOutlookCalendarAdd(unittest.TestCase):
     @patch("mail.outlook.commands.get_outlook_client")
     def test_creates_event_with_args(self, mock_get_client):
         from mail.outlook.commands import run_outlook_calendar_add
+
         mock_client = MagicMock()
         mock_get_client.return_value = (mock_client, 0)
 
@@ -321,6 +338,7 @@ class TestRunOutlookAuthDeviceCode(unittest.TestCase):
     @patch("mail.outlook.auth_commands.resolve_outlook_credentials")
     def test_fails_without_client_id(self, mock_resolve):
         from mail.outlook.commands import run_outlook_auth_device_code
+
         mock_resolve.return_value = (None, "consumers", None)
         args = self._make_args()
         with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
@@ -345,6 +363,7 @@ class TestRunOutlookAuthValidate(unittest.TestCase):
     @patch("mail.outlook.auth_commands.resolve_outlook_credentials")
     def test_fails_without_client_id(self, mock_resolve):
         from mail.outlook.commands import run_outlook_auth_validate
+
         mock_resolve.return_value = (None, "consumers", test_path("token.json"))  # nosec B108 - test fixture path
         args = self._make_args()
         with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
@@ -371,6 +390,7 @@ class TestRunOutlookFoldersSync(unittest.TestCase):
     @patch("mail.outlook.commands.get_outlook_client")
     def test_returns_error_when_client_fails(self, mock_get_client):
         from mail.outlook.commands import run_outlook_folders_sync
+
         mock_get_client.return_value = (None, 1)
         args = self._make_args()
         result = run_outlook_folders_sync(args)
@@ -379,6 +399,7 @@ class TestRunOutlookFoldersSync(unittest.TestCase):
     @patch("mail.outlook.commands.get_outlook_client")
     def test_passes_dry_run_flag(self, mock_get_client):
         from mail.outlook.commands import run_outlook_folders_sync
+
         mock_client = MagicMock()
         mock_get_client.return_value = (mock_client, 0)
 

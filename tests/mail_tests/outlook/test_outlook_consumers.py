@@ -1,43 +1,41 @@
 """Tests for mail/outlook/consumers.py."""
 
-from tests.fixtures import test_path
 import unittest
 from unittest.mock import Mock
 
 from mail.outlook.consumers import (
-    # Payload dataclasses
-    OutlookRulesListPayload,
-    OutlookRulesExportPayload,
-    OutlookRulesSyncPayload,
-    OutlookRulesSweepPayload,
-    OutlookCategoriesListPayload,
-    OutlookCategoriesExportPayload,
-    OutlookFoldersSyncPayload,
+    OutlookCalendarAddConsumer,
+    OutlookCalendarAddFromConfigConsumer,
     OutlookCalendarAddPayload,
+    OutlookCalendarAddRecurringConsumer,
     OutlookCalendarAddRecurringPayload,
-    OutlookRulesListConsumer,
-    OutlookRulesExportConsumer,
-    OutlookRulesSyncConsumer,
-    OutlookRulesDeleteConsumer,
-    OutlookRulesSweepConsumer,
-    OutlookCategoriesListConsumer,
     OutlookCategoriesExportConsumer,
+    OutlookCategoriesExportPayload,
+    OutlookCategoriesListConsumer,
+    OutlookCategoriesListPayload,
     OutlookCategoriesSyncConsumer,
     OutlookFoldersSyncConsumer,
-    OutlookCalendarAddConsumer,
-    OutlookCalendarAddRecurringConsumer,
-    OutlookCalendarAddFromConfigConsumer,
-)
-from mail.outlook.consumers import (
-    _BaseCachedListConsumer,
+    OutlookFoldersSyncPayload,
+    OutlookRulesDeleteConsumer,
+    OutlookRulesExportConsumer,
+    OutlookRulesExportPayload,
+    OutlookRulesListConsumer,
+    # Payload dataclasses
+    OutlookRulesListPayload,
+    OutlookRulesSweepConsumer,
+    OutlookRulesSweepPayload,
+    OutlookRulesSyncConsumer,
+    OutlookRulesSyncPayload,
     _BaseCachedExportConsumer,
+    _BaseCachedListConsumer,
     _BaseSyncConsumer,
 )
-
+from tests.fixtures import test_path
 
 # =============================================================================
 # Payload Dataclass Tests
 # =============================================================================
+
 
 class TestOutlookRulesListPayload(unittest.TestCase):
     """Tests for OutlookRulesListPayload."""
@@ -222,6 +220,7 @@ class TestOutlookCalendarAddRecurringPayload(unittest.TestCase):
 # Base Consumer Class Tests
 # =============================================================================
 
+
 class TestBaseCachedListConsumer(unittest.TestCase):
     """Tests for _BaseCachedListConsumer base class."""
 
@@ -266,10 +265,7 @@ class TestBaseCachedExportConsumer(unittest.TestCase):
         """Test initialization with custom cache parameters."""
         client = Mock()
         consumer = _BaseCachedExportConsumer(
-            client=client,
-            out_path="/custom/path.yaml",
-            use_cache=True,
-            cache_ttl=120
+            client=client, out_path="/custom/path.yaml", use_cache=True, cache_ttl=120
         )
         self.assertEqual(consumer._out_path, "/custom/path.yaml")
         self.assertTrue(consumer._use_cache)
@@ -314,6 +310,7 @@ class TestBaseSyncConsumer(unittest.TestCase):
 # =============================================================================
 # Consumer Class Tests
 # =============================================================================
+
 
 class TestOutlookRulesListConsumer(unittest.TestCase):
     """Tests for OutlookRulesListConsumer."""
@@ -434,10 +431,7 @@ class TestOutlookCategoriesExportConsumer(unittest.TestCase):
         """Test that it inherits cache and path from base class."""
         client = Mock()
         consumer = OutlookCategoriesExportConsumer(
-            client=client,
-            out_path="/export.yaml",
-            use_cache=True,
-            cache_ttl=240
+            client=client, out_path="/export.yaml", use_cache=True, cache_ttl=240
         )
         payload = consumer.consume()
         self.assertEqual(payload.out_path, "/export.yaml")

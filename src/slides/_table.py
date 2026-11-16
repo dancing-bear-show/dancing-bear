@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Protocol
 
+from slides._styling import TextStyle
 from slides.constants import (
     CONTENT_BOTTOM_MARGIN,
     CONTENT_LEFT,
@@ -25,7 +26,6 @@ from slides.constants import (
     table_row_odd_bg,
     vertical_anchor_middle,
 )
-from slides._styling import TextStyle
 from slides.schema import ResolvedBullet, TableSlide
 
 if TYPE_CHECKING:
@@ -46,13 +46,16 @@ class _TableHost(Protocol):
         self,
         run: object,
         *,
-        font_size: "Pt | int | None" = ...,
-        theme_color: "MSO_THEME_COLOR | int | None" = ...,
+        font_size: Pt | int | None = ...,
+        theme_color: MSO_THEME_COLOR | int | None = ...,
         bold: bool | None = ...,
     ) -> None: ...
     def _format_bullet_text(self, text: str, level: int) -> str: ...
     def _add_text_to_paragraph(
-        self, paragraph: object, text: str, style: TextStyle,
+        self,
+        paragraph: object,
+        text: str,
+        style: TextStyle,
     ) -> None: ...
 
     # --- From ContentMixin ---
@@ -60,7 +63,10 @@ class _TableHost(Protocol):
 
     # --- From ShapeUtilsMixin ---
     def _remove_unused_placeholders(
-        self, slide: object, *, keep_body: bool = ...,
+        self,
+        slide: object,
+        *,
+        keep_body: bool = ...,
     ) -> None: ...
     def _find_shape(
         self,
@@ -73,14 +79,23 @@ class _TableHost(Protocol):
 
     # --- TableMixin's own methods (called between annotated methods) ---
     def _normalize_table_rows(
-        self, rows: list[list[object]], num_cols: int,
+        self,
+        rows: list[list[object]],
+        num_cols: int,
     ) -> list[list[object]]: ...
     def _set_table_column_widths(
-        self, table: object, num_cols: int, total_width: object, first_col_width: float | None,
+        self,
+        table: object,
+        num_cols: int,
+        total_width: object,
+        first_col_width: float | None,
     ) -> None: ...
     def _style_table_header(self, table: object, headers: list[str], theme_color: Any) -> None: ...
     def _style_table_data_rows(
-        self, table: object, rows: list[list[object]], theme_color: Any,
+        self,
+        table: object,
+        rows: list[list[object]],
+        theme_color: Any,
     ) -> None: ...
     def _add_table_to_slide(
         self,
@@ -92,7 +107,11 @@ class _TableHost(Protocol):
         top_override: float | None = ...,
     ) -> None: ...
     def _add_bullets_below(
-        self, slide: object, bullets: Any, theme_color: Any, top_inches: float,
+        self,
+        slide: object,
+        bullets: Any,
+        theme_color: Any,
+        top_inches: float,
     ) -> None: ...
 
 
@@ -117,7 +136,7 @@ class TableMixin:
         for row in rows:
             if not row:
                 continue
-            padded = row[:] + [''] * (num_cols - len(row))
+            padded = row[:] + [""] * (num_cols - len(row))
             normalized.append(padded[:num_cols])
         return normalized
 
@@ -149,7 +168,7 @@ class TableMixin:
             for i in range(num_cols):
                 table.columns[i].width = col_width
 
-    def _style_table_header(self: "_TableHost", table, headers: list[str], theme_color) -> None:
+    def _style_table_header(self: _TableHost, table, headers: list[str], theme_color) -> None:
         """Style the header row of a table.
 
         Args:
@@ -179,7 +198,9 @@ class TableMixin:
                         bold=True,
                     )
 
-    def _style_table_data_rows(self: "_TableHost", table, rows: list[list[object]], theme_color) -> None:
+    def _style_table_data_rows(
+        self: _TableHost, table, rows: list[list[object]], theme_color
+    ) -> None:
         """Style data rows with alternating background colors.
 
         Args:
@@ -213,10 +234,12 @@ class TableMixin:
                     run.font.color.rgb = sev_color
                     run.font.bold = True
                 else:
-                    self._style_run(run, font_size=Pt(FONT_SIZE_TABLE_CELL), theme_color=theme_color)
+                    self._style_run(
+                        run, font_size=Pt(FONT_SIZE_TABLE_CELL), theme_color=theme_color
+                    )
 
     def _add_table_to_slide(
-        self: "_TableHost",
+        self: _TableHost,
         slide,
         headers: list[str],
         rows: list[list[object]],
@@ -248,22 +271,28 @@ class TableMixin:
         num_rows = len(rows) + 1  # +1 for header
         width = Inches(TABLE_WIDTH)
         table = slide.shapes.add_table(
-            num_rows, num_cols, Inches(TABLE_LEFT), Inches(top),
-            width, Inches(TABLE_ROW_HEIGHT * num_rows),
+            num_rows,
+            num_cols,
+            Inches(TABLE_LEFT),
+            Inches(top),
+            width,
+            Inches(TABLE_ROW_HEIGHT * num_rows),
         ).table
 
         self._set_table_column_widths(table, num_cols, width, first_col_width)
         self._style_table_header(table, headers, theme_color)
         self._style_table_data_rows(table, rows, theme_color)
 
-    def _add_bullets_below(self: "_TableHost", slide, bullets, theme_color, top_inches) -> None:
+    def _add_bullets_below(self: _TableHost, slide, bullets, theme_color, top_inches) -> None:
         """Add a text box with bullets below a table on the same slide."""
         from pptx.util import Inches, Pt
 
         remaining_height = max(SLIDE_HEIGHT - CONTENT_BOTTOM_MARGIN - top_inches, 0.5)
         text_box = slide.shapes.add_textbox(
-            Inches(CONTENT_LEFT), Inches(top_inches),
-            Inches(CONTENT_WIDTH), Inches(remaining_height),
+            Inches(CONTENT_LEFT),
+            Inches(top_inches),
+            Inches(CONTENT_WIDTH),
+            Inches(remaining_height),
         )
         tf = text_box.text_frame
         tf.word_wrap = True
@@ -296,7 +325,7 @@ class TableMixin:
             p.space_before = Pt(SPACING_BEFORE_BULLET)
             p.space_after = Pt(SPACING_AFTER_BULLET)
 
-    def _populate_table_slide(self: "_TableHost", slide, content: TableSlide, theme_color) -> None:
+    def _populate_table_slide(self: _TableHost, slide, content: TableSlide, theme_color) -> None:
         """Populate a slide with table content, and optional bullets below."""
         from pptx.enum.shapes import MSO_SHAPE_TYPE
         from pptx.enum.text import PP_ALIGN
@@ -305,7 +334,8 @@ class TableMixin:
         self._remove_unused_placeholders(slide)
         # Remove text boxes that conflict with the table
         text_boxes = [
-            s for s in slide.shapes
+            s
+            for s in slide.shapes
             if not s.is_placeholder and s.shape_type == MSO_SHAPE_TYPE.TEXT_BOX
         ]
         for shape in text_boxes:

@@ -21,15 +21,21 @@ from unittest.mock import patch
 
 from tests.agentic_builder_contract import AgenticBuilderContractMixin
 from tests.agentic_cli_contract import AgenticCLIContractMixin
-from tests.cli_separator_contract import SeparatorContractMixin
 from tests.cli_no_subcommand_contract import NoSubcommandContractMixin
-
+from tests.cli_separator_contract import SeparatorContractMixin
 
 #: Subcommands a workflow stage branches on by exit status. Their flags are
 #: derived from the parser below; only the command names are listed.
 _GUARD_COMMANDS = (
-    "check-params", "check-fix-index", "thread-fingerprints", "check-thread-ids",
-    "aggregate-fix-results", "parse-overview", "check-paths", "snapshot-dirty", "check-unlisted",
+    "check-params",
+    "check-fix-index",
+    "thread-fingerprints",
+    "check-thread-ids",
+    "aggregate-fix-results",
+    "parse-overview",
+    "check-paths",
+    "snapshot-dirty",
+    "check-unlisted",
 )
 
 
@@ -146,7 +152,6 @@ class TestWorkflowMainAgenticExtra(unittest.TestCase):
         self.assertIn("Usage: workflow", stderr_buf.getvalue())
 
 
-
 class TestWorkflowSeparatorCLI(SeparatorContractMixin, unittest.TestCase):
     """The shared ``--`` separator contract."""
 
@@ -161,6 +166,7 @@ class TestWorkflowNoSubcommand(NoSubcommandContractMixin, unittest.TestCase):
     MODULE_PATH = "workflow.cli"
     EXPECTED_RC = 2
     EXPECTED_STREAM = "stderr"
+
 
 if __name__ == "__main__":
     unittest.main()

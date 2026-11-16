@@ -1,4 +1,5 @@
 """Outlook calendar command implementations."""
+
 from __future__ import annotations
 
 import argparse
@@ -10,64 +11,64 @@ from core.auth import build_outlook_service_from_args
 from core.collections import dedupe
 from core.date_utils import DAY_MAP
 from core.pipeline import BaseProducer, SafeProcessor, run_pipeline
-from ..outlook_service import EventCreationParams, RecurringEventCreationParams
 
 from ..outlook_pipelines import (
-    OutlookAddProcessor,
-    OutlookAddProducer,
-    OutlookAddRequest,
-    OutlookAddEventProcessor,
-    OutlookAddEventProducer,
-    OutlookAddEventRequest,
-    OutlookAddRecurringProcessor,
-    OutlookAddRecurringProducer,
-    OutlookAddRecurringRequest,
-    OutlookDedupProcessor,
-    OutlookDedupProducer,
-    OutlookDedupRequest,
-    OutlookRemoveProcessor,
-    OutlookRemoveProducer,
-    OutlookRemoveRequest,
-    OutlookRemindersProcessor,
-    OutlookRemindersProducer,
-    OutlookRemindersRequest,
-    OutlookSettingsProcessor,
-    OutlookSettingsProducer,
-    OutlookSettingsRequest,
-    OutlookScheduleImportProcessor,
-    OutlookScheduleImportProducer,
-    OutlookScheduleImportRequest,
-    OutlookListOneOffsProcessor,
-    OutlookListOneOffsProducer,
-    OutlookListOneOffsRequest,
-    OutlookCalendarShareProcessor,
-    OutlookCalendarShareProducer,
-    OutlookCalendarShareRequest,
-    OutlookLocationsApplyProcessor,
-    OutlookLocationsProducer,
-    OutlookLocationsRequest,
-    OutlookLocationsUpdateProcessor,
-    OutlookLocationsEnrichProcessor,
-    OutlookLocationsEnrichProducer,
-    OutlookLocationsEnrichRequest,
-    OutlookVerifyProcessor,
-    OutlookVerifyProducer,
-    OutlookVerifyRequest,
-    OutlookMailListProcessor,
-    OutlookMailListProducer,
-    OutlookMailListRequest,
-    OutlookExportProcessor,
-    OutlookExportProducer,
-    OutlookExportRequest,
     IcsDraftProcessor,
     IcsDraftProducer,
     IcsDraftRequest,
+    OutlookAddEventProcessor,
+    OutlookAddEventProducer,
+    OutlookAddEventRequest,
+    OutlookAddProcessor,
+    OutlookAddProducer,
+    OutlookAddRecurringProcessor,
+    OutlookAddRecurringProducer,
+    OutlookAddRecurringRequest,
+    OutlookAddRequest,
+    OutlookCalendarShareProcessor,
+    OutlookCalendarShareProducer,
+    OutlookCalendarShareRequest,
+    OutlookDedupProcessor,
+    OutlookDedupProducer,
+    OutlookDedupRequest,
+    OutlookExportProcessor,
+    OutlookExportProducer,
+    OutlookExportRequest,
+    OutlookListOneOffsProcessor,
+    OutlookListOneOffsProducer,
+    OutlookListOneOffsRequest,
+    OutlookLocationsApplyProcessor,
+    OutlookLocationsEnrichProcessor,
+    OutlookLocationsEnrichProducer,
+    OutlookLocationsEnrichRequest,
+    OutlookLocationsProducer,
+    OutlookLocationsRequest,
+    OutlookLocationsUpdateProcessor,
+    OutlookMailListProcessor,
+    OutlookMailListProducer,
+    OutlookMailListRequest,
+    OutlookRemindersProcessor,
+    OutlookRemindersProducer,
+    OutlookRemindersRequest,
+    OutlookRemoveProcessor,
+    OutlookRemoveProducer,
+    OutlookRemoveRequest,
+    OutlookScheduleImportProcessor,
+    OutlookScheduleImportProducer,
+    OutlookScheduleImportRequest,
+    OutlookSettingsProcessor,
+    OutlookSettingsProducer,
+    OutlookSettingsRequest,
+    OutlookVerifyProcessor,
+    OutlookVerifyProducer,
+    OutlookVerifyRequest,
 )
+from ..outlook_service import EventCreationParams, RecurringEventCreationParams
 from ..scan_common import (
     RANGE_PAT,
     html_to_text,
-    norm_time,
     infer_meta_from_text,
+    norm_time,
 )
 
 
@@ -189,7 +190,8 @@ def run_outlook_add_recurring(args: argparse.Namespace) -> int:
         count=getattr(args, "count", None),
         body_html=getattr(args, "body_html", None),
         location=getattr(args, "location", None),
-        exdates=[s.strip() for s in str(getattr(args, "exdates", "") or "").split(",") if s.strip()] or None,
+        exdates=[s.strip() for s in str(getattr(args, "exdates", "") or "").split(",") if s.strip()]
+        or None,
         no_reminder=bool(getattr(args, "no_reminder", False)),
         reminder_minutes=getattr(args, "reminder_minutes", None),
     )
@@ -276,7 +278,7 @@ def run_outlook_list_one_offs(args: argparse.Namespace) -> int:
         from_date=getattr(args, "from_date", None),
         to_date=getattr(args, "to_date", None),
         limit=int(getattr(args, "limit", 200) or 200),
-        out_path=Path(getattr(args, "out")) if getattr(args, "out", None) else None,
+        out_path=Path(args.out) if getattr(args, "out", None) else None,
     )
     return run_pipeline(request, OutlookListOneOffsProcessor, OutlookListOneOffsProducer)
 
@@ -383,17 +385,25 @@ def _scan_extract_from_message(msg: dict, calendar: str | None) -> list:
         byday = [DAY_MAP.get(day_raw, day_raw[:2].upper())]
         t1 = norm_time(m.group("h1"), m.group("m1"), m.group("ampm1"))
         t2 = norm_time(m.group("h2"), m.group("m2"), m.group("ampm2"))
-        items.append({
-            "source": {"id": msg.get("id", ""), "from": frm, "received": recvd, "subject": subj, "text": text},
-            "event": {
-                "calendar": calendar,
-                "subject": subj or "Class",
-                "repeat": "weekly",
-                "byday": byday,
-                "start_time": t1,
-                "end_time": t2,
-            },
-        })
+        items.append(
+            {
+                "source": {
+                    "id": msg.get("id", ""),
+                    "from": frm,
+                    "received": recvd,
+                    "subject": subj,
+                    "text": text,
+                },
+                "event": {
+                    "calendar": calendar,
+                    "subject": subj or "Class",
+                    "repeat": "weekly",
+                    "byday": byday,
+                    "start_time": t1,
+                    "end_time": t2,
+                },
+            }
+        )
     return items
 
 
@@ -401,7 +411,9 @@ def _scan_enrich_items(extracted: list) -> None:
     """Enrich extracted events with metadata from their source messages."""
     for item in extracted:
         src = item["source"]
-        meta = _scan_infer_meta(src.get("subject", ""), src.get("text") or "", src.get("received", ""))
+        meta = _scan_infer_meta(
+            src.get("subject", ""), src.get("text") or "", src.get("received", "")
+        )
         ev = item["event"]
         if meta.get("subject"):
             ev["subject"] = meta["subject"]
@@ -413,9 +425,15 @@ def _scan_enrich_items(extracted: list) -> None:
 
 def _scan_dedup_events(extracted: list) -> list:
     """Deduplicate extracted events by (subject, byday, start_time, end_time)."""
+
     def _key(item: dict) -> tuple:
         ev = item["event"]
-        return (ev.get("subject"), tuple(ev.get("byday") or []), ev.get("start_time"), ev.get("end_time"))
+        return (
+            ev.get("subject"),
+            tuple(ev.get("byday") or []),
+            ev.get("start_time"),
+            ev.get("end_time"),
+        )
 
     return [item["event"] for item in dedupe(extracted, key_fn=_key)]
 
@@ -443,7 +461,9 @@ class OutlookScanProcessor(SafeProcessor[OutlookScanRequest, OutlookScanResult])
     def _process_safe(self, payload: OutlookScanRequest) -> OutlookScanResult:
         svc = payload.service
         query = f'from:"{payload.from_text}"'
-        ids = svc.search_inbox_messages(query, days=payload.days, top=payload.top, pages=payload.pages)
+        ids = svc.search_inbox_messages(
+            query, days=payload.days, top=payload.top, pages=payload.pages
+        )
         if not ids:
             return OutlookScanResult(events=[], message_count=0, extracted=[], out=payload.out)
 
@@ -467,7 +487,9 @@ class OutlookScanProcessor(SafeProcessor[OutlookScanRequest, OutlookScanResult])
 
 
 class OutlookScanProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookScanResult, diagnostics: dict[str, Any] | None) -> None:
+    def _produce_success(
+        self, payload: OutlookScanResult, diagnostics: dict[str, Any] | None
+    ) -> None:
         from core.yamlio import dump_config
 
         if not payload.events:
@@ -477,7 +499,9 @@ class OutlookScanProducer(BaseProducer):
                 self._writer.print("No schedule-like lines found in matching emails.")
             return
 
-        self._writer.print(f"Found {len(payload.events)} candidate recurring class entries from {payload.message_count} messages.")
+        self._writer.print(
+            f"Found {len(payload.events)} candidate recurring class entries from {payload.message_count} messages."
+        )
         if payload.out:
             dump_config(payload.out, {"events": payload.events, "_sources": payload.extracted})
             self._writer.print(f"Wrote plan to {payload.out}")
@@ -496,6 +520,7 @@ def run_outlook_export_plan(args: argparse.Namespace) -> int:
     if not svc:
         return 1
     from core.paths import output_dir
+
     out_raw = getattr(args, "out", None)
     out_path = Path(out_raw) if out_raw else output_dir("calendars") / "plan.yaml"
     request = OutlookExportRequest(

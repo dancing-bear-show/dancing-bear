@@ -1,11 +1,12 @@
 """Tests for calendars/importer/xlsx_parser.py."""
+
 import sys
 import unittest
 from unittest.mock import MagicMock, patch
 
-from tests.fixtures import TempDirMixin
-from calendars.importer.xlsx_parser import XLSXParser
 from calendars.importer.model import ScheduleItem
+from calendars.importer.xlsx_parser import XLSXParser
+from tests.fixtures import TempDirMixin
 
 
 class TestXLSXParserMissingDep(unittest.TestCase):
@@ -24,6 +25,7 @@ class TestXLSXParserWithMockWorkbook(TempDirMixin, unittest.TestCase):
 
     def _make_ws(self, headers, data_rows):
         """Build a mock worksheet with given header cells and data rows."""
+
         def make_cell(value):
             c = MagicMock()
             c.value = value
@@ -51,7 +53,9 @@ class TestXLSXParserWithMockWorkbook(TempDirMixin, unittest.TestCase):
 
     def test_parse_single_one_off_row(self):
         headers = ["Subject", "Start", "End", "Location", "Notes"]
-        rows = [["Morning Swim", "2025-01-10T07:00", "2025-01-10T08:00", "Elgin West Pool", "bring cap"]]
+        rows = [
+            ["Morning Swim", "2025-01-10T07:00", "2025-01-10T08:00", "Elgin West Pool", "bring cap"]
+        ]
         ws = self._make_ws(headers, rows)
 
         with self._patch_openpyxl(ws):

@@ -1,11 +1,11 @@
 """Tests for classify.py — first-pass bash/tool rules (TestFirstPassFailedTool, TestClassifyBash,
 TestRedundantRead, TestRapidReEdit, TestApplyCustomRules, TestDefaultClassification)."""
+
 from __future__ import annotations
 
 import unittest
 
 from telemetry.classify import ClassifyEngine
-
 from tests.telemetry_tests.shared_fixtures import (
     BASH_RULES,
     EMPTY_RULES,
@@ -13,10 +13,10 @@ from tests.telemetry_tests.shared_fixtures import (
     reset_seq,
 )
 
-
 # ===========================================================================
 # First pass — failure short-circuit
 # ===========================================================================
+
 
 class TestFirstPassFailedTool(unittest.TestCase):
     def setUp(self):
@@ -62,6 +62,7 @@ class TestFirstPassFailedTool(unittest.TestCase):
 # ===========================================================================
 # First pass — _classify_bash
 # ===========================================================================
+
 
 class TestClassifyBash(unittest.TestCase):
     def setUp(self):
@@ -118,6 +119,7 @@ class TestClassifyBash(unittest.TestCase):
 # First pass — _is_redundant_read
 # ===========================================================================
 
+
 class TestRedundantRead(unittest.TestCase):
     def setUp(self):
         reset_seq()
@@ -160,11 +162,15 @@ class TestRedundantRead(unittest.TestCase):
 
     def test_prior_read_outside_lookback_count_not_redundant(self):
         """If the prior read falls outside lookback_events, it's not considered."""
-        rules = {"avoidable": {"redundant-read": {
-            "enabled": True,
-            "window_seconds": 3600,
-            "lookback_events": 1,
-        }}}
+        rules = {
+            "avoidable": {
+                "redundant-read": {
+                    "enabled": True,
+                    "window_seconds": 3600,
+                    "lookback_events": 1,
+                }
+            }
+        }
         engine = ClassifyEngine(rules)
         e1 = _evt(tool_name="Read", tool_input={"file_path": "/foo/bar.py"}, offset_seconds=0)
         e_mid = _evt(tool_name="Bash", tool_input={"command": "echo hi"}, offset_seconds=5)
@@ -192,9 +198,17 @@ class TestRedundantRead(unittest.TestCase):
         """A non-tool_use event in the lookback window is skipped."""
         e_api = _evt(event_type="api_request", tool_name=None, offset_seconds=0)
         e_read = _evt(tool_name="Read", tool_input={"file_path": "/foo/bar.py"}, offset_seconds=5)
-        engine = ClassifyEngine({"avoidable": {"redundant-read": {
-            "enabled": True, "window_seconds": 60, "lookback_events": 10,
-        }}})
+        engine = ClassifyEngine(
+            {
+                "avoidable": {
+                    "redundant-read": {
+                        "enabled": True,
+                        "window_seconds": 60,
+                        "lookback_events": 10,
+                    }
+                }
+            }
+        )
         engine.classify([e_api, e_read])
         self.assertNotEqual(e_read.waste_reason, "redundant-read")
 
@@ -202,6 +216,7 @@ class TestRedundantRead(unittest.TestCase):
 # ===========================================================================
 # First pass — _is_rapid_re_edit
 # ===========================================================================
+
 
 class TestRapidReEdit(unittest.TestCase):
     def setUp(self):
@@ -245,12 +260,16 @@ class TestRapidReEdit(unittest.TestCase):
 
     def test_min_gap_seconds_excludes_too_fast_edits(self):
         """Delta < min_gap_seconds should NOT count as rapid re-edit."""
-        rules = {"avoidable": {"rapid-re-edit": {
-            "enabled": True,
-            "window_seconds": 30,
-            "lookback_events": 5,
-            "min_gap_seconds": 10,
-        }}}
+        rules = {
+            "avoidable": {
+                "rapid-re-edit": {
+                    "enabled": True,
+                    "window_seconds": 30,
+                    "lookback_events": 5,
+                    "min_gap_seconds": 10,
+                }
+            }
+        }
         engine = ClassifyEngine(rules)
         e1 = _evt(tool_name="Edit", tool_input={"file_path": "/foo.py"}, offset_seconds=0)
         e2 = _evt(tool_name="Edit", tool_input={"file_path": "/foo.py"}, offset_seconds=5)
@@ -275,9 +294,18 @@ class TestRapidReEdit(unittest.TestCase):
         """A non-tool_use event in the lookback window is skipped."""
         e_api = _evt(event_type="api_request", tool_name=None, offset_seconds=0)
         e_edit = _evt(tool_name="Edit", tool_input={"file_path": "/foo.py"}, offset_seconds=5)
-        engine = ClassifyEngine({"avoidable": {"rapid-re-edit": {
-            "enabled": True, "window_seconds": 30, "lookback_events": 5, "min_gap_seconds": 0,
-        }}})
+        engine = ClassifyEngine(
+            {
+                "avoidable": {
+                    "rapid-re-edit": {
+                        "enabled": True,
+                        "window_seconds": 30,
+                        "lookback_events": 5,
+                        "min_gap_seconds": 0,
+                    }
+                }
+            }
+        )
         engine.classify([e_api, e_edit])
         self.assertNotEqual(e_edit.waste_reason, "rapid-re-edit")
 
@@ -285,9 +313,18 @@ class TestRapidReEdit(unittest.TestCase):
         """A prior tool_use with a non-edit tool_name is skipped in lookback."""
         e_read = _evt(tool_name="Read", tool_input={"file_path": "/foo.py"}, offset_seconds=0)
         e_edit = _evt(tool_name="Edit", tool_input={"file_path": "/foo.py"}, offset_seconds=5)
-        engine = ClassifyEngine({"avoidable": {"rapid-re-edit": {
-            "enabled": True, "window_seconds": 30, "lookback_events": 5, "min_gap_seconds": 0,
-        }}})
+        engine = ClassifyEngine(
+            {
+                "avoidable": {
+                    "rapid-re-edit": {
+                        "enabled": True,
+                        "window_seconds": 30,
+                        "lookback_events": 5,
+                        "min_gap_seconds": 0,
+                    }
+                }
+            }
+        )
         engine.classify([e_read, e_edit])
         self.assertNotEqual(e_edit.waste_reason, "rapid-re-edit")
 
@@ -296,14 +333,17 @@ class TestRapidReEdit(unittest.TestCase):
 # First pass — _apply_custom_rules
 # ===========================================================================
 
+
 class TestApplyCustomRules(unittest.TestCase):
     def setUp(self):
         reset_seq()
 
     def test_match_by_tool_name(self):
-        rules = {"custom_rules": [
-            {"tool": "Read", "classification": "review", "reason": "custom-read"},
-        ]}
+        rules = {
+            "custom_rules": [
+                {"tool": "Read", "classification": "review", "reason": "custom-read"},
+            ]
+        }
         engine = ClassifyEngine(rules)
         evt = _evt(tool_name="Read")
         engine.classify([evt])
@@ -311,9 +351,11 @@ class TestApplyCustomRules(unittest.TestCase):
         self.assertEqual(evt.waste_reason, "custom-read")
 
     def test_match_by_pattern(self):
-        rules = {"custom_rules": [
-            {"pattern": r"pytest", "classification": "productive", "reason": "pytest-run"},
-        ]}
+        rules = {
+            "custom_rules": [
+                {"pattern": r"pytest", "classification": "productive", "reason": "pytest-run"},
+            ]
+        }
         engine = ClassifyEngine(rules)
         evt = _evt(tool_name="Bash", tool_input={"command": "pytest tests/"})
         engine.classify([evt])
@@ -321,9 +363,16 @@ class TestApplyCustomRules(unittest.TestCase):
         self.assertEqual(evt.waste_reason, "pytest-run")
 
     def test_match_by_tool_and_pattern_both_must_match(self):
-        rules = {"custom_rules": [
-            {"tool": "Bash", "pattern": r"make test", "classification": "productive", "reason": "make-test"},
-        ]}
+        rules = {
+            "custom_rules": [
+                {
+                    "tool": "Bash",
+                    "pattern": r"make test",
+                    "classification": "productive",
+                    "reason": "make-test",
+                },
+            ]
+        }
         engine = ClassifyEngine(rules)
         evt_wrong_tool = _evt(tool_name="Read", tool_input={"command": "make test"})
         evt_wrong_cmd = _evt(tool_name="Bash", tool_input={"command": "make lint"})
@@ -335,28 +384,34 @@ class TestApplyCustomRules(unittest.TestCase):
 
     def test_rule_with_neither_tool_nor_pattern_matches_all(self):
         """A rule with no tool or pattern constraint matches every tool_use event."""
-        rules = {"custom_rules": [
-            {"classification": "neutral", "reason": "catch-all"},
-        ]}
+        rules = {
+            "custom_rules": [
+                {"classification": "neutral", "reason": "catch-all"},
+            ]
+        }
         engine = ClassifyEngine(rules)
         evt = _evt(tool_name="Write")
         engine.classify([evt])
         self.assertEqual(evt.waste_reason, "catch-all")
 
     def test_first_matching_rule_wins(self):
-        rules = {"custom_rules": [
-            {"tool": "Read", "classification": "avoidable", "reason": "first-rule"},
-            {"tool": "Read", "classification": "review", "reason": "second-rule"},
-        ]}
+        rules = {
+            "custom_rules": [
+                {"tool": "Read", "classification": "avoidable", "reason": "first-rule"},
+                {"tool": "Read", "classification": "review", "reason": "second-rule"},
+            ]
+        }
         engine = ClassifyEngine(rules)
         evt = _evt(tool_name="Read")
         engine.classify([evt])
         self.assertEqual(evt.waste_reason, "first-rule")
 
     def test_no_match_returns_none_falls_to_default(self):
-        rules = {"custom_rules": [
-            {"tool": "Bash", "classification": "review", "reason": "bash-custom"},
-        ]}
+        rules = {
+            "custom_rules": [
+                {"tool": "Bash", "classification": "review", "reason": "bash-custom"},
+            ]
+        }
         engine = ClassifyEngine(rules)
         evt = _evt(tool_name="Write")
         engine.classify([evt])
@@ -364,9 +419,11 @@ class TestApplyCustomRules(unittest.TestCase):
         self.assertIsNone(evt.waste_reason)
 
     def test_default_reason_is_custom(self):
-        rules = {"custom_rules": [
-            {"tool": "Read"},
-        ]}
+        rules = {
+            "custom_rules": [
+                {"tool": "Read"},
+            ]
+        }
         engine = ClassifyEngine(rules)
         evt = _evt(tool_name="Read")
         engine.classify([evt])
@@ -382,6 +439,7 @@ class TestApplyCustomRules(unittest.TestCase):
 # ===========================================================================
 # First pass — _default_classification
 # ===========================================================================
+
 
 class TestDefaultClassification(unittest.TestCase):
     def setUp(self):
@@ -446,10 +504,10 @@ class TestDefaultClassification(unittest.TestCase):
         self.assertEqual(evt.classification, "productive")
 
 
-
 # ===========================================================================
 # Null-valued tool_input keys
 # ===========================================================================
+
 
 class TestNullCommandIsNotTheStringNone(unittest.TestCase):
     """A present-but-null `command` must read as empty, not the literal "None".
@@ -500,6 +558,7 @@ class TestNullCommandIsNotTheStringNone(unittest.TestCase):
             (missing.classification, missing.waste_reason),
             (null_valued.classification, null_valued.waste_reason),
         )
+
 
 if __name__ == "__main__":
     unittest.main()

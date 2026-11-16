@@ -15,23 +15,30 @@ What IS tested:
 - _compose_icon_attributed with all token kinds (lit, score var, known var, unknown var/braced)
 - Re-exported names are accessible from menubar module namespace
 """
+
 from __future__ import annotations
 
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import telemetry.menubar as menubar
 from telemetry._menubar_budget import (
     _budget_score as _impl_budget_score,
+)
+from telemetry._menubar_budget import (
     _safe_float as _impl_safe_float,
+)
+from telemetry._menubar_budget import (
     _safe_int as _impl_safe_int,
 )
 from telemetry._menubar_display import _sparkline as _impl_sparkline
 from telemetry._menubar_renderers import (
     _icon_substitutions as _impl_icon_substitutions,
+)
+from telemetry._menubar_renderers import (
     _render_icon_plain as _impl_render_icon_plain,
 )
 
@@ -95,7 +102,7 @@ class TestMenubarWindowSince(unittest.TestCase):
         result = menubar._window_since(3600)
         self.assertIsInstance(result, datetime)
         self.assertIsNotNone(result.tzinfo)
-        diff = (datetime.now(timezone.utc) - result).total_seconds()
+        diff = (datetime.now(UTC) - result).total_seconds()
         self.assertGreater(diff, 3500)
         self.assertLess(diff, 3700)
 
@@ -116,8 +123,10 @@ class TestMenubarBuildVersion(unittest.TestCase):
 
     def test_error_returns_version_only(self) -> None:
         import subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
-        with patch.object(menubar.subprocess, "check_output",
-                          side_effect=subprocess.CalledProcessError(1, "git")):
+
+        with patch.object(
+            menubar.subprocess, "check_output", side_effect=subprocess.CalledProcessError(1, "git")
+        ):
             result = menubar._build_version()
         self.assertEqual(result, menubar._VERSION)
 
@@ -148,6 +157,7 @@ class TestAcquireInstanceLockAlreadyRunning(unittest.TestCase):
     def test_exits_when_blocking_io_error(self) -> None:
         """When fcntl.flock raises BlockingIOError, _acquire_instance_lock raises CLIError."""
         from core.cli_errors import CLIError, ExitCode
+
         mock_fcntl = MagicMock()
         mock_fcntl.flock.side_effect = BlockingIOError()
         mock_fcntl.LOCK_EX = 2
@@ -155,12 +165,14 @@ class TestAcquireInstanceLockAlreadyRunning(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             lock_path = Path(tmpdir) / "claudestats.lock"
-            with patch.object(menubar, "_HAS_FCNTL", True), \
-                 patch.object(menubar, "fcntl", mock_fcntl), \
-                 patch.object(menubar, "_CLAUDE_DIR", Path(tmpdir)), \
-                 patch.object(menubar, "_LOCK_PATH", lock_path), \
-                 patch.object(menubar.os, "open", return_value=99), \
-                 patch.object(menubar.os, "close"):
+            with (
+                patch.object(menubar, "_HAS_FCNTL", True),
+                patch.object(menubar, "fcntl", mock_fcntl),
+                patch.object(menubar, "_CLAUDE_DIR", Path(tmpdir)),
+                patch.object(menubar, "_LOCK_PATH", lock_path),
+                patch.object(menubar.os, "open", return_value=99),
+                patch.object(menubar.os, "close"),
+            ):
                 with self.assertRaises(CLIError) as ctx:
                     menubar._acquire_instance_lock()
             self.assertEqual(ctx.exception.code, ExitCode.ERROR)
@@ -222,13 +234,15 @@ class TestAcquireInstanceLockSuccess(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             lock_path = Path(tmpdir) / "claudestats.lock"
-            with patch.object(menubar, "_HAS_FCNTL", True), \
-                 patch.object(menubar, "fcntl", mock_fcntl), \
-                 patch.object(menubar, "_CLAUDE_DIR", Path(tmpdir)), \
-                 patch.object(menubar, "_LOCK_PATH", lock_path), \
-                 patch.object(menubar.os, "open", return_value=77), \
-                 patch.object(menubar.os, "write") as mock_write, \
-                 patch.object(menubar.os, "close"):
+            with (
+                patch.object(menubar, "_HAS_FCNTL", True),
+                patch.object(menubar, "fcntl", mock_fcntl),
+                patch.object(menubar, "_CLAUDE_DIR", Path(tmpdir)),
+                patch.object(menubar, "_LOCK_PATH", lock_path),
+                patch.object(menubar.os, "open", return_value=77),
+                patch.object(menubar.os, "write") as mock_write,
+                patch.object(menubar.os, "close"),
+            ):
                 menubar._instance_lock_fd = None
                 menubar._acquire_instance_lock()
                 self.assertEqual(menubar._instance_lock_fd, 77)
@@ -252,7 +266,9 @@ class TestComposeIconAttributed(unittest.TestCase):
 
         mock_attributed = MagicMock(name="NSAttributedString_inst")
         mock_ns_attributed = MagicMock(name="NSAttributedString")
-        mock_ns_attributed.alloc.return_value.initWithString_attributes_.return_value = mock_attributed
+        mock_ns_attributed.alloc.return_value.initWithString_attributes_.return_value = (
+            mock_attributed
+        )
 
         mock_out = MagicMock(name="NSMutableAttributedString_inst")
         mock_ns_mutable = MagicMock(name="NSMutableAttributedString")
@@ -284,16 +300,19 @@ class TestComposeIconAttributed(unittest.TestCase):
         if extra_values:
             default_values.update(extra_values)
 
-        with patch.multiple(
-            menubar,
-            NSFont=mocks["NSFont"],
-            NSAttributedString=mocks["NSAttributedString"],
-            NSMutableAttributedString=mocks["NSMutableAttributedString"],
-            NSColor=mocks["NSColor"],
-            NSFontAttributeName=mocks["NSFontAttributeName"],
-            NSForegroundColorAttributeName=mocks["NSForegroundColorAttributeName"],
-            create=True,
-        ), patch("telemetry.menubar._icon_substitutions", return_value=default_values):
+        with (
+            patch.multiple(
+                menubar,
+                NSFont=mocks["NSFont"],
+                NSAttributedString=mocks["NSAttributedString"],
+                NSMutableAttributedString=mocks["NSMutableAttributedString"],
+                NSColor=mocks["NSColor"],
+                NSFontAttributeName=mocks["NSFontAttributeName"],
+                NSForegroundColorAttributeName=mocks["NSForegroundColorAttributeName"],
+                create=True,
+            ),
+            patch("telemetry.menubar._icon_substitutions", return_value=default_values),
+        ):
             menubar._compose_icon_attributed(template, icon_ctx, mtd_cost=1.23, score=3)
 
         return mocks["out"]
@@ -313,17 +332,20 @@ class TestComposeIconAttributed(unittest.TestCase):
         icon_ctx: dict = {}
         default_values = {"score": "3", "mtd": "$0.10"}
 
-        with patch.multiple(
-            menubar,
-            NSFont=mocks["NSFont"],
-            NSAttributedString=mocks["NSAttributedString"],
-            NSMutableAttributedString=mocks["NSMutableAttributedString"],
-            NSColor=mocks["NSColor"],
-            NSFontAttributeName=mocks["NSFontAttributeName"],
-            NSForegroundColorAttributeName=mocks["NSForegroundColorAttributeName"],
-            create=True,
-        ), patch("telemetry.menubar._icon_substitutions", return_value=default_values), \
-           patch("telemetry.menubar._icon_token_stream", return_value=[("lit", "")]):
+        with (
+            patch.multiple(
+                menubar,
+                NSFont=mocks["NSFont"],
+                NSAttributedString=mocks["NSAttributedString"],
+                NSMutableAttributedString=mocks["NSMutableAttributedString"],
+                NSColor=mocks["NSColor"],
+                NSFontAttributeName=mocks["NSFontAttributeName"],
+                NSForegroundColorAttributeName=mocks["NSForegroundColorAttributeName"],
+                create=True,
+            ),
+            patch("telemetry.menubar._icon_substitutions", return_value=default_values),
+            patch("telemetry.menubar._icon_token_stream", return_value=[("lit", "")]),
+        ):
             menubar._compose_icon_attributed("", icon_ctx, mtd_cost=0.0, score=3)
 
         mocks["out"].appendAttributedString_.assert_not_called()
@@ -354,16 +376,19 @@ class TestComposeIconAttributed(unittest.TestCase):
         icon_ctx: dict = {}
         default_values = {"score": "8", "mtd": "$5.00"}
 
-        with patch.multiple(
-            menubar,
-            NSFont=mocks["NSFont"],
-            NSAttributedString=mocks["NSAttributedString"],
-            NSMutableAttributedString=mocks["NSMutableAttributedString"],
-            NSColor=mocks["NSColor"],
-            NSFontAttributeName=mocks["NSFontAttributeName"],
-            NSForegroundColorAttributeName=mocks["NSForegroundColorAttributeName"],
-            create=True,
-        ), patch("telemetry.menubar._icon_substitutions", return_value=default_values):
+        with (
+            patch.multiple(
+                menubar,
+                NSFont=mocks["NSFont"],
+                NSAttributedString=mocks["NSAttributedString"],
+                NSMutableAttributedString=mocks["NSMutableAttributedString"],
+                NSColor=mocks["NSColor"],
+                NSFontAttributeName=mocks["NSFontAttributeName"],
+                NSForegroundColorAttributeName=mocks["NSForegroundColorAttributeName"],
+                create=True,
+            ),
+            patch("telemetry.menubar._icon_substitutions", return_value=default_values),
+        ):
             menubar._compose_icon_attributed("$score", icon_ctx, mtd_cost=5.0, score=8)
 
         mocks["NSColor"].systemRedColor.assert_called()
@@ -374,16 +399,19 @@ class TestComposeIconAttributed(unittest.TestCase):
         icon_ctx: dict = {}
         default_values = {"score": "5", "mtd": "$2.00"}
 
-        with patch.multiple(
-            menubar,
-            NSFont=mocks["NSFont"],
-            NSAttributedString=mocks["NSAttributedString"],
-            NSMutableAttributedString=mocks["NSMutableAttributedString"],
-            NSColor=mocks["NSColor"],
-            NSFontAttributeName=mocks["NSFontAttributeName"],
-            NSForegroundColorAttributeName=mocks["NSForegroundColorAttributeName"],
-            create=True,
-        ), patch("telemetry.menubar._icon_substitutions", return_value=default_values):
+        with (
+            patch.multiple(
+                menubar,
+                NSFont=mocks["NSFont"],
+                NSAttributedString=mocks["NSAttributedString"],
+                NSMutableAttributedString=mocks["NSMutableAttributedString"],
+                NSColor=mocks["NSColor"],
+                NSFontAttributeName=mocks["NSFontAttributeName"],
+                NSForegroundColorAttributeName=mocks["NSForegroundColorAttributeName"],
+                create=True,
+            ),
+            patch("telemetry.menubar._icon_substitutions", return_value=default_values),
+        ):
             menubar._compose_icon_attributed("$score", icon_ctx, mtd_cost=2.0, score=5)
 
         mocks["NSColor"].systemOrangeColor.assert_called()
@@ -393,8 +421,9 @@ class TestMenubarBuildVersionFileNotFound(unittest.TestCase):
     """Cover the FileNotFoundError branch in _build_version."""
 
     def test_file_not_found_returns_version_only(self) -> None:
-        with patch.object(menubar.subprocess, "check_output",
-                          side_effect=FileNotFoundError("git not found")):
+        with patch.object(
+            menubar.subprocess, "check_output", side_effect=FileNotFoundError("git not found")
+        ):
             result = menubar._build_version()
         self.assertEqual(result, menubar._VERSION)
 

@@ -14,7 +14,6 @@ from tests.workflow_tests.helpers.shell_lint import (
 from workflow.linter_shell import RULE_GUARD_REFUSED
 from workflow.shell_guard import _raw_has_dynamic_expansion
 
-
 # ---------------------------------------------------------------------------
 # shell-guard-refused
 # ---------------------------------------------------------------------------
@@ -36,7 +35,7 @@ _HEREDOC = """
 # allows a read-only loop outright (guard-contract.yaml "loop variable in a
 # read" -> allow), so the original `do make test; done` body -- a false
 # positive Copilot PR #433 flagged -- must not fire this rule any more.
-_LOOP = "Run twice:\n\n  for pass in 1 2; do rm -rf \"$TMPDIR/scratch-$pass\"; done\n"
+_LOOP = 'Run twice:\n\n  for pass in 1 2; do rm -rf "$TMPDIR/scratch-$pass"; done\n'
 
 
 def _nested_subs(levels: int) -> str:
@@ -65,11 +64,13 @@ class TestGuardRefused(_RuleCase):
     rule = RULE_GUARD_REFUSED
 
     def test_fires_on_historical_heredoc(self) -> None:
-        hits = self.assert_fires(_workflow(_stage(_HEREDOC), params=OLLAMA_PARAMS, rules=OLLAMA_RULE))
+        hits = self.assert_fires(
+            _workflow(_stage(_HEREDOC), params=OLLAMA_PARAMS, rules=OLLAMA_RULE)
+        )
         self.assertIn("heredoc", hits[0].message)
 
     def test_fires_on_shell_loops(self) -> None:
-        for desc in (_LOOP, "Drain:\n\n  while test -s q.txt; do mv q.txt \"$TMPDIR/done\"; done\n"):
+        for desc in (_LOOP, 'Drain:\n\n  while test -s q.txt; do mv q.txt "$TMPDIR/done"; done\n'):
             with self.subTest(desc=desc):
                 self.assertIn("loop", self.assert_fires(_workflow(_stage(desc)))[0].message)
 
@@ -95,14 +96,21 @@ class TestGuardRefused(_RuleCase):
         # PR #433 review (linter_shell.py:844): mutators were matched by exact
         # bare token, while the guard resolves the basename -- `/bin/rm` in a
         # loop was refused by the guard and passed here.
-        for command in ('for p in files; do /bin/rm -f "$p"; done',
-                        'for p in files; do "$HOME/bin/../../bin/mv" "$p" x; done'):
+        for command in (
+            'for p in files; do /bin/rm -f "$p"; done',
+            'for p in files; do "$HOME/bin/../../bin/mv" "$p" x; done',
+        ):
             with self.subTest(command=command):
-                self.assertIn("loop", self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))[0].message)
+                self.assertIn(
+                    "loop",
+                    self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))[0].message,
+                )
 
     def test_path_qualified_read_only_command_is_silent(self) -> None:
         # Happy path: basename matching must not turn a read into a write.
-        self.assert_silent(_workflow(_stage('Run:\n\n  for p in files; do /usr/bin/wc -l "$p"; done\n')))
+        self.assert_silent(
+            _workflow(_stage('Run:\n\n  for p in files; do /usr/bin/wc -l "$p"; done\n'))
+        )
 
     def test_fires_on_mutating_command_after_wrapper_or_reserved_word(self) -> None:
         # PR #433 review (linter_shell.py:844, second finding): a command was
@@ -119,7 +127,10 @@ class TestGuardRefused(_RuleCase):
             'for f in files; do ! rm "$f"; done',
         ):
             with self.subTest(command=command):
-                self.assertIn("loop", self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))[0].message)
+                self.assertIn(
+                    "loop",
+                    self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))[0].message,
+                )
 
     def test_mutating_name_as_wrapper_or_keyword_argument_is_silent(self) -> None:
         # Happy path: after a wrapper or keyword, only the command word counts.
@@ -159,7 +170,7 @@ class TestGuardRefused(_RuleCase):
         # fixture above.
         desc = (
             "Get the value off the command line:\n\n"
-            '  cat > "$TMPDIR/qwen-admin-host" <<\'RAW\'\n'
+            "  cat > \"$TMPDIR/qwen-admin-host\" <<'RAW'\n"
             "  {ollama_host}\n"
             "  RAW\n"
         )
@@ -177,29 +188,21 @@ class TestGuardRefused(_RuleCase):
         # delimiter regardless of body content. The guard only fails to
         # inspect a heredoc body that contains a substitution -- a purely
         # literal body like this one is something the guard accepts outright.
-        desc = (
-            "Write the file:\n\n"
-            '  cat > "$TMPDIR/notes.txt" <<EOF\n'
-            "  literal\n"
-            "  EOF\n"
-        )
+        desc = 'Write the file:\n\n  cat > "$TMPDIR/notes.txt" <<EOF\n  literal\n  EOF\n'
         self.assert_silent(_workflow(_stage(desc)))
 
     def test_unquoted_heredoc_with_backtick_substitution_fires(self) -> None:
         # A backtick substitution in the body is just as unresolvable to the
         # guard as $(...); the sad path for the static-body fix must still
         # catch this shape.
-        desc = (
-            "Write the file:\n\n"
-            '  cat > "$TMPDIR/notes.txt" <<EOF\n'
-            "  `date`\n"
-            "  EOF\n"
-        )
+        desc = 'Write the file:\n\n  cat > "$TMPDIR/notes.txt" <<EOF\n  `date`\n  EOF\n'
         hits = self.assert_fires(_workflow(_stage(desc)))
         self.assertIn("heredoc", hits[0].message)
 
     def test_python_for_loop_is_not_shell(self) -> None:
-        desc = "Inline:\n\n  python3 -I -S -c \"\n  for parser in PARSERS:\n      print(parser)\n  \"\n"
+        desc = (
+            'Inline:\n\n  python3 -I -S -c "\n  for parser in PARSERS:\n      print(parser)\n  "\n'
+        )
         self.assert_silent(_workflow(_stage(desc)))
 
     def test_fires_on_loop_preceded_by_setup_line_in_same_fence(self) -> None:
@@ -211,7 +214,7 @@ class TestGuardRefused(_RuleCase):
         # the setup line and the loop as a single fence segment either way.
         # The body removes a file (mutating), so this also stays a positive
         # case under the guard-contract-aligned loop check.
-        desc = "```bash\necho setup\n\nfor p in items; do rm -f \"$p\"; done\n```\n"
+        desc = '```bash\necho setup\n\nfor p in items; do rm -f "$p"; done\n```\n'
         hits = self.assert_fires(_workflow(_stage(desc)))
         self.assertIn("loop", hits[0].message)
 
@@ -289,10 +292,7 @@ class TestGuardRefused(_RuleCase):
         # loop body must still fire even when a bracket comparison's bare '>'
         # also appears in the body -- the bracket exemption must not swallow
         # an unrelated real redirect.
-        desc = (
-            "Run:\n\n"
-            '  for f in src/*.py; do [[ "$f" > "a" ]] && echo "$f" > out.log; done\n'
-        )
+        desc = 'Run:\n\n  for f in src/*.py; do [[ "$f" > "a" ]] && echo "$f" > out.log; done\n'
         self.assertIn("loop", self.assert_fires(_workflow(_stage(desc)))[0].message)
 
     def test_quoted_redirect_char_as_argument_is_silent(self) -> None:
@@ -338,33 +338,50 @@ class TestGuardRefused(_RuleCase):
     def test_fires_on_find_write_actions_in_loop(self) -> None:
         # PR #437 thread PRRT_kwDOQr1kjM6ms2Vv: the guard's h_find treats
         # -delete and -fprint as writes, but `cmd.name` was only `find`.
-        for command in ('for p in files; do find "$p" -delete; done',
-                        'for p in files; do find "$p" -name x -fprint out.txt; done'):
+        for command in (
+            'for p in files; do find "$p" -delete; done',
+            'for p in files; do find "$p" -name x -fprint out.txt; done',
+        ):
             with self.subTest(command=command):
-                self.assertIn("loop", self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))[0].message)
+                self.assertIn(
+                    "loop",
+                    self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))[0].message,
+                )
 
     def test_fires_on_find_exec_mutator_in_loop(self) -> None:
         # Same thread: h_find judges the command after -exec/-execdir/-ok.
-        for command in ('for p in files; do find "$p" -exec rm {} +; done',
-                        'for p in files; do find "$p" -execdir env mv {} x \\; ; done',
-                        'for p in files; do find "$p" -ok sed -i "s/a/b/" {} \\; ; done'):
+        for command in (
+            'for p in files; do find "$p" -exec rm {} +; done',
+            'for p in files; do find "$p" -execdir env mv {} x \\; ; done',
+            'for p in files; do find "$p" -ok sed -i "s/a/b/" {} \\; ; done',
+        ):
             with self.subTest(command=command):
-                self.assertIn("loop", self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))[0].message)
+                self.assertIn(
+                    "loop",
+                    self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))[0].message,
+                )
 
     def test_read_only_find_in_loop_is_silent(self) -> None:
         # Happy path: find's read-only forms, and a -delete-shaped word that
         # belongs to an -exec body rather than to find, stay silent.
-        for command in ("for p in files; do find . -name x; done",
-                        "for p in files; do find . -exec grep -n x {} +; done",
-                        "for p in files; do find . -exec grep -delete x {} +; done"):
+        for command in (
+            "for p in files; do find . -name x; done",
+            "for p in files; do find . -exec grep -n x {} +; done",
+            "for p in files; do find . -exec grep -delete x {} +; done",
+        ):
             with self.subTest(command=command):
                 self.assert_silent(_workflow(_stage(f"Run:\n\n  {command}\n")))
 
     def test_fires_on_eval_and_bare_nested_shell_anywhere(self) -> None:
         # Same thread: block-destructive-bash.sh refuses eval, a bare
         # `sh -c`, and xargs into a shell outright -- in a loop or not.
-        for command in ('eval "$CMD"', "bash -c 'echo hi'", "sh -ec 'echo hi'",
-                        "echo a | xargs -n 1 sh run.sh", "find . -exec bash -c 'echo {}' \\;"):
+        for command in (
+            'eval "$CMD"',
+            "bash -c 'echo hi'",
+            "sh -ec 'echo hi'",
+            "echo a | xargs -n 1 sh run.sh",
+            "find . -exec bash -c 'echo {}' \\;",
+        ):
             with self.subTest(command=command):
                 desc = f"Run:\n\n  ```bash\n  {command}\n  ```\n"
                 self.assertIn("eval/sh -c", self.assert_fires(_workflow(_stage(desc)))[0].message)
@@ -374,11 +391,16 @@ class TestGuardRefused(_RuleCase):
         # nested-shell check, but _bash_write_targets.py h_shell parses the
         # string and judges its commands; so does this rule. A shell reading
         # its program from stdin is refused by h_shell too.
-        for command in ("for f in a; do /bin/sh -c 'rm -f x'; done",
-                        "for f in a; do /bin/bash -c 'cd x && touch y'; done",
-                        "for f in a; do echo x | /bin/bash; done"):
+        for command in (
+            "for f in a; do /bin/sh -c 'rm -f x'; done",
+            "for f in a; do /bin/bash -c 'cd x && touch y'; done",
+            "for f in a; do echo x | /bin/bash; done",
+        ):
             with self.subTest(command=command):
-                self.assertIn("loop", self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))[0].message)
+                self.assertIn(
+                    "loop",
+                    self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))[0].message,
+                )
 
     def test_fires_on_stdin_shell_with_clustered_s(self) -> None:
         # PR #437 thread PRRT_kwDOQr1kjM6nGwTd: only a standalone `-s` was
@@ -386,11 +408,13 @@ class TestGuardRefused(_RuleCase):
         # while h_shell refuses it. Options are read as clusters now,
         # mirroring the guard's getopt: `-o` takes a value, `+o NAME` and
         # `--rcfile FILE` are skipped, and the first operand ends options.
-        for command in ('for p in files; do /bin/bash -es name < "$p"; done',
-                        'for p in files; do bash -se name < "$p"; done',
-                        'for p in files; do bash -eo pipefail -s name < "$p"; done',
-                        'for p in files; do bash +o posix -s name < "$p"; done',
-                        'for p in files; do bash --rcfile rc -s < "$p"; done'):
+        for command in (
+            'for p in files; do /bin/bash -es name < "$p"; done',
+            'for p in files; do bash -se name < "$p"; done',
+            'for p in files; do bash -eo pipefail -s name < "$p"; done',
+            'for p in files; do bash +o posix -s name < "$p"; done',
+            'for p in files; do bash --rcfile rc -s < "$p"; done',
+        ):
             with self.subTest(command=command):
                 hits = self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))
                 self.assertIn("loop", hits[0].message)
@@ -399,10 +423,17 @@ class TestGuardRefused(_RuleCase):
         # Copilot "Previously missed" on linter_shell.py:927: h_shell
         # (_bash_write_targets.py) refuses a shell reading its program from
         # stdin unconditionally, not only inside a loop.
-        for command in ("bash -s name", "/bin/bash < script", "echo x | sh", "bash -es name < f",
-                        "zsh"):
+        for command in (
+            "bash -s name",
+            "/bin/bash < script",
+            "echo x | sh",
+            "bash -es name < f",
+            "zsh",
+        ):
             with self.subTest(command=command):
-                hits = self.assert_fires(_workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n")))
+                hits = self.assert_fires(
+                    _workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n"))
+                )
                 self.assertIn("shell reading its program from stdin", hits[0].message)
 
     def test_shell_running_a_script_file_outside_a_loop_is_silent(self) -> None:
@@ -416,11 +447,13 @@ class TestGuardRefused(_RuleCase):
         # Happy path: a script operand with no -s runs a file (command
         # semantics). A `-s` after the script, after `--`, or as `-o`'s value
         # is not the -s option; with -c present the string is judged instead.
-        for command in ("for p in files; do /bin/bash -e script.sh; done",
-                        "for p in files; do /bin/bash script.sh -s; done",
-                        "for p in files; do /bin/bash -- -s; done",
-                        "for p in files; do /bin/bash -os script.sh; done",
-                        "for p in files; do /bin/bash -cs 'wc -l x' name; done"):
+        for command in (
+            "for p in files; do /bin/bash -e script.sh; done",
+            "for p in files; do /bin/bash script.sh -s; done",
+            "for p in files; do /bin/bash -- -s; done",
+            "for p in files; do /bin/bash -os script.sh; done",
+            "for p in files; do /bin/bash -cs 'wc -l x' name; done",
+        ):
             with self.subTest(command=command):
                 self.assert_silent(_workflow(_stage(f"Run:\n\n  {command}\n")))
 
@@ -442,18 +475,28 @@ class TestGuardRefused(_RuleCase):
         # ("nested too deeply") for the whole command -- loop or not. Every
         # sh -c string and every substitution is one level; 33 is refused.
         # Boundaries checked against analyse_command on the same strings.
-        for command in (_nested_subs(33), _nested_sh_c(_nested_subs(32), 1),
-                        _nested_sh_c(_nested_subs(31), 2), _nested_sh_c(_nested_subs(30), 3),
-                        "for f in a; do " + _nested_sh_c(_nested_subs(31), 2) + "; done"):
+        for command in (
+            _nested_subs(33),
+            _nested_sh_c(_nested_subs(32), 1),
+            _nested_sh_c(_nested_subs(31), 2),
+            _nested_sh_c(_nested_subs(30), 3),
+            "for f in a; do " + _nested_sh_c(_nested_subs(31), 2) + "; done",
+        ):
             with self.subTest(command=command[:40]):
-                hits = self.assert_fires(_workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n")))
+                hits = self.assert_fires(
+                    _workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n"))
+                )
                 self.assertIn("nesting deeper than 32", hits[0].message)
 
     def test_nesting_within_the_guard_limit_is_silent(self) -> None:
         # Happy path: depth 32 exactly, and ordinary 2-3 level sh -c nesting.
-        for command in (_nested_subs(32), _nested_sh_c(_nested_subs(30), 2),
-                        _nested_sh_c("wc -l x", 2), _nested_sh_c("wc -l x", 3),
-                        "for f in a; do " + _nested_sh_c("wc -l x", 3) + "; done"):
+        for command in (
+            _nested_subs(32),
+            _nested_sh_c(_nested_subs(30), 2),
+            _nested_sh_c("wc -l x", 2),
+            _nested_sh_c("wc -l x", 3),
+            "for f in a; do " + _nested_sh_c("wc -l x", 3) + "; done",
+        ):
             with self.subTest(command=command[:40]):
                 self.assert_silent(_workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n")))
 
@@ -462,19 +505,25 @@ class TestGuardRefused(_RuleCase):
         # skipped whole, so a $(...) or backtick inside one never reached the
         # parser. Bash runs it, and _bash_write_targets.py (_scan_param,
         # _scan_arith) parses it.
-        for command in ('for f in x; do echo "${X:-$(rm -f "$f")}"; done',
-                        "for f in x; do echo $(( $(rm -f x) )); done",
-                        "for f in x; do (( $(rm -f x) )); done",
-                        "for f in x; do echo ${X:-`rm -f x`}; done",
-                        "for f in x; do echo ${A:-${B:-$(rm -f x)}}; done"):
+        for command in (
+            'for f in x; do echo "${X:-$(rm -f "$f")}"; done',
+            "for f in x; do echo $(( $(rm -f x) )); done",
+            "for f in x; do (( $(rm -f x) )); done",
+            "for f in x; do echo ${X:-`rm -f x`}; done",
+            "for f in x; do echo ${A:-${B:-$(rm -f x)}}; done",
+        ):
             with self.subTest(command=command):
-                hits = self.assert_fires(_workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n")))
+                hits = self.assert_fires(
+                    _workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n"))
+                )
                 self.assertIn("loop", hits[0].message)
 
     def test_expansion_without_a_substitution_is_silent(self) -> None:
-        for command in ('for f in x; do echo "${X:-default}"; done',
-                        "for f in x; do echo $(( 1 + 2 )); done",
-                        "for f in x; do echo $(( (1 + 2) * 3 )) ${#f}; done"):
+        for command in (
+            'for f in x; do echo "${X:-default}"; done',
+            "for f in x; do echo $(( 1 + 2 )); done",
+            "for f in x; do echo $(( (1 + 2) * 3 )) ${#f}; done",
+        ):
             with self.subTest(command=command):
                 self.assert_silent(_workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n")))
 
@@ -483,16 +532,21 @@ class TestGuardRefused(_RuleCase):
         # ")" with a fresh lexer per level before parse_shell could check
         # MAX_DEPTH, so 1,200 levels raised RecursionError out of the lint.
         levels = 1200
-        for command in ("echo " + "$(" * levels + "true" + ")" * levels,
-                        "echo " + "$(" * levels):
+        for command in ("echo " + "$(" * levels + "true" + ")" * levels, "echo " + "$(" * levels):
             with self.subTest(command=command[:12]):
-                hits = self.assert_fires(_workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n")))
+                hits = self.assert_fires(
+                    _workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n"))
+                )
                 self.assertIn("nesting deeper than 32", hits[0].message)
         # Expansions have their own recursion bound and their own message.
-        for command in ("echo " + "${X:-" * levels + "y" + "}" * levels,
-                        "echo " + "$((" * levels + "1" + "))" * levels):
+        for command in (
+            "echo " + "${X:-" * levels + "y" + "}" * levels,
+            "echo " + "$((" * levels + "1" + "))" * levels,
+        ):
             with self.subTest(command=command[:12]):
-                hits = self.assert_fires(_workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n")))
+                hits = self.assert_fires(
+                    _workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n"))
+                )
                 self.assertIn("expansions nested too deeply to parse", hits[0].message)
 
     def test_33_nested_parameter_expansions_are_not_refused(self) -> None:
@@ -500,26 +554,33 @@ class TestGuardRefused(_RuleCase):
         # _scan_arith stay in the same Parser, so 33 nested ${...} are within
         # its limit; they were reported as "nesting deeper than 32".
         levels = 33
-        for command in ("echo " + "${X:-" * levels + "y" + "}" * levels,
-                        "echo " + "$((" * levels + "1" + "))" * levels):
+        for command in (
+            "echo " + "${X:-" * levels + "y" + "}" * levels,
+            "echo " + "$((" * levels + "1" + "))" * levels,
+        ):
             with self.subTest(command=command[:12]):
                 self.assert_silent(_workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n")))
 
     def test_fires_on_unfenced_stdin_shell_and_eval_lines(self) -> None:
         # PR #437 thread PRRT_kwDOQr1kjM6njyuh: a line led by bash/sh/eval was
         # never extracted unless fenced, so these indented commands passed.
-        cases = {"bash -s name": "shell reading its program from stdin",
-                 "/bin/bash < script": "shell reading its program from stdin",
-                 'eval "$CMD"': "eval/sh -c",
-                 "sh -c 'echo hi'": "eval/sh -c"}
+        cases = {
+            "bash -s name": "shell reading its program from stdin",
+            "/bin/bash < script": "shell reading its program from stdin",
+            'eval "$CMD"': "eval/sh -c",
+            "sh -c 'echo hi'": "eval/sh -c",
+        }
         for command, what in cases.items():
             with self.subTest(command=command):
                 hits = self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))
                 self.assertIn(what, hits[0].message)
 
     def test_prose_led_by_a_shell_word_is_silent(self) -> None:
-        for line in ("sh is the default shell here.", "eval is dangerous, so avoid it.",
-                     "bash scripts should start with set -euo pipefail."):
+        for line in (
+            "sh is the default shell here.",
+            "eval is dangerous, so avoid it.",
+            "bash scripts should start with set -euo pipefail.",
+        ):
             with self.subTest(line=line):
                 self.assert_silent(_workflow(_stage(f"Note:\n\n  {line}\n")))
 
@@ -532,15 +593,19 @@ class TestGuardRefused(_RuleCase):
     def test_inner_mutator_is_found_through_nested_shells(self) -> None:
         # The depth tracking keeps the innermost command of a real chain.
         command = "for f in a; do " + _nested_sh_c("rm -f x", 3) + "; done"
-        self.assertIn("loop", self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))[0].message)
+        self.assertIn(
+            "loop", self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))[0].message
+        )
 
     def test_read_only_qualified_shell_forms_are_silent(self) -> None:
         # Happy path: a read-only -c string, a script file (command semantics,
         # out of the guard's reach), and a qualified shell outside a loop.
-        for command in ("for f in a; do /bin/sh -c 'wc -l x'; done",
-                        "for f in a; do /bin/bash script.sh; done",
-                        "/bin/sh -c 'rm -f x'",
-                        "echo eval sh -c"):
+        for command in (
+            "for f in a; do /bin/sh -c 'wc -l x'; done",
+            "for f in a; do /bin/bash script.sh; done",
+            "/bin/sh -c 'rm -f x'",
+            "echo eval sh -c",
+        ):
             with self.subTest(command=command):
                 self.assert_silent(_workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n")))
 
@@ -548,10 +613,14 @@ class TestGuardRefused(_RuleCase):
         # PR #437 thread PRRT_kwDOQr1kjM6nV66q: a path-qualified `sh -c` passes
         # the bare-shell check, and the heredoc inside its string was dropped
         # when the string was expanded, so the refused heredoc went unreported.
-        for command in ("/bin/sh -c 'cat <<EOF\n  $(date)\n  EOF\n  '",
-                        "for f in a; do /bin/bash -c 'cat <<EOF\n  `date`\n  EOF\n  '; done"):
+        for command in (
+            "/bin/sh -c 'cat <<EOF\n  $(date)\n  EOF\n  '",
+            "for f in a; do /bin/bash -c 'cat <<EOF\n  `date`\n  EOF\n  '; done",
+        ):
             with self.subTest(command=command):
-                hits = self.assert_fires(_workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n")))
+                hits = self.assert_fires(
+                    _workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n"))
+                )
                 self.assertIn("heredoc", hits[0].message)
 
     def test_quoted_heredoc_inside_qualified_shell_string_is_silent(self) -> None:
@@ -566,18 +635,27 @@ class TestGuardRefused(_RuleCase):
         self.assertIn("loop", self.assert_fires(_workflow(_stage(desc)))[0].message)
 
     def test_read_only_backtick_substitution_in_loop_is_silent(self) -> None:
-        for desc in ("Run:\n\n  for f in a; do echo `wc -l x`; done\n",
-                     "Run:\n\n  for f in a; do echo `echo \\`wc -l x\\``; done\n"):
+        for desc in (
+            "Run:\n\n  for f in a; do echo `wc -l x`; done\n",
+            "Run:\n\n  for f in a; do echo `echo \\`wc -l x\\``; done\n",
+        ):
             with self.subTest(desc=desc):
                 self.assert_silent(_workflow(_stage(desc)))
 
     def test_fires_on_env_split_string_anywhere(self) -> None:
         # PR #437 thread PRRT_kwDOQr1kjM6nV67e: h_env refuses -S/--split-string
         # outright, loop or not, since the string it splits is the command line.
-        for command in ('env -S "rm -f x"', 'for f in a; do env -S "rm -f x"; done',
-                        'env --split-string="rm -f x"', 'env -iS "wc -l x"', 'sudo env --split "ls"'):
+        for command in (
+            'env -S "rm -f x"',
+            'for f in a; do env -S "rm -f x"; done',
+            'env --split-string="rm -f x"',
+            'env -iS "wc -l x"',
+            'sudo env --split "ls"',
+        ):
             with self.subTest(command=command):
-                hits = self.assert_fires(_workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n")))
+                hits = self.assert_fires(
+                    _workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n"))
+                )
                 self.assertIn("env -S", hits[0].message)
 
     def test_env_without_split_string_is_silent(self) -> None:
@@ -599,7 +677,9 @@ class TestGuardRefused(_RuleCase):
             '/bin/bash -ec "$CMD"',
         ):
             with self.subTest(command=command):
-                hits = self.assert_fires(_workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n")))
+                hits = self.assert_fires(
+                    _workflow(_stage(f"Run:\n\n  ```bash\n  {command}\n  ```\n"))
+                )
                 self.assertIn("eval/sh -c", hits[0].message)
 
     def test_qualified_shell_with_static_c_string_remains_silent(self) -> None:
@@ -628,10 +708,13 @@ class TestGuardRefused(_RuleCase):
         # --dry-run, and -o with no following value does not satisfy the guard.
         for command in (
             'for p in diffs; do patch --dry-running < "$p"; done',
-            'for p in diffs; do patch -o; done',
+            "for p in diffs; do patch -o; done",
         ):
             with self.subTest(command=command):
-                self.assertIn("loop", self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))[0].message)
+                self.assertIn(
+                    "loop",
+                    self.assert_fires(_workflow(_stage(f"Run:\n\n  {command}\n")))[0].message,
+                )
 
     def test_has_teeth(self) -> None:
         self.assert_has_teeth(_workflow(_stage(_LOOP)))
@@ -646,7 +729,7 @@ class TestRawHasDynamicExpansion(unittest.TestCase):
 
     def test_double_quoted_with_inner_single_quotes_and_dollar_is_dynamic(self) -> None:
         # "'$CMD'" — dollar inside "..." is not protected by the surrounding '...'
-        self.assertTrue(_raw_has_dynamic_expansion('"\'$CMD\'"'))
+        self.assertTrue(_raw_has_dynamic_expansion("\"'$CMD'\""))
 
     def test_single_quoted_dollar_is_static(self) -> None:
         # '$CMD' — dollar inside '...' is fully protected

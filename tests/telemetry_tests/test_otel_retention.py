@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -13,12 +13,11 @@ from telemetry.otel.config import DataTypeRetention, RetentionConfig
 from telemetry.otel.reader import OTLPDataDir, OTLPReader
 from telemetry.otel.retention import PruneResult, TelemetryPruner
 
-
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-_NOW = datetime(2026, 7, 29, 12, 0, 0, tzinfo=timezone.utc)
+_NOW = datetime(2026, 7, 29, 12, 0, 0, tzinfo=UTC)
 # Integer arithmetic to avoid float rounding at nanosecond precision.
 # _NOW has no microseconds, so whole-seconds * 1e9 is exact via int multiply.
 _NOW_SECS = int(_NOW.timestamp())
@@ -34,6 +33,7 @@ _OLD_NANO = (_NOW_SECS - 40 * 86400) * 1_000_000_000
 # ---------------------------------------------------------------------------
 # Record factories
 # ---------------------------------------------------------------------------
+
 
 def _events_record(time_unix_nano: int) -> dict:
     """Build a minimal OTLPEventsRecord dict with a single log record."""
@@ -124,6 +124,7 @@ def _metrics_record(time_unix_nano: int) -> dict:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _default_config(keep_days: int = 30, min_records: int = 0) -> RetentionConfig:
     return RetentionConfig(
         metrics=DataTypeRetention(keep_days=keep_days),
@@ -147,6 +148,7 @@ def _write_jsonl(path: Path, records: list[dict]) -> None:
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestPruneInvalidDataType(unittest.TestCase):
     def test_invalid_data_type_raises_value_error(self):
@@ -252,11 +254,14 @@ class TestCutoffFiltering(unittest.TestCase):
     def test_events_older_than_keep_days_are_pruned(self, _mock_now):
         with tempfile.TemporaryDirectory() as td:
             events_path = Path(td) / "events.jsonl"
-            _write_jsonl(events_path, [
-                _events_record(_OLD_NANO),    # 40 days ago — pruned
-                _events_record(_RECENT_NANO), # 5 days ago — kept
-                _events_record(_NOW_NANO),    # now — kept
-            ])
+            _write_jsonl(
+                events_path,
+                [
+                    _events_record(_OLD_NANO),  # 40 days ago — pruned
+                    _events_record(_RECENT_NANO),  # 5 days ago — kept
+                    _events_record(_NOW_NANO),  # now — kept
+                ],
+            )
             pruner = _make_pruner(Path(td), config=_default_config(keep_days=30))
             result = pruner.prune("events", dry_run=False)
 
@@ -268,10 +273,13 @@ class TestCutoffFiltering(unittest.TestCase):
     def test_spans_older_than_keep_days_are_pruned(self, _mock_now):
         with tempfile.TemporaryDirectory() as td:
             spans_path = Path(td) / "spans.jsonl"
-            _write_jsonl(spans_path, [
-                _spans_record(_OLD_NANO),
-                _spans_record(_RECENT_NANO),
-            ])
+            _write_jsonl(
+                spans_path,
+                [
+                    _spans_record(_OLD_NANO),
+                    _spans_record(_RECENT_NANO),
+                ],
+            )
             pruner = _make_pruner(Path(td), config=_default_config(keep_days=30))
             result = pruner.prune("spans", dry_run=False)
 
@@ -283,10 +291,13 @@ class TestCutoffFiltering(unittest.TestCase):
     def test_metrics_older_than_keep_days_are_pruned(self, _mock_now):
         with tempfile.TemporaryDirectory() as td:
             metrics_path = Path(td) / "metrics.jsonl"
-            _write_jsonl(metrics_path, [
-                _metrics_record(_OLD_NANO),
-                _metrics_record(_RECENT_NANO),
-            ])
+            _write_jsonl(
+                metrics_path,
+                [
+                    _metrics_record(_OLD_NANO),
+                    _metrics_record(_RECENT_NANO),
+                ],
+            )
             pruner = _make_pruner(Path(td), config=_default_config(keep_days=30))
             result = pruner.prune("metrics", dry_run=False)
 
@@ -300,6 +311,7 @@ class TestCutoffFiltering(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             events_path = Path(td) / "events.jsonl"
             from datetime import timedelta
+
             cutoff_ts = _NOW - timedelta(days=30)
             cutoff_nano = int(cutoff_ts.timestamp() * 1_000_000_000)
             _write_jsonl(events_path, [_events_record(cutoff_nano)])
@@ -339,11 +351,19 @@ class TestMalformedLines(unittest.TestCase):
                 # Valid JSON that parses fine but produces no log records
                 # (scopeLogs list present but with one empty scope dict that has no logRecords).
                 # OTLPEventsRecord.from_dict succeeds; log_records is []; min() returns None.
-                f.write(json.dumps({
-                    "resourceLogs": [
-                        {"resource": {"attributes": []}, "scopeLogs": [{"scope": {}, "logRecords": []}]}
-                    ]
-                }) + "\n")
+                f.write(
+                    json.dumps(
+                        {
+                            "resourceLogs": [
+                                {
+                                    "resource": {"attributes": []},
+                                    "scopeLogs": [{"scope": {}, "logRecords": []}],
+                                }
+                            ]
+                        }
+                    )
+                    + "\n"
+                )
                 f.write(json.dumps(_events_record(_RECENT_NANO)) + "\n")
 
             pruner = _make_pruner(Path(td))
@@ -390,10 +410,13 @@ class TestSafetyNet(unittest.TestCase):
         """Safety net raises ValueError if records_after < min_records_after_prune."""
         with tempfile.TemporaryDirectory() as td:
             events_path = Path(td) / "events.jsonl"
-            _write_jsonl(events_path, [
-                _events_record(_OLD_NANO),    # will be removed
-                _events_record(_RECENT_NANO), # will survive
-            ])
+            _write_jsonl(
+                events_path,
+                [
+                    _events_record(_OLD_NANO),  # will be removed
+                    _events_record(_RECENT_NANO),  # will survive
+                ],
+            )
             original_content = events_path.read_text()
 
             # min_records_after_prune = 5 > 1 surviving record
@@ -404,8 +427,8 @@ class TestSafetyNet(unittest.TestCase):
                 pruner.prune("events", dry_run=False)
 
             err = str(ctx.exception)
-            self.assertIn("1", err)       # records_after count
-            self.assertIn("5", err)       # minimum
+            self.assertIn("1", err)  # records_after count
+            self.assertIn("5", err)  # minimum
             # File must NOT be modified
             self.assertEqual(events_path.read_text(), original_content)
 
@@ -427,10 +450,13 @@ class TestSafetyNet(unittest.TestCase):
     def test_safety_net_error_mentions_minimum(self, _mock_now):
         with tempfile.TemporaryDirectory() as td:
             events_path = Path(td) / "events.jsonl"
-            _write_jsonl(events_path, [
-                _events_record(_OLD_NANO),
-                _events_record(_RECENT_NANO),
-            ])
+            _write_jsonl(
+                events_path,
+                [
+                    _events_record(_OLD_NANO),
+                    _events_record(_RECENT_NANO),
+                ],
+            )
             config = _default_config(keep_days=30, min_records=99)
             pruner = _make_pruner(Path(td), config=config)
 
@@ -481,10 +507,13 @@ class TestBytesAfterDryRunVsActual(unittest.TestCase):
     def test_dry_run_bytes_after_is_estimate(self, _mock_now):
         with tempfile.TemporaryDirectory() as td:
             events_path = Path(td) / "events.jsonl"
-            _write_jsonl(events_path, [
-                _events_record(_OLD_NANO),
-                _events_record(_RECENT_NANO),
-            ])
+            _write_jsonl(
+                events_path,
+                [
+                    _events_record(_OLD_NANO),
+                    _events_record(_RECENT_NANO),
+                ],
+            )
 
             pruner = _make_pruner(Path(td))
             dry_result = pruner.prune("events", dry_run=True)
@@ -497,10 +526,13 @@ class TestBytesAfterDryRunVsActual(unittest.TestCase):
     def test_actual_run_bytes_after_matches_file(self, _mock_now):
         with tempfile.TemporaryDirectory() as td:
             events_path = Path(td) / "events.jsonl"
-            _write_jsonl(events_path, [
-                _events_record(_OLD_NANO),
-                _events_record(_RECENT_NANO),
-            ])
+            _write_jsonl(
+                events_path,
+                [
+                    _events_record(_OLD_NANO),
+                    _events_record(_RECENT_NANO),
+                ],
+            )
 
             pruner = _make_pruner(Path(td))
             actual_result = pruner.prune("events", dry_run=False)
@@ -516,22 +548,28 @@ class TestBytesAfterDryRunVsActual(unittest.TestCase):
         """
         with tempfile.TemporaryDirectory() as td:
             events_path = Path(td) / "events.jsonl"
-            _write_jsonl(events_path, [
-                _events_record(_OLD_NANO),
-                _events_record(_RECENT_NANO),
-                _events_record(_NOW_NANO),
-            ])
+            _write_jsonl(
+                events_path,
+                [
+                    _events_record(_OLD_NANO),
+                    _events_record(_RECENT_NANO),
+                    _events_record(_NOW_NANO),
+                ],
+            )
 
             pruner = _make_pruner(Path(td))
             dry_result = pruner.prune("events", dry_run=True)
             self.assertGreater(dry_result.bytes_after, 0)
 
             # Re-create the file for the actual run
-            _write_jsonl(events_path, [
-                _events_record(_OLD_NANO),
-                _events_record(_RECENT_NANO),
-                _events_record(_NOW_NANO),
-            ])
+            _write_jsonl(
+                events_path,
+                [
+                    _events_record(_OLD_NANO),
+                    _events_record(_RECENT_NANO),
+                    _events_record(_NOW_NANO),
+                ],
+            )
             actual_result = pruner.prune("events", dry_run=False)
             self.assertGreater(actual_result.bytes_after, 0)
             # Dry-run estimate must exactly match the real file size — same json.dumps path
@@ -593,10 +631,13 @@ class TestPruneAll(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as td:
             for filename, build_record in record_builders.items():
-                _write_jsonl(Path(td) / filename, [
-                    build_record(_OLD_NANO),
-                    build_record(_RECENT_NANO),
-                ])
+                _write_jsonl(
+                    Path(td) / filename,
+                    [
+                        build_record(_OLD_NANO),
+                        build_record(_RECENT_NANO),
+                    ],
+                )
 
             pruner = _make_pruner(Path(td))
             results = pruner.prune_all(dry_run=True)

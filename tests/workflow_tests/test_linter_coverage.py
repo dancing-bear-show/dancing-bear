@@ -24,6 +24,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from tests.workflow_tests.helpers.factories import (
+    make_stage_spec,
+    make_workflow_definition,
+)
 from workflow.linter import (
     LintResult,
     LintWarning,
@@ -44,12 +48,6 @@ from workflow.models import (
     WorkflowDefinition,
 )
 
-from tests.workflow_tests.helpers.factories import (
-    make_stage_spec,
-    make_workflow_definition,
-)
-
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -58,7 +56,7 @@ from tests.workflow_tests.helpers.factories import (
 def _minimal_yaml(name: str = "test-wf", extra: str = "") -> str:
     return (
         "name: " + name + "\n"
-        "version: \"1.0\"\n"
+        'version: "1.0"\n'
         "description: Test workflow\n"
         "trigger:\n"
         "  source: manual\n"
@@ -69,8 +67,7 @@ def _minimal_yaml(name: str = "test-wf", extra: str = "") -> str:
         "    kind: gather\n"
         "    description: Gather data for {team}\n"
         "    agent:\n"
-        "      role: researcher\n"
-        + extra
+        "      role: researcher\n" + extra
     )
 
 
@@ -148,8 +145,12 @@ class TestFragmentStageNames(unittest.TestCase):
         stage = make_stage_spec(name="some-stage")
         trigger = TriggerSpec(source="manual")
         defn = WorkflowDefinition(
-            name="t", version="1.0", description="t",
-            trigger=trigger, stages=(stage,), includes=(inc,),
+            name="t",
+            version="1.0",
+            description="t",
+            trigger=trigger,
+            stages=(stage,),
+            includes=(inc,),
         )
         self.assertEqual(_fragment_stage_names(defn), frozenset())
 
@@ -159,8 +160,12 @@ class TestFragmentStageNames(unittest.TestCase):
         stage_caller = make_stage_spec(name="caller-stage")
         trigger = TriggerSpec(source="manual")
         defn = WorkflowDefinition(
-            name="t", version="1.0", description="t",
-            trigger=trigger, stages=(stage_frag, stage_caller), includes=(inc,),
+            name="t",
+            version="1.0",
+            description="t",
+            trigger=trigger,
+            stages=(stage_frag, stage_caller),
+            includes=(inc,),
         )
         names = _fragment_stage_names(defn)
         self.assertIn("my-frag-stage", names)
@@ -180,8 +185,11 @@ class TestBuildKnownVars(unittest.TestCase):
         trigger = TriggerSpec(source="manual", params={"team": "x", "env": "y"})
         stage = make_stage_spec(name="s", description="use {team}")
         defn = WorkflowDefinition(
-            name="t", version="1.0", description="t",
-            trigger=trigger, stages=(stage,),
+            name="t",
+            version="1.0",
+            description="t",
+            trigger=trigger,
+            stages=(stage,),
         )
         _, known = _build_known_vars(defn)
         self.assertIn("team", known)
@@ -194,8 +202,12 @@ class TestBuildKnownVars(unittest.TestCase):
         stage_frag = make_stage_spec(name="my-frag-stage", description="uses {fragment_only_var}")
         stage_caller = make_stage_spec(name="caller-stage", description="uses {caller_var}")
         defn = WorkflowDefinition(
-            name="t", version="1.0", description="t",
-            trigger=trigger, stages=(stage_frag, stage_caller), includes=(inc,),
+            name="t",
+            version="1.0",
+            description="t",
+            trigger=trigger,
+            stages=(stage_frag, stage_caller),
+            includes=(inc,),
         )
         _, known = _build_known_vars(defn)
         self.assertIn("fragment_only_var", known)
@@ -207,8 +219,12 @@ class TestBuildKnownVars(unittest.TestCase):
         stage_frag = make_stage_spec(name="my-frag-stage", description="uses {shared_var}")
         stage_caller = make_stage_spec(name="caller-stage", description="uses {shared_var}")
         defn = WorkflowDefinition(
-            name="t", version="1.0", description="t",
-            trigger=trigger, stages=(stage_frag, stage_caller), includes=(inc,),
+            name="t",
+            version="1.0",
+            description="t",
+            trigger=trigger,
+            stages=(stage_frag, stage_caller),
+            includes=(inc,),
         )
         _, known = _build_known_vars(defn)
         self.assertNotIn("shared_var", known)
@@ -228,7 +244,9 @@ class TestStageUndeclaredRefs(unittest.TestCase):
 
     def test_undeclared_var_not_in_fan_out_key_reported(self) -> None:
         fan_out = FanOutSpec(source="gather", field="items", key="item")
-        stage = make_stage_spec(name="s", description="Process {item} and {undeclared}", fan_out=fan_out)
+        stage = make_stage_spec(
+            name="s", description="Process {item} and {undeclared}", fan_out=fan_out
+        )
         result = _stage_undeclared_refs(stage, frozenset())
         self.assertIn("undeclared", result)
         self.assertNotIn("item", result)
@@ -423,9 +441,9 @@ class TestCheckCliCommands(unittest.TestCase):
         mock_proc.returncode = 0
         mock_proc.stdout = "Usage: ..."
         mock_proc.stderr = ""
-        defn = make_workflow_definition(stages=(
-            make_stage_spec(name="s", description="Run ./bin/mail labels to gather data"),
-        ))
+        defn = make_workflow_definition(
+            stages=(make_stage_spec(name="s", description="Run ./bin/mail labels to gather data"),)
+        )
         result = LintResult(file="test.yaml")
         with patch("core.process.subprocess.run", return_value=mock_proc):
             _check_cli_commands(defn, result)
@@ -436,9 +454,9 @@ class TestCheckCliCommands(unittest.TestCase):
         mock_proc.returncode = 2
         mock_proc.stdout = ""
         mock_proc.stderr = "invalid choice: badcmd"
-        defn = make_workflow_definition(stages=(
-            make_stage_spec(name="s", description="Run ./bin/mail badcmd to do stuff"),
-        ))
+        defn = make_workflow_definition(
+            stages=(make_stage_spec(name="s", description="Run ./bin/mail badcmd to do stuff"),)
+        )
         result = LintResult(file="test.yaml")
         with patch("core.process.subprocess.run", return_value=mock_proc):
             _check_cli_commands(defn, result)
@@ -450,10 +468,12 @@ class TestCheckCliCommands(unittest.TestCase):
         mock_proc.returncode = 0
         mock_proc.stdout = "Usage: ..."
         mock_proc.stderr = ""
-        defn = make_workflow_definition(stages=(
-            make_stage_spec(name="s1", description="Run ./bin/mail labels first"),
-            make_stage_spec(name="s2", description="Also ./bin/mail labels later"),
-        ))
+        defn = make_workflow_definition(
+            stages=(
+                make_stage_spec(name="s1", description="Run ./bin/mail labels first"),
+                make_stage_spec(name="s2", description="Also ./bin/mail labels later"),
+            )
+        )
         result = LintResult(file="test.yaml")
         with patch("core.process.subprocess.run", return_value=mock_proc) as mock_run:
             _check_cli_commands(defn, result)
@@ -480,7 +500,7 @@ class TestCheckIncludeFiles(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             wf = Path(tmp) / "wf.yaml"
             wf.write_text(
-                "name: test-wf\nversion: \"1.0\"\ndescription: Test\ntrigger:\n"
+                'name: test-wf\nversion: "1.0"\ndescription: Test\ntrigger:\n'
                 "  source: manual\ninclude:\n  - path: missing-fragment.yaml\n"
                 "    prefix: frag\nstages:\n  - name: gather\n    kind: gather\n"
                 "    description: Gather\n    agent:\n      role: researcher\n",
@@ -602,13 +622,15 @@ stages:
         with tempfile.TemporaryDirectory() as tmp2:
             wf2 = Path(tmp2) / "wf.yaml"
             wf2.write_text(
-                _minimal_yaml(extra=(
-                    "  - name: caller-stage\n"
-                    "    kind: gather\n"
-                    "    description: Uses {caller_only_var}\n"
-                    "    agent:\n"
-                    "      role: researcher\n"
-                )),
+                _minimal_yaml(
+                    extra=(
+                        "  - name: caller-stage\n"
+                        "    kind: gather\n"
+                        "    description: Uses {caller_only_var}\n"
+                        "    agent:\n"
+                        "      role: researcher\n"
+                    )
+                ),
                 encoding="utf-8",
             )
             result2 = lint_workflow(wf2)

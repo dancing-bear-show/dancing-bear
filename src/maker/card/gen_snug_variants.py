@@ -7,18 +7,20 @@ Outputs:
 - card_2x_halfoz_snug_25p2mm.stl (PLA)
 - card_2x_halfoz_snug_25p4mm.stl (PETG)
 """
+
 from pathlib import Path
+
 import numpy as np
 import shapely.geometry as sg
 import shapely.ops as so
 import trimesh
 
 SRC = Path(__file__).resolve().parent
-CARD_STL = SRC / 'card_2x_halfoz.stl'
+CARD_STL = SRC / "card_2x_halfoz.stl"
 
 
 def estimate_centers_and_base(stl_path: Path):
-    mesh = trimesh.load_mesh(stl_path, force='mesh')
+    mesh = trimesh.load_mesh(stl_path, force="mesh")
     bounds = mesh.bounds  # [[xmin,ymin,zmin],[xmax,ymax,zmax]]
     xmin, ymin, zmin = bounds[0]
     xmax, ymax, zmax = bounds[1]
@@ -84,16 +86,15 @@ def main():
     (width, height, thickness), centers = estimate_centers_and_base(CARD_STL)
     # Target: snug for 1/2 oz Maple Leaf (25.0 mm coin diameter)
     variants = [
-        (25.2, 'card_2x_halfoz_snug_25p2mm.stl'),  # PLA
-        (25.4, 'card_2x_halfoz_snug_25p4mm.stl'),  # PETG
+        (25.2, "card_2x_halfoz_snug_25p2mm.stl"),  # PLA
+        (25.4, "card_2x_halfoz_snug_25p4mm.stl"),  # PETG
     ]
     for dia, name in variants:
         mesh = build_card(width, height, thickness, centers, dia)
         out = SRC / name
         mesh.export(out)
-        print(f'Wrote {out} (hole Ø {dia} mm)')
+        print(f"Wrote {out} (hole Ø {dia} mm)")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
-

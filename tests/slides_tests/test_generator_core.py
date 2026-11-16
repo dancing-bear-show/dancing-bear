@@ -40,8 +40,8 @@ class TestSlideGeneratorInit(unittest.TestCase):
 class TestSlideGeneratorGenerateFromYaml(unittest.TestCase):
     """Tests for SlideGenerator.generate_from_yaml instance method."""
 
-    @patch.object(SlideGenerator, 'generate')
-    @patch('slides.generator.load_deck_from_yaml')
+    @patch.object(SlideGenerator, "generate")
+    @patch("slides.generator.load_deck_from_yaml")
     def test_generate_from_yaml_instance_method(self, mock_load, mock_generate):
         """Test the instance method generate_from_yaml."""
         mock_deck = MagicMock()
@@ -316,9 +316,7 @@ class TestGenerateFromYaml(unittest.TestCase):
 title: No Template
 slides: []
 """
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write(yaml_content)
             f.flush()
 
@@ -333,8 +331,8 @@ slides: []
 class TestSlideGeneratorMultipleSlides(unittest.TestCase):
     """Tests for generating decks with multiple slides."""
 
-    @patch('slides.generator.Presentation')
-    @patch('slides.generator.copy.deepcopy')
+    @patch("slides.generator.Presentation")
+    @patch("slides.generator.copy.deepcopy")
     def test_generate_multiple_bullet_slides(self, mock_deepcopy, mock_prs_class):
         """Test generating deck with multiple bullet slides."""
         # Set up mock presentation
@@ -377,16 +375,16 @@ class TestSlideGeneratorMultipleSlides(unittest.TestCase):
             ],
         )
 
-        with patch.object(generator, '_set_slide_content'):
-            with patch.object(generator, '_set_slide_title'):
-                with patch.object(generator, '_reposition_textbox'):
+        with patch.object(generator, "_set_slide_content"):
+            with patch.object(generator, "_set_slide_title"):
+                with patch.object(generator, "_reposition_textbox"):
                     generator.generate(deck, "/output.pptx")
 
         # Verify add_slide was called for second slide
         mock_prs.slides.add_slide.assert_called()
         mock_prs.save.assert_called_once_with("/output.pptx")
 
-    @patch('slides.generator.Presentation')
+    @patch("slides.generator.Presentation")
     def test_generate_table_slide(self, mock_prs_class):
         """Test generating a table slide."""
         mock_prs = MagicMock()
@@ -423,9 +421,9 @@ class TestSlideGeneratorMultipleSlides(unittest.TestCase):
             ],
         )
 
-        with patch.object(generator, '_set_slide_content'):
-            with patch.object(generator, '_set_slide_title'):
-                with patch.object(generator, '_add_table_to_slide') as mock_add_table:
+        with patch.object(generator, "_set_slide_content"):
+            with patch.object(generator, "_set_slide_title"):
+                with patch.object(generator, "_add_table_to_slide") as mock_add_table:
                     generator.generate(deck, "/output.pptx")
 
         # Verify _add_table_to_slide was called
@@ -434,8 +432,8 @@ class TestSlideGeneratorMultipleSlides(unittest.TestCase):
         self.assertEqual(call_args[0][1], ["Col A", "Col B"])  # headers
         self.assertEqual(call_args[0][2], [["1", "2"], ["3", "4"]])  # rows
 
-    @patch('slides.generator.Presentation')
-    @patch('slides.generator.copy.deepcopy')
+    @patch("slides.generator.Presentation")
+    @patch("slides.generator.copy.deepcopy")
     def test_generate_clones_textbox_for_bullet_slides(self, mock_deepcopy, mock_prs_class):
         """Test that generating multiple bullet slides clones the text box."""
         mock_prs = MagicMock()
@@ -502,15 +500,13 @@ class TestSlideGeneratorMultipleSlides(unittest.TestCase):
             c.args == (mock_textbox_element,) for c in calls
         ), f"Expected deepcopy to be called with text box element. Calls: {calls}"
         # Verify insert_element_before was called on the new slide
-        mock_sp_tree.insert_element_before.assert_called_with(
-            mock_cloned_element, "p:extLst"
-        )
+        mock_sp_tree.insert_element_before.assert_called_with(mock_cloned_element, "p:extLst")
 
 
 class TestSlideGeneratorFirstSlideHandling(unittest.TestCase):
     """Tests for first slide handling in generate method."""
 
-    @patch('slides.generator.Presentation')
+    @patch("slides.generator.Presentation")
     def test_first_table_slide_removes_textbox(self, mock_prs_class):
         """Test that first table slide removes the text box shape."""
         mock_prs = MagicMock()
@@ -554,8 +550,8 @@ class TestSlideGeneratorFirstSlideHandling(unittest.TestCase):
             ],
         )
 
-        with patch.object(generator, '_set_slide_title'):
-            with patch.object(generator, '_add_table_to_slide'):
+        with patch.object(generator, "_set_slide_title"):
+            with patch.object(generator, "_add_table_to_slide"):
                 generator.generate(deck, "/output.pptx")
 
         # Verify the text box element was removed
@@ -758,6 +754,7 @@ class TestPopulateSlideTableRejection(unittest.TestCase):
 # Coverage-targeted tests (from test_generator_coverage.py)
 # ---------------------------------------------------------------------------
 
+
 class TestPreparePresentation(unittest.TestCase):
     """Cover _prepare_presentation error branches."""
 
@@ -765,9 +762,7 @@ class TestPreparePresentation(unittest.TestCase):
         self.generator = SlideGenerator(template_path="/fake/template.pptx")
 
     @patch("slides.generator.Presentation")
-    def test_template_slide_index_out_of_bounds_plural(
-        self, mock_prs_class: MagicMock
-    ) -> None:
+    def test_template_slide_index_out_of_bounds_plural(self, mock_prs_class: MagicMock) -> None:
         """Out-of-bounds index with multiple slides uses plural 'slides'."""
         mock_prs = MagicMock()
         mock_prs_class.return_value = mock_prs
@@ -787,9 +782,7 @@ class TestPreparePresentation(unittest.TestCase):
         self.assertIn("3 slides", str(ctx.exception))
 
     @patch("slides.generator.Presentation")
-    def test_template_slide_index_out_of_bounds_singular(
-        self, mock_prs_class: MagicMock
-    ) -> None:
+    def test_template_slide_index_out_of_bounds_singular(self, mock_prs_class: MagicMock) -> None:
         """Out-of-bounds index with 1 slide uses singular 'slide'."""
         mock_prs = MagicMock()
         mock_prs_class.return_value = mock_prs
@@ -825,9 +818,7 @@ class TestPreparePresentation(unittest.TestCase):
         self.assertIn("No template path provided", str(ctx.exception))
 
     @patch("slides.generator.Presentation")
-    def test_deck_template_path_takes_priority(
-        self, mock_prs_class: MagicMock
-    ) -> None:
+    def test_deck_template_path_takes_priority(self, mock_prs_class: MagicMock) -> None:
         """Deck's template_path is used over generator's when both set."""
         mock_prs = MagicMock()
         mock_prs_class.return_value = mock_prs
@@ -855,9 +846,7 @@ class TestGenerateMultipleSlidesWithTableAndBullets(unittest.TestCase):
     """Cover generate() path where second slide is a TableSlide (no textbox clone)."""
 
     @patch("slides.generator.Presentation")
-    def test_second_slide_table_skips_textbox_clone(
-        self, mock_prs_class: MagicMock
-    ) -> None:
+    def test_second_slide_table_skips_textbox_clone(self, mock_prs_class: MagicMock) -> None:
         """When second slide is a TableSlide with headers, textbox is not cloned."""
         mock_prs = MagicMock()
         mock_prs_class.return_value = mock_prs
@@ -950,7 +939,7 @@ class TestEmptyLayoutMapFallbackError(unittest.TestCase):
             metadata=DeckMetadata(
                 title="Test",
                 template_slide_index=99,  # out of bounds
-                layout_map={},            # empty — no named layouts
+                layout_map={},  # empty — no named layouts
             ),
             slides=[],
         )
@@ -983,7 +972,7 @@ class TestEmptyLayoutMapFallbackError(unittest.TestCase):
                 metadata=DeckMetadata(
                     title="Test",
                     template_slide_index=0,  # valid index
-                    layout_map={},           # empty but fallback is valid
+                    layout_map={},  # empty but fallback is valid
                 ),
                 slides=[],
             )
@@ -1014,12 +1003,12 @@ class TestGenerateCallsRenameSlidesParts(unittest.TestCase):
             slides=[SlideContent(title="Slide 1", bullets=["a"])],
         )
 
-        with patch.object(generator, "_prepare_presentation") as mock_prep, \
-             patch.object(generator, "_generate_legacy_mode"):
+        with (
+            patch.object(generator, "_prepare_presentation") as mock_prep,
+            patch.object(generator, "_generate_legacy_mode"),
+        ):
             # layouts="not_a_dict" (non-dict) triggers legacy mode
-            mock_prep.return_value = (
-                mock_prs, MagicMock(), "not_a_dict", MagicMock()
-            )
+            mock_prep.return_value = (mock_prs, MagicMock(), "not_a_dict", MagicMock())
 
             generator.generate(deck, os.path.join(tempfile.gettempdir(), "out.pptx"))
 
@@ -1040,9 +1029,7 @@ class TestApplyNotes(unittest.TestCase):
 
         SlideGenerator._apply_notes(slide, "speaker notes here")
 
-        self.assertEqual(
-            slide.notes_slide.notes_text_frame.text, "speaker notes here"
-        )
+        self.assertEqual(slide.notes_slide.notes_text_frame.text, "speaker notes here")
 
     def test_clears_inherited_notes_when_deck_has_none(self) -> None:
         """A reused template slide's existing notes are cleared, not inherited."""
@@ -1111,9 +1098,11 @@ class TestGenerateRenameFnAndParent(unittest.TestCase):
         with tempfile.NamedTemporaryFile(suffix=".pptx", delete=False) as tf:
             out_path = tf.name
         try:
-            with patch.object(generator, "_prepare_presentation") as mock_prep, \
-                 patch.object(generator, "_generate_layout_map_mode"), \
-                 patch.object(generator, "_generate_legacy_mode"):
+            with (
+                patch.object(generator, "_prepare_presentation") as mock_prep,
+                patch.object(generator, "_generate_layout_map_mode"),
+                patch.object(generator, "_generate_legacy_mode"),
+            ):
                 mock_prep.return_value = (prs, None, {}, MSO_THEME_COLOR.LIGHT_2)
                 generator.generate(deck, out_path)
             prs.save.assert_called_once_with(out_path)
@@ -1140,10 +1129,12 @@ class TestGenerateRenameFnAndParent(unittest.TestCase):
             original_dir = os.getcwd()
             os.chdir(td)
             try:
-                with patch.object(generator, "_prepare_presentation") as mock_prep, \
-                     patch.object(generator, "_generate_layout_map_mode"), \
-                     patch.object(generator, "_generate_legacy_mode"), \
-                     patch("os.makedirs") as mock_makedirs:
+                with (
+                    patch.object(generator, "_prepare_presentation") as mock_prep,
+                    patch.object(generator, "_generate_layout_map_mode"),
+                    patch.object(generator, "_generate_legacy_mode"),
+                    patch("os.makedirs") as mock_makedirs,
+                ):
                     mock_prep.return_value = (prs, None, {}, MSO_THEME_COLOR.LIGHT_2)
                     generator.generate(deck, basename_only)
                 # makedirs should NOT have been called (no parent directory)
@@ -1169,10 +1160,12 @@ class TestRenderMermaidCleanupOnError(unittest.TestCase):
         mmd_name = os.path.join(tempfile.gettempdir(), "test_fnf.mmd")
         expected_png = mmd_name.replace(".mmd", ".png")
 
-        with patch("slides.generator.subprocess.run") as mock_run, \
-             patch("slides.generator.tempfile.NamedTemporaryFile") as mock_ntf_cls, \
-             patch("slides.generator.os.path.exists", return_value=True) as mock_exists, \
-             patch("slides.generator.os.unlink") as mock_unlink:
+        with (
+            patch("slides.generator.subprocess.run") as mock_run,
+            patch("slides.generator.tempfile.NamedTemporaryFile") as mock_ntf_cls,
+            patch("slides.generator.os.path.exists", return_value=True) as mock_exists,
+            patch("slides.generator.os.unlink") as mock_unlink,
+        ):
             mock_ntf_cls.return_value = self._make_ntf_mock(mmd_name)
             mock_run.side_effect = FileNotFoundError()
 
@@ -1190,10 +1183,12 @@ class TestRenderMermaidCleanupOnError(unittest.TestCase):
         mmd_name = os.path.join(tempfile.gettempdir(), "test_cpe.mmd")
         expected_png = mmd_name.replace(".mmd", ".png")
 
-        with patch("slides.generator.subprocess.run") as mock_run, \
-             patch("slides.generator.tempfile.NamedTemporaryFile") as mock_ntf_cls, \
-             patch("slides.generator.os.path.exists", return_value=True) as mock_exists, \
-             patch("slides.generator.os.unlink") as mock_unlink:
+        with (
+            patch("slides.generator.subprocess.run") as mock_run,
+            patch("slides.generator.tempfile.NamedTemporaryFile") as mock_ntf_cls,
+            patch("slides.generator.os.path.exists", return_value=True) as mock_exists,
+            patch("slides.generator.os.unlink") as mock_unlink,
+        ):
             mock_ntf_cls.return_value = self._make_ntf_mock(mmd_name)
             exc = subprocess.CalledProcessError(1, "mmdc", stderr=b"render error")
             mock_run.side_effect = exc
@@ -1211,10 +1206,12 @@ class TestRenderMermaidCleanupOnError(unittest.TestCase):
         mmd_name = os.path.join(tempfile.gettempdir(), "test_fnf_no_png.mmd")
         expected_png = mmd_name.replace(".mmd", ".png")
 
-        with patch("slides.generator.subprocess.run") as mock_run, \
-             patch("slides.generator.tempfile.NamedTemporaryFile") as mock_ntf_cls, \
-             patch("slides.generator.os.path.exists", return_value=False), \
-             patch("slides.generator.os.unlink") as mock_unlink:
+        with (
+            patch("slides.generator.subprocess.run") as mock_run,
+            patch("slides.generator.tempfile.NamedTemporaryFile") as mock_ntf_cls,
+            patch("slides.generator.os.path.exists", return_value=False),
+            patch("slides.generator.os.unlink") as mock_unlink,
+        ):
             mock_ntf_cls.return_value = self._make_ntf_mock(mmd_name)
             mock_run.side_effect = FileNotFoundError()
 

@@ -13,6 +13,7 @@ class TestExponentialBackoff(unittest.TestCase):
 
     def setUp(self) -> None:
         from core.retry import exponential_backoff
+
         self.fn = exponential_backoff
 
     def test_attempt_zero(self) -> None:
@@ -41,6 +42,7 @@ class TestLinearBackoff(unittest.TestCase):
 
     def setUp(self) -> None:
         from core.retry import linear_backoff
+
         self.fn = linear_backoff
 
     def test_attempt_zero(self) -> None:
@@ -65,6 +67,7 @@ class TestJitterBackoff(unittest.TestCase):
 
     def setUp(self) -> None:
         from core.retry import jitter_backoff
+
         self.fn = jitter_backoff
 
     def test_within_jitter_bounds_attempt_zero(self) -> None:
@@ -151,7 +154,7 @@ class TestRetryDecoratorRetryThenSucceed(unittest.TestCase):
         def flaky() -> str:
             attempt_count[0] += 1
             if attempt_count[0] < 3:
-                raise IOError("boom")
+                raise OSError("boom")
             return "ok"
 
         with patch("core.retry.time.sleep") as mock_sleep:
@@ -272,7 +275,7 @@ class TestRetryDecoratorOnRetryCallback(unittest.TestCase):
 
         @retry(max_attempts=3, delay=0.0, on_retry=on_retry)
         def fails() -> None:
-            raise IOError("net")
+            raise OSError("net")
 
         with patch("core.retry.time.sleep"):
             with self.assertRaises(RetryExhaustedError):
@@ -373,6 +376,7 @@ class TestHttpSleepForRetryWithJitter(unittest.TestCase):
 
     def _make_client(self):
         import importlib
+
         requests_stub = self._make_requests_stub()
 
         # Inject stub and schedule teardown so sys.modules is always restored.
@@ -384,6 +388,7 @@ class TestHttpSleepForRetryWithJitter(unittest.TestCase):
             self.addCleanup(sys.modules.__setitem__, "requests", original)
 
         from core import http as http_mod
+
         importlib.reload(http_mod)
         # Restore http_mod to its real state after this test.
         self.addCleanup(importlib.reload, http_mod)
@@ -402,7 +407,8 @@ class TestHttpSleepForRetryWithJitter(unittest.TestCase):
 
         for delay in sleep_calls:
             self.assertGreaterEqual(
-                delay, retry_after,
+                delay,
+                retry_after,
                 f"delay {delay} dropped below retry_after={retry_after}",
             )
 
@@ -495,18 +501,14 @@ class TestNonGrowingMultipliers(unittest.TestCase):
     def test_shrinking_multiplier_decays_toward_zero(self) -> None:
         from core.retry import exponential_backoff
 
-        value = exponential_backoff(
-            512, base_delay=1.0, multiplier=0.5, max_delay=60.0
-        )
+        value = exponential_backoff(512, base_delay=1.0, multiplier=0.5, max_delay=60.0)
         self.assertLess(value, 1.0)
         self.assertGreaterEqual(value, 0.0)
 
     def test_growing_multiplier_still_caps(self) -> None:
         from core.retry import exponential_backoff
 
-        self.assertEqual(
-            exponential_backoff(10_000, multiplier=2.0, max_delay=60.0), 60.0
-        )
+        self.assertEqual(exponential_backoff(10_000, multiplier=2.0, max_delay=60.0), 60.0)
 
     def test_normal_series_is_unaffected(self) -> None:
         from core.retry import exponential_backoff
@@ -561,8 +563,7 @@ class TestCredentialMasking(unittest.TestCase):
     """
 
     LEAKY = (
-        "HTTP 401 for https://api.example.com/v1"
-        "?access_token=ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        "HTTP 401 for https://api.example.com/v1?access_token=ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
     )
 
     def test_exhausted_error_message_is_masked(self) -> None:
@@ -618,9 +619,7 @@ class TestCredentialMasking(unittest.TestCase):
                 fails()
 
         err = ctx.exception
-        rendered = "".join(
-            tb_mod.format_exception(type(err), err, err.__traceback__)
-        )
+        rendered = "".join(tb_mod.format_exception(type(err), err, err.__traceback__))
         self.assertNotIn("ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", rendered)
         self.assertIsNone(err.__context__)
         # The original is still reachable for callers that want it.

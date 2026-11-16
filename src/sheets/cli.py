@@ -26,12 +26,15 @@ app = CLIApp(
 @lru_cache(maxsize=1)
 def _lazy_agentic():
     from . import agentic as _agentic
+
     return _agentic.emit_agentic_context
 
 
 @app.command("generate", help="Generate .xlsx from YAML")
 @app.argument("yaml_file", help="Path to YAML workbook definition")
-@app.argument("-o", "--output", help="Output .xlsx path (default: output_dir('sheets')/<name>.xlsx)")
+@app.argument(
+    "-o", "--output", help="Output .xlsx path (default: output_dir('sheets')/<name>.xlsx)"
+)
 def cmd_generate(args) -> int:
     """Generate a .xlsx workbook from a YAML workbook definition."""
     yaml_path = Path(args.yaml_file)
@@ -41,6 +44,7 @@ def cmd_generate(args) -> int:
 
     try:
         from .generator import load_workbook_from_yaml
+
         workbook = load_workbook_from_yaml(args.yaml_file)
     except Exception as e:
         print(f"Error loading YAML: {e}", file=sys.stderr)
@@ -50,10 +54,12 @@ def cmd_generate(args) -> int:
         output_path = args.output
     else:
         from core.paths import output_dir
+
         output_path = str(output_dir("sheets") / f"{yaml_path.stem}.xlsx")
 
     try:
         from .generator import SheetGenerator
+
         generator = SheetGenerator()
         result = generator.generate(workbook, output_path)
     except Exception as e:
@@ -78,6 +84,7 @@ def cmd_validate(args) -> int:
 
     try:
         from .generator import load_workbook_from_yaml, validate_workbook
+
         workbook = load_workbook_from_yaml(args.yaml_file)
     except Exception as e:
         print(f"Validation failed: {e}", file=sys.stderr)

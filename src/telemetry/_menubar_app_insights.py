@@ -1,4 +1,5 @@
 """Insights section mixin extracted from _menubar_app.py."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -23,6 +24,7 @@ class InsightsMixin:
         def _handler(_sender: object) -> None:  # noqa: ARG001
             # Late import avoids circular: _menubar_app imports this module.
             import rumps as _rumps
+
             data = self._insights_tip_hints[idx] if idx < len(self._insights_tip_hints) else {}  # type: ignore[attr-defined]
             rule = data.get("claude_rule") or ""
             reason = data.get("waste_reason") or "tip"
@@ -39,11 +41,13 @@ class InsightsMixin:
                     "Copy this rule, then paste it into your CLAUDE.md "
                     "(global ~/.claude/CLAUDE.md or project-level)."
                 ),
-                ok="Copy", cancel="Close",
+                ok="Copy",
+                cancel="Close",
             )
             if response == 1:
                 self._copy_to_clipboard(rule)  # type: ignore[attr-defined]
                 self._notify("Rule copied", rule)  # type: ignore[attr-defined]
+
         return _handler
 
     def _render_tip_row(self, idx: int, row: object, tips: list[dict]) -> None:
@@ -76,7 +80,8 @@ class InsightsMixin:
 
         project_short = self._project_label_from_path(payload.get("project_path"))
         self._hdr_insights.title = (  # type: ignore[attr-defined]
-            f"-- Insights ({project_short}) --" if project_short
+            f"-- Insights ({project_short}) --"
+            if project_short
             else "-- Insights (current session) --"
         )
         eff = _safe_float(payload.get("efficiency_score"), 0.0)

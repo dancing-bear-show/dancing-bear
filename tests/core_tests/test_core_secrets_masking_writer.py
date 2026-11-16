@@ -139,7 +139,9 @@ class TestInstallOutputMasking(unittest.TestCase):
         try:
             sys.stdout = StringIO()
             sys.stderr = StringIO()
-            with unittest.mock.patch.dict("os.environ", {"SRE_MASK_OUTPUTS": "1", "SRE_MASK_BYPASS": ""}):
+            with unittest.mock.patch.dict(
+                "os.environ", {"SRE_MASK_OUTPUTS": "1", "SRE_MASK_BYPASS": ""}
+            ):
                 install_output_masking_from_env()
             self.assertIsInstance(sys.stdout, MaskingWriter)
             self.assertIsInstance(sys.stderr, MaskingWriter)
@@ -167,7 +169,9 @@ class TestInstallOutputMasking(unittest.TestCase):
         try:
             sys.stdout = StringIO()
             sys.stderr = StringIO()
-            with unittest.mock.patch.dict("os.environ", {"SRE_MASK_OUTPUTS": "0", "SRE_MASK_BYPASS": ""}):
+            with unittest.mock.patch.dict(
+                "os.environ", {"SRE_MASK_OUTPUTS": "0", "SRE_MASK_BYPASS": ""}
+            ):
                 install_output_masking_from_env()
             self.assertNotIsInstance(sys.stdout, MaskingWriter)
         finally:
@@ -180,7 +184,9 @@ class TestInstallOutputMasking(unittest.TestCase):
         try:
             sys.stdout = StringIO()
             sys.stderr = StringIO()
-            with unittest.mock.patch.dict("os.environ", {"SRE_MASK_OUTPUTS": "false", "SRE_MASK_BYPASS": ""}):
+            with unittest.mock.patch.dict(
+                "os.environ", {"SRE_MASK_OUTPUTS": "false", "SRE_MASK_BYPASS": ""}
+            ):
                 install_output_masking_from_env()
             self.assertNotIsInstance(sys.stdout, MaskingWriter)
         finally:
@@ -194,7 +200,9 @@ class TestInstallOutputMasking(unittest.TestCase):
         try:
             sys.stdout = StringIO()
             sys.stderr = StringIO()
-            with unittest.mock.patch.dict("os.environ", {"SRE_MASK_OUTPUTS": "1", "SRE_MASK_BYPASS": ""}):
+            with unittest.mock.patch.dict(
+                "os.environ", {"SRE_MASK_OUTPUTS": "1", "SRE_MASK_BYPASS": ""}
+            ):
                 install_output_masking_from_env()
                 install_output_masking_from_env()
             # The outer stream is MaskingWriter but not double-wrapped

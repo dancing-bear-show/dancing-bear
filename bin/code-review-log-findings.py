@@ -30,7 +30,7 @@ import argparse
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 DEFAULT_LOG_PATH = Path.home() / ".cache" / "claude" / "code-review-findings.ndjson"
@@ -50,7 +50,7 @@ def build_record(pr: dict, cons: dict, post: dict) -> dict:
     """Assemble the NDJSON record from the three upstream stage outputs."""
     by_severity = cons.get("by_severity") or {}
     return {
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "ts": datetime.now(UTC).isoformat(),
         "pr_number": pr.get("number") or pr.get("pr_number") or "",
         "repo": pr.get("owner_repo", ""),
         "total": cons.get("total_findings", 0),

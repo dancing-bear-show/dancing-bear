@@ -3,6 +3,7 @@
 Provides BulletRenderer and the NORMAL_PARAGRAPH_STYLE constant used by all
 bulleted sections in the standard layout.
 """
+
 from __future__ import annotations
 
 import logging
@@ -284,7 +285,7 @@ class BulletRenderer:
             pos = lowered.find(kw.lower(), from_idx)
             if pos != -1 and (match_pos is None or pos < match_pos):
                 match_pos = pos
-                match_kw = text[pos:pos + len(kw)]
+                match_kw = text[pos : pos + len(kw)]
         return match_pos, match_kw
 
     def _bold_keywords(self, paragraph, text: str, keywords: list[str]):

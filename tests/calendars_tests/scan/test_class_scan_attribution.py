@@ -4,6 +4,7 @@ Body text is taken verbatim from real provider emails (City of Richmond Hill
 "Active RH" receipts and WD SWIM Richmond Inc. notices) so the parsing is
 exercised against the exact phrasing those vendors emit.
 """
+
 import unittest
 
 from calendars.gmail_pipeline_scan_classes import GmailScanClassesProcessor
@@ -104,9 +105,7 @@ class ActiveRhAttributionTests(unittest.TestCase):
         self.assertEqual(event["start_time"], "18:30")
         self.assertEqual(event["end_time"], "19:30")
         self.assertEqual(event["location"], "Oak Ridges")
-        self.assertEqual(
-            event["range"], {"start_date": "2026-09-26", "until": "2026-11-28"}
-        )
+        self.assertEqual(event["range"], {"start_date": "2026-09-26", "until": "2026-11-28"})
 
     def test_pending_registration_keeps_status_word_out_of_name(self):
         event = extract(ACTIVE_RH_PENDING)[0]
@@ -158,14 +157,10 @@ class ActivityNameTests(unittest.TestCase):
         )
 
     def test_wd_swim_class_label(self):
-        self.assertEqual(
-            extract_activity("Class: Glider2-3 Sun 9:30AM Lane 5"), "Glider2-3"
-        )
+        self.assertEqual(extract_activity("Class: Glider2-3 Sun 9:30AM Lane 5"), "Glider2-3")
 
     def test_returns_none_when_no_activity_present(self):
-        self.assertIsNone(
-            extract_activity("Program runs Each Monday from 5:00pm to 6:00pm")
-        )
+        self.assertIsNone(extract_activity("Program runs Each Monday from 5:00pm to 6:00pm"))
 
     def test_handles_empty_and_none(self):
         self.assertIsNone(extract_activity(""))
@@ -392,19 +387,13 @@ class ProseNameRejectionTests(unittest.TestCase):
     """Marketing prose must not be mistaken for a registrant name."""
 
     def test_rejects_have_found(self):
-        self.assertIsNone(
-            extract_child("Many families have found enrollment in our programs")
-        )
+        self.assertIsNone(extract_child("Many families have found enrollment in our programs"))
 
     def test_rejects_sign_up_and(self):
-        self.assertIsNone(
-            extract_child("Complete the sign-up and enrollment in minutes")
-        )
+        self.assertIsNone(extract_child("Complete the sign-up and enrollment in minutes"))
 
     def test_rejects_the_highest(self):
-        self.assertIsNone(
-            extract_child("We offer the highest enrollment in the region")
-        )
+        self.assertIsNone(extract_child("We offer the highest enrollment in the region"))
 
     def test_still_accepts_lowercase_real_name(self):
         # Real names arrive lowercase, so a capitalization test would be wrong.
@@ -479,15 +468,14 @@ class SingleSessionEnrollmentTests(unittest.TestCase):
         events = extract(ACTIVE_RH_TOURNAMENT)
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0]["child"], "Blas Sherwin")
-        self.assertEqual(
-            events[0]["subject"], "Children's Basketball Tournament & Drills"
-        )
+        self.assertEqual(events[0]["subject"], "Children's Basketball Tournament & Drills")
         self.assertEqual(events[0]["start_time"], "13:30")
         self.assertEqual(events[0]["end_time"], "16:45")
 
     def test_meeting_dates_without_from_is_an_enrollment(self):
         self.assertTrue(is_enrollment_notice(ACTIVE_RH_SINGLE_SESSION))
         self.assertTrue(is_enrollment_notice(ACTIVE_RH_TOURNAMENT))
+
 
 if __name__ == "__main__":
     unittest.main()

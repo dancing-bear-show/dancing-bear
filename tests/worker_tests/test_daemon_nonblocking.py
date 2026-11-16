@@ -29,22 +29,39 @@ from tests.worker_tests.helpers import QueueRootIsolationMixin
 from worker.queue_ops import (
     Job,
     enqueue,
+)
+from worker.queue_ops import (
     finish as _real_finish,
+)
+from worker.queue_ops import (
     list_pending as _real_list_pending,
+)
+from worker.queue_ops import (
     reap_stale_processing_jobs as _real_reap,
-    recover_staged_requeues as _real_recover,
+)
+from worker.queue_ops import (
     recover_shutdown_timeout_markers as _real_recover_shutdown_markers,
+)
+from worker.queue_ops import (
+    recover_staged_requeues as _real_recover,
+)
+from worker.queue_ops import (
     requeue_processing as _real_requeue,
+)
+from worker.queue_ops import (
     retry as _real_retry,
+)
+from worker.queue_ops import (
     start_processing as _real_start,
 )
 
 
 def _make_runner(root: Path, **config_kwargs: Any):
     import os
-    from worker.job_runtime import DaemonRunner, JobProcessor, WorkerConfig
+
     from worker import queue_ops as q
     from worker._helpers import WORKER_STATE_DIR_ENV
+    from worker.job_runtime import DaemonRunner, JobProcessor, WorkerConfig
 
     q.QUEUE_ROOT = root
     # Also redirect the env var so any helper that resolves the state dir
@@ -105,8 +122,16 @@ def _patch_queue_root(job_root: Path) -> ExitStack:
     stack.enter_context(
         patch(
             "worker.job_runtime.q.requeue_processing",
-            side_effect=lambda job_id, reason, root=None, claim_token=None, lock_timeout=None: _real_requeue(
-                job_id, reason=reason, root=job_root, claim_token=claim_token, lock_timeout=lock_timeout
+            side_effect=lambda job_id,
+            reason,
+            root=None,
+            claim_token=None,
+            lock_timeout=None: _real_requeue(
+                job_id,
+                reason=reason,
+                root=job_root,
+                claim_token=claim_token,
+                lock_timeout=lock_timeout,
             ),
         )
     )
@@ -205,7 +230,9 @@ class TestDaemonNonblockingTick(unittest.TestCase, QueueRootIsolationMixin):
         # the real perf log and an unknown-handler error for its job.
         base = _patch_queue_root(self.root)
         base.enter_context(
-            patch.dict("worker.job_runtime.HANDLERS", {"slow": _cheap_handler, "cheap": _cheap_handler})
+            patch.dict(
+                "worker.job_runtime.HANDLERS", {"slow": _cheap_handler, "cheap": _cheap_handler}
+            )
         )
         self.addCleanup(base.close)
         self._threads_before = set(threading.enumerate())
@@ -227,8 +254,12 @@ class TestDaemonNonblockingTick(unittest.TestCase, QueueRootIsolationMixin):
         enqueue(Job(id="slow1", type="slow", payload={}), root=self.root)
         runner = _make_runner(self.root, max_per_tick=5, max_inflight=0)
 
-        with _patch_queue_root(self.root), \
-             patch.dict("worker.job_runtime.HANDLERS", {"slow": slow, "cheap": _cheap_handler}, clear=False):
+        with (
+            _patch_queue_root(self.root),
+            patch.dict(
+                "worker.job_runtime.HANDLERS", {"slow": slow, "cheap": _cheap_handler}, clear=False
+            ),
+        ):
             started1 = runner.tick()
             self.assertEqual(started1, 1)
             self.assertTrue(slow.started.wait(timeout=5), "slow job never started")
@@ -268,9 +299,11 @@ class TestDaemonNonblockingTick(unittest.TestCase, QueueRootIsolationMixin):
         runner = _make_runner(self.root, max_per_tick=5, max_inflight=2)
         handler = _CountingHandler()
 
-        with _patch_queue_root(self.root), \
-             _hold_claimed_threads(runner, gate) as held, \
-             patch.dict("worker.job_runtime.HANDLERS", {"cheap": handler}, clear=False):
+        with (
+            _patch_queue_root(self.root),
+            _hold_claimed_threads(runner, gate) as held,
+            patch.dict("worker.job_runtime.HANDLERS", {"cheap": handler}, clear=False),
+        ):
             started1 = runner.tick()
             self.assertEqual(started1, 2, "max_inflight=2 must cap the first tick at 2")
             processing = list((self.root / "processing").glob("*.json"))
@@ -297,9 +330,11 @@ class TestDaemonNonblockingTick(unittest.TestCase, QueueRootIsolationMixin):
         runner = _make_runner(self.root, max_per_tick=5, max_inflight=0)
         handler = _CountingHandler()
 
-        with _patch_queue_root(self.root), \
-             _hold_claimed_threads(runner, gate) as held, \
-             patch.dict("worker.job_runtime.HANDLERS", {"cheap": handler}, clear=False):
+        with (
+            _patch_queue_root(self.root),
+            _hold_claimed_threads(runner, gate) as held,
+            patch.dict("worker.job_runtime.HANDLERS", {"cheap": handler}, clear=False),
+        ):
             self.assertEqual(runner.tick(), 1)
             self.assertTrue(_wait_for(lambda: held.waiting == 1, timeout=5))
             self.assertFalse((self.root / "pending" / "held-once.json").exists())
@@ -310,7 +345,9 @@ class TestDaemonNonblockingTick(unittest.TestCase, QueueRootIsolationMixin):
             self.assertEqual(started2, 0)
             self.assertEqual(list(runner._live_threads), ["held-once"])
             gate.set()
-            self.assertTrue(_wait_for(lambda: (self.root / "done" / "held-once.json").exists(), timeout=5))
+            self.assertTrue(
+                _wait_for(lambda: (self.root / "done" / "held-once.json").exists(), timeout=5)
+            )
             self.assertEqual(handler.call_count, 1)
 
     def test_unbounded_max_inflight_caps_live_threads_at_max_per_tick(self):
@@ -322,8 +359,10 @@ class TestDaemonNonblockingTick(unittest.TestCase, QueueRootIsolationMixin):
             enqueue(Job(id=f"u{i}", type="slow", payload={}), root=self.root)
         runner = _make_runner(self.root, max_per_tick=2, max_inflight=0)
 
-        with _patch_queue_root(self.root), \
-             patch.dict("worker.job_runtime.HANDLERS", {"slow": slow}, clear=False):
+        with (
+            _patch_queue_root(self.root),
+            patch.dict("worker.job_runtime.HANDLERS", {"slow": slow}, clear=False),
+        ):
             started1 = runner.tick()
             self.assertEqual(started1, 2, "max_per_tick=2 must cap an unbounded tick at 2")
 
@@ -357,8 +396,12 @@ class TestDaemonNonblockingTick(unittest.TestCase, QueueRootIsolationMixin):
         runner = _make_runner(self.root, max_per_tick=5, max_inflight=0)
         results: list[int] = []
 
-        with _patch_queue_root(self.root), \
-             patch.dict("worker.job_runtime.HANDLERS", {"slow": slow, "cheap": _cheap_handler}, clear=False):
+        with (
+            _patch_queue_root(self.root),
+            patch.dict(
+                "worker.job_runtime.HANDLERS", {"slow": slow, "cheap": _cheap_handler}, clear=False
+            ),
+        ):
             caller = threading.Thread(target=lambda: results.append(runner.run_once()), daemon=True)
             caller.start()
             self.assertTrue(slow.started.wait(timeout=5), "gated job never started")
@@ -367,7 +410,9 @@ class TestDaemonNonblockingTick(unittest.TestCase, QueueRootIsolationMixin):
                 "ungated job never finished",
             )
             caller.join(timeout=0.05)
-            self.assertTrue(caller.is_alive(), "run_once returned while a batch job was still gated")
+            self.assertTrue(
+                caller.is_alive(), "run_once returned while a batch job was still gated"
+            )
             self.assertFalse((self.root / "done" / "ro1.json").exists())
 
             gate.set()
@@ -387,9 +432,13 @@ class TestDaemonNonblockingTick(unittest.TestCase, QueueRootIsolationMixin):
         runner = _make_runner(self.root, max_per_tick=1, max_inflight=0)
         excepthook_calls: list[object] = []
 
-        with patch("threading.excepthook", side_effect=excepthook_calls.append), \
-             patch.object(runner.processor, "process_claimed", side_effect=[RuntimeError("bad metadata"), 1]), \
-             self.assertLogs("worker.job_runtime", level="ERROR") as logs:
+        with (
+            patch("threading.excepthook", side_effect=excepthook_calls.append),
+            patch.object(
+                runner.processor, "process_claimed", side_effect=[RuntimeError("bad metadata"), 1]
+            ),
+            self.assertLogs("worker.job_runtime", level="ERROR") as logs,
+        ):
             self.assertEqual(runner.tick(), 1)
             runner._live_threads["boom"][0].join(timeout=5)
             self.assertEqual(excepthook_calls, [], "exception escaped the worker thread")
@@ -413,8 +462,12 @@ class TestDaemonNonblockingTick(unittest.TestCase, QueueRootIsolationMixin):
         )
         runner = _make_runner(self.root, max_per_tick=5, max_inflight=3)
 
-        with _patch_queue_root(self.root), \
-             patch.dict("worker.job_runtime.HANDLERS", {"slow": slow, "cheap": _cheap_handler}, clear=False):
+        with (
+            _patch_queue_root(self.root),
+            patch.dict(
+                "worker.job_runtime.HANDLERS", {"slow": slow, "cheap": _cheap_handler}, clear=False
+            ),
+        ):
             enqueue(Job(id="claimed", type="slow", payload={}), root=self.root)
             self.assertEqual(runner.tick(), 1)
             self.assertTrue(slow.started.wait(timeout=5), "claimed job never reached its handler")
@@ -430,7 +483,10 @@ class TestDaemonNonblockingTick(unittest.TestCase, QueueRootIsolationMixin):
             gate.set()
             done = self.root / "done"
             self.assertTrue(
-                _wait_for(lambda: (done / "claimed.json").exists() and (done / "second.json").exists(), timeout=5)
+                _wait_for(
+                    lambda: (done / "claimed.json").exists() and (done / "second.json").exists(),
+                    timeout=5,
+                )
             )
 
     def test_listing_failure_fallback_subtracts_live_threads(self):
@@ -442,14 +498,20 @@ class TestDaemonNonblockingTick(unittest.TestCase, QueueRootIsolationMixin):
         enqueue(Job(id="live1", type="slow", payload={}), root=self.root)
         runner = _make_runner(self.root, max_per_tick=3, max_inflight=1)
 
-        with _patch_queue_root(self.root), \
-             patch.dict("worker.job_runtime.HANDLERS", {"slow": slow}, clear=False):
+        with (
+            _patch_queue_root(self.root),
+            patch.dict("worker.job_runtime.HANDLERS", {"slow": slow}, clear=False),
+        ):
             self.assertEqual(runner.tick(), 1)
             self.assertTrue(slow.started.wait(timeout=5))
-            with patch("worker.job_runtime._processing_stems", side_effect=OSError("queue unreadable")):
+            with patch(
+                "worker.job_runtime._processing_stems", side_effect=OSError("queue unreadable")
+            ):
                 allowed = runner._calculate_allowed_jobs()
             gate.set()
-            self.assertTrue(_wait_for(lambda: (self.root / "done" / "live1.json").exists(), timeout=5))
+            self.assertTrue(
+                _wait_for(lambda: (self.root / "done" / "live1.json").exists(), timeout=5)
+            )
 
         self.assertEqual(allowed, 0)
 
@@ -459,8 +521,10 @@ class TestDaemonNonblockingTick(unittest.TestCase, QueueRootIsolationMixin):
         enqueue(Job(id="p1", type="cheap", payload={}), root=self.root)
         runner = _make_runner(self.root, max_per_tick=1, max_inflight=1)
 
-        with _patch_queue_root(self.root), \
-             patch.dict("worker.job_runtime.HANDLERS", {"cheap": _cheap_handler}, clear=False):
+        with (
+            _patch_queue_root(self.root),
+            patch.dict("worker.job_runtime.HANDLERS", {"cheap": _cheap_handler}, clear=False),
+        ):
             started1 = runner.tick()
             self.assertEqual(started1, 1)
 
@@ -477,9 +541,7 @@ class TestDaemonNonblockingTick(unittest.TestCase, QueueRootIsolationMixin):
             # races test cleanup.
             self.assertTrue(_wait_for(lambda: (self.root / "done" / "p2.json").exists(), timeout=5))
 
-        self.assertEqual(
-            started2, 1, "capacity must recover once the first thread's job finished"
-        )
+        self.assertEqual(started2, 1, "capacity must recover once the first thread's job finished")
 
     def _register_live_thread(self, runner: Any, stem: str) -> None:
         """Register a genuinely alive thread under ``stem`` in the runner."""
@@ -524,8 +586,10 @@ class TestDaemonNonblockingTick(unittest.TestCase, QueueRootIsolationMixin):
         enqueue(Job(id="long", type="slow", payload={}), root=self.root)
         runner = _make_runner(self.root, max_per_tick=5, max_inflight=0, job_timeout=60)
 
-        with _patch_queue_root(self.root), \
-             patch.dict("worker.job_runtime.HANDLERS", {"slow": slow, "cheap": cheap}, clear=False):
+        with (
+            _patch_queue_root(self.root),
+            patch.dict("worker.job_runtime.HANDLERS", {"slow": slow, "cheap": cheap}, clear=False),
+        ):
             self.assertEqual(runner.tick(), 1)
             self.assertTrue(slow.started.wait(timeout=5), "long job never started")
 
@@ -547,7 +611,9 @@ class TestDaemonNonblockingTick(unittest.TestCase, QueueRootIsolationMixin):
             self.assertEqual(cheap.call_count, 1)
 
             gate.set()
-            self.assertTrue(_wait_for(lambda: (self.root / "done" / "long.json").exists(), timeout=5))
+            self.assertTrue(
+                _wait_for(lambda: (self.root / "done" / "long.json").exists(), timeout=5)
+            )
             runner._live_threads["long"][0].join(timeout=5)
             for _ in range(2):
                 runner.tick()

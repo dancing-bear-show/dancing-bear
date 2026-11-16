@@ -8,15 +8,15 @@ Extracted from parsing_experience. Provides:
   - Section parsers: _parse_experience, _parse_experience_block, _parse_education, _parse_skills
   - Public API: parse_resume_text, merge_profiles
 """
+
 from __future__ import annotations
 
 import re
 from typing import Any
 
-from .schema import Resume
-
 from core.collections import dedupe
 
+from .schema import Resume
 
 SECTION_PATTERNS = {
     "experience": re.compile(r"^\s*(experience|work history|employment)\s*$", re.I),
@@ -63,7 +63,7 @@ def _parse_experience_entry(text: str) -> dict[str, Any] | None:
         r"(.+?)\s+at\s+(.+?)"  # Title at Company
         r"(?:\s*(?:[—–]|\s-\s)\s*\[?([^\]—–(]+?)\]?)?"  # — [Location] or — Location
         r"(?:\s*(?:[—–]|\s-\s)\s*\(?([\d\w\s]+?)\s*[–\-]\s*([\d\w\s]+?)\)?\s*)?$",  # — (Start – End)
-        text
+        text,
     )
     # Only accept when the dash-delimited date range actually matched. Without
     # this, "Engineer at Acme, 2020-2023" half-matched here as company
@@ -79,10 +79,7 @@ def _parse_experience_entry(text: str) -> dict[str, Any] | None:
         }
 
     # Pattern 2: "Title at Company, dates" or "Title at Company (dates)"
-    m = re.match(
-        rf"(.+?)\s+at\s+(.+?)(?:[,\s]+|\s*\(){_DATE_RANGE_PAT}\)?",
-        text, re.I
-    )
+    m = re.match(rf"(.+?)\s+at\s+(.+?)(?:[,\s]+|\s*\(){_DATE_RANGE_PAT}\)?", text, re.I)
     if m:
         start, end = _split_date_range(m.group(3).strip())
         return {
@@ -97,9 +94,12 @@ def _parse_experience_entry(text: str) -> dict[str, Any] | None:
     parts = [p.strip() for p in re.split(r"\s*[|•·]\s*", text)]
     if len(parts) >= 2:
         date_idx = next(
-            (i for i, p in enumerate(parts)
-             if re.search(r"\d{4}\s*[-–]\s*(?:\d{4}|Present|Current)", p, re.I)),
-            -1
+            (
+                i
+                for i, p in enumerate(parts)
+                if re.search(r"\d{4}\s*[-–]\s*(?:\d{4}|Present|Current)", p, re.I)
+            ),
+            -1,
         )
         if date_idx >= 0:
             start, end = _split_date_range(parts[date_idx])
@@ -196,9 +196,7 @@ _PAT_PHONE = re.compile(r"\+?1?\s*\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}")
 # The abbreviation-only form silently dropped every non-US location — e.g.
 # "Richmond Hill, Ontario, Canada" matched nothing, so location came back empty.
 _PLACE = r"[A-Z][a-zA-Z.'\-]+(?:\s[A-Z][a-zA-Z.'\-]+)*"
-_PAT_LOCATION = re.compile(
-    rf"({_PLACE}),\s*(?:[A-Z]{{2}}\b|{_PLACE}(?:,\s*{_PLACE})?)"
-)
+_PAT_LOCATION = re.compile(rf"({_PLACE}),\s*(?:[A-Z]{{2}}\b|{_PLACE}(?:,\s*{_PLACE})?)")
 _PAT_LINKEDIN = re.compile(r"linkedin\.com/in/[\w\-]+", re.I)
 _PAT_GITHUB = re.compile(r"github\.com/[\w\-]+", re.I)
 _PAT_WEBSITE = re.compile(r"(?:https?://|www\.)([a-zA-Z0-9\-]+\.[a-zA-Z]{2,}(?:/[\w\-/]*)?)")
@@ -239,7 +237,7 @@ def strip_bullet_glyph(text: str) -> str:
 
 
 def _extract_contact(lines: list[str]) -> dict[str, str]:
-    fields: dict[str, str] = {k: "" for k in _CONTACT_MATCHERS}
+    fields: dict[str, str] = dict.fromkeys(_CONTACT_MATCHERS, "")
     for ln in lines[:10]:  # top lines commonly have contact
         for key, matcher in _CONTACT_MATCHERS.items():
             if not fields[key]:
@@ -269,11 +267,13 @@ def _extract_sections(lines: list[str]) -> dict[str, list[str]]:
 def _parse_experience(lines: list[str]) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     buf: list[str] = []
+
     def push() -> None:
         if not buf:
             return
         items.append(_parse_experience_block(buf.copy()))
         buf.clear()
+
     for ln in lines:
         # simple delimiter between roles: blank line or leading dash indicator of new role
         if not ln.strip():
@@ -328,7 +328,13 @@ def _parse_education(lines: list[str]) -> list[dict[str, str]]:
         # e.g., BS Computer Science, University, 2015
         m = re.match(r"(.+?),\s*(.+?),\s*(\d{4})", ln)
         if m:
-            out.append({"degree": m.group(1).strip(), "institution": m.group(2).strip(), "year": m.group(3).strip()})
+            out.append(
+                {
+                    "degree": m.group(1).strip(),
+                    "institution": m.group(2).strip(),
+                    "year": m.group(3).strip(),
+                }
+            )
         else:
             # fallback single-line
             if ln:
@@ -413,6 +419,7 @@ def parse_resume_text(text: str) -> dict[str, Any]:
 def merge_profiles(linkedin: dict[str, Any], resume: dict[str, Any]) -> dict[str, Any]:
     # Merge with field-aware precedence: prefer LinkedIn for identity fields
     out: dict[str, Any] = {**linkedin, **{k: v for k, v in resume.items() if v}}
+
     # Merge list fields with resume-first then linkedin-only missing
     def merge_lists(a: list[Any], b: list[Any]) -> list[Any]:
         return (a or []) + ([x for x in b or [] if x not in (a or [])])

@@ -69,9 +69,12 @@ def load_deck_from_csv(
         rows = list(reader)
 
     if not rows:
-        metadata = DeckMetadata(title=title, author=author,
-                                template_slide_index=template_slide_index,
-                                theme_color=theme_color)
+        metadata = DeckMetadata(
+            title=title,
+            author=author,
+            template_slide_index=template_slide_index,
+            theme_color=theme_color,
+        )
         return SlideDeck(metadata=metadata, slides=[], template_path=template_path)
 
     headers = list(rows[0].keys())
@@ -119,15 +122,14 @@ def _csv_to_bullet_slides(
             order.append(slide_title)
 
         cleaned, highlights = _extract_highlights(text)
-        slide_map[slide_title].append(BulletItem(
-            text=cleaned,
-            highlight=highlights,
-        ))
+        slide_map[slide_title].append(
+            BulletItem(
+                text=cleaned,
+                highlight=highlights,
+            )
+        )
 
-    return [
-        SlideContent(title=t, bullets=slide_map[t])
-        for t in order
-    ]
+    return [SlideContent(title=t, bullets=slide_map[t]) for t in order]
 
 
 def _csv_to_table_slide(
@@ -136,10 +138,7 @@ def _csv_to_table_slide(
     rows: list[dict[str, str]],
 ) -> TableSlide:
     """Convert CSV data into a single table slide."""
-    table_rows: list[list[object]] = [
-        [str(row.get(h) or "") for h in headers]
-        for row in rows
-    ]
+    table_rows: list[list[object]] = [[str(row.get(h) or "") for h in headers] for row in rows]
     return TableSlide(
         title=title,
         headers=headers,

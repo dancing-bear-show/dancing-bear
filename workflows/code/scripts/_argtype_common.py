@@ -21,8 +21,16 @@ import ast
 import os
 
 SKIP_WALK_DIRS = {
-    ".git", ".venv", ".claude", "__pycache__", "node_modules",
-    ".cache", "out", "_out", "backups", "personal_assistants.egg-info",
+    ".git",
+    ".venv",
+    ".claude",
+    "__pycache__",
+    "node_modules",
+    ".cache",
+    "out",
+    "_out",
+    "backups",
+    "personal_assistants.egg-info",
 }
 
 #: ``(module_stem, funcname) -> (src_path, lineno, [(param_name, annotation)])``

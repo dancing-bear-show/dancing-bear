@@ -16,7 +16,6 @@ from workflow.cli_helpers import (
     list_available_workflows,
 )
 
-
 # ---------------------------------------------------------------------------
 # is_stale_worktree_path
 # ---------------------------------------------------------------------------
@@ -162,11 +161,15 @@ class TestWorkflowStatusFriendlyErrors(unittest.TestCase):
 
             stderr_buf = io.StringIO()
             stdout_buf = io.StringIO()
-            with patch.object(sys, "argv", ["workflow", "status", "/old/.claude/worktrees/dead/workspace"]), \
-                 patch("os.getcwd", return_value=str(tmp_path)), \
-                 patch("sys.stderr", stderr_buf), \
-                 patch("sys.stdout", stdout_buf), \
-                 contextlib.suppress(SystemExit):
+            with (
+                patch.object(
+                    sys, "argv", ["workflow", "status", "/old/.claude/worktrees/dead/workspace"]
+                ),
+                patch("os.getcwd", return_value=str(tmp_path)),
+                patch("sys.stderr", stderr_buf),
+                patch("sys.stdout", stdout_buf),
+                contextlib.suppress(SystemExit),
+            ):
                 main()
 
             combined = stderr_buf.getvalue() + stdout_buf.getvalue()
@@ -183,11 +186,13 @@ class TestWorkflowStatusFriendlyErrors(unittest.TestCase):
             stderr_buf = io.StringIO()
             stdout_buf = io.StringIO()
             missing_path = "/tmp/does-not-exist-status"  # nosec B108 - test string only, not actual temp file creation
-            with patch.object(sys, "argv", ["workflow", "status", missing_path]), \
-                 patch("os.getcwd", return_value=str(tmp_path)), \
-                 patch("sys.stderr", stderr_buf), \
-                 patch("sys.stdout", stdout_buf), \
-                 contextlib.suppress(SystemExit):
+            with (
+                patch.object(sys, "argv", ["workflow", "status", missing_path]),
+                patch("os.getcwd", return_value=str(tmp_path)),
+                patch("sys.stderr", stderr_buf),
+                patch("sys.stdout", stdout_buf),
+                contextlib.suppress(SystemExit),
+            ):
                 main()
 
             combined = stderr_buf.getvalue() + stdout_buf.getvalue()
@@ -246,8 +251,11 @@ class TestWorkflowMainSeparatorNormalization(unittest.TestCase):
 
         stderr_buf = io.StringIO()
         stdout_buf = io.StringIO()
-        with patch("sys.stderr", stderr_buf), patch("sys.stdout", stdout_buf), \
-             contextlib.suppress(SystemExit):
+        with (
+            patch("sys.stderr", stderr_buf),
+            patch("sys.stdout", stdout_buf),
+            contextlib.suppress(SystemExit),
+        ):
             main(["status", "--", "--", "-weird-dir"])
 
         combined = stderr_buf.getvalue() + stdout_buf.getvalue()
@@ -291,8 +299,8 @@ class TestBuildCliCommandWorkflowRoundTrip(unittest.TestCase):
         back into workflow.cli.main — the full producer/consumer round trip."""
         import shlex
 
-        from workflow.compiler import _build_cli_command
         from workflow.cli import main
+        from workflow.compiler import _build_cli_command
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)

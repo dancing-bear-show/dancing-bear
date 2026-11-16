@@ -21,10 +21,10 @@ from mail.outlook.processors_rules_helpers import (
     _resolve_folder_id,
 )
 
-
 # ---------------------------------------------------------------------------
 # _fetch_rules_with_resilience
 # ---------------------------------------------------------------------------
+
 
 class TestFetchRulesWithResilienceHappyPath(unittest.TestCase):
     """Happy-path: successful API call returns results directly."""
@@ -95,7 +95,7 @@ class TestFetchRulesWithResilienceCacheFallback(unittest.TestCase):
         # First call raises a generic error (no .response attribute);
         # second call (cache) returns stale data.
         client.list_filters.side_effect = [
-            IOError("network timeout"),
+            OSError("network timeout"),
             stale_rules,
         ]
 
@@ -134,7 +134,7 @@ class TestFetchRulesWithResilienceCacheFallback(unittest.TestCase):
     def test_cache_fallback_also_fails_returns_empty_list(self):
         """If both the live call and the cache call fail, return []."""
         client = MagicMock()
-        client.list_filters.side_effect = IOError("total failure")
+        client.list_filters.side_effect = OSError("total failure")
 
         result = _fetch_rules_with_resilience(client)
 
@@ -143,7 +143,7 @@ class TestFetchRulesWithResilienceCacheFallback(unittest.TestCase):
     def test_cache_fallback_invoked_with_correct_ttl_argument(self):
         """Assert the fallback passes ttl, not just that it was called."""
         client = MagicMock()
-        client.list_filters.side_effect = [IOError("down"), []]
+        client.list_filters.side_effect = [OSError("down"), []]
 
         _fetch_rules_with_resilience(client, cache_ttl=900)
 
@@ -155,6 +155,7 @@ class TestFetchRulesWithResilienceCacheFallback(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _build_rule_action
 # ---------------------------------------------------------------------------
+
 
 class TestBuildRuleActionMoveToFolder(unittest.TestCase):
     """moveToFolder spec: ensure_folder_path called; folder id stored."""
@@ -321,6 +322,7 @@ class TestBuildRuleActionAddLabels(unittest.TestCase):
 # _resolve_destination_folder
 # ---------------------------------------------------------------------------
 
+
 class TestResolveDestinationFolderMoveToFolder(unittest.TestCase):
     """moveToFolder in action_spec."""
 
@@ -453,6 +455,7 @@ class TestResolveDestinationFolderNoMatch(unittest.TestCase):
 # _export_rule_entry
 # ---------------------------------------------------------------------------
 
+
 class TestExportRuleEntry(unittest.TestCase):
     """Output shape of _export_rule_entry."""
 
@@ -558,6 +561,7 @@ class TestExportRuleEntry(unittest.TestCase):
 # _build_rule_action — noMoveToFolder (keepInInbox) behaviour
 # ---------------------------------------------------------------------------
 
+
 class TestBuildRuleActionNoMoveToFolder(unittest.TestCase):
     """noMoveToFolder: true suppresses folder derivation even with move_to_folders=True.
 
@@ -629,6 +633,7 @@ class TestBuildRuleActionNoMoveToFolder(unittest.TestCase):
 # _resolve_destination_folder — noMoveToFolder (keepInInbox) behaviour
 # ---------------------------------------------------------------------------
 
+
 class TestResolveFolderIdAliasCollision(unittest.TestCase):
     """The normalized alias must not resolve a nested path to a different folder.
 
@@ -653,9 +658,7 @@ class TestResolveFolderIdAliasCollision(unittest.TestCase):
     def test_nested_path_resolves_when_the_map_has_it(self):
         """The raw path is matched first and exactly."""
         folder_map = {"Security/Alerts": "NESTED-real-id", "Security-Alerts": "other"}
-        self.assertEqual(
-            "NESTED-real-id", _resolve_folder_id("Security/Alerts", folder_map)
-        )
+        self.assertEqual("NESTED-real-id", _resolve_folder_id("Security/Alerts", folder_map))
 
     def test_flat_name_still_uses_the_alias(self):
         """For a flat name the alias is the same string, so the lookup is safe."""

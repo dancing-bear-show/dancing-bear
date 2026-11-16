@@ -32,6 +32,7 @@ returns the matching value via a side_effect lambda.  When both sides resolve th
 same path to the same id the equality assertion is meaningful — a divergence means
 the two consumers disagree on what rule sync will actually create.
 """
+
 from __future__ import annotations
 
 import itertools
@@ -40,7 +41,6 @@ from typing import Any
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
-from tests.fixtures import TempDirMixin
 from mail.config_cli.pipeline_derive import (
     DeriveFiltersProcessor,
     DeriveFiltersRequest,
@@ -51,6 +51,7 @@ from mail.outlook.processors_rules_helpers import (
     _build_rule_action,
     _resolve_destination_folder,
 )
+from tests.fixtures import TempDirMixin
 
 # Folder ids used in mock wiring.  The same string appears in folder_map and as the
 # return value of ensure_folder_path for the same path, making plan/sync comparable.
@@ -212,9 +213,7 @@ class OutlookDeriveConsumerMatrixTests(TempDirMixin, TestCase):
                 f"{label}: derived spec reached consumers with no actionable key: {spec}",
             )
 
-    def _assert_no_marker_leak(
-        self, sync_action: dict, plan_action: dict, label: str
-    ) -> None:
+    def _assert_no_marker_leak(self, sync_action: dict, plan_action: dict, label: str) -> None:
         """Invariant 5: no internal marker key in consumer output.
 
         keepInInbox and noMoveToFolder are internal pipeline fields that must never
@@ -222,11 +221,13 @@ class OutlookDeriveConsumerMatrixTests(TempDirMixin, TestCase):
         """
         for key in ("keepInInbox", "noMoveToFolder"):
             self.assertNotIn(
-                key, sync_action,
+                key,
+                sync_action,
                 f"{label}: '{key}' leaked into sync action: {sync_action!r}",
             )
             self.assertNotIn(
-                key, plan_action,
+                key,
+                plan_action,
                 f"{label}: '{key}' leaked into plan action: {plan_action!r}",
             )
 
@@ -248,12 +249,14 @@ class OutlookDeriveConsumerMatrixTests(TempDirMixin, TestCase):
         sweep_moves = sweep_dest is not None
 
         self.assertEqual(
-            sync_moves, plan_moves,
+            sync_moves,
+            plan_moves,
             f"{label}: sync says move={sync_moves} but plan says move={plan_moves}; "
             f"sync={sync_action!r} plan={plan_action!r}",
         )
         self.assertEqual(
-            sync_moves, sweep_moves,
+            sync_moves,
+            sweep_moves,
             f"{label}: sync says move={sync_moves} but sweep says move={sweep_moves}; "
             f"sync={sync_action!r} sweep_dest={sweep_dest!r}",
         )
@@ -261,17 +264,23 @@ class OutlookDeriveConsumerMatrixTests(TempDirMixin, TestCase):
             sync_dest = sync_action["moveToFolderId"]
             plan_dest = plan_action["moveToFolderId"]
             self.assertEqual(
-                sync_dest, plan_dest,
+                sync_dest,
+                plan_dest,
                 f"{label}: sync folder={sync_dest!r} differs from plan folder={plan_dest!r}",
             )
             self.assertEqual(
-                sync_dest, sweep_dest,
+                sync_dest,
+                sweep_dest,
                 f"{label}: sync folder={sync_dest!r} differs from sweep folder={sweep_dest!r}",
             )
 
     def _assert_marker_and_authored(
-        self, cell: dict[str, int], sync_action: dict, plan_action: dict,
-        sweep_dest: str | None, label: str,
+        self,
+        cell: dict[str, int],
+        sync_action: dict,
+        plan_action: dict,
+        sweep_dest: str | None,
+        label: str,
     ) -> None:
         """Invariants 1 and 2: marker suppression and authored destination override.
 
@@ -308,7 +317,8 @@ class OutlookDeriveConsumerMatrixTests(TempDirMixin, TestCase):
         if authored and sync_moves:
             expected = _FOLDER_ID_ARCHIVE if archive_overrides else _FOLDER_ID_EXPLICIT
             self.assertEqual(
-                expected, sync_action["moveToFolderId"],
+                expected,
+                sync_action["moveToFolderId"],
                 f"{label}: authored=1, expected dest {expected!r} but "
                 f"sync has {sync_action['moveToFolderId']!r}",
             )
@@ -378,9 +388,8 @@ class OutlookDeriveConsumerMatrixTests(TempDirMixin, TestCase):
 # it cannot live in the suite without a test that edits source.
 # ---------------------------------------------------------------------------
 
-def _broken_apply_archive_without_keepinbox_guard(
-    out_specs: list, filters: list
-) -> None:
+
+def _broken_apply_archive_without_keepinbox_guard(out_specs: list, filters: list) -> None:
     """Reproduce the pre-fix _apply_archive_on_remove_inbox that lacked the
     keepInInbox guard.  Without the guard, a rule with remove: [INBOX] and
     keepInInbox: true was still archived, violating the 'marker suppresses
@@ -391,9 +400,7 @@ def _broken_apply_archive_without_keepinbox_guard(
     for spec, orig in _pair_specs_with_sources(out_specs, filters):
         orig_action = (orig or {}).get("action") or {}
         remove_list = orig_action.get("remove") or []
-        if isinstance(remove_list, list) and any(
-            str(x).upper() == "INBOX" for x in remove_list
-        ):
+        if isinstance(remove_list, list) and any(str(x).upper() == "INBOX" for x in remove_list):
             a = spec.get("action") or {}
             a["moveToFolder"] = "Archive"
             a.pop("add", None)

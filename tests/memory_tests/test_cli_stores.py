@@ -28,9 +28,7 @@ from memory.models import (
     MemoryStore,
     SchemaShape,
 )
-
 from tests.memory_tests.fixtures import MemoryTestCase
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -173,16 +171,12 @@ class TestClassifyRole(MemoryTestCase):
             memories=(),
             index_entries=(_make_index_entry(),),
         )
-        self.assertEqual(
-            _classify_role(store, canonicals={id(canonical)}), "orphan-index"
-        )
+        self.assertEqual(_classify_role(store, canonicals={id(canonical)}), "orphan-index")
 
     def test_store_with_no_memories_no_index_returns_no_memory(self) -> None:
         canonical = _make_store(slug="canonical", memories=(_make_memory(),))
         store = _make_store(slug="empty", memories=(), index_entries=())
-        self.assertEqual(
-            _classify_role(store, canonicals={id(canonical)}), "no-memory"
-        )
+        self.assertEqual(_classify_role(store, canonicals={id(canonical)}), "no-memory")
 
     def test_canonicals_empty_non_canonical_store_with_memories(self) -> None:
         # When canonicals is empty, store is never a member of it.
@@ -246,9 +240,7 @@ class TestMainStores(MemoryTestCase):
 
     def test_with_memory_only_shows_all_when_flag_absent(self) -> None:
         mem = _make_memory()
-        store_with = _make_store(
-            slug="with-mem2", memories=(mem,), inferred_repo="/repo/a"
-        )
+        store_with = _make_store(slug="with-mem2", memories=(mem,), inferred_repo="/repo/a")
         store_empty = _make_store(slug="no-mem2", memories=(), inferred_repo="/repo/a")
         out_buf = io.StringIO()
         err_buf = io.StringIO()

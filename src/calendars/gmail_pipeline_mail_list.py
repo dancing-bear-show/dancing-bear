@@ -1,4 +1,5 @@
 """Gmail mail-list pipeline for calendar assistant."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -14,10 +15,10 @@ from .pipeline_base import (
     RequestConsumer,
 )
 
-
 # =============================================================================
 # Gmail Mail List Pipeline
 # =============================================================================
+
 
 @dataclass
 class GmailMailListRequest:
@@ -68,7 +69,9 @@ class GmailMailListProcessor(
 
 
 class GmailMailListProducer(BaseProducer):
-    def _produce_success(self, payload: GmailMailListResult, diagnostics: dict[str, Any] | None) -> None:
+    def _produce_success(
+        self, payload: GmailMailListResult, diagnostics: dict[str, Any] | None
+    ) -> None:
         messages = payload.messages
         if not messages:
             self._writer.print("No messages matched.")

@@ -4,19 +4,19 @@ from __future__ import annotations
 
 import argparse
 import unittest
-from datetime import datetime, timedelta, timezone
-from unittest.mock import MagicMock, patch
+from datetime import UTC, datetime, timedelta
 from io import StringIO
+from unittest.mock import MagicMock, patch
 
 
 def _past_date(days: int = 180) -> str:
     """Return a date string N days in the past."""
-    return (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+    return (datetime.now(UTC) - timedelta(days=days)).strftime("%Y-%m-%d")
 
 
 def _future_date(days: int = 180) -> str:
     """Return a date string N days in the future."""
-    return (datetime.now(timezone.utc) + timedelta(days=days)).strftime("%Y-%m-%d")
+    return (datetime.now(UTC) + timedelta(days=days)).strftime("%Y-%m-%d")
 
 
 class TestRunOutlookAddRecurring(unittest.TestCase):
@@ -48,6 +48,7 @@ class TestRunOutlookAddRecurring(unittest.TestCase):
 
     def test_weekly_requires_byday(self):
         from calendars.outlook.commands import run_outlook_add_recurring
+
         args = self._make_args(repeat="weekly", until=_future_date(180), byday=None)
         with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
             result = run_outlook_add_recurring(args)
@@ -58,6 +59,7 @@ class TestRunOutlookAddRecurring(unittest.TestCase):
     @patch("calendars.outlook.commands.run_pipeline")
     def test_parses_byday_string(self, mock_pipeline, mock_build_svc):
         from calendars.outlook.commands import run_outlook_add_recurring
+
         mock_build_svc.return_value = MagicMock()
         mock_pipeline.return_value = 0
         args = self._make_args(
@@ -75,6 +77,7 @@ class TestRunOutlookAddRecurring(unittest.TestCase):
     @patch("calendars.outlook.commands._build_outlook_service")
     def test_returns_1_when_service_fails(self, mock_build_svc):
         from calendars.outlook.commands import run_outlook_add_recurring
+
         mock_build_svc.return_value = None
         args = self._make_args(repeat="daily", until=_future_date(180))
         result = run_outlook_add_recurring(args)

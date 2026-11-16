@@ -37,8 +37,8 @@ from workflow.param_rules import (
 from workflow.placeholders import find_refs, substitute
 
 __all__ = [
-    "WorkflowCompileError",
     "ContractWarning",
+    "WorkflowCompileError",
     "compile_workflow",
     "enforce_param_rules",
     "validate_dag_contracts",
@@ -50,9 +50,7 @@ logger = logging.getLogger(__name__)
 _NO_SEPARATOR_CLIS = frozenset({"docs", "llm"})
 
 # Accepted when: expression forms.
-_WHEN_PATTERN = re.compile(
-    r'"(\{[^}]+\}|[^"]*?)"\s+(does not contain|contains)\s+"[^"]*?"'
-)
+_WHEN_PATTERN = re.compile(r'"(\{[^}]+\}|[^"]*?)"\s+(does not contain|contains)\s+"[^"]*?"')
 
 
 class WorkflowCompileError(CLIError):
@@ -134,7 +132,8 @@ def enforce_param_rules(trigger: TriggerSpec, overrides: Mapping[str, object]) -
     reserved = sorted(RESERVED_PLACEHOLDERS.intersection(trigger.params or {}))
     if reserved:
         raise WorkflowCompileError(
-            "trigger params rejected: " + ", ".join(reserved)
+            "trigger params rejected: "
+            + ", ".join(reserved)
             + " collide with reserved dispatch placeholders; rename the param"
         )
     undeclared = undeclared_overrides(trigger.params, overrides)
@@ -153,9 +152,7 @@ def enforce_param_rules(trigger: TriggerSpec, overrides: Mapping[str, object]) -
             raise WorkflowCompileError(f"trigger params rejected: {exc}") from exc
     result = validate_param_values(trigger.rules, params)
     if not result.ok:
-        raise WorkflowCompileError(
-            "trigger params rejected: " + "; ".join(result.failures)
-        )
+        raise WorkflowCompileError("trigger params rejected: " + "; ".join(result.failures))
 
 
 def compile_workflow(
@@ -237,9 +234,7 @@ def _build_dependency_graph(
     for spec in stages:
         for dep in spec.depends_on:
             if dep not in spec_map:
-                raise WorkflowCompileError(
-                    f"Stage '{spec.name}' depends on unknown stage '{dep}'"
-                )
+                raise WorkflowCompileError(f"Stage '{spec.name}' depends on unknown stage '{dep}'")
         deps[spec.name] = set(spec.depends_on)
 
     return spec_map, deps
@@ -260,7 +255,9 @@ def _bfs_level(
     return normal, gated
 
 
-def _groups_for_level(current_level: tuple[str, ...], spec_map: dict[str, StageSpec]) -> list[tuple[str, ...]]:
+def _groups_for_level(
+    current_level: tuple[str, ...], spec_map: dict[str, StageSpec]
+) -> list[tuple[str, ...]]:
     """Split one BFS level into its normal group plus one group per human-gated stage."""
     normal, gated = _bfs_level(current_level, spec_map)
     groups: list[tuple[str, ...]] = []
@@ -286,8 +283,7 @@ def _compute_parallel_groups(
     walk = bfs_levels(deps)
     if walk.unresolved:
         raise WorkflowCompileError(
-            f"Cyclic dependency detected involving stages: "
-            f"{', '.join(sorted(walk.unresolved))}"
+            f"Cyclic dependency detected involving stages: {', '.join(sorted(walk.unresolved))}"
         )
 
     groups: list[tuple[str, ...]] = []
@@ -306,9 +302,7 @@ def _load_referenced_file(
     path = project_root / ref
     content = read_text(path, default=None, suppress=FileNotFoundError)
     if content is None:
-        raise WorkflowCompileError(
-            f"Stage '{stage_name}': {kind} not found at {path}"
-        )
+        raise WorkflowCompileError(f"Stage '{stage_name}': {kind} not found at {path}")
     return content
 
 
@@ -352,9 +346,7 @@ def _validate_when(spec: StageSpec) -> None:
         )
 
 
-def _resolve_criteria(
-    validation: ValidationSpec, params: dict[str, str]
-) -> ValidationSpec:
+def _resolve_criteria(validation: ValidationSpec, params: dict[str, str]) -> ValidationSpec:
     """Resolve trigger params in each criterion, expanding pipe-separated values.
 
     **Expansion rule (one pipe-valued param)**
@@ -395,9 +387,7 @@ def _resolve_criteria(
     """
     # Identify which params carry pipe-separated values.
     pipe_params: dict[str, list[str]] = {
-        k: [item.strip() for item in v.split("|")]
-        for k, v in params.items()
-        if "|" in v
+        k: [item.strip() for item in v.split("|")] for k, v in params.items() if "|" in v
     }
 
     resolved: list[str] = []
@@ -552,4 +542,3 @@ def match_when_expression(when: str, params: dict[str, str]) -> bool | None:
         return m.group(2) in m.group(1)
 
     return None
-

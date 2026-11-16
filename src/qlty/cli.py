@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Sequence
 from functools import lru_cache
-from typing import Optional, Sequence
 
 from core.assistant import BaseAssistant
 from core.cli_errors import ExitCode, UsageError
@@ -15,7 +15,7 @@ from .meta import META
 from .models import Finding, Source, Tier
 from .report import TriageEntry
 from .runner import QltyRunner
-from .scanner import ScanRequest, ScanResult, Scanner, sibling_uses_params_object
+from .scanner import Scanner, ScanRequest, ScanResult, sibling_uses_params_object
 from .strategies import known_strategies, strategy_for
 
 assistant = BaseAssistant(META.app_id, META.agentic_fallback)
@@ -32,7 +32,10 @@ _FORMATS = ("text", "json", "md", "csv")
 def _format_argument(func):
     """Attach the shared --format flag."""
     return app.argument(
-        "--format", choices=_FORMATS, default="text", dest="format",
+        "--format",
+        choices=_FORMATS,
+        default="text",
+        dest="format",
         help="Output format",
     )(func)
 
@@ -46,19 +49,41 @@ def _scan_arguments(func):
     """
     for add in (
         _format_argument,
-        app.argument("--expect-min", type=int, help="Exit nonzero if fewer than N findings (env guard)"),
-        app.argument("--rescan-until-stable", action="store_true", help="Re-scan until findings stop changing"),
+        app.argument(
+            "--expect-min", type=int, help="Exit nonzero if fewer than N findings (env guard)"
+        ),
+        app.argument(
+            "--rescan-until-stable",
+            action="store_true",
+            help="Re-scan until findings stop changing",
+        ),
         app.argument("--smells-only", action="store_true", help="Run only qlty smells"),
         app.argument("--check-only", action="store_true", help="Run only qlty check"),
-        app.argument("--changed", action="store_true", help="Scan only changed files (default: all)"),
-        app.argument("--no-include-tests", action="store_true", help="Exclude test files from smells even when paths are named"),
-        app.argument("--include-tests", action="store_true", help="Include test files in smells when no paths are named"),
-        app.argument("--rule", action="append", dest="rules", metavar="RULE",
-                     help="Limit output to this rule (repeatable; unknown rule yields empty)"),
+        app.argument(
+            "--changed", action="store_true", help="Scan only changed files (default: all)"
+        ),
+        app.argument(
+            "--no-include-tests",
+            action="store_true",
+            help="Exclude test files from smells even when paths are named",
+        ),
+        app.argument(
+            "--include-tests",
+            action="store_true",
+            help="Include test files in smells when no paths are named",
+        ),
+        app.argument(
+            "--rule",
+            action="append",
+            dest="rules",
+            metavar="RULE",
+            help="Limit output to this rule (repeatable; unknown rule yields empty)",
+        ),
         app.argument("paths", nargs="*", help="Limit scan to these paths"),
     ):
         func = add(func)
     return func
+
 
 # Rule whose triage requires the sibling-params-object cross-reference.
 _PARAMS_RULE = "function-parameters"
@@ -112,9 +137,7 @@ def _run_scan(args) -> tuple[ScanResult, ScanResult]:
     if getattr(args, "include_tests", False) and getattr(args, "no_include_tests", False):
         # Direct opposites of one setting. Resolving them by precedence would
         # silently discard one of the two flags the caller explicitly passed.
-        raise UsageError(
-            "--include-tests and --no-include-tests are opposites; pass at most one."
-        )
+        raise UsageError("--include-tests and --no-include-tests are opposites; pass at most one.")
 
     request = ScanRequest(
         # F1: default to --all. Diff-only is opt-in, because `qlty check`
@@ -133,7 +156,7 @@ def _run_scan(args) -> tuple[ScanResult, ScanResult]:
     return raw, raw.filter_by_rules(_rule_filter(args))
 
 
-def _expect_min_failure(result: ScanResult, expect_min: Optional[int]) -> Optional[str]:
+def _expect_min_failure(result: ScanResult, expect_min: int | None) -> str | None:
     """Message when a scan returned implausibly few findings.
 
     An empty scan is shaped exactly like success, so it needs an explicit
@@ -266,7 +289,7 @@ def cmd_rules(args) -> int:
     handler; see ``cmd_scan``.
     """
     strategies = known_strategies()
-    counts: Optional[dict[str, int]] = None
+    counts: dict[str, int] | None = None
 
     if args.counts:
         result = _build_scanner().scan()
@@ -283,7 +306,7 @@ def cmd_rules(args) -> int:
     return ExitCode.SUCCESS
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     """Main entry point for the qlty CLI."""
     return app.run_with_assistant(
         assistant,

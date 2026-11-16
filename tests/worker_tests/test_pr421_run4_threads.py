@@ -98,9 +98,7 @@ class TestProcessOneMissingClaimToken(unittest.TestCase, QueueRootIsolationMixin
         # requeue_processing(claim_token=None) verifies correctly under the lock.
         real_start = q.start_processing
 
-        def _start_empty_token(
-            job_path: Path, root: Path | None = None
-        ) -> tuple[Path, str] | None:
+        def _start_empty_token(job_path: Path, root: Path | None = None) -> tuple[Path, str] | None:
             result = real_start(job_path, root)
             if result is not None:
                 proc, _tok = result
@@ -110,8 +108,10 @@ class TestProcessOneMissingClaimToken(unittest.TestCase, QueueRootIsolationMixin
                 return proc, ""
             return result
 
-        with patch("worker.job_runtime.q.start_processing", side_effect=_start_empty_token), \
-             self.assertLogs("worker.job_runtime", "WARNING"):
+        with (
+            patch("worker.job_runtime.q.start_processing", side_effect=_start_empty_token),
+            self.assertLogs("worker.job_runtime", "WARNING"),
+        ):
             runner = _make_runner(self.root, max_per_tick=1)
             result = runner.run_once()
 
@@ -120,7 +120,9 @@ class TestProcessOneMissingClaimToken(unittest.TestCase, QueueRootIsolationMixin
         self.assertEqual(_names(self.root / "done"), [])
         pending = self.root / "pending" / "tok-none.json"
         self.assertTrue(pending.exists(), "job must be requeued to pending/, not lost")
-        self.assertEqual(_read(pending)["attempts"], 1, "requeue on a missing token must not consume an attempt")
+        self.assertEqual(
+            _read(pending)["attempts"], 1, "requeue on a missing token must not consume an attempt"
+        )
 
 
 # ---------------------------------------------------------------------------

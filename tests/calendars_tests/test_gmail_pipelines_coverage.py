@@ -17,6 +17,7 @@ Covers previously uncovered lines:
  - GmailSweepTopProducer: no senders (519->517), senders no out_path (527-528),
    senders with out_path (536->535, 541)
 """
+
 from __future__ import annotations
 
 import io
@@ -26,6 +27,12 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import MagicMock
 
+from calendars.gmail_pipeline_mail_list import (
+    GmailMailListProcessor,
+    GmailMailListProducer,
+    GmailMailListRequest,
+    GmailMailListRequestConsumer,
+)
 from calendars.gmail_pipeline_receipts import (
     GmailReceiptsProcessor,
     GmailReceiptsRequest,
@@ -37,12 +44,6 @@ from calendars.gmail_pipeline_scan_classes import (
     GmailScanClassesRequest,
     GmailScanClassesRequestConsumer,
 )
-from calendars.gmail_pipeline_mail_list import (
-    GmailMailListProcessor,
-    GmailMailListProducer,
-    GmailMailListRequest,
-    GmailMailListRequestConsumer,
-)
 from calendars.gmail_pipeline_sweep_top import (
     GmailSweepTopProcessor,
     GmailSweepTopProducer,
@@ -52,7 +53,6 @@ from calendars.gmail_pipeline_sweep_top import (
 from calendars.pipeline_base import GmailAuth
 from core.pipeline import ResultEnvelope
 
-
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
@@ -60,7 +60,9 @@ from core.pipeline import ResultEnvelope
 _AUTH = GmailAuth(None, None, None, None)
 
 
-def _make_receipts_request(calendar: str | None = "Activities", out_path: Path | None = None) -> GmailReceiptsRequest:
+def _make_receipts_request(
+    calendar: str | None = "Activities", out_path: Path | None = None
+) -> GmailReceiptsRequest:
     return GmailReceiptsRequest(
         auth=_AUTH,
         query=None,
@@ -73,7 +75,9 @@ def _make_receipts_request(calendar: str | None = "Activities", out_path: Path |
     )
 
 
-def _make_classes_request(out_path: Path | None = None, calendar: str | None = None) -> GmailScanClassesRequest:
+def _make_classes_request(
+    out_path: Path | None = None, calendar: str | None = None
+) -> GmailScanClassesRequest:
     return GmailScanClassesRequest(
         auth=_AUTH,
         from_text=None,
@@ -117,6 +121,7 @@ def _make_sweep_top_request(top: int = 5, out_path: Path | None = None) -> Gmail
 # GmailReceiptsProcessor — no-ids and no-events paths
 # ---------------------------------------------------------------------------
 
+
 class TestGmailReceiptsProcessorEmptyPaths(unittest.TestCase):
     """Covers lines 143 and 146: no-ids and no-events early returns."""
 
@@ -150,6 +155,7 @@ class TestGmailReceiptsProcessorEmptyPaths(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # GmailReceiptsProcessor — _parse_receipts exception and _parse_single_receipt branches
 # ---------------------------------------------------------------------------
+
 
 class TestParseReceiptsExceptionHandling(unittest.TestCase):
     """Covers line 168-169: exception in get_message_text is silently skipped."""
@@ -200,10 +206,7 @@ class TestParseSingleReceiptBranches(unittest.TestCase):
     def test_missing_pattern_returns_no_event(self):
         """Text without all three required patterns yields no event. (line 184)"""
         # Has cls and sched but no Meeting Dates.
-        text = (
-            "Enrollment in Swimming Lesson (# 1)\n"
-            "Each Monday from 5:00 pm to 5:30 pm\n"
-        )
+        text = "Enrollment in Swimming Lesson (# 1)\nEach Monday from 5:00 pm to 5:30 pm\n"
         processor = self._make_processor(text)
         env = processor.process(GmailReceiptsRequestConsumer(_make_receipts_request()).consume())
 
@@ -285,6 +288,7 @@ class TestParseSingleReceiptBranches(unittest.TestCase):
 # _extract_child_info: PAT_2 fallback
 # ---------------------------------------------------------------------------
 
+
 class TestExtractChildInfoPatterns(unittest.TestCase):
     """Covers lines 230-232: PAT_2 as fallback to PAT_1."""
 
@@ -315,6 +319,7 @@ class TestExtractChildInfoPatterns(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _normalize_subject branches
 # ---------------------------------------------------------------------------
+
 
 class TestNormalizeSubjectBranches(unittest.TestCase):
     """Covers lines 243-250: all _normalize_subject code paths."""
@@ -370,6 +375,7 @@ class TestNormalizeSubjectBranches(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # GmailScanClassesProcessor — coverage gaps
 # ---------------------------------------------------------------------------
+
 
 class TestGmailScanClassesProcessorCoverageGaps(unittest.TestCase):
     """Covers lines 319, 324-325, 329, 336."""
@@ -438,6 +444,7 @@ class TestGmailScanClassesProcessorCoverageGaps(unittest.TestCase):
 # GmailScanClassesProcessor._extract_events — meta field branches
 # ---------------------------------------------------------------------------
 
+
 class TestExtractEventsMetaBranches(unittest.TestCase):
     """Covers lines 353, 357, 375-381: meta subject/location/range propagated into events."""
 
@@ -450,10 +457,7 @@ class TestExtractEventsMetaBranches(unittest.TestCase):
         CLASS_PAT matches patterns like 'swimmer 2a', 'swim kids 3', 'preschool a'.
         Use a known pattern to guarantee meta['subject'] is populated.
         """
-        text = (
-            "Student: Bruce Sherwin\nSchedule: Swimmer 2A\n"
-            "Monday from 5:00 pm to 5:30 pm"
-        )
+        text = "Student: Bruce Sherwin\nSchedule: Swimmer 2A\nMonday from 5:00 pm to 5:30 pm"
         events = self.processor._extract_events(text, None)
         self.assertGreater(len(events), 0)
         # subject must have been overridden from 'Class' to the detected class name
@@ -513,6 +517,7 @@ class TestExtractEventsMetaBranches(unittest.TestCase):
 # GmailScanClassesProducer — output branches
 # ---------------------------------------------------------------------------
 
+
 class TestGmailScanClassesProducerBranches(unittest.TestCase):
     """Producer output branches for various result states."""
 
@@ -522,6 +527,7 @@ class TestGmailScanClassesProducerBranches(unittest.TestCase):
     def test_no_events_no_messages_prints_no_matching(self):
         """Zero events and zero messages: 'No matching messages found.' output."""
         from calendars.gmail_pipeline_scan_classes import GmailScanClassesResult
+
         payload = GmailScanClassesResult(events=[], message_count=0, out_path=None)
         buf = io.StringIO()
         with redirect_stdout(buf):
@@ -531,6 +537,7 @@ class TestGmailScanClassesProducerBranches(unittest.TestCase):
     def test_no_events_with_messages_prints_no_schedule_lines(self):
         """Zero events but some messages scanned: 'No schedule-like lines' output."""
         from calendars.gmail_pipeline_scan_classes import GmailScanClassesResult
+
         payload = GmailScanClassesResult(events=[], message_count=3, out_path=None)
         buf = io.StringIO()
         with redirect_stdout(buf):
@@ -542,6 +549,7 @@ class TestGmailScanClassesProducerBranches(unittest.TestCase):
     def test_events_without_out_path_prints_per_event_lines(self):
         """Events present, no out_path: prints per-event byday/time lines."""
         from calendars.gmail_pipeline_scan_classes import GmailScanClassesResult
+
         events = [
             {"byday": ["MO"], "start_time": "17:00", "end_time": "17:30", "calendar": "Sports"},
         ]
@@ -556,6 +564,7 @@ class TestGmailScanClassesProducerBranches(unittest.TestCase):
     def test_events_with_out_path_writes_yaml_and_prints(self):
         """Events present, out_path set: YAML is written and path is printed."""
         from calendars.gmail_pipeline_scan_classes import GmailScanClassesResult
+
         events = [{"byday": ["TU"], "start_time": "18:00", "end_time": "18:30", "calendar": None}]
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "classes.yaml"
@@ -570,6 +579,7 @@ class TestGmailScanClassesProducerBranches(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # GmailMailListProcessor — empty ids and fetch exception
 # ---------------------------------------------------------------------------
+
 
 class TestGmailMailListProcessorCoverageGaps(unittest.TestCase):
     """Covers lines 423, 435."""
@@ -621,6 +631,7 @@ class TestGmailMailListProcessorCoverageGaps(unittest.TestCase):
 # GmailMailListProducer — output branches
 # ---------------------------------------------------------------------------
 
+
 class TestGmailMailListProducerBranches(unittest.TestCase):
     """Covers lines 440-442 and 452-453."""
 
@@ -630,6 +641,7 @@ class TestGmailMailListProducerBranches(unittest.TestCase):
     def test_no_messages_prints_no_match(self):
         """Empty messages list prints 'No messages matched.' (lines 440-442)"""
         from calendars.gmail_pipeline_mail_list import GmailMailListResult
+
         payload = GmailMailListResult(messages=[])
         buf = io.StringIO()
         with redirect_stdout(buf):
@@ -639,6 +651,7 @@ class TestGmailMailListProducerBranches(unittest.TestCase):
     def test_messages_listed_prints_each_and_count(self):
         """Non-empty messages: each is printed with id|snippet, count shown. (lines 452-453)"""
         from calendars.gmail_pipeline_mail_list import GmailMailListResult
+
         messages = [
             {"id": "m1", "snippet": "Hello"},
             {"id": "m2", "snippet": "World"},
@@ -656,6 +669,7 @@ class TestGmailMailListProducerBranches(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # GmailSweepTopProcessor — empty ids and sender fetch failure
 # ---------------------------------------------------------------------------
+
 
 class TestGmailSweepTopProcessorCoverageGaps(unittest.TestCase):
     """Covers lines 492 and 504."""
@@ -708,6 +722,7 @@ class TestGmailSweepTopProcessorCoverageGaps(unittest.TestCase):
 # GmailSweepTopProducer — all output branches
 # ---------------------------------------------------------------------------
 
+
 class TestGmailSweepTopProducerBranches(unittest.TestCase):
     """Covers lines 519->517, 527-528, 536->535, 541."""
 
@@ -717,9 +732,8 @@ class TestGmailSweepTopProducerBranches(unittest.TestCase):
     def test_no_senders_prints_no_stats(self):
         """Empty top_senders prints 'No sender stats available.' (lines 519->517)"""
         from calendars.gmail_pipeline_sweep_top import GmailSweepTopResult
-        payload = GmailSweepTopResult(
-            top_senders=[], freq_days=7, inbox_only=False, out_path=None
-        )
+
+        payload = GmailSweepTopResult(top_senders=[], freq_days=7, inbox_only=False, out_path=None)
         buf = io.StringIO()
         with redirect_stdout(buf):
             GmailSweepTopProducer().produce(self._wrap(payload))
@@ -728,6 +742,7 @@ class TestGmailSweepTopProducerBranches(unittest.TestCase):
     def test_senders_without_out_path_prints_per_sender(self):
         """Senders present, no out_path: each sender and count is printed. (lines 527-528)"""
         from calendars.gmail_pipeline_sweep_top import GmailSweepTopResult
+
         payload = GmailSweepTopResult(
             top_senders=[("alice@example.com", 5), ("bob@example.com", 3)],
             freq_days=30,
@@ -746,6 +761,7 @@ class TestGmailSweepTopProducerBranches(unittest.TestCase):
     def test_senders_with_out_path_writes_yaml_filters(self):
         """Senders + out_path: YAML filter file is written. (lines 536->535, 541)"""
         from calendars.gmail_pipeline_sweep_top import GmailSweepTopResult
+
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "filters.yaml"
             payload = GmailSweepTopResult(
@@ -767,6 +783,7 @@ class TestGmailSweepTopProducerBranches(unittest.TestCase):
     def test_senders_with_out_path_output_includes_sender_lines(self):
         """With out_path, sender summary is printed before YAML is written."""
         from calendars.gmail_pipeline_sweep_top import GmailSweepTopResult
+
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "out.yaml"
             payload = GmailSweepTopResult(

@@ -15,12 +15,23 @@ from __future__ import annotations
 import os
 from pathlib import Path  # noqa: F401  # re-exported for test patch compatibility
 
-from core.cli_framework import CLIApp
 from core.assistant import BaseAssistant
-from ..meta import META
+from core.cli_framework import CLIApp
 
-# Import command implementations from split siblings
-from .cmd_merge import cmd_merge_folders, cmd_reorg  # noqa: F401
+# Re-export pipeline/layout/profile helpers for backwards-compatible test patches
+from core.pipeline import run_pipeline  # noqa: F401
+
+from ..helpers import (  # noqa: F401
+    load_layout,  # noqa: F401
+    read_yaml,
+    write_yaml,
+)
+from ..layout_plan_analyze import (  # noqa: F401
+    auto_folderize,
+    distribute_folders_across_pages,
+)
+from ..meta import META
+from ..profile import ProfileMetadata, build_mobileconfig  # noqa: F401
 from .cmd_layout import (  # noqa: F401
     _flatten_bundle_ids,
     _load_optional_device_apps,
@@ -38,6 +49,9 @@ from .cmd_layout import (  # noqa: F401
     cmd_unused,
     cmd_validate_layout,
 )
+
+# Import command implementations from split siblings
+from .cmd_merge import cmd_merge_folders, cmd_reorg  # noqa: F401
 from .cmd_profile import (  # noqa: F401
     _DEFAULT_DISPLAY_NAME,
     _DEFAULT_HS_IDENTIFIER,
@@ -56,17 +70,6 @@ from .cmd_profile import (  # noqa: F401
     cmd_profile_build,
 )
 
-# Re-export pipeline/layout/profile helpers for backwards-compatible test patches
-from core.pipeline import run_pipeline  # noqa: F401
-from ..layout_plan_analyze import (  # noqa: F401
-    auto_folderize,
-    distribute_folders_across_pages,
-)
-from ..helpers import read_yaml, write_yaml  # noqa: F401
-from ..helpers import load_layout  # noqa: F401
-from ..profile import ProfileMetadata, build_mobileconfig  # noqa: F401
-
-
 # Create the CLI app
 app = CLIApp(
     "phone-assistant",
@@ -79,12 +82,8 @@ assistant = BaseAssistant(META.app_id, META.agentic_fallback)
 
 # Create command groups
 profile_group = app.group("profile", help="Home Screen Layout profile helpers")
-manifest_group = app.group(
-    "manifest", help="Simplified manifest helpers (embed complex plan)"
-)
-identity_group = app.group(
-    "identity", help="Identity helpers (p12 ↔ device supervision parity)"
-)
+manifest_group = app.group("manifest", help="Simplified manifest helpers (embed complex plan)")
+identity_group = app.group("identity", help="Identity helpers (p12 ↔ device supervision parity)")
 
 
 # --- Top-level commands ---
@@ -100,9 +99,7 @@ def _cmd_export(args) -> int:
     return cmd_export(args)
 
 
-@app.command(
-    "export-device", help="Export layout from attached device via cfgutil to YAML"
-)
+@app.command("export-device", help="Export layout from attached device via cfgutil to YAML")
 @app.argument("--udid", help="Device UDID (optional when only one device is attached)")
 @app.argument("--ecid", help="Device ECID (optional; overrides --udid)")
 @app.argument("--out", help="Output YAML path (default: phone data dir)")
@@ -126,40 +123,26 @@ def _cmd_iconmap(args) -> int:
 
 @app.command("plan", help="Scaffold a plan YAML (pins + folders) from current layout")
 @app.argument("--backup", help="Path to Finder backup UDID dir (or use --layout)")
-@app.argument(
-    "--layout", help="Existing export YAML to derive plan from (skips backup)"
-)
+@app.argument("--layout", help="Existing export YAML to derive plan from (skips backup)")
 @app.argument("--out", help="Output plan YAML path (default: phone data dir)")
 def _cmd_plan(args) -> int:
     return cmd_plan(args)
 
 
-@app.command(
-    "checklist", help="Generate manual move checklist from plan + current layout"
-)
+@app.command("checklist", help="Generate manual move checklist from plan + current layout")
 @app.argument("--plan", required=True, help="Plan YAML path")
 @app.argument("--layout", help="Layout export YAML (optional; otherwise reads backup)")
-@app.argument(
-    "--backup", help="Path to Finder backup UDID dir (used if --layout not provided)"
-)
+@app.argument("--backup", help="Path to Finder backup UDID dir (used if --layout not provided)")
 @app.argument("--out", help="Output text path (default: phone data dir)")
 def _cmd_checklist(args) -> int:
     return cmd_checklist(args)
 
 
-@app.command(
-    "unused", help="Suggest rarely-used app candidates from current layout (heuristic)"
-)
+@app.command("unused", help="Suggest rarely-used app candidates from current layout (heuristic)")
 @app.argument("--layout", help="Layout export YAML (optional; otherwise reads backup)")
-@app.argument(
-    "--backup", help="Path to Finder backup UDID dir (used if --layout not provided)"
-)
-@app.argument(
-    "--recent", help="Path to file with bundle IDs used recently (one per line)"
-)
-@app.argument(
-    "--keep", help="Path to file with bundle IDs to always keep (one per line)"
-)
+@app.argument("--backup", help="Path to Finder backup UDID dir (used if --layout not provided)")
+@app.argument("--recent", help="Path to file with bundle IDs used recently (one per line)")
+@app.argument("--keep", help="Path to file with bundle IDs to always keep (one per line)")
 @app.argument("--limit", type=int, default=50, help="Max rows to display (default 50)")
 @app.argument(
     "--format",
@@ -176,15 +159,9 @@ def _cmd_unused(args) -> int:
     help="Generate OFFLOAD/DELETE checklist for unused candidates (no device writes)",
 )
 @app.argument("--layout", help="Layout export YAML (optional; otherwise reads backup)")
-@app.argument(
-    "--backup", help="Path to Finder backup UDID dir (used if --layout not provided)"
-)
-@app.argument(
-    "--recent", help="Path to file with bundle IDs used recently (one per line)"
-)
-@app.argument(
-    "--keep", help="Path to file with bundle IDs to always keep (one per line)"
-)
+@app.argument("--backup", help="Path to Finder backup UDID dir (used if --layout not provided)")
+@app.argument("--recent", help="Path to file with bundle IDs used recently (one per line)")
+@app.argument("--keep", help="Path to file with bundle IDs to always keep (one per line)")
 @app.argument("--limit", type=int, default=50, help="Max rows to include (default 50)")
 @app.argument(
     "--threshold",
@@ -198,18 +175,14 @@ def _cmd_unused(args) -> int:
     default="offload",
     help="Checklist mode (default offload)",
 )
-@app.argument(
-    "--out", default=None, help="Output text file (default: phone data dir)"
-)
+@app.argument("--out", default=None, help="Output text file (default: phone data dir)")
 def _cmd_prune(args) -> int:
     return cmd_prune(args)
 
 
 @app.command("analyze", help="Analyze layout balance and folder structure (text/json)")
 @app.argument("--layout", help="Layout export YAML (optional; otherwise reads backup)")
-@app.argument(
-    "--backup", help="Path to Finder backup UDID dir (used if --layout not provided)"
-)
+@app.argument("--backup", help="Path to Finder backup UDID dir (used if --layout not provided)")
 @app.argument("--plan", help="Optional plan YAML to check pins/folders alignment")
 @app.argument(
     "--format",
@@ -243,9 +216,7 @@ def _cmd_validate_layout(args) -> int:
     help="Auto-assign all apps into folders in plan (keeps specified apps out)",
 )
 @app.argument("--layout", help="Layout export YAML (optional; otherwise reads backup)")
-@app.argument(
-    "--backup", help="Path to Finder backup UDID dir (used if --layout not provided)"
-)
+@app.argument("--backup", help="Path to Finder backup UDID dir (used if --layout not provided)")
 @app.argument(
     "--plan", default=None, help="Plan YAML path to read/update (default: phone data dir)"
 )
@@ -260,9 +231,7 @@ def _cmd_validate_layout(args) -> int:
     default=2,
     help="Start placing folders from this page (default 2)",
 )
-@app.argument(
-    "--folders-per-page", type=int, default=12, help="Max folders per page (default 12)"
-)
+@app.argument("--folders-per-page", type=int, default=12, help="Max folders per page (default 12)")
 def _cmd_auto_folders(args) -> int:
     return cmd_auto_folders(args)
 
@@ -347,9 +316,7 @@ def _cmd_reorg(args) -> int:
 
 @profile_group.command("build", help="Build a .mobileconfig from a plan YAML")
 @profile_group.argument("--plan", required=True, help="Plan YAML path (pins + folders)")
-@profile_group.argument(
-    "--layout", help="Optional layout export YAML; uses 'dock' if present"
-)
+@profile_group.argument("--layout", help="Optional layout export YAML; uses 'dock' if present")
 @profile_group.argument("--out", required=True, help="Output .mobileconfig path")
 @profile_group.argument(
     "--identifier",
@@ -386,9 +353,7 @@ def _cmd_reorg(args) -> int:
     default=30,
     help="Apps per folder page, must be >= 1 (9 for iPhone grids; default 30)",
 )
-@profile_group.argument(
-    "--sign-p12", help="Path to .p12 certificate for signing the profile"
-)
+@profile_group.argument("--sign-p12", help="Path to .p12 certificate for signing the profile")
 @profile_group.argument(
     "--sign-pass", help="Password for .p12 certificate (or set IOS_SIGN_PASS env var)"
 )
@@ -399,12 +364,8 @@ def _cmd_profile_build(args) -> int:
 # --- Manifest group commands ---
 
 
-@manifest_group.command(
-    "create", help="Create a manifest by embedding an existing plan"
-)
-@manifest_group.argument(
-    "--from-plan", required=True, help="Path to existing plan YAML to embed"
-)
+@manifest_group.command("create", help="Create a manifest by embedding an existing plan")
+@manifest_group.argument("--from-plan", required=True, help="Path to existing plan YAML to embed")
 @manifest_group.argument("--out", required=True, help="Output manifest YAML path")
 @manifest_group.argument("--label", help="Optional device label to include")
 @manifest_group.argument("--udid", help="Optional device UDID to include")
@@ -427,9 +388,7 @@ def _cmd_profile_build(args) -> int:
 @manifest_group.argument(
     "--display-name", default=_DEFAULT_DISPLAY_NAME, help="Profile display name"
 )
-@manifest_group.argument(
-    "--organization", default="Personal", help="Profile organization"
-)
+@manifest_group.argument("--organization", default="Personal", help="Profile organization")
 def _cmd_manifest_create(args) -> int:
     return cmd_manifest_create(args)
 
@@ -459,12 +418,8 @@ def _cmd_manifest_from_export(args) -> int:
     help="Create a device layout manifest from an attached device via cfgutil",
 )
 @manifest_group.argument("--out", required=True, help="Output manifest YAML path")
-@manifest_group.argument(
-    "--export-out", help="Optional export YAML to also write (dock/pages)"
-)
-@manifest_group.argument(
-    "--udid", help="Device UDID (optional when only one device is attached)"
-)
+@manifest_group.argument("--export-out", help="Optional export YAML to also write (dock/pages)")
+@manifest_group.argument("--udid", help="Device UDID (optional when only one device is attached)")
 def _cmd_manifest_from_device(args) -> int:
     return cmd_manifest_from_device(args)
 
@@ -475,9 +430,7 @@ def _cmd_manifest_from_device(args) -> int:
 )
 @manifest_group.argument("--manifest", required=True, help="Manifest YAML path")
 @manifest_group.argument("--out", help="Output .mobileconfig path (default: phone data dir)")
-@manifest_group.argument(
-    "--udid", help="Override device UDID (else manifest.device.udid or env)"
-)
+@manifest_group.argument("--udid", help="Override device UDID (else manifest.device.udid or env)")
 @manifest_group.argument(
     "--device-label", help="Override device label (else manifest.device.label or env)"
 )

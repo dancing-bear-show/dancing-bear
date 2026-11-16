@@ -134,9 +134,7 @@ class TestColumnWidthValidation(unittest.TestCase):
             out = os.path.join(tmpdir, "resume.docx")
             template = _sidebar_template(sidebar_width=5.0, main_width=5.0)
             with self.assertRaises(ValueError) as ctx:
-                write_resume_docx(
-                    resume=_resume(), template=template, out_path=out
-                )
+                write_resume_docx(resume=_resume(), template=template, out_path=out)
             self.assertIn("exceeds", str(ctx.exception))
 
     def test_invalid_width_raises_through_the_writer(self):
@@ -196,9 +194,7 @@ class TestUsableWidthFromSection(unittest.TestCase):
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             out = os.path.join(tmpdir, "resume.docx")
-            write_resume_docx(
-                resume=_resume(), template=_sidebar_template(), out_path=out
-            )
+            write_resume_docx(resume=_resume(), template=_sidebar_template(), out_path=out)
             self.assertTrue(os.path.exists(out))
 
     def test_rejects_overflow_against_compact_wide_margins(self):
@@ -213,9 +209,7 @@ class TestUsableWidthFromSection(unittest.TestCase):
             template = _sidebar_template(sidebar_width=2.5, main_width=3.4)
             template["page"] = {"compact": True, "margins_in": 1.5}
             with self.assertRaises(ValueError) as ctx:
-                write_resume_docx(
-                    resume=_resume(), template=template, out_path=out
-                )
+                write_resume_docx(resume=_resume(), template=template, out_path=out)
             msg = str(ctx.exception)
             self.assertIn("5.9", msg)
             self.assertIn("5.5", msg)
@@ -259,9 +253,7 @@ class TestSidebarContactParity(unittest.TestCase):
             out = os.path.join(tmpdir, "resume.docx")
             write_resume_docx(resume=_resume(), template=template, out_path=out)
             doc = Document(out)
-            return " | ".join(
-                p.text for p in doc.sections[0].header.paragraphs if p.text.strip()
-            )
+            return " | ".join(p.text for p in doc.sections[0].header.paragraphs if p.text.strip())
 
     def test_sidebar_header_includes_linkedin(self):
         """Regression: the sidebar header dropped linkedin/website/github.
@@ -291,9 +283,7 @@ class TestSidebarContactParity(unittest.TestCase):
                 out_path=out,
             )
             header = " | ".join(
-                p.text
-                for p in Document(out).sections[0].header.paragraphs
-                if p.text.strip()
+                p.text for p in Document(out).sections[0].header.paragraphs if p.text.strip()
             )
         self.assertNotIn("linkedin", header.lower())
         self.assertIn("jane@example.com", header)

@@ -26,7 +26,9 @@ class TrackedPollTests(TempDirMixin, unittest.TestCase):
             self.assertEqual(self._only_file()["status"], state.STATUS_RUNNING)
             st.status = state.STATUS_DONE
         data = self._only_file()
-        self.assertEqual((data["status"], data["condition"], data["pid"]), ("done", "file", os.getpid()))
+        self.assertEqual(
+            (data["status"], data["condition"], data["pid"]), ("done", "file", os.getpid())
+        )
         self.assertEqual(data["args"], {"path": "/x"})
 
     def test_unset_status_is_recorded_as_error(self):

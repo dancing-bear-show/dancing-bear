@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 from ..providers.base import BaseProvider
 
 
@@ -36,13 +35,13 @@ def build_gmail_query(
     if m.get("to"):
         parts.append(f"to:({m['to']})")
     if m.get("subject"):
-        subj = m['subject']
-        if ' ' in subj:
-            parts.append(f"subject:\"{subj}\"")
+        subj = m["subject"]
+        if " " in subj:
+            parts.append(f'subject:"{subj}"')
         else:
             parts.append(f"subject:{subj}")
     if m.get("query"):
-        parts.append(str(m['query']))
+        parts.append(str(m["query"]))
     if m.get("negatedQuery"):
         parts.append(f"-({m['negatedQuery']})")
     if m.get("hasAttachment"):

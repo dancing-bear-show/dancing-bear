@@ -122,9 +122,7 @@ def parse_frontmatter(text: str) -> MemoryFrontmatter:
         )
 
     lines = text.split("\n")
-    closing_idx = next(
-        (i for i in range(1, len(lines)) if lines[i].strip() == "---"), None
-    )
+    closing_idx = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), None)
     if closing_idx is None:
         return MemoryFrontmatter(
             name=None,
@@ -167,9 +165,7 @@ def parse_frontmatter(text: str) -> MemoryFrontmatter:
     if not isinstance(parsed, dict):
         # A wrong-shaped document (list/scalar) must not be indistinguishable
         # from a typeless one.
-        raise TypeError(
-            f"frontmatter must parse to a mapping, got {type(parsed).__name__}"
-        )
+        raise TypeError(f"frontmatter must parse to a mapping, got {type(parsed).__name__}")
 
     metadata = parsed.get("metadata")
     if isinstance(metadata, dict):
@@ -370,9 +366,7 @@ def parse_memory_file(
 
     if content.startswith("---"):
         lines = content.split("\n")
-        closing_idx = next(
-            (i for i in range(1, len(lines)) if lines[i].strip() == "---"), None
-        )
+        closing_idx = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), None)
         if closing_idx is not None:
             frontmatter_text = "\n".join(lines[: closing_idx + 1])
             body = "\n".join(lines[closing_idx + 1 :]).lstrip("\n")

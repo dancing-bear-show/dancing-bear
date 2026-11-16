@@ -88,9 +88,7 @@ def load_store(slug: str, *, projects_root: str | Path | None = None) -> MemoryS
     directory entirely.
     """
     root = (
-        Path(projects_root)
-        if projects_root is not None
-        else Path.home() / ".claude" / "projects"
+        Path(projects_root) if projects_root is not None else Path.home() / ".claude" / "projects"
     )
     if not slug:
         raise ValueError("slug must not be empty")
@@ -122,9 +120,7 @@ def load_store(slug: str, *, projects_root: str | Path | None = None) -> MemoryS
         if md_file.name == "MEMORY.md":
             continue
         try:
-            memory = parse_memory_file(
-                md_file, project_slug=slug, index_entries=index_entries
-            )
+            memory = parse_memory_file(md_file, project_slug=slug, index_entries=index_entries)
         except (TypeError, ValueError, OSError):
             # Non-mapping frontmatter (TypeError) or undecodable bytes
             # (UnicodeDecodeError is a ValueError) must not drop the whole
@@ -156,18 +152,14 @@ def discover_stores(root: str | Path | None = None) -> tuple[MemoryStore, ...]:
     unreadable projects root prints a warning to stderr and returns an empty
     tuple — never a silent empty result that reads as "no stores exist".
     """
-    projects_root = (
-        Path(root) if root is not None else Path.home() / ".claude" / "projects"
-    )
+    projects_root = Path(root) if root is not None else Path.home() / ".claude" / "projects"
 
     if not projects_root.is_dir():
         print(f"Warning: projects root {projects_root} does not exist", file=sys.stderr)
         return ()
 
     try:
-        slugs = sorted(
-            entry.name for entry in projects_root.iterdir() if entry.is_dir()
-        )
+        slugs = sorted(entry.name for entry in projects_root.iterdir() if entry.is_dir())
     except OSError as exc:
         print(
             f"Warning: could not read projects root {projects_root}: {exc}",
@@ -201,9 +193,7 @@ def elect_canonical(stores: tuple[MemoryStore, ...]) -> MemoryStore | None:
     if not stores:
         return None
 
-    existing = tuple(
-        s for s in stores if s.inferred_repo and Path(s.inferred_repo).exists()
-    )
+    existing = tuple(s for s in stores if s.inferred_repo and Path(s.inferred_repo).exists())
     candidates = existing or stores
     return max(candidates, key=lambda s: (_newest_mtime(s), s.project_slug))
 

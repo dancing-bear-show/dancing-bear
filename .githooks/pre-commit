@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Auto-fix staged Python with ruff (lint --fix, then format), using the same
+# qlty-pinned ruff and ruff.toml config that CI enforces.
+# Install: git config core.hooksPath .githooks  (or: make hooks)
+#
+# Fully staged files are fixed in place and re-staged. A file that ALSO has
+# unstaged edits is only checked, never rewritten: re-staging it would sweep
+# the unstaged hunks into the commit. Anything ruff cannot fix blocks the
+# commit; bypass deliberately with `git commit --no-verify`.
+set -euo pipefail
+
+hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ruff="${hook_dir}/../bin/ruff-resolve.sh"
+
+staged=()
+while IFS= read -r -d '' f; do
+  staged+=("$f")
+done < <(git diff --cached --name-only --diff-filter=ACMR -z -- '*.py')
+
+if [[ ${#staged[@]} -eq 0 ]]; then
+  exit 0
+fi
+
+full=()
+partial=()
+for f in "${staged[@]}"; do
+  if git diff --quiet -- "$f"; then
+    full+=("$f")
+  else
+    partial+=("$f")
+  fi
+done
+
+if [[ ${#full[@]} -gt 0 ]]; then
+  "$ruff" check --fix --exit-zero --quiet -- "${full[@]}"
+  "$ruff" format --quiet -- "${full[@]}"
+  git add -- "${full[@]}"
+fi
+
+status=0
+"$ruff" check --quiet -- "${staged[@]}" || status=1
+"$ruff" format --check --quiet -- "${staged[@]}" || status=1
+
+if [[ $status -ne 0 ]]; then
+  {
+    echo
+    echo "pre-commit: ruff found problems it could not fix automatically."
+    if [[ ${#partial[@]} -gt 0 ]]; then
+      echo "Partially staged (checked, not rewritten): ${partial[*]}"
+      echo "  Stage them fully, or run: make lint-fix fmt"
+    fi
+    echo "Bypass deliberately with: git commit --no-verify"
+  } >&2
+fi
+exit "$status"

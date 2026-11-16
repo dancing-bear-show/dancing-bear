@@ -4,20 +4,20 @@ from __future__ import annotations
 
 from typing import TypeGuard
 
+from ..outlook_service import EventCreationParams, RecurringEventCreationParams
 from ._base import (
-    Any,
-    dataclass,
-    Path,
-    SafeProcessor,
-    normalize_event,
-    BaseProducer,
-    RequestConsumer,
-    load_events_config,
-    to_iso_str,
     LOG_DRY_RUN,
+    Any,
+    BaseProducer,
+    Path,
+    RequestConsumer,
+    SafeProcessor,
+    dataclass,
+    load_events_config,
+    normalize_event,
+    to_iso_str,
 )
 from ._context import EventProcessingContext
-from ..outlook_service import EventCreationParams, RecurringEventCreationParams
 
 
 def _nonempty_str(value: object) -> TypeGuard[str]:
@@ -60,7 +60,9 @@ class OutlookAddProcessor(SafeProcessor[OutlookAddRequest, OutlookAddResult]):
 
         return OutlookAddResult(logs=logs, created=created, dry_run=payload.dry_run)
 
-    def _process_event(self, idx: int, ev: dict[str, Any], payload: OutlookAddRequest, logs: list[str]) -> int:
+    def _process_event(
+        self, idx: int, ev: dict[str, Any], payload: OutlookAddRequest, logs: list[str]
+    ) -> int:
         nev = normalize_event(ev)
         subj = (nev.get("subject") or "").strip()
         if not subj:
@@ -76,8 +78,10 @@ class OutlookAddProcessor(SafeProcessor[OutlookAddRequest, OutlookAddResult]):
             return self._create_recurring(ctx, payload)
         return self._create_single(ctx, payload)
 
-    def _resolve_reminder(self, nev: dict[str, Any], payload: OutlookAddRequest) -> tuple[bool, int | None]:
-        yaml_is_off = (nev.get("is_reminder_on") is False)
+    def _resolve_reminder(
+        self, nev: dict[str, Any], payload: OutlookAddRequest
+    ) -> tuple[bool, int | None]:
+        yaml_is_off = nev.get("is_reminder_on") is False
         rem_minutes = nev.get("reminder_minutes")
         no_rem = payload.force_no_reminder or yaml_is_off
         if rem_minutes is not None:
@@ -97,9 +101,7 @@ class OutlookAddProcessor(SafeProcessor[OutlookAddRequest, OutlookAddResult]):
             end_time = ctx.nev.get("end_time")
             repeat = ctx.nev.get("repeat")
             if not (
-                _nonempty_str(start_time)
-                and _nonempty_str(end_time)
-                and _nonempty_str(repeat)
+                _nonempty_str(start_time) and _nonempty_str(end_time) and _nonempty_str(repeat)
             ):
                 ctx.logs.append(
                     f"[{ctx.idx}] Skipping recurring event '{ctx.subj}': "
@@ -169,16 +171,18 @@ class OutlookAddProcessor(SafeProcessor[OutlookAddRequest, OutlookAddResult]):
 
 
 class OutlookAddProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookAddResult, diagnostics: dict[str, Any] | None) -> None:
+    def _produce_success(
+        self, payload: OutlookAddResult, diagnostics: dict[str, Any] | None
+    ) -> None:
         self.print_logs(payload.logs)
         suffix = " (dry-run)" if payload.dry_run else ""
         print(f"Planned {payload.created} events/series from config{suffix}")
 
 
 __all__ = [
+    "OutlookAddProcessor",
+    "OutlookAddProducer",
     "OutlookAddRequest",
     "OutlookAddRequestConsumer",
     "OutlookAddResult",
-    "OutlookAddProcessor",
-    "OutlookAddProducer",
 ]

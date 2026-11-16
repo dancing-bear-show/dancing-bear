@@ -1,12 +1,13 @@
 """Tests for wifi/diagnostics_runners.py — SubprocessRunner."""
+
 from __future__ import annotations
 
 import subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
 import unittest
 from unittest.mock import patch
 
-from wifi.diagnostics_runners import SubprocessRunner
 from tests.wifi_tests.shared_fixtures import FakeRunner  # noqa: F401 — available for test use
+from wifi.diagnostics_runners import SubprocessRunner
 
 
 class TestSubprocessRunner(unittest.TestCase):

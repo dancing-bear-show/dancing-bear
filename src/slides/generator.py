@@ -10,6 +10,7 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from core.yamlio import load_config
 from slides._content import ContentMixin
 from slides._image import ImageMixin
 from slides._layout import LayoutMixin, _slide_rel_id
@@ -27,7 +28,6 @@ from slides.schema import (
     SlideDeck,
     TableSlide,
 )
-from core.yamlio import load_config
 
 if TYPE_CHECKING:
     from pptx.enum.dml import MSO_THEME_COLOR
@@ -50,7 +50,9 @@ def load_deck_from_yaml(yaml_path: str) -> SlideDeck:
     return load_deck_from_dict(data)
 
 
-class SlideGenerator(ShapeUtilsMixin, StylingMixin, TableMixin, ContentMixin, ImageMixin, LayoutMixin):
+class SlideGenerator(
+    ShapeUtilsMixin, StylingMixin, TableMixin, ContentMixin, ImageMixin, LayoutMixin
+):
     """Generator for PowerPoint slides from SlideDeck definitions.
 
     Provides methods to generate PowerPoint files from SlideDeck objects
@@ -132,7 +134,8 @@ class SlideGenerator(ShapeUtilsMixin, StylingMixin, TableMixin, ContentMixin, Im
     # ------------------------------------------------------------------
 
     def _prepare_presentation(
-        self, deck: SlideDeck,
+        self,
+        deck: SlideDeck,
     ) -> tuple[Any, Any, dict[str, Any] | Any, MSO_THEME_COLOR]:
         """Prepare a presentation from template.
 
@@ -218,7 +221,13 @@ class SlideGenerator(ShapeUtilsMixin, StylingMixin, TableMixin, ContentMixin, Im
             slide.notes_slide.notes_text_frame.text = ""
 
     def _populate_slide(
-        self, slide, content, theme_color, *, is_title_slide: bool = False, inherit_style: bool = False,
+        self,
+        slide,
+        content,
+        theme_color,
+        *,
+        is_title_slide: bool = False,
+        inherit_style: bool = False,
     ) -> None:
         """Populate a slide based on its content type."""
         # Notes first: every content branch below returns, so writing notes
@@ -247,11 +256,19 @@ class SlideGenerator(ShapeUtilsMixin, StylingMixin, TableMixin, ContentMixin, Im
                 self._populate_table_slide(slide, content, theme_color)
             else:
                 self._populate_bullet_slide(
-                    slide, content, theme_color, is_title_slide=is_title_slide, inherit_style=inherit_style,
+                    slide,
+                    content,
+                    theme_color,
+                    is_title_slide=is_title_slide,
+                    inherit_style=inherit_style,
                 )
         else:
             self._populate_bullet_slide(
-                slide, content, theme_color, is_title_slide=is_title_slide, inherit_style=inherit_style,
+                slide,
+                content,
+                theme_color,
+                is_title_slide=is_title_slide,
+                inherit_style=inherit_style,
             )
 
     # ------------------------------------------------------------------
@@ -259,7 +276,11 @@ class SlideGenerator(ShapeUtilsMixin, StylingMixin, TableMixin, ContentMixin, Im
     # ------------------------------------------------------------------
 
     def _generate_layout_map_mode(
-        self, prs: Any, deck: SlideDeck, layouts: dict, theme_color: MSO_THEME_COLOR,
+        self,
+        prs: Any,
+        deck: SlideDeck,
+        layouts: dict,
+        theme_color: MSO_THEME_COLOR,
     ) -> None:
         """Generate slides using per-slide layout selection from layout_map.
 
@@ -278,7 +299,9 @@ class SlideGenerator(ShapeUtilsMixin, StylingMixin, TableMixin, ContentMixin, Im
                 for ph in layout.placeholders
             )
             self._populate_slide(
-                new_slide, slide_content, theme_color,
+                new_slide,
+                slide_content,
+                theme_color,
                 is_title_slide=is_title,
                 inherit_style=True,
             )
@@ -294,7 +317,12 @@ class SlideGenerator(ShapeUtilsMixin, StylingMixin, TableMixin, ContentMixin, Im
         return None
 
     def _generate_legacy_mode(
-        self, prs: Any, deck: SlideDeck, first_slide: Any, template_layout: Any, theme_color: MSO_THEME_COLOR,
+        self,
+        prs: Any,
+        deck: SlideDeck,
+        first_slide: Any,
+        template_layout: Any,
+        theme_color: MSO_THEME_COLOR,
     ) -> None:
         """Generate slides using single cloned template layout (legacy mode)."""
         # Snapshot the text box before any population: table slides delete

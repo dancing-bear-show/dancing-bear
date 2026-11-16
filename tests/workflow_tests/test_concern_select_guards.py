@@ -65,8 +65,8 @@ _GUIDE_RE = _re.compile(
 _FILE_TYPE_RE = _re.compile(
     r"\.(?:py|ya?ml|md|json|pptx)\b"  # .py, .yaml, SKILL.md, FLOWS.yaml, ...
     r"|\bREADME\b"
-    r"|\btests?/"                       # tests/ paths
-    r"|\btest_"                         # test_*.py names
+    r"|\btests?/"  # tests/ paths
+    r"|\btest_"  # test_*.py names
     r"|\btest files?\b"
     r"|\bPython\b"
     r"|\bYAML\b"
@@ -214,7 +214,8 @@ class TestConsumersReferenceSelector(unittest.TestCase):
             with self.subTest(file=rel_path):
                 hits = _restated_rule_lines(self._read(rel_path))
                 self.assertEqual(
-                    hits, [],
+                    hits,
+                    [],
                     f"{rel_path} restates a file-type-to-guide rule; move it to "
                     "concerns/selection.yaml and point at select-concerns instead",
                 )
@@ -316,9 +317,11 @@ class TestNoInlinePathsInAgentInstructions(unittest.TestCase):
     def _instruction_files(self) -> list[Path]:
         root = _REPO_ROOT
         return sorted(
-            [*root.glob(".claude/agents/*.md"),
-             *root.glob(".claude/skills/**/*.md"),
-             *root.glob("workflows/**/*.yaml")]
+            [
+                *root.glob(".claude/agents/*.md"),
+                *root.glob(".claude/skills/**/*.md"),
+                *root.glob("workflows/**/*.yaml"),
+            ]
         )
 
     def test_no_instruction_passes_paths_inline(self) -> None:
@@ -331,12 +334,16 @@ class TestNoInlinePathsInAgentInstructions(unittest.TestCase):
         self.assertEqual(offenders, [], "use --paths-file, not inline --paths")
 
     def test_detector_flags_inline_form(self) -> None:
-        self.assertTrue(self._INLINE.search(
-            "./bin/workflow select-concerns --paths <file1> --format json"))
+        self.assertTrue(
+            self._INLINE.search("./bin/workflow select-concerns --paths <file1> --format json")
+        )
 
     def test_detector_allows_paths_file_form(self) -> None:
-        self.assertFalse(self._INLINE.search(
-            "git diff --name-only | ./bin/workflow select-concerns --paths-file - --format json"))
+        self.assertFalse(
+            self._INLINE.search(
+                "git diff --name-only | ./bin/workflow select-concerns --paths-file - --format json"
+            )
+        )
 
     @staticmethod
     def _stdin_pipes_without_pipefail(text: str) -> list[int]:

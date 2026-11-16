@@ -10,10 +10,7 @@ DEFAULT_PROFILE = "sample"
 # Domain subdirectory under the data root; also the --out-dir help text, which
 # names the resolved default so `--help` does not claim a path that moved.
 OUT_DIR_DOMAIN = "resume"
-OUT_DIR_HELP = (
-    "Output directory (default: <data-home>/resume, "
-    f"overridable with ${ENV_DATA_HOME})"
-)
+OUT_DIR_HELP = f"Output directory (default: <data-home>/resume, overridable with ${ENV_DATA_HOME})"
 
 # --profile means two different things depending on the command, so it gets two
 # help strings rather than one blanket claim that is wrong half the time.

@@ -1,4 +1,5 @@
 """Shared text processing utilities for assistant CLIs."""
+
 from __future__ import annotations
 
 import re
@@ -7,14 +8,14 @@ from html import unescape
 from .patterns import RE_AM_ONLY, RE_AMPM, RE_PM_ONLY, RE_STRIP_TAGS
 
 __all__ = [
+    "extract_email_address",
+    "extract_time_ranges",
     "html_to_text",
     "normalize_unicode",
-    "strip_html_tags",
-    "strip_css_boilerplate",
-    "to_24h",
     "parse_time_range",
-    "extract_time_ranges",
-    "extract_email_address",
+    "strip_css_boilerplate",
+    "strip_html_tags",
+    "to_24h",
     "truncate_text",
     "slugify",
 ]
@@ -111,16 +112,16 @@ def normalize_unicode(text: str) -> str:
     """
     if not text:
         return ""
-    t = text.replace('\u2011', '-')  # non-breaking hyphen
-    t = t.replace('\u2013', '-')     # en dash
-    t = t.replace('\u2014', '-')     # em dash
-    t = t.replace('\u00A0', ' ')     # non-breaking space
+    t = text.replace("\u2011", "-")  # non-breaking hyphen
+    t = t.replace("\u2013", "-")  # en dash
+    t = t.replace("\u2014", "-")  # em dash
+    t = t.replace("\u00a0", " ")  # non-breaking space
     return t
 
 
 def strip_html_tags(s: str) -> str:
     """Remove HTML tags and normalize whitespace."""
-    return re.sub(RE_STRIP_TAGS, '', s).replace('\xa0', ' ').replace('&nbsp;', ' ').strip()
+    return re.sub(RE_STRIP_TAGS, "", s).replace("\xa0", " ").replace("&nbsp;", " ").strip()
 
 
 def to_24h(time_str: str, am_pm: str | None = None) -> str | None:
@@ -140,20 +141,20 @@ def to_24h(time_str: str, am_pm: str | None = None) -> str | None:
         '1:45 p.m.' -> '13:45'
         to_24h('7', 'pm') -> '19:00'
     """
-    t = (time_str or '').strip().lower().replace(' ', '')
+    t = (time_str or "").strip().lower().replace(" ", "")
 
     # Try to extract am/pm from the string itself
     detected_ampm = am_pm
     if detected_ampm is None:
-        if re.search(r'p\.?m\.?', t):
-            detected_ampm = 'pm'
-        elif re.search(r'a\.?m\.?', t):
-            detected_ampm = 'am'
+        if re.search(r"p\.?m\.?", t):
+            detected_ampm = "pm"
+        elif re.search(r"a\.?m\.?", t):
+            detected_ampm = "am"
 
     # Remove am/pm markers
-    t_clean = re.sub(r'[ap]\.?m\.?', '', t).strip(' .')
+    t_clean = re.sub(r"[ap]\.?m\.?", "", t).strip(" .")
 
-    m = re.match(r'^(\d{1,2})(?::(\d{2}))?$', t_clean)
+    m = re.match(r"^(\d{1,2})(?::(\d{2}))?$", t_clean)
     if not m:
         return None
 
@@ -164,11 +165,11 @@ def to_24h(time_str: str, am_pm: str | None = None) -> str | None:
     suf = detected_ampm
     if suf is None:
         # Heuristic: if hour >= 7 and <= 11, assume PM for evening schedules
-        suf = 'pm' if 7 <= hh <= 11 else 'am'
+        suf = "pm" if 7 <= hh <= 11 else "am"
 
-    if suf.startswith('p') and hh < 12:
+    if suf.startswith("p") and hh < 12:
         hh += 12
-    if suf.startswith('a') and hh == 12:
+    if suf.startswith("a") and hh == 12:
         hh = 0
 
     return f"{hh:02d}:{mm:02d}"
@@ -190,20 +191,20 @@ def parse_time_range(s: str) -> tuple[str | None, str | None]:
         '11:15 a.m. - 12:15 p.m.' -> ('11:15', '12:15')
         '7 - 8:30 p.m.' -> ('19:00', '20:30')
     """
-    s = (s or '').strip()
-    if not s or s == '\xa0':
+    s = (s or "").strip()
+    if not s or s == "\xa0":
         return None, None
 
     # Normalize unicode and separators
-    s = normalize_unicode(s).replace(' to ', '-')
+    s = normalize_unicode(s).replace(" to ", "-")
 
     # Detect am/pm for each side
     has_am = re.search(RE_AM_ONLY, s) is not None
     has_pm = re.search(RE_PM_ONLY, s) is not None
 
     # Strip am/pm text for splitting
-    s_clean = re.sub(RE_AMPM, '', s)
-    parts = [t.strip(' .') for t in s_clean.split('-') if t.strip()]
+    s_clean = re.sub(RE_AMPM, "", s)
+    parts = [t.strip(" .") for t in s_clean.split("-") if t.strip()]
     if len(parts) != 2:
         return None, None
 
@@ -211,11 +212,11 @@ def parse_time_range(s: str) -> tuple[str | None, str | None]:
     left_suf: str | None
     right_suf: str | None
     if has_am and has_pm:
-        left_suf, right_suf = 'am', 'pm'
+        left_suf, right_suf = "am", "pm"
     elif has_am:
-        left_suf = right_suf = 'am'
+        left_suf = right_suf = "am"
     elif has_pm:
-        left_suf = right_suf = 'pm'
+        left_suf = right_suf = "pm"
     else:
         left_suf = right_suf = None
 
@@ -235,12 +236,12 @@ def extract_time_ranges(text: str) -> list[tuple[str, str]]:
     Returns:
         List of (start_24h, end_24h) tuples.
     """
-    text = (text or '').replace('*', ' ').replace('\n', ' ')
+    text = (text or "").replace("*", " ").replace("\n", " ")
     results: list[tuple[str, str]] = []
 
     # Match time range patterns with am/pm using simplified pattern
-    time_pat = r'(\d{1,2}(?::\d{2})?\s*[ap]\.?m\.?)'
-    sep_pat = r'\s*(?:[-–—]|to)\s*'
+    time_pat = r"(\d{1,2}(?::\d{2})?\s*[ap]\.?m\.?)"
+    sep_pat = r"\s*(?:[-–—]|to)\s*"
     for m in re.finditer(time_pat + sep_pat + time_pat, text, re.I):
         start = to_24h(m.group(1))
         end = to_24h(m.group(2))
@@ -263,7 +264,7 @@ def extract_email_address(s: str) -> str:
     if m:
         return m.group(1).strip().lower()
     m2 = re.search(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b", s)
-    return (m2.group(0).strip().lower() if m2 else s.strip().lower())
+    return m2.group(0).strip().lower() if m2 else s.strip().lower()
 
 
 def truncate_text(s: str, max_len: int, suffix: str = "…", **_kwargs: object) -> str:

@@ -1,21 +1,21 @@
 """Tests for classify.py — second-pass pattern rules (TestClassifyAbandonedSearch,
 TestClassifyFruitlessAgent, TestClassifyEndToEnd)."""
+
 from __future__ import annotations
 
 import unittest
 
 from telemetry.classify import ClassifyEngine
-
 from tests.telemetry_tests.shared_fixtures import (
     EMPTY_RULES,
     _evt,
     reset_seq,
 )
 
-
 # ===========================================================================
 # Second pass — _classify_abandoned_search
 # ===========================================================================
+
 
 class TestClassifyAbandonedSearch(unittest.TestCase):
     def setUp(self):
@@ -88,7 +88,9 @@ class TestClassifyAbandonedSearch(unittest.TestCase):
             _evt(tool_name="Read", tool_input={"file_path": "/foo.py"}, offset_seconds=10),
         ]
         redundant_rules = {
-            "avoidable": {"redundant-read": {"enabled": True, "window_seconds": 60, "lookback_events": 10}},
+            "avoidable": {
+                "redundant-read": {"enabled": True, "window_seconds": 60, "lookback_events": 10}
+            },
             "review": {"abandoned-search": {"enabled": True, "consecutive_reads": 3}},
         }
         engine = ClassifyEngine(redundant_rules)
@@ -142,6 +144,7 @@ class TestClassifyAbandonedSearch(unittest.TestCase):
 # Second pass — _classify_fruitless_agent
 # ===========================================================================
 
+
 class TestClassifyFruitlessAgent(unittest.TestCase):
     def setUp(self):
         reset_seq()
@@ -184,8 +187,15 @@ class TestClassifyFruitlessAgent(unittest.TestCase):
         self.assertNotEqual(evts[0].waste_reason, "fruitless-agent")
 
     def test_exempt_agent_types_skipped(self):
-        for agent_type in ("reviewer", "researcher", "Explore", "fact-checker",
-                           "unit-validator", "cross-unit-validator", "claude-code-guide"):
+        for agent_type in (
+            "reviewer",
+            "researcher",
+            "Explore",
+            "fact-checker",
+            "unit-validator",
+            "cross-unit-validator",
+            "claude-code-guide",
+        ):
             reset_seq()
             rules = self._make_rules()
             engine = ClassifyEngine(rules)
@@ -195,15 +205,20 @@ class TestClassifyFruitlessAgent(unittest.TestCase):
             ]
             engine.classify(evts)
             self.assertNotEqual(
-                evts[0].waste_reason, "fruitless-agent",
-                f"Expected {agent_type} to be exempt from fruitless-agent"
+                evts[0].waste_reason,
+                "fruitless-agent",
+                f"Expected {agent_type} to be exempt from fruitless-agent",
             )
 
     def test_custom_exempt_types_honored(self):
         rules = self._make_rules(exempt_agent_types=["my-special-agent"])
         engine = ClassifyEngine(rules)
         evts = [
-            _evt(tool_name="Agent", tool_input={"subagent_type": "my-special-agent"}, offset_seconds=0),
+            _evt(
+                tool_name="Agent",
+                tool_input={"subagent_type": "my-special-agent"},
+                offset_seconds=0,
+            ),
         ]
         engine.classify(evts)
         self.assertNotEqual(evts[0].waste_reason, "fruitless-agent")
@@ -236,8 +251,13 @@ class TestClassifyFruitlessAgent(unittest.TestCase):
         """Only overrides None or 'productive'; not 'avoidable'."""
         rules = self._make_rules()
         engine = ClassifyEngine(rules)
-        agent_evt = _evt(tool_name="Agent", tool_input={"subagent_type": "code-writer"},
-                         offset_seconds=0, classification="avoidable", waste_reason="failed-tool")
+        agent_evt = _evt(
+            tool_name="Agent",
+            tool_input={"subagent_type": "code-writer"},
+            offset_seconds=0,
+            classification="avoidable",
+            waste_reason="failed-tool",
+        )
         evts = [agent_evt, _evt(tool_name="Read", offset_seconds=10)]
         engine.classify(evts)
         self.assertEqual(agent_evt.classification, "avoidable")
@@ -280,19 +300,23 @@ class TestClassifyFruitlessAgent(unittest.TestCase):
             rules = self._make_rules()
             engine = ClassifyEngine(rules)
             evts = [
-                _evt(tool_name="Agent", tool_input={"subagent_type": "code-writer"}, offset_seconds=0),
+                _evt(
+                    tool_name="Agent", tool_input={"subagent_type": "code-writer"}, offset_seconds=0
+                ),
                 _evt(tool_name=write_tool, offset_seconds=10),
             ]
             engine.classify(evts)
             self.assertNotEqual(
-                evts[0].waste_reason, "fruitless-agent",
-                f"Expected {write_tool} to count as a write tool"
+                evts[0].waste_reason,
+                "fruitless-agent",
+                f"Expected {write_tool} to count as a write tool",
             )
 
 
 # ===========================================================================
 # End-to-end classify() — both passes
 # ===========================================================================
+
 
 class TestClassifyEndToEnd(unittest.TestCase):
     def setUp(self):
@@ -347,7 +371,11 @@ class TestClassifyEndToEnd(unittest.TestCase):
                 "bash-as-cat": {"enabled": True, "patterns": [r"\bcat\b"], "exclude": []},
             },
             "review": {
-                "fruitless-agent": {"enabled": True, "window_seconds": 300, "lookforward_events": 10},
+                "fruitless-agent": {
+                    "enabled": True,
+                    "window_seconds": 300,
+                    "lookforward_events": 10,
+                },
             },
         }
         engine = ClassifyEngine(rules)

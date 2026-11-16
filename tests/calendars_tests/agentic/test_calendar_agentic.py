@@ -1,8 +1,8 @@
 import unittest
 
 from tests.agentic_cli_contract import AgenticCLIContractMixin
-from tests.cli_separator_contract import SeparatorContractMixin
 from tests.cli_no_subcommand_contract import NoSubcommandContractMixin
+from tests.cli_separator_contract import SeparatorContractMixin
 
 
 class TestCalendarAgenticCLI(AgenticCLIContractMixin, unittest.TestCase):
@@ -26,13 +26,13 @@ class TestCalendarSeparatorCLI(SeparatorContractMixin, unittest.TestCase):
     APP_ID = "calendar"
 
 
-
 class TestCalendarsNoSubcommand(NoSubcommandContractMixin, unittest.TestCase):
     """Rule A7 — the no-subcommand exit code is deliberate."""
 
     MODULE_PATH = "calendars.cli.main"
     EXPECTED_RC = 0
     EXPECTED_STREAM = "stdout"
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

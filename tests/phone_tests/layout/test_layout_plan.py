@@ -79,7 +79,16 @@ class TestScaffoldPlan(unittest.TestCase):
         layout = make_layout()
         plan = scaffold_plan(layout)
 
-        expected_folders = {"Work", "Finance", "Travel", "Health", "Media", "Shopping", "Social", "Utilities"}
+        expected_folders = {
+            "Work",
+            "Finance",
+            "Travel",
+            "Health",
+            "Media",
+            "Shopping",
+            "Social",
+            "Utilities",
+        }
         self.assertEqual(set(plan["folders"].keys()), expected_folders)
 
 
@@ -87,29 +96,35 @@ class TestComputeLocationMap(unittest.TestCase):
     """Tests for compute_location_map function."""
 
     def test_root_apps(self):
-        layout = make_layout(pages=[
-            [make_app_item("com.page1")],
-            [make_app_item("com.page2")],
-        ])
+        layout = make_layout(
+            pages=[
+                [make_app_item("com.page1")],
+                [make_app_item("com.page2")],
+            ]
+        )
         loc = compute_location_map(layout)
 
         self.assertEqual(loc["com.page1"], "Page 1")
         self.assertEqual(loc["com.page2"], "Page 2")
 
     def test_folder_apps(self):
-        layout = make_layout(pages=[
-            [make_folder_item("Work", ["com.work1", "com.work2"])],
-        ])
+        layout = make_layout(
+            pages=[
+                [make_folder_item("Work", ["com.work1", "com.work2"])],
+            ]
+        )
         loc = compute_location_map(layout)
 
         self.assertEqual(loc["com.work1"], "Page 1 > Work")
         self.assertEqual(loc["com.work2"], "Page 1 > Work")
 
     def test_first_location_wins_for_duplicates(self):
-        layout = make_layout(pages=[
-            [make_app_item("com.dup")],
-            [make_app_item("com.dup")],
-        ])
+        layout = make_layout(
+            pages=[
+                [make_app_item("com.dup")],
+                [make_app_item("com.dup")],
+            ]
+        )
         loc = compute_location_map(layout)
         self.assertEqual(loc["com.dup"], "Page 1")
 
@@ -126,9 +141,11 @@ class TestListAllApps(unittest.TestCase):
         self.assertEqual(apps, ["com.dock", "com.page"])
 
     def test_includes_folder_apps(self):
-        layout = make_layout(pages=[
-            [make_folder_item("F", ["com.f1", "com.f2"])],
-        ])
+        layout = make_layout(
+            pages=[
+                [make_folder_item("F", ["com.f1", "com.f2"])],
+            ]
+        )
         apps = list_all_apps(layout)
         self.assertEqual(apps, ["com.f1", "com.f2"])
 
@@ -153,19 +170,23 @@ class TestComputeFolderPageMap(unittest.TestCase):
     """Tests for compute_folder_page_map function."""
 
     def test_maps_folders_to_pages(self):
-        layout = make_layout(pages=[
-            [make_folder_item("Work")],
-            [make_folder_item("Media")],
-        ])
+        layout = make_layout(
+            pages=[
+                [make_folder_item("Work")],
+                [make_folder_item("Media")],
+            ]
+        )
         m = compute_folder_page_map(layout)
         self.assertEqual(m["Work"], 1)
         self.assertEqual(m["Media"], 2)
 
     def test_first_occurrence_wins(self):
-        layout = make_layout(pages=[
-            [make_folder_item("Work")],
-            [make_folder_item("Work")],
-        ])
+        layout = make_layout(
+            pages=[
+                [make_folder_item("Work")],
+                [make_folder_item("Work")],
+            ]
+        )
         m = compute_folder_page_map(layout)
         self.assertEqual(m["Work"], 1)
 
@@ -174,18 +195,22 @@ class TestComputeRootAppPageMap(unittest.TestCase):
     """Tests for compute_root_app_page_map function."""
 
     def test_maps_root_apps(self):
-        layout = make_layout(pages=[
-            [make_app_item("com.page1")],
-            [make_app_item("com.page2")],
-        ])
+        layout = make_layout(
+            pages=[
+                [make_app_item("com.page1")],
+                [make_app_item("com.page2")],
+            ]
+        )
         m = compute_root_app_page_map(layout)
         self.assertEqual(m["com.page1"], 1)
         self.assertEqual(m["com.page2"], 2)
 
     def test_excludes_folder_apps(self):
-        layout = make_layout(pages=[
-            [make_folder_item("F", ["com.inside"])],
-        ])
+        layout = make_layout(
+            pages=[
+                [make_folder_item("F", ["com.inside"])],
+            ]
+        )
         m = compute_root_app_page_map(layout)
         self.assertNotIn("com.inside", m)
 
@@ -204,11 +229,13 @@ class TestRankUnusedCandidates(unittest.TestCase):
         self.assertLess(scores["com.dock"], scores["com.page"])
 
     def test_page1_apps_have_lower_score(self):
-        layout = make_layout(pages=[
-            [make_app_item("com.page1")],
-            [make_app_item("com.page3")],
-            [make_app_item("com.page5")],
-        ])
+        layout = make_layout(
+            pages=[
+                [make_app_item("com.page1")],
+                [make_app_item("com.page3")],
+                [make_app_item("com.page5")],
+            ]
+        )
         results = rank_unused_candidates(layout)
         scores = {app: score for app, score, _ in results}
 
@@ -216,38 +243,50 @@ class TestRankUnusedCandidates(unittest.TestCase):
         self.assertLess(scores["com.page3"], scores["com.page5"])
 
     def test_folder_apps_have_higher_score(self):
-        layout = make_layout(pages=[[
-            make_app_item("com.root"),
-            make_folder_item("F", ["com.infolder"]),
-        ]])
+        layout = make_layout(
+            pages=[
+                [
+                    make_app_item("com.root"),
+                    make_folder_item("F", ["com.infolder"]),
+                ]
+            ]
+        )
         results = rank_unused_candidates(layout)
         scores = {app: score for app, score, _ in results}
 
         self.assertGreater(scores["com.infolder"], scores["com.root"])
 
     def test_keep_list_removes_from_top(self):
-        layout = make_layout(pages=[
-            [make_app_item("com.keep"), make_app_item("com.other")],
-        ])
+        layout = make_layout(
+            pages=[
+                [make_app_item("com.keep"), make_app_item("com.other")],
+            ]
+        )
         results = rank_unused_candidates(layout, keep_ids=["com.keep"])
         scores = {app: score for app, score, _ in results}
 
         self.assertLess(scores["com.keep"], scores["com.other"])
 
     def test_recent_apps_have_lower_score(self):
-        layout = make_layout(pages=[
-            [make_app_item("com.recent"), make_app_item("com.old")],
-        ])
+        layout = make_layout(
+            pages=[
+                [make_app_item("com.recent"), make_app_item("com.old")],
+            ]
+        )
         results = rank_unused_candidates(layout, recent_ids=["com.recent"])
         scores = {app: score for app, score, _ in results}
 
         self.assertLess(scores["com.recent"], scores["com.old"])
 
     def test_common_apple_apps_penalized(self):
-        layout = make_layout(pages=[[
-            make_app_item("com.apple.camera"),
-            make_app_item("com.random.app"),
-        ]])
+        layout = make_layout(
+            pages=[
+                [
+                    make_app_item("com.apple.camera"),
+                    make_app_item("com.random.app"),
+                ]
+            ]
+        )
         results = rank_unused_candidates(layout)
         scores = {app: score for app, score, _ in results}
 
@@ -287,10 +326,12 @@ class TestChecklistFromPlan(unittest.TestCase):
         self.assertTrue(any("Install or locate" in i and "com.notfound" in i for i in instructions))
 
     def test_page_organization(self):
-        layout = make_layout(pages=[
-            [make_folder_item("Work")],
-            [make_app_item("com.app1")],
-        ])
+        layout = make_layout(
+            pages=[
+                [make_folder_item("Work")],
+                [make_app_item("com.app1")],
+            ]
+        )
         plan = {
             "pins": [],
             "folders": {},
@@ -356,9 +397,11 @@ class TestAnalyzeLayout(unittest.TestCase):
         self.assertTrue(any("tiny folder" in o for o in result["observations"]))
 
     def test_observations_large_folders(self):
-        layout = make_layout(pages=[
-            [make_folder_item("Big", [f"com.app{i}" for i in range(15)])],
-        ])
+        layout = make_layout(
+            pages=[
+                [make_folder_item("Big", [f"com.app{i}" for i in range(15)])],
+            ]
+        )
         result = analyze_layout(layout)
         self.assertTrue(any("large folder" in o for o in result["observations"]))
 

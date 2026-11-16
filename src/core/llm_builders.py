@@ -6,9 +6,10 @@ LlmConfig instances with minimal per-domain boilerplate.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from core.llm_cli import LlmConfig
@@ -43,6 +44,7 @@ def _build_agentic_builder(agentic_module: str, app_id: str, purpose: str) -> Ca
             return mod.build_agentic_capsule()
         except Exception:  # nosec B110 - fallback on import/build failure
             return f"agentic: {app_id}\npurpose: {purpose}"
+
     return builder
 
 
@@ -56,6 +58,7 @@ def _build_domain_map_builder(agentic_module: str) -> Callable[[], str]:
             return mod.build_domain_map()
         except Exception:  # nosec B110 - fallback on import/build failure
             return _DOMAIN_MAP_UNAVAILABLE
+
     return builder
 
 
@@ -66,12 +69,14 @@ def _build_inventory_builder(app_title: str) -> Callable[[], str]:
         # Generate fresh rather than echoing .llm/INVENTORY.md back: reading the
         # target and rewriting it made any stale content self-perpetuating.
         from core.llm_handlers import _default_inventory
+
         body = _default_inventory()
         return body.replace(
             "# LLM Agent Inventory",
             f"# LLM Agent Inventory ({app_title})",
             1,
         )
+
     return builder
 
 
@@ -84,16 +89,12 @@ def _build_familiar_compact_builder(
     def builder() -> str:
         if familiar_compact_steps:
             steps = "\n".join(f"  - run: {cmd}" for cmd in familiar_compact_steps)
-            return (
-                f"meta:\n"
-                f"  name: {app_id}_familiarize\n"
-                f"  version: 1\n"
-                f"steps:\n{steps}\n"
-            )
+            return f"meta:\n  name: {app_id}_familiarize\n  version: 1\nsteps:\n{steps}\n"
         return (
             _read_text(llm_dir / "familiarize.yaml")
             or f"meta:\n  name: {app_id}_familiarize\n  version: 1\nsteps:\n  - run: ./bin/{app_id} --help\n"
         )
+
     return builder
 
 
@@ -103,16 +104,13 @@ def _build_familiar_extended_builder(
     compact_builder: Callable[[], str],
 ) -> Callable[[], str]:
     """Create extended familiarization builder for a domain module."""
+
     def builder() -> str:
         if familiar_extended_steps:
             steps = "\n".join(f"  - run: {cmd}" for cmd in familiar_extended_steps)
-            return (
-                f"meta:\n"
-                f"  name: {app_id}_familiarize\n"
-                f"  version: 1\n"
-                f"steps:\n{steps}\n"
-            )
+            return f"meta:\n  name: {app_id}_familiarize\n  version: 1\nsteps:\n{steps}\n"
         return compact_builder()
+
     return builder
 
 
@@ -122,10 +120,9 @@ def _build_policies_builder(policies_fallback: str | None) -> Callable[[], str]:
 
     def builder() -> str:
         return (
-            _read_text(llm_dir / "PR_POLICIES.yaml")
-            or policies_fallback
-            or _DEFAULT_POLICIES_YAML
+            _read_text(llm_dir / "PR_POLICIES.yaml") or policies_fallback or _DEFAULT_POLICIES_YAML
         )
+
     return builder
 
 
@@ -155,7 +152,7 @@ class DomainLlmConfig:
 def make_domain_llm_module(
     config: DomainLlmConfig | None = None,
     **kwargs: Any,
-) -> "LlmConfig":
+) -> LlmConfig:
     """Factory to create an LlmConfig for a domain module with minimal boilerplate.
 
     Args:

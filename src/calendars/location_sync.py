@@ -1,12 +1,14 @@
 """Higher-level helpers for location sync (plan/apply)."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
 
-from .selection import compute_window, filter_events_by_day_time
-from .model import normalize_event
 from core.outlook.models import UpdateEventLocationRequest
+
+from .model import normalize_event
+from .selection import compute_window, filter_events_by_day_time
 
 
 @dataclass
@@ -42,30 +44,42 @@ class LocationSync:
         loc = ev.get("location") or {}
         addr = loc.get("address") or {}
         disp = (loc.get("displayName") or "").strip()
-        parts = [addr.get("street"), addr.get("city"), addr.get("state"), addr.get("postalCode"), addr.get("countryOrRegion")]
+        parts = [
+            addr.get("street"),
+            addr.get("city"),
+            addr.get("state"),
+            addr.get("postalCode"),
+            addr.get("countryOrRegion"),
+        ]
         addr_str = ", ".join([p for p in parts if p])
         return addr_str or disp
 
     def _select_matches_from_criteria(self, criteria: MatchCriteria) -> list[dict[str, Any]]:
         """Select matching events using MatchCriteria."""
         from calendars.outlook_service import ListEventsRequest
-        events = self.svc.list_events_in_range(ListEventsRequest(
-            start_iso=criteria.win[0],
-            end_iso=criteria.win[1],
-            calendar_name=criteria.cal_name,
-            subject_filter=criteria.subj,
-        ))
-        return filter_events_by_day_time(
-            events,
-            byday=criteria.byday,
-            start_time=criteria.start_time,
-            end_time=criteria.end_time,
-            tz=criteria.tz,
-        ) or events[:1]
+
+        events = self.svc.list_events_in_range(
+            ListEventsRequest(
+                start_iso=criteria.win[0],
+                end_iso=criteria.win[1],
+                calendar_name=criteria.cal_name,
+                subject_filter=criteria.subj,
+            )
+        )
+        return (
+            filter_events_by_day_time(
+                events,
+                byday=criteria.byday,
+                start_time=criteria.start_time,
+                end_time=criteria.end_time,
+                tz=criteria.tz,
+            )
+            or events[:1]
+        )
 
     def _resolve_event_criteria(
         self, ev: dict[str, Any], calendar: str | None
-    ) -> "MatchCriteria" | None:
+    ) -> MatchCriteria | None:
         """Normalize event and return MatchCriteria, or None if insufficient data."""
         if not isinstance(ev, dict):
             return None
@@ -124,13 +138,17 @@ class LocationSync:
         except Exception:  # nosec B112 - skip events that fail to match
             return []
 
-    def plan_from_config(self, items: list[dict[str, Any]], *, calendar: str | None, dry_run: bool = False) -> int:
+    def plan_from_config(
+        self, items: list[dict[str, Any]], *, calendar: str | None, dry_run: bool = False
+    ) -> int:
         return sum(1 for ev in items if self._plan_one(ev, calendar, dry_run))
 
     def _apply_location_update(self, update: LocationUpdate) -> None:
         """Update a single event/series location (dry-run safe)."""
         if update.dry_run:
-            print(f"[dry-run] would update {update.label} '{update.subj}' -> '{update.yaml_loc}' (id={update.event_id})")
+            print(
+                f"[dry-run] would update {update.label} '{update.subj}' -> '{update.yaml_loc}' (id={update.event_id})"
+            )
         else:
             self.svc.update_event_location(
                 UpdateEventLocationRequest(
@@ -142,8 +160,12 @@ class LocationSync:
             print(f"Updated {update.label}: {update.subj} -> {update.yaml_loc}")
 
     def _apply_all_occurrences(
-        self, matches: list[dict[str, Any]], subj: str, yaml_loc: str,
-        cal_name: str | None, dry_run: bool
+        self,
+        matches: list[dict[str, Any]],
+        subj: str,
+        yaml_loc: str,
+        cal_name: str | None,
+        dry_run: bool,
     ) -> int:
         """Update all series/occurrence IDs from matches. Returns count updated."""
         series_ids: set = set()
@@ -157,14 +179,22 @@ class LocationSync:
                 if oid:
                     occ_ids.append(oid)
         for sid in series_ids:
-            self._apply_location_update(LocationUpdate(sid, subj, yaml_loc, cal_name, dry_run, "series"))
+            self._apply_location_update(
+                LocationUpdate(sid, subj, yaml_loc, cal_name, dry_run, "series")
+            )
         for oid in occ_ids:
-            self._apply_location_update(LocationUpdate(oid, subj, yaml_loc, cal_name, dry_run, "occurrence"))
+            self._apply_location_update(
+                LocationUpdate(oid, subj, yaml_loc, cal_name, dry_run, "occurrence")
+            )
         return len(series_ids) + len(occ_ids)
 
     def _apply_single_match(
-        self, matches: list[dict[str, Any]], subj: str, yaml_loc: str,
-        cal_name: str | None, dry_run: bool
+        self,
+        matches: list[dict[str, Any]],
+        subj: str,
+        yaml_loc: str,
+        cal_name: str | None,
+        dry_run: bool,
     ) -> int:
         """Update the first matching event only. Returns 1 if updated, 0 otherwise."""
         sel = matches[0]
@@ -177,7 +207,9 @@ class LocationSync:
         self._apply_location_update(LocationUpdate(tgt, subj, yaml_loc, cal_name, dry_run, "event"))
         return 1
 
-    def _apply_one(self, ev: dict[str, Any], calendar: str | None, all_occurrences: bool, dry_run: bool) -> int:
+    def _apply_one(
+        self, ev: dict[str, Any], calendar: str | None, all_occurrences: bool, dry_run: bool
+    ) -> int:
         """Apply a location update for one event. Returns the count of ids updated."""
         result = self._resolve_event_location(ev, calendar)
         if not result:
@@ -194,5 +226,12 @@ class LocationSync:
             return self._apply_all_occurrences(matches, subj, yaml_loc, cal_name, dry_run)
         return self._apply_single_match(matches, subj, yaml_loc, cal_name, dry_run)
 
-    def apply_from_config(self, items: list[dict[str, Any]], *, calendar: str | None, all_occurrences: bool = False, dry_run: bool = False) -> int:
+    def apply_from_config(
+        self,
+        items: list[dict[str, Any]],
+        *,
+        calendar: str | None,
+        all_occurrences: bool = False,
+        dry_run: bool = False,
+    ) -> int:
         return sum(self._apply_one(ev, calendar, all_occurrences, dry_run) for ev in items)

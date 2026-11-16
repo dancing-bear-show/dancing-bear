@@ -6,7 +6,7 @@ import io
 import json
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -16,11 +16,10 @@ from telemetry.otel.cli.workflow_cost import (
     _coerce_float,
     _coerce_int,
     _earliest_started_at,
-    load_stage_if_in_window,
     _read_stage_results,
+    load_stage_if_in_window,
     main,
 )
-
 
 # ---------------------------------------------------------------------------
 # _coerce_float
@@ -112,16 +111,18 @@ class TestBuildWorkspaceRows(unittest.TestCase):
         self.assertEqual(len(rows), 2)  # stage + TOTAL
 
     def test_with_cost_metadata(self):
-        stages = [{
-            "stage_name": "build",
-            "metadata": {
-                "subagent_cost_usd": "0.05",
-                "subagent_tokens": "1000",
-                "tool_uses": "5",
-                "duration_agent_ms": "30000",
-                "model": "claude-sonnet-4-6",
+        stages = [
+            {
+                "stage_name": "build",
+                "metadata": {
+                    "subagent_cost_usd": "0.05",
+                    "subagent_tokens": "1000",
+                    "tool_uses": "5",
+                    "duration_agent_ms": "30000",
+                    "model": "claude-sonnet-4-6",
+                },
             }
-        }]
+        ]
         rows, has_cost = _build_workspace_rows(stages)
         self.assertTrue(has_cost)
         self.assertEqual(rows[0]["stage"], "build")
@@ -130,8 +131,14 @@ class TestBuildWorkspaceRows(unittest.TestCase):
 
     def test_total_row_aggregates(self):
         stages = [
-            {"stage_name": "s1", "metadata": {"subagent_cost_usd": "0.05", "subagent_tokens": "1000"}},
-            {"stage_name": "s2", "metadata": {"subagent_cost_usd": "0.03", "subagent_tokens": "500"}},
+            {
+                "stage_name": "s1",
+                "metadata": {"subagent_cost_usd": "0.05", "subagent_tokens": "1000"},
+            },
+            {
+                "stage_name": "s2",
+                "metadata": {"subagent_cost_usd": "0.03", "subagent_tokens": "500"},
+            },
         ]
         rows, _ = _build_workspace_rows(stages)
         total = rows[-1]
@@ -148,22 +155,30 @@ class TestLoadStageIfInWindow(unittest.TestCase):
     def test_recent_stage_returned(self):
         with tempfile.TemporaryDirectory() as td:
             p = Path(td) / "stage.json"
-            cutoff = datetime(2026, 1, 1, tzinfo=timezone.utc)
-            p.write_text(json.dumps({
-                "stage_name": "build",
-                "finished_at": "2026-04-16T10:00:00Z",
-            }))
+            cutoff = datetime(2026, 1, 1, tzinfo=UTC)
+            p.write_text(
+                json.dumps(
+                    {
+                        "stage_name": "build",
+                        "finished_at": "2026-04-16T10:00:00Z",
+                    }
+                )
+            )
             result = load_stage_if_in_window(p, cutoff)
         self.assertIsNotNone(result)
 
     def test_old_stage_returns_none(self):
         with tempfile.TemporaryDirectory() as td:
             p = Path(td) / "stage.json"
-            cutoff = datetime(2026, 6, 1, tzinfo=timezone.utc)
-            p.write_text(json.dumps({
-                "stage_name": "build",
-                "finished_at": "2026-04-16T10:00:00Z",
-            }))
+            cutoff = datetime(2026, 6, 1, tzinfo=UTC)
+            p.write_text(
+                json.dumps(
+                    {
+                        "stage_name": "build",
+                        "finished_at": "2026-04-16T10:00:00Z",
+                    }
+                )
+            )
             result = load_stage_if_in_window(p, cutoff)
         self.assertIsNone(result)
 
@@ -171,14 +186,14 @@ class TestLoadStageIfInWindow(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             p = Path(td) / "stage.json"
             p.write_text(json.dumps({"stage_name": "build"}))
-            result = load_stage_if_in_window(p, datetime.now(timezone.utc))
+            result = load_stage_if_in_window(p, datetime.now(UTC))
         self.assertIsNone(result)
 
     def test_invalid_json_returns_none(self):
         with tempfile.TemporaryDirectory() as td:
             p = Path(td) / "stage.json"
             p.write_text("not json")
-            result = load_stage_if_in_window(p, datetime.now(timezone.utc))
+            result = load_stage_if_in_window(p, datetime.now(UTC))
         self.assertIsNone(result)
 
 
@@ -230,10 +245,16 @@ class TestBuildSinceRows(unittest.TestCase):
     def test_total_aggregates_cost(self):
         run_groups = {
             "run-a-20260416-abc12345": [
-                {"metadata": {"subagent_tokens": "100", "subagent_cost_usd": "0.01"}, "started_at": ""}
+                {
+                    "metadata": {"subagent_tokens": "100", "subagent_cost_usd": "0.01"},
+                    "started_at": "",
+                }
             ],
             "run-b-20260416-def67890": [
-                {"metadata": {"subagent_tokens": "200", "subagent_cost_usd": "0.02"}, "started_at": ""}
+                {
+                    "metadata": {"subagent_tokens": "200", "subagent_cost_usd": "0.02"},
+                    "started_at": "",
+                }
             ],
         }
         rows = _build_since_rows(run_groups)
@@ -271,10 +292,14 @@ class TestWorkspaceModeMain(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             stages = Path(td) / "stages"
             stages.mkdir()
-            (stages / "s1.json").write_text(json.dumps({
-                "stage_name": "build",
-                "metadata": {"subagent_cost_usd": "0.05", "subagent_tokens": "1000"},
-            }))
+            (stages / "s1.json").write_text(
+                json.dumps(
+                    {
+                        "stage_name": "build",
+                        "metadata": {"subagent_cost_usd": "0.05", "subagent_tokens": "1000"},
+                    }
+                )
+            )
             with patch("telemetry.otel.cli.workflow_cost.emit_rows", return_value=0):
                 result = main(["--workspace", td])
         self.assertEqual(result, 0)
@@ -283,10 +308,14 @@ class TestWorkspaceModeMain(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             stages = Path(td) / "stages"
             stages.mkdir()
-            (stages / "s1.json").write_text(json.dumps({
-                "stage_name": "build",
-                "metadata": {"subagent_cost_usd": "0.05", "subagent_tokens": "1000"},
-            }))
+            (stages / "s1.json").write_text(
+                json.dumps(
+                    {
+                        "stage_name": "build",
+                        "metadata": {"subagent_cost_usd": "0.05", "subagent_tokens": "1000"},
+                    }
+                )
+            )
             buf = io.StringIO()
             with patch("sys.stdout", buf):
                 result = main(["--workspace", td, "--format", "json"])
@@ -317,12 +346,16 @@ class TestSinceModeMain(unittest.TestCase):
             p = Path(td)
             stages = p / "run-001" / "stages"
             stages.mkdir(parents=True)
-            (stages / "s1.json").write_text(json.dumps({
-                "stage_name": "build",
-                "finished_at": datetime.now(timezone.utc).isoformat(),
-                "started_at": datetime.now(timezone.utc).isoformat(),
-                "metadata": {"subagent_cost_usd": "0.05", "subagent_tokens": "1000"},
-            }))
+            (stages / "s1.json").write_text(
+                json.dumps(
+                    {
+                        "stage_name": "build",
+                        "finished_at": datetime.now(UTC).isoformat(),
+                        "started_at": datetime.now(UTC).isoformat(),
+                        "metadata": {"subagent_cost_usd": "0.05", "subagent_tokens": "1000"},
+                    }
+                )
+            )
             with patch("telemetry.otel.cli.workflow_cost.get_work_dir", return_value=p):
                 with patch("telemetry.otel.cli.workflow_cost.emit_rows", return_value=0):
                     result = main(["--since", "1h"])

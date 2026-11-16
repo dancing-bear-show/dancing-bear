@@ -2,16 +2,16 @@
 TestIterJsonlFiles, TestOldFormatSessionSummary, TestGetSessions,
 TestGetCurrentSessionId, TestFindSessionFile, TestGetWindowedTotals,
 TestAggregateAgents, TestProviderConstructor)."""
+
 from __future__ import annotations
 
 import os
 import time
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from telemetry.providers.transcript import TranscriptProvider
-
 from tests.telemetry_tests.shared_fixtures import (
     TempProjectsDirMixin,
     _write_jsonl,
@@ -43,7 +43,7 @@ class TestFlatSessionSummary(TempProjectsDirMixin, unittest.TestCase):
     def test_empty_project_path_becomes_none(self):
         from telemetry.providers.transcript import _SessionUnit
 
-        unit = _SessionUnit("sess-1", "", [], [], datetime.now(timezone.utc))
+        unit = _SessionUnit("sess-1", "", [], [], datetime.now(UTC))
         self.assertIsNone(TranscriptProvider._summary_from_unit(unit, []).project_path)
 
     def test_malformed_file_falls_back_gracefully(self):
@@ -63,9 +63,7 @@ class TestIterJsonlFiles(TempProjectsDirMixin, unittest.TestCase):
 
     def test_subdir_format_yields_parent_parent_name(self):
         pdir = self.project_dir()
-        _write_jsonl(
-            pdir, "sess-xyz/subagents/agent-1.jsonl", [make_assistant_record()]
-        )
+        _write_jsonl(pdir, "sess-xyz/subagents/agent-1.jsonl", [make_assistant_record()])
         results = list(TranscriptProvider._iter_jsonl_files(pdir))
         self.assertEqual(len(results), 1)
         _, session_id = results[0]
@@ -121,7 +119,7 @@ class TestOldFormatSessionSummary(TempProjectsDirMixin, unittest.TestCase):
         self.assertEqual(summary.total_events, 0)
         self.assertEqual(
             summary.start_time,
-            datetime.fromtimestamp(empty.stat().st_mtime, tz=timezone.utc),
+            datetime.fromtimestamp(empty.stat().st_mtime, tz=UTC),
         )
 
     def test_malformed_subagent_file_skipped_gracefully(self):
@@ -148,9 +146,7 @@ class TestGetSessions(TempProjectsDirMixin, unittest.TestCase):
 
     def test_old_format_session_discovered(self):
         pdir = self.project_dir("-Users-me-project")
-        _write_jsonl(
-            pdir, "sess-old/subagents/agent-1.jsonl", [make_assistant_record()]
-        )
+        _write_jsonl(pdir, "sess-old/subagents/agent-1.jsonl", [make_assistant_record()])
         sessions = self.provider.get_sessions()
         self.assertEqual(len(sessions), 1)
         self.assertEqual(sessions[0].session_id, "sess-old")
@@ -179,7 +175,7 @@ class TestGetSessions(TempProjectsDirMixin, unittest.TestCase):
     def test_since_filters_out_old_sessions_by_mtime(self):
         pdir = self.project_dir()
         _write_jsonl(pdir, "sess-old.jsonl", [make_assistant_record()])
-        future_since = datetime.now(timezone.utc) + timedelta(days=1)
+        future_since = datetime.now(UTC) + timedelta(days=1)
         sessions = self.provider.get_sessions(since=future_since)
         self.assertEqual(sessions, [])
 
@@ -214,9 +210,7 @@ class TestFindSessionFile(TempProjectsDirMixin, unittest.TestCase):
 
     def test_subdir_file_found(self):
         pdir = self.project_dir()
-        expected = _write_jsonl(
-            pdir, "sess-old/subagents/agent-1.jsonl", [make_assistant_record()]
-        )
+        expected = _write_jsonl(pdir, "sess-old/subagents/agent-1.jsonl", [make_assistant_record()])
         found = self.provider.find_session_file("sess-old")
         self.assertEqual(found, expected)
 
@@ -228,19 +222,23 @@ class TestFindSessionFile(TempProjectsDirMixin, unittest.TestCase):
 class TestGetWindowedTotals(TempProjectsDirMixin, unittest.TestCase):
     def test_no_projects_dir_returns_zeroed_totals(self):
         provider = TranscriptProvider(projects_dir=self.projects_dir / "missing")
-        totals = provider.get_windowed_totals(datetime.now(timezone.utc) - timedelta(hours=1))
+        totals = provider.get_windowed_totals(datetime.now(UTC) - timedelta(hours=1))
         self.assertEqual(totals["cost"], 0.0)
         self.assertEqual(totals["sessions"], 0)
         self.assertEqual(totals["models"], {})
 
     def test_events_within_window_counted(self):
         pdir = self.project_dir()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         ts = now.strftime("%Y-%m-%dT%H:%M:%SZ")
         _write_jsonl(
             pdir,
             "sess-1.jsonl",
-            [make_assistant_record(timestamp=ts, model="claude-sonnet-4-6", input_tokens=100, output_tokens=50)],
+            [
+                make_assistant_record(
+                    timestamp=ts, model="claude-sonnet-4-6", input_tokens=100, output_tokens=50
+                )
+            ],
         )
         since = now - timedelta(hours=1)
         totals = self.provider.get_windowed_totals(since)
@@ -252,19 +250,17 @@ class TestGetWindowedTotals(TempProjectsDirMixin, unittest.TestCase):
     def test_events_before_window_excluded_by_file_mtime(self):
         pdir = self.project_dir()
         old_ts = "2020-01-01T00:00:00Z"
-        path = _write_jsonl(
-            pdir, "sess-old.jsonl", [make_assistant_record(timestamp=old_ts)]
-        )
-        old_mtime = datetime(2020, 1, 1, tzinfo=timezone.utc).timestamp()
+        path = _write_jsonl(pdir, "sess-old.jsonl", [make_assistant_record(timestamp=old_ts)])
+        old_mtime = datetime(2020, 1, 1, tzinfo=UTC).timestamp()
         os.utime(path, (old_mtime, old_mtime))
-        since = datetime.now(timezone.utc) - timedelta(hours=1)
+        since = datetime.now(UTC) - timedelta(hours=1)
         totals = self.provider.get_windowed_totals(since)
         self.assertEqual(totals["sessions"], 0)
         self.assertEqual(totals["cost"], 0.0)
 
     def test_events_before_window_excluded_even_if_file_recent(self):
         pdir = self.project_dir()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         old_event_ts = (now - timedelta(hours=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
         _write_jsonl(pdir, "sess-1.jsonl", [make_assistant_record(timestamp=old_event_ts)])
         since = now - timedelta(hours=1)
@@ -273,7 +269,7 @@ class TestGetWindowedTotals(TempProjectsDirMixin, unittest.TestCase):
 
     def test_non_directory_projects_skipped(self):
         (self.projects_dir / "stray.txt").write_text("x", encoding="utf-8")
-        since = datetime.now(timezone.utc) - timedelta(hours=1)
+        since = datetime.now(UTC) - timedelta(hours=1)
         totals = self.provider.get_windowed_totals(since)
         self.assertEqual(totals["sessions"], 0)
 
@@ -281,11 +277,11 @@ class TestGetWindowedTotals(TempProjectsDirMixin, unittest.TestCase):
 class TestAggregateAgents(TempProjectsDirMixin, unittest.TestCase):
     def test_no_projects_dir_returns_empty_list(self):
         provider = TranscriptProvider(projects_dir=self.projects_dir / "missing")
-        self.assertEqual(provider.aggregate_agents(datetime.now(timezone.utc)), [])
+        self.assertEqual(provider.aggregate_agents(datetime.now(UTC)), [])
 
     def test_orchestrator_grouping_for_missing_agent_name(self):
         pdir = self.project_dir()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         ts = now.strftime("%Y-%m-%dT%H:%M:%SZ")
         _write_jsonl(
             pdir,
@@ -300,13 +296,15 @@ class TestAggregateAgents(TempProjectsDirMixin, unittest.TestCase):
 
     def test_named_agent_aggregated_separately(self):
         pdir = self.project_dir()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         ts = now.strftime("%Y-%m-%dT%H:%M:%SZ")
         _write_jsonl(
             pdir,
             "sess-1.jsonl",
             [
-                make_assistant_record(timestamp=ts, agent_name="tester", input_tokens=10, output_tokens=5),
+                make_assistant_record(
+                    timestamp=ts, agent_name="tester", input_tokens=10, output_tokens=5
+                ),
                 make_assistant_record(timestamp=ts, input_tokens=20, output_tokens=10),
             ],
         )
@@ -317,7 +315,7 @@ class TestAggregateAgents(TempProjectsDirMixin, unittest.TestCase):
 
     def test_rows_sorted_by_cost_descending(self):
         pdir = self.project_dir()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         ts = now.strftime("%Y-%m-%dT%H:%M:%SZ")
         _write_jsonl(
             pdir,
@@ -327,7 +325,10 @@ class TestAggregateAgents(TempProjectsDirMixin, unittest.TestCase):
                     timestamp=ts, agent_name="cheap", input_tokens=1, output_tokens=1
                 ),
                 make_assistant_record(
-                    timestamp=ts, agent_name="expensive", input_tokens=1_000_000, output_tokens=500_000
+                    timestamp=ts,
+                    agent_name="expensive",
+                    input_tokens=1_000_000,
+                    output_tokens=500_000,
                 ),
             ],
         )
@@ -337,19 +338,25 @@ class TestAggregateAgents(TempProjectsDirMixin, unittest.TestCase):
 
     def test_multiple_models_for_same_agent_collapsed(self):
         pdir = self.project_dir()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         ts = now.strftime("%Y-%m-%dT%H:%M:%SZ")
         _write_jsonl(
             pdir,
             "sess-1.jsonl",
             [
                 make_assistant_record(
-                    timestamp=ts, agent_name="tester", model="claude-opus-4-6",
-                    input_tokens=10, output_tokens=5,
+                    timestamp=ts,
+                    agent_name="tester",
+                    model="claude-opus-4-6",
+                    input_tokens=10,
+                    output_tokens=5,
                 ),
                 make_assistant_record(
-                    timestamp=ts, agent_name="tester", model="claude-haiku-4-5",
-                    input_tokens=20, output_tokens=10,
+                    timestamp=ts,
+                    agent_name="tester",
+                    model="claude-haiku-4-5",
+                    input_tokens=20,
+                    output_tokens=10,
                 ),
             ],
         )
@@ -362,7 +369,7 @@ class TestAggregateAgents(TempProjectsDirMixin, unittest.TestCase):
 
     def test_events_without_usage_ignored(self):
         pdir = self.project_dir()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         ts = now.strftime("%Y-%m-%dT%H:%M:%SZ")
         _write_jsonl(
             pdir, "sess-1.jsonl", [make_assistant_record(timestamp=ts, include_usage=False)]
@@ -373,7 +380,7 @@ class TestAggregateAgents(TempProjectsDirMixin, unittest.TestCase):
 
     def test_events_before_since_ignored(self):
         pdir = self.project_dir()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         old_ts = (now - timedelta(hours=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
         _write_jsonl(pdir, "sess-1.jsonl", [make_assistant_record(timestamp=old_ts)])
         since = now - timedelta(hours=1)
@@ -384,17 +391,18 @@ class TestAggregateAgents(TempProjectsDirMixin, unittest.TestCase):
         pdir = self.project_dir()
         bad_dir = pdir / "sess-dir.jsonl"
         bad_dir.mkdir()
-        since = datetime.now(timezone.utc) - timedelta(hours=1)
+        since = datetime.now(UTC) - timedelta(hours=1)
         rows = self.provider.aggregate_agents(since)
         self.assertEqual(rows, [])
 
     def test_corrupt_line_skipped(self):
         pdir = self.project_dir()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         ts = now.strftime("%Y-%m-%dT%H:%M:%SZ")
         path = pdir / "sess-1.jsonl"
         with open(path, "w", encoding="utf-8") as f:
             import json as _json
+
             f.write(_json.dumps(make_assistant_record(timestamp=ts)) + "\n")
             f.write("NOT VALID JSON\n")
         since = now - timedelta(hours=1)

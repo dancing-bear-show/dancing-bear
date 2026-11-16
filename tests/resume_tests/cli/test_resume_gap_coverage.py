@@ -19,7 +19,6 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-
 # ---------------------------------------------------------------------------
 # cmd_render
 # ---------------------------------------------------------------------------
@@ -100,6 +99,7 @@ class TestCmdRenderUnit(unittest.TestCase):
         args = self._make_args(out="out.pdf")
         with self.assertRaises(CLIError) as ctx:
             from resume.cli.cmd_render import cmd_render
+
             cmd_render(args)
         self.assertEqual(ctx.exception.code, ExitCode.USAGE)
         self.assertIn("export-pdf", str(ctx.exception))
@@ -220,7 +220,9 @@ class TestCmdCandidateInitProfileOverlay(unittest.TestCase):
 
     @patch("resume.cli.cmd_align.write_yaml_or_json")
     @patch("resume.cli.cmd_align.apply_profile_overlays")
-    @patch("resume.cli.helpers.read_yaml_or_json", return_value={"name": "Test", "skills": ["Python"]})
+    @patch(
+        "resume.cli.helpers.read_yaml_or_json", return_value={"name": "Test", "skills": ["Python"]}
+    )
     def test_profile_overlay_applied_when_profile_given(
         self, mock_read, mock_overlay, mock_write
     ) -> None:
@@ -234,10 +236,10 @@ class TestCmdCandidateInitProfileOverlay(unittest.TestCase):
 
     @patch("resume.cli.cmd_align.write_yaml_or_json")
     @patch("resume.cli.cmd_align.apply_profile_overlays")
-    @patch("resume.cli.helpers.read_yaml_or_json", return_value={"name": "Test", "skills": ["Python"]})
-    def test_no_overlay_when_profile_none(
-        self, mock_read, mock_overlay, mock_write
-    ) -> None:
+    @patch(
+        "resume.cli.helpers.read_yaml_or_json", return_value={"name": "Test", "skills": ["Python"]}
+    )
+    def test_no_overlay_when_profile_none(self, mock_read, mock_overlay, mock_write) -> None:
         from resume.cli.cmd_align import cmd_candidate_init
 
         args = self._make_args(profile=None)
@@ -435,7 +437,9 @@ class TestCmdExperienceExportUnit(unittest.TestCase):
         args = self._make_args(data=None, resume="resume.docx")
         # parse_resume_docx is imported lazily inside cmd_experience_export;
         # patch it where it is defined
-        with patch("resume.parsing_experience_docx.parse_resume_docx", return_value={"experience": []}) as mock_docx:
+        with patch(
+            "resume.parsing_experience_docx.parse_resume_docx", return_value={"experience": []}
+        ) as mock_docx:
             result = cmd_experience_export(args)
         self.assertEqual(result, 0)
         mock_docx.assert_called_once_with("resume.docx")
@@ -504,6 +508,7 @@ class TestCmdExportPdfUnit(unittest.TestCase):
     def test_happy_path_prints_output_path_and_returns_zero(self, mock_convert) -> None:
         import io
         from contextlib import redirect_stdout
+
         from resume.australian_rotate import ConversionResult
         from resume.cli.cmd_docx import cmd_export_pdf
 
@@ -513,9 +518,7 @@ class TestCmdExportPdfUnit(unittest.TestCase):
             out_path = os.path.join(tmpdir, "resume.pdf")
             # Create the expected pdf output so rename logic doesn't fail
             Path(out_path).write_bytes(b"fake pdf")
-            mock_convert.return_value = ConversionResult(
-                ok=True, pdf_path=Path(out_path)
-            )
+            mock_convert.return_value = ConversionResult(ok=True, pdf_path=Path(out_path))
             args = self._make_args(docx_path=docx_path, out=out_path)
             buf = io.StringIO()
             with redirect_stdout(buf):
@@ -528,6 +531,7 @@ class TestCmdExportPdfUnit(unittest.TestCase):
         """LibreOffice writes <stem>.pdf into outdir; if it differs from out_pdf it is renamed."""
         import io
         from contextlib import redirect_stdout
+
         from resume.australian_rotate import ConversionResult
         from resume.cli.cmd_docx import cmd_export_pdf
 
@@ -541,9 +545,7 @@ class TestCmdExportPdfUnit(unittest.TestCase):
             out_pdf = os.path.join(tmpdir, "myresume_final.pdf")
 
             Path(actual_pdf).write_bytes(b"converted pdf")
-            mock_convert.return_value = ConversionResult(
-                ok=True, pdf_path=Path(actual_pdf)
-            )
+            mock_convert.return_value = ConversionResult(ok=True, pdf_path=Path(actual_pdf))
             args = self._make_args(docx_path=docx_path, out=out_pdf)
             buf = io.StringIO()
             with redirect_stdout(buf):
@@ -551,7 +553,9 @@ class TestCmdExportPdfUnit(unittest.TestCase):
             # Assertions must be inside the TemporaryDirectory block
             self.assertEqual(result, 0)
             self.assertTrue(Path(out_pdf).exists(), "Output PDF should exist at the requested path")
-            self.assertFalse(Path(actual_pdf).exists(), "Intermediate PDF should have been renamed away")
+            self.assertFalse(
+                Path(actual_pdf).exists(), "Intermediate PDF should have been renamed away"
+            )
 
 
 if __name__ == "__main__":

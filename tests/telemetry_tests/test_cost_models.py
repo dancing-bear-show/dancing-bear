@@ -1,7 +1,7 @@
 """Tests for telemetry/otel/cost_models.py."""
 
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from telemetry.otel.cost_models import (
@@ -86,8 +86,8 @@ class TestSessionCostBillableTokens(unittest.TestCase):
 
 class TestSessionCostDurationMinutes(unittest.TestCase):
     def test_duration_minutes_with_timestamps(self):
-        t0 = datetime(2026, 4, 16, 10, 0, 0, tzinfo=timezone.utc)
-        t1 = datetime(2026, 4, 16, 10, 30, 0, tzinfo=timezone.utc)
+        t0 = datetime(2026, 4, 16, 10, 0, 0, tzinfo=UTC)
+        t1 = datetime(2026, 4, 16, 10, 30, 0, tzinfo=UTC)
         sc = _make_session_cost(first_seen=t0, last_seen=t1)
         self.assertAlmostEqual(sc.duration_minutes, 30.0, places=5)
 
@@ -96,17 +96,17 @@ class TestSessionCostDurationMinutes(unittest.TestCase):
         self.assertIsNone(sc.duration_minutes)
 
     def test_duration_minutes_none_when_only_first_seen(self):
-        t0 = datetime(2026, 4, 16, 10, 0, 0, tzinfo=timezone.utc)
+        t0 = datetime(2026, 4, 16, 10, 0, 0, tzinfo=UTC)
         sc = _make_session_cost(first_seen=t0, last_seen=None)
         self.assertIsNone(sc.duration_minutes)
 
     def test_duration_minutes_none_when_only_last_seen(self):
-        t1 = datetime(2026, 4, 16, 10, 30, 0, tzinfo=timezone.utc)
+        t1 = datetime(2026, 4, 16, 10, 30, 0, tzinfo=UTC)
         sc = _make_session_cost(first_seen=None, last_seen=t1)
         self.assertIsNone(sc.duration_minutes)
 
     def test_duration_minutes_fractional(self):
-        t0 = datetime(2026, 4, 16, 10, 0, 0, tzinfo=timezone.utc)
+        t0 = datetime(2026, 4, 16, 10, 0, 0, tzinfo=UTC)
         t1 = t0 + timedelta(seconds=90)  # 90 seconds = 1.5 minutes
         sc = _make_session_cost(first_seen=t0, last_seen=t1)
         self.assertAlmostEqual(sc.duration_minutes, 1.5, places=5)

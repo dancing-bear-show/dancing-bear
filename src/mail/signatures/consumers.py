@@ -1,4 +1,5 @@
 """Consumers for signatures pipelines."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -6,9 +7,9 @@ from pathlib import Path
 from typing import Any
 
 from core.pipeline import Consumer
+from core.yamlio import load_config
 
 from ..context import MailContext
-from core.yamlio import load_config
 
 
 @dataclass

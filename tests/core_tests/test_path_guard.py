@@ -6,7 +6,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core.path_guard import PathGuardError, check_path_safe, main as path_guard_main
+from core.path_guard import PathGuardError, check_path_safe
+from core.path_guard import main as path_guard_main
 
 
 def _make_repo(tmp: Path) -> Path:

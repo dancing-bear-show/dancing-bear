@@ -34,7 +34,9 @@ def _cell(value: object) -> str:
     return str(value) if value is not None else ""
 
 
-def _emit_rows(rows: list[dict[str, object]], fmt: str = "table", headers: list[str] | None = None) -> None:
+def _emit_rows(
+    rows: list[dict[str, object]], fmt: str = "table", headers: list[str] | None = None
+) -> None:
     """Emit rows as JSON or a plain text table."""
     if fmt == "json":
         print(json.dumps(rows, indent=2, default=str))

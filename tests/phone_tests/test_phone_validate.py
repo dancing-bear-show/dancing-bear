@@ -1,4 +1,5 @@
 """Tests for phone/validate.py — iOS icon layout JSON validation."""
+
 from __future__ import annotations
 
 import unittest
@@ -56,7 +57,7 @@ class TestFlatFolderFormatError(unittest.TestCase):
         page1 = [
             [
                 "Work",
-                "com.microsoft.skype.teams",   # flat string — wrong format
+                "com.microsoft.skype.teams",  # flat string — wrong format
                 "com.google.Docs",
             ]
         ]
@@ -72,7 +73,7 @@ class TestFlatFolderFormatError(unittest.TestCase):
         page1 = [
             [
                 "Hybrid",
-                ["com.google.Docs"],          # correct
+                ["com.google.Docs"],  # correct
                 "com.microsoft.skype.teams",  # wrong — flat string
             ]
         ]
@@ -149,7 +150,9 @@ class TestFolderPageTooLargeWarning(unittest.TestCase):
         nine_apps = [f"com.example.app{i}" for i in range(9)]
         page1 = [["NineFolder", nine_apps]]
         issues = validate_layout_json([dock, page1])
-        self.assertFalse(any("NineFolder" in i.message and "apps" in i.message for i in _warnings(issues)))
+        self.assertFalse(
+            any("NineFolder" in i.message and "apps" in i.message for i in _warnings(issues))
+        )
 
 
 class TestUnplacedDeviceAppWarning(unittest.TestCase):

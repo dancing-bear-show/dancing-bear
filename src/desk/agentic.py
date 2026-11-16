@@ -1,12 +1,23 @@
 """Agentic capsule builders for the Desk Assistant CLI."""
+
 from __future__ import annotations
 
 from core.agentic import (
     build_capsule as _build_capsule,
+)
+from core.agentic import (
     build_cli_tree as _core_build_cli_tree,
+)
+from core.agentic import (
     build_domain_map as _core_build_domain_map,
+)
+from core.agentic import (
     cached_parser_loader as _cached_parser_loader,
+)
+from core.agentic import (
     cli_path_exists as _core_cli_path_exists,
+)
+from core.agentic import (
     tree_and_flow_sections as _tree_and_flow_sections,
 )
 
@@ -35,11 +46,15 @@ def _cli_path_exists(path: list[str]) -> bool:
 def _flow_map() -> str:
     lines: list[str] = []
     if _cli_path_exists(["scan"]):
-        lines.append("- Scan clutter: ./bin/desk scan --paths ~/Downloads ~/Desktop --duplicates --out desk.scan.yaml")
+        lines.append(
+            "- Scan clutter: ./bin/desk scan --paths ~/Downloads ~/Desktop --duplicates --out desk.scan.yaml"
+        )
     if _cli_path_exists(["plan"]):
         lines.append("- Plan cleanup: ./bin/desk plan --config rules.yaml --out desk.plan.yaml")
     if _cli_path_exists(["apply"]):
-        lines.append("- Apply plan (dry-run first): ./bin/desk apply --plan desk.plan.yaml --dry-run")
+        lines.append(
+            "- Apply plan (dry-run first): ./bin/desk apply --plan desk.plan.yaml --dry-run"
+        )
     if _cli_path_exists(["rules", "export"]):
         lines.append("- Starter rules: ./bin/desk rules export --out rules.yaml")
     return "\n".join(lines)

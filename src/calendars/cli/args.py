@@ -1,13 +1,17 @@
 """CLI argument helpers and help string constants for calendar."""
+
 from __future__ import annotations
 
 from core.cli_args import (
-    add_gmail_auth_args as _add_gmail_auth_args,
-    add_outlook_auth_args as _add_outlook_auth_args,
     GmailAuthConfig,
     OutlookAuthConfig,
 )
-
+from core.cli_args import (
+    add_gmail_auth_args as _add_gmail_auth_args,
+)
+from core.cli_args import (
+    add_outlook_auth_args as _add_outlook_auth_args,
+)
 
 # Help string constants to avoid duplication
 HELP_START_DATE = "Start date YYYY-MM-DD (default: 30 days ago)"
@@ -27,8 +31,19 @@ def add_common_gmail_auth_args(sp):
     return _add_gmail_auth_args(sp, GmailAuthConfig(include_cache=True))
 
 
-def add_common_gmail_paging_args(sp, *, default_days: int, default_pages: int, default_page_size: int):
-    sp.add_argument("--days", type=int, default=default_days, help=f"Look back N days (default {default_days})")
-    sp.add_argument("--pages", type=int, default=default_pages, help=f"Max pages (default {default_pages})")
-    sp.add_argument("--page-size", type=int, default=default_page_size, help=f"Page size (default {default_page_size})")
+def add_common_gmail_paging_args(
+    sp, *, default_days: int, default_pages: int, default_page_size: int
+):
+    sp.add_argument(
+        "--days", type=int, default=default_days, help=f"Look back N days (default {default_days})"
+    )
+    sp.add_argument(
+        "--pages", type=int, default=default_pages, help=f"Max pages (default {default_pages})"
+    )
+    sp.add_argument(
+        "--page-size",
+        type=int,
+        default=default_page_size,
+        help=f"Page size (default {default_page_size})",
+    )
     return sp

@@ -112,18 +112,24 @@ class ParseCommentTests(unittest.TestCase):
 class BuildRecordTests(unittest.TestCase):
     def test_record_is_marked_backfilled(self):
         parsed = backfill.parse_comment(COMMENT)
-        record = backfill.build_record(
-            "o/r", 271, {"created_at": "2026-08-20T10:00:00Z"}, parsed
-        )
+        record = backfill.build_record("o/r", 271, {"created_at": "2026-08-20T10:00:00Z"}, parsed)
         self.assertTrue(record["backfilled"])
 
     def test_record_carries_the_consumer_contract_fields(self):
         parsed = backfill.parse_comment(COMMENT)
-        record = backfill.build_record(
-            "o/r", 271, {"created_at": "2026-08-20T10:00:00Z"}, parsed
-        )
-        for key in ("ts", "pr_number", "repo", "total", "critical", "major",
-                    "minor", "posted", "findings", "worktree"):
+        record = backfill.build_record("o/r", 271, {"created_at": "2026-08-20T10:00:00Z"}, parsed)
+        for key in (
+            "ts",
+            "pr_number",
+            "repo",
+            "total",
+            "critical",
+            "major",
+            "minor",
+            "posted",
+            "findings",
+            "worktree",
+        ):
             self.assertIn(key, record)
         self.assertEqual(record["pr_number"], 271)
         self.assertEqual(record["repo"], "o/r")
@@ -139,8 +145,7 @@ class ExistingPrNumbersTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.ndjson"
             log.write_text(
-                json.dumps({"pr_number": 93}) + "\n"
-                + json.dumps({"pr_number": "121"}) + "\n"
+                json.dumps({"pr_number": 93}) + "\n" + json.dumps({"pr_number": "121"}) + "\n"
             )
             self.assertEqual(backfill.existing_pr_numbers(log), {"93", "121"})
 
@@ -171,7 +176,6 @@ class ScanPrsTests(unittest.TestCase):
 
         def _spy(repo, pr):
             fetched.append(pr)
-            return None
 
         backfill.find_summary_comment = _spy
         scan = backfill.scan_prs("o/r", [1, 2], already={"1"})
@@ -224,16 +228,12 @@ class ReportScanTests(unittest.TestCase):
         self.assertIn("+2 more", out)
 
     def test_no_truncation_note_when_list_fits(self):
-        out = self._report(
-            {"records": [], "skipped": [], "no_comment": [1], "mismatched": []}
-        )
+        out = self._report({"records": [], "skipped": [], "no_comment": [1], "mismatched": []})
         self.assertIn("#1", out)
         self.assertNotIn("more", out)
 
     def test_quiet_buckets_are_omitted(self):
-        out = self._report(
-            {"records": [], "skipped": [], "no_comment": [], "mismatched": []}
-        )
+        out = self._report({"records": [], "skipped": [], "no_comment": [], "mismatched": []})
         self.assertNotIn("no summary comment found", out)
         self.assertNotIn("header/body count differs", out)
 

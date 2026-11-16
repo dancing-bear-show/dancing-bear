@@ -97,7 +97,9 @@ slides:
       - First point
 """
         with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False,
+            mode="w",
+            suffix=".yaml",
+            delete=False,
         ) as f:
             f.write(yaml_content)
         self.addCleanup(Path(f.name).unlink, missing_ok=True)
@@ -120,7 +122,9 @@ template_slide_index: 11
 slides: []
 """
         with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False,
+            mode="w",
+            suffix=".yaml",
+            delete=False,
         ) as f:
             f.write(yaml_content)
         self.addCleanup(Path(f.name).unlink, missing_ok=True)
@@ -139,7 +143,9 @@ layout_map:
 slides: []
 """
         with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False,
+            mode="w",
+            suffix=".yaml",
+            delete=False,
         ) as f:
             f.write(yaml_content)
         self.addCleanup(Path(f.name).unlink, missing_ok=True)
@@ -179,7 +185,8 @@ class TestPrepareWithLayoutMap(unittest.TestCase):
 
     @patch("slides.generator.Presentation")
     def test_layout_map_extracts_layouts_and_deletes_slides(
-        self, mock_prs_class: MagicMock,
+        self,
+        mock_prs_class: MagicMock,
     ) -> None:
         """With layout_map, layouts are extracted and all slides deleted."""
         mock_prs = MagicMock()
@@ -231,7 +238,8 @@ class TestPrepareWithLayoutMap(unittest.TestCase):
 
     @patch("slides.generator.Presentation")
     def test_layout_map_out_of_bounds_raises(
-        self, mock_prs_class: MagicMock,
+        self,
+        mock_prs_class: MagicMock,
     ) -> None:
         """layout_map index exceeding template slide count raises ValueError."""
         mock_prs = MagicMock()
@@ -257,7 +265,8 @@ class TestPrepareWithLayoutMap(unittest.TestCase):
 
     @patch("slides.generator.Presentation")
     def test_layout_map_fallback_to_first_entry(
-        self, mock_prs_class: MagicMock,
+        self,
+        mock_prs_class: MagicMock,
     ) -> None:
         """When template_slide_index is out of bounds, fallback uses first layout_map entry."""
         mock_prs = MagicMock()
@@ -342,7 +351,8 @@ class TestGenerateWithLayoutMap(unittest.TestCase):
 
     @patch("slides.generator.Presentation")
     def test_generate_uses_per_slide_layouts(
-        self, mock_prs_class: MagicMock,
+        self,
+        mock_prs_class: MagicMock,
     ) -> None:
         """Each slide uses the layout from layout_map based on its layout field."""
         mock_prs = MagicMock()
@@ -418,7 +428,8 @@ class TestBackwardCompatibility(unittest.TestCase):
 
     @patch("slides.generator.Presentation")
     def test_legacy_mode_first_slide_reused(
-        self, mock_prs_class: MagicMock,
+        self,
+        mock_prs_class: MagicMock,
     ) -> None:
         """Without layout_map, first_slide is reused from template (legacy)."""
         mock_prs = MagicMock()

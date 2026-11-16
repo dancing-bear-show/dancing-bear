@@ -1,5 +1,7 @@
 """Section-specific docx renderer tests: Summary, Skills, Experience, Education, Technologies."""
+
 from __future__ import annotations
+
 import unittest
 
 from resume.schema import ExperienceEntry, Resume
@@ -26,6 +28,7 @@ class TestSummarySectionRenderer(unittest.TestCase):
 
     def _get_renderer(self):
         from resume.docx_sections_skills import SummarySectionRenderer
+
         return make_fake_renderer(SummarySectionRenderer)
 
     def test_render_string_summary(self):
@@ -100,6 +103,7 @@ class TestSkillsSectionRenderer(unittest.TestCase):
 
     def _get_renderer(self):
         from resume.docx_sections_skills import SkillsSectionRenderer
+
         return make_fake_renderer(SkillsSectionRenderer)
 
     def test_render_flat_skills(self):
@@ -112,10 +116,12 @@ class TestSkillsSectionRenderer(unittest.TestCase):
     def test_render_skills_groups(self):
         """Test rendering skills groups."""
         renderer, doc = self._get_renderer()
-        data = {"skills_groups": [
-            {"title": "Languages", "items": ["Python", "Go"]},
-            {"title": "Frameworks", "items": ["Django", "Flask"]},
-        ]}
+        data = {
+            "skills_groups": [
+                {"title": "Languages", "items": ["Python", "Go"]},
+                {"title": "Frameworks", "items": ["Django", "Flask"]},
+            ]
+        }
         renderer.render(Resume.from_dict(data))
         self.assertGreater(len(doc.paragraphs), 0)
 
@@ -136,24 +142,26 @@ class TestSkillsSectionRenderer(unittest.TestCase):
         joined string would leave it nothing to bold.
         """
         renderer, _ = self._get_renderer()
-        items = Resume.from_dict(
-            {
-                "skills_groups": [
-                    {
-                        "title": "Group",
-                        "items": [
-                            {"name": "Python", "desc": "Expert"},
-                            {"title": "Go", "description": "Intermediate"},
-                        ],
-                    }
-                ]
-            }
-        ).skills_groups[0].items
+        items = (
+            Resume.from_dict(
+                {
+                    "skills_groups": [
+                        {
+                            "title": "Group",
+                            "items": [
+                                {"name": "Python", "desc": "Expert"},
+                                {"title": "Go", "description": "Intermediate"},
+                            ],
+                        }
+                    ]
+                }
+            )
+            .skills_groups[0]
+            .items
+        )
         result = renderer._normalize_group_items(items, True, " — ")
         self.assertEqual(len(result), 2)
-        self.assertEqual(
-            [it.text for it in result], ["Python — Expert", "Go — Intermediate"]
-        )
+        self.assertEqual([it.text for it in result], ["Python — Expert", "Go — Intermediate"])
         self.assertEqual([it.name for it in result], ["Python", "Go"])
         self.assertEqual([it.desc for it in result], ["Expert", "Intermediate"])
 
@@ -166,11 +174,13 @@ class TestSkillsSectionRenderer(unittest.TestCase):
         count tracks items too, so it no longer isolates the cap.
         """
         renderer, doc = self._get_renderer()
-        data = {"skills_groups": [
-            {"title": "Group 1", "items": ["A", "B"]},
-            {"title": "Group 2", "items": ["X", "Y"]},
-            {"title": "Group 3", "items": ["1", "2"]},
-        ]}
+        data = {
+            "skills_groups": [
+                {"title": "Group 1", "items": ["A", "B"]},
+                {"title": "Group 2", "items": ["X", "Y"]},
+                {"title": "Group 3", "items": ["1", "2"]},
+            ]
+        }
         renderer.render(Resume.from_dict(data), sec={"max_groups": 2})
 
         rendered = "\n".join(p.text for p in doc.paragraphs)
@@ -185,20 +195,23 @@ class TestExperienceSectionRenderer(unittest.TestCase):
 
     def _get_renderer(self):
         from resume.docx_sections_exp import ExperienceSectionRenderer
+
         return make_fake_renderer(ExperienceSectionRenderer)
 
     def test_render_experience(self):
         """Test rendering experience entries."""
         renderer, doc = self._get_renderer()
-        data = {"experience": [
-            {
-                "title": "Senior Engineer",
-                "company": "Tech Corp",
-                "start": "2020",
-                "end": "Present",
-                "bullets": ["Led team of 5", "Shipped product"],
-            }
-        ]}
+        data = {
+            "experience": [
+                {
+                    "title": "Senior Engineer",
+                    "company": "Tech Corp",
+                    "start": "2020",
+                    "end": "Present",
+                    "bullets": ["Led team of 5", "Shipped product"],
+                }
+            ]
+        }
         renderer.render(Resume.from_dict(data))
         self.assertGreater(len(doc.paragraphs), 0)
 
@@ -289,23 +302,26 @@ class TestEducationSectionRenderer(unittest.TestCase):
 
     def _get_renderer(self):
         from resume.docx_sections_exp import EducationSectionRenderer
+
         return make_fake_renderer(EducationSectionRenderer)
 
     def test_render_education(self):
         """Test rendering education entries."""
         renderer, doc = self._get_renderer()
-        data = {"education": [
-            {
-                "degree": "B.S. Computer Science",
-                "institution": "MIT",
-                "year": "2020",
-            },
-            {
-                "degree": "M.S. Data Science",
-                "institution": "Stanford",
-                "year": "2022",
-            },
-        ]}
+        data = {
+            "education": [
+                {
+                    "degree": "B.S. Computer Science",
+                    "institution": "MIT",
+                    "year": "2020",
+                },
+                {
+                    "degree": "M.S. Data Science",
+                    "institution": "Stanford",
+                    "year": "2022",
+                },
+            ]
+        }
         renderer.render(Resume.from_dict(data))
         self.assertEqual(len(doc.paragraphs), 2)
 
@@ -330,6 +346,7 @@ class TestTechnologiesSectionRenderer(unittest.TestCase):
 
     def _get_renderer(self):
         from resume.docx_sections_skills import TechnologiesSectionRenderer
+
         return make_fake_renderer(TechnologiesSectionRenderer)
 
     def test_render_technologies(self):
@@ -349,10 +366,12 @@ class TestTechnologiesSectionRenderer(unittest.TestCase):
     def test_collect_tech_items_dicts(self):
         """Test collecting tech items from dicts."""
         renderer, _ = self._get_renderer()
-        data = {"technologies": [
-            {"name": "Docker"},
-            {"title": "Kubernetes"},
-        ]}
+        data = {
+            "technologies": [
+                {"name": "Docker"},
+                {"title": "Kubernetes"},
+            ]
+        }
         result = renderer._collect_tech_items(Resume.from_dict(data), None)
         self.assertEqual(len(result), 2)
 

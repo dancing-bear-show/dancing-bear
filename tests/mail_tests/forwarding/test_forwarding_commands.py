@@ -6,11 +6,11 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from mail.forwarding.commands import (
-    run_forwarding_list,
     run_forwarding_add,
-    run_forwarding_status,
-    run_forwarding_enable,
     run_forwarding_disable,
+    run_forwarding_enable,
+    run_forwarding_list,
+    run_forwarding_status,
 )
 from tests.mail_tests.fixtures import (
     FakeForwardingClient,
@@ -140,9 +140,7 @@ class TestRunForwardingStatus(unittest.TestCase):
 
     @patch("mail.forwarding.commands.MailContext")
     def test_returns_zero_when_disabled(self, mock_ctx_cls):
-        client = FakeForwardingClient(
-            auto_forwarding={"enabled": False}
-        )
+        client = FakeForwardingClient(auto_forwarding={"enabled": False})
         mock_ctx_cls.from_args.return_value = make_mock_mail_context(client)
 
         args = make_args()
@@ -176,9 +174,7 @@ class TestRunForwardingEnable(unittest.TestCase):
 
     @patch("mail.forwarding.commands.MailContext")
     def test_returns_zero_on_success(self, mock_ctx_cls):
-        client = FakeForwardingClient(
-            verified_addresses={"verified@example.com"}
-        )
+        client = FakeForwardingClient(verified_addresses={"verified@example.com"})
         mock_ctx_cls.from_args.return_value = make_mock_mail_context(client)
 
         args = make_args(email="verified@example.com", disposition="leaveInInbox")
@@ -189,9 +185,7 @@ class TestRunForwardingEnable(unittest.TestCase):
 
     @patch("mail.forwarding.commands.MailContext")
     def test_uses_default_disposition(self, mock_ctx_cls):
-        client = FakeForwardingClient(
-            verified_addresses={"verified@example.com"}
-        )
+        client = FakeForwardingClient(verified_addresses={"verified@example.com"})
         mock_ctx_cls.from_args.return_value = make_mock_mail_context(client)
 
         # Args without disposition attribute
@@ -202,9 +196,7 @@ class TestRunForwardingEnable(unittest.TestCase):
 
     @patch("mail.forwarding.commands.MailContext")
     def test_returns_nonzero_for_unverified_address(self, mock_ctx_cls):
-        client = FakeForwardingClient(
-            verified_addresses={"other@example.com"}
-        )
+        client = FakeForwardingClient(verified_addresses={"other@example.com"})
         mock_ctx_cls.from_args.return_value = make_mock_mail_context(client)
 
         args = make_args(email="unverified@example.com", disposition="leaveInInbox")
@@ -251,9 +243,7 @@ class TestRunForwardingDisable(unittest.TestCase):
 
     @patch("mail.forwarding.commands.MailContext")
     def test_returns_zero_when_already_disabled(self, mock_ctx_cls):
-        client = FakeForwardingClient(
-            auto_forwarding={"enabled": False}
-        )
+        client = FakeForwardingClient(auto_forwarding={"enabled": False})
         mock_ctx_cls.from_args.return_value = make_mock_mail_context(client)
 
         args = make_args()

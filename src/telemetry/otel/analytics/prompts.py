@@ -141,19 +141,21 @@ def _build_prompt_metrics(prompts: dict[str, _PromptAccumulator]) -> list[Prompt
         if acc.first_ts and acc.last_ts:
             duration_ms = (acc.last_ts - acc.first_ts).total_seconds() * 1000
 
-        result.append(PromptMetrics(
-            prompt_id=pid,
-            session_id=acc.session_id,
-            timestamp=(acc.first_ts.isoformat() if acc.first_ts else None),
-            prompt_length=acc.prompt_length,
-            api_calls=acc.api_calls,
-            input_tokens=acc.input_tokens,
-            output_tokens=acc.output_tokens,
-            cost=round(acc.cost, 6),
-            tool_calls=acc.tool_calls,
-            tool_failures=acc.tool_failures,
-            duration_ms=round(duration_ms, 1),
-        ))
+        result.append(
+            PromptMetrics(
+                prompt_id=pid,
+                session_id=acc.session_id,
+                timestamp=(acc.first_ts.isoformat() if acc.first_ts else None),
+                prompt_length=acc.prompt_length,
+                api_calls=acc.api_calls,
+                input_tokens=acc.input_tokens,
+                output_tokens=acc.output_tokens,
+                cost=round(acc.cost, 6),
+                tool_calls=acc.tool_calls,
+                tool_failures=acc.tool_failures,
+                duration_ms=round(duration_ms, 1),
+            )
+        )
 
     result.sort(key=lambda p: p.timestamp or "", reverse=True)
     return result

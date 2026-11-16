@@ -6,7 +6,7 @@ import unittest
 from io import StringIO
 from unittest.mock import patch
 
-from core.cli_output import OutputWriter, OutputConfig
+from core.cli_output import OutputConfig, OutputWriter
 from core.pipeline import BaseProducer, ResultEnvelope, SafeProcessor, diagnostic_message
 
 

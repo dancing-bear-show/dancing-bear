@@ -7,8 +7,8 @@ import re
 from datetime import datetime
 from typing import Any
 
-from .client import AppleMusicCLIError, AppleMusicClient
 from .cli_helpers import PlaylistCreationConfig
+from .client import AppleMusicClient, AppleMusicCLIError
 
 # Artist name constants (avoids duplicate string literals)
 GIPSY_KINGS = "Gipsy Kings"
@@ -491,12 +491,14 @@ def _create_from_seeds(
             continue
         song = _pick_matching_song(results, artist)
         if song is None:
-            top = (results[0].get("attributes") or {})
-            unmatched.append({
-                "title": title,
-                "artist": artist,
-                "reason": f"artist mismatch: top result '{top.get('name')}' by '{top.get('artistName')}'",
-            })
+            top = results[0].get("attributes") or {}
+            unmatched.append(
+                {
+                    "title": title,
+                    "artist": artist,
+                    "reason": f"artist mismatch: top result '{top.get('name')}' by '{top.get('artistName')}'",
+                }
+            )
             continue
         attributes = song.get("attributes") or {}
         tracks_data.append({"id": song.get("id"), "type": song.get("type", "songs") or "songs"})

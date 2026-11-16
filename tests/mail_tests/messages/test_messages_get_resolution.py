@@ -6,20 +6,21 @@ straight to client.get_message. A list there is swallowed by the fallback and
 returned as the id itself, producing a silently wrong answer rather than an
 error -- so these assert the value's TYPE, not just the exit code.
 """
+
 from __future__ import annotations
 
 import json
 import unittest
 from unittest.mock import patch
 
-from tests.fixtures import capture_stdout
-from tests.mail_tests.fixtures import make_args
-from tests.mail_tests.messages.test_messages_cli import _make_messages_client
 from mail.messages_cli.commands import (
     _resolve_get_ids,
     parse_id_list,
     run_messages_get,
 )
+from tests.fixtures import capture_stdout
+from tests.mail_tests.fixtures import make_args
+from tests.mail_tests.messages.test_messages_cli import _make_messages_client
 
 
 def _get_args(**kwargs):
@@ -87,9 +88,7 @@ class ResolveGetIdsTests(unittest.TestCase):
 
     def test_ids_takes_precedence_over_id_and_query(self):
         client = _make_messages_client()
-        ids = _resolve_get_ids(
-            _get_args(ids="A,B", id="SCALAR", query="subject:hello"), client
-        )
+        ids = _resolve_get_ids(_get_args(ids="A,B", id="SCALAR", query="subject:hello"), client)
         self.assertEqual(ids, ["A", "B"])
 
     def test_scalar_id_takes_precedence_over_query(self):

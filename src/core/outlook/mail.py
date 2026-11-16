@@ -8,25 +8,26 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
+from core.constants import GRAPH_API_URL
+
+from ._mail_folders import FoldersMixin
+from ._mail_labels import LabelsFiltersMixin
 from .client import _requests
 from .models import MessageSearchQuery, SearchParams
-from ._mail_labels import LabelsFiltersMixin
-from ._mail_folders import FoldersMixin
-from core.constants import GRAPH_API_URL
 
 _NEXT_LINK = "@odata.nextLink"
 
 # Fields fetched by search_inbox_message_dicts so callers can build a full
 # result row without a per-message get_message round trip.
 _SEARCH_DICT_SELECT = (
-    "id,subject,receivedDateTime,from,toRecipients,"
-    "bodyPreview,hasAttachments,conversationId,isRead"
+    "id,subject,receivedDateTime,from,toRecipients,bodyPreview,hasAttachments,conversationId,isRead"
 )
 
 
 def _build_kql_search_url(params: MessageSearchQuery) -> str | None:
     """Build the KQL search URL from MessageSearchQuery, or None if no terms."""
     import urllib.parse
+
     sel = "$select=id,subject,receivedDateTime,from,bodyPreview,hasAttachments"
     folder_path = "mailFolders/inbox/messages" if params.only_inbox else "messages"
     kql_terms: list[str] = []
@@ -49,7 +50,8 @@ def _days_cutoff_iso(days: Any) -> str:
     if not days or int(days) <= 0:
         return ""
     import datetime as _dt
-    start = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=int(days))
+
+    start = _dt.datetime.now(_dt.UTC) - _dt.timedelta(days=int(days))
     return start.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
@@ -93,6 +95,7 @@ class _OutlookMailHost(Protocol):
 
     # --- From ConfigCacheMixin (via OutlookClientBase) ---
     cache_dir: str | None
+
     def cfg_get_json(self, name: str, ttl: int = ...) -> Any | None: ...
     def cfg_put_json(self, name: str, data: Any) -> None: ...
 
@@ -110,7 +113,7 @@ class OutlookMailMixin(LabelsFiltersMixin, FoldersMixin):
     """
 
     # -------------------- Messages --------------------
-    def _build_search_url(self, params: "SearchParams") -> str:
+    def _build_search_url(self, params: SearchParams) -> str:
         """Build the initial search URL from params.
 
         Encoding contract: ``params.search_query`` is a RAW, unquoted term.
@@ -123,6 +126,7 @@ class OutlookMailMixin(LabelsFiltersMixin, FoldersMixin):
         ``receivedDateTime``.
         """
         import urllib.parse
+
         base = f"{GRAPH_API_URL}/me/mailFolders/inbox/messages"
         encoded_query = urllib.parse.quote(f'"{params.search_query}"')
         query_params = [
@@ -132,7 +136,7 @@ class OutlookMailMixin(LabelsFiltersMixin, FoldersMixin):
         ]
         return base + "?" + "&".join(query_params)
 
-    def _fetch_search_ids(self: "_OutlookMailHost", params: "SearchParams") -> list[str]:
+    def _fetch_search_ids(self: _OutlookMailHost, params: SearchParams) -> list[str]:
         """Paginate through search results and collect message IDs.
 
         Applies the ``params.days`` window client-side, since Graph forbids
@@ -155,7 +159,7 @@ class OutlookMailMixin(LabelsFiltersMixin, FoldersMixin):
                 break
         return ids
 
-    def _build_dict_search_url(self, params: "SearchParams") -> str:
+    def _build_dict_search_url(self, params: SearchParams) -> str:
         """Build the search URL for ``search_inbox_message_dicts``.
 
         Same contract as ``_build_search_url`` -- callers pass RAW, unquoted
@@ -163,6 +167,7 @@ class OutlookMailMixin(LabelsFiltersMixin, FoldersMixin):
         selects the full field set so results need no follow-up fetch.
         """
         import urllib.parse
+
         base = f"{GRAPH_API_URL}/me/mailFolders/inbox/messages"
         encoded_query = urllib.parse.quote(f'"{params.search_query}"')
         query_params = [
@@ -172,7 +177,7 @@ class OutlookMailMixin(LabelsFiltersMixin, FoldersMixin):
         ]
         return base + "?" + "&".join(query_params)
 
-    def _fetch_search_dicts(self: "_OutlookMailHost", params: "SearchParams") -> list[dict[str, Any]]:
+    def _fetch_search_dicts(self: _OutlookMailHost, params: SearchParams) -> list[dict[str, Any]]:
         """Paginate through search results and collect full message dicts."""
         cutoff = _days_cutoff_iso(params.days)
         msgs: list[dict[str, Any]] = []
@@ -190,7 +195,7 @@ class OutlookMailMixin(LabelsFiltersMixin, FoldersMixin):
         return msgs
 
     def search_inbox_message_dicts(
-        self: "_OutlookMailHost",
+        self: _OutlookMailHost,
         params: SearchParams,
     ) -> list[dict[str, Any]]:
         """Return full message dicts in Inbox matching the ``$search`` query.
@@ -225,7 +230,7 @@ class OutlookMailMixin(LabelsFiltersMixin, FoldersMixin):
         return msgs
 
     def search_inbox_messages(
-        self: "_OutlookMailHost",
+        self: _OutlookMailHost,
         params: SearchParams,
     ) -> list[str]:
         """Return message IDs in Inbox matching $search query, optional days filter."""
@@ -328,7 +333,11 @@ class OutlookMailMixin(LabelsFiltersMixin, FoldersMixin):
 
     # -------------------- Signatures --------------------
     def list_signatures(self: _OutlookMailHost) -> list[dict[str, Any]]:
-        raise NotImplementedError("Outlook signatures are not available via Microsoft Graph API v1.0")
+        raise NotImplementedError(
+            "Outlook signatures are not available via Microsoft Graph API v1.0"
+        )
 
     def update_signature(self: _OutlookMailHost, signature_html: str) -> None:
-        raise NotImplementedError("Outlook signatures cannot be updated programmatically via Graph v1.0")
+        raise NotImplementedError(
+            "Outlook signatures cannot be updated programmatically via Graph v1.0"
+        )

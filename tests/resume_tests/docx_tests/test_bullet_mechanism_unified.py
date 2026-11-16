@@ -34,6 +34,7 @@ def _docx_available() -> bool:
     """Check if python-docx is installed."""
     try:
         import docx  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -90,9 +91,7 @@ _FIXTURE = {
             "year": "2015",
         }
     ],
-    "presentations": [
-        {"title": "A Placeholder Talk", "event": "Uniform Conf", "year": 2019}
-    ],
+    "presentations": [{"title": "A Placeholder Talk", "event": "Uniform Conf", "year": 2019}],
     "teaching": ["Intro to Placeholding (Uniform University)"],
     "certifications": [{"name": "Certified Placeholder", "year": 2021}],
     "languages": [{"name": "English", "level": "Native"}],
@@ -122,7 +121,7 @@ def _standard_template() -> dict:
 class _Paragraph:
     """One rendered paragraph, reduced to what the bullet contract cares about."""
 
-    __slots__ = ("section", "style", "left_indent", "text")
+    __slots__ = ("left_indent", "section", "style", "text")
 
     def __init__(self, section: str, style: str, left_indent, text: str) -> None:
         self.section = section
@@ -151,9 +150,7 @@ def _render_standard(template: dict | None = None) -> list[_Paragraph]:
 
     with tempfile.TemporaryDirectory() as tmp:
         out = os.path.join(tmp, "resume.docx")
-        write_resume_docx(
-            Resume.from_dict(_FIXTURE), template or _standard_template(), out
-        )
+        write_resume_docx(Resume.from_dict(_FIXTURE), template or _standard_template(), out)
         doc = docx.Document(out)
         section = "<header>"
         paragraphs: list[_Paragraph] = []
@@ -166,9 +163,7 @@ def _render_standard(template: dict | None = None) -> list[_Paragraph]:
                 continue
             indent = p.paragraph_format.left_indent
             paragraphs.append(
-                _Paragraph(
-                    section, style, None if indent is None else indent.pt, p.text
-                )
+                _Paragraph(section, style, None if indent is None else indent.pt, p.text)
             )
         return paragraphs
 

@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
-from .client import _requests
 from core.constants import GRAPH_API_URL
+
+from .client import _requests
 
 _NEXT_LINK = "@odata.nextLink"
 
@@ -57,9 +58,7 @@ class _FoldersHost(Protocol):
     def get_folder_path_map(
         self, ttl: int = ..., clear_cache: bool = ..., bypass_cache: bool = ...
     ) -> dict[str, str]: ...
-    def _match_keyed_folder_path_map(
-        self, ttl: int = ..., fresh: bool = ...
-    ) -> dict[str, str]: ...
+    def _match_keyed_folder_path_map(self, ttl: int = ..., fresh: bool = ...) -> dict[str, str]: ...
     def _ensure_child_folder(self, parent_id: str, seg: str) -> str: ...
 
     # Memoised fresh path map, set by ``_match_keyed_folder_path_map`` on first use.
@@ -83,22 +82,25 @@ class FoldersMixin:
             url = data.get(_NEXT_LINK)
         return out
 
-    def get_folder_id_map(self: "_FoldersHost") -> dict[str, str]:
+    def get_folder_id_map(self: _FoldersHost) -> dict[str, str]:
         return {f.get("displayName", ""): f.get("id", "") for f in self.list_folders()}
 
-    def ensure_folder(self: "_FoldersHost", name: str) -> str:
+    def ensure_folder(self: _FoldersHost, name: str) -> str:
         m = self.get_folder_id_map()
-        if name in m and m[name]:
+        if m.get(name):
             return m[name]
         body = {"displayName": name}
         m0 = self.get_folder_id_map()
-        if name in m0 and m0[name]:
+        if m0.get(name):
             return m0[name]
-        for endpoint in [f"{GRAPH_API_URL}/me/mailFolders", f"{GRAPH_API_URL}/me/mailFolders/Inbox/childFolders"]:
+        for endpoint in [
+            f"{GRAPH_API_URL}/me/mailFolders",
+            f"{GRAPH_API_URL}/me/mailFolders/Inbox/childFolders",
+        ]:
             r = _requests().post(endpoint, headers=self._headers(), json=body)
             if r.status_code == 409:
                 m2 = self.get_folder_id_map()
-                if name in m2 and m2[name]:
+                if m2.get(name):
                     return m2[name]
             if 200 <= r.status_code < 300:
                 f = r.json()
@@ -108,7 +110,7 @@ class FoldersMixin:
         return f.get("id", "")
 
     def list_all_folders(
-        self: "_FoldersHost",
+        self: _FoldersHost,
         ttl: int = 600,
         clear_cache: bool = False,
         bypass_cache: bool = False,
@@ -157,7 +159,7 @@ class FoldersMixin:
         return vals
 
     def get_folder_path_map(
-        self: "_FoldersHost",
+        self: _FoldersHost,
         ttl: int = 600,
         clear_cache: bool = False,
         bypass_cache: bool = False,
@@ -167,9 +169,7 @@ class FoldersMixin:
         ``bypass_cache`` is forwarded to ``list_all_folders``; see its docstring
         for why neither ``ttl`` nor ``clear_cache`` can express "read fresh".
         """
-        folders = self.list_all_folders(
-            ttl=ttl, clear_cache=clear_cache, bypass_cache=bypass_cache
-        )
+        folders = self.list_all_folders(ttl=ttl, clear_cache=clear_cache, bypass_cache=bypass_cache)
         by_id = {f.get("id"): f for f in folders}
         parent = {fid: f.get("parentFolderId") for fid, f in by_id.items()}
         name = {fid: (f.get("displayName") or "") for fid, f in by_id.items()}
@@ -209,7 +209,9 @@ class FoldersMixin:
         )
         r.raise_for_status()
         kids = r.json().get("value", [])
-        kid_id = next((k.get("id") for k in kids if (k.get("displayName") or "").lower() == seg.lower()), None)
+        kid_id = next(
+            (k.get("id") for k in kids if (k.get("displayName") or "").lower() == seg.lower()), None
+        )
         if kid_id:
             return kid_id
         r2 = _requests().post(
@@ -224,15 +226,25 @@ class FoldersMixin:
             )
             r3.raise_for_status()
             kids2 = r3.json().get("value", [])
-            kid_id = next((k.get("id") for k in kids2 if (k.get("displayName") or "").lower() == seg.lower()), None)
+            kid_id = next(
+                (k.get("id") for k in kids2 if (k.get("displayName") or "").lower() == seg.lower()),
+                None,
+            )
             if not kid_id:
-                kid_id = next((k.get("id") for k in kids2 if seg.lower() in (k.get("displayName") or "").lower()), None)
+                kid_id = next(
+                    (
+                        k.get("id")
+                        for k in kids2
+                        if seg.lower() in (k.get("displayName") or "").lower()
+                    ),
+                    None,
+                )
             return kid_id or ""
         r2.raise_for_status()
         return r2.json().get("id") or ""
 
     def resolve_folder_path(
-        self: "_FoldersHost",
+        self: _FoldersHost,
         path: str,
         ttl: int = 600,
         fresh: bool = True,
@@ -288,7 +300,7 @@ class FoldersMixin:
         return keyed.get(_folder_match_key(parts), "")
 
     def _match_keyed_folder_path_map(
-        self: "_FoldersHost",
+        self: _FoldersHost,
         ttl: int = 600,
         fresh: bool = True,
     ) -> dict[str, str]:
@@ -306,14 +318,13 @@ class FoldersMixin:
             return cached
         raw = self.get_folder_path_map(ttl=ttl, bypass_cache=fresh)
         keyed = {
-            _folder_match_key([seg for seg in p.split("/") if seg]): fid
-            for p, fid in raw.items()
+            _folder_match_key([seg for seg in p.split("/") if seg]): fid for p, fid in raw.items()
         }
         if fresh:
             self._fresh_folder_map = keyed
         return keyed
 
-    def ensure_folder_path(self: "_FoldersHost", path: str) -> str:
+    def ensure_folder_path(self: _FoldersHost, path: str) -> str:
         """Ensure a nested folder path exists and return the leaf folder id.
 
         MUTATES: creates every missing segment.  Use ``resolve_folder_path`` from

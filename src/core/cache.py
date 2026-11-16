@@ -63,7 +63,7 @@ class ConfigCacheMixin:
                 age = time.time() - os.path.getmtime(path)
                 if age > ttl:
                     return None
-            with open(path, "r", encoding="utf-8") as fh:
+            with open(path, encoding="utf-8") as fh:
                 return json.load(fh)
         except Exception:
             return None
@@ -89,6 +89,7 @@ class ConfigCacheMixin:
         if not path:
             return
         import shutil
+
         config_dir = os.path.dirname(path)
         try:
             if os.path.isdir(config_dir):

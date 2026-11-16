@@ -20,7 +20,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from tests.fixtures import TempDirMixin
-from tests.phone_tests.cli.fixtures import make_auto_folders_args, make_args
+from tests.phone_tests.cli.fixtures import make_args, make_auto_folders_args
 
 
 class TestFlattenBundleIds(unittest.TestCase):
@@ -297,8 +297,8 @@ class TestCmdAutoFolders(TempDirMixin, unittest.TestCase):
     """Tests for cmd_auto_folders."""
 
     def test_layout_load_error_code_1_returned(self):
-        from phone.helpers import LayoutLoadError
         from phone.cli.cmd_layout import cmd_auto_folders
+        from phone.helpers import LayoutLoadError
 
         with patch("phone.cli.cmd_layout.load_layout", side_effect=LayoutLoadError(1, "no layout")):
             args = make_auto_folders_args(
@@ -312,8 +312,8 @@ class TestCmdAutoFolders(TempDirMixin, unittest.TestCase):
         self.assertEqual(result, 1)
 
     def test_layout_load_error_code_2_returned(self):
-        from phone.helpers import LayoutLoadError
         from phone.cli.cmd_layout import cmd_auto_folders
+        from phone.helpers import LayoutLoadError
 
         with patch("phone.cli.cmd_layout.load_layout", side_effect=LayoutLoadError(2, "no backup")):
             args = make_auto_folders_args(
@@ -328,7 +328,7 @@ class TestCmdAutoFolders(TempDirMixin, unittest.TestCase):
 
     def test_success_writes_plan_and_returns_0(self):
         from phone.cli.cmd_layout import cmd_auto_folders
-        from tests.phone_tests.fixtures import make_layout, make_app_item
+        from tests.phone_tests.fixtures import make_app_item, make_layout
 
         layout = make_layout(
             dock=["com.apple.safari"],

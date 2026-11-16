@@ -98,9 +98,7 @@ def _generate_page_instructions(
             continue
         spec = pages_spec.get(page_key) or {}
         instructions.extend(_folder_page_instructions(spec, folder_page, target_page))
-        instructions.extend(
-            _app_page_instructions(spec, root_app_page, loc, target_page)
-        )
+        instructions.extend(_app_page_instructions(spec, root_app_page, loc, target_page))
     return instructions
 
 
@@ -114,9 +112,7 @@ def _missing_app_line(app: str, where: str | None, target: int) -> str:
     return f"  • Install or locate app: {app} (then move to Page {target})"
 
 
-def _folder_page_instructions(
-    spec: dict, folder_page: dict[str, int], target: int
-) -> list[str]:
+def _folder_page_instructions(spec: dict, folder_page: dict[str, int], target: int) -> list[str]:
     """Generate folder move instructions for a target page."""
     result: list[str] = []
     for fname in spec.get("folders") or []:
@@ -124,9 +120,7 @@ def _folder_page_instructions(
         if curp is None:
             result.append(_missing_folder_line(fname, target))
         elif curp != target:
-            result.append(
-                f"  • Move folder '{fname}' from Page {curp} to Page {target}"
-            )
+            result.append(f"  • Move folder '{fname}' from Page {curp} to Page {target}")
     return result
 
 

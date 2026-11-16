@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch, mock_open
+from unittest.mock import MagicMock, mock_open, patch
 
 from tests.phone_tests.cli.fixtures import (
     make_auto_folders_args,
@@ -232,7 +232,9 @@ class TestInlineCommands(unittest.TestCase):
     @patch("phone.cli.cmd_layout.write_yaml")
     @patch("phone.cli.cmd_layout.auto_folderize")
     @patch("phone.cli.cmd_layout.distribute_folders_across_pages")
-    def test_auto_folders_reads_plan_and_writes_output(self, mock_dist, mock_auto, mock_write, mock_read, mock_load):
+    def test_auto_folders_reads_plan_and_writes_output(
+        self, mock_dist, mock_auto, mock_write, mock_read, mock_load
+    ):
         """Test cmd_auto_folders reads plan, auto-folderizes, and writes output."""
         from phone.cli.main import cmd_auto_folders
         from phone.layout_normalize import NormalizedLayout
@@ -253,7 +255,9 @@ class TestInlineCommands(unittest.TestCase):
     @patch("phone.cli.cmd_layout.auto_folderize")
     @patch("phone.cli.cmd_layout.distribute_folders_across_pages")
     @patch("phone.cli.cmd_layout.write_yaml")
-    def test_auto_folders_uses_keep_list(self, mock_write, mock_dist, mock_auto, mock_read, mock_load):
+    def test_auto_folders_uses_keep_list(
+        self, mock_write, mock_dist, mock_auto, mock_read, mock_load
+    ):
         """Test cmd_auto_folders passes parsed keep list to auto_folderize."""
         from phone.cli.main import cmd_auto_folders
         from phone.layout_normalize import NormalizedLayout
@@ -347,7 +351,9 @@ class TestInlineCommands(unittest.TestCase):
     @patch("phone.cli.cmd_profile.build_mobileconfig")
     @patch("phone.cli.cmd_profile._build_all_apps_folder_config")
     @patch("phone.cli.cmd_profile._write_mobileconfig")
-    def test_profile_build_uses_all_apps_folder_helper(self, mock_write, mock_folder, mock_build, mock_read):
+    def test_profile_build_uses_all_apps_folder_helper(
+        self, mock_write, mock_folder, mock_build, mock_read
+    ):
         """Test cmd_profile_build uses _build_all_apps_folder_config helper."""
         from phone.cli.main import cmd_profile_build
 
@@ -405,7 +411,9 @@ class TestAutoFoldersCommand(unittest.TestCase):
     @patch("phone.cli.cmd_layout.write_yaml")
     @patch("phone.cli.cmd_layout.auto_folderize")
     @patch("phone.cli.cmd_layout.distribute_folders_across_pages")
-    def test_auto_folders_with_layout_loads_export(self, mock_dist, mock_auto, mock_write, mock_read, mock_path, mock_load):
+    def test_auto_folders_with_layout_loads_export(
+        self, mock_dist, mock_auto, mock_write, mock_read, mock_path, mock_load
+    ):
         """Test auto_folders loads layout when provided."""
         from phone.cli.main import cmd_auto_folders
         from phone.layout_normalize import NormalizedLayout

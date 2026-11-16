@@ -4,6 +4,7 @@ Focuses on the seven pure scoring helpers (Priority 1) and AuditFilters
 pipeline edge cases (Priority 2).  EnvSetup paths that would create a real
 venv, run pip, or write ~/.config/credentials.ini are intentionally skipped.
 """
+
 from __future__ import annotations
 
 import io
@@ -17,38 +18,40 @@ from unittest.mock import MagicMock, patch
 
 from core.pipeline import ResultEnvelope
 from mail.config_cli.pipeline_audit import (
-    EnvSetupProducer,
-    EnvSetupRequest,
-    EnvSetupResult,
-    _install_venv_packages,
-    _make_bin_scripts_executable,
-    _resolve_gmail_cred_paths,
-    _setup_venv,
-    # Pure helpers
-    _build_dest_token_map,
-    _dest_and_tokens_for_filter,
-    _extract_filter_adds,
-    _extract_filter_from_addr,
-    _score_exported_filters,
-    _score_one_filter,
-    _token_matches,
     # Pipeline classes
     AuditFiltersProcessor,
     AuditFiltersProducer,
     AuditFiltersRequest,
     AuditFiltersResult,
+    EnvSetupProducer,
+    EnvSetupRequest,
+    EnvSetupResult,
+    # Pure helpers
+    _build_dest_token_map,
+    _dest_and_tokens_for_filter,
+    _extract_filter_adds,
+    _extract_filter_from_addr,
+    _install_venv_packages,
+    _make_bin_scripts_executable,
+    _resolve_gmail_cred_paths,
+    _score_exported_filters,
+    _score_one_filter,
+    _setup_venv,
+    _token_matches,
 )
-
 
 # ---------------------------------------------------------------------------
 # _dest_and_tokens_for_filter
 # ---------------------------------------------------------------------------
 
+
 class DestAndTokensForFilterTests(TestCase):
     """Tests for _dest_and_tokens_for_filter."""
 
     def test_non_dict_returns_none(self):
-        self.assertIsNone(_dest_and_tokens_for_filter(cast(Any, "not a dict")))  # cast: exercises non-dict isinstance guard
+        self.assertIsNone(
+            _dest_and_tokens_for_filter(cast(Any, "not a dict"))
+        )  # cast: exercises non-dict isinstance guard
 
     def test_empty_dict_returns_none(self):
         self.assertIsNone(_dest_and_tokens_for_filter({}))
@@ -92,6 +95,7 @@ class DestAndTokensForFilterTests(TestCase):
 # _build_dest_token_map
 # ---------------------------------------------------------------------------
 
+
 class BuildDestTokenMapTests(TestCase):
     """Tests for _build_dest_token_map."""
 
@@ -127,6 +131,7 @@ class BuildDestTokenMapTests(TestCase):
 # ---------------------------------------------------------------------------
 # _extract_filter_from_addr
 # ---------------------------------------------------------------------------
+
 
 class ExtractFilterFromAddrTests(TestCase):
     """Tests for _extract_filter_from_addr."""
@@ -174,6 +179,7 @@ class ExtractFilterFromAddrTests(TestCase):
 # _extract_filter_adds
 # ---------------------------------------------------------------------------
 
+
 class ExtractFilterAddsTests(TestCase):
     """Tests for _extract_filter_adds."""
 
@@ -204,6 +210,7 @@ class ExtractFilterAddsTests(TestCase):
 # _token_matches
 # ---------------------------------------------------------------------------
 
+
 class TokenMatchesTests(TestCase):
     """Tests for _token_matches."""
 
@@ -232,13 +239,16 @@ class TokenMatchesTests(TestCase):
 # _score_one_filter
 # ---------------------------------------------------------------------------
 
+
 class ScoreOneFilterTests(TestCase):
     """Tests for _score_one_filter."""
 
     _DTM = {"L1": {"a@b.com", "c@d.com"}, "L2": {"x@y.com"}}
 
     def test_non_dict_returns_none(self):
-        self.assertIsNone(_score_one_filter(cast(Any, "not a dict"), self._DTM))  # cast: exercises non-dict isinstance guard
+        self.assertIsNone(
+            _score_one_filter(cast(Any, "not a dict"), self._DTM)
+        )  # cast: exercises non-dict isinstance guard
 
     def test_no_from_addr_returns_none(self):
         self.assertIsNone(_score_one_filter({"criteria": {}}, self._DTM))
@@ -271,6 +281,7 @@ class ScoreOneFilterTests(TestCase):
 # ---------------------------------------------------------------------------
 # _score_exported_filters
 # ---------------------------------------------------------------------------
+
 
 class ScoreExportedFiltersTests(TestCase):
     """Tests for _score_exported_filters."""
@@ -324,6 +335,7 @@ class ScoreExportedFiltersTests(TestCase):
 # ---------------------------------------------------------------------------
 # AuditFiltersProcessor — edge cases
 # ---------------------------------------------------------------------------
+
 
 class AuditFiltersProcessorEdgeCaseTests(TestCase):
     """AuditFilters pipeline edge cases not covered by the existing test."""
@@ -427,6 +439,7 @@ class AuditFiltersProcessorEdgeCaseTests(TestCase):
 # ---------------------------------------------------------------------------
 # AuditFiltersProducer — output formatting
 # ---------------------------------------------------------------------------
+
 
 class AuditFiltersProducerOutputTests(TestCase):
     """Producer output tests beyond what already exists."""
@@ -539,7 +552,9 @@ class InstallVenvPackagesTests(TestCase):
                 def fake_resolve(self):
                     # Return self (so path stays in venv_dir tree)
                     import pathlib
+
                     return pathlib.Path(str(self))
+
                 with patch.object(Path, "resolve", fake_resolve):
                     with patch.object(Path, "exists", return_value=True):
                         _install_venv_packages(venv_dir)
@@ -613,8 +628,12 @@ class ResolveGmailCredPathsTests(TestCase):
 
     def _make_payload(self, **kwargs):
         defaults = dict(
-            credentials=None, token=None, copy_gmail_example=False,
-            outlook_client_id=None, tenant=None, outlook_token=None,
+            credentials=None,
+            token=None,
+            copy_gmail_example=False,
+            outlook_client_id=None,
+            tenant=None,
+            outlook_token=None,
         )
         defaults.update(kwargs)
         return MagicMock(**defaults)
@@ -686,8 +705,10 @@ class ResolveGmailCredPathsTests(TestCase):
             str_dest_mock.__str__ = MagicMock(return_value="/dest.json")
             MockPath.side_effect = lambda s: ex_mock if "example" in str(s) else dest_mock
             import io as _io
+
             err_buf = _io.StringIO()
             import sys as _sys
+
             with patch.object(_sys, "stderr", err_buf):
                 cred, _ = _resolve_gmail_cred_paths(
                     payload, lambda x: x, lambda: "/dest.json", lambda: "/tok.json"
@@ -717,13 +738,17 @@ class EnvSetupProcessorTests(TestCase):
 
     def _run_processor(self, **kwargs):
         from mail.config_cli.pipeline_audit import EnvSetupProcessor
+
         req = EnvSetupRequest(**kwargs)
         return EnvSetupProcessor().process(req)
 
     def test_no_venv_skips_setup_venv(self):
         # Line 266-267: no_venv=True skips _setup_venv
         with patch("mail.config_cli.pipeline_audit._setup_venv") as mock_setup:
-            with patch("mail.config_cli.pipeline_audit._resolve_gmail_cred_paths", return_value=(None, None)):
+            with patch(
+                "mail.config_cli.pipeline_audit._resolve_gmail_cred_paths",
+                return_value=(None, None),
+            ):
                 result = self._run_processor(
                     no_venv=True,
                     skip_install=True,
@@ -741,7 +766,10 @@ class EnvSetupProcessorTests(TestCase):
     def test_with_venv_calls_setup_venv(self):
         # Line 267: no_venv=False calls _setup_venv
         with patch("mail.config_cli.pipeline_audit._setup_venv", return_value=True) as mock_setup:
-            with patch("mail.config_cli.pipeline_audit._resolve_gmail_cred_paths", return_value=(None, None)):
+            with patch(
+                "mail.config_cli.pipeline_audit._resolve_gmail_cred_paths",
+                return_value=(None, None),
+            ):
                 result = self._run_processor(
                     no_venv=False,
                     venv_dir="/tmp/testvenv",  # nosec B108 - test path, never accessed
@@ -764,8 +792,10 @@ class EnvSetupProcessorTests(TestCase):
             cred = os.path.join(td, "creds", "cred.json")
             tok = os.path.join(td, "tokens", "tok.json")
             with patch("mail.config_cli.pipeline_audit._setup_venv", return_value=False):
-                with patch("mail.config_cli.pipeline_audit._resolve_gmail_cred_paths",
-                           return_value=(cred, tok)):
+                with patch(
+                    "mail.config_cli.pipeline_audit._resolve_gmail_cred_paths",
+                    return_value=(cred, tok),
+                ):
                     with patch("mail.config_resolver.persist_profile_settings") as mock_persist:
                         result = self._run_processor(
                             no_venv=True,
@@ -787,8 +817,10 @@ class EnvSetupProcessorTests(TestCase):
         with tempfile.TemporaryDirectory() as td:
             cred = os.path.join(td, "creds", "cred.json")
             with patch("mail.config_cli.pipeline_audit._setup_venv", return_value=False):
-                with patch("mail.config_cli.pipeline_audit._resolve_gmail_cred_paths",
-                           return_value=(cred, None)):
+                with patch(
+                    "mail.config_cli.pipeline_audit._resolve_gmail_cred_paths",
+                    return_value=(cred, None),
+                ):
                     with patch("mail.config_resolver.persist_profile_settings"):
                         with patch("pathlib.Path.mkdir", side_effect=OSError("permission denied")):
                             result = self._run_processor(
@@ -808,7 +840,10 @@ class EnvSetupProcessorTests(TestCase):
     def test_profile_not_saved_when_no_credentials(self):
         # Line 280: profile_saved=False when no credentials
         with patch("mail.config_cli.pipeline_audit._setup_venv", return_value=False):
-            with patch("mail.config_cli.pipeline_audit._resolve_gmail_cred_paths", return_value=(None, None)):
+            with patch(
+                "mail.config_cli.pipeline_audit._resolve_gmail_cred_paths",
+                return_value=(None, None),
+            ):
                 result = self._run_processor(
                     no_venv=True,
                     skip_install=True,
@@ -827,7 +862,7 @@ class EnvSetupProcessorTests(TestCase):
 class EnvSetupProducerTests(TestCase):
     """Tests for EnvSetupProducer._produce_success (lines 302-306)."""
 
-    def _make_envelope(self, profile_saved: bool) -> "ResultEnvelope":
+    def _make_envelope(self, profile_saved: bool) -> ResultEnvelope:
         payload = EnvSetupResult(
             venv_created=False,
             profile_saved=profile_saved,

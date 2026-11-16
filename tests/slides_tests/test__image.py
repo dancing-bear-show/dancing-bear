@@ -79,6 +79,7 @@ class TestAddImageToSlide(unittest.TestCase):
     def test_sets_title_and_adds_picture(self):
         """Image is added to slide and title is set."""
         from pptx.enum.dml import MSO_THEME_COLOR
+
         mixin = _Concrete()
         mixin._set_slide_title = MagicMock()
 
@@ -87,7 +88,10 @@ class TestAddImageToSlide(unittest.TestCase):
 
         with patch("PIL.Image.open", return_value=mock_img):
             mixin._add_image_to_slide(
-                slide, "/tmp/image.png", self._make_content(), MSO_THEME_COLOR.LIGHT_2  # nosec B108 - mock path string, PIL.Image.open is patched
+                slide,
+                "/tmp/image.png",
+                self._make_content(),
+                MSO_THEME_COLOR.LIGHT_2,  # nosec B108 - mock path string, PIL.Image.open is patched
             )
 
         mixin._set_slide_title.assert_called_once()
@@ -96,6 +100,7 @@ class TestAddImageToSlide(unittest.TestCase):
     def test_removes_body_placeholder_if_present(self):
         """Body placeholder is removed before inserting the image."""
         from pptx.enum.dml import MSO_THEME_COLOR
+
         mixin = _Concrete()
         mixin._set_slide_title = MagicMock()
 
@@ -105,7 +110,10 @@ class TestAddImageToSlide(unittest.TestCase):
 
         with patch("PIL.Image.open", return_value=mock_img):
             mixin._add_image_to_slide(
-                slide, "/tmp/image.png", self._make_content(), MSO_THEME_COLOR.LIGHT_2  # nosec B108 - mock path string, PIL.Image.open is patched
+                slide,
+                "/tmp/image.png",
+                self._make_content(),
+                MSO_THEME_COLOR.LIGHT_2,  # nosec B108 - mock path string, PIL.Image.open is patched
             )
 
         body._element.getparent().remove.assert_called_once_with(body._element)
@@ -113,6 +121,7 @@ class TestAddImageToSlide(unittest.TestCase):
     def test_removes_text_boxes_from_slide(self):
         """Existing text boxes are removed to clear space for the image."""
         from pptx.enum.dml import MSO_THEME_COLOR
+
         mixin = _Concrete()
         mixin._set_slide_title = MagicMock()
 
@@ -122,7 +131,10 @@ class TestAddImageToSlide(unittest.TestCase):
 
         with patch("PIL.Image.open", return_value=mock_img):
             mixin._add_image_to_slide(
-                slide, "/tmp/image.png", self._make_content(), MSO_THEME_COLOR.LIGHT_2  # nosec B108 - mock path string, PIL.Image.open is patched
+                slide,
+                "/tmp/image.png",
+                self._make_content(),
+                MSO_THEME_COLOR.LIGHT_2,  # nosec B108 - mock path string, PIL.Image.open is patched
             )
 
         textbox._element.getparent().remove.assert_called_once_with(textbox._element)
@@ -130,6 +142,7 @@ class TestAddImageToSlide(unittest.TestCase):
     def test_uses_default_dpi_when_not_in_image_info(self):
         """Falls back to 96 DPI when image.info has no 'dpi' key."""
         from pptx.enum.dml import MSO_THEME_COLOR
+
         mixin = _Concrete()
         mixin._set_slide_title = MagicMock()
 
@@ -138,7 +151,10 @@ class TestAddImageToSlide(unittest.TestCase):
 
         with patch("PIL.Image.open", return_value=mock_img):
             mixin._add_image_to_slide(
-                slide, "/tmp/image.png", self._make_content(), MSO_THEME_COLOR.LIGHT_2  # nosec B108 - mock path string, PIL.Image.open is patched
+                slide,
+                "/tmp/image.png",
+                self._make_content(),
+                MSO_THEME_COLOR.LIGHT_2,  # nosec B108 - mock path string, PIL.Image.open is patched
             )
 
         slide.shapes.add_picture.assert_called_once()
@@ -146,6 +162,7 @@ class TestAddImageToSlide(unittest.TestCase):
     def test_scales_down_large_image(self):
         """Images larger than max dimensions are scaled down proportionally."""
         from pptx.enum.dml import MSO_THEME_COLOR
+
         mixin = _Concrete()
         mixin._set_slide_title = MagicMock()
 
@@ -155,7 +172,10 @@ class TestAddImageToSlide(unittest.TestCase):
 
         with patch("PIL.Image.open", return_value=mock_img):
             mixin._add_image_to_slide(
-                slide, "/tmp/large.png", self._make_content(), MSO_THEME_COLOR.LIGHT_2  # nosec B108 - mock path string, PIL.Image.open is patched
+                slide,
+                "/tmp/large.png",
+                self._make_content(),
+                MSO_THEME_COLOR.LIGHT_2,  # nosec B108 - mock path string, PIL.Image.open is patched
             )
 
         call_args = slide.shapes.add_picture.call_args[0]
@@ -165,6 +185,7 @@ class TestAddImageToSlide(unittest.TestCase):
     def test_uses_zero_dpi_fallback(self):
         """If image DPI is 0, falls back to 96 DPI to avoid divide-by-zero."""
         from pptx.enum.dml import MSO_THEME_COLOR
+
         mixin = _Concrete()
         mixin._set_slide_title = MagicMock()
 
@@ -173,7 +194,10 @@ class TestAddImageToSlide(unittest.TestCase):
 
         with patch("PIL.Image.open", return_value=mock_img):
             mixin._add_image_to_slide(
-                slide, "/tmp/image.png", self._make_content(), MSO_THEME_COLOR.LIGHT_2  # nosec B108 - mock path string, PIL.Image.open is patched
+                slide,
+                "/tmp/image.png",
+                self._make_content(),
+                MSO_THEME_COLOR.LIGHT_2,  # nosec B108 - mock path string, PIL.Image.open is patched
             )
 
         slide.shapes.add_picture.assert_called_once()

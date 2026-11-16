@@ -55,8 +55,10 @@ def _prompts(path: Path, **params: str) -> dict[str, str]:
     defn = parse_workflow(str(path))
     manifest = compile_workflow(defn, project_root=_ROOT, trigger_params=params)
     with tempfile.TemporaryDirectory() as ws:
-        return {name: build_agent_prompt(stage, defn.name, ws)
-                for name, stage in manifest.resolved_stages.items()}
+        return {
+            name: build_agent_prompt(stage, defn.name, ws)
+            for name, stage in manifest.resolved_stages.items()
+        }
 
 
 class _RejectsMixin(unittest.TestCase):
@@ -98,7 +100,9 @@ class TestLoadConcernsParamRules(_RejectsMixin):
 
     def test_task_type_rule_matches_selection_yaml(self) -> None:
         """The allowlist must name exactly the task_type_rules keys."""
-        rules = {c.name: c.pattern for c in parse_workflow(str(_LOAD_CONCERNS)).trigger.rules.checks}
+        rules = {
+            c.name: c.pattern for c in parse_workflow(str(_LOAD_CONCERNS)).trigger.rules.checks
+        }
         match = re.fullmatch(r"\((.*)\)\?", rules["task_type"])
         if match is None:
             self.fail(f"task_type rule is not an optional alternation: {rules['task_type']}")

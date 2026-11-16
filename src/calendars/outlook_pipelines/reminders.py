@@ -3,24 +3,24 @@
 from __future__ import annotations
 
 from ._base import (
+    LOG_DRY_RUN,
+    MSG_PREVIEW_COMPLETE,
     Any,
-    dataclass,
     BaseProducer,
     DateWindowResolver,
     RequestConsumer,
     SafeProcessor,
     check_service_required,
-    MSG_PREVIEW_COMPLETE,
-    LOG_DRY_RUN,
+    dataclass,
 )
 from ._context import EventClassification, ReminderUpdateContext
 
 __all__ = [
+    "OutlookRemindersProcessor",
+    "OutlookRemindersProducer",
     "OutlookRemindersRequest",
     "OutlookRemindersRequestConsumer",
     "OutlookRemindersResult",
-    "OutlookRemindersProcessor",
-    "OutlookRemindersProducer",
 ]
 
 
@@ -64,28 +64,39 @@ class OutlookRemindersProcessor(SafeProcessor[OutlookRemindersRequest, OutlookRe
 
         start_iso, end_iso = self._window.resolve(payload.from_date, payload.to_date)
         from calendars.outlook_service import ListEventsRequest
-        events = svc.list_events_in_range(ListEventsRequest(
-            start_iso=start_iso,
-            end_iso=end_iso,
-            calendar_id=cal_id,
-        ))
+
+        events = svc.list_events_in_range(
+            ListEventsRequest(
+                start_iso=start_iso,
+                end_iso=end_iso,
+                calendar_id=cal_id,
+            )
+        )
 
         classified = self._classify_events(events or [], payload.all_occurrences)
 
         logs: list[str] = []
         updated = 0
 
-        ctx = ReminderUpdateContext(ids=sorted(classified.series_ids), label="series master", cal_id=cal_id, logs=logs)
+        ctx = ReminderUpdateContext(
+            ids=sorted(classified.series_ids), label="series master", cal_id=cal_id, logs=logs
+        )
         updated += self._update_ids(ctx, svc, payload)
 
         if payload.all_occurrences:
-            ctx = ReminderUpdateContext(ids=sorted(classified.occurrence_ids), label="occurrence", cal_id=cal_id, logs=logs)
+            ctx = ReminderUpdateContext(
+                ids=sorted(classified.occurrence_ids), label="occurrence", cal_id=cal_id, logs=logs
+            )
             updated += self._update_ids(ctx, svc, payload)
 
-        ctx = ReminderUpdateContext(ids=sorted(classified.single_ids), label="single", cal_id=cal_id, logs=logs)
+        ctx = ReminderUpdateContext(
+            ids=sorted(classified.single_ids), label="single", cal_id=cal_id, logs=logs
+        )
         updated += self._update_ids(ctx, svc, payload)
 
-        result = OutlookRemindersResult(logs=logs, updated=updated, dry_run=payload.dry_run, set_off=payload.set_off)
+        result = OutlookRemindersResult(
+            logs=logs, updated=updated, dry_run=payload.dry_run, set_off=payload.set_off
+        )
         return result
 
     def _classify_one_event(
@@ -108,15 +119,22 @@ class OutlookRemindersProcessor(SafeProcessor[OutlookRemindersRequest, OutlookRe
         if eid:
             classification.single_ids.add(eid)
 
-    def _classify_events(self, events: list[dict[str, Any]], all_occurrences: bool) -> EventClassification:
+    def _classify_events(
+        self, events: list[dict[str, Any]], all_occurrences: bool
+    ) -> EventClassification:
         """Classify events into series masters, occurrences, and single events."""
-        classification = EventClassification(series_ids=set(), occurrence_ids=set(), single_ids=set())
+        classification = EventClassification(
+            series_ids=set(), occurrence_ids=set(), single_ids=set()
+        )
         for ev in events:
             self._classify_one_event(ev, all_occurrences, classification)
         return classification
 
-    def _build_reminder_request(self, payload: OutlookRemindersRequest, cal_id: str | None, eid: str):
+    def _build_reminder_request(
+        self, payload: OutlookRemindersRequest, cal_id: str | None, eid: str
+    ):
         from calendars.outlook_service import UpdateEventReminderRequest
+
         if payload.set_off:
             return UpdateEventReminderRequest(
                 event_id=eid,
@@ -159,7 +177,9 @@ class OutlookRemindersProcessor(SafeProcessor[OutlookRemindersRequest, OutlookRe
 
 
 class OutlookRemindersProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookRemindersResult, diagnostics: dict[str, Any] | None) -> None:
+    def _produce_success(
+        self, payload: OutlookRemindersResult, diagnostics: dict[str, Any] | None
+    ) -> None:
         self.print_logs(payload.logs)
         if payload.dry_run:
             print(MSG_PREVIEW_COMPLETE)

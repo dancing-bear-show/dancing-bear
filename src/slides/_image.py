@@ -41,7 +41,11 @@ class ImageMixin:
     """
 
     def _add_image_to_slide(
-        self: "_ImageHost", slide, image_path: str, content, theme_color: MSO_THEME_COLOR,
+        self: _ImageHost,
+        slide,
+        image_path: str,
+        content,
+        theme_color: MSO_THEME_COLOR,
     ) -> None:
         """Add an image to a slide, centered below the title.
 
@@ -74,6 +78,7 @@ class ImageMixin:
         max_h_in = SLIDE_HEIGHT - IMAGE_CONTENT_TOP - (CONTENT_BOTTOM_MARGIN / 2)
 
         from PIL import Image as PILImage
+
         with PILImage.open(image_path) as img:
             px_w, px_h = img.size
             dpi = img.info.get("dpi", (96, 96))

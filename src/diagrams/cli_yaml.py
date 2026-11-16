@@ -9,9 +9,11 @@ from collections.abc import Callable
 def _load_yaml(content: str) -> dict | None:
     try:
         import yaml  # noqa: PLC0415
+
         return yaml.safe_load(content)
     except ImportError:
         import json
+
         try:
             return json.loads(content)
         except Exception as e:
@@ -62,6 +64,7 @@ def _build_sequence_from_spec(spec: dict) -> str:
         )
     for m_spec in spec.get("messages", []):
         from .mermaid import MessageOptions  # noqa: PLC0415
+
         builder.message(
             src=m_spec["sender"],
             dst=m_spec["receiver"],

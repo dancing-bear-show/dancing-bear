@@ -93,7 +93,6 @@ class TestBuildDataUrl(unittest.TestCase):
         self.assertIn("tok", decoded)
 
 
-
 class TestTokenPathSharing(unittest.TestCase):
     def test_page_posts_to_the_shared_token_path(self):
         """The page and the server that accepts the POST must agree on the path."""
@@ -106,6 +105,7 @@ class TestTokenPathSharing(unittest.TestCase):
     def test_data_url_also_substitutes_the_token_path(self):
         decoded = urllib.parse.unquote(build_data_url("tok")[len("data:text/html,") :])
         self.assertNotIn("__TOKEN_PATH__", decoded)
+
 
 if __name__ == "__main__":
     unittest.main()

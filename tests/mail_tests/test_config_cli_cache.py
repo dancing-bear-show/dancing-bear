@@ -9,48 +9,47 @@ from pathlib import Path
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
-from tests.fixtures import TempDirMixin, capture_stdout, test_path
 from core.pipeline import ResultEnvelope
-
 from mail.config_cli.pipeline_cache import (
+    AuthProcessor,
+    AuthProducer,
     # Auth
     AuthRequest,
     AuthRequestConsumer,
-    AuthProcessor,
-    AuthProducer,
     AuthResult,
+    BackupProcessor,
+    BackupProducer,
     # Backup
     BackupRequest,
     BackupRequestConsumer,
-    BackupProcessor,
-    BackupProducer,
     BackupResult,
-    # Cache stats
-    CacheStatsRequest,
-    CacheStatsRequestConsumer,
-    CacheStatsProcessor,
-    CacheStatsProducer,
-    CacheStatsResult,
+    CacheClearProcessor,
+    CacheClearProducer,
     # Cache clear
     CacheClearRequest,
     CacheClearRequestConsumer,
-    CacheClearProcessor,
-    CacheClearProducer,
     CacheClearResult,
+    CachePruneProcessor,
+    CachePruneProducer,
     # Cache prune
     CachePruneRequest,
     CachePruneRequestConsumer,
-    CachePruneProcessor,
-    CachePruneProducer,
     CachePruneResult,
+    CacheStatsProcessor,
+    CacheStatsProducer,
+    # Cache stats
+    CacheStatsRequest,
+    CacheStatsRequestConsumer,
+    CacheStatsResult,
+    ConfigInspectProcessor,
+    ConfigInspectProducer,
     # Config inspect
     ConfigInspectRequest,
     ConfigInspectRequestConsumer,
-    ConfigInspectProcessor,
-    ConfigInspectProducer,
     ConfigInspectResult,
     ConfigSection,
 )
+from tests.fixtures import TempDirMixin, capture_stdout, test_path
 
 
 class CacheStatsTests(TestCase):
@@ -432,10 +431,15 @@ class AuthTests(TempDirMixin, TestCase):
         fake_client.authenticate.return_value = None
 
         # Patch at import source since _process_safe uses local imports.
-        with patch("mail.config_resolver.resolve_paths_profile", return_value=("creds.json", "token.json")), \
-             patch("mail.gmail_api.GmailClient", return_value=fake_client), \
-             patch("mail.config_resolver.persist_if_provided"):
-            request = AuthRequest(credentials="creds.json", token="token.json", profile=None, validate=False)  # nosec B106 - test file path, not a secret
+        with (
+            patch(
+                "mail.config_resolver.resolve_paths_profile",
+                return_value=("creds.json", "token.json"),
+            ),
+            patch("mail.gmail_api.GmailClient", return_value=fake_client),
+            patch("mail.config_resolver.persist_if_provided"),
+        ):
+            request = AuthRequest(credentials="creds.json", token="token.json", profile=None, validate=False)  # nosec B106 - test file path, not a secret  # fmt: skip
             result = AuthProcessor().process(request)
 
         self.assertTrue(result.ok())
@@ -450,8 +454,13 @@ class AuthTests(TempDirMixin, TestCase):
         import sys
 
         fake_modules, _ = _fake_google_modules(MagicMock(), MagicMock())
-        with patch("mail.config_resolver.resolve_paths_profile", return_value=(None, "/nonexistent/token.json")), \
-             patch.dict(sys.modules, fake_modules, clear=False):
+        with (
+            patch(
+                "mail.config_resolver.resolve_paths_profile",
+                return_value=(None, "/nonexistent/token.json"),
+            ),
+            patch.dict(sys.modules, fake_modules, clear=False),
+        ):
             request = AuthRequest(validate=True, token="/nonexistent/token.json")  # nosec B106 - test file path, not a secret
             result = AuthProcessor().process(request)
 
@@ -463,8 +472,10 @@ class AuthTests(TempDirMixin, TestCase):
         import sys
 
         fake_modules, _ = _fake_google_modules(MagicMock(), MagicMock())
-        with patch("mail.config_resolver.resolve_paths_profile", return_value=(None, None)), \
-             patch.dict(sys.modules, fake_modules, clear=False):
+        with (
+            patch("mail.config_resolver.resolve_paths_profile", return_value=(None, None)),
+            patch.dict(sys.modules, fake_modules, clear=False),
+        ):
             request = AuthRequest(validate=True)
             result = AuthProcessor().process(request)
 
@@ -490,15 +501,19 @@ class AuthTests(TempDirMixin, TestCase):
         mock_creds.expired = False
 
         mock_svc = MagicMock()
-        mock_svc.users.return_value.getProfile.return_value.execute.side_effect = Exception("API error")
+        mock_svc.users.return_value.getProfile.return_value.execute.side_effect = Exception(
+            "API error"
+        )
 
         # Inject fake google.* modules rather than patching the real packages,
         # so this runs without the optional Google client libraries installed.
         import sys
 
         fake_modules, _ = _fake_google_modules(mock_creds, mock_svc)
-        with patch("mail.config_resolver.resolve_paths_profile", return_value=(None, token_path)), \
-             patch.dict(sys.modules, fake_modules, clear=False):
+        with (
+            patch("mail.config_resolver.resolve_paths_profile", return_value=(None, token_path)),
+            patch.dict(sys.modules, fake_modules, clear=False),
+        ):
             request = AuthRequest(validate=True, token=token_path)
             result = AuthProcessor().process(request)
 
@@ -512,8 +527,10 @@ class AuthTests(TempDirMixin, TestCase):
         # Setting a sys.modules entry to None causes `from X import Y` to raise ImportError.
         token_path = os.path.join(self.tmpdir, "token.json")
         Path(token_path).write_text('{"token": "x"}')
-        with patch("mail.config_resolver.resolve_paths_profile", return_value=(None, token_path)), \
-             patch.dict(sys.modules, {"googleapiclient.discovery": None}):
+        with (
+            patch("mail.config_resolver.resolve_paths_profile", return_value=(None, token_path)),
+            patch.dict(sys.modules, {"googleapiclient.discovery": None}),
+        ):
             request = AuthRequest(validate=True, token=token_path)
             result = AuthProcessor().process(request)
 
@@ -530,13 +547,17 @@ class AuthTests(TempDirMixin, TestCase):
         mock_creds.refresh_token = "my_refresh_token"  # nosec B105 - fake token on a mock
 
         mock_svc = MagicMock()
-        mock_svc.users.return_value.getProfile.return_value.execute.return_value = {"emailAddress": "me@example.com"}
+        mock_svc.users.return_value.getProfile.return_value.execute.return_value = {
+            "emailAddress": "me@example.com"
+        }
 
         import sys
 
         fake_modules, fake_request_cls = _fake_google_modules(mock_creds, mock_svc)
-        with patch("mail.config_resolver.resolve_paths_profile", return_value=(None, token_path)), \
-             patch.dict(sys.modules, fake_modules, clear=False):
+        with (
+            patch("mail.config_resolver.resolve_paths_profile", return_value=(None, token_path)),
+            patch.dict(sys.modules, fake_modules, clear=False),
+        ):
             request = AuthRequest(validate=True, token=token_path)
             result = AuthProcessor().process(request)
 
@@ -563,12 +584,21 @@ class BackupTests(TempDirMixin, TestCase):
 
         fake_client = FakeGmailClient(
             labels=[
-                {"id": "LBL1", "name": "Work", "type": "user",
-                 "labelListVisibility": "labelShow", "messageListVisibility": "show"},
+                {
+                    "id": "LBL1",
+                    "name": "Work",
+                    "type": "user",
+                    "labelListVisibility": "labelShow",
+                    "messageListVisibility": "show",
+                },
                 {"id": "INBOX", "name": "INBOX", "type": "system"},
             ],
             filters=[
-                {"id": "F1", "criteria": {"from": "boss@work.com"}, "action": {"addLabelIds": ["LBL1"]}},
+                {
+                    "id": "F1",
+                    "criteria": {"from": "boss@work.com"},
+                    "action": {"addLabelIds": ["LBL1"]},
+                },
             ],
         )
 

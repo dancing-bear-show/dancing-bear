@@ -18,8 +18,8 @@ from unittest.mock import patch
 
 from tests.agentic_builder_contract import AgenticBuilderContractMixin
 from tests.agentic_cli_contract import AgenticCLIContractMixin
-from tests.cli_separator_contract import SeparatorContractMixin
 from tests.cli_no_subcommand_contract import NoSubcommandContractMixin
+from tests.cli_separator_contract import SeparatorContractMixin
 from tests.fixtures import capture_stdout
 
 
@@ -48,18 +48,22 @@ class TestChartsCapsuleContent(unittest.TestCase):
 
     def test_contains_render_command(self):
         from charts.agentic import build_agentic_capsule
+
         self.assertIn("render", build_agentic_capsule())
 
     def test_contains_grid_command(self):
         from charts.agentic import build_agentic_capsule
+
         self.assertIn("grid", build_agentic_capsule())
 
     def test_contains_reshape_command(self):
         from charts.agentic import build_agentic_capsule
+
         self.assertIn("reshape", build_agentic_capsule())
 
     def test_idempotent(self):
         from charts.agentic import build_agentic_capsule
+
         self.assertEqual(build_agentic_capsule(), build_agentic_capsule())
 
 
@@ -68,6 +72,7 @@ class TestChartsAgenticFlag(unittest.TestCase):
 
     def test_agentic_flag_yaml_format(self):
         from charts.cli import main
+
         with capture_stdout() as buf:
             rc = main(["--agentic", "--agentic-format", "yaml", "--agentic-compact"])
         self.assertEqual(rc, 0)
@@ -82,10 +87,10 @@ class TestChartsAgenticFlag(unittest.TestCase):
         which ARE documented and print a one-line usage to stderr.
         """
         from charts.cli import main
+
         with patch("argparse.ArgumentParser.print_help"):
             rc = main([])
         self.assertEqual(rc, 0)
-
 
 
 class TestChartsSeparatorCLI(SeparatorContractMixin, unittest.TestCase):
@@ -101,6 +106,7 @@ class TestChartsNoSubcommand(NoSubcommandContractMixin, unittest.TestCase):
     MODULE_PATH = "charts.cli"
     EXPECTED_RC = 0
     EXPECTED_STREAM = "stdout"
+
 
 if __name__ == "__main__":
     unittest.main()

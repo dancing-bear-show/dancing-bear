@@ -1,21 +1,23 @@
 """Actions mixin extracted from _menubar_app.py."""
+
 from __future__ import annotations
 
 import time
 from pathlib import Path
 
+from telemetry import login_item as _login_item
 from telemetry._menubar_config import (
     _config_to_text,
     _parse_config_text,
     _save_config,
 )
-from telemetry import login_item as _login_item
 
 try:
     from AppKit import (
         NSPasteboard,
         NSPasteboardTypeString,
     )
+
     _HAS_APPKIT = True
 except ImportError:
     _HAS_APPKIT = False
@@ -30,6 +32,7 @@ class ActionsMixin:
     def _notify(title: str, body: str) -> None:
         try:
             import rumps as _rumps
+
             _rumps.notification(title=title, subtitle="", message=body[:200])
         except Exception:  # nosec B110 - notification failure is non-fatal
             pass
@@ -46,13 +49,16 @@ class ActionsMixin:
                 pass
         try:
             import subprocess as _sp  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
+
             _sp.run(["pbcopy"], input=text.encode(), check=False)  # nosec B603 B607 - fixed macOS system utility, no dynamic args
         except Exception:  # nosec B110 - pbcopy failure is non-fatal; clipboard update is best-effort
             pass
 
     def _on_configure(self, _sender: object) -> None:  # noqa: ARG002
         import rumps as _rumps
+
         from telemetry._menubar_config import _load_config
+
         cfg = _load_config()
         win = _rumps.Window(
             title="ClaudeStats — Configure",
@@ -62,7 +68,9 @@ class ActionsMixin:
                 "Changes take effect immediately on Save."
             ),
             default_text=_config_to_text(cfg),
-            ok="Save", cancel="Cancel", dimensions=(340, 220),
+            ok="Save",
+            cancel="Cancel",
+            dimensions=(340, 220),
         )
         response = win.run()
         if response.clicked != 1:
@@ -90,11 +98,15 @@ class ActionsMixin:
 
     def _on_toggle_login_item(self, _sender: object) -> None:  # noqa: ARG002
         import rumps as _rumps
+
         if not _login_item.is_bundle_mode():
-            _rumps.alert(title="Start at Login", message=(
-                "This feature requires the packaged ClaudeStats app. "
-                "Launch the installed .app bundle, then try again."
-            ))
+            _rumps.alert(
+                title="Start at Login",
+                message=(
+                    "This feature requires the packaged ClaudeStats app. "
+                    "Launch the installed .app bundle, then try again."
+                ),
+            )
             return
         try:
             if _login_item.is_enabled():
@@ -124,13 +136,15 @@ class ActionsMixin:
 
     def _on_clear(self, _sender: object) -> None:  # noqa: ARG002
         import rumps as _rumps
+
         response = _rumps.alert(
             title="Clear old sessions",
             message=(
                 "Delete all .jsonl session files older than 30 days "
                 "from ~/.claude/projects/?\n\nThis cannot be undone."
             ),
-            ok="Delete", cancel="Cancel",
+            ok="Delete",
+            cancel="Cancel",
         )
         if response != 1:
             return
@@ -143,7 +157,9 @@ class ActionsMixin:
                     continue
                 deleted += self._clear_stale_project_dir(project_dir, cutoff)
         except Exception as exc:  # nosec B110 - partial cleanup failure is reported via notification
-            _rumps.notification(title="Clear failed", subtitle="Could not delete all files", message=str(exc))
+            _rumps.notification(
+                title="Clear failed", subtitle="Could not delete all files", message=str(exc)
+            )
             return
         _rumps.notification(
             title="Sessions cleared",

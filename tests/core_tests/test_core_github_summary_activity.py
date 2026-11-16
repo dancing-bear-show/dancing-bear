@@ -17,20 +17,43 @@ from tests.core_tests.github_fakes import FakeGh, GhCall, ok, paged
 
 def _files(n: int) -> list[dict[str, Any]]:
     paths = ["src/core/a.py", "src/mail/b.py", "tests/t.py", "README.md"]
-    return [{"path": paths[i % len(paths)] if i < 4 else f"src/x{i}.py", "additions": i, "deletions": 1}
-            for i in range(n)]
+    return [
+        {"path": paths[i % len(paths)] if i < 4 else f"src/x{i}.py", "additions": i, "deletions": 1}
+        for i in range(n)
+    ]
 
 
 def _pr_handler(files: list[dict[str, Any]], *, total: int | None = None, page: int = 2):
     def handler(call: GhCall):
         chunk, info = paged(files, page, call.value("after"), "f")
-        return ok({"data": {"repository": {"pullRequest": {
-            "number": 476, "title": "Fix resume", "state": "MERGED", "url": "https://example.invalid/pr/476",
-            "mergedAt": "2026-11-10T00:00:00Z", "closedAt": "2026-11-10T00:00:00Z",
-            "baseRefName": "main", "headRefName": "fix/resume", "additions": 10, "deletions": 2,
-            "changedFiles": len(files), "author": {"login": "alice"},
-            "files": {"totalCount": len(files) if total is None else total, "pageInfo": info, "nodes": chunk},
-        }}}})
+        return ok(
+            {
+                "data": {
+                    "repository": {
+                        "pullRequest": {
+                            "number": 476,
+                            "title": "Fix resume",
+                            "state": "MERGED",
+                            "url": "https://example.invalid/pr/476",
+                            "mergedAt": "2026-11-10T00:00:00Z",
+                            "closedAt": "2026-11-10T00:00:00Z",
+                            "baseRefName": "main",
+                            "headRefName": "fix/resume",
+                            "additions": 10,
+                            "deletions": 2,
+                            "changedFiles": len(files),
+                            "author": {"login": "alice"},
+                            "files": {
+                                "totalCount": len(files) if total is None else total,
+                                "pageInfo": info,
+                                "nodes": chunk,
+                            },
+                        }
+                    }
+                }
+            }
+        )
+
     return handler
 
 
@@ -58,7 +81,9 @@ class TestFetchPrSummary(unittest.TestCase):
 
     def test_text_render_truncates_file_list(self):
         fake = FakeGh(_pr_handler(_files(12), page=100))
-        text = summary.render_summary_text(summary.fetch_pr_summary(GhCLI(run_func=fake), "o", "r", 476))
+        text = summary.render_summary_text(
+            summary.fetch_pr_summary(GhCLI(run_func=fake), "o", "r", 476)
+        )
         self.assertIn("PR #476 - Fix resume", text)
         self.assertIn("... 2 more", text)
 
@@ -88,9 +113,16 @@ class TestMatchesPaths(unittest.TestCase):
 
 
 def _pr_row(n: int, **over: Any) -> dict[str, Any]:
-    row = {"number": n, "title": f"PR {n}", "repository": {"nameWithOwner": "octo-org/demo-repo"},
-           "updatedAt": "2026-11-01T00:00:00Z", "url": f"https://example.invalid/{n}", "state": "open",
-           "author": {"login": "bob"}, "isDraft": False}
+    row = {
+        "number": n,
+        "title": f"PR {n}",
+        "repository": {"nameWithOwner": "octo-org/demo-repo"},
+        "updatedAt": "2026-11-01T00:00:00Z",
+        "url": f"https://example.invalid/{n}",
+        "state": "open",
+        "author": {"login": "bob"},
+        "isDraft": False,
+    }
     row.update(over)
     return row
 
@@ -109,8 +141,18 @@ class ActivityScript:
         if self.body is not None:
             return ok(self.body)
         if kind == "issues":
-            return ok([{"number": 3, "title": "Bug", "repository": {"nameWithOwner": "octo-org/demo-repo"},
-                        "updatedAt": "u", "url": "x", "state": "open"}])
+            return ok(
+                [
+                    {
+                        "number": 3,
+                        "title": "Bug",
+                        "repository": {"nameWithOwner": "octo-org/demo-repo"},
+                        "updatedAt": "u",
+                        "url": "x",
+                        "state": "open",
+                    }
+                ]
+            )
         if "--review-requested" in call.argv:
             return ok([_pr_row(2, isDraft=True)])
         return ok([_pr_row(1, author="alice")])

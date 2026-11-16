@@ -3,7 +3,7 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
-from mail.utils.batch import chunked, apply_in_chunks, delete_with_retry
+from mail.utils.batch import apply_in_chunks, chunked, delete_with_retry
 
 
 class ChunkedTests(unittest.TestCase):
@@ -60,22 +60,28 @@ class ApplyInChunksTests(unittest.TestCase):
 
     def test_function_receives_lists(self):
         received = []
+
         def capture(chunk):
             received.append(type(chunk).__name__)
+
         apply_in_chunks(capture, range(3), 2)
         self.assertTrue(all(t == "list" for t in received))
 
     def test_side_effects_applied(self):
         total = [0]  # Using list to allow mutation in nested function
+
         def sum_chunk(chunk):
             total[0] += sum(chunk)
+
         apply_in_chunks(sum_chunk, [1, 2, 3, 4, 5], 2)
         self.assertEqual(total[0], 15)
 
     def test_chunk_size_respected(self):
         max_seen = [0]
+
         def check_size(chunk):
             max_seen[0] = max(max_seen[0], len(chunk))
+
         apply_in_chunks(check_size, range(10), 3)
         self.assertLessEqual(max_seen[0], 3)
 

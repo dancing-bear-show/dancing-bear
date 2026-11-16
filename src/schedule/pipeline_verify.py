@@ -1,16 +1,16 @@
 """Verify and sync logic for the schedule pipeline."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from core.pipeline import RequestConsumer, BaseProducer, SafeProcessor
-from core.auth import build_outlook_service, OutlookServiceConfig
-from core.yamlio import load_config as _load_yaml
+from core.auth import OutlookServiceConfig, build_outlook_service
 from core.date_utils import day_range_to_iso
-
-from schedule.pipeline_expand import _norm_dt_minute, _expand_recurring_occurrences
+from core.pipeline import BaseProducer, RequestConsumer, SafeProcessor
+from core.yamlio import load_config as _load_yaml
+from schedule.pipeline_expand import _expand_recurring_occurrences, _norm_dt_minute
 
 _ERR_NO_PLAN_EVENTS = "Invalid plan: no events found"
 
@@ -91,7 +91,7 @@ def _build_plan_st_keys(events: list[dict[str, Any]], from_date: str, to_date: s
 
 
 def _build_verify_lines_subject_time(
-    payload: "VerifyRequest", plan_st_keys: set, have_st_keys: set
+    payload: VerifyRequest, plan_st_keys: set, have_st_keys: set
 ) -> list[str]:
     """Build verification output lines for subject-time mode."""
     missing_keys = sorted(k for k in plan_st_keys if k not in have_st_keys)
@@ -114,20 +114,20 @@ def _build_verify_lines_subject_time(
 
 
 def _build_verify_lines_subject(
-    payload: "VerifyRequest",
+    payload: VerifyRequest,
     events: list[dict[str, Any]],
     occ: list[dict[str, Any]],
 ) -> list[str]:
     """Build verification output lines for subject-only mode."""
     planned_subjects = [
-        (e.get("subject") or "").strip() for e in events or []
-        if (e.get("subject") or "").strip()
+        (e.get("subject") or "").strip() for e in events or [] if (e.get("subject") or "").strip()
     ]
     have_subjects = {(o.get("subject") or "").strip().lower() for o in occ}
 
     missing = [s for s in planned_subjects if s.strip().lower() not in have_subjects]
     extras = [
-        (o.get("subject") or "").strip() for o in occ
+        (o.get("subject") or "").strip()
+        for o in occ
         if (o.get("subject") or "").strip().lower() not in {ps.lower() for ps in planned_subjects}
     ]
 
@@ -168,12 +168,15 @@ class VerifyProcessor(SafeProcessor[VerifyRequest, VerifyResult]):
         if err:
             raise RuntimeError(err)
         from calendars.outlook_service import ListEventsRequest
-        occ = svc.list_events_in_range(ListEventsRequest(
-            start_iso=start_iso,
-            end_iso=end_iso,
-            calendar_name=payload.calendar,
-            top=400,
-        ))
+
+        occ = svc.list_events_in_range(
+            ListEventsRequest(
+                start_iso=start_iso,
+                end_iso=end_iso,
+                calendar_name=payload.calendar,
+                top=400,
+            )
+        )
 
         # Build output based on match mode
         if payload.match == "subject-time":
@@ -230,15 +233,25 @@ def _is_single_occurrence_event(e: dict[str, Any]) -> bool:
 
 
 def _is_recurring_series_event(e: dict[str, Any]) -> bool:
-    return bool(e.get("repeat") and e.get("start_time") and (e.get("range") or {}).get("start_date"))
+    return bool(
+        e.get("repeat") and e.get("start_time") and (e.get("range") or {}).get("start_date")
+    )
 
 
-def _add_single_occurrence_key(e: dict[str, Any], subj_lower: str, acc: _PlanKeysAccumulator) -> None:
-    acc.plan_st_keys.add(f"{subj_lower}|{_norm_dt_minute(e.get('start'))}|{_norm_dt_minute(e.get('end'))}")
+def _add_single_occurrence_key(
+    e: dict[str, Any], subj_lower: str, acc: _PlanKeysAccumulator
+) -> None:
+    acc.plan_st_keys.add(
+        f"{subj_lower}|{_norm_dt_minute(e.get('start'))}|{_norm_dt_minute(e.get('end'))}"
+    )
 
 
 def _add_recurring_series_keys(
-    e: dict[str, Any], subj_lower: str, from_date: str, to_date: str, acc: _PlanKeysAccumulator,
+    e: dict[str, Any],
+    subj_lower: str,
+    from_date: str,
+    to_date: str,
+    acc: _PlanKeysAccumulator,
 ) -> None:
     acc.series_by_subject.setdefault(subj_lower, e)
     for st, en in _expand_recurring_occurrences(e, from_date, to_date):
@@ -246,7 +259,10 @@ def _add_recurring_series_keys(
 
 
 def _accumulate_plan_keys_for_event(
-    e: dict[str, Any], from_date: str, to_date: str, acc: _PlanKeysAccumulator,
+    e: dict[str, Any],
+    from_date: str,
+    to_date: str,
+    acc: _PlanKeysAccumulator,
 ) -> None:
     """Classify one event and fold its key(s) into the running accumulators."""
     subj = (e.get("subject") or "").strip()

@@ -75,6 +75,7 @@ MIN_SHARED_CALLS = _det.MIN_SHARED_CALLS
 # Helper: write files into a temp directory and run scan() from there.
 # ---------------------------------------------------------------------------
 
+
 class _TmpRepo:
     """Context manager that wires a mini tests/ tree for scan() integration."""
 
@@ -138,6 +139,7 @@ class TestFakeContract(FakeContractMixin, unittest.TestCase):
 # Test: slides shape IS flagged
 # ---------------------------------------------------------------------------
 
+
 class TestSlidesShapeIsFlagged(unittest.TestCase):
     """The real slides calibration body must be detected.
 
@@ -171,7 +173,8 @@ class TestSlidesShapeIsFlagged(unittest.TestCase):
             findings = scan()
 
         match = [
-            f for f in findings
+            f
+            for f in findings
             if f["local_method"] == "test_emit_output_matches_build_agentic_capsule"
         ]
         self.assertGreater(
@@ -197,6 +200,7 @@ class TestSlidesShapeIsFlagged(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Test: app-unique test sharing one helper is NOT flagged
 # ---------------------------------------------------------------------------
+
 
 class TestOneSharedCallNotFlagged(unittest.TestCase):
     """A local test that shares only assertIn and build_agentic_capsule is not reported.
@@ -225,10 +229,7 @@ class TestOneSharedCallNotFlagged(unittest.TestCase):
         with _TmpRepo(textwrap.dedent(mixin), test_src):
             findings = scan()
 
-        content_findings = [
-            f for f in findings
-            if f["local_method"].startswith("test_contains_")
-        ]
+        content_findings = [f for f in findings if f["local_method"].startswith("test_contains_")]
         self.assertEqual(
             content_findings,
             [],
@@ -239,6 +240,7 @@ class TestOneSharedCallNotFlagged(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Test: override is NOT flagged
 # ---------------------------------------------------------------------------
+
 
 class TestOverrideNotFlagged(unittest.TestCase):
     """A method with the same name as a mixin method must not be flagged.
@@ -276,8 +278,7 @@ class TestOverrideNotFlagged(unittest.TestCase):
             findings = scan()
 
         override_findings = [
-            f for f in findings
-            if f["local_method"] == "test_capsule_declares_a_purpose"
+            f for f in findings if f["local_method"] == "test_capsule_declares_a_purpose"
         ]
         self.assertEqual(
             override_findings,
@@ -289,6 +290,7 @@ class TestOverrideNotFlagged(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Unit tests: _calls, _uses_mocking, _jaccard
 # ---------------------------------------------------------------------------
+
 
 def _parse_method(src: str) -> ast.FunctionDef | ast.AsyncFunctionDef:
     tree = ast.parse(textwrap.dedent(src))
@@ -380,6 +382,7 @@ class TestJaccard(unittest.TestCase):
 # Regression test: cwd-independence
 # ---------------------------------------------------------------------------
 
+
 class TestCwdIndependence(unittest.TestCase):
     """Detector finds the real contract files regardless of working directory.
 
@@ -399,6 +402,7 @@ class TestCwdIndependence(unittest.TestCase):
                 # clean -- but the mixin index must be non-empty, proving the
                 # contract files were resolved correctly from an unrelated cwd.
                 import importlib.util as _ilu
+
                 spec = _ilu.spec_from_file_location(
                     "detect_cwd_probe",
                     _SCRIPT,
@@ -410,10 +414,10 @@ class TestCwdIndependence(unittest.TestCase):
                 # At least one MIXINS file must exist (the repo is present).
                 found = [p for p in probe.MIXINS if os.path.isfile(p)]
                 self.assertGreater(
-                    len(found), 0,
+                    len(found),
+                    0,
                     msg=(
-                        f"No MIXINS files found from cwd={tmp!r}. "
-                        f"MIXINS keys: {list(probe.MIXINS)}"
+                        f"No MIXINS files found from cwd={tmp!r}. MIXINS keys: {list(probe.MIXINS)}"
                     ),
                 )
             finally:

@@ -63,8 +63,11 @@ class TestGetWorkerStateDir(unittest.TestCase):
         """The point of the seam is not having to touch HOME."""
         with tempfile.TemporaryDirectory() as td:
             env = {**_env_without(WORKER_STATE_DIR_ENV), WORKER_STATE_DIR_ENV: td}
-            with patch.dict(os.environ, env, clear=True), patch.object(
-                Path, "home", return_value=Path("/nonexistent-home-should-not-be-used")
+            with (
+                patch.dict(os.environ, env, clear=True),
+                patch.object(
+                    Path, "home", return_value=Path("/nonexistent-home-should-not-be-used")
+                ),
             ):
                 self.assertEqual(get_worker_state_dir("queue"), Path(td).resolve() / "queue")
 

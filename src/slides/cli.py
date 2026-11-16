@@ -79,19 +79,17 @@ def _parse_layout_map_flag(raw: str | None) -> dict[str, int] | None:
         return None
 
     layout_map = dict(
-        _parse_layout_map_entry(pair)
-        for pair in (p.strip() for p in raw.split(","))
-        if pair
+        _parse_layout_map_entry(pair) for pair in (p.strip() for p in raw.split(",")) if pair
     )
     return layout_map or None
 
 
-def _resolve_template(template_flag: str | None, deck: "SlideDeck") -> str | None:
+def _resolve_template(template_flag: str | None, deck: SlideDeck) -> str | None:
     """Resolve the effective template path: --template flag > deck.template_path."""
     return template_flag or deck.template_path
 
 
-def _apply_layout_map(deck: "SlideDeck", cli_layout_map: dict[str, int] | None) -> None:
+def _apply_layout_map(deck: SlideDeck, cli_layout_map: dict[str, int] | None) -> None:
     """Apply a CLI-supplied layout map to the deck, overriding any YAML value."""
     if cli_layout_map is not None:
         deck.metadata.layout_map = cli_layout_map
@@ -139,7 +137,9 @@ def _emit_templates(rows: list[dict[str, object]], fmt: str) -> int:
 @app.argument("yaml_file", help="Path to YAML deck definition")
 @app.argument("-o", "--output", help="Output .pptx path (default: same name as YAML)")
 @app.argument("-t", "--template", help="Path to template .pptx file (overrides YAML setting)")
-@app.argument("--layout-map", help="Layout name to template slide index mapping (e.g., section=0,bullet=1)")
+@app.argument(
+    "--layout-map", help="Layout name to template slide index mapping (e.g., section=0,bullet=1)"
+)
 def cmd_generate(args) -> int:
     """Generate a .pptx deck from a YAML deck definition."""
     yaml_path = Path(args.yaml_file)
@@ -219,9 +219,7 @@ def cmd_validate(args) -> int:
                 f"expected one of {VALID_LAYOUTS}"
             )
         if isinstance(slide, TableSlide) and slide.rows and not slide.headers:
-            errors.append(
-                f"Slide {i} {slide.title!r}: table slide has rows but no headers"
-            )
+            errors.append(f"Slide {i} {slide.title!r}: table slide has rows but no headers")
 
     if errors:
         for err in errors:

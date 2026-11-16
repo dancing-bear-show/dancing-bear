@@ -7,9 +7,9 @@ import unittest
 import unittest.mock as mock
 
 from tests.workflow_tests.helpers.shell_lint import (
-    _RuleCase,
     _hits,
     _lint,
+    _RuleCase,
     _stage,
     _workflow,
 )
@@ -21,7 +21,6 @@ from workflow.linter_shell import (
     RULE_UNVALIDATED_PARAM,
 )
 from workflow.linter_types import LintWarning
-
 
 # Fenced as _fenced() builds them (helpers/shell_lint.py).
 _HOST_CHECK = "```bash\n\n./bin/workflow check-params m.json --check host=trusted\n\n```\n"
@@ -47,17 +46,21 @@ class TestWorkerStageCheckParams(_RuleCase):
     rule = RULE_UNVALIDATED_PARAM
 
     def test_worker_stage_description_check_does_not_validate_descendants(self) -> None:
-        for extra in ("    executor: worker_queue\n    script: \"ls data/\"\n",
-                      "    fan_out:\n      source: seed\n      field: items\n      key: item\n"
-                      "      mode: worker_queue\n      script: \"ls data/\"\n"):
+        for extra in (
+            '    executor: worker_queue\n    script: "ls data/"\n',
+            "    fan_out:\n      source: seed\n      field: items\n      key: item\n"
+            '      mode: worker_queue\n      script: "ls data/"\n',
+        ):
             with self.subTest(extra=extra.split(":")[0].strip()):
                 hits = self.assert_fires(_upstream_check_workflow(extra))
                 self.assertEqual(hits[0].stage, "use")
                 self.assertIn("'{host}'", hits[0].message)
 
     def test_worker_stage_description_check_does_not_validate_its_own_uses(self) -> None:
-        extra = "    executor: worker_queue\n    script: \"ls data/\"\n"
-        yaml_text = _workflow(_stage(_HOST_CHECK + _HOST_USE, extra=extra), params='host: "example.com"')
+        extra = '    executor: worker_queue\n    script: "ls data/"\n'
+        yaml_text = _workflow(
+            _stage(_HOST_CHECK + _HOST_USE, extra=extra), params='host: "example.com"'
+        )
         self.assertEqual(self.assert_fires(yaml_text)[0].stage, "work")
 
     def test_worker_script_check_does_not_validate_descendants(self) -> None:
@@ -65,7 +68,11 @@ class TestWorkerStageCheckParams(_RuleCase):
         # reads the job's exit status, so a rejected check stops nothing.
         script = json.dumps("./bin/workflow check-params m.json --check host=trusted")
         yaml_text = _workflow(
-            _stage("Enqueued.", name="check", extra=f"    executor: worker_queue\n    script: {script}\n"),
+            _stage(
+                "Enqueued.",
+                name="check",
+                extra=f"    executor: worker_queue\n    script: {script}\n",
+            ),
             _stage(_HOST_USE, name="use", depends_on="[check]"),
             params='host: "example.com"',
         )
@@ -76,7 +83,10 @@ class TestWorkerStageCheckParams(_RuleCase):
 
 
 def _worker_queue_workflow(
-    script: str, *, description: str = "Enqueued once per domain.", stage_script: str = "",
+    script: str,
+    *,
+    description: str = "Enqueued once per domain.",
+    stage_script: str = "",
     params: str = "",
 ) -> str:
     """worker-queue-fanout.yaml check-domain shape: a worker_queue fan-out over domains."""
@@ -135,8 +145,11 @@ class TestUnquotedFanOutKeyWorkerQueue(unittest.TestCase):
         self.assertEqual([w.field for w in hits], ["fan_out.script"])
 
     def test_every_occurrence_is_counted_per_script(self) -> None:
-        hits = self._hits(_worker_queue_workflow(
-            "ls \"{domain}/\" || echo 'no dir: {domain}'", stage_script="ls '{domain}'"))
+        hits = self._hits(
+            _worker_queue_workflow(
+                "ls \"{domain}/\" || echo 'no dir: {domain}'", stage_script="ls '{domain}'"
+            )
+        )
         self.assertEqual([w.field for w in hits], ["fan_out.script", "script"])
         self.assertIn("2 time(s)", hits[0].message)
         self.assertIn("1 time(s)", hits[1].message)
@@ -147,7 +160,9 @@ class TestUnquotedFanOutKeyWorkerQueue(unittest.TestCase):
         yaml_text = _workflow(
             _stage("List domains.", name="gather", extra="    writes_to:\n      - domains.json\n"),
             _stage(
-                'Check:\n\n  ls "{domain}/"\n', name="check-domain", depends_on="[gather]",
+                'Check:\n\n  ls "{domain}/"\n',
+                name="check-domain",
+                depends_on="[gather]",
                 extra=(
                     "    reads_from: [gather]\n"
                     "    fan_out:\n      source: gather\n      field: domains\n      key: domain\n"
@@ -159,14 +174,18 @@ class TestUnquotedFanOutKeyWorkerQueue(unittest.TestCase):
 
     def test_script_without_key_is_silent(self) -> None:
         # Happy path: a script that takes nothing from the fan-out item.
-        self.assertEqual(self._hits(_worker_queue_workflow("ls data/", stage_script="wc -l data/x")), [])
+        self.assertEqual(
+            self._hits(_worker_queue_workflow("ls data/", stage_script="wc -l data/x")), []
+        )
 
     def test_description_is_not_checked_in_worker_queue_mode(self) -> None:
         # Neither prose nor a shell-shaped line in the description reaches a
         # shell or an agent in this mode.
         for description in ("Remove the {domain} directory.", "Remove it:\n\n  rm -r {domain}\n"):
             with self.subTest(description=description):
-                self.assertEqual(self._hits(_worker_queue_workflow("ls data/", description=description)), [])
+                self.assertEqual(
+                    self._hits(_worker_queue_workflow("ls data/", description=description)), []
+                )
 
     def test_has_teeth(self) -> None:
         yaml_text = _worker_queue_workflow("rm {domain}")
@@ -192,8 +211,12 @@ class TestWorkerScriptsAreLinted(unittest.TestCase):
         self.assertEqual(warnings, [(RULE_PYTHON_NOT_ISOLATED, "fan_out.script")])
 
     def test_unbound_variable_in_script_fires(self) -> None:
-        warnings = self._warnings(_worker_queue_workflow('ls "$UNBOUND"', stage_script='wc -l "$OTHER"'))
-        self.assertEqual(warnings, [(RULE_UNBOUND_VARIABLE, "fan_out.script"), (RULE_UNBOUND_VARIABLE, "script")])
+        warnings = self._warnings(
+            _worker_queue_workflow('ls "$UNBOUND"', stage_script='wc -l "$OTHER"')
+        )
+        self.assertEqual(
+            warnings, [(RULE_UNBOUND_VARIABLE, "fan_out.script"), (RULE_UNBOUND_VARIABLE, "script")]
+        )
 
     def test_each_script_is_its_own_shell(self) -> None:
         # Each field runs as a separate `bash FILE`: a binding in one does
@@ -207,26 +230,46 @@ class TestWorkerScriptsAreLinted(unittest.TestCase):
 
     def test_clean_scripts_are_silent(self) -> None:
         # Happy path: isolated interpreter, variable bound in the same script.
-        self.assertEqual(self._warnings(_worker_queue_workflow(
-            'X=data; ls "$X"', stage_script="python3 -I x.py")), [])
+        self.assertEqual(
+            self._warnings(
+                _worker_queue_workflow('X=data; ls "$X"', stage_script="python3 -I x.py")
+            ),
+            [],
+        )
 
     def test_description_is_not_checked_or_double_reported(self) -> None:
         # The description never executes in this mode: a bare interpreter,
         # an unbound variable and a refused loop there report nothing, and
         # the script's own offender is reported once, under its field.
-        description = 'Run:\n\n  python3 runner\n  echo "$UNBOUND"\n  for f in a; do rm "$f"; done\n'
-        self.assertEqual(self._warnings(_worker_queue_workflow(
-            "ls data/", description=description, stage_script="python3 -I x.py")), [])
-        self.assertEqual(self._warnings(_worker_queue_workflow(
-            "ls data/", description=description, stage_script="python3 runner")),
-            [(RULE_PYTHON_NOT_ISOLATED, "script")])
+        description = (
+            'Run:\n\n  python3 runner\n  echo "$UNBOUND"\n  for f in a; do rm "$f"; done\n'
+        )
+        self.assertEqual(
+            self._warnings(
+                _worker_queue_workflow(
+                    "ls data/", description=description, stage_script="python3 -I x.py"
+                )
+            ),
+            [],
+        )
+        self.assertEqual(
+            self._warnings(
+                _worker_queue_workflow(
+                    "ls data/", description=description, stage_script="python3 runner"
+                )
+            ),
+            [(RULE_PYTHON_NOT_ISOLATED, "script")],
+        )
 
     def test_caller_params_in_scripts_are_not_reported(self) -> None:
         # The engine substitutes caller params into the description only
         # (compiler.resolve_params); a script's {host} is never replaced, so
         # shell-unvalidated-param stays off for scripts.
-        warnings = self._warnings(_worker_queue_workflow(
-            "curl {host}", stage_script="curl {host}", params='host: "example.com"'))
+        warnings = self._warnings(
+            _worker_queue_workflow(
+                "curl {host}", stage_script="curl {host}", params='host: "example.com"'
+            )
+        )
         self.assertEqual(warnings, [])
 
 

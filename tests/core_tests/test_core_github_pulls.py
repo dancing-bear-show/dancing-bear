@@ -40,7 +40,9 @@ class TestPrView(unittest.TestCase):
     def test_no_pr_means_current_branch_and_repo_is_forwarded(self):
         gh, fake = _gh(lambda c: ok({"number": 5}))
         pulls.pr_view(gh, None, ["number"], repo="o/r")
-        self.assertEqual(fake.calls[0].argv, ["gh", "pr", "view", "--repo", "o/r", "--json", "number"])
+        self.assertEqual(
+            fake.calls[0].argv, ["gh", "pr", "view", "--repo", "o/r", "--json", "number"]
+        )
 
     def test_gh_failure_raises_with_stderr(self):
         gh, _ = _gh(lambda c: ok("", returncode=1, stderr="no pull requests found"))
@@ -54,11 +56,14 @@ class TestPrCreate(unittest.TestCase):
             if call.argv[:3] == ["gh", "pr", "create"]:
                 return ok(create_stdout)
             return ok({"number": 9, "url": "https://github.com/o/r/pull/9"})
+
         return handler
 
     def test_body_goes_on_stdin_and_head_and_draft_are_passed(self):
         gh, fake = _gh(self._handler())
-        out = pulls.pr_create(gh, base="main", title="t", body="`$(rm -rf /)`", head="feat/x", draft=True)
+        out = pulls.pr_create(
+            gh, base="main", title="t", body="`$(rm -rf /)`", head="feat/x", draft=True
+        )
         create = fake.calls[0]
         self.assertEqual(create.input, "`$(rm -rf /)`")
         self.assertNotIn("`$(rm -rf /)`", create.argv)
@@ -87,6 +92,7 @@ class TestPrEdit(unittest.TestCase):
             if call.argv[:3] == ["gh", "pr", "edit"]:
                 return ok("")
             return ok({"title": "old", "body": ""})
+
         gh, _ = _gh(handler)
         with self.assertRaisesRegex(GhError, "title did not update"):
             pulls.pr_edit(gh, 3, title="new")
@@ -96,6 +102,7 @@ class TestPrEdit(unittest.TestCase):
             if call.argv[:3] == ["gh", "pr", "edit"]:
                 return ok("")
             return ok({"title": "t", "body": "body text"})
+
         gh, fake = _gh(handler)
         pulls.pr_edit(gh, 3, body="body text\n\n")
         self.assertEqual(fake.calls[0].input, "body text\n\n")
@@ -131,10 +138,18 @@ class TestPrChecks(unittest.TestCase):
 class TestPrList(unittest.TestCase):
     def test_filters_are_forwarded(self):
         gh, fake = _gh(lambda c: ok([]))
-        pulls.pr_list(gh, fields=["number"], state="merged", limit=5, author="a", head="h", search="s")
+        pulls.pr_list(
+            gh, fields=["number"], state="merged", limit=5, author="a", head="h", search="s"
+        )
         argv = fake.calls[0].argv
-        for flag, value in (("--state", "merged"), ("--limit", "5"), ("--author", "a"),
-                            ("--head", "h"), ("--search", "s"), ("--json", "number")):
+        for flag, value in (
+            ("--state", "merged"),
+            ("--limit", "5"),
+            ("--author", "a"),
+            ("--head", "h"),
+            ("--search", "s"),
+            ("--json", "number"),
+        ):
             self.assertEqual(argv[argv.index(flag) + 1], value)
 
     def test_non_list_raises(self):
@@ -177,6 +192,7 @@ class TestPrReviewComment(unittest.TestCase):
             if "--method" in call.argv:
                 return ok(post_payload, returncode=post_rc)
             raise AssertionError(call.argv)
+
         return handler
 
     def test_posts_typed_fields_with_the_pr_head_sha(self):
@@ -185,7 +201,8 @@ class TestPrReviewComment(unittest.TestCase):
         self.assertEqual(out, {"id": "99", "url": "https://x/r99"})
         post = fake.calls[-1]
         self.assertEqual(
-            post.argv[:5], ["gh", "api", "--method", "POST", "repos/o/r/pulls/7/comments"],
+            post.argv[:5],
+            ["gh", "api", "--method", "POST", "repos/o/r/pulls/7/comments"],
         )
         self.assertIn("--input", post.argv)
         self.assertEqual(post.fields["line"], ("-F", "12"))
@@ -244,6 +261,7 @@ class TestPrTotalCount(unittest.TestCase):
     def _gh_returning(self, total: int):
         def handler(call: GhCall):
             return ok({"data": self._graphql_response(total)})
+
         return FakeGh(handler)
 
     def test_returns_total_count(self):
@@ -263,6 +281,7 @@ class TestPrTotalCount(unittest.TestCase):
     def test_missing_total_count_raises(self):
         def handler(call: GhCall):
             return ok({"data": {"repository": {}}})
+
         fake = FakeGh(handler)
         gh = GhCLI(run_func=fake)
         with self.assertRaisesRegex(GhError, "totalCount"):

@@ -7,7 +7,6 @@ import unittest
 import unittest.mock
 from pathlib import Path
 
-from tests.memory_tests.fixtures import CURRENT_FORMAT_INDEX, MemoryTestCase
 from memory.index import (
     IndexConflictError,
     append_entry,
@@ -17,7 +16,7 @@ from memory.index import (
     render_index_line,
 )
 from memory.parser import parse_memory_file
-
+from tests.memory_tests.fixtures import CURRENT_FORMAT_INDEX, MemoryTestCase
 
 # ---------------------------------------------------------------------------
 # File-local helpers
@@ -58,12 +57,7 @@ class TestParseIndex(MemoryTestCase):
         self.assertEqual(entries[0].line_no, 2)
 
     def test_section_tracked_per_entry(self):
-        content = (
-            "## Feedback\n"
-            "- [a.md](a.md) — entry a\n"
-            "## Reference\n"
-            "- [b.md](b.md) — entry b\n"
-        )
+        content = "## Feedback\n- [a.md](a.md) — entry a\n## Reference\n- [b.md](b.md) — entry b\n"
         index_file = self.tmp / "MEMORY.md"
         _make_index(index_file, content)
 
@@ -76,10 +70,7 @@ class TestParseIndex(MemoryTestCase):
     def test_duplicate_sections_preserved_not_collapsed(self):
         """parse_index does NOT collapse duplicate sections — it sees them as separate."""
         content = (
-            "## Reference\n"
-            "- [a.md](a.md) — first ref\n"
-            "## Reference\n"
-            "- [b.md](b.md) — second ref\n"
+            "## Reference\n- [a.md](a.md) — first ref\n## Reference\n- [b.md](b.md) — second ref\n"
         )
         index_file = self.tmp / "MEMORY.md"
         _make_index(index_file, content)
@@ -246,9 +237,7 @@ class TestAppendEntry(MemoryTestCase):
 
         content = index_file.read_text(encoding="utf-8")
         self.assertIn("feedback_new.md", content)
-        self.assertTrue(
-            "## feedback" in content.lower() or "## Feedback" in content
-        )
+        self.assertTrue("## feedback" in content.lower() or "## Feedback" in content)
 
     def test_append_creates_file_when_absent(self):
         index_file = self.tmp / "MEMORY.md"
@@ -372,9 +361,7 @@ class TestRemoveEntry(MemoryTestCase):
 class TestMergeDuplicateSections(MemoryTestCase):
     def test_no_duplicates_returns_zero_and_leaves_file_unchanged(self):
         index_file = self.tmp / "MEMORY.md"
-        original = (
-            "## Feedback\n- [a.md](a.md) — aaa\n## Reference\n- [b.md](b.md) — bbb\n"
-        )
+        original = "## Feedback\n- [a.md](a.md) — aaa\n## Reference\n- [b.md](b.md) — bbb\n"
         _make_index(index_file, original)
 
         count = merge_duplicate_sections(index_file)

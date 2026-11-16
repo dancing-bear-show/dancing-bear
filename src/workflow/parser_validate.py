@@ -68,9 +68,7 @@ def _dfs_visit(
             state[node] = 2
 
 
-def _validate_reads_from_ordering(
-    stages: tuple[StageSpec, ...], source: str
-) -> None:
+def _validate_reads_from_ordering(stages: tuple[StageSpec, ...], source: str) -> None:
     """Validate that reads_from entries are transitively reachable via depends_on."""
     deps: dict[str, set[str]] = {s.name: set(s.depends_on) for s in stages}
     _cache: dict[str, set[str]] = {}

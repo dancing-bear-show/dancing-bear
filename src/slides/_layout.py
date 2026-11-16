@@ -11,9 +11,11 @@ from slides.constants import (
     LAYOUT_BULLET,
     LAYOUT_SECTION,
     LAYOUT_TITLE_ONLY,
-    RESERVED_LAYOUT_KEY as _FALLBACK_LAYOUT_KEY,
     VALID_LAYOUTS,
     theme_color_map,
+)
+from slides.constants import (
+    RESERVED_LAYOUT_KEY as _FALLBACK_LAYOUT_KEY,
 )
 from slides.schema import SlideContent
 
@@ -160,7 +162,10 @@ class LayoutMixin:
         }
 
     def _prepare_layout_map_mode(
-        self, prs: Any, deck, theme_color: MSO_THEME_COLOR,
+        self,
+        prs: Any,
+        deck,
+        theme_color: MSO_THEME_COLOR,
     ) -> tuple[Any, None, dict[str, Any], MSO_THEME_COLOR]:
         """Prepare presentation using layout_map mode (multiple named layouts).
 
@@ -185,7 +190,10 @@ class LayoutMixin:
         return prs, None, layouts, theme_color
 
     def _prepare_legacy_mode(
-        self, prs: Any, deck, theme_color: MSO_THEME_COLOR,
+        self,
+        prs: Any,
+        deck,
+        theme_color: MSO_THEME_COLOR,
     ) -> tuple[Any, Any, Any, MSO_THEME_COLOR]:
         """Prepare presentation using legacy single-layout mode."""
         num_template_slides = len(prs.slides)
@@ -242,8 +250,7 @@ class LayoutMixin:
         # _FALLBACK_LAYOUT_KEY is an internal sentinel, not a user-facing name.
         valid = sorted(k for k in layouts if k != _FALLBACK_LAYOUT_KEY) or VALID_LAYOUTS
         raise ValueError(
-            f"Slide {content.title!r}: unknown layout {layout_name!r}; "
-            f"expected one of {valid}"
+            f"Slide {content.title!r}: unknown layout {layout_name!r}; expected one of {valid}"
         )
 
     @staticmethod

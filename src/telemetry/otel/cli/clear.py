@@ -8,7 +8,7 @@ from pathlib import Path
 from telemetry.otel.reader import OTLPDataDir
 
 
-def main(argv: list[str] | None = None) -> int:  # NOSONAR S3516 - CLI entry point; multiple return paths all return 0
+def main(argv: list[str] | None = None) -> int:  # NOSONAR S3516 - CLI entry point; multiple return paths all return 0  # fmt: skip
     """Clear telemetry data."""
     parser = argparse.ArgumentParser(
         prog="telemetry clear",

@@ -1,4 +1,5 @@
 """Tests for telemetry/collector.py — OTEL Docker-collector lifecycle helpers."""
+
 from __future__ import annotations
 
 import calendar
@@ -12,13 +13,13 @@ from unittest.mock import patch
 
 from rich.console import Console
 
-from core.process import CompletedRun
 import telemetry.collector as collector
-
+from core.process import CompletedRun
 
 # ---------------------------------------------------------------------------
 # Helper: build a CompletedRun quickly
 # ---------------------------------------------------------------------------
+
 
 def _cr(
     returncode: int = 0,
@@ -28,8 +29,11 @@ def _cr(
     exec_error: OSError | None = None,
 ) -> CompletedRun:
     return CompletedRun(
-        stdout=stdout, stderr=stderr, returncode=returncode,
-        timed_out=timed_out, exec_error=exec_error,
+        stdout=stdout,
+        stderr=stderr,
+        returncode=returncode,
+        timed_out=timed_out,
+        exec_error=exec_error,
     )
 
 
@@ -46,6 +50,7 @@ def _timed_out() -> CompletedRun:
 # ---------------------------------------------------------------------------
 # Helper: swap module-level consoles for StringIO-backed ones, return buffers
 # ---------------------------------------------------------------------------
+
 
 class _ConsoleCapture:
     """Context manager that replaces the module-level consoles with StringIO-backed ones."""
@@ -80,8 +85,8 @@ class _ConsoleCapture:
 # 1. collector._decode_otlp_value
 # ===========================================================================
 
-class TestDecodeOtlpValue(unittest.TestCase):
 
+class TestDecodeOtlpValue(unittest.TestCase):
     def test_string_value(self):
         self.assertEqual(collector._decode_otlp_value({"stringValue": "hello"}), "hello")
 
@@ -167,13 +172,10 @@ def _make_record(
         record["body"] = {"stringValue": body_value}
     if attributes is not None:
         record["attributes"] = attributes
-    return json.dumps({
-        "resourceLogs": [{"scopeLogs": [{"logRecords": [record]}]}]
-    })
+    return json.dumps({"resourceLogs": [{"scopeLogs": [{"logRecords": [record]}]}]})
 
 
 class TestParseOtlpEvent(unittest.TestCase):
-
     def test_valid_line_returns_dict(self):
         result = collector._parse_otlp_event(_make_record())
         self.assertIsNotNone(result)
@@ -253,8 +255,8 @@ class TestParseOtlpEvent(unittest.TestCase):
 # 3. collector._parse_event_lines
 # ===========================================================================
 
-class TestParseEventLines(unittest.TestCase):
 
+class TestParseEventLines(unittest.TestCase):
     def test_empty_input(self):
         rows, skipped = collector._parse_event_lines([])
         self.assertEqual(rows, [])
@@ -277,12 +279,12 @@ class TestParseEventLines(unittest.TestCase):
 
     def test_mix_of_valid_invalid_and_blank(self):
         lines = [
-            _make_record(),         # valid
-            "",                     # blank — not counted
-            "bad json",             # invalid → skipped
-            "   ",                  # whitespace — not counted
+            _make_record(),  # valid
+            "",  # blank — not counted
+            "bad json",  # invalid → skipped
+            "   ",  # whitespace — not counted
             _make_record(time_unix_nano=_ONE_SECOND_NS),  # valid
-            "{not json",            # invalid → skipped
+            "{not json",  # invalid → skipped
         ]
         rows, skipped = collector._parse_event_lines(lines)
         self.assertEqual(len(rows), 2)
@@ -299,8 +301,8 @@ class TestParseEventLines(unittest.TestCase):
 # 4. collector._emit_no_events
 # ===========================================================================
 
-class TestEmitNoEvents(unittest.TestCase):
 
+class TestEmitNoEvents(unittest.TestCase):
     def test_json_fmt_calls_emit_rows(self):
         with patch("telemetry.collector.emit_rows") as mock_emit:
             collector._emit_no_events("json", "some message")
@@ -328,8 +330,8 @@ class TestEmitNoEvents(unittest.TestCase):
 # 5. collector._docker_env
 # ===========================================================================
 
-class TestDockerEnv(unittest.TestCase):
 
+class TestDockerEnv(unittest.TestCase):
     def test_docker_host_already_set_is_preserved(self):
         with patch.dict(os.environ, {"DOCKER_HOST": "tcp://existing:2376"}, clear=False):
             env = collector._docker_env()
@@ -370,8 +372,8 @@ class TestDockerEnv(unittest.TestCase):
 # 6. collector._run_compose
 # ===========================================================================
 
-class TestRunCompose(unittest.TestCase):
 
+class TestRunCompose(unittest.TestCase):
     def test_success_on_first_try(self):
         expected = _cr(returncode=0, stdout="done")
         with patch("telemetry.collector.run_binary", return_value=expected) as mock_run:
@@ -402,7 +404,9 @@ class TestRunCompose(unittest.TestCase):
         self.assertIn("docker-compose not found", cap.err)
 
     def test_permission_error_does_not_fall_back_or_report_not_found(self):
-        denied = _cr(returncode=126, stderr="permission denied", exec_error=PermissionError("denied"))
+        denied = _cr(
+            returncode=126, stderr="permission denied", exec_error=PermissionError("denied")
+        )
         with _ConsoleCapture() as cap:
             with patch("telemetry.collector.run_binary", return_value=denied) as mock_run:
                 result = collector._run_compose(["up", "-d"], env={})
@@ -411,7 +415,9 @@ class TestRunCompose(unittest.TestCase):
         self.assertNotIn("docker-compose not found", cap.err)
 
     def test_plugin_permission_error_not_reported_as_missing(self):
-        denied = _cr(returncode=126, stderr="permission denied", exec_error=PermissionError("denied"))
+        denied = _cr(
+            returncode=126, stderr="permission denied", exec_error=PermissionError("denied")
+        )
         with _ConsoleCapture() as cap:
             with patch("telemetry.collector.run_binary", side_effect=[_not_found(), denied]):
                 result = collector._run_compose(["up", "-d"], env={})
@@ -427,7 +433,9 @@ class TestRunCompose(unittest.TestCase):
 
     def test_timeout_on_plugin_fallback_prints_error_and_returns_none(self):
         with _ConsoleCapture() as cap:
-            with patch("telemetry.collector.run_binary", side_effect=[_not_found(), _timed_out()]) as mock_run:
+            with patch(
+                "telemetry.collector.run_binary", side_effect=[_not_found(), _timed_out()]
+            ) as mock_run:
                 result = collector._run_compose(["up", "-d"], env={})
         self.assertIsNone(result)
         self.assertEqual(mock_run.call_count, 2)
@@ -446,12 +454,10 @@ class TestRunCompose(unittest.TestCase):
 # 7. collector._print_port_bindings
 # ===========================================================================
 
-class TestPrintPortBindings(unittest.TestCase):
 
+class TestPrintPortBindings(unittest.TestCase):
     def test_valid_port_bindings_printed(self):
-        ports_json = json.dumps({
-            "4317/tcp": [{"HostIp": "127.0.0.1", "HostPort": "4317"}]
-        })
+        ports_json = json.dumps({"4317/tcp": [{"HostIp": "127.0.0.1", "HostPort": "4317"}]})
         with _ConsoleCapture() as cap:
             with patch("telemetry.collector.run_binary", return_value=_cr(stdout=ports_json)):
                 collector._print_port_bindings("abc123def456", env={})
@@ -459,18 +465,18 @@ class TestPrintPortBindings(unittest.TestCase):
         self.assertIn("127.0.0.1:4317", cap.out)
 
     def test_host_ip_defaults_to_0_0_0_0(self):
-        ports_json = json.dumps({
-            "8080/tcp": [{"HostPort": "8080"}]
-        })
+        ports_json = json.dumps({"8080/tcp": [{"HostPort": "8080"}]})
         with _ConsoleCapture() as cap:
             with patch("telemetry.collector.run_binary", return_value=_cr(stdout=ports_json)):
                 collector._print_port_bindings("abc123def456", env={})
         self.assertIn("0.0.0.0:8080", cap.out)
 
     def test_host_port_defaults_to_question_mark(self):
-        ports_json = json.dumps({
-            "9090/tcp": [{"HostIp": "0.0.0.0"}]  # nosec B104 - fixture value, not a socket bind
-        })
+        ports_json = json.dumps(
+            {
+                "9090/tcp": [{"HostIp": "0.0.0.0"}]  # nosec B104 - fixture value, not a socket bind
+            }
+        )
         with _ConsoleCapture() as cap:
             with patch("telemetry.collector.run_binary", return_value=_cr(stdout=ports_json)):
                 collector._print_port_bindings("abc123def456", env={})
@@ -478,7 +484,9 @@ class TestPrintPortBindings(unittest.TestCase):
 
     def test_non_zero_returncode_no_output(self):
         with _ConsoleCapture() as cap:
-            with patch("telemetry.collector.run_binary", return_value=_cr(returncode=1, stderr="error")):
+            with patch(
+                "telemetry.collector.run_binary", return_value=_cr(returncode=1, stderr="error")
+            ):
                 collector._print_port_bindings("abc123def456", env={})
         self.assertEqual(cap.out.strip(), "")
 
@@ -520,14 +528,14 @@ class TestPrintPortBindings(unittest.TestCase):
 # 8. collector._print_container_details
 # ===========================================================================
 
-class TestPrintContainerDetails(unittest.TestCase):
 
+class TestPrintContainerDetails(unittest.TestCase):
     def test_last_five_lines_shown(self):
         log_lines = ["line1", "line2", "line3", "line4", "line5", "line6", "line7"]
         logs_stdout = "\n".join(log_lines)
         side_effects = [
-            _cr(stdout="{}"),          # inspect call (port bindings — empty json)
-            _cr(stdout=logs_stdout),   # logs call
+            _cr(stdout="{}"),  # inspect call (port bindings — empty json)
+            _cr(stdout=logs_stdout),  # logs call
         ]
         with _ConsoleCapture() as cap:
             with patch("telemetry.collector.run_binary", side_effect=side_effects):
@@ -585,8 +593,8 @@ class TestPrintContainerDetails(unittest.TestCase):
 # 9. collector._print_docker_containers
 # ===========================================================================
 
-class TestPrintDockerContainers(unittest.TestCase):
 
+class TestPrintDockerContainers(unittest.TestCase):
     def test_docker_not_installed_prints_error(self):
         with _ConsoleCapture() as cap:
             with patch("telemetry.collector.run_binary", return_value=_not_found()):
@@ -594,7 +602,9 @@ class TestPrintDockerContainers(unittest.TestCase):
         self.assertIn("docker not found", cap.err)
 
     def test_permission_error_shows_diagnostic_not_missing(self):
-        denied = _cr(returncode=126, stderr="permission denied", exec_error=PermissionError("denied"))
+        denied = _cr(
+            returncode=126, stderr="permission denied", exec_error=PermissionError("denied")
+        )
         with _ConsoleCapture() as cap:
             with patch("telemetry.collector.run_binary", return_value=denied):
                 collector._print_docker_containers(env={})
@@ -610,7 +620,10 @@ class TestPrintDockerContainers(unittest.TestCase):
 
     def test_non_zero_returncode_prints_stderr(self):
         with _ConsoleCapture() as cap:
-            with patch("telemetry.collector.run_binary", return_value=_cr(returncode=1, stderr="permission denied")):
+            with patch(
+                "telemetry.collector.run_binary",
+                return_value=_cr(returncode=1, stderr="permission denied"),
+            ):
                 collector._print_docker_containers(env={})
         self.assertIn("permission denied", cap.err)
 
@@ -692,8 +705,8 @@ class TestPrintDockerContainers(unittest.TestCase):
 # 10. collector._print_data_files
 # ===========================================================================
 
-class TestPrintDataFiles(unittest.TestCase):
 
+class TestPrintDataFiles(unittest.TestCase):
     def test_all_files_present(self):
         with tempfile.TemporaryDirectory() as td:
             data_dir = Path(td)

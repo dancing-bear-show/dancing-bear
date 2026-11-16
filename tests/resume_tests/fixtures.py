@@ -71,14 +71,17 @@ from tests.fakes.docx import FakeDocument, FakeParagraph, FakeRun  # noqa: F401
 # =============================================================================
 
 # Common docx module mock pattern used across resume tests
-mock_docx_modules = patch.dict("sys.modules", {
-    "docx": MagicMock(),
-    "docx.shared": MagicMock(),
-    "docx.enum.text": MagicMock(),
-    "docx.enum.table": MagicMock(),
-    "docx.oxml": MagicMock(),
-    "docx.oxml.ns": MagicMock(),
-})
+mock_docx_modules = patch.dict(
+    "sys.modules",
+    {
+        "docx": MagicMock(),
+        "docx.shared": MagicMock(),
+        "docx.enum.text": MagicMock(),
+        "docx.enum.table": MagicMock(),
+        "docx.oxml": MagicMock(),
+        "docx.oxml.ns": MagicMock(),
+    },
+)
 
 
 # =============================================================================
@@ -99,8 +102,9 @@ class KeywordMatcherTestMixin:
 
     def setUp(self):  # NOSONAR - required unittest lifecycle method name
         from resume.keyword_matcher import KeywordMatcher
+
         self.matcher = KeywordMatcher()
-        super().setUp() if hasattr(super(), 'setUp') else None
+        super().setUp() if hasattr(super(), "setUp") else None
 
 
 # =============================================================================

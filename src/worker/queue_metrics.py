@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from core.date_utils import now_utc
+from core.fileutil import safe_load_json
 from worker.queue_ops import (
     _ensure_dirs,
     _get_file_mtime,
@@ -17,7 +18,6 @@ from worker.queue_ops import (
     _q,
     list_processing,
 )
-from core.fileutil import safe_load_json
 
 
 def counts(root: Path | None = None) -> dict[str, int]:

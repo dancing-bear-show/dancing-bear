@@ -50,9 +50,7 @@ def _render(presentations: list) -> list:
 
     with tempfile.TemporaryDirectory() as tmp:
         out = os.path.join(tmp, "resume.docx")
-        write_resume_docx(
-            Resume.from_dict(_resume(presentations)), _TEMPLATE, out
-        )
+        write_resume_docx(Resume.from_dict(_resume(presentations)), _TEMPLATE, out)
         return list(docx.Document(out).paragraphs)
 
 
@@ -80,8 +78,7 @@ class LinkOnlyPresentationRunTests(unittest.TestCase):
         self.assertEqual(
             _empty_runs(bullet),
             [],
-            f"link-only bullet carries zero-length run(s): "
-            f"{[r.text for r in bullet.runs]}",
+            f"link-only bullet carries zero-length run(s): {[r.text for r in bullet.runs]}",
         )
 
     def test_link_only_entry_paragraph_carries_only_the_glyph_run(self):
@@ -112,9 +109,7 @@ class LinkOnlyPresentationRunTests(unittest.TestCase):
             f"hyperlink text missing from bullet: {bullet.text!r}",
         )
         xml = bullet._p.xml
-        self.assertIn(
-            "hyperlink", xml, "expected a w:hyperlink element on the bullet"
-        )
+        self.assertIn("hyperlink", xml, "expected a w:hyperlink element on the bullet")
 
 
 class NormalPresentationRunTests(unittest.TestCase):
@@ -138,8 +133,7 @@ class NormalPresentationRunTests(unittest.TestCase):
         self.assertEqual(
             _empty_runs(bullet),
             [],
-            f"titled bullet carries zero-length run(s): "
-            f"{[r.text for r in bullet.runs]}",
+            f"titled bullet carries zero-length run(s): {[r.text for r in bullet.runs]}",
         )
         self.assertEqual(
             [r.text for r in bullet.runs],

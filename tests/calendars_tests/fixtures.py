@@ -5,23 +5,23 @@ Outlook client fakes, calendar service fakes, and event helpers.
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 # Re-export fakes from centralized fakes module
 from tests.fakes.outlook import (
-    FakeOutlookClient,
     FakeCalendarService,
+    FakeOutlookClient,
     make_outlook_client,
 )
 
 __all__ = [
-    "make_outlook_event",
-    "FakeOutlookClient",
-    "make_outlook_client",
     "FakeCalendarService",
     "FakeGoogleCalendarService",
+    "FakeOutlookClient",
     "NoOpProducer",
     "make_mock_processor_class",
+    "make_outlook_client",
+    "make_outlook_event",
 ]
 
 
@@ -35,12 +35,12 @@ def make_outlook_event(
     start_iso: str = "2025-01-01T10:00:00",
     end_iso: str = "2025-01-01T11:00:00",
     **kwargs,
-) -> Dict:
+) -> dict:
     """Create a fake Outlook event dict for testing.
 
     Optional kwargs: series_id, location, created, event_type.
     """
-    event: Dict = {
+    event: dict = {
         "subject": subject,
         "start": {"dateTime": start_iso},
         "end": {"dateTime": end_iso},
@@ -82,9 +82,11 @@ def make_mock_processor_class(envelope):
     Returns:
         A class (not instance) that can be passed to run_pipeline
     """
+
     class MockProcessor:
         def process(self, _req):  # NOSONAR - fake interface must match real signature
             return envelope
+
     return MockProcessor
 
 

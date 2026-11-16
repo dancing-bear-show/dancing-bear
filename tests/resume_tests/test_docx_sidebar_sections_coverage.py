@@ -17,23 +17,24 @@ Methods tested (SidebarResumeWriter):
   _render_sidebar_content
   _render_main_content
 """
+
 from __future__ import annotations
 
 import unittest
 from unittest.mock import MagicMock, patch
 
-from tests.resume_tests.fixtures import (
-    make_experience_entry,
-    make_education_entry,
-    make_skills_group,
-    make_candidate,
-)
 from resume.schema import ExperienceEntry, Presentation, PriorityItem, Resume
-
+from tests.resume_tests.fixtures import (
+    make_candidate,
+    make_education_entry,
+    make_experience_entry,
+    make_skills_group,
+)
 
 # ---------------------------------------------------------------------------
 # Shared cell factory — reused across all test classes.
 # ---------------------------------------------------------------------------
+
 
 def _make_cell():
     """Return (cell_mock, paragraphs_list) with a tracking add_paragraph."""
@@ -67,6 +68,7 @@ def _make_cell():
 def _make_writer(data=None, template=None):
     """Return a SidebarResumeWriter with a MagicMock doc (no I/O)."""
     from resume.docx_sidebar_sections import SidebarResumeWriter
+
     if data is None:
         data = {"name": "Jane Doe", "email": "jane@example.com"}
     if template is None:
@@ -80,11 +82,13 @@ def _make_writer(data=None, template=None):
 # _add_colored_bullet_run
 # ===========================================================================
 
+
 class TestAddColoredBulletRun(unittest.TestCase):
     """Tests for module-level _add_colored_bullet_run."""
 
     def setUp(self):
         from resume.docx_sidebar_sections import _add_colored_bullet_run
+
         self._fn = _add_colored_bullet_run
 
     def _make_p(self):
@@ -127,11 +131,13 @@ class TestAddColoredBulletRun(unittest.TestCase):
 # _render_exp_entry
 # ===========================================================================
 
+
 class TestRenderExpEntry(unittest.TestCase):
     """Tests for module-level _render_exp_entry."""
 
     def setUp(self):
         from resume.docx_sidebar_sections import _render_exp_entry
+
         self._fn = _render_exp_entry
 
     def test_full_entry_produces_title_company_and_bullets(self):
@@ -159,7 +165,9 @@ class TestRenderExpEntry(unittest.TestCase):
     def test_entry_with_end_uses_dash_separator(self):
         """When end is present, span uses ' – ' separator and keeps the end date."""
         cell, paras = _make_cell()
-        exp = ExperienceEntry.from_dict({"title": "Dev", "start": "2020", "end": "2023", "bullets": []})
+        exp = ExperienceEntry.from_dict(
+            {"title": "Dev", "start": "2020", "end": "2023", "bullets": []}
+        )
         self._fn(cell, exp, {"body_pt": 10}, "#4A90A4", 3)
         span = self._span_text(paras[0])
         self.assertTrue(span, "Expected dash in span run text")
@@ -238,31 +246,39 @@ class TestRenderExpEntry(unittest.TestCase):
 # _render_pres_entry
 # ===========================================================================
 
+
 class TestRenderPresEntry(unittest.TestCase):
     """Tests for module-level _render_pres_entry."""
 
     def setUp(self):
         from resume.docx_sidebar_sections import _render_pres_entry
+
         self._fn = _render_pres_entry
 
     def test_full_entry_produces_four_paragraphs(self):
         """title + authors + event + note = 4 paragraphs."""
         cell, paras = _make_cell()
-        pres = Presentation.from_dict({"title": "My Talk", "authors": "A. Author", "event": "PyCon", "note": "Best Paper"})
+        pres = Presentation.from_dict(
+            {"title": "My Talk", "authors": "A. Author", "event": "PyCon", "note": "Best Paper"}
+        )
         self._fn(cell, pres, {"body_pt": 10, "meta_pt": 9}, "#4A90A4")
         self.assertEqual(len(paras), 4)
 
     def test_no_note_with_event_has_three_paragraphs(self):
         """When note is absent but event is present, 3 paragraphs are produced."""
         cell, paras = _make_cell()
-        pres = Presentation.from_dict({"title": "My Talk", "authors": "A. Author", "event": "PyCon", "note": ""})
+        pres = Presentation.from_dict(
+            {"title": "My Talk", "authors": "A. Author", "event": "PyCon", "note": ""}
+        )
         self._fn(cell, pres, {"body_pt": 10}, "#4A90A4")
         self.assertEqual(len(paras), 3)
 
     def test_no_note_no_event_has_two_paragraphs(self):
         """When note and event are absent, 2 paragraphs are produced."""
         cell, paras = _make_cell()
-        pres = Presentation.from_dict({"title": "My Talk", "authors": "A. Author", "event": "", "note": ""})
+        pres = Presentation.from_dict(
+            {"title": "My Talk", "authors": "A. Author", "event": "", "note": ""}
+        )
         self._fn(cell, pres, {"body_pt": 10}, "#4A90A4")
         self.assertEqual(len(paras), 2)
 
@@ -296,6 +312,7 @@ class TestRenderPresEntry(unittest.TestCase):
 # _item_text
 # ===========================================================================
 
+
 class TestItemText(unittest.TestCase):
     """Tests for the _item_text helper.
 
@@ -306,6 +323,7 @@ class TestItemText(unittest.TestCase):
 
     def setUp(self):
         from resume.docx_sidebar_sections import _item_text
+
         self._fn = _item_text
 
     def test_alias_keyed_summary_entry_renders_prose(self):
@@ -373,11 +391,13 @@ class TestItemText(unittest.TestCase):
 # SidebarResumeWriter._normalize_summary_items
 # ===========================================================================
 
+
 class TestNormalizeSummaryItems(unittest.TestCase):
     """Tests for the _normalize_summary_items staticmethod."""
 
     def setUp(self):
         from resume.docx_sidebar_sections import SidebarResumeWriter
+
         self._fn = SidebarResumeWriter._normalize_summary_items
 
     def test_empty_list_returns_empty_list(self):
@@ -386,7 +406,10 @@ class TestNormalizeSummaryItems(unittest.TestCase):
 
     def test_text_keyed_items_return_prose(self):
         """Items whose text arrived under the canonical 'text' key return their prose."""
-        items = [PriorityItem.from_dict({"text": "hello"}), PriorityItem.from_dict({"text": "world"})]
+        items = [
+            PriorityItem.from_dict({"text": "hello"}),
+            PriorityItem.from_dict({"text": "world"}),
+        ]
         self.assertEqual(self._fn(items), ["hello", "world"])
 
     def test_alias_keyed_item_returns_its_prose(self):
@@ -426,9 +449,7 @@ class TestNormalizeSummaryItems(unittest.TestCase):
 
         resume = Resume.from_dict({"summary": "Real prose."})
         self.assertTrue(resume.summary_is_scalar)
-        self.assertEqual(
-            self._fn(resume.summary, resume.summary_is_scalar), ["Real prose."]
-        )
+        self.assertEqual(self._fn(resume.summary, resume.summary_is_scalar), ["Real prose."])
 
     def test_list_form_empty_summary_still_returns_blank_item(self):
         """Scope guard: the list form keeps its pre-migration behaviour.
@@ -452,11 +473,13 @@ class TestNormalizeSummaryItems(unittest.TestCase):
 # SidebarResumeWriter._render_centered_header_line
 # ===========================================================================
 
+
 class TestRenderCenteredHeaderLine(unittest.TestCase):
     """Tests for _render_centered_header_line method."""
 
     def _make_style(self, bg_rgb=None):
         from resume.render_config import CenteredHeaderLineStyle
+
         return CenteredHeaderLineStyle(
             size_pt=20, color="#1A365D", bold=True, after_pt=0, bg_rgb=bg_rgb
         )
@@ -467,10 +490,12 @@ class TestRenderCenteredHeaderLine(unittest.TestCase):
         p.add_run.return_value = MagicMock()
         style = self._make_style(bg_rgb=(247, 249, 252))
 
-        with patch("resume.docx_sidebar_sections._parse_hex_color", return_value=(26, 54, 93)), \
-             patch("resume.docx_sidebar_sections._tight_paragraph"), \
-             patch("resume.docx_sidebar_sections._apply_paragraph_shading") as mock_shade, \
-             patch.object(writer, "_center_paragraph"):
+        with (
+            patch("resume.docx_sidebar_sections._parse_hex_color", return_value=(26, 54, 93)),
+            patch("resume.docx_sidebar_sections._tight_paragraph"),
+            patch("resume.docx_sidebar_sections._apply_paragraph_shading") as mock_shade,
+            patch.object(writer, "_center_paragraph"),
+        ):
             writer._render_centered_header_line(p, "Name", style)
             mock_shade.assert_called_once_with(p, (247, 249, 252))
 
@@ -480,10 +505,12 @@ class TestRenderCenteredHeaderLine(unittest.TestCase):
         p.add_run.return_value = MagicMock()
         style = self._make_style(bg_rgb=None)
 
-        with patch("resume.docx_sidebar_sections._parse_hex_color", return_value=(26, 54, 93)), \
-             patch("resume.docx_sidebar_sections._tight_paragraph"), \
-             patch("resume.docx_sidebar_sections._apply_paragraph_shading") as mock_shade, \
-             patch.object(writer, "_center_paragraph"):
+        with (
+            patch("resume.docx_sidebar_sections._parse_hex_color", return_value=(26, 54, 93)),
+            patch("resume.docx_sidebar_sections._tight_paragraph"),
+            patch("resume.docx_sidebar_sections._apply_paragraph_shading") as mock_shade,
+            patch.object(writer, "_center_paragraph"),
+        ):
             writer._render_centered_header_line(p, "Name", style)
             mock_shade.assert_not_called()
 
@@ -497,9 +524,11 @@ class TestRenderCenteredHeaderLine(unittest.TestCase):
         style = self._make_style(bg_rgb=None)
         original_rgb = run.font.color.rgb
 
-        with patch("resume.docx_sidebar_sections._parse_hex_color", return_value=None), \
-             patch("resume.docx_sidebar_sections._tight_paragraph"), \
-             patch.object(writer, "_center_paragraph"):
+        with (
+            patch("resume.docx_sidebar_sections._parse_hex_color", return_value=None),
+            patch("resume.docx_sidebar_sections._tight_paragraph"),
+            patch.object(writer, "_center_paragraph"),
+        ):
             writer._render_centered_header_line(p, "Name", style)
         self.assertEqual(run.font.color.rgb, original_rgb)
 
@@ -511,9 +540,11 @@ class TestRenderCenteredHeaderLine(unittest.TestCase):
         p.add_run.return_value = run
         style = self._make_style()
 
-        with patch("resume.docx_sidebar_sections._parse_hex_color", return_value=None), \
-             patch("resume.docx_sidebar_sections._tight_paragraph"), \
-             patch.object(writer, "_center_paragraph"):
+        with (
+            patch("resume.docx_sidebar_sections._parse_hex_color", return_value=None),
+            patch("resume.docx_sidebar_sections._tight_paragraph"),
+            patch.object(writer, "_center_paragraph"),
+        ):
             writer._render_centered_header_line(p, "Hello", style)
 
         p.add_run.assert_called_once_with("Hello")
@@ -523,6 +554,7 @@ class TestRenderCenteredHeaderLine(unittest.TestCase):
 # ===========================================================================
 # SidebarResumeWriter._render_page_header
 # ===========================================================================
+
 
 class TestRenderPageHeader(unittest.TestCase):
     """Tests for _render_page_header method."""
@@ -579,7 +611,9 @@ class TestRenderPageHeader(unittest.TestCase):
 
     def test_contact_line_joins_non_empty_parts(self):
         """phone, email, location are joined with ' | '."""
-        writer = _make_writer(data={"name": "Jane", "phone": "555", "email": "j@j.com", "location": "NY"})
+        writer = _make_writer(
+            data={"name": "Jane", "phone": "555", "email": "j@j.com", "location": "NY"}
+        )
         self._setup_header(writer)
         with patch.object(writer, "_render_centered_header_line") as mock_chl:
             writer._render_page_header()
@@ -591,7 +625,13 @@ class TestRenderPageHeader(unittest.TestCase):
         self.assertIn("|", contact_text)
 
     def test_all_three_sections_rendered_when_all_present(self):
-        data = {"name": "Jane", "headline": "Eng", "email": "j@j.com", "phone": "555", "location": "NY"}
+        data = {
+            "name": "Jane",
+            "headline": "Eng",
+            "email": "j@j.com",
+            "phone": "555",
+            "location": "NY",
+        }
         writer = _make_writer(data=data)
         self._setup_header(writer)
         with patch.object(writer, "_render_centered_header_line") as mock_chl:
@@ -628,13 +668,15 @@ class TestRenderPageHeader(unittest.TestCase):
 # SidebarResumeWriter._render_sidebar_summary
 # ===========================================================================
 
+
 class TestRenderSidebarSummary(unittest.TestCase):
     """Tests for _render_sidebar_summary method."""
 
     def test_renders_when_summary_section_exists_and_data_present(self):
         data = make_candidate(summary=["I am great", "I know things"])
         template = {
-            "page": {}, "layout": {},
+            "page": {},
+            "layout": {},
             "sections": [{"key": "summary", "title": "Profile"}],
         }
         writer = _make_writer(data=data, template=template)
@@ -689,7 +731,11 @@ class TestRenderSidebarSummary(unittest.TestCase):
 
     def test_uses_section_title_from_template(self):
         data = make_candidate(summary=["Item"])
-        template = {"page": {}, "layout": {}, "sections": [{"key": "summary", "title": "My Profile"}]}
+        template = {
+            "page": {},
+            "layout": {},
+            "sections": [{"key": "summary", "title": "My Profile"}],
+        }
         writer = _make_writer(data=data, template=template)
         cell = MagicMock()
 
@@ -702,6 +748,7 @@ class TestRenderSidebarSummary(unittest.TestCase):
 # ===========================================================================
 # SidebarResumeWriter._render_sidebar_skills
 # ===========================================================================
+
 
 class TestRenderSidebarSkills(unittest.TestCase):
     """Tests for _render_sidebar_skills method."""
@@ -794,14 +841,17 @@ class TestRenderSidebarSkills(unittest.TestCase):
 # SidebarResumeWriter._render_sidebar_content
 # ===========================================================================
 
+
 class TestRenderSidebarContent(unittest.TestCase):
     """Tests for _render_sidebar_content method (delegates to summary + skills)."""
 
     def test_calls_both_summary_and_skills(self):
         writer = _make_writer()
         cell = MagicMock()
-        with patch.object(writer, "_render_sidebar_summary") as mock_sum, \
-             patch.object(writer, "_render_sidebar_skills") as mock_sk:
+        with (
+            patch.object(writer, "_render_sidebar_summary") as mock_sum,
+            patch.object(writer, "_render_sidebar_skills") as mock_sk,
+        ):
             writer._render_sidebar_content(cell)
             mock_sum.assert_called_once_with(cell)
             mock_sk.assert_called_once_with(cell)
@@ -810,6 +860,7 @@ class TestRenderSidebarContent(unittest.TestCase):
 # ===========================================================================
 # SidebarResumeWriter._render_main_content
 # ===========================================================================
+
 
 class TestRenderMainContent(unittest.TestCase):
     """Tests for _render_main_content method."""
@@ -823,7 +874,8 @@ class TestRenderMainContent(unittest.TestCase):
             education=[make_education_entry()],
         )
         template = {
-            "page": {}, "layout": {},
+            "page": {},
+            "layout": {},
             "sections": [
                 {"key": "education", "title": "Education"},
                 {"key": "experience", "title": "Experience"},
@@ -850,7 +902,8 @@ class TestRenderMainContent(unittest.TestCase):
     def test_unknown_section_key_is_skipped(self):
         """Sections with unrecognised keys are skipped without error."""
         template = {
-            "page": {}, "layout": {},
+            "page": {},
+            "layout": {},
             "sections": [{"key": "unknown_key", "title": "Whatever"}],
         }
         writer = _make_writer(template=template)
@@ -883,11 +936,13 @@ class TestRenderMainContent(unittest.TestCase):
 # Module-level education / teaching / experience / presentations helpers
 # ===========================================================================
 
+
 class TestRenderMainEducation(unittest.TestCase):
     """Tests for module-level _render_main_education."""
 
     def setUp(self):
         from resume.docx_sidebar_sections import _render_main_education
+
         self._fn = _render_main_education
 
     def test_empty_education_list_produces_no_paragraphs(self):
@@ -902,13 +957,21 @@ class TestRenderMainEducation(unittest.TestCase):
 
     def test_single_entry_produces_paragraphs(self):
         cell, paras = _make_cell()
-        self._fn(cell, Resume.from_dict({"education": [make_education_entry()]}), {"body_pt": 10, "meta_pt": 9})
+        self._fn(
+            cell,
+            Resume.from_dict({"education": [make_education_entry()]}),
+            {"body_pt": 10, "meta_pt": 9},
+        )
         # At minimum: degree paragraph + edu meta paragraph
         self.assertGreaterEqual(len(paras), 2)
 
     def test_degree_run_is_bold(self):
         cell, paras = _make_cell()
-        self._fn(cell, Resume.from_dict({"education": [make_education_entry(degree="B.S. CS")]}), {"body_pt": 10})
+        self._fn(
+            cell,
+            Resume.from_dict({"education": [make_education_entry(degree="B.S. CS")]}),
+            {"body_pt": 10},
+        )
         degree_para = paras[0]
         # Second run (after bullet run) is the degree
         degree_run = degree_para.runs[1]
@@ -920,6 +983,7 @@ class TestRenderMainTeaching(unittest.TestCase):
 
     def setUp(self):
         from resume.docx_sidebar_sections import _render_main_teaching
+
         self._fn = _render_main_teaching
 
     def test_empty_teaching_produces_no_paragraphs(self):
@@ -939,13 +1003,19 @@ class TestRenderMainTeaching(unittest.TestCase):
 
     def test_string_with_parens_produces_title_and_institution(self):
         cell, paras = _make_cell()
-        self._fn(cell, Resume.from_dict({"teaching": ["Python (MIT)"]}), {"body_pt": 10, "meta_pt": 9})
+        self._fn(
+            cell, Resume.from_dict({"teaching": ["Python (MIT)"]}), {"body_pt": 10, "meta_pt": 9}
+        )
         self.assertEqual(len(paras), 2)
 
     def test_dict_item_with_parens(self):
         """teaching is deliberately untyped; dict items with 'text' key are preserved."""
         cell, paras = _make_cell()
-        self._fn(cell, Resume.from_dict({"teaching": [{"text": "DB (Stanford)"}]}), {"body_pt": 10, "meta_pt": 9})
+        self._fn(
+            cell,
+            Resume.from_dict({"teaching": [{"text": "DB (Stanford)"}]}),
+            {"body_pt": 10, "meta_pt": 9},
+        )
         self.assertEqual(len(paras), 2)
 
     def test_title_run_is_uppercase(self):
@@ -960,6 +1030,7 @@ class TestRenderMainExperience(unittest.TestCase):
 
     def setUp(self):
         from resume.docx_sidebar_sections import _render_main_experience
+
         self._fn = _render_main_experience
 
     def test_empty_experience_produces_no_paragraphs(self):
@@ -975,9 +1046,14 @@ class TestRenderMainExperience(unittest.TestCase):
 
     def test_renders_all_experience_entries(self):
         cell, paras = _make_cell()
-        resume = Resume.from_dict({
-            "experience": [make_experience_entry(bullets=[]), make_experience_entry(bullets=[])],
-        })
+        resume = Resume.from_dict(
+            {
+                "experience": [
+                    make_experience_entry(bullets=[]),
+                    make_experience_entry(bullets=[]),
+                ],
+            }
+        )
         self._fn(cell, resume, {"body_pt": 10, "meta_pt": 9}, {"recent_max_bullets": 3})
         # Each entry: title + company = 2 paras; 2 entries = 4
         self.assertEqual(len(paras), 4)
@@ -985,7 +1061,9 @@ class TestRenderMainExperience(unittest.TestCase):
     def test_uses_recent_max_bullets_from_sec(self):
         """max_bullets is read from sec dict."""
         cell, paras = _make_cell()
-        resume = Resume.from_dict({"experience": [make_experience_entry(bullets=["a", "b", "c", "d"])]})
+        resume = Resume.from_dict(
+            {"experience": [make_experience_entry(bullets=["a", "b", "c", "d"])]}
+        )
         self._fn(cell, resume, {"body_pt": 10, "meta_pt": 9}, {"recent_max_bullets": 2})
         # title + company + 2 bullets = 4
         self.assertEqual(len(paras), 4)
@@ -996,6 +1074,7 @@ class TestRenderMainPresentations(unittest.TestCase):
 
     def setUp(self):
         from resume.docx_sidebar_sections import _render_main_presentations
+
         self._fn = _render_main_presentations
 
     def test_empty_presentations_produces_no_paragraphs(self):
@@ -1010,21 +1089,27 @@ class TestRenderMainPresentations(unittest.TestCase):
 
     def test_renders_full_entry(self):
         cell, paras = _make_cell()
-        resume = Resume.from_dict({
-            "presentations": [{"title": "My Talk", "authors": "A. B.", "event": "PyCon", "note": "Best"}],
-        })
+        resume = Resume.from_dict(
+            {
+                "presentations": [
+                    {"title": "My Talk", "authors": "A. B.", "event": "PyCon", "note": "Best"}
+                ],
+            }
+        )
         self._fn(cell, resume, {"body_pt": 10})
         # One paragraph each for title, authors, event and note.
         self.assertEqual(len(paras), 4)
 
     def test_renders_multiple_entries(self):
         cell, paras = _make_cell()
-        resume = Resume.from_dict({
-            "presentations": [
-                {"title": "Talk 1", "note": ""},
-                {"title": "Talk 2", "note": ""},
-            ],
-        })
+        resume = Resume.from_dict(
+            {
+                "presentations": [
+                    {"title": "Talk 1", "note": ""},
+                    {"title": "Talk 2", "note": ""},
+                ],
+            }
+        )
         self._fn(cell, resume, {"body_pt": 10})
         # Each minimal entry = 1 para; 2 entries = 2
         self.assertEqual(len(paras), 2)

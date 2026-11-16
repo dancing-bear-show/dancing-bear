@@ -1,4 +1,5 @@
 """Agentic CLI contract for the telemetry domain."""
+
 from __future__ import annotations
 
 import unittest

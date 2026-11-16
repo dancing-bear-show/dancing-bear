@@ -1,8 +1,9 @@
 """Common helpers for building agentic capsules across assistants."""
+
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable, Sequence
 from functools import lru_cache
-from typing import Callable, Iterable, Sequence
 
 # argparse is optional at import time; type checking only.
 try:  # pragma: no cover - best effort typing
@@ -73,10 +74,7 @@ def build_domain_map(
     leading empty line.
     """
     out: list[str] = [top_level or ""]
-    out.extend(
-        section(title, body)
-        for title, body in tree_and_flow_sections(cli_tree, flow_map)
-    )
+    out.extend(section(title, body) for title, body in tree_and_flow_sections(cli_tree, flow_map))
     return "\n".join([s for s in out if s.strip()])
 
 
@@ -143,7 +141,9 @@ def list_subcommands(parser: ArgumentParser | None) -> list[str]:
     return sorted(getattr(act, "choices", {}).keys())
 
 
-def cached_parser_loader(load_parser: Callable[[], ArgumentParser]) -> Callable[[], ArgumentParser | None]:
+def cached_parser_loader(
+    load_parser: Callable[[], ArgumentParser],
+) -> Callable[[], ArgumentParser | None]:
     """Wrap a parser-building callable with the standard try/except/cache shape.
 
     `load_parser` does the module-specific import and returns a built parser,

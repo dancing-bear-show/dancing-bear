@@ -40,9 +40,9 @@ from typing import Any
 from core.secrets import REDACTED, is_sensitive_key, mask_text
 
 __all__ = [
+    "CheckFn",
     "InvariantViolation",
     "PreflightReport",
-    "CheckFn",
     "evaluate_invariants",
 ]
 
@@ -119,10 +119,7 @@ class PreflightReport:
         ]
         for v in self.violations:
             n_samples = len(v.samples)
-            lines.append(
-                f"  [{v.code}] {v.message} "
-                f"({n_samples} {_plural(n_samples, 'sample')})"
-            )
+            lines.append(f"  [{v.code}] {v.message} ({n_samples} {_plural(n_samples, 'sample')})")
         return "\n".join(lines)
 
 
@@ -238,9 +235,7 @@ def evaluate_invariants(
             code, offending = check(changes, baseline)
         except Exception as exc:  # nosec B112 - handler continues; the error is recorded as a violation, never swallowed
             error_code = "check_error"
-            error_message = (messages or {}).get(
-                error_code, _code_to_message(error_code)
-            )
+            error_message = (messages or {}).get(error_code, _code_to_message(error_code))
             # This single sample is deliberately exempt from max_samples: it is
             # not one offending item among many but the sole diagnostic for a
             # check that crashed. Truncating it under max_samples=0 would report

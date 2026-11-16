@@ -5,6 +5,7 @@ This method returns full message dicts so callers no longer need a per-ID
 ``_build_search_url``: callers pass RAW terms, no ``$filter`` is emitted, and
 the ``days`` window is applied client-side.
 """
+
 from __future__ import annotations
 
 import unittest
@@ -12,7 +13,6 @@ from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, urlparse
 
 from core.outlook.models import SearchParams
-
 from tests.core_tests.outlook_helpers import (
     FakeMailClient,
     iso_days_ago,
@@ -64,8 +64,15 @@ class TestDictSearchUrl(DictSearchTestBase):
         select = parse_qs(urlparse(self._url()).query).get("$select", [""])[0]
 
         for field in (
-            "id", "subject", "receivedDateTime", "from", "toRecipients",
-            "bodyPreview", "hasAttachments", "conversationId", "isRead",
+            "id",
+            "subject",
+            "receivedDateTime",
+            "from",
+            "toRecipients",
+            "bodyPreview",
+            "hasAttachments",
+            "conversationId",
+            "isRead",
         ):
             self.assertIn(field, select)
 
@@ -123,10 +130,12 @@ class TestDictSearchClientSideDateFilter(DictSearchTestBase):
 
     def test_drops_out_of_window_messages(self):
         result, _url = self._run(
-            {"value": [
-                graph_message("recent", receivedDateTime=iso_days_ago(1)),
-                graph_message("stale", receivedDateTime=iso_days_ago(90)),
-            ]},
+            {
+                "value": [
+                    graph_message("recent", receivedDateTime=iso_days_ago(1)),
+                    graph_message("stale", receivedDateTime=iso_days_ago(90)),
+                ]
+            },
             days=7,
         )
 
@@ -134,10 +143,12 @@ class TestDictSearchClientSideDateFilter(DictSearchTestBase):
 
     def test_keeps_all_when_no_days(self):
         result, _url = self._run(
-            {"value": [
-                graph_message("recent", receivedDateTime=iso_days_ago(1)),
-                graph_message("stale", receivedDateTime=iso_days_ago(900)),
-            ]},
+            {
+                "value": [
+                    graph_message("recent", receivedDateTime=iso_days_ago(1)),
+                    graph_message("stale", receivedDateTime=iso_days_ago(900)),
+                ]
+            },
         )
 
         self.assertEqual([m["id"] for m in result], ["recent", "stale"])
@@ -187,8 +198,12 @@ class TestDictSearchCache(unittest.TestCase):
         client.search_inbox_message_dicts(SearchParams(search_query="invoice"))
 
         self.assertTrue(any(k.startswith("searchdicts_") for k in client._cfg_cache))
-        self.assertFalse(any(k.startswith("search_") and not k.startswith("searchdicts_")
-                             for k in client._cfg_cache))
+        self.assertFalse(
+            any(
+                k.startswith("search_") and not k.startswith("searchdicts_")
+                for k in client._cfg_cache
+            )
+        )
 
     @patch("core.outlook.mail._requests")
     def test_rejects_cached_id_list_shape(self, mock_requests_fn):

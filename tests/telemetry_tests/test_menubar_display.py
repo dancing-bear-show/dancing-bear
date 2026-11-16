@@ -1,17 +1,18 @@
 """Tests for telemetry/_menubar_display.py — display formatting helpers."""
+
 from __future__ import annotations
 
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from telemetry._menubar_display import (
+    _BLOCK_CHARS,
+    _BLOCK_LEVELS,
     _age_str,
     _model_short,
     _rate_str,
     _sparkline,
     _window_since_impl,
-    _BLOCK_CHARS,
-    _BLOCK_LEVELS,
 )
 
 
@@ -118,7 +119,7 @@ class TestWindowSinceImpl(unittest.TestCase):
         result = _window_since_impl(3600)
         self.assertIsInstance(result, datetime)
         self.assertIsNotNone(result.tzinfo)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         diff = now - result
         # Should be approximately 3600 seconds ago
         self.assertGreater(diff.total_seconds(), 3500)
@@ -137,7 +138,7 @@ class TestWindowSinceImpl(unittest.TestCase):
 
     def test_with_zero_seconds_is_approximately_now(self) -> None:
         result = _window_since_impl(0)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         diff = abs((now - result).total_seconds())
         self.assertLess(diff, 2)
 

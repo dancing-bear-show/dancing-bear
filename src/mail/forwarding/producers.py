@@ -8,17 +8,18 @@ branches on the message text. Expressing that through the shared template would
 mean adding a formatting hook to BaseProducer for three call sites, so they keep
 their hand-written produce().
 """
+
 from __future__ import annotations
 
 from core.cli_output import OutputWriter
 from core.pipeline import BaseProducer, Producer, ResultEnvelope
 
 from .processors import (
-    ForwardingListResult,
     ForwardingAddResult,
-    ForwardingStatusResult,
-    ForwardingEnableResult,
     ForwardingDisableResult,
+    ForwardingEnableResult,
+    ForwardingListResult,
+    ForwardingStatusResult,
 )
 
 
@@ -55,7 +56,9 @@ class ForwardingStatusProducer(Producer[ResultEnvelope[ForwardingStatusResult]])
     def produce(self, result: ResultEnvelope[ForwardingStatusResult]) -> None:
         if not result.ok() or not result.payload:
             diag = result.diagnostics or {}
-            self._writer.print_error(f"Failed to fetch auto-forwarding: {diag.get('error', 'unknown error')}")
+            self._writer.print_error(
+                f"Failed to fetch auto-forwarding: {diag.get('error', 'unknown error')}"
+            )
             return
 
         payload = result.payload
@@ -98,7 +101,9 @@ class ForwardingDisableProducer(Producer[ResultEnvelope[ForwardingDisableResult]
     def produce(self, result: ResultEnvelope[ForwardingDisableResult]) -> None:
         if not result.ok() or not result.payload:
             diag = result.diagnostics or {}
-            self._writer.print_error(f"Failed to disable auto-forwarding: {diag.get('error', 'unknown error')}")
+            self._writer.print_error(
+                f"Failed to disable auto-forwarding: {diag.get('error', 'unknown error')}"
+            )
             return
 
         self._writer.print("Auto-forwarding disabled.")

@@ -1,13 +1,14 @@
 """Tests for calendars/scan_common.py schedule parsing utilities."""
+
 import unittest
 
-from core.date_utils import DAY_MAP
 from calendars.scan_common import (
     MONTH_MAP,
     html_to_text,
-    norm_time,
     infer_meta_from_text,
+    norm_time,
 )
+from core.date_utils import DAY_MAP
 
 
 class HtmlToTextTests(unittest.TestCase):

@@ -7,8 +7,6 @@ import time
 import unittest
 from pathlib import Path
 
-from tests.fixtures import TempDirMixin
-
 from resume.cleanup import (
     TidyPlan,
     _match_files,
@@ -17,6 +15,7 @@ from resume.cleanup import (
     execute_delete,
     purge_temp_files,
 )
+from tests.fixtures import TempDirMixin
 
 
 class TestTidyPlan(unittest.TestCase):

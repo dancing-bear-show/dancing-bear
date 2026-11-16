@@ -5,7 +5,6 @@ from typing import Any
 
 from .io_utils import read_yaml_or_json
 
-
 DEFAULT_TEMPLATE: dict[str, Any] = {
     "sections": [
         {"key": "summary", "title": "Summary"},
@@ -41,8 +40,11 @@ def parse_seed_criteria(seed: str | None) -> dict[str, Any]:
         k = k.strip()
         v = v.strip()
         if k == "keywords":
-            out[k] = [s.strip() for s in v.split(";") if s.strip()] if ";" in v else [s.strip() for s in v.split(" ") if s.strip()]
+            out[k] = (
+                [s.strip() for s in v.split(";") if s.strip()]
+                if ";" in v
+                else [s.strip() for s in v.split(" ") if s.strip()]
+            )
         else:
             out[k] = v
     return out
-

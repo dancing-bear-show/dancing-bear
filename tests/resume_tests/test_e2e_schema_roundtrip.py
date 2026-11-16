@@ -240,7 +240,9 @@ def extract_paragraphs(path: str) -> list[str]:
     return [p.text for p in Document(path).paragraphs if p.text.strip()]
 
 
-def render_text(resume: Resume, template: dict[str, Any], out_dir: str, tag: str = "resume") -> list[str]:
+def render_text(
+    resume: Resume, template: dict[str, Any], out_dir: str, tag: str = "resume"
+) -> list[str]:
     """Render through ``write_resume_docx`` -- the path the CLI takes."""
     path = str(Path(out_dir) / f"{tag}.docx")
     write_resume_docx(resume=resume, template=template, out_path=path)
@@ -396,9 +398,7 @@ class AlignmentTests(E2EPipelineTestBase):
         _, alignment = self.run_pipeline(make_full_candidate())
         self.assertGreater(len(alignment["matched_keywords"]), 0)
         for match in alignment["matched_keywords"]:
-            self.assertEqual(
-                {"skill", "count", "weight", "tier", "category"}, set(match)
-            )
+            self.assertEqual({"skill", "count", "weight", "tier", "category"}, set(match))
 
     def test_alignment_matches_the_fixtures_keywords(self) -> None:
         """The spec's keywords are genuinely found, not vacuously empty."""

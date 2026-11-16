@@ -59,8 +59,7 @@ class _Base(unittest.TestCase, QueueRootIsolationMixin):
     def _copies_of_job(self) -> int:
         """Count visible records for the job across pending/ and processing/."""
         return sum(
-            1 for folder in (self.pending, self.processing)
-            if (folder / f"{_JOB_ID}.json").exists()
+            1 for folder in (self.pending, self.processing) if (folder / f"{_JOB_ID}.json").exists()
         )
 
 

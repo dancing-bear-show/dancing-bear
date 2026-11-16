@@ -34,7 +34,9 @@ COMMENT_PAGE = 50
 #: Hard ceiling on pages per connection: a cursor bug must fail, not spin.
 MAX_PAGES = 1000
 
-_COMMENT_FIELDS = "databaseId author { login __typename } body createdAt url originalLine originalCommit { oid }"
+_COMMENT_FIELDS = (
+    "databaseId author { login __typename } body createdAt url originalLine originalCommit { oid }"
+)
 
 THREADS_QUERY = f"""
 query($owner: String!, $name: String!, $pr: Int!, $after: String) {{
@@ -152,7 +154,9 @@ def paginate_connection(
     raise GhError(f"{what}: exceeded {MAX_PAGES} pages")
 
 
-def _page_thread_comments(gh: GhCLI, thread_id: str, after: str | None) -> tuple[list[dict[str, Any]], int | None]:
+def _page_thread_comments(
+    gh: GhCLI, thread_id: str, after: str | None
+) -> tuple[list[dict[str, Any]], int | None]:
     """Fetch the comments of one thread starting after ``after``.
 
     Returns (comment nodes, totalCount). totalCount is None when GitHub's
@@ -160,8 +164,12 @@ def _page_thread_comments(gh: GhCLI, thread_id: str, after: str | None) -> tuple
     missing count on an otherwise-empty page must not read as confirmed empty.
     """
     nodes, raw_total = paginate_connection(
-        gh, THREAD_COMMENTS_QUERY, {"id": thread_id}, ("node", "comments"),
-        what=f"thread {thread_id} comments", after=after,
+        gh,
+        THREAD_COMMENTS_QUERY,
+        {"id": thread_id},
+        ("node", "comments"),
+        what=f"thread {thread_id} comments",
+        after=after,
     )
     return nodes, int(raw_total) if raw_total is not None else None
 
@@ -183,7 +191,9 @@ def fetch_thread_comments(gh: GhCLI, thread_id: str) -> list[dict[str, Any]]:
     return [_comment(n, thread_id) for n in nodes]
 
 
-def fetch_raw_threads(gh: GhCLI, owner: str, repo: str, pr: int) -> tuple[list[dict[str, Any]], bool]:
+def fetch_raw_threads(
+    gh: GhCLI, owner: str, repo: str, pr: int
+) -> tuple[list[dict[str, Any]], bool]:
     """Return every GraphQL review-thread node, with every comment inlined.
 
     Pages the thread connection, then pages each thread's comments beyond the
@@ -191,8 +201,11 @@ def fetch_raw_threads(gh: GhCLI, owner: str, repo: str, pr: int) -> tuple[list[d
     count GitHub reported did not match what was collected.
     """
     threads, reported_total = paginate_connection(
-        gh, THREADS_QUERY, {"owner": owner, "name": repo, "pr": int(pr)},
-        ("repository", "pullRequest", "reviewThreads"), what=f"PR #{pr} threads",
+        gh,
+        THREADS_QUERY,
+        {"owner": owner, "name": repo, "pr": int(pr)},
+        ("repository", "pullRequest", "reviewThreads"),
+        what=f"PR #{pr} threads",
     )
 
     truncated = _count_disagrees(len(threads), reported_total)
@@ -235,7 +248,9 @@ def _complete_thread_comments(gh: GhCLI, node: dict[str, Any]) -> bool:
     return _count_disagrees(len(nodes), comments.get("totalCount"))
 
 
-def fetch_thread_states(gh: GhCLI, owner: str, repo: str, pr: int) -> tuple[list[dict[str, Any]], bool]:
+def fetch_thread_states(
+    gh: GhCLI, owner: str, repo: str, pr: int
+) -> tuple[list[dict[str, Any]], bool]:
     """Return every thread's ``id``/``isResolved``, without fetching any comments.
 
     Same pagination and truncation contract as ``fetch_raw_threads`` (paginate
@@ -247,8 +262,11 @@ def fetch_thread_states(gh: GhCLI, owner: str, repo: str, pr: int) -> tuple[list
     """
     truncated = False
     threads, raw_total = paginate_connection(
-        gh, THREAD_STATE_QUERY, {"owner": owner, "name": repo, "pr": int(pr)},
-        ("repository", "pullRequest", "reviewThreads"), what=f"PR #{pr} thread states",
+        gh,
+        THREAD_STATE_QUERY,
+        {"owner": owner, "name": repo, "pr": int(pr)},
+        ("repository", "pullRequest", "reviewThreads"),
+        what=f"PR #{pr} thread states",
     )
     reported_total = int(raw_total) if raw_total is not None else None
     if reported_total is None or len(threads) != reported_total:
@@ -263,7 +281,9 @@ def _comment(node: dict[str, Any], thread_id: str | None = None) -> dict[str, An
     # the fetch now, the same as _rest_entry already does for REST items.
     database_id = node.get("databaseId")
     if database_id is None:
-        raise GhError(f"thread {thread_id} comment has no databaseId; cannot give it a stable identity")
+        raise GhError(
+            f"thread {thread_id} comment has no databaseId; cannot give it a stable identity"
+        )
     author = node.get("author") or {}
     return {
         "author": author.get("login") or "",
@@ -446,13 +466,21 @@ def fetch_pr_reviews(
         nonlocal pr_title, commit_count
         pr_title = pr_title or (pull.get("title") or "")
         commits = pull.get("commits")
-        if commit_count is None and isinstance(commits, dict) and isinstance(commits.get("totalCount"), int):
+        if (
+            commit_count is None
+            and isinstance(commits, dict)
+            and isinstance(commits.get("totalCount"), int)
+        ):
             commit_count = commits["totalCount"]
 
     nodes, reported_total = paginate_connection(
-        gh, PR_REVIEWS_QUERY, {"owner": owner, "name": repo, "pr": int(pr)},
-        ("repository", "pullRequest", "reviews"), what=f"PR #{pr} reviews",
-        parent_what=f"PR #{pr}", on_page=_note_pull,
+        gh,
+        PR_REVIEWS_QUERY,
+        {"owner": owner, "name": repo, "pr": int(pr)},
+        ("repository", "pullRequest", "reviews"),
+        what=f"PR #{pr} reviews",
+        parent_what=f"PR #{pr}",
+        on_page=_note_pull,
     )
 
     return PRReviews(
@@ -463,7 +491,9 @@ def fetch_pr_reviews(
     )
 
 
-def fetch_review_threads(gh: GhCLI, owner: str, repo: str, pr: int) -> tuple[dict[str, Any], dict[str, Any]]:
+def fetch_review_threads(
+    gh: GhCLI, owner: str, repo: str, pr: int
+) -> tuple[dict[str, Any], dict[str, Any]]:
     """Fetch and normalise every review comment on ``owner/repo#pr``.
 
     Returns (threads document, raw responses). The raw half is written to
@@ -474,8 +504,13 @@ def fetch_review_threads(gh: GhCLI, owner: str, repo: str, pr: int) -> tuple[dic
     reviews = gh.api_paginated(f"repos/{owner}/{repo}/pulls/{int(pr)}/reviews")
     issue_comments = gh.api_paginated(f"repos/{owner}/{repo}/issues/{int(pr)}/comments")
     doc = build_threads_doc(
-        owner=owner, repo=repo, pr=pr, raw_threads=raw_threads,
-        reviews=reviews, issue_comments=issue_comments, truncated=truncated,
+        owner=owner,
+        repo=repo,
+        pr=pr,
+        raw_threads=raw_threads,
+        reviews=reviews,
+        issue_comments=issue_comments,
+        truncated=truncated,
     )
     raw = {"review_threads": raw_threads, "reviews": reviews, "issue_comments": issue_comments}
     return doc, raw
@@ -517,5 +552,7 @@ def render_summary(doc: dict[str, Any]) -> str:
     for t in doc.get("threads") or []:
         tid = (t.get("thread_id") or "-")[-8:]
         text = " ".join((t.get("opening_body") or "").split())[:100]
-        lines.append(f"- `{tid}` {t.get('author_kind')} {_thread_state(t)} {_thread_loc(t)} — {text}")
+        lines.append(
+            f"- `{tid}` {t.get('author_kind')} {_thread_state(t)} {_thread_loc(t)} — {text}"
+        )
     return "\n".join(lines) + "\n"

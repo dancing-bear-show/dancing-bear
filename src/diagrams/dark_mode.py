@@ -105,7 +105,7 @@ def _is_timeline(source: str) -> bool:
     line is treated as the diagram-type declaration.
     """
     if source.startswith(_BOM):
-        source = source[len(_BOM):]
+        source = source[len(_BOM) :]
 
     state = _FrontmatterState()
     for line in source.splitlines():

@@ -41,8 +41,18 @@ def _plan_to_rows(plan: ConsolidationPlan) -> list[dict[str, str]]:
 ARGUMENTS: list[ArgSpec] = [
     format_arg(["table", "json", "csv"], "table"),
     DRY_RUN_ARG,
-    (("--on-divergence",), {"choices": ["keep-newest", "keep-both", "prompt"], "default": "keep-newest", "help": "Same filename, different content"}),
-    (("--archive-dest",), {"default": None, "help": "Archive root (default: <data-home>/memory/archive)"}),
+    (
+        ("--on-divergence",),
+        {
+            "choices": ["keep-newest", "keep-both", "prompt"],
+            "default": "keep-newest",
+            "help": "Same filename, different content",
+        },
+    ),
+    (
+        ("--archive-dest",),
+        {"default": None, "help": "Archive root (default: <data-home>/memory/archive)"},
+    ),
 ]
 
 

@@ -1,25 +1,26 @@
 """Gmail receipts pipeline for calendar assistant."""
+
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 from core.pipeline import SafeProcessor
 from core.text_utils import to_24h
 
 from .gmail_service import GmailService
 from .pipeline_base import (
+    DAY_MAP,
     BaseProducer,
     GmailAuth,
     GmailServiceBuilderMixin,
     RequestConsumer,
     dedupe_events,
     parse_month,
-    DAY_MAP,
 )
-
 
 # =============================================================================
 # Receipt Parsing Patterns (module-level for reuse)
@@ -30,9 +31,7 @@ _RECEIPT_CLS_PAT = re.compile(
     r"Enrollment\s+in\s+(?P<cls>[a-z][a-z0-9 /+\-]+?)\s*(?:\(#|\(|-|\r|\n)", re.I
 )
 # Pattern: registrant name - "Registrant: <name>"
-_RECEIPT_REG_PAT_1 = re.compile(
-    r"Registrant:\s*(?:\r?\n\s*)?(?P<name>[a-z][a-z\s'\-]+)", re.I
-)
+_RECEIPT_REG_PAT_1 = re.compile(r"Registrant:\s*(?:\r?\n\s*)?(?P<name>[a-z][a-z\s'\-]+)", re.I)
 # Pattern: registrant from order summary
 _RECEIPT_REG_PAT_2 = re.compile(
     r"Order\s+Summary:\s*(?P<name>[a-z][a-z\s'\-]+?)\s+Enrollment\s+in", re.I
@@ -53,10 +52,10 @@ _RECEIPT_SCHED_PAT = re.compile(
 _RECEIPT_LOC_PAT = re.compile(r"Location:\s*(?P<loc>.+)", re.I)
 
 
-
 # =============================================================================
 # Gmail Receipts Pipeline
 # =============================================================================
+
 
 @dataclass
 class GmailReceiptsRequest:
@@ -91,7 +90,9 @@ class GmailReceiptsProcessor(
             days=payload.days,
             explicit=payload.query,
         )
-        ids = svc.list_message_ids(query=query, max_pages=payload.pages, page_size=payload.page_size)
+        ids = svc.list_message_ids(
+            query=query, max_pages=payload.pages, page_size=payload.page_size
+        )
         if not ids:
             return GmailScanResult(document={"events": []}, out_path=payload.out_path)
         events = self._parse_receipts(svc, ids, payload.calendar)
@@ -110,6 +111,7 @@ class GmailReceiptsProcessor(
                 ev.get("location"),
                 ev.get("child"),
             )
+
         uniq = dedupe_events(events, key_fn)
         return GmailScanResult(document={"events": uniq}, out_path=payload.out_path)
 
@@ -206,7 +208,9 @@ class GmailReceiptsProcessor(
 
 
 class GmailScanProducer(BaseProducer):
-    def _produce_success(self, payload: GmailScanResult, diagnostics: dict[str, Any] | None) -> None:
+    def _produce_success(
+        self, payload: GmailScanResult, diagnostics: dict[str, Any] | None
+    ) -> None:
         from core.yamlio import dump_config
 
         dump_config(str(payload.out_path), payload.document)

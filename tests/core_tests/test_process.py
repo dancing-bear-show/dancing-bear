@@ -6,6 +6,7 @@ would assert only that the mock was configured correctly. The commands used
 (``echo``, ``sh -c``, ``pwd``) are POSIX built-ins already relied on by the
 suite's environment.
 """
+
 from __future__ import annotations
 
 import os
@@ -152,9 +153,7 @@ class TimeoutOutputDecodingTests(unittest.TestCase):
     def _timeout(self, stdout, stderr):
         import subprocess
 
-        return subprocess.TimeoutExpired(
-            cmd=["x"], timeout=1, output=stdout, stderr=stderr
-        )
+        return subprocess.TimeoutExpired(cmd=["x"], timeout=1, output=stdout, stderr=stderr)
 
     def test_decodes_bytes_partial_output(self):
         with patch("core.process.subprocess.run", side_effect=self._timeout(b"partial", b"warn")):

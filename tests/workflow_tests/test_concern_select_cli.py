@@ -25,12 +25,12 @@ from pathlib import Path
 
 from workflow import concern_select
 from workflow.cli import main as workflow_main
+from workflow.cli_dispatch_review import _cmd_select_concerns
 from workflow.concern_select import (
     SelectionRulesNotFoundError,
     select_guides,
     valid_task_types,
 )
-from workflow.cli_dispatch_review import _cmd_select_concerns
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -235,8 +235,10 @@ class TestUnknownTaskTypeCLI(unittest.TestCase):
 class TestCmdSelectConcernsStdinAndMissingRules(unittest.TestCase):
     def test_paths_file_dash_reads_stdin(self) -> None:
         out = io.StringIO()
-        with mock.patch.object(sys, "stdin", io.StringIO("src/a.py\nworkflows/b.yaml\n")), \
-                redirect_stdout(out):
+        with (
+            mock.patch.object(sys, "stdin", io.StringIO("src/a.py\nworkflows/b.yaml\n")),
+            redirect_stdout(out),
+        ):
             rc = _cmd_select_concerns(_make_args(paths_file="-", format="json"))
         self.assertEqual(rc, 0)
         guides = json.loads(out.getvalue())["guides"]
@@ -248,8 +250,11 @@ class TestCmdSelectConcernsStdinAndMissingRules(unittest.TestCase):
         concern_select._load_rules.cache_clear()
         self.addCleanup(concern_select._load_rules.cache_clear)
         err = io.StringIO()
-        with mock.patch.object(concern_select, "_SELECTION_YAML", missing), \
-                redirect_stderr(err), redirect_stdout(io.StringIO()):
+        with (
+            mock.patch.object(concern_select, "_SELECTION_YAML", missing),
+            redirect_stderr(err),
+            redirect_stdout(io.StringIO()),
+        ):
             rc = _cmd_select_concerns(_make_args(paths=["src/a.py"]))
         self.assertEqual(rc, 1)
         lines = err.getvalue().strip().splitlines()
@@ -262,8 +267,10 @@ class TestCmdSelectConcernsStdinAndMissingRules(unittest.TestCase):
         missing = Path(tempfile.gettempdir()) / "no-such-checkout" / "selection.yaml"
         concern_select._load_rules.cache_clear()
         self.addCleanup(concern_select._load_rules.cache_clear)
-        with mock.patch.object(concern_select, "_SELECTION_YAML", missing), \
-                self.assertRaises(SelectionRulesNotFoundError):
+        with (
+            mock.patch.object(concern_select, "_SELECTION_YAML", missing),
+            self.assertRaises(SelectionRulesNotFoundError),
+        ):
             select_guides(paths=["src/a.py"])
 
 
@@ -304,8 +311,13 @@ class TestSelectConcernsWrapper(unittest.TestCase):
         env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
         return subprocess.run(  # nosec B603 - fixed argv, repo-owned wrapper
             [str(_REPO_ROOT / "bin" / "workflow"), "select-concerns", *args],
-            cwd=_REPO_ROOT, env=env, input=stdin, capture_output=True,
-            text=True, timeout=60, check=False,
+            cwd=_REPO_ROOT,
+            env=env,
+            input=stdin,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
         )
 
     def test_paths_json(self) -> None:

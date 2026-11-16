@@ -1,15 +1,16 @@
 """Producers for signatures pipelines."""
+
 from __future__ import annotations
 
 from typing import Any
 
 from core.pipeline import BaseProducer
-
 from core.yamlio import dump_config
+
 from .processors import (
     SignaturesExportResult,
-    SignaturesSyncResult,
     SignaturesNormalizeResult,
+    SignaturesSyncResult,
 )
 
 
@@ -19,7 +20,9 @@ class SignaturesExportProducer(BaseProducer):
     failure_message = "Signatures export failed."
 
     def _produce_success(self, payload: SignaturesExportResult, diagnostics: dict | None) -> None:
-        doc: dict[str, Any] = {"signatures": {"gmail": payload.gmail_signatures, "ios": {}, "outlook": []}}
+        doc: dict[str, Any] = {
+            "signatures": {"gmail": payload.gmail_signatures, "ios": {}, "outlook": []}
+        }
         if payload.default_html:
             doc["signatures"]["default_html"] = payload.default_html
 
@@ -55,5 +58,7 @@ class SignaturesNormalizeProducer(BaseProducer):
 
     failure_message = "Signatures normalize failed."
 
-    def _produce_success(self, payload: SignaturesNormalizeResult, diagnostics: dict | None) -> None:
+    def _produce_success(
+        self, payload: SignaturesNormalizeResult, diagnostics: dict | None
+    ) -> None:
         self._writer.print(f"Wrote normalized signature to {payload.out_path}")

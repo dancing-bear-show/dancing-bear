@@ -3,11 +3,13 @@
 Split out of cli_framework.py so CLIApp and CommandGroup can share these
 without a circular import.
 """
+
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 CommandFunc = Callable[[argparse.Namespace], int]
 
@@ -15,6 +17,7 @@ CommandFunc = Callable[[argparse.Namespace], int]
 @dataclass
 class Argument:
     """Definition of a CLI argument."""
+
     name_or_flags: tuple
     kwargs: dict[str, Any] = field(default_factory=dict)
 
@@ -22,6 +25,7 @@ class Argument:
 @dataclass
 class CommandDef:
     """Definition of a CLI command."""
+
     name: str
     func: CommandFunc
     help: str = ""

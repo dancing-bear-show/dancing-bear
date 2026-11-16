@@ -34,12 +34,17 @@ class TestUnsafeProfileNameViaCLI(TempDirMixin, unittest.TestCase):
 
         with self.in_tmpdir():
             with unittest.mock.patch("sys.stderr", stderr_buf):
-                exit_code = main([
-                    "render",
-                    "--data", str(data_file),
-                    "--profile", "../evil",
-                    "--out", str(Path(self.tmpdir) / "out.docx"),
-                ])
+                exit_code = main(
+                    [
+                        "render",
+                        "--data",
+                        str(data_file),
+                        "--profile",
+                        "../evil",
+                        "--out",
+                        str(Path(self.tmpdir) / "out.docx"),
+                    ]
+                )
 
         self.assertNotEqual(exit_code, 0, "Unsafe profile name must not exit 0")
         # The error message must name the bad profile
@@ -57,12 +62,17 @@ class TestUnsafeProfileNameViaCLI(TempDirMixin, unittest.TestCase):
 
         with self.in_tmpdir():
             with unittest.mock.patch("sys.stderr", stderr_buf):
-                exit_code = main([
-                    "render",
-                    "--data", str(data_file),
-                    "--profile", "a/b",
-                    "--out", str(Path(self.tmpdir) / "out.docx"),
-                ])
+                exit_code = main(
+                    [
+                        "render",
+                        "--data",
+                        str(data_file),
+                        "--profile",
+                        "a/b",
+                        "--out",
+                        str(Path(self.tmpdir) / "out.docx"),
+                    ]
+                )
 
         self.assertNotEqual(exit_code, 0)
         err_output = stderr_buf.getvalue()
@@ -78,12 +88,18 @@ class TestUnsafeProfileNameViaCLI(TempDirMixin, unittest.TestCase):
 
         with self.in_tmpdir():
             with unittest.mock.patch("sys.stderr", stderr_buf):
-                exit_code = main([
-                    "experience", "export",
-                    "--data", str(data_file),
-                    "--profile", "../x",
-                    "--out", str(Path(self.tmpdir) / "out.yaml"),
-                ])
+                exit_code = main(
+                    [
+                        "experience",
+                        "export",
+                        "--data",
+                        str(data_file),
+                        "--profile",
+                        "../x",
+                        "--out",
+                        str(Path(self.tmpdir) / "out.yaml"),
+                    ]
+                )
 
         self.assertNotEqual(exit_code, 0)
         err_output = stderr_buf.getvalue()
@@ -112,20 +128,28 @@ class TestTrailingSlashAndDotProfiles(TempDirMixin, unittest.TestCase):
 
         with self.in_tmpdir():
             with unittest.mock.patch("sys.stderr", stderr_buf):
-                exit_code = main([
-                    "render",
-                    "--data", str(data_file),
-                    "--profile", profile,
-                    "--out-dir", str(out_root),
-                    "--out", str(Path(self.tmpdir) / out_name),
-                ])
+                exit_code = main(
+                    [
+                        "render",
+                        "--data",
+                        str(data_file),
+                        "--profile",
+                        profile,
+                        "--out-dir",
+                        str(out_root),
+                        "--out",
+                        str(Path(self.tmpdir) / out_name),
+                    ]
+                )
 
         self.assertNotEqual(exit_code, 0, f"Profile {profile!r} must not exit 0")
         err_output = stderr_buf.getvalue()
         self.assertNotIn("Traceback", err_output)
         # No subdirectory should have been created under the output root
         subdirs = [p for p in out_root.iterdir() if p.is_dir()]
-        self.assertEqual(subdirs, [], f"No dir should be created for bad profile {profile!r}, got {subdirs}")
+        self.assertEqual(
+            subdirs, [], f"No dir should be created for bad profile {profile!r}, got {subdirs}"
+        )
 
     def test_trailing_slash_rejected(self):
         """Profile 'foo/' (trailing slash) exits non-zero; normalised by Path but checked in raw string."""
@@ -149,12 +173,17 @@ class TestTrailingSlashAndDotProfiles(TempDirMixin, unittest.TestCase):
 
         with self.in_tmpdir():
             with unittest.mock.patch("sys.stderr", stderr_buf):
-                exit_code = main([
-                    "extract",
-                    "--profile", "foo/",
-                    "--out-dir", str(out_root),
-                    "--out", str(Path(self.tmpdir) / "ext_out.json"),
-                ])
+                exit_code = main(
+                    [
+                        "extract",
+                        "--profile",
+                        "foo/",
+                        "--out-dir",
+                        str(out_root),
+                        "--out",
+                        str(Path(self.tmpdir) / "ext_out.json"),
+                    ]
+                )
 
         self.assertNotEqual(exit_code, 0)
         self.assertNotIn("Traceback", stderr_buf.getvalue())

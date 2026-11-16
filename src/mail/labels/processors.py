@@ -1,4 +1,5 @@
 """Processors for labels pipelines."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -7,7 +8,7 @@ from typing import Any
 
 from core.pipeline import Processor, ResultEnvelope
 
-from .consumers import LabelsPlanPayload, LabelsSyncPayload, LabelsExportPayload
+from .consumers import LabelsExportPayload, LabelsPlanPayload, LabelsSyncPayload
 
 
 @dataclass
@@ -67,7 +68,9 @@ class LabelsPlanProcessor(Processor[LabelsPlanPayload, ResultEnvelope[LabelsPlan
         return [
             lab.get("name")
             for lab in payload.existing_labels
-            if not _is_system_label(lab) and lab.get("name") and lab.get("name") not in desired_names
+            if not _is_system_label(lab)
+            and lab.get("name")
+            and lab.get("name") not in desired_names
         ]
 
 
@@ -87,10 +90,14 @@ class LabelsSyncProcessor(Processor[LabelsSyncPayload, ResultEnvelope[LabelsSync
         redirects: list[dict[str, str]] = []
         if payload.sweep_redirects:
             redirects = [
-                r for r in payload.desired_redirects if isinstance(r, dict) and r.get("from") and r.get("to")
+                r
+                for r in payload.desired_redirects
+                if isinstance(r, dict) and r.get("from") and r.get("to")
             ]
 
-        return ResultEnvelope(status="success", payload=LabelsSyncResult(plan=plan, redirects=redirects))
+        return ResultEnvelope(
+            status="success", payload=LabelsSyncResult(plan=plan, redirects=redirects)
+        )
 
 
 @dataclass

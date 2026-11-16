@@ -120,10 +120,8 @@ class TestStateDirectoryIsPrivate(unittest.TestCase):
         # Must NOT be under the real default location.
         real_default = _real_default_state_dir()
         self.assertFalse(
-            val == str(real_default)
-            or val.startswith(str(real_default) + "/"),
-            f"{helpers.WORKER_STATE_DIR_ENV}={val!r} is under the real state dir "
-            f"{real_default}",
+            val == str(real_default) or val.startswith(str(real_default) + "/"),
+            f"{helpers.WORKER_STATE_DIR_ENV}={val!r} is under the real state dir {real_default}",
         )
 
     @unittest.skipUnless(platform.system() == "Darwin", "macOS-only path check")
@@ -140,7 +138,6 @@ class TestStateDirectoryIsPrivate(unittest.TestCase):
         self.assertTrue(
             Path(val).resolve().is_relative_to(tmp_root),
             f"Bootstrap-created dir expected under {tmp_root}, got {val!r}",
-        
         )
 
     def test_user_supplied_private_dir_is_accepted(self) -> None:
@@ -192,7 +189,10 @@ class TestStateDirectoryIsPrivate(unittest.TestCase):
         were imported.
         """
         real_default = _real_default_state_dir()
-        for label, actual in (("_q(None)", queue_ops._q(None)), ("QUEUE_ROOT", queue_ops.QUEUE_ROOT)):
+        for label, actual in (
+            ("_q(None)", queue_ops._q(None)),
+            ("QUEUE_ROOT", queue_ops.QUEUE_ROOT),
+        ):
             with self.subTest(label=label):
                 self.assertFalse(
                     actual == real_default or actual.is_relative_to(real_default),
@@ -213,11 +213,14 @@ class TestStateDirectoryIsPrivate(unittest.TestCase):
         """_q(explicit_path) returns the explicit path without calling get_worker_state_dir."""
         explicit = Path(tempfile.mkdtemp())
         try:
-            with patch("worker.queue_ops.get_worker_state_dir", side_effect=OSError("should not be called")):
+            with patch(
+                "worker.queue_ops.get_worker_state_dir", side_effect=OSError("should not be called")
+            ):
                 result = queue_ops._q(explicit)
             self.assertEqual(result, explicit)
         finally:
             import shutil
+
             shutil.rmtree(explicit, ignore_errors=True)
 
 

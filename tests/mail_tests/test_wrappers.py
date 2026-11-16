@@ -10,17 +10,17 @@ def run(cmd, cwd=None):
 class TestWrappers(unittest.TestCase):
     def test_wrapper_mail_agentic(self):
         repo_root = Path(__file__).resolve().parents[2]
-        wrapper = repo_root / 'bin' / 'mail-assistant'
-        self.assertTrue(wrapper.exists(), 'bin/mail-assistant not found')
-        proc = run([str(wrapper), '--agentic'], cwd=str(repo_root))
+        wrapper = repo_root / "bin" / "mail-assistant"
+        self.assertTrue(wrapper.exists(), "bin/mail-assistant not found")
+        proc = run([str(wrapper), "--agentic"], cwd=str(repo_root))
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
-        self.assertIn('agentic: mail', proc.stdout)
+        self.assertIn("agentic: mail", proc.stdout)
 
     def test_wrapper_llm_domain_map(self):
         repo_root = Path(__file__).resolve().parents[2]
-        wrapper = repo_root / 'bin' / 'llm'
-        self.assertTrue(wrapper.exists(), 'bin/llm not found')
-        proc = run([str(wrapper), 'domain-map', '--stdout'], cwd=str(repo_root))
+        wrapper = repo_root / "bin" / "llm"
+        self.assertTrue(wrapper.exists(), "bin/llm not found")
+        proc = run([str(wrapper), "domain-map", "--stdout"], cwd=str(repo_root))
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
-        self.assertIn('CLI Tree', proc.stdout)
-        self.assertIn('Flows Index', proc.stdout)
+        self.assertIn("CLI Tree", proc.stdout)
+        self.assertIn("Flows Index", proc.stdout)

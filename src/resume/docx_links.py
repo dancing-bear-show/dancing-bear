@@ -15,10 +15,10 @@ Graceful degradation:
     run when the OOXML manipulation fails; normalize_link_url() returns the
     original string on any error.
 """
+
 from __future__ import annotations
 
 import re
-
 
 # Blue hyperlink color used by Word's default Hyperlink character style.
 _HYPERLINK_COLOR = "0563C1"
@@ -130,9 +130,9 @@ _W_VAL = "w:val"  # XML attribute name used repeatedly in run properties
 
 def _add_hyperlink_impl(paragraph, url: str, display: str) -> None:
     """Internal: add hyperlink element. Raises on failure — caller catches."""
+    from docx.opc.constants import RELATIONSHIP_TYPE as RT
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
-    from docx.opc.constants import RELATIONSHIP_TYPE as RT
 
     # Register the external hyperlink relationship on the document part.
     part = paragraph.part

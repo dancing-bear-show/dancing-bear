@@ -20,11 +20,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-
-
 # ---------------------------------------------------------------------------
 # Minimal valid chart spec dict for reshape tests
 # ---------------------------------------------------------------------------
+
 
 def _raw_spec(kind: str = "line") -> dict:
     return {
@@ -44,10 +43,12 @@ def _raw_spec(kind: str = "line") -> dict:
 # reshape.json_to_spec — happy paths
 # ---------------------------------------------------------------------------
 
+
 class TestJsonToSpecHappy(unittest.TestCase):
     def test_line_spec_parsed(self):
         from charts.reshape import json_to_spec
         from charts.types.line import LineChartSpec
+
         spec = json_to_spec(_raw_spec("line"))
         self.assertIsInstance(spec, LineChartSpec)
         self.assertEqual(spec.title, "My Chart")
@@ -57,6 +58,7 @@ class TestJsonToSpecHappy(unittest.TestCase):
     def test_bar_spec_parsed(self):
         from charts.reshape import json_to_spec
         from charts.types.bar import BarChartSpec
+
         raw = _raw_spec("bar")
         spec = json_to_spec(raw)
         self.assertIsInstance(spec, BarChartSpec)
@@ -64,24 +66,28 @@ class TestJsonToSpecHappy(unittest.TestCase):
     def test_area_spec_parsed(self):
         from charts.reshape import json_to_spec
         from charts.types.area import AreaChartSpec
+
         spec = json_to_spec(_raw_spec("area"))
         self.assertIsInstance(spec, AreaChartSpec)
 
     def test_dual_spec_parsed(self):
         from charts.reshape import json_to_spec
         from charts.types.dual import DualAxisChartSpec
+
         spec = json_to_spec(_raw_spec("dual"))
         self.assertIsInstance(spec, DualAxisChartSpec)
 
     def test_defaults_to_line_when_kind_absent(self):
         from charts.reshape import json_to_spec
         from charts.types.line import LineChartSpec
+
         raw = {k: v for k, v in _raw_spec().items() if k != "kind"}
         spec = json_to_spec(raw)
         self.assertIsInstance(spec, LineChartSpec)
 
     def test_series_color_and_label_preserved(self):
         from charts.reshape import json_to_spec
+
         raw = {
             "title": "T",
             "x_field": "ts",
@@ -100,6 +106,7 @@ class TestJsonToSpecHappy(unittest.TestCase):
 
     def test_optional_fields_forwarded(self):
         from charts.reshape import json_to_spec
+
         raw = _raw_spec()
         raw["width_px"] = 800
         raw["height_px"] = 600
@@ -114,15 +121,18 @@ class TestJsonToSpecHappy(unittest.TestCase):
 # reshape.json_to_spec — sad paths
 # ---------------------------------------------------------------------------
 
+
 class TestJsonToSpecSad(unittest.TestCase):
     def test_non_dict_raises(self):
         from charts.reshape import json_to_spec
+
         with self.assertRaises(ValueError) as ctx:
             json_to_spec([1, 2, 3])
         self.assertIn("JSON object", str(ctx.exception))
 
     def test_missing_title_raises(self):
         from charts.reshape import json_to_spec
+
         raw = _raw_spec()
         del raw["title"]
         with self.assertRaises(ValueError) as ctx:
@@ -131,6 +141,7 @@ class TestJsonToSpecSad(unittest.TestCase):
 
     def test_missing_x_field_raises(self):
         from charts.reshape import json_to_spec
+
         raw = _raw_spec()
         del raw["x_field"]
         with self.assertRaises(ValueError) as ctx:
@@ -139,6 +150,7 @@ class TestJsonToSpecSad(unittest.TestCase):
 
     def test_missing_series_raises(self):
         from charts.reshape import json_to_spec
+
         raw = _raw_spec()
         del raw["series"]
         with self.assertRaises(ValueError) as ctx:
@@ -147,6 +159,7 @@ class TestJsonToSpecSad(unittest.TestCase):
 
     def test_empty_series_raises(self):
         from charts.reshape import json_to_spec
+
         raw = _raw_spec()
         raw["series"] = []
         with self.assertRaises(ValueError) as ctx:
@@ -155,6 +168,7 @@ class TestJsonToSpecSad(unittest.TestCase):
 
     def test_unknown_kind_raises(self):
         from charts.reshape import json_to_spec
+
         raw = _raw_spec()
         raw["kind"] = "scatter"
         with self.assertRaises(ValueError) as ctx:
@@ -163,6 +177,7 @@ class TestJsonToSpecSad(unittest.TestCase):
 
     def test_bar_invalid_orientation_raises(self):
         from charts.reshape import json_to_spec
+
         raw = _raw_spec("bar")
         raw["orientation"] = "diagonal"
         with self.assertRaises(ValueError) as ctx:
@@ -171,6 +186,7 @@ class TestJsonToSpecSad(unittest.TestCase):
 
     def test_bar_invalid_bar_width_raises(self):
         from charts.reshape import json_to_spec
+
         raw = _raw_spec("bar")
         raw["bar_width"] = -1
         with self.assertRaises(ValueError) as ctx:
@@ -179,6 +195,7 @@ class TestJsonToSpecSad(unittest.TestCase):
 
     def test_area_invalid_alpha_raises(self):
         from charts.reshape import json_to_spec
+
         raw = _raw_spec("area")
         raw["alpha"] = 2.0
         with self.assertRaises(ValueError) as ctx:
@@ -190,10 +207,12 @@ class TestJsonToSpecSad(unittest.TestCase):
 # reshape._coerce_series — happy path + sad paths
 # ---------------------------------------------------------------------------
 
+
 class TestCoerceSeries(unittest.TestCase):
     def test_happy_path_returns_series_specs(self):
         from charts.reshape import _coerce_series
         from charts.types.base import SeriesSpec
+
         raw = [
             {"name": "s1", "data": [{"ts": "2024-01-01", "value": 1.0}]},
             {"name": "s2", "data": [{"ts": "2024-01-02", "value": 2.0}]},
@@ -206,24 +225,28 @@ class TestCoerceSeries(unittest.TestCase):
 
     def test_y_axis_defaults_to_left(self):
         from charts.reshape import _coerce_series
+
         raw = [{"name": "s", "data": [{"ts": "A", "value": 1.0}]}]
         result = _coerce_series(raw, "ts")
         self.assertEqual(result[0].y_axis, "left")
 
     def test_y_axis_overridden(self):
         from charts.reshape import _coerce_series
+
         raw = [{"name": "s", "y_axis": "right", "data": [{"ts": "A", "value": 1.0}]}]
         result = _coerce_series(raw, "ts")
         self.assertEqual(result[0].y_axis, "right")
 
     def test_non_dict_series_element_raises(self):
         from charts.reshape import _coerce_series
+
         with self.assertRaises(ValueError) as ctx:
             _coerce_series(["not_a_dict"], "ts")
         self.assertIn("series[0]", str(ctx.exception))
 
     def test_missing_name_raises(self):
         from charts.reshape import _coerce_series
+
         raw = [{"data": [{"ts": "A", "value": 1.0}]}]
         with self.assertRaises(ValueError) as ctx:
             _coerce_series(raw, "ts")
@@ -231,6 +254,7 @@ class TestCoerceSeries(unittest.TestCase):
 
     def test_data_not_list_raises(self):
         from charts.reshape import _coerce_series
+
         raw = [{"name": "s", "data": "not_a_list"}]
         with self.assertRaises(ValueError) as ctx:
             _coerce_series(raw, "ts")
@@ -238,6 +262,7 @@ class TestCoerceSeries(unittest.TestCase):
 
     def test_row_missing_x_field_raises(self):
         from charts.reshape import _coerce_series
+
         raw = [{"name": "s", "data": [{"WRONG": "A", "value": 1.0}]}]
         with self.assertRaises(ValueError) as ctx:
             _coerce_series(raw, "ts")
@@ -245,6 +270,7 @@ class TestCoerceSeries(unittest.TestCase):
 
     def test_row_missing_value_raises(self):
         from charts.reshape import _coerce_series
+
         raw = [{"name": "s", "data": [{"ts": "A"}]}]
         with self.assertRaises(ValueError) as ctx:
             _coerce_series(raw, "ts")
@@ -252,6 +278,7 @@ class TestCoerceSeries(unittest.TestCase):
 
     def test_non_numeric_value_raises(self):
         from charts.reshape import _coerce_series
+
         raw = [{"name": "s", "data": [{"ts": "A", "value": "not_a_number"}]}]
         with self.assertRaises(ValueError) as ctx:
             _coerce_series(raw, "ts")
@@ -262,11 +289,13 @@ class TestCoerceSeries(unittest.TestCase):
 # C5 — CLIError raise sites
 # ---------------------------------------------------------------------------
 
+
 class TestRequireMatplotlibCLIError(unittest.TestCase):
     def test_import_error_raises_clierror(self):
         """_require_matplotlib raises CLIError (not SystemExit) when matplotlib absent."""
         from charts.cli import _require_matplotlib
         from core.cli_errors import CLIError, ExitCode
+
         with patch.dict(sys.modules, {"matplotlib": None}):
             with self.assertRaises(CLIError) as ctx:
                 _require_matplotlib()
@@ -276,6 +305,7 @@ class TestRequireMatplotlibCLIError(unittest.TestCase):
     def test_happy_path_no_raise(self):
         """_require_matplotlib succeeds when matplotlib is importable."""
         from charts.cli import _require_matplotlib
+
         mock_mpl = MagicMock()
         with patch.dict(sys.modules, {"matplotlib": mock_mpl}):
             # Should not raise
@@ -287,6 +317,7 @@ class TestReadTextCLIError(unittest.TestCase):
         """_read_text raises CLIError (not SystemExit) on OSError."""
         from charts.cli import _read_text
         from core.cli_errors import CLIError, ExitCode
+
         with self.assertRaises(CLIError) as ctx:
             _read_text("/nonexistent/path/to/file.json")
         self.assertEqual(ctx.exception.code, ExitCode.ERROR)
@@ -294,6 +325,7 @@ class TestReadTextCLIError(unittest.TestCase):
     def test_happy_path_reads_file(self):
         """_read_text returns file contents for a real file."""
         from charts.cli import _read_text
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             f.write('{"key": "val"}')
             fpath = f.name
@@ -306,6 +338,7 @@ class TestReadTextCLIError(unittest.TestCase):
     def test_stdin_returns_content(self):
         """_read_text with '-' reads from stdin."""
         from charts.cli import _read_text
+
         fake_stdin = io.StringIO('{"stdin": true}')
         with patch("sys.stdin", fake_stdin):
             result = _read_text("-")
@@ -316,6 +349,7 @@ class TestReadTextCLIError(unittest.TestCase):
 # main() CLIError boundary: sys.exit(handle_error(e))
 # ---------------------------------------------------------------------------
 
+
 class TestMainCLIErrorBoundary(unittest.TestCase):
     def test_clierror_from_require_matplotlib_causes_sys_exit(self):
         """main() catches CLIError raised by _require_matplotlib and calls sys.exit."""
@@ -323,8 +357,9 @@ class TestMainCLIErrorBoundary(unittest.TestCase):
         from core.cli_errors import CLIError, ExitCode
 
         def raise_clierror(*args, **kwargs):
-            raise CLIError("matplotlib is not installed. Run: pip install matplotlib",
-                           ExitCode.ERROR)
+            raise CLIError(
+                "matplotlib is not installed. Run: pip install matplotlib", ExitCode.ERROR
+            )
 
         with (
             patch("charts.cli._require_matplotlib", side_effect=raise_clierror),
@@ -354,9 +389,11 @@ class TestMainCLIErrorBoundary(unittest.TestCase):
 # _handle_render — happy path + OutputWriter injection
 # ---------------------------------------------------------------------------
 
+
 class TestHandleRender(unittest.TestCase):
-    def _make_args(self, input_path="input.json", output_path="out.png",
-                   theme="dark", dpi=None, svg=False):
+    def _make_args(
+        self, input_path="input.json", output_path="out.png", theme="dark", dpi=None, svg=False
+    ):
         args = MagicMock()
         args.input_path = input_path
         args.output_path = output_path
@@ -398,7 +435,7 @@ class TestHandleRender(unittest.TestCase):
 
         with (
             patch("charts.cli._require_matplotlib"),
-            patch("charts.cli._read_text", return_value='{}'),
+            patch("charts.cli._read_text", return_value="{}"),
             patch("charts.reshape.json_to_spec", return_value=spec),
             patch("charts.renderer.render_chart", return_value=fake_path),
             patch("builtins.print") as mock_print,
@@ -408,8 +445,7 @@ class TestHandleRender(unittest.TestCase):
         mock_writer.print.assert_called_once_with("/tmp/chart.png")  # nosec B108 - test string only
         # bare print should NOT have been called for the path output
         # (it may still be called for error paths, but not the success path)
-        path_calls = [c for c in mock_print.call_args_list
-                      if "/tmp/chart.png" in str(c)]  # nosec B108 - test string only
+        path_calls = [c for c in mock_print.call_args_list if "/tmp/chart.png" in str(c)]  # nosec B108 - test string only
         self.assertEqual(len(path_calls), 0)
 
     def test_default_writer_created_when_none(self):
@@ -421,7 +457,7 @@ class TestHandleRender(unittest.TestCase):
 
         with (
             patch("charts.cli._require_matplotlib"),
-            patch("charts.cli._read_text", return_value='{}'),
+            patch("charts.cli._read_text", return_value="{}"),
             patch("charts.reshape.json_to_spec", return_value=spec),
             patch("charts.renderer.render_chart", return_value=fake_path),
             patch("charts.cli.OutputWriter") as mock_ow_cls,
@@ -441,12 +477,11 @@ class TestHandleRender(unittest.TestCase):
 
         with (
             patch("charts.cli._require_matplotlib"),
-            patch("charts.cli._read_text", return_value='{}'),
+            patch("charts.cli._read_text", return_value="{}"),
             patch("charts.reshape.json_to_spec", return_value=spec),
             patch("charts.renderer.render_chart", return_value=fake_path) as mock_render,
         ):
-            _handle_render(self._make_args(output_path="out.png", svg=True),
-                           writer=mock_writer)
+            _handle_render(self._make_args(output_path="out.png", svg=True), writer=mock_writer)
 
         # render_chart should have been called with .svg path
         called_output = mock_render.call_args[0][1]
@@ -457,9 +492,9 @@ class TestHandleRender(unittest.TestCase):
 # _handle_grid — happy path + OutputWriter injection
 # ---------------------------------------------------------------------------
 
+
 class TestHandleGrid(unittest.TestCase):
-    def _make_args(self, config_path="grid.yaml", output_path=None,
-                   theme=None, svg=False):
+    def _make_args(self, config_path="grid.yaml", output_path=None, theme=None, svg=False):
         args = MagicMock()
         args.config_path = config_path
         args.output_path = output_path
@@ -469,6 +504,7 @@ class TestHandleGrid(unittest.TestCase):
 
     def _make_grid_cfg(self):
         from charts.config import GridConfig, PanelConfig
+
         return GridConfig(
             title="Grid",
             output="/tmp/grid_out.png",  # nosec B108 - test string only
@@ -521,8 +557,7 @@ class TestHandleGrid(unittest.TestCase):
             _handle_grid(self._make_args(), writer=mock_writer)
 
         mock_writer.print.assert_called_once_with("/tmp/grid.png")  # nosec B108 - test string only
-        path_calls = [c for c in mock_print.call_args_list
-                      if "/tmp/grid.png" in str(c)]  # nosec B108 - test string only
+        path_calls = [c for c in mock_print.call_args_list if "/tmp/grid.png" in str(c)]  # nosec B108 - test string only
         self.assertEqual(len(path_calls), 0)
 
     def test_default_writer_created_when_none(self):
@@ -550,9 +585,11 @@ class TestHandleGrid(unittest.TestCase):
 # _handle_reshape — happy path + OutputWriter injection
 # ---------------------------------------------------------------------------
 
+
 class TestHandleReshape(unittest.TestCase):
-    def _make_args(self, input_path="-", x_field="ts", y_field="val",
-                   group_by=None, title="Chart", fmt="json"):
+    def _make_args(
+        self, input_path="-", x_field="ts", y_field="val", group_by=None, title="Chart", fmt="json"
+    ):
         args = MagicMock()
         args.input_path = input_path
         args.x_field = x_field
@@ -680,10 +717,12 @@ class TestHandleReshape(unittest.TestCase):
 # main() dispatch integration smoke tests
 # ---------------------------------------------------------------------------
 
+
 class TestMainDispatch(unittest.TestCase):
     def test_no_command_prints_help_and_returns_zero(self):
         """main() with no subcommand prints help and returns 0 (rule A7)."""
         from charts.cli import main
+
         with patch("argparse.ArgumentParser.print_help"):
             result = main([])
         self.assertEqual(result, 0)
@@ -700,14 +739,21 @@ class TestMainDispatch(unittest.TestCase):
         try:
             captured = io.StringIO()
             with patch("sys.stdout", captured):
-                result = main([
-                    "reshape",
-                    "--input", fpath,
-                    "--x", "ts",
-                    "--y", "val",
-                    "--title", "Smoke",
-                    "--format", "json",
-                ])
+                result = main(
+                    [
+                        "reshape",
+                        "--input",
+                        fpath,
+                        "--x",
+                        "ts",
+                        "--y",
+                        "val",
+                        "--title",
+                        "Smoke",
+                        "--format",
+                        "json",
+                    ]
+                )
         finally:
             Path(fpath).unlink(missing_ok=True)
 
@@ -750,8 +796,10 @@ class TestMainDispatch(unittest.TestCase):
         from core.cli_errors import CLIError, ExitCode
 
         with (
-            patch("charts.cli._require_matplotlib",
-                  side_effect=CLIError("no matplotlib", ExitCode.ERROR)),
+            patch(
+                "charts.cli._require_matplotlib",
+                side_effect=CLIError("no matplotlib", ExitCode.ERROR),
+            ),
             self.assertRaises(SystemExit) as ctx,
         ):
             main(["render", "--input", "f.json", "--output", "out.png"])

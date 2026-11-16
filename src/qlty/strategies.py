@@ -10,8 +10,6 @@ count -- decides what happens to a finding.
 
 from __future__ import annotations
 
-from typing import Optional
-
 from .models import RuleStrategy, Tier
 
 _COMPLEXITY_SWEEP = "workflows/code/qlty-complexity-sweep.yaml"
@@ -68,8 +66,7 @@ _STRATEGIES: tuple[RuleStrategy, ...] = (
         rule="nested-control-flow",
         tier=Tier.A,
         action=(
-            "Flatten with early returns or guard clauses; extract the inner "
-            "block into a helper."
+            "Flatten with early returns or guard clauses; extract the inner block into a helper."
         ),
         rationale=(
             "Usually the same defect the complexity rules flag, seen from the "
@@ -150,8 +147,7 @@ _INFORMATIONAL_RULES: frozenset[str] = frozenset(
 )
 
 _UNKNOWN_ACTION = (
-    "No strategy recorded. Read the finding before acting; do not assume it is "
-    "actionable."
+    "No strategy recorded. Read the finding before acting; do not assume it is actionable."
 )
 
 # Rules the complexity sweep actually discovers and remediates. It runs both
@@ -220,7 +216,7 @@ def known_strategies() -> tuple[RuleStrategy, ...]:
     return _STRATEGIES
 
 
-def tooling_for(rule: str) -> Optional[str]:
+def tooling_for(rule: str) -> str | None:
     """Existing workflow that automates a rule, if any."""
     if rule in _COMPLEXITY_SWEEP_RULES:
         return _COMPLEXITY_SWEEP

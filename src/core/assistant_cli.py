@@ -7,8 +7,8 @@ by app name, e.g. `assistant resume --help` or `assistant calendar outlook list`
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable
 from importlib import import_module
-from typing import Callable
 
 # Map shorthand app names to their CLI modules (each exposes a main() entry).
 APP_MODULES: dict[str, str] = {

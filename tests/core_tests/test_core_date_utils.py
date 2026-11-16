@@ -38,9 +38,7 @@ class TestRruleCodeToWeekday(unittest.TestCase):
         monday = datetime.date(2024, 1, 1)
         for code, index in RRULE_CODE_TO_WEEKDAY.items():
             actual = monday + datetime.timedelta(days=index)
-            self.assertEqual(
-                actual.weekday(), index, f"{code} should be weekday {index}"
-            )
+            self.assertEqual(actual.weekday(), index, f"{code} should be weekday {index}")
 
     def test_monday_is_zero_and_sunday_is_six(self):
         self.assertEqual(RRULE_CODE_TO_WEEKDAY["MO"], 0)
@@ -147,8 +145,20 @@ class TestParseMonth(unittest.TestCase):
         self.assertIsNone(parse_month(None))
 
     def test_all_months(self):
-        names = ["January", "February", "March", "April", "May", "June",
-                 "July", "August", "September", "October", "November", "December"]
+        names = [
+            "January",
+            "February",
+            "March",
+            "April",
+            "May",
+            "June",
+            "July",
+            "August",
+            "September",
+            "October",
+            "November",
+            "December",
+        ]
         for i, name in enumerate(names, start=1):
             self.assertEqual(parse_month(name), i)
 
@@ -179,6 +189,7 @@ class TestToIsoStr(unittest.TestCase):
         class Obj:
             def __str__(self):
                 return "custom-obj"
+
         self.assertEqual(to_iso_str(Obj()), "custom-obj")
 
 
@@ -193,12 +204,14 @@ class TestParseIsoUtcStrict(unittest.TestCase):
 
     def test_accepts_z_suffix(self):
         from core.date_utils import parse_iso_utc_strict
+
         dt = parse_iso_utc_strict("2026-08-11T10:30:00Z")
         self.assertEqual(dt.year, 2026)
         self.assertIsNotNone(dt.tzinfo)
 
     def test_accepts_explicit_utc_offset(self):
         from core.date_utils import parse_iso_utc_strict
+
         self.assertEqual(
             parse_iso_utc_strict("2026-08-11T10:30:00+00:00"),
             parse_iso_utc_strict("2026-08-11T10:30:00Z"),
@@ -206,21 +219,29 @@ class TestParseIsoUtcStrict(unittest.TestCase):
 
     def test_accepts_fractional_seconds(self):
         from core.date_utils import parse_iso_utc_strict
+
         self.assertEqual(parse_iso_utc_strict("2026-08-11T10:30:00.500Z").microsecond, 500000)
 
     def test_round_trips_iso_now(self):
         from core.date_utils import iso_now, parse_iso_utc_strict
+
         self.assertIsNotNone(parse_iso_utc_strict(iso_now()).tzinfo)
 
     def test_tolerates_surrounding_whitespace(self):
         """A stray space must not read as "invalid" -> "run now"."""
         from core.date_utils import parse_iso_utc_strict
+
         expected = parse_iso_utc_strict("2026-08-11T10:30:00Z")
-        for padded in (" 2026-08-11T10:30:00Z", "2026-08-11T10:30:00Z ", "\t2026-08-11T10:30:00Z\n"):
+        for padded in (
+            " 2026-08-11T10:30:00Z",
+            "2026-08-11T10:30:00Z ",
+            "\t2026-08-11T10:30:00Z\n",
+        ):
             self.assertEqual(parse_iso_utc_strict(padded), expected)
 
     def test_raises_on_invalid(self):
         from core.date_utils import parse_iso_utc_strict
+
         for bad in ("", "   ", "garbage", "not-a-time"):
             with self.assertRaises(ValueError):
                 parse_iso_utc_strict(bad)
@@ -229,6 +250,7 @@ class TestParseIsoUtcStrict(unittest.TestCase):
 class TestIsoNow(unittest.TestCase):
     def test_format_is_z_suffixed_seconds(self):
         from core.date_utils import iso_now
+
         self.assertRegex(iso_now(), r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
 
@@ -237,6 +259,7 @@ class TestDayRangeToIso(unittest.TestCase):
 
     def test_widens_dates_to_full_day_window(self):
         from core.date_utils import day_range_to_iso
+
         start, end = day_range_to_iso("2026-01-01", "2026-01-31")
         self.assertEqual(start, "2026-01-01T00:00:00")
         # Inclusive of the final day -- a midnight end would silently drop it.
@@ -244,12 +267,14 @@ class TestDayRangeToIso(unittest.TestCase):
 
     def test_same_day_range_spans_that_whole_day(self):
         from core.date_utils import day_range_to_iso
+
         start, end = day_range_to_iso("2026-06-15", "2026-06-15")
         self.assertEqual(start, "2026-06-15T00:00:00")
         self.assertEqual(end, "2026-06-15T23:59:59")
 
     def test_accepts_full_iso_datetimes_and_truncates_to_day_bounds(self):
         from core.date_utils import day_range_to_iso
+
         start, end = day_range_to_iso("2026-03-04T09:30:00", "2026-03-05T18:00:00")
         self.assertEqual(start, "2026-03-04T00:00:00")
         self.assertEqual(end, "2026-03-05T23:59:59")
@@ -258,6 +283,7 @@ class TestDayRangeToIso(unittest.TestCase):
         # The three schedule call sites catch ValueError and re-raise as their
         # own error type, so the primitive must stay ValueError.
         from core.date_utils import day_range_to_iso
+
         for bad in (("garbage", "2026-01-31"), ("2026-01-01", "nope"), ("", "")):
             with self.assertRaises(ValueError):
                 day_range_to_iso(*bad)
@@ -267,11 +293,13 @@ class TestDayRangeToIso(unittest.TestCase):
         # (ValueError, TypeError) together, so it must still raise ValueError.
         # cast exercises the TypeError->ValueError conversion guard.
         from core.date_utils import day_range_to_iso
+
         with self.assertRaises(ValueError):
             day_range_to_iso(cast(Any, None), cast(Any, None))
 
     def test_message_names_the_expected_format(self):
         from core.date_utils import day_range_to_iso
+
         with self.assertRaises(ValueError) as ctx:
             day_range_to_iso("garbage", "2026-01-31")
         self.assertIn("YYYY-MM-DD", str(ctx.exception))

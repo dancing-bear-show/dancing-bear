@@ -9,7 +9,7 @@ without requiring network access or credentials.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from core.outlook.models import (
     EventCreationParams,
@@ -32,54 +32,54 @@ class FakeOutlookClient:
         )
     """
 
-    events: List[Dict] = field(default_factory=list)
-    calendars: List[Dict] = field(default_factory=list)
-    rules: List[Dict] = field(default_factory=list)
-    categories: List[Dict] = field(default_factory=list)
+    events: list[dict] = field(default_factory=list)
+    calendars: list[dict] = field(default_factory=list)
+    rules: list[dict] = field(default_factory=list)
+    categories: list[dict] = field(default_factory=list)
 
     # Track mutations
-    created_events: List[Dict] = field(default_factory=list)
-    deleted_event_ids: List[str] = field(default_factory=list)
-    updated_events: List[Dict] = field(default_factory=list)
+    created_events: list[dict] = field(default_factory=list)
+    deleted_event_ids: list[str] = field(default_factory=list)
+    updated_events: list[dict] = field(default_factory=list)
 
     def authenticate(self) -> None:
         """No-op for fake client - authentication not needed in tests."""
 
-    def list_calendars(self) -> List[Dict]:
+    def list_calendars(self) -> list[dict]:
         return list(self.calendars)
 
-    def get_calendar_by_name(self, name: str) -> Optional[Dict]:
+    def get_calendar_by_name(self, name: str) -> dict | None:
         for cal in self.calendars:
             if cal.get("name") == name:
                 return cal
         return None
 
-    def list_events_in_range(self, params: Optional[ListEventsRequest] = None) -> List[Dict]:  # NOSONAR - fake interface must match real signature
+    def list_events_in_range(self, params: ListEventsRequest | None = None) -> list[dict]:  # NOSONAR - fake interface must match real signature  # fmt: skip
         return list(self.events)
 
-    def create_event(self, calendar_id: str, event: Dict) -> Dict:  # NOSONAR - fake interface must match real signature
+    def create_event(self, calendar_id: str, event: dict) -> dict:  # NOSONAR - fake interface must match real signature  # fmt: skip
         event_copy = dict(event)
         event_copy["id"] = f"EVT_{len(self.created_events)}"
         self.created_events.append(event_copy)
         return event_copy
 
-    def delete_event(self, calendar_id: str, event_id: str) -> None:  # NOSONAR - fake interface must match real signature
+    def delete_event(self, calendar_id: str, event_id: str) -> None:  # NOSONAR - fake interface must match real signature  # fmt: skip
         self.deleted_event_ids.append(event_id)
 
-    def update_event(self, calendar_id: str, event_id: str, updates: Dict) -> Dict:  # NOSONAR - fake interface must match real signature
+    def update_event(self, calendar_id: str, event_id: str, updates: dict) -> dict:  # NOSONAR - fake interface must match real signature  # fmt: skip
         self.updated_events.append({"id": event_id, **updates})
         return {"id": event_id, **updates}
 
-    def list_rules(self) -> List[Dict]:
+    def list_rules(self) -> list[dict]:
         return list(self.rules)
 
-    def list_categories(self) -> List[Dict]:
+    def list_categories(self) -> list[dict]:
         return list(self.categories)
 
 
 def make_outlook_client(
-    events: Optional[List[Dict]] = None,
-    calendars: Optional[List[Dict]] = None,
+    events: list[dict] | None = None,
+    calendars: list[dict] | None = None,
 ) -> FakeOutlookClient:
     """Factory for creating a pre-configured FakeOutlookClient."""
     return FakeOutlookClient(
@@ -99,39 +99,42 @@ class FakeCalendarService:
         svc.list_calendar_view(ListCalendarViewRequest(calendar_id="cal-1", start_iso="...", end_iso="..."))
     """
 
-    events: List[Dict] = field(default_factory=list)
-    deleted_ids: List[str] = field(default_factory=list)
-    updated_reminders: List[tuple] = field(default_factory=list)
-    created_events: List[tuple] = field(default_factory=list)
-    updated_locations: List[tuple] = field(default_factory=list)
+    events: list[dict] = field(default_factory=list)
+    deleted_ids: list[str] = field(default_factory=list)
+    updated_reminders: list[tuple] = field(default_factory=list)
+    created_events: list[tuple] = field(default_factory=list)
+    updated_locations: list[tuple] = field(default_factory=list)
     calendar_id: str = "cal-1"
 
-    def get_calendar_id_by_name(self, name: str) -> Optional[str]:
+    def get_calendar_id_by_name(self, name: str) -> str | None:
         return self.calendar_id if name else None
 
-    def find_calendar_id(self, name: str) -> Optional[str]:
+    def find_calendar_id(self, name: str) -> str | None:
         return self.get_calendar_id_by_name(name)
 
-    def list_calendar_view(self, params: Optional[ListCalendarViewRequest] = None) -> List[Dict]:  # NOSONAR - fake interface must match real signature
+    def list_calendar_view(self, params: ListCalendarViewRequest | None = None) -> list[dict]:  # NOSONAR - fake interface must match real signature  # fmt: skip
         return list(self.events)
 
     def delete_event_by_id(self, event_id: str) -> bool:
         self.deleted_ids.append(event_id)
         return True
 
-    def list_events_in_range(self, params: Optional[ListEventsRequest] = None) -> List[Dict]:  # NOSONAR - fake interface must match real signature
+    def list_events_in_range(self, params: ListEventsRequest | None = None) -> list[dict]:  # NOSONAR - fake interface must match real signature  # fmt: skip
         return list(self.events)
 
-    def update_event_reminder(self, params: UpdateEventReminderRequest) -> None:  # NOSONAR - fake interface must match real signature
+    def update_event_reminder(self, params: UpdateEventReminderRequest) -> None:  # NOSONAR - fake interface must match real signature  # fmt: skip
         self.updated_reminders.append((params.event_id, params.is_on, params.minutes_before_start))
 
-    def create_event(self, params: EventCreationParams) -> Dict[str, Any]:
-        evt: Dict[str, Any] = {"id": f"evt_{len(self.created_events)}", "subject": params.subject}
+    def create_event(self, params: EventCreationParams) -> dict[str, Any]:
+        evt: dict[str, Any] = {"id": f"evt_{len(self.created_events)}", "subject": params.subject}
         self.created_events.append(("single", params))
         return evt
 
-    def create_recurring_event(self, params: RecurringEventCreationParams) -> Dict[str, Any]:
-        evt: Dict[str, Any] = {"id": f"evt_rec_{len(self.created_events)}", "subject": params.subject}
+    def create_recurring_event(self, params: RecurringEventCreationParams) -> dict[str, Any]:
+        evt: dict[str, Any] = {
+            "id": f"evt_rec_{len(self.created_events)}",
+            "subject": params.subject,
+        }
         self.created_events.append(("recurring", params))
         return evt
 

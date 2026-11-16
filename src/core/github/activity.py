@@ -87,7 +87,9 @@ def fetch_activity(gh: GhCLI, *, owner: str | None = None, limit: int = 10) -> A
         login=viewer_login(gh),
         owner=owner,
         authored_prs=_search(gh, "prs", ["--author", "@me", *common], PR_FIELDS),
-        review_requests=_search(gh, "prs", ["--review-requested", "@me", "--state", "open", *common], PR_FIELDS),
+        review_requests=_search(
+            gh, "prs", ["--review-requested", "@me", "--state", "open", *common], PR_FIELDS
+        ),
         issues=_search(gh, "issues", ["--author", "@me", *common], ISSUE_FIELDS),
     )
 

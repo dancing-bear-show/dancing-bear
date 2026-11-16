@@ -1,10 +1,10 @@
 """Reconcile index builders shared by the Outlook rules sync and plan processors."""
+
 from __future__ import annotations
 
 from typing import Any
 
 from .processors_rules_helpers import _canon_rule, _criteria_key
-
 
 # Live-rule and reconcile index builders.
 #
@@ -13,6 +13,7 @@ from .processors_rules_helpers import _canon_rule, _criteria_key
 # spec identically. Index logic that existed as one copy per processor is
 # exactly the shape that lets preview and apply drift apart when only one copy
 # is updated.
+
 
 def _index_live_rules(rules: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     """Key live rules by ``_canon_rule``, the key desired specs are compared to.

@@ -8,11 +8,10 @@ lives in ``transcript_aggregate``.
 import logging
 from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from core.date_utils import now_utc
-
 from telemetry.models import AgentSummary, AgentTokenRow, SessionEvent, SessionSummary
 from telemetry.pricing import TokenMetrics, compute_cost
 from telemetry.providers.transcript_aggregate import (
@@ -30,7 +29,6 @@ from telemetry.providers.transcript_parse import (
     parse_session_file,
     parse_user_record,
 )
-
 
 logger = logging.getLogger(__name__)
 
@@ -165,9 +163,7 @@ class TranscriptProvider:
 
         Returns (new_events, updated_sequence).
         """
-        return parse_assistant_record(
-            record, agent_tool_inputs, sequence, self._compute_token_cost
-        )
+        return parse_assistant_record(record, agent_tool_inputs, sequence, self._compute_token_cost)
 
     def _parse_user_record(
         self,
@@ -230,7 +226,7 @@ class TranscriptProvider:
         """Parse the new flat-format ``<session>.jsonl`` files of one project."""
         units: list[_SessionUnit] = []
         for jsonl_file in project_dir.glob(JSONL_GLOB):
-            file_ts = datetime.fromtimestamp(jsonl_file.stat().st_mtime, tz=timezone.utc)
+            file_ts = datetime.fromtimestamp(jsonl_file.stat().st_mtime, tz=UTC)
             # A file is only appended to, so one last modified before ``since``
             # cannot hold an in-window event.
             if since is not None and file_ts < since:
@@ -253,9 +249,7 @@ class TranscriptProvider:
 
         units: list[_SessionUnit] = []
         for session_id, files in subdir_files.items():
-            latest_ts = max(
-                datetime.fromtimestamp(f.stat().st_mtime, tz=timezone.utc) for f in files
-            )
+            latest_ts = max(datetime.fromtimestamp(f.stat().st_mtime, tz=UTC) for f in files)
             if since is not None and latest_ts < since:
                 continue
             events: list[SessionEvent] = []
@@ -270,9 +264,7 @@ class TranscriptProvider:
         return units
 
     @staticmethod
-    def _summary_from_unit(
-        unit: _SessionUnit, billable: list[SessionEvent]
-    ) -> SessionSummary:
+    def _summary_from_unit(unit: _SessionUnit, billable: list[SessionEvent]) -> SessionSummary:
         """Build a SessionSummary; cost and tokens come from *billable* only."""
         api_events = unit.api_events
         return SessionSummary(
@@ -324,9 +316,7 @@ class TranscriptProvider:
         summaries.sort(key=lambda s: s.end_time or s.start_time, reverse=True)
         return summaries
 
-    def _windowed_events(
-        self, jsonl_file: Path, since: datetime
-    ) -> list[SessionEvent]:
+    def _windowed_events(self, jsonl_file: Path, since: datetime) -> list[SessionEvent]:
         """Return api_request events from jsonl_file with timestamp >= since."""
         try:
             events, _ = self.parse_session_with_agents(jsonl_file)
@@ -417,7 +407,7 @@ class TranscriptProvider:
         """Accumulate windowed totals for all JSONL files in one project directory."""
         seen_sessions: set[str] = set()
         for jsonl_file, session_id in self._iter_jsonl_files(project_dir):
-            file_ts = datetime.fromtimestamp(jsonl_file.stat().st_mtime, tz=timezone.utc)
+            file_ts = datetime.fromtimestamp(jsonl_file.stat().st_mtime, tz=UTC)
             if file_ts < since:
                 continue
             windowed = self._windowed_events(jsonl_file, since)
@@ -479,7 +469,7 @@ class TranscriptProvider:
     ) -> None:
         """Accumulate agent token usage for all JSONL files in one project directory."""
         for jsonl_file, _ in self._iter_jsonl_files(project_dir):
-            file_ts = datetime.fromtimestamp(jsonl_file.stat().st_mtime, tz=timezone.utc)
+            file_ts = datetime.fromtimestamp(jsonl_file.stat().st_mtime, tz=UTC)
             if file_ts < since:
                 continue
             self._accumulate_agent_tokens(jsonl_file, since, accs)
@@ -504,8 +494,7 @@ class TranscriptProvider:
         # Collapse per-(agent, model) into per-agent rows
         agent_names: set[str] = {name for name, _ in accs.input.keys()} | set(accs.call_count)
         rows: list[AgentTokenRow] = [
-            self._build_agent_row(agent_name, accs)
-            for agent_name in agent_names
+            self._build_agent_row(agent_name, accs) for agent_name in agent_names
         ]
 
         rows.sort(key=lambda r: r.est_cost, reverse=True)

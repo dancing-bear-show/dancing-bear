@@ -43,7 +43,11 @@ class _ShapeUtilsHost(Protocol):
     ) -> Any: ...
     def _has_body_placeholder(self, slide: object) -> bool: ...
     def _position_title_shape(
-        self, slide: object, shape: object, *, subtitle: bool = ...,
+        self,
+        slide: object,
+        shape: object,
+        *,
+        subtitle: bool = ...,
     ) -> None: ...
 
 
@@ -69,6 +73,7 @@ class ShapeUtilsMixin:
         Returns:
             First matching shape, or None if not found
         """
+
         def matches(shape) -> bool:
             if placeholder is not None and shape.is_placeholder != placeholder:
                 return False
@@ -82,11 +87,7 @@ class ShapeUtilsMixin:
     def _find_body_placeholder(slide):
         """Find the body placeholder (idx 1) on a slide, if present."""
         for shape in slide.shapes:
-            if (
-                shape.is_placeholder
-                and shape.placeholder_format.idx == 1
-                and shape.has_text_frame
-            ):
+            if shape.is_placeholder and shape.placeholder_format.idx == 1 and shape.has_text_frame:
                 return shape
         return None
 
@@ -141,7 +142,7 @@ class ShapeUtilsMixin:
             shape.height = Inches(0.9)
 
     def _set_slide_title(
-        self: "_ShapeUtilsHost",
+        self: _ShapeUtilsHost,
         slide,
         title_text: str,
         theme_color: MSO_THEME_COLOR,
@@ -240,8 +241,7 @@ class ShapeUtilsMixin:
         to_remove = [
             shape
             for shape in slide.shapes
-            if shape.is_placeholder
-            and self._is_removable_placeholder(shape, keep_body=keep_body)
+            if shape.is_placeholder and self._is_removable_placeholder(shape, keep_body=keep_body)
         ]
         for shape in to_remove:
             shape._element.getparent().remove(shape._element)

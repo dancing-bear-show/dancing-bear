@@ -1,4 +1,5 @@
 """Tests for CLIApp — unique tests not covered by test_cli_framework.py."""
+
 from __future__ import annotations
 
 import unittest
@@ -50,6 +51,7 @@ class TestCLIApp(unittest.TestCase):
 
         result = app.run(["render", "--output", "out.svg"])
         self.assertEqual(result, ExitCode.SUCCESS)
+
 
 if __name__ == "__main__":
     unittest.main()

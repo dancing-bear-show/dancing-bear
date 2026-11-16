@@ -53,13 +53,8 @@ def format_workflow_not_found(
     lines: list[str] = []
     if is_stale_worktree_path(path):
         lines.append(f"Error: {label} path not found: {path}")
-        lines.append(
-            "This looks like a path from a deleted worktree (.claude/worktrees/...)."
-        )
-        lines.append(
-            "Use a relative path instead, e.g.: "
-            "./bin/workflow lint workflows/<name>.yaml"
-        )
+        lines.append("This looks like a path from a deleted worktree (.claude/worktrees/...).")
+        lines.append("Use a relative path instead, e.g.: ./bin/workflow lint workflows/<name>.yaml")
     else:
         lines.append(f"Error: {label} file not found: {path}")
 

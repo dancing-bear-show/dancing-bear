@@ -1,4 +1,5 @@
 """Gmail sweep-top-senders pipeline for calendar assistant."""
+
 from __future__ import annotations
 
 import collections
@@ -17,10 +18,10 @@ from .pipeline_base import (
     RequestConsumer,
 )
 
-
 # =============================================================================
 # Gmail Sweep Top Senders Pipeline
 # =============================================================================
+
 
 @dataclass
 class GmailSweepTopRequest:
@@ -62,7 +63,12 @@ class GmailSweepTopProcessor(
             page_size=payload.page_size,
         )
         if not ids:
-            return GmailSweepTopResult(top_senders=[], freq_days=payload.days, inbox_only=payload.inbox_only, out_path=payload.out_path)
+            return GmailSweepTopResult(
+                top_senders=[],
+                freq_days=payload.days,
+                inbox_only=payload.inbox_only,
+                out_path=payload.out_path,
+            )
         freq = self._count_senders(svc, ids)
         top = freq.most_common(max(1, payload.top))
         return GmailSweepTopResult(
@@ -103,12 +109,16 @@ class GmailSweepTopProcessor(
 
 
 class GmailSweepTopProducer(BaseProducer):
-    def _produce_success(self, payload: GmailSweepTopResult, diagnostics: dict[str, Any] | None) -> None:
+    def _produce_success(
+        self, payload: GmailSweepTopResult, diagnostics: dict[str, Any] | None
+    ) -> None:
         top = payload.top_senders
         if not top:
             self._writer.print("No sender stats available.")
             return
-        self._writer.print(f"Top {len(top)} sender(s) in last {payload.freq_days}d (Inbox={payload.inbox_only}):")
+        self._writer.print(
+            f"Top {len(top)} sender(s) in last {payload.freq_days}d (Inbox={payload.inbox_only}):"
+        )
         for sender, count in top:
             self._writer.print(f"- {sender}: {count}")
         if payload.out_path:

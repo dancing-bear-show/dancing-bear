@@ -9,9 +9,7 @@ All processing is local-first with dry-run/plan-then-apply patterns.
 
 from __future__ import annotations
 
-
 from core.assistant import BaseAssistant
-from ..meta import META
 from core.cli_framework import CLIApp
 from core.cli_help_text import (
     HELP_CACHE_DIR,
@@ -20,42 +18,43 @@ from core.cli_help_text import (
     HELP_PAGE_SIZE,
 )
 
-from .args import (
-    HELP_START_DATE,
-    HELP_END_DATE,
-    HELP_CALENDAR_DEFAULT,
-    HELP_CONFIG_EVENTS,
-    HELP_DRY_RUN,
-    HELP_DEFAULT_CALENDAR,
-    HELP_INBOX_ONLY,
-)
-from ..outlook.commands import (
-    run_outlook_add,
-    run_outlook_add_recurring,
-    run_outlook_add_from_config,
-    run_outlook_verify_from_config,
-    run_outlook_update_locations,
-    run_outlook_apply_locations,
-    run_outlook_locations_enrich,
-    run_outlook_list_one_offs,
-    run_outlook_remove_from_config,
-    run_outlook_dedup,
-    run_outlook_scan_classes,
-    run_outlook_schedule_import,
-    run_outlook_reminders_off,
-    run_outlook_reminders_set,
-    run_outlook_calendar_share,
-    run_outlook_settings_apply,
-    run_outlook_mail_list,
-    run_outlook_export_plan,
-    run_outlook_ics_draft,
-)
 from ..gmail.commands import (
+    run_gmail_mail_list,
+    run_gmail_scan_activerh,
     run_gmail_scan_classes,
     run_gmail_scan_receipts,
-    run_gmail_scan_activerh,
-    run_gmail_mail_list,
     run_gmail_sweep_top,
+)
+from ..meta import META
+from ..outlook.commands import (
+    run_outlook_add,
+    run_outlook_add_from_config,
+    run_outlook_add_recurring,
+    run_outlook_apply_locations,
+    run_outlook_calendar_share,
+    run_outlook_dedup,
+    run_outlook_export_plan,
+    run_outlook_ics_draft,
+    run_outlook_list_one_offs,
+    run_outlook_locations_enrich,
+    run_outlook_mail_list,
+    run_outlook_reminders_off,
+    run_outlook_reminders_set,
+    run_outlook_remove_from_config,
+    run_outlook_scan_classes,
+    run_outlook_schedule_import,
+    run_outlook_settings_apply,
+    run_outlook_update_locations,
+    run_outlook_verify_from_config,
+)
+from .args import (
+    HELP_CALENDAR_DEFAULT,
+    HELP_CONFIG_EVENTS,
+    HELP_DEFAULT_CALENDAR,
+    HELP_DRY_RUN,
+    HELP_END_DATE,
+    HELP_INBOX_ONLY,
+    HELP_START_DATE,
 )
 
 assistant = BaseAssistant(META.app_id, META.agentic_fallback)
@@ -76,6 +75,7 @@ def _lazy_agentic():
     fallback, which printed the two-line banner instead of the real capsule.
     """
     from ..agentic import build_agentic_capsule
+
     return build_agentic_capsule
 
 
@@ -107,10 +107,14 @@ def cmd_outlook_add(args) -> int:
 @outlook_group.argument("--token", help="Path to token cache JSON")
 @outlook_group.argument("--calendar", help="Calendar name (defaults to primary)")
 @outlook_group.argument("--subject", required=True, help="Event subject")
-@outlook_group.argument("--repeat", required=True, choices=["daily", "weekly", "monthly"], help="Recurrence type")
+@outlook_group.argument(
+    "--repeat", required=True, choices=["daily", "weekly", "monthly"], help="Recurrence type"
+)
 @outlook_group.argument("--interval", type=int, default=1, help="Recurrence interval")
 @outlook_group.argument("--byday", help="Days for weekly (e.g., MO,WE,FR)")
-@outlook_group.argument("--range-start", required=True, dest="range_start", help="Start date YYYY-MM-DD")
+@outlook_group.argument(
+    "--range-start", required=True, dest="range_start", help="Start date YYYY-MM-DD"
+)
 @outlook_group.argument("--until", help="End date YYYY-MM-DD")
 @outlook_group.argument("--count", type=int, help="Occurrences count")
 @outlook_group.argument("--start-time", required=True, help="Start time HH:MM[:SS]")
@@ -169,7 +173,9 @@ def cmd_outlook_apply_locations(args) -> int:
     return run_outlook_apply_locations(args)
 
 
-@outlook_group.command("locations-enrich", help="Enrich Outlook event locations with full addresses")
+@outlook_group.command(
+    "locations-enrich", help="Enrich Outlook event locations with full addresses"
+)
 @outlook_group.argument("--client-id", help="Azure app (client) ID")
 @outlook_group.argument("--tenant", default="consumers", help="AAD tenant")
 @outlook_group.argument("--token", help="Path to token cache JSON")
@@ -194,7 +200,9 @@ def cmd_outlook_list_one_offs(args) -> int:
     return run_outlook_list_one_offs(args)
 
 
-@outlook_group.command("remove-from-config", help="Delete Outlook events/series matching a YAML config")
+@outlook_group.command(
+    "remove-from-config", help="Delete Outlook events/series matching a YAML config"
+)
 @outlook_group.argument("--client-id", help="Azure app (client) ID")
 @outlook_group.argument("--tenant", default="consumers", help="AAD tenant")
 @outlook_group.argument("--token", help="Path to token cache JSON")
@@ -214,9 +222,15 @@ def cmd_outlook_remove_from_config(args) -> int:
 @outlook_group.argument("--from", dest="from_date", help=HELP_START_DATE)
 @outlook_group.argument("--to", dest="to_date", help=HELP_END_DATE)
 @outlook_group.argument("--apply", action="store_true", help="Delete duplicates")
-@outlook_group.argument("--delete-standardized", action="store_true", help="Prefer deleting standardized locations")
+@outlook_group.argument(
+    "--delete-standardized", action="store_true", help="Prefer deleting standardized locations"
+)
 @outlook_group.argument("--keep-newest", action="store_true", help="Keep newest series")
-@outlook_group.argument("--prefer-delete-nonstandard", action="store_true", help="Prefer deleting non-standard locations")
+@outlook_group.argument(
+    "--prefer-delete-nonstandard",
+    action="store_true",
+    help="Prefer deleting non-standard locations",
+)
 def cmd_outlook_dedup(args) -> int:
     return run_outlook_dedup(args)
 
@@ -225,7 +239,9 @@ def cmd_outlook_dedup(args) -> int:
 @outlook_group.argument("--client-id", help="Azure app (client) ID")
 @outlook_group.argument("--tenant", default="consumers", help="AAD tenant")
 @outlook_group.argument("--token", help="Path to token cache JSON")
-@outlook_group.argument("--from-text", dest="from_text", default="active rh", help="Sender text to match")
+@outlook_group.argument(
+    "--from-text", dest="from_text", default="active rh", help="Sender text to match"
+)
 @outlook_group.argument("--days", type=int, default=60, help=HELP_DAYS)
 @outlook_group.argument("--top", type=int, default=25, help="Items per page")
 @outlook_group.argument("--pages", type=int, default=2, help=HELP_MAX_PAGES)
@@ -235,13 +251,17 @@ def cmd_outlook_scan_classes(args) -> int:
     return run_outlook_scan_classes(args)
 
 
-@outlook_group.command("schedule-import", help="Import schedule file/URL and create calendar events")
+@outlook_group.command(
+    "schedule-import", help="Import schedule file/URL and create calendar events"
+)
 @outlook_group.argument("--client-id", help="Azure app (client) ID")
 @outlook_group.argument("--tenant", default="consumers", help="AAD tenant")
 @outlook_group.argument("--token", help="Path to token cache JSON")
 @outlook_group.argument("--calendar", help="Calendar name (default: Imported Schedules)")
 @outlook_group.argument("--source", required=True, help="Path or URL to schedule")
-@outlook_group.argument("--kind", choices=["auto", "csv", "xlsx", "pdf", "website"], default="auto", help="Source type")
+@outlook_group.argument(
+    "--kind", choices=["auto", "csv", "xlsx", "pdf", "website"], default="auto", help="Source type"
+)
 @outlook_group.argument("--tz", help="Time zone for events")
 @outlook_group.argument("--until", help="Global end date YYYY-MM-DD")
 @outlook_group.argument("--dry-run", action="store_true", help="Preview without writing")
@@ -282,8 +302,12 @@ def cmd_outlook_reminders_set(args) -> int:
 @outlook_group.argument("--tenant", default="consumers", help="AAD tenant")
 @outlook_group.argument("--token", help="Path to token cache JSON")
 @outlook_group.argument("--calendar", required=True, help="Calendar name")
-@outlook_group.argument("--with", dest="recipient", required=True, help="Email address to share with")
-@outlook_group.argument("--role", default="write", help="Role: read|write|limitedRead|freeBusyRead|delegate")
+@outlook_group.argument(
+    "--with", dest="recipient", required=True, help="Email address to share with"
+)
+@outlook_group.argument(
+    "--role", default="write", help="Role: read|write|limitedRead|freeBusyRead|delegate"
+)
 def cmd_outlook_calendar_share(args) -> int:
     return run_outlook_calendar_share(args)
 
@@ -319,7 +343,9 @@ def cmd_outlook_mail_list(args) -> int:
 @outlook_group.argument("--calendar", help="Calendar name (defaults to primary)")
 @outlook_group.argument("--from", dest="from_date", help=HELP_START_DATE)
 @outlook_group.argument("--to", dest="to_date", help=HELP_END_DATE)
-@outlook_group.argument("--out", help="Output YAML plan path (default: ~/.local/share/dancing-bear/calendars/plan.yaml)")
+@outlook_group.argument(
+    "--out", help="Output YAML plan path (default: ~/.local/share/dancing-bear/calendars/plan.yaml)"
+)
 @outlook_group.argument("--dry-run", action="store_true", help=HELP_DRY_RUN)
 @outlook_group.argument("--verbose", action="store_true", help="Print skipped event details")
 def cmd_outlook_export_plan(args) -> int:
@@ -333,7 +359,9 @@ def cmd_outlook_export_plan(args) -> int:
 @outlook_group.argument("--config", required=True, help=HELP_CONFIG_EVENTS)
 @outlook_group.argument("--recipient", required=True, help="Recipient email address for the draft")
 @outlook_group.argument("--subject", default="Calendar Plan", help="Email subject line")
-@outlook_group.argument("--dry-run", action="store_true", help="Print what would be created without creating the draft")
+@outlook_group.argument(
+    "--dry-run", action="store_true", help="Print what would be created without creating the draft"
+)
 def cmd_outlook_ics_draft(args) -> int:
     return run_outlook_ics_draft(args)
 
@@ -346,7 +374,9 @@ gmail_group = app.group("gmail", help="Gmail scan helpers for calendar")
 @gmail_group.argument("--credentials", help="Path to OAuth credentials.json")
 @gmail_group.argument("--token", help="Path to token.json")
 @gmail_group.argument("--cache", help=HELP_CACHE_DIR)
-@gmail_group.argument("--from-text", dest="from_text", default="active rh", help="Sender text to match")
+@gmail_group.argument(
+    "--from-text", dest="from_text", default="active rh", help="Sender text to match"
+)
 @gmail_group.argument("--query", help="Raw Gmail query")
 @gmail_group.argument("--days", type=int, default=60, help=HELP_DAYS)
 @gmail_group.argument("--pages", type=int, default=5, help=HELP_MAX_PAGES)
@@ -362,7 +392,9 @@ def cmd_gmail_scan_classes(args) -> int:
 @gmail_group.argument("--credentials", help="Path to OAuth credentials.json")
 @gmail_group.argument("--token", help="Path to token.json")
 @gmail_group.argument("--cache", help=HELP_CACHE_DIR)
-@gmail_group.argument("--from-text", dest="from_text", default="richmondhill.ca", help="Sender filter")
+@gmail_group.argument(
+    "--from-text", dest="from_text", default="richmondhill.ca", help="Sender filter"
+)
 @gmail_group.argument("--query", help="Raw Gmail query")
 @gmail_group.argument("--days", type=int, default=365, help=HELP_DAYS)
 @gmail_group.argument("--pages", type=int, default=5, help=HELP_MAX_PAGES)

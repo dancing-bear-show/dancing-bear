@@ -3,6 +3,7 @@
 C5: ExitCode values replace bare int returns in cli.py.
 C6: OutputFormat injection and OutputWriter routing in pipeline.py.
 """
+
 from __future__ import annotations
 
 import io
@@ -41,6 +42,7 @@ def _sample_report() -> Report:
 def _make_diagnose_args(**overrides):
     """Build a minimal argparse.Namespace for cmd_diagnose tests."""
     import argparse
+
     defaults = dict(
         targets=["1.1.1.1"],
         ping_count=1,
@@ -68,8 +70,11 @@ class TestCliExitCodes(unittest.TestCase):
     def test_success_returns_exit_code_instance(self):
         """cmd_diagnose returns ExitCode.SUCCESS (not bare int 0) on success."""
         from wifi.cli import cmd_diagnose
-        with patch("wifi.cli.DiagnoseProcessor") as mock_proc_cls, \
-             patch("wifi.cli.DiagnoseProducer") as mock_prod_cls:
+
+        with (
+            patch("wifi.cli.DiagnoseProcessor") as mock_proc_cls,
+            patch("wifi.cli.DiagnoseProducer") as mock_prod_cls,
+        ):
             mock_env = MagicMock()
             mock_env.ok.return_value = True
             mock_proc_cls.return_value.process.return_value = mock_env
@@ -81,8 +86,11 @@ class TestCliExitCodes(unittest.TestCase):
     def test_failure_returns_exit_code_error(self):
         """cmd_diagnose returns ExitCode (not bare int) on failure."""
         from wifi.cli import cmd_diagnose
-        with patch("wifi.cli.DiagnoseProcessor") as mock_proc_cls, \
-             patch("wifi.cli.DiagnoseProducer") as mock_prod_cls:
+
+        with (
+            patch("wifi.cli.DiagnoseProcessor") as mock_proc_cls,
+            patch("wifi.cli.DiagnoseProducer") as mock_prod_cls,
+        ):
             mock_env = MagicMock()
             mock_env.ok.return_value = False
             mock_env.diagnostics = {"code": ExitCode.ERROR}
@@ -95,8 +103,11 @@ class TestCliExitCodes(unittest.TestCase):
     def test_failure_missing_code_defaults_to_exit_code_error(self):
         """cmd_diagnose defaults to ExitCode.ERROR when diagnostics has no code."""
         from wifi.cli import cmd_diagnose
-        with patch("wifi.cli.DiagnoseProcessor") as mock_proc_cls, \
-             patch("wifi.cli.DiagnoseProducer") as mock_prod_cls:
+
+        with (
+            patch("wifi.cli.DiagnoseProcessor") as mock_proc_cls,
+            patch("wifi.cli.DiagnoseProducer") as mock_prod_cls,
+        ):
             mock_env = MagicMock()
             mock_env.ok.return_value = False
             mock_env.diagnostics = {}

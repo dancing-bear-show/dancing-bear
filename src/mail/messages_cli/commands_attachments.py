@@ -2,16 +2,19 @@
 
 Split out of commands.py to keep that module focused on search/summarize.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+
 from .commands import _MSG_ID_REQUIRED
 
 
 @dataclass(frozen=True)
 class AttachmentInfo:
     """Metadata for a single message attachment."""
+
     filename: str
     mime_type: str
     attachment_id: str
@@ -35,13 +38,15 @@ def _collect_attachment_parts(part: dict) -> list[AttachmentInfo]:
     body = part.get("body") or {}
     attachment_id = body.get("attachmentId") or ""
     if filename and attachment_id:
-        results.append(AttachmentInfo(
-            filename=filename,
-            mime_type=part.get("mimeType") or "",
-            attachment_id=attachment_id,
-            size=int(body.get("size") or 0),
-        ))
-    for sub in (part.get("parts") or []):
+        results.append(
+            AttachmentInfo(
+                filename=filename,
+                mime_type=part.get("mimeType") or "",
+                attachment_id=attachment_id,
+                size=int(body.get("size") or 0),
+            )
+        )
+    for sub in part.get("parts") or []:
         results.extend(_collect_attachment_parts(sub))
     return results
 
@@ -56,6 +61,7 @@ def _sanitize_filename(filename: str) -> str:
     so they fall back to a fixed placeholder name.
     """
     import os
+
     base = os.path.basename(filename.replace("\\", "/")).strip()
     if base in ("", ".", ".."):
         return _FALLBACK_ATTACHMENT_NAME
@@ -108,6 +114,7 @@ def run_messages_list_attachments(args) -> int:
 def _print_attachment_choices(attachments: list[AttachmentInfo]) -> None:
     """Print attachment filename/id pairs to stderr as disambiguation help."""
     import sys
+
     for a in attachments:
         print(f"  {a.filename}  id={a.attachment_id}", file=sys.stderr)
 
@@ -126,8 +133,7 @@ def _resolve_by_filename(
         return None, 1
     if len(matched) > 1:
         print(
-            f"Multiple attachments named '{filename_filter}'; "
-            "specify --attachment-id instead:",
+            f"Multiple attachments named '{filename_filter}'; specify --attachment-id instead:",
             file=sys.stderr,
         )
         _print_attachment_choices(matched)
@@ -190,6 +196,7 @@ def _resolve_output_path(chosen: AttachmentInfo, out_arg: str | None, out_dir_ar
 def run_messages_download_attachment(args) -> int:
     """Download an attachment from a Gmail message to disk."""
     import sys
+
     from ..utils.cli_helpers import gmail_provider_from_args
 
     msg_id = getattr(args, "id", None)

@@ -315,9 +315,7 @@ def _rule_pattern(rule: dict[str, Any]) -> str:
 def all_concern_guides() -> list[str]:
     """Return all *.md filenames in concerns/ except README.md."""
     return sorted(
-        p.name
-        for p in _CONCERNS_DIR.iterdir()
-        if p.suffix == ".md" and p.name != "README.md"
+        p.name for p in _CONCERNS_DIR.iterdir() if p.suffix == ".md" and p.name != "README.md"
     )
 
 
@@ -343,5 +341,3 @@ def reachable_guides() -> set[str]:
         reachable.add(guide)
 
     return reachable
-
-

@@ -4,11 +4,11 @@ import json
 import os
 import tempfile
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest import mock
 
-from telemetry.parser import iter_session_files, parse_session, _parse_ts
+from telemetry.parser import _parse_ts, iter_session_files, parse_session
 from telemetry.pricing import TokenMetrics, compute_cost, model_tier
 
 
@@ -72,34 +72,38 @@ class TestParseSession(unittest.TestCase):
         self.assertEqual(stats.cache_create_tokens, 30)
 
     def test_null_usage_does_not_raise(self):
-        path = self._write_jsonl([
-            {"type": "assistant", "message": {"model": "claude-opus-4-6", "usage": None}},
-            {"type": "user", "toolUseResult": {"agentId": "a", "usage": None}},
-        ])
+        path = self._write_jsonl(
+            [
+                {"type": "assistant", "message": {"model": "claude-opus-4-6", "usage": None}},
+                {"type": "user", "toolUseResult": {"agentId": "a", "usage": None}},
+            ]
+        )
         stats = parse_session(path)
         self.assertEqual(stats.total_tokens, 0)
 
     def test_assistant_usage(self):
-        path = self._write_jsonl([
-            {
-                "type": "assistant",
-                "timestamp": "2026-04-16T10:00:00Z",
-                "message": {
-                    "model": "claude-opus-4-6",
-                    "usage": {
-                        "input_tokens": 100,
-                        "output_tokens": 50,
-                        "cache_read_input_tokens": 200,
-                        "cache_creation_input_tokens": 30,
+        path = self._write_jsonl(
+            [
+                {
+                    "type": "assistant",
+                    "timestamp": "2026-04-16T10:00:00Z",
+                    "message": {
+                        "model": "claude-opus-4-6",
+                        "usage": {
+                            "input_tokens": 100,
+                            "output_tokens": 50,
+                            "cache_read_input_tokens": 200,
+                            "cache_creation_input_tokens": 30,
+                        },
+                        "content": [
+                            {"type": "tool_use", "name": "Read", "id": "t1", "input": {}},
+                            {"type": "tool_use", "name": "Read", "id": "t2", "input": {}},
+                            {"type": "tool_use", "name": "Bash", "id": "t3", "input": {}},
+                        ],
                     },
-                    "content": [
-                        {"type": "tool_use", "name": "Read", "id": "t1", "input": {}},
-                        {"type": "tool_use", "name": "Read", "id": "t2", "input": {}},
-                        {"type": "tool_use", "name": "Bash", "id": "t3", "input": {}},
-                    ],
-                },
-            }
-        ])
+                }
+            ]
+        )
         stats = parse_session(path)
         self.assertEqual(stats.events, 1)
         self.assertEqual(stats.model, "claude-opus-4-6")
@@ -111,25 +115,27 @@ class TestParseSession(unittest.TestCase):
         self.assertEqual(stats.tool_counts["Bash"], 1)
 
     def test_subagent_usage_accumulated(self):
-        path = self._write_jsonl([
-            {
-                "type": "assistant",
-                "timestamp": "2026-04-16T10:00:00Z",
-                "message": {
-                    "model": "claude-opus-4-6",
-                    "usage": {"input_tokens": 100, "output_tokens": 50},
-                    "content": [],
+        path = self._write_jsonl(
+            [
+                {
+                    "type": "assistant",
+                    "timestamp": "2026-04-16T10:00:00Z",
+                    "message": {
+                        "model": "claude-opus-4-6",
+                        "usage": {"input_tokens": 100, "output_tokens": 50},
+                        "content": [],
+                    },
                 },
-            },
-            {
-                "type": "user",
-                "timestamp": "2026-04-16T10:01:00Z",
-                "message": {"content": []},
-                "toolUseResult": {
-                    "usage": {"input_tokens": 200, "output_tokens": 80},
+                {
+                    "type": "user",
+                    "timestamp": "2026-04-16T10:01:00Z",
+                    "message": {"content": []},
+                    "toolUseResult": {
+                        "usage": {"input_tokens": 200, "output_tokens": 80},
+                    },
                 },
-            },
-        ])
+            ]
+        )
         stats = parse_session(path)
         self.assertEqual(stats.input_tokens, 300)
         self.assertEqual(stats.output_tokens, 130)
@@ -139,26 +145,32 @@ class TestParseSession(unittest.TestCase):
         self.addCleanup(td.cleanup)
         path = Path(td.name) / "corrupt.jsonl"
         with open(path, "w", encoding="utf-8") as f:
-            f.write('{"type":"assistant","timestamp":"2026-04-16T10:00:00Z",'
-                    '"message":{"model":"claude-opus-4-6","usage":{"input_tokens":10,"output_tokens":5},"content":[]}}\n')
+            f.write(
+                '{"type":"assistant","timestamp":"2026-04-16T10:00:00Z",'
+                '"message":{"model":"claude-opus-4-6","usage":{"input_tokens":10,"output_tokens":5},"content":[]}}\n'
+            )
             f.write("NOT VALID JSON\n")
-            f.write('{"type":"assistant","timestamp":"2026-04-16T10:01:00Z",'
-                    '"message":{"model":"claude-opus-4-6","usage":{"input_tokens":20,"output_tokens":10},"content":[]}}\n')
+            f.write(
+                '{"type":"assistant","timestamp":"2026-04-16T10:01:00Z",'
+                '"message":{"model":"claude-opus-4-6","usage":{"input_tokens":20,"output_tokens":10},"content":[]}}\n'
+            )
         stats = parse_session(path)
         self.assertEqual(stats.events, 2)
         self.assertEqual(stats.input_tokens, 30)
 
     def test_missing_model(self):
-        path = self._write_jsonl([
-            {
-                "type": "assistant",
-                "timestamp": "2026-04-16T10:00:00Z",
-                "message": {
-                    "usage": {"input_tokens": 10, "output_tokens": 5},
-                    "content": [],
+        path = self._write_jsonl(
+            [
+                {
+                    "type": "assistant",
+                    "timestamp": "2026-04-16T10:00:00Z",
+                    "message": {
+                        "usage": {"input_tokens": 10, "output_tokens": 5},
+                        "content": [],
+                    },
                 },
-            },
-        ])
+            ]
+        )
         stats = parse_session(path)
         self.assertEqual(stats.model, "")
         self.assertEqual(stats.events, 1)
@@ -176,23 +188,35 @@ class TestParseSession(unittest.TestCase):
         self.addCleanup(td.cleanup)
         path = Path(td.name) / "blank.jsonl"
         with open(path, "w", encoding="utf-8") as f:
-            f.write('{"type":"assistant","timestamp":"2026-04-16T10:00:00Z",'
-                    '"message":{"model":"m","usage":{"input_tokens":10,"output_tokens":5},"content":[]}}\n')
+            f.write(
+                '{"type":"assistant","timestamp":"2026-04-16T10:00:00Z",'
+                '"message":{"model":"m","usage":{"input_tokens":10,"output_tokens":5},"content":[]}}\n'
+            )
             f.write("\n")
             f.write("   \n")
-            f.write('{"type":"assistant","timestamp":"2026-04-16T10:01:00Z",'
-                    '"message":{"model":"m","usage":{"input_tokens":20,"output_tokens":10},"content":[]}}\n')
+            f.write(
+                '{"type":"assistant","timestamp":"2026-04-16T10:01:00Z",'
+                '"message":{"model":"m","usage":{"input_tokens":20,"output_tokens":10},"content":[]}}\n'
+            )
         stats = parse_session(path)
         self.assertEqual(stats.events, 2)
         self.assertEqual(stats.input_tokens, 30)
 
     def test_time_range(self):
-        path = self._write_jsonl([
-            {"type": "assistant", "timestamp": "2026-04-16T10:00:00Z",
-             "message": {"model": "m", "usage": {}, "content": []}},
-            {"type": "assistant", "timestamp": "2026-04-16T10:30:00Z",
-             "message": {"model": "m", "usage": {}, "content": []}},
-        ])
+        path = self._write_jsonl(
+            [
+                {
+                    "type": "assistant",
+                    "timestamp": "2026-04-16T10:00:00Z",
+                    "message": {"model": "m", "usage": {}, "content": []},
+                },
+                {
+                    "type": "assistant",
+                    "timestamp": "2026-04-16T10:30:00Z",
+                    "message": {"model": "m", "usage": {}, "content": []},
+                },
+            ]
+        )
         stats = parse_session(path)
         self.assertAlmostEqual(stats.duration_seconds, 1800.0, places=0)
 
@@ -217,7 +241,7 @@ class TestIterSessionFiles(unittest.TestCase):
 
         old = proj / "old.jsonl"
         old.write_text("{}\n", encoding="utf-8")
-        old_ts = (datetime.now(tz=timezone.utc) - timedelta(days=30)).timestamp()
+        old_ts = (datetime.now(tz=UTC) - timedelta(days=30)).timestamp()
         os.utime(old, (old_ts, old_ts))
 
         not_jsonl = proj / "notes.txt"
@@ -254,8 +278,12 @@ class TestPricing(unittest.TestCase):
         # Opus 5.5 is $4/M input, $20/M output — below the generic opus rate
         for model in ("claude-opus-5-5", "claude-opus-5-5[1m]"):
             with self.subTest(model=model):
-                self.assertAlmostEqual(compute_cost(TokenMetrics(1_000_000, 0, 0, 0), model), 4.0, places=2)
-                self.assertAlmostEqual(compute_cost(TokenMetrics(0, 1_000_000, 0, 0), model), 20.0, places=2)
+                self.assertAlmostEqual(
+                    compute_cost(TokenMetrics(1_000_000, 0, 0, 0), model), 4.0, places=2
+                )
+                self.assertAlmostEqual(
+                    compute_cost(TokenMetrics(0, 1_000_000, 0, 0), model), 20.0, places=2
+                )
 
     @mock.patch("telemetry.pricing._cost_multiplier", return_value=1.0)
     def test_compute_cost_current_models(self, _mult):
@@ -270,8 +298,12 @@ class TestPricing(unittest.TestCase):
         ]
         for model, in_rate, out_rate in cases:
             with self.subTest(model=model):
-                self.assertAlmostEqual(compute_cost(TokenMetrics(1_000_000, 0, 0, 0), model), in_rate, places=2)
-                self.assertAlmostEqual(compute_cost(TokenMetrics(0, 1_000_000, 0, 0), model), out_rate, places=2)
+                self.assertAlmostEqual(
+                    compute_cost(TokenMetrics(1_000_000, 0, 0, 0), model), in_rate, places=2
+                )
+                self.assertAlmostEqual(
+                    compute_cost(TokenMetrics(0, 1_000_000, 0, 0), model), out_rate, places=2
+                )
 
     @mock.patch("telemetry.pricing._cost_multiplier", return_value=1.0)
     def test_compute_cost_cache_reads_use_per_model_multiplier(self, _mult):
@@ -293,7 +325,9 @@ class TestPricing(unittest.TestCase):
     def test_compute_cost_older_sonnet_unaffected(self, _mult):
         for model in ("claude-sonnet-4-6", "claude-sonnet-4-6[1m]"):
             with self.subTest(model=model):
-                self.assertAlmostEqual(compute_cost(TokenMetrics(1_000_000, 0, 0, 0), model), 3.0, places=2)
+                self.assertAlmostEqual(
+                    compute_cost(TokenMetrics(1_000_000, 0, 0, 0), model), 3.0, places=2
+                )
 
     @mock.patch("telemetry.pricing._cost_multiplier", return_value=1.0)
     def test_compute_cost_other_opus_1m_unaffected(self, _mult):

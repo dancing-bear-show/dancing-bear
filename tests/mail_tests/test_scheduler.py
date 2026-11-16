@@ -15,7 +15,6 @@ import os
 import unittest
 from unittest.mock import patch
 
-from tests.fixtures import TempDirMixin
 from mail.scheduler import (
     ScheduledItem,
     _load_queue,
@@ -26,6 +25,7 @@ from mail.scheduler import (
     parse_send_in,
     pop_due,
 )
+from tests.fixtures import TempDirMixin
 
 
 class QueuePathXdgFallbackTests(TempDirMixin, unittest.TestCase):
@@ -144,9 +144,11 @@ class PopDueRestBranchTests(_ScheduleQueuePathTestBase):
     def test_future_items_stay_in_queue(self):
         # Line 66: rest.append branch
         now = 1700000000
-        _save_queue([
-            {"provider": "gmail", "profile": "p", "due_at": now + 9999, "raw_b64": "x"},
-        ])
+        _save_queue(
+            [
+                {"provider": "gmail", "profile": "p", "due_at": now + 9999, "raw_b64": "x"},
+            ]
+        )
         due = pop_due(now_ts=now)
         self.assertEqual(due, [])
         remaining = _load_queue()
@@ -155,11 +157,13 @@ class PopDueRestBranchTests(_ScheduleQueuePathTestBase):
     def test_limit_overflow_items_kept_in_queue(self):
         # Lines 68-71: due items beyond limit are pushed back to rest
         now = 1700000000
-        _save_queue([
-            {"provider": "gmail", "profile": "p", "due_at": now - 300, "raw_b64": "a"},
-            {"provider": "gmail", "profile": "p", "due_at": now - 200, "raw_b64": "b"},
-            {"provider": "gmail", "profile": "p", "due_at": now - 100, "raw_b64": "c"},
-        ])
+        _save_queue(
+            [
+                {"provider": "gmail", "profile": "p", "due_at": now - 300, "raw_b64": "a"},
+                {"provider": "gmail", "profile": "p", "due_at": now - 200, "raw_b64": "b"},
+                {"provider": "gmail", "profile": "p", "due_at": now - 100, "raw_b64": "c"},
+            ]
+        )
         due = pop_due(now_ts=now, limit=1)
         self.assertEqual(len(due), 1)
         # The remaining two overflow items are back in the queue
@@ -168,21 +172,25 @@ class PopDueRestBranchTests(_ScheduleQueuePathTestBase):
 
     def test_limit_equal_to_due_count_no_overflow(self):
         now = 1700000000
-        _save_queue([
-            {"provider": "gmail", "profile": "p", "due_at": now - 10, "raw_b64": "a"},
-            {"provider": "gmail", "profile": "p", "due_at": now - 5, "raw_b64": "b"},
-        ])
+        _save_queue(
+            [
+                {"provider": "gmail", "profile": "p", "due_at": now - 10, "raw_b64": "a"},
+                {"provider": "gmail", "profile": "p", "due_at": now - 5, "raw_b64": "b"},
+            ]
+        )
         due = pop_due(now_ts=now, limit=2)
         self.assertEqual(len(due), 2)
         self.assertEqual(_load_queue(), [])
 
     def test_mixed_due_and_future_with_limit(self):
         now = 1700000000
-        _save_queue([
-            {"provider": "gmail", "profile": "p", "due_at": now - 10, "raw_b64": "a"},
-            {"provider": "gmail", "profile": "p", "due_at": now - 5, "raw_b64": "b"},
-            {"provider": "gmail", "profile": "p", "due_at": now + 10, "raw_b64": "c"},
-        ])
+        _save_queue(
+            [
+                {"provider": "gmail", "profile": "p", "due_at": now - 10, "raw_b64": "a"},
+                {"provider": "gmail", "profile": "p", "due_at": now - 5, "raw_b64": "b"},
+                {"provider": "gmail", "profile": "p", "due_at": now + 10, "raw_b64": "c"},
+            ]
+        )
         due = pop_due(now_ts=now, limit=1)
         self.assertEqual(len(due), 1)
         # One due item overflows back + one future item = 2 remaining

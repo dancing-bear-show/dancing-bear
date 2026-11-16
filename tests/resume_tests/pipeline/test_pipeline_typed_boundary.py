@@ -126,20 +126,14 @@ class TestLegacyShapeUpgrade(unittest.TestCase):
         result = FilterPipeline(
             Resume.from_dict({"summary": ["Builds internal platforms."]})
         ).execute()
-        self.assertEqual(
-            result.to_dict(), {"summary": [{"text": "Builds internal platforms."}]}
-        )
+        self.assertEqual(result.to_dict(), {"summary": [{"text": "Builds internal platforms."}]})
 
     def test_legacy_string_bullets_are_upgraded_to_items(self):
         """Bare-string bullets come back as text items."""
         result = FilterPipeline(
-            Resume.from_dict(
-                {"experience": [{"title": "Engineer", "bullets": ["Ran the fleet."]}]}
-            )
+            Resume.from_dict({"experience": [{"title": "Engineer", "bullets": ["Ran the fleet."]}]})
         ).execute()
-        self.assertEqual(
-            result.to_dict()["experience"][0]["bullets"], [{"text": "Ran the fleet."}]
-        )
+        self.assertEqual(result.to_dict()["experience"][0]["bullets"], [{"text": "Ran the fleet."}])
 
     def test_legacy_upgrade_converges_after_one_pass(self):
         """The upgrade is one-directional and stable, so a re-run is a no-op."""

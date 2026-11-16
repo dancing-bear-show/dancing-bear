@@ -5,19 +5,19 @@ Provides pipeline components for importing schedules into Outlook calendars.
 
 from __future__ import annotations
 
+from ..outlook_service import EventCreationParams, RecurringEventCreationParams
 from ._base import (
-    Any,
-    BaseProducer,
     DEFAULT_IMPORT_CALENDAR,
     LOG_DRY_RUN,
     MSG_PREVIEW_COMPLETE,
+    Any,
+    BaseProducer,
     RequestConsumer,
     SafeProcessor,
     check_service_required,
     dataclass,
 )
 from ._context import ScheduleImportContext
-from ..outlook_service import EventCreationParams, RecurringEventCreationParams
 
 
 @dataclass
@@ -43,7 +43,9 @@ class OutlookScheduleImportResult:
     calendar: str
 
 
-class OutlookScheduleImportProcessor(SafeProcessor[OutlookScheduleImportRequest, OutlookScheduleImportResult]):
+class OutlookScheduleImportProcessor(
+    SafeProcessor[OutlookScheduleImportRequest, OutlookScheduleImportResult]
+):
     def __init__(self, schedule_loader=None) -> None:
         self._schedule_loader = schedule_loader
 
@@ -56,7 +58,12 @@ class OutlookScheduleImportProcessor(SafeProcessor[OutlookScheduleImportRequest,
         items = self._load_items(payload)
 
         if not items:
-            return OutlookScheduleImportResult(logs=["No schedule items parsed."], created=0, dry_run=payload.dry_run, calendar=cal_name)
+            return OutlookScheduleImportResult(
+                logs=["No schedule items parsed."],
+                created=0,
+                dry_run=payload.dry_run,
+                calendar=cal_name,
+            )
 
         logs: list[str] = []
         ctx = ScheduleImportContext(svc=svc, cal_id=cal_id, cal_name=cal_name, logs=logs)
@@ -64,7 +71,9 @@ class OutlookScheduleImportProcessor(SafeProcessor[OutlookScheduleImportRequest,
         for item in items:
             result = self._process_item(item, ctx, payload)
             created += result
-        return OutlookScheduleImportResult(logs=logs, created=created, dry_run=payload.dry_run, calendar=cal_name)
+        return OutlookScheduleImportResult(
+            logs=logs, created=created, dry_run=payload.dry_run, calendar=cal_name
+        )
 
     def _ensure_calendar(self, svc, cal_name: str) -> str:
         """Ensure calendar exists and return its ID."""
@@ -76,25 +85,37 @@ class OutlookScheduleImportProcessor(SafeProcessor[OutlookScheduleImportRequest,
         loader = self._schedule_loader
         if loader is None:
             from calendars.importer import load_schedule as default_loader
+
             loader = default_loader
         return loader(payload.source, kind=payload.kind)
 
-    def _process_item(self, item, ctx: ScheduleImportContext, payload: OutlookScheduleImportRequest) -> int:
+    def _process_item(
+        self, item, ctx: ScheduleImportContext, payload: OutlookScheduleImportRequest
+    ) -> int:
         # One-off event
         if item.start_iso and item.end_iso:
             return self._create_one_off(item, ctx, payload)
 
         # Recurring event
         rec = item.recurrence or ("weekly" if item.byday else None)
-        if rec in ("weekly", "daily", "monthly") and item.start_time and item.end_time and item.range_start:
+        if (
+            rec in ("weekly", "daily", "monthly")
+            and item.start_time
+            and item.end_time
+            and item.range_start
+        ):
             return self._create_recurring(item, ctx, payload, rec)
 
         ctx.logs.append(f"Skip non-recurring or incomplete row: {item.subject}")
         return 0
 
-    def _create_one_off(self, item, ctx: ScheduleImportContext, payload: OutlookScheduleImportRequest) -> int:
+    def _create_one_off(
+        self, item, ctx: ScheduleImportContext, payload: OutlookScheduleImportRequest
+    ) -> int:
         if payload.dry_run:
-            ctx.logs.append(f"{LOG_DRY_RUN} would create one-off '{item.subject}' {item.start_iso}->{item.end_iso} cal='{ctx.cal_name}'")
+            ctx.logs.append(
+                f"{LOG_DRY_RUN} would create one-off '{item.subject}' {item.start_iso}->{item.end_iso} cal='{ctx.cal_name}'"
+            )
             return 1
         try:
             params = EventCreationParams(
@@ -116,11 +137,15 @@ class OutlookScheduleImportProcessor(SafeProcessor[OutlookScheduleImportRequest,
             ctx.logs.append(f"Failed to create one-off '{item.subject}': {exc}")
             return 0
 
-    def _create_recurring(self, item, ctx: ScheduleImportContext, payload: OutlookScheduleImportRequest, rec: str) -> int:
+    def _create_recurring(
+        self, item, ctx: ScheduleImportContext, payload: OutlookScheduleImportRequest, rec: str
+    ) -> int:
         range_until = payload.until or item.range_until
         if payload.dry_run:
             extra = f" {','.join(item.byday or [])}" if item.byday else ""
-            ctx.logs.append(f"{LOG_DRY_RUN} would create {rec} '{item.subject}'{extra} {item.start_time}-{item.end_time} start={item.range_start} cal='{ctx.cal_name}'")
+            ctx.logs.append(
+                f"{LOG_DRY_RUN} would create {rec} '{item.subject}'{extra} {item.start_time}-{item.end_time} start={item.range_start} cal='{ctx.cal_name}'"
+            )
             return 1
         try:
             params = RecurringEventCreationParams(
@@ -149,7 +174,9 @@ class OutlookScheduleImportProcessor(SafeProcessor[OutlookScheduleImportRequest,
 
 
 class OutlookScheduleImportProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookScheduleImportResult, diagnostics: dict[str, Any] | None) -> None:
+    def _produce_success(
+        self, payload: OutlookScheduleImportResult, diagnostics: dict[str, Any] | None
+    ) -> None:
         self.print_logs(payload.logs)
         if payload.dry_run:
             print(MSG_PREVIEW_COMPLETE)
@@ -158,9 +185,9 @@ class OutlookScheduleImportProducer(BaseProducer):
 
 
 __all__ = [
+    "OutlookScheduleImportProcessor",
+    "OutlookScheduleImportProducer",
     "OutlookScheduleImportRequest",
     "OutlookScheduleImportRequestConsumer",
     "OutlookScheduleImportResult",
-    "OutlookScheduleImportProcessor",
-    "OutlookScheduleImportProducer",
 ]

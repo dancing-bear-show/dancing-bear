@@ -11,6 +11,7 @@ Tests cover:
 - pr_view() method
 - pr_list() method
 """
+
 from __future__ import annotations
 
 import json
@@ -46,7 +47,7 @@ class TestGhCLIInit(unittest.TestCase):
 class TestGhCLIEnsureAvailable(unittest.TestCase):
     """Test ensure_available() method."""
 
-    @patch('shutil.which')
+    @patch("shutil.which")
     def test_ensure_available_gh_found(self, mock_which):
         """Test when gh is available in PATH."""
         mock_which.return_value = "/usr/local/bin/gh"
@@ -55,7 +56,7 @@ class TestGhCLIEnsureAvailable(unittest.TestCase):
         cli.ensure_available()
         mock_which.assert_called_once_with("gh")
 
-    @patch('shutil.which')
+    @patch("shutil.which")
     def test_ensure_available_gh_not_found(self, mock_which):
         """Test when gh is not available in PATH."""
         mock_which.return_value = None
@@ -70,28 +71,20 @@ class TestGhCLIAuthStatus(unittest.TestCase):
 
     def test_auth_status_success(self):
         """Test auth_status when authenticated."""
-        mock_run = MagicMock(return_value=_proc(
-            returncode=0,
-            stdout="Logged in to github.com as testuser"
-        ))
+        mock_run = MagicMock(
+            return_value=_proc(returncode=0, stdout="Logged in to github.com as testuser")
+        )
         cli = GhCLI(run_func=mock_run)
 
         ok, output = cli.auth_status()
 
         self.assertTrue(ok)
         self.assertIn("Logged in", output)
-        mock_run.assert_called_once_with(
-            ["gh", "auth", "status"],
-            text=True,
-            capture_output=True
-        )
+        mock_run.assert_called_once_with(["gh", "auth", "status"], text=True, capture_output=True)
 
     def test_auth_status_failure(self):
         """Test auth_status when not authenticated."""
-        mock_run = MagicMock(return_value=_proc(
-            returncode=1,
-            stderr="Not logged in"
-        ))
+        mock_run = MagicMock(return_value=_proc(returncode=1, stderr="Not logged in"))
         cli = GhCLI(run_func=mock_run)
 
         ok, output = cli.auth_status()
@@ -105,27 +98,19 @@ class TestGhCLIApi(unittest.TestCase):
 
     def test_api_success(self):
         """Test successful API call."""
-        mock_run = MagicMock(return_value=_proc(
-            returncode=0,
-            stdout='{"login": "testuser", "id": 123}'
-        ))
+        mock_run = MagicMock(
+            return_value=_proc(returncode=0, stdout='{"login": "testuser", "id": 123}')
+        )
         cli = GhCLI(run_func=mock_run)
 
         result = cli.api("user")
 
         self.assertEqual(result["login"], "testuser")
-        mock_run.assert_called_once_with(
-            ["gh", "api", "user"],
-            text=True,
-            capture_output=True
-        )
+        mock_run.assert_called_once_with(["gh", "api", "user"], text=True, capture_output=True)
 
     def test_api_with_params(self):
         """Test API call with query parameters."""
-        mock_run = MagicMock(return_value=_proc(
-            returncode=0,
-            stdout='[]'
-        ))
+        mock_run = MagicMock(return_value=_proc(returncode=0, stdout="[]"))
         cli = GhCLI(run_func=mock_run)
 
         result = cli.api("/repos/owner/repo/pulls", params={"state": "all", "per_page": 100})
@@ -138,10 +123,7 @@ class TestGhCLIApi(unittest.TestCase):
 
     def test_api_failure_raises_cli_error(self):
         """Test that API failure raises CLIError."""
-        mock_run = MagicMock(return_value=_proc(
-            returncode=1,
-            stderr="Not Found"
-        ))
+        mock_run = MagicMock(return_value=_proc(returncode=1, stderr="Not Found"))
         cli = GhCLI(run_func=mock_run)
 
         with self.assertRaises(CLIError) as ctx:
@@ -151,10 +133,7 @@ class TestGhCLIApi(unittest.TestCase):
 
     def test_api_non_json_response(self):
         """Test API call that returns non-JSON response."""
-        mock_run = MagicMock(return_value=_proc(
-            returncode=0,
-            stdout="plain text response"
-        ))
+        mock_run = MagicMock(return_value=_proc(returncode=0, stdout="plain text response"))
         cli = GhCLI(run_func=mock_run)
 
         result = cli.api("/some/endpoint")
@@ -168,10 +147,9 @@ class TestGhCLISearchPrs(unittest.TestCase):
 
     def test_search_prs_success(self):
         """Test successful PR search."""
-        mock_run = MagicMock(return_value=_proc(
-            returncode=0,
-            stdout='[{"number": 1, "title": "Test PR"}]'
-        ))
+        mock_run = MagicMock(
+            return_value=_proc(returncode=0, stdout='[{"number": 1, "title": "Test PR"}]')
+        )
         cli = GhCLI(run_func=mock_run)
 
         result = cli.search_prs(author="@me", state="all", limit=5)
@@ -188,10 +166,7 @@ class TestGhCLISearchPrs(unittest.TestCase):
 
     def test_search_prs_underscore_to_hyphen(self):
         """Test that kwargs with underscores are converted to hyphens."""
-        mock_run = MagicMock(return_value=_proc(
-            returncode=0,
-            stdout='[]'
-        ))
+        mock_run = MagicMock(return_value=_proc(returncode=0, stdout="[]"))
         cli = GhCLI(run_func=mock_run)
 
         cli.search_prs(review_requested="@me")
@@ -201,10 +176,7 @@ class TestGhCLISearchPrs(unittest.TestCase):
 
     def test_search_prs_skips_none_values(self):
         """Test that None-valued kwargs are omitted, not passed as 'None'."""
-        mock_run = MagicMock(return_value=_proc(
-            returncode=0,
-            stdout='[]'
-        ))
+        mock_run = MagicMock(return_value=_proc(returncode=0, stdout="[]"))
         cli = GhCLI(run_func=mock_run)
 
         cli.search_prs(author="@me", assignee=None)
@@ -216,10 +188,7 @@ class TestGhCLISearchPrs(unittest.TestCase):
 
     def test_search_prs_non_json_returns_raw(self):
         """Test non-JSON search output is returned raw, not raised."""
-        mock_run = MagicMock(return_value=_proc(
-            returncode=0,
-            stdout="a warning line, not json"
-        ))
+        mock_run = MagicMock(return_value=_proc(returncode=0, stdout="a warning line, not json"))
         cli = GhCLI(run_func=mock_run)
 
         result = cli.search_prs(author="@me")
@@ -228,10 +197,7 @@ class TestGhCLISearchPrs(unittest.TestCase):
 
     def test_search_prs_failure_raises_cli_error(self):
         """Test that search failure raises CLIError."""
-        mock_run = MagicMock(return_value=_proc(
-            returncode=1,
-            stderr="Search failed"
-        ))
+        mock_run = MagicMock(return_value=_proc(returncode=1, stderr="Search failed"))
         cli = GhCLI(run_func=mock_run)
 
         with self.assertRaises(CLIError):
@@ -250,10 +216,7 @@ class TestGhCLIApiWithHeaders(unittest.TestCase):
             "\r\n"
             '{"login": "testuser"}'
         )
-        mock_run = MagicMock(return_value=_proc(
-            returncode=0,
-            stdout=response
-        ))
+        mock_run = MagicMock(return_value=_proc(returncode=0, stdout=response))
         cli = GhCLI(run_func=mock_run)
 
         status, headers, body = cli.api_with_headers("/user")
@@ -265,16 +228,8 @@ class TestGhCLIApiWithHeaders(unittest.TestCase):
 
     def test_api_with_headers_unix_line_endings(self):
         """Test API call with Unix line endings."""
-        response = (
-            "HTTP/1.1 201 Created\n"
-            "X-Custom: value\n"
-            "\n"
-            '{"created": true}'
-        )
-        mock_run = MagicMock(return_value=_proc(
-            returncode=0,
-            stdout=response
-        ))
+        response = 'HTTP/1.1 201 Created\nX-Custom: value\n\n{"created": true}'
+        mock_run = MagicMock(return_value=_proc(returncode=0, stdout=response))
         cli = GhCLI(run_func=mock_run)
 
         status, headers, _ = cli.api_with_headers("/repos/owner/repo/issues")
@@ -284,10 +239,7 @@ class TestGhCLIApiWithHeaders(unittest.TestCase):
 
     def test_api_with_headers_failure(self):
         """Test API call that fails returns status=-1 and masked body."""
-        mock_run = MagicMock(return_value=_proc(
-            returncode=1,
-            stderr="Not authenticated"
-        ))
+        mock_run = MagicMock(return_value=_proc(returncode=1, stderr="Not authenticated"))
         cli = GhCLI(run_func=mock_run)
 
         status, headers, body = cli.api_with_headers("/user")
@@ -301,15 +253,8 @@ class TestGhCLIApiWithHeaders(unittest.TestCase):
 
     def test_api_with_headers_status_parse_error(self):
         """Test handling of malformed HTTP status line."""
-        response = (
-            "HTTP/1.1 BAD_STATUS\r\n"
-            "\r\n"
-            '{"error": true}'
-        )
-        mock_run = MagicMock(return_value=_proc(
-            returncode=0,
-            stdout=response
-        ))
+        response = 'HTTP/1.1 BAD_STATUS\r\n\r\n{"error": true}'
+        mock_run = MagicMock(return_value=_proc(returncode=0, stdout=response))
         cli = GhCLI(run_func=mock_run)
 
         status, _, _ = cli.api_with_headers("/endpoint")
@@ -327,10 +272,12 @@ class TestGhCLIGraphqlChecked(unittest.TestCase):
     """
 
     def test_query_and_variables_travel_together_on_stdin_not_argv(self):
-        mock_run = MagicMock(return_value=_proc(
-            returncode=0,
-            stdout='{"data": {"viewer": {"login": "testuser"}}}',
-        ))
+        mock_run = MagicMock(
+            return_value=_proc(
+                returncode=0,
+                stdout='{"data": {"viewer": {"login": "testuser"}}}',
+            )
+        )
         cli = GhCLI(run_func=mock_run)
 
         data = cli.graphql_checked(
@@ -373,10 +320,9 @@ class TestGhCLIPrView(unittest.TestCase):
 
     def test_pr_view_basic(self):
         """Test basic PR view without fields."""
-        mock_run = MagicMock(return_value=_proc(
-            returncode=0,
-            stdout="PR #123 Title: Test PR\nAuthor: testuser"
-        ))
+        mock_run = MagicMock(
+            return_value=_proc(returncode=0, stdout="PR #123 Title: Test PR\nAuthor: testuser")
+        )
         cli = GhCLI(run_func=mock_run)
 
         result = cli.pr_view("123")
@@ -387,10 +333,7 @@ class TestGhCLIPrView(unittest.TestCase):
 
     def test_pr_view_with_repo(self):
         """Test PR view with repo specified."""
-        mock_run = MagicMock(return_value=_proc(
-            returncode=0,
-            stdout="PR details"
-        ))
+        mock_run = MagicMock(return_value=_proc(returncode=0, stdout="PR details"))
         cli = GhCLI(run_func=mock_run)
 
         cli.pr_view("456", repo="owner/repo")
@@ -401,10 +344,11 @@ class TestGhCLIPrView(unittest.TestCase):
 
     def test_pr_view_with_fields(self):
         """Test PR view with JSON fields."""
-        mock_run = MagicMock(return_value=_proc(
-            returncode=0,
-            stdout='{"number": 789, "title": "Test", "state": "OPEN"}'
-        ))
+        mock_run = MagicMock(
+            return_value=_proc(
+                returncode=0, stdout='{"number": 789, "title": "Test", "state": "OPEN"}'
+            )
+        )
         cli = GhCLI(run_func=mock_run)
 
         result = cli.pr_view("789", fields=["number", "title", "state"])
@@ -416,10 +360,7 @@ class TestGhCLIPrView(unittest.TestCase):
 
     def test_pr_view_with_fields_parse_error(self):
         """Test PR view when JSON parse fails."""
-        mock_run = MagicMock(return_value=_proc(
-            returncode=0,
-            stdout="not valid json"
-        ))
+        mock_run = MagicMock(return_value=_proc(returncode=0, stdout="not valid json"))
         cli = GhCLI(run_func=mock_run)
 
         result = cli.pr_view("123", fields=["number"])
@@ -429,10 +370,7 @@ class TestGhCLIPrView(unittest.TestCase):
 
     def test_pr_view_failure_raises_cli_error(self):
         """Test that PR view failure raises CLIError."""
-        mock_run = MagicMock(return_value=_proc(
-            returncode=1,
-            stderr="PR not found"
-        ))
+        mock_run = MagicMock(return_value=_proc(returncode=1, stderr="PR not found"))
         cli = GhCLI(run_func=mock_run)
 
         with self.assertRaises(CLIError):
@@ -444,10 +382,9 @@ class TestGhCLIPrList(unittest.TestCase):
 
     def test_pr_list_success(self):
         """Test successful PR list with full command verification."""
-        mock_run = MagicMock(return_value=_proc(
-            returncode=0,
-            stdout='[{"number": 1}, {"number": 2}]'
-        ))
+        mock_run = MagicMock(
+            return_value=_proc(returncode=0, stdout='[{"number": 1}, {"number": 2}]')
+        )
         cli = GhCLI(run_func=mock_run)
 
         result = cli.pr_list(["pr", "list", "--state", "all", "--json", "number"])
@@ -461,10 +398,7 @@ class TestGhCLIPrList(unittest.TestCase):
 
     def test_pr_list_failure_raises_cli_error(self):
         """Test that PR list failure raises CLIError."""
-        mock_run = MagicMock(return_value=_proc(
-            returncode=1,
-            stderr="Failed to list PRs"
-        ))
+        mock_run = MagicMock(return_value=_proc(returncode=1, stderr="Failed to list PRs"))
         cli = GhCLI(run_func=mock_run)
 
         with self.assertRaises(CLIError):
@@ -480,5 +414,5 @@ class TestGhCLIPrList(unittest.TestCase):
         mock_run.assert_not_called()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

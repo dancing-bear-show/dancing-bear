@@ -49,12 +49,14 @@ def run_output_checks(
         real_full = os.path.realpath(full_path)
         if not real_full.startswith(workspace_real + os.sep) and real_full != workspace_real:
             for check_name in output_check.checks:
-                results.append(CheckResult(
-                    passed=False,
-                    path=output_check.path,
-                    check=check_name,
-                    message="path escapes workspace root — rejected",
-                ))
+                results.append(
+                    CheckResult(
+                        passed=False,
+                        path=output_check.path,
+                        check=check_name,
+                        message="path escapes workspace root — rejected",
+                    )
+                )
             continue
         parsed, read_error = _read_json(full_path)
 
@@ -141,7 +143,10 @@ def _check_list_items_have_key(parsed: object | None, key: str) -> tuple[bool, s
     if not bad:
         return True, f"all list items have key '{key}'"
     sample = bad[:3]
-    return False, f"list items at indices {sample}{'...' if len(bad) > 3 else ''} missing key '{key}'"
+    return (
+        False,
+        f"list items at indices {sample}{'...' if len(bad) > 3 else ''} missing key '{key}'",
+    )
 
 
 # Exact-match check names -> verdict function. The second argument is unused for
@@ -175,7 +180,7 @@ def _resolve_check(
         return exact, ""
     for prefix, fn in _PREFIX_CHECKS.items():
         if check_name.startswith(prefix):
-            return fn, check_name[len(prefix):]
+            return fn, check_name[len(prefix) :]
     return None, ""
 
 

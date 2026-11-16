@@ -1,13 +1,13 @@
 import unittest
 from unittest.mock import patch
 
-from tests.fixtures import has_pyyaml, capture_stdout, write_yaml
+from tests.fixtures import capture_stdout, has_pyyaml, write_yaml
 from tests.mail_tests.fixtures import (
     FakeGmailClient,
     make_args,
+    make_label_with_visibility,
     make_system_label,
     make_user_label,
-    make_label_with_visibility,
 )
 
 
@@ -15,11 +15,13 @@ from tests.mail_tests.fixtures import (
 class CLILabelPlanTests(unittest.TestCase):
     def test_labels_plan_create_update_delete(self):
         # Existing labels include a system label, a user label to update, and an extra to delete
-        client = FakeGmailClient(labels=[
-            make_system_label("INBOX"),
-            make_label_with_visibility("Reports", "LBL_REPORTS"),
-            make_user_label("OldLabel", "LBL_OLD"),
-        ])
+        client = FakeGmailClient(
+            labels=[
+                make_system_label("INBOX"),
+                make_label_with_visibility("Reports", "LBL_REPORTS"),
+                make_user_label("OldLabel", "LBL_OLD"),
+            ]
+        )
 
         desired = {
             "labels": [

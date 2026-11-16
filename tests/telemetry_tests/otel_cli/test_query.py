@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import io
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 from telemetry.otel.cli.query import (
@@ -17,7 +17,7 @@ from telemetry.otel.cli.query import (
 
 def _make_data_point(*, timestamp: datetime | None = None, value: float = 1.0):
     dp = MagicMock()
-    dp.timestamp = timestamp or datetime(2026, 4, 16, 10, 0, 0, tzinfo=timezone.utc)
+    dp.timestamp = timestamp or datetime(2026, 4, 16, 10, 0, 0, tzinfo=UTC)
     dp.value = value
     return dp
 
@@ -49,9 +49,9 @@ class TestFilterDataPoints(unittest.TestCase):
         self.assertEqual(len(result), 2)
 
     def test_cutoff_filters_old(self):
-        old_ts = datetime(2026, 1, 1, tzinfo=timezone.utc)
-        new_ts = datetime(2026, 4, 16, tzinfo=timezone.utc)
-        cutoff = datetime(2026, 3, 1, tzinfo=timezone.utc)
+        old_ts = datetime(2026, 1, 1, tzinfo=UTC)
+        new_ts = datetime(2026, 4, 16, tzinfo=UTC)
+        cutoff = datetime(2026, 3, 1, tzinfo=UTC)
         dps = [_make_data_point(timestamp=old_ts), _make_data_point(timestamp=new_ts)]
         result = _filter_data_points(dps, cutoff_time=cutoff)
         self.assertEqual(len(result), 1)
@@ -144,6 +144,7 @@ class TestQueryMain(unittest.TestCase):
 
     def test_data_dir_flag(self):
         import tempfile
+
         with tempfile.TemporaryDirectory() as td:
             with patch("telemetry.otel.cli.query.OTLPReader") as mock_reader_cls:
                 mock_reader_cls.return_value.read_metrics.return_value = []

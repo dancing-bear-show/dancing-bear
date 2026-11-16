@@ -1,4 +1,5 @@
 """Tests for Outlook mail folder and filter operations — unique tests not covered by test_core_outlook_mail.py."""
+
 from __future__ import annotations
 
 import unittest
@@ -12,7 +13,6 @@ from tests.core_tests.outlook_helpers import (
     make_error_response,
     make_mock_response,
 )
-
 
 # -------------------- Fixtures --------------------
 
@@ -39,12 +39,14 @@ FOLDERS_LIST = [FOLDER_INBOX, FOLDER_ARCHIVE]
 
 # -------------------- Filter (Rule) Tests --------------------
 
+
 class TestListFilters(OutlookMailTestBase):
     """Tests for list_filters method."""
 
     @patch("core.outlook._mail_labels._requests")
     def test_list_filters_with_cache_miss(self, mock_requests_fn):
         from tests.fixtures import test_path
+
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.return_value = make_mock_response({"value": RULES_LIST})
 
@@ -57,6 +59,7 @@ class TestListFilters(OutlookMailTestBase):
     @patch("core.outlook._mail_labels._requests")
     def test_list_filters_with_cache_hit(self, mock_requests_fn):
         from tests.fixtures import test_path
+
         mock_requests = self._setup_mock_requests(mock_requests_fn)
 
         client = FakeMailClient(cache_dir=test_path("test"))  # nosec B108 - test fixture
@@ -97,7 +100,9 @@ class TestCreateFilter(OutlookMailTestBase):
     @patch("core.outlook._mail_labels._requests")
     def test_create_filter_raises_on_server_error(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
-        mock_requests.post.return_value = make_error_response(status_code=503, text="Service Unavailable")
+        mock_requests.post.return_value = make_error_response(
+            status_code=503, text="Service Unavailable"
+        )
 
         with self.assertRaises(requests.exceptions.HTTPError):
             FakeMailClient().create_filter(criteria={}, action={"addLabelIds": ["Work"]})
@@ -124,6 +129,7 @@ class TestDeleteFilter(OutlookMailTestBase):
 
 
 # -------------------- Folder Tests --------------------
+
 
 class TestListFolders(OutlookMailTestBase):
     """Tests for list_folders method."""
@@ -164,7 +170,9 @@ class TestListAllFolders(OutlookMailTestBase):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.side_effect = [
             make_mock_response({"value": FOLDERS_LIST}),  # Root folders succeed
-            make_error_response(status_code=503, text="Service Unavailable"),  # Children of inbox fail
+            make_error_response(
+                status_code=503, text="Service Unavailable"
+            ),  # Children of inbox fail
         ]
 
         with self.assertRaises(requests.exceptions.HTTPError):
@@ -191,7 +199,8 @@ class TestListAllFolders(OutlookMailTestBase):
         result = client.list_all_folders(bypass_cache=True)
 
         self.assertEqual(
-            sorted(f["id"] for f in result), sorted(f["id"] for f in FOLDERS_LIST),
+            sorted(f["id"] for f in result),
+            sorted(f["id"] for f in FOLDERS_LIST),
             "the stale cached snapshot was returned instead of a fresh listing",
         )
         # The write still happened, so the next caller need not walk again.
@@ -216,7 +225,8 @@ class TestListAllFolders(OutlookMailTestBase):
 
         self.assertEqual(result, cached)
         self.assertEqual(
-            mock_requests.get.call_count, 0,
+            mock_requests.get.call_count,
+            0,
             "the default path hit Graph; the cache was not reused",
         )
 
@@ -320,7 +330,8 @@ class TestResolveFolderPath(OutlookMailTestBase):
         FakeMailClient().resolve_folder_path("Archive/Missing")
 
         self.assertEqual(
-            mock_requests.post.call_count, 0,
+            mock_requests.post.call_count,
+            0,
             "resolve_folder_path POSTed -- it must never create a folder",
         )
 
@@ -352,7 +363,8 @@ class TestResolveFolderPath(OutlookMailTestBase):
         got = client.resolve_folder_path("Archive/News")
 
         self.assertEqual(
-            got, "id-news",
+            got,
+            "id-news",
             "the stale cached snapshot was served instead of a fresh listing",
         )
 
@@ -373,7 +385,8 @@ class TestResolveFolderPath(OutlookMailTestBase):
 
         self.assertEqual(got, "id-cached")
         self.assertEqual(
-            mock_requests.get.call_count, 0,
+            mock_requests.get.call_count,
+            0,
             "fresh=False still hit Graph; the cache was not reused",
         )
 
@@ -391,7 +404,8 @@ class TestResolveFolderPath(OutlookMailTestBase):
             with self.subTest(path=raw):
                 self._mock_tree(mock_requests_fn)
                 self.assertEqual(
-                    FakeMailClient().resolve_folder_path(raw), "id-news",
+                    FakeMailClient().resolve_folder_path(raw),
+                    "id-news",
                     f"{raw!r} reported the folder absent",
                 )
 
@@ -408,7 +422,8 @@ class TestResolveFolderPath(OutlookMailTestBase):
             with self.subTest(path=raw):
                 self._mock_tree(mock_requests_fn)
                 self.assertEqual(
-                    FakeMailClient().resolve_folder_path(raw), "id-news",
+                    FakeMailClient().resolve_folder_path(raw),
+                    "id-news",
                     f"{raw!r} reported absent; the apply would have resolved it",
                 )
 
@@ -431,7 +446,8 @@ class TestResolveFolderPath(OutlookMailTestBase):
             with self.subTest(path=raw):
                 self._mock_tree(mock_requests_fn)
                 self.assertEqual(
-                    FakeMailClient().resolve_folder_path(raw), "",
+                    FakeMailClient().resolve_folder_path(raw),
+                    "",
                     f"{raw!r} resolved, but the apply would create a new top-level folder",
                 )
 
@@ -457,7 +473,8 @@ class TestResolveFolderPath(OutlookMailTestBase):
         # One BFS: the root listing plus one child call per folder. A second
         # traversal would multiply this, so assert the exact call count.
         self.assertEqual(
-            mock_requests_fn.return_value.get.call_count, 1 + len(self.FOLDERS),
+            mock_requests_fn.return_value.get.call_count,
+            1 + len(self.FOLDERS),
             "more than one folder-tree traversal for three destinations",
         )
 

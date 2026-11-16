@@ -11,15 +11,15 @@ from io import StringIO
 from typing import Any, cast
 
 from core.cli_output import (
-    OutputFormat,
     OutputConfig,
+    OutputFormat,
     OutputWriter,
-    output,
-    output_json,
-    output_yaml,
-    output_table,
     emit_one,
     emit_rows,
+    output,
+    output_json,
+    output_table,
+    output_yaml,
 )
 
 
@@ -36,6 +36,7 @@ class SampleEnum(Enum):
 class TestOutputConfig(unittest.TestCase):
     def test_default_stream_is_stdout(self):
         import sys
+
         config = OutputConfig()
         self.assertIs(config.stream, sys.stdout)
 
@@ -539,7 +540,6 @@ class TestNonAsciiRoundTrip(unittest.TestCase):
         self.assertUnescaped(out)
 
 
-
 class TestEmitRowsYamlAndEmpty(unittest.TestCase):
     def _run(self, *args, **kwargs):
         out, err = StringIO(), StringIO()
@@ -602,6 +602,7 @@ class TestEmitOneFormats(unittest.TestCase):
     def test_non_dict_table_falls_back_to_json(self):
         _, out = self._run([1, 2], "table")
         self.assertEqual(json.loads(out), [1, 2])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -34,12 +34,19 @@ def _lazy_agentic():
 # Note: @argument decorators must come BEFORE @command (decorators apply bottom-up)
 @app.command("diagnose", help="Run Wi-Fi and network diagnostics")
 @app.argument("--gateway", help="Override detected default gateway IP")
-@app.argument("--targets", nargs="+", default=["1.1.1.1", "8.8.8.8", "google.com"], help="Ping targets (besides gateway)")
+@app.argument(
+    "--targets",
+    nargs="+",
+    default=["1.1.1.1", "8.8.8.8", "google.com"],
+    help="Ping targets (besides gateway)",
+)
 @app.argument("--ping-count", type=int, default=12, help="Packets per target")
 @app.argument("--survey-count", type=int, default=4, help="Packets for quick ICMP survey (stage 1)")
 @app.argument("--trace-target", help="Trace target (default: first non-gateway ping target)")
 @app.argument("--dns-host", default="google.com", help="Host to resolve for DNS timing")
-@app.argument("--http-url", default="https://speed.cloudflare.com/__down", help="URL for HTTPS smoke test")
+@app.argument(
+    "--http-url", default="https://speed.cloudflare.com/__down", help="URL for HTTPS smoke test"
+)
 @app.argument("--no-trace", action="store_true", help="Skip traceroute/tracepath")
 @app.argument("--no-http", action="store_true", help="Skip HTTPS smoke check")
 @app.argument("--no-wifi", action="store_true", help="Skip Wi-Fi metadata capture")
@@ -80,9 +87,7 @@ def cmd_diagnose(args) -> int:
 def main(argv: list[str] | None = None) -> int:
     """Main entry point for the Wi-Fi CLI."""
     return app.run_with_assistant(
-        assistant,
-        emit_func=lambda fmt, compact: _lazy_agentic()(fmt, compact),
-        argv=argv
+        assistant, emit_func=lambda fmt, compact: _lazy_agentic()(fmt, compact), argv=argv
     )
 
 

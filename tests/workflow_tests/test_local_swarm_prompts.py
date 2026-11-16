@@ -34,6 +34,7 @@ _OPEN_PR = _ROOT / "workflows/code/open-pr.yaml"
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _compile_cr(**params: str):
     defn = parse_workflow(str(_CODE_REVIEW))
     return defn, compile_workflow(defn, project_root=_ROOT, trigger_params=params)
@@ -57,14 +58,14 @@ def _running_stages(workflow_path: Path, **params: str) -> set[str]:
     return {
         name
         for name, stage in manifest.resolved_stages.items()
-        if stage.spec.when is None
-        or match_when_expression(stage.spec.when, effective)
+        if stage.spec.when is None or match_when_expression(stage.spec.when, effective)
     }
 
 
 # ---------------------------------------------------------------------------
 # (1) concern-sweep-dispatch selects guides with the canonical selector
 # ---------------------------------------------------------------------------
+
 
 class TestConcernSweepDispatchUsesCanonicalSelector(unittest.TestCase):
     """Guide selection lives in concerns/selection.yaml (#438), not in stage prose.
@@ -87,6 +88,7 @@ class TestConcernSweepDispatchUsesCanonicalSelector(unittest.TestCase):
 
     def test_selector_picks_collateral_damage_for_source_and_workflow_changes(self) -> None:
         from workflow.concern_select import select_guides
+
         for path in ("src/workflow/sweep_record.py", "workflows/code/open-pr.yaml"):
             with self.subTest(path=path):
                 self.assertIn("collateral-damage.md", select_guides([path]))
@@ -95,6 +97,7 @@ class TestConcernSweepDispatchUsesCanonicalSelector(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # (2) local=true does not render GitHub/gh calls in fetch-pr-context
 # ---------------------------------------------------------------------------
+
 
 class TestFetchPrContextLocalMode(unittest.TestCase):
     """When local=true the agent prompt for fetch-pr-context must contain a
@@ -162,6 +165,7 @@ class TestFetchPrContextLocalMode(unittest.TestCase):
 # (3) `local` param rejects non-true|false values at compile time
 # ---------------------------------------------------------------------------
 
+
 class TestLocalParamValidation(unittest.TestCase):
     """param_rules enforces local: 'true|false' before any substitution."""
 
@@ -195,6 +199,7 @@ class TestLocalParamValidation(unittest.TestCase):
 # (4) open-pr's record-sweep is between scan-validate and generate-description
 # ---------------------------------------------------------------------------
 
+
 class TestOpenPrRecordSweepStage(unittest.TestCase):
     """record-sweep must exist, depend on swarm-fact-check-findings, and be
     depended-on by generate-description. The human-gate must read from it."""
@@ -222,9 +227,7 @@ class TestOpenPrRecordSweepStage(unittest.TestCase):
         """The prompt for record-sweep must instruct the agent to call
         ./bin/workflow sweep-record write."""
         with tempfile.TemporaryDirectory() as tmp:
-            prompt = build_agent_prompt(
-                self.stages["record-sweep"], "open-pr", tmp
-            )
+            prompt = build_agent_prompt(self.stages["record-sweep"], "open-pr", tmp)
         self.assertIn("sweep-record write", prompt)
         self.assertIn("--head", prompt)
         self.assertIn("--workspace", prompt)
@@ -232,14 +235,20 @@ class TestOpenPrRecordSweepStage(unittest.TestCase):
     def test_record_sweep_passes_the_workspace_the_swarm_wrote(self) -> None:
         """Included swarm stages keep their writes_to and share open-pr's one
         workspace, so the record must name that workspace, not a sibling dir."""
-        for name in ("swarm-fetch-pr-context", "swarm-concern-sweep-dispatch", "swarm-review-consolidated"):
+        for name in (
+            "swarm-fetch-pr-context",
+            "swarm-concern-sweep-dispatch",
+            "swarm-review-consolidated",
+        ):
             with self.subTest(stage=name):
                 outs = " ".join(self.stages[name].spec.writes_to)
                 self.assertNotIn("..", outs)
         with tempfile.TemporaryDirectory() as tmp:
             prompt = build_agent_prompt(self.stages["record-sweep"], "open-pr", tmp)
             ws = Path(tmp).resolve()  # the renderer resolves /var -> /private/var on macOS
-        self.assertIn(f'sweep-record write --head "$(git rev-parse HEAD)" --workspace "{ws}"', prompt)
+        self.assertIn(
+            f'sweep-record write --head "$(git rev-parse HEAD)" --workspace "{ws}"', prompt
+        )
         self.assertNotIn("code-review-", prompt)
         self.assertNotIn("dirname", prompt)
 
@@ -294,13 +303,17 @@ class TestOpenPrRecordSweepStage(unittest.TestCase):
         the record-sweep stage can read it.  A kind:validate stage that silently
         replaces that file with a JSON array would break sweep-record write."""
         stage = self.stages["swarm-fact-check-findings"]
-        self.assertIn("consolidated.json", stage.spec.writes_to,
-                      "swarm-fact-check-findings must list consolidated.json in writes_to")
+        self.assertIn(
+            "consolidated.json",
+            stage.spec.writes_to,
+            "swarm-fact-check-findings must list consolidated.json in writes_to",
+        )
 
 
 # ---------------------------------------------------------------------------
 # (5) Both code-review paths still compile
 # ---------------------------------------------------------------------------
+
 
 class TestCodeReviewPathsCompile(unittest.TestCase):
     """Small and large paths must compile cleanly, with and without local mode."""
@@ -345,6 +358,7 @@ class TestCodeReviewPathsCompile(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Teeth probe (3): local param_rule — prove test fails without the rule
 # ---------------------------------------------------------------------------
+
 
 class TestTeethLocalParamRule(unittest.TestCase):
     """Verify the param_rules for local DOES reject bad values in code-review.yaml.

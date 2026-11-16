@@ -1,7 +1,7 @@
 import datetime as dt
 import io
 import tempfile
-from contextlib import redirect_stdout, redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import TestCase
 
@@ -10,8 +10,8 @@ from core.pipeline import ResultEnvelope
 from schedule.pipeline import (
     ApplyProducer,
     ApplyResult,
-    PlanProducer,
     PlanProcessor,
+    PlanProducer,
     PlanRequest,
     PlanRequestConsumer,
     PlanResult,
@@ -43,7 +43,9 @@ class SchedulePipelineTests(TestCase):
         request = PlanRequest(sources=["src"], kind=None, out_path=Path("plan.yaml"))
 
         def fake_loader(src, kind):
-            return [{"subject": "Event", "start": "2025-01-01T10:00:00", "end": "2025-01-01T11:00:00"}]
+            return [
+                {"subject": "Event", "start": "2025-01-01T10:00:00", "end": "2025-01-01T11:00:00"}
+            ]
 
         env = PlanProcessor(loader=fake_loader).process(PlanRequestConsumer(request).consume())
         self.assertTrue(env.ok())
@@ -534,8 +536,18 @@ class VerifyAndSyncProducerTests(TestCase):
 
     def test_produce_success(self):
         cases = [
-            ("verify", VerifyProducer, VerifyResult(lines=["Line 1", "Line 2"]), ["Line 1", "Line 2"]),
-            ("sync", SyncProducer, SyncResult(lines=["Created: 5", "Deleted: 2"]), ["Created: 5", "Deleted: 2"]),
+            (
+                "verify",
+                VerifyProducer,
+                VerifyResult(lines=["Line 1", "Line 2"]),
+                ["Line 1", "Line 2"],
+            ),
+            (
+                "sync",
+                SyncProducer,
+                SyncResult(lines=["Created: 5", "Deleted: 2"]),
+                ["Created: 5", "Deleted: 2"],
+            ),
         ]
         for case_name, producer_cls, payload, expected_lines in cases:
             with self.subTest(case_name):

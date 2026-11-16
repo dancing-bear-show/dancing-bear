@@ -141,6 +141,9 @@ wifi-assistant = "wifi.__main__:main"
 wifi = "wifi.__main__:main"
 slides = "slides.__main__:main"
 
+# Ruff config lives in ruff.toml, not here: qlty's format driver never sees
+# pyproject.toml (see the header of ruff.toml).
+
 [tool.vulture]
 # Scan src/ wholesale rather than enumerating packages. An enumerated list
 # silently skips any newly added package: slides, sheets, maker, and qlty all

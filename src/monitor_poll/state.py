@@ -162,9 +162,7 @@ def load_states(root: Path) -> list[PollState]:
     return sorted(states, key=lambda s: (s.started_at, s.poll_id))
 
 
-def find_state(
-    states: list[PollState], poll_id: str | None, pid: int | None
-) -> PollState | None:
+def find_state(states: list[PollState], poll_id: str | None, pid: int | None) -> PollState | None:
     """First state matching ``poll_id`` or ``pid``; None when nothing matches."""
     for state in states:
         if poll_id and state.poll_id == poll_id:

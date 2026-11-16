@@ -138,6 +138,6 @@ def _body_line_to_bullet(line: str) -> BulletItem | None:
     # startswith check above. Reaching here means at least one non-whitespace
     # character follows the prefix (though `text` may still lead with spaces,
     # e.g. "-  X" -> " X"). An `if not text` guard here would be dead code.
-    text = lstripped[len(_BODY_SUB_BULLET_PREFIX):]
+    text = lstripped[len(_BODY_SUB_BULLET_PREFIX) :]
     indent = len(stripped) - len(lstripped)
     return BulletItem(text=text, level=2 if indent >= 2 else 1)

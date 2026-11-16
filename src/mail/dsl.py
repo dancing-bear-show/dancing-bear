@@ -3,7 +3,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
-from .outlook.helpers import norm_label_name_outlook, norm_label_color_outlook as normalize_label_color_outlook
+from .outlook.helpers import norm_label_color_outlook as normalize_label_color_outlook
+from .outlook.helpers import norm_label_name_outlook
 
 # Re-export for backwards compatibility
 _norm_label_name_outlook = norm_label_name_outlook

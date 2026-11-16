@@ -68,9 +68,7 @@ class TestCmdMergeFolders(unittest.TestCase):
             dp = Path(d)
             layout = _write_layout(dp)
             plan_out = dp / "plan.yaml"
-            args = make_args(
-                layout=str(layout), plan=str(plan_out), keep="", dump_folder_names=""
-            )
+            args = make_args(layout=str(layout), plan=str(plan_out), keep="", dump_folder_names="")
 
             rc = cmd_merge_folders(args)
 
@@ -102,9 +100,7 @@ class TestCmdMergeFolders(unittest.TestCase):
             dp = Path(d)
             layout = _write_layout(dp)
             plan_out = dp / "plan.yaml"
-            args = make_args(
-                layout=str(layout), plan=str(plan_out), keep="", dump_folder_names=""
-            )
+            args = make_args(layout=str(layout), plan=str(plan_out), keep="", dump_folder_names="")
 
             # Force a plan that drops an app so verify_conservation raises.
             bad_plan = MagicMock()
@@ -141,9 +137,7 @@ class TestCmdMergeFolders(unittest.TestCase):
                 rc = cmd_merge_folders(args)
 
             self.assertEqual(rc, 0)
-            self.assertEqual(
-                captured["keep"], ["com.apple.mobilesafari", "com.apple.Preferences"]
-            )
+            self.assertEqual(captured["keep"], ["com.apple.mobilesafari", "com.apple.Preferences"])
             self.assertEqual(captured["dump_folders"], ["Other"])
 
 
@@ -154,15 +148,19 @@ class TestReorgInstall625(unittest.TestCase):
         """cfgutil exits 1 with the 625 phrase → treated as SUCCESS (rc 0)."""
         from phone.cli.cmd_merge import _reorg_install
 
-        with patch("phone.cli.cmd_merge.find_cfgutil_path", return_value="/usr/bin/cfgutil"), \
-             patch("phone.cli.cmd_merge.map_udid_to_ecid", return_value=None), \
-             patch(
-                 "phone.cli.cmd_merge.subprocess.run",
-                 return_value=_cfg_result(1, stderr=_CFG_625),
-             ):
+        with (
+            patch("phone.cli.cmd_merge.find_cfgutil_path", return_value="/usr/bin/cfgutil"),
+            patch("phone.cli.cmd_merge.map_udid_to_ecid", return_value=None),
+            patch(
+                "phone.cli.cmd_merge.subprocess.run",
+                return_value=_cfg_result(1, stderr=_CFG_625),
+            ),
+        ):
             rc = _reorg_install(
-                dry_run=False, no_install=False,
-                out_profile=Path("out/x.mobileconfig"), udid="",
+                dry_run=False,
+                no_install=False,
+                out_profile=Path("out/x.mobileconfig"),
+                udid="",
             )
 
         self.assertEqual(rc, 0)
@@ -171,15 +169,20 @@ class TestReorgInstall625(unittest.TestCase):
         """On the 625 success path, cfgutil's raw 'error:' line is NOT printed."""
         import contextlib
         import io
+
         from phone.cli.cmd_merge import _reorg_install
 
         out, err = io.StringIO(), io.StringIO()
-        with patch("phone.cli.cmd_merge.find_cfgutil_path", return_value="/usr/bin/cfgutil"), \
-             patch("phone.cli.cmd_merge.map_udid_to_ecid", return_value=None), \
-             patch(
-                 "phone.cli.cmd_merge.subprocess.run",
-                 return_value=_cfg_result(1, stderr=_CFG_625),
-             ), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        with (
+            patch("phone.cli.cmd_merge.find_cfgutil_path", return_value="/usr/bin/cfgutil"),
+            patch("phone.cli.cmd_merge.map_udid_to_ecid", return_value=None),
+            patch(
+                "phone.cli.cmd_merge.subprocess.run",
+                return_value=_cfg_result(1, stderr=_CFG_625),
+            ),
+            contextlib.redirect_stdout(out),
+            contextlib.redirect_stderr(err),
+        ):
             rc = _reorg_install(False, False, Path("out/x.mobileconfig"), "")
 
         self.assertEqual(rc, 0)
@@ -190,12 +193,14 @@ class TestReorgInstall625(unittest.TestCase):
     def test_clean_success_rc0(self):
         from phone.cli.cmd_merge import _reorg_install
 
-        with patch("phone.cli.cmd_merge.find_cfgutil_path", return_value="/usr/bin/cfgutil"), \
-             patch("phone.cli.cmd_merge.map_udid_to_ecid", return_value=None), \
-             patch(
-                 "phone.cli.cmd_merge.subprocess.run",
-                 return_value=_cfg_result(0, stdout="ok"),
-             ):
+        with (
+            patch("phone.cli.cmd_merge.find_cfgutil_path", return_value="/usr/bin/cfgutil"),
+            patch("phone.cli.cmd_merge.map_udid_to_ecid", return_value=None),
+            patch(
+                "phone.cli.cmd_merge.subprocess.run",
+                return_value=_cfg_result(0, stdout="ok"),
+            ),
+        ):
             rc = _reorg_install(False, False, Path("out/x.mobileconfig"), "")
 
         self.assertEqual(rc, 0)
@@ -208,12 +213,14 @@ class TestReorgInstall625(unittest.TestCase):
             "cfgutil: error: The device is locked.\n"
             "(Domain: MCInstallationErrorDomain Code: 4009)\n"
         )
-        with patch("phone.cli.cmd_merge.find_cfgutil_path", return_value="/usr/bin/cfgutil"), \
-             patch("phone.cli.cmd_merge.map_udid_to_ecid", return_value=None), \
-             patch(
-                 "phone.cli.cmd_merge.subprocess.run",
-                 return_value=_cfg_result(1, stderr=locked),
-             ):
+        with (
+            patch("phone.cli.cmd_merge.find_cfgutil_path", return_value="/usr/bin/cfgutil"),
+            patch("phone.cli.cmd_merge.map_udid_to_ecid", return_value=None),
+            patch(
+                "phone.cli.cmd_merge.subprocess.run",
+                return_value=_cfg_result(1, stderr=locked),
+            ),
+        ):
             rc = _reorg_install(False, False, Path("out/x.mobileconfig"), "")
 
         self.assertNotEqual(rc, 0)
@@ -221,12 +228,14 @@ class TestReorgInstall625(unittest.TestCase):
     def test_no_devices_is_failure(self):
         from phone.cli.cmd_merge import _reorg_install
 
-        with patch("phone.cli.cmd_merge.find_cfgutil_path", return_value="/usr/bin/cfgutil"), \
-             patch("phone.cli.cmd_merge.map_udid_to_ecid", return_value=None), \
-             patch(
-                 "phone.cli.cmd_merge.subprocess.run",
-                 return_value=_cfg_result(1, stderr="cfgutil: error: no devices found"),
-             ):
+        with (
+            patch("phone.cli.cmd_merge.find_cfgutil_path", return_value="/usr/bin/cfgutil"),
+            patch("phone.cli.cmd_merge.map_udid_to_ecid", return_value=None),
+            patch(
+                "phone.cli.cmd_merge.subprocess.run",
+                return_value=_cfg_result(1, stderr="cfgutil: error: no devices found"),
+            ),
+        ):
             rc = _reorg_install(False, False, Path("out/x.mobileconfig"), "")
 
         self.assertNotEqual(rc, 0)
@@ -235,12 +244,14 @@ class TestReorgInstall625(unittest.TestCase):
         """Output containing '625' but not the cfgutil phrase is NOT success."""
         from phone.cli.cmd_merge import _reorg_install
 
-        with patch("phone.cli.cmd_merge.find_cfgutil_path", return_value="/usr/bin/cfgutil"), \
-             patch("phone.cli.cmd_merge.map_udid_to_ecid", return_value=None), \
-             patch(
-                 "phone.cli.cmd_merge.subprocess.run",
-                 return_value=_cfg_result(1, stdout="installed 625 profiles earlier"),
-             ):
+        with (
+            patch("phone.cli.cmd_merge.find_cfgutil_path", return_value="/usr/bin/cfgutil"),
+            patch("phone.cli.cmd_merge.map_udid_to_ecid", return_value=None),
+            patch(
+                "phone.cli.cmd_merge.subprocess.run",
+                return_value=_cfg_result(1, stdout="installed 625 profiles earlier"),
+            ),
+        ):
             rc = _reorg_install(False, False, Path("out/x.mobileconfig"), "")
 
         self.assertNotEqual(rc, 0)
@@ -258,8 +269,10 @@ class TestReorgInstall625(unittest.TestCase):
 
         with patch("phone.cli.cmd_merge.subprocess.run") as run:
             rc = _reorg_install(
-                dry_run=False, no_install=True,
-                out_profile=Path("out/x.mobileconfig"), udid="",
+                dry_run=False,
+                no_install=True,
+                out_profile=Path("out/x.mobileconfig"),
+                udid="",
             )
 
         self.assertEqual(rc, 0)
@@ -277,12 +290,19 @@ class TestCmdReorg(unittest.TestCase):
             # dry-run uses existing layout at the default path; patch output_dir
             # so the default resolves inside the temp directory.
             _write_layout(dp)
-            with patch("phone.cli.cmd_merge.output_dir", return_value=dp), \
-                 patch("phone.cli.cmd_merge.subprocess.run") as run:
+            with (
+                patch("phone.cli.cmd_merge.output_dir", return_value=dp),
+                patch("phone.cli.cmd_merge.subprocess.run") as run,
+            ):
                 args = make_args(
-                    device_label="bcsphone", udid=None, keep="",
-                    out=None, no_install=False, dry_run=True,
-                    install_only=False, profile_path=None,
+                    device_label="bcsphone",
+                    udid=None,
+                    keep="",
+                    out=None,
+                    no_install=False,
+                    dry_run=True,
+                    install_only=False,
+                    profile_path=None,
                 )
                 rc = cmd_reorg(args)
 
@@ -306,13 +326,20 @@ class TestCmdReorg(unittest.TestCase):
                     layout_target.write_text(yaml.safe_dump(_LAYOUT))
                 return _cfg_result(0)
 
-            with patch("phone.cli.cmd_merge.output_dir", return_value=dp), \
-                 patch("phone.cli.cmd_merge.subprocess.run", side_effect=fake_run), \
-                 patch("phone.cli.cmd_merge.find_cfgutil_path", return_value="/usr/bin/cfgutil"):
+            with (
+                patch("phone.cli.cmd_merge.output_dir", return_value=dp),
+                patch("phone.cli.cmd_merge.subprocess.run", side_effect=fake_run),
+                patch("phone.cli.cmd_merge.find_cfgutil_path", return_value="/usr/bin/cfgutil"),
+            ):
                 args = make_args(
-                    device_label="bcsphone", udid="UDID-X", keep="",
-                    out=None, no_install=True, dry_run=False,
-                    install_only=False, profile_path=None,
+                    device_label="bcsphone",
+                    udid="UDID-X",
+                    keep="",
+                    out=None,
+                    no_install=True,
+                    dry_run=False,
+                    install_only=False,
+                    profile_path=None,
                 )
                 rc = cmd_reorg(args)
 
@@ -366,8 +393,10 @@ class TestDefaultDeviceLabel(unittest.TestCase):
             creds = self._creds(
                 Path(d), "[ios_devices]\ndefault = bcsphone\nbcsphone = 00008150-X\n"
             )
-            with patch.dict(os.environ, {"IOS_CREDS_FILE": str(creds)}), \
-                 patch("core.constants.credential_ini_paths", return_value=[str(creds)]):
+            with (
+                patch.dict(os.environ, {"IOS_CREDS_FILE": str(creds)}),
+                patch("core.constants.credential_ini_paths", return_value=[str(creds)]),
+            ):
                 self.assertEqual(cmd_merge._default_device_label(), "bcsphone")
 
     def test_no_default_returns_none(self):
@@ -375,8 +404,10 @@ class TestDefaultDeviceLabel(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as d:
             creds = self._creds(Path(d), "[ios_devices]\nbcsphone = 00008150-X\n")
-            with patch.dict(os.environ, {"IOS_CREDS_FILE": str(creds)}), \
-                 patch("core.constants.credential_ini_paths", return_value=[str(creds)]):
+            with (
+                patch.dict(os.environ, {"IOS_CREDS_FILE": str(creds)}),
+                patch("core.constants.credential_ini_paths", return_value=[str(creds)]),
+            ):
                 self.assertIsNone(cmd_merge._default_device_label())
 
     def test_reorg_uses_configured_default_when_no_flag(self):
@@ -387,8 +418,10 @@ class TestDefaultDeviceLabel(unittest.TestCase):
                 Path(d), "[ios_devices]\ndefault = bcsphone\nbcsphone = 00008150-X\n"
             )
             args = make_args(udid=None, device_label=None)
-            with patch.dict(os.environ, {"IOS_CREDS_FILE": str(creds), "IOS_DEVICE_UDID": ""}), \
-                 patch("core.constants.credential_ini_paths", return_value=[str(creds)]):
+            with (
+                patch.dict(os.environ, {"IOS_CREDS_FILE": str(creds), "IOS_DEVICE_UDID": ""}),
+                patch("core.constants.credential_ini_paths", return_value=[str(creds)]),
+            ):
                 udid, rc = _resolve_reorg_udid(args, dry_run=False)
             self.assertEqual(rc, 0)
             self.assertEqual(udid, "00008150-X")
@@ -400,8 +433,10 @@ class TestDefaultDeviceLabel(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             creds = self._creds(Path(d), "[ios_devices]\nfoo = ABC\n")
             args = make_args(udid=None, device_label=None)
-            with patch.dict(os.environ, {"IOS_CREDS_FILE": str(creds), "IOS_DEVICE_UDID": ""}), \
-                 patch("core.constants.credential_ini_paths", return_value=[str(creds)]):
+            with (
+                patch.dict(os.environ, {"IOS_CREDS_FILE": str(creds), "IOS_DEVICE_UDID": ""}),
+                patch("core.constants.credential_ini_paths", return_value=[str(creds)]),
+            ):
                 udid, rc = _resolve_reorg_udid(args, dry_run=False)
             self.assertEqual(rc, 0)
             self.assertEqual(udid, "")
@@ -411,12 +446,12 @@ class TestDefaultDeviceLabel(unittest.TestCase):
         from phone.cli.cmd_merge import _resolve_reorg_udid
 
         with tempfile.TemporaryDirectory() as d:
-            creds = self._creds(
-                Path(d), "[ios_devices]\ndefault = ghost\nbcsphone = 00008150-X\n"
-            )
+            creds = self._creds(Path(d), "[ios_devices]\ndefault = ghost\nbcsphone = 00008150-X\n")
             args = make_args(udid=None, device_label=None)
-            with patch.dict(os.environ, {"IOS_CREDS_FILE": str(creds), "IOS_DEVICE_UDID": ""}), \
-                 patch("core.constants.credential_ini_paths", return_value=[str(creds)]):
+            with (
+                patch.dict(os.environ, {"IOS_CREDS_FILE": str(creds), "IOS_DEVICE_UDID": ""}),
+                patch("core.constants.credential_ini_paths", return_value=[str(creds)]),
+            ):
                 _, rc = _resolve_reorg_udid(args, dry_run=False)
             self.assertEqual(rc, 1)
 
@@ -425,12 +460,12 @@ class TestDefaultDeviceLabel(unittest.TestCase):
         from phone.cli.cmd_merge import _resolve_reorg_udid
 
         with tempfile.TemporaryDirectory() as d:
-            creds = self._creds(
-                Path(d), "[ios_devices]\ndefault = ghost\nbcsphone = 00008150-X\n"
-            )
+            creds = self._creds(Path(d), "[ios_devices]\ndefault = ghost\nbcsphone = 00008150-X\n")
             args = make_args(udid=None, device_label=None)
-            with patch.dict(os.environ, {"IOS_CREDS_FILE": str(creds), "IOS_DEVICE_UDID": ""}), \
-                 patch("core.constants.credential_ini_paths", return_value=[str(creds)]):
+            with (
+                patch.dict(os.environ, {"IOS_CREDS_FILE": str(creds), "IOS_DEVICE_UDID": ""}),
+                patch("core.constants.credential_ini_paths", return_value=[str(creds)]),
+            ):
                 udid, rc = _resolve_reorg_udid(args, dry_run=True)
             self.assertEqual(rc, 0)
             self.assertEqual(udid, "")
@@ -444,8 +479,10 @@ class TestDefaultDeviceLabel(unittest.TestCase):
                 Path(d), "[ios_devices]\ndefault = bcsphone\nbcsphone = 00008150-X\n"
             )
             args = make_args(udid=None, device_label="no-such-device")
-            with patch.dict(os.environ, {"IOS_CREDS_FILE": str(creds), "IOS_DEVICE_UDID": ""}), \
-                 patch("core.constants.credential_ini_paths", return_value=[str(creds)]):
+            with (
+                patch.dict(os.environ, {"IOS_CREDS_FILE": str(creds), "IOS_DEVICE_UDID": ""}),
+                patch("core.constants.credential_ini_paths", return_value=[str(creds)]),
+            ):
                 _, rc = _resolve_reorg_udid(args, dry_run=False)
             self.assertEqual(rc, 1)
 
@@ -468,8 +505,10 @@ class TestResolveEcid(unittest.TestCase):
     def test_absent_udid_returns_empty(self):
         from phone.device import map_udid_to_ecid
 
-        with patch("phone.device.subprocess.check_output",
-                   return_value="Type: iPhone\tECID: 0xAAA\tUDID: other\n"):
+        with patch(
+            "phone.device.subprocess.check_output",
+            return_value="Type: iPhone\tECID: 0xAAA\tUDID: other\n",
+        ):
             ecid = map_udid_to_ecid("/usr/bin/cfgutil", "00008150-NOTHERE")
 
         self.assertEqual(ecid, "")
@@ -553,9 +592,11 @@ class TestCmdReorgFailFast(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             dp = Path(d)
             (dp / "out").mkdir()
-            with _chdir(dp), \
-                 patch.dict(os.environ, {"IOS_DEVICE_UDID": "", "IOS_CREDS_FILE": "/nonexistent"}), \
-                 patch("phone.cli.cmd_merge.subprocess.run") as run:
+            with (
+                _chdir(dp),
+                patch.dict(os.environ, {"IOS_DEVICE_UDID": "", "IOS_CREDS_FILE": "/nonexistent"}),
+                patch("phone.cli.cmd_merge.subprocess.run") as run,
+            ):
                 args = make_args(
                     device_label="no-such-device",
                     udid=None,
@@ -601,13 +642,15 @@ class TestReorgInstallOnly(unittest.TestCase):
             profile = dp / "out" / "ios.merged.mobileconfig"
             profile.write_bytes(b"fake-profile")
 
-            with _chdir(dp), \
-                 patch("phone.cli.cmd_merge.find_cfgutil_path", return_value="/usr/bin/cfgutil"), \
-                 patch("phone.cli.cmd_merge.map_udid_to_ecid", return_value=None), \
-                 patch(
-                     "phone.cli.cmd_merge.subprocess.run",
-                     return_value=_cfg_result(1, stderr=_CFG_625),
-                 ) as run:
+            with (
+                _chdir(dp),
+                patch("phone.cli.cmd_merge.find_cfgutil_path", return_value="/usr/bin/cfgutil"),
+                patch("phone.cli.cmd_merge.map_udid_to_ecid", return_value=None),
+                patch(
+                    "phone.cli.cmd_merge.subprocess.run",
+                    return_value=_cfg_result(1, stderr=_CFG_625),
+                ) as run,
+            ):
                 args = make_args(
                     device_label="bcsphone",
                     udid="UDID-X",
@@ -635,8 +678,7 @@ class TestReorgInstallOnly(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             dp = Path(d)
             (dp / "out").mkdir()
-            with _chdir(dp), \
-                 patch("phone.cli.cmd_merge.subprocess.run") as run:
+            with _chdir(dp), patch("phone.cli.cmd_merge.subprocess.run") as run:
                 args = make_args(
                     device_label="bcsphone",
                     udid="UDID-X",
@@ -658,8 +700,7 @@ class TestReorgInstallOnly(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as d:
             dp = Path(d)
-            with _chdir(dp), \
-                 patch("phone.cli.cmd_merge.subprocess.run") as run:
+            with _chdir(dp), patch("phone.cli.cmd_merge.subprocess.run") as run:
                 args = make_args(
                     device_label="bcsphone",
                     udid="UDID-X",
@@ -685,8 +726,7 @@ class TestReorgInstallOnly(unittest.TestCase):
             profile = dp / "out" / "ios.merged.mobileconfig"
             profile.write_bytes(b"fake-profile")
 
-            with _chdir(dp), \
-                 patch("phone.cli.cmd_merge.subprocess.run") as run:
+            with _chdir(dp), patch("phone.cli.cmd_merge.subprocess.run") as run:
                 args = make_args(
                     device_label="bcsphone",
                     udid="UDID-X",

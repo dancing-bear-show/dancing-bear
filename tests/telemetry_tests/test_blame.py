@@ -1,11 +1,12 @@
 """Tests for telemetry/blame.py — BlameEngine."""
+
 from __future__ import annotations
 
 import unittest
 
-from tests.telemetry_tests.shared_fixtures import _evt, _make_blame, reset_seq
 from telemetry.blame import BlameEngine
 from telemetry.models import BlameTarget
+from tests.telemetry_tests.shared_fixtures import _evt, _make_blame, reset_seq
 
 
 class TestBlameEngineAttribute(unittest.TestCase):
@@ -100,26 +101,30 @@ class TestBlameEngineAttribute(unittest.TestCase):
     # --- fix hints ---
 
     def test_fix_hint_from_rules(self):
-        engine = BlameEngine(rules={
-            "fix_hints": {
-                "bash-as-grep": {
-                    "session": "Session: use Grep tool instead.",
-                    "skill": "Skill {name}: use Grep tool.",
+        engine = BlameEngine(
+            rules={
+                "fix_hints": {
+                    "bash-as-grep": {
+                        "session": "Session: use Grep tool instead.",
+                        "skill": "Skill {name}: use Grep tool.",
+                    }
                 }
             }
-        })
+        )
         evt = _evt(classification="avoidable", waste_reason="bash-as-grep")
         engine.attribute([evt])
         self.assertIn("Grep", evt.blame_target.fix_hint)
 
     def test_fix_hint_skill_level_uses_name_format(self):
-        engine = BlameEngine(rules={
-            "fix_hints": {
-                "redundant-read": {
-                    "skill": "Skill {name} read the same file multiple times.",
+        engine = BlameEngine(
+            rules={
+                "fix_hints": {
+                    "redundant-read": {
+                        "skill": "Skill {name} read the same file multiple times.",
+                    }
                 }
             }
-        })
+        )
         skill_evt = _evt(tool_name="Skill", tool_input={"skill": "my-skill"})
         evt = _evt(classification="avoidable", waste_reason="redundant-read")
         engine.attribute([skill_evt, evt])
@@ -139,13 +144,15 @@ class TestBlameEngineAttribute(unittest.TestCase):
 
     def test_fix_hint_format_error_returns_template(self):
         # Template with a bad format spec — should not raise
-        engine = BlameEngine(rules={
-            "fix_hints": {
-                "bash-as-cat": {
-                    "session": "Bad format {missing_key}.",
+        engine = BlameEngine(
+            rules={
+                "fix_hints": {
+                    "bash-as-cat": {
+                        "session": "Bad format {missing_key}.",
+                    }
                 }
             }
-        })
+        )
         evt = _evt(classification="avoidable", waste_reason="bash-as-cat")
         engine.attribute([evt])
         # Should not raise; returns raw template
@@ -181,13 +188,15 @@ class TestGetFixHint(unittest.TestCase):
         self.assertIn("some-reason", hint)
 
     def test_waste_reason_with_matching_hint(self):
-        engine = BlameEngine(rules={
-            "fix_hints": {
-                "bash-as-grep": {
-                    "agent": "Agent {name}: use Grep.",
+        engine = BlameEngine(
+            rules={
+                "fix_hints": {
+                    "bash-as-grep": {
+                        "agent": "Agent {name}: use Grep.",
+                    }
                 }
             }
-        })
+        )
         hint = engine._get_fix_hint("bash-as-grep", "agent", "code-writer")
         self.assertIn("code-writer", hint)
         self.assertIn("Grep", hint)

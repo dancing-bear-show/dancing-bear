@@ -10,13 +10,10 @@ from telemetry.otel.analytics.cost import get_all_costs
 from telemetry.otel.cli._format_helpers import (
     format_validation_error,
 )
-from telemetry.otel.cost_models import SessionCost
-from telemetry.otel.reader import OTLPDataDir
-from telemetry.otel.utils import parse_time_window
 
 # Re-exports from sibling modules
-from telemetry.otel.cli.sessions_output import SessionOutputOptions
 from telemetry.otel.cli.sessions_output import (  # noqa: F401
+    SessionOutputOptions,
     _format_model_mix,
     _output_json,
     _output_table,
@@ -37,6 +34,9 @@ from telemetry.otel.cli.sessions_timeline import (  # noqa: F401
     _output_timeline,
     _sum_token_attrs,
 )
+from telemetry.otel.cost_models import SessionCost
+from telemetry.otel.reader import OTLPDataDir
+from telemetry.otel.utils import parse_time_window
 
 
 def _has_errors(session: SessionCost) -> bool:
@@ -163,7 +163,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.format == "json":
         if args.perf:
-            print("warning: --perf is not supported with --format json; perf data is included in the 'perf' field by default", file=sys.stderr)
+            print(
+                "warning: --perf is not supported with --format json; perf data is included in the 'perf' field by default",
+                file=sys.stderr,
+            )
         _output_json(metrics, opts)
     else:
         _output_table(metrics, opts)

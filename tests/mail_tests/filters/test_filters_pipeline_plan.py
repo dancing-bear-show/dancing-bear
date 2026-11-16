@@ -11,25 +11,24 @@ from types import SimpleNamespace
 
 from mail.context import MailContext
 from mail.filters.consumers import (
+    FiltersExportConsumer,
+    FiltersImpactPayload,
     FiltersPlanConsumer,
     FiltersPlanPayload,
     FiltersSyncPayload,
-    FiltersImpactPayload,
-    FiltersExportConsumer,
 )
 from mail.filters.processors_plan import (
+    FiltersExportProcessor,
+    FiltersImpactProcessor,
     FiltersPlanProcessor,
     FiltersSyncProcessor,
-    FiltersImpactProcessor,
-    FiltersExportProcessor,
 )
 from mail.filters.producers import (
+    FiltersExportProducer,
+    FiltersImpactProducer,
     FiltersPlanProducer,
     FiltersSyncProducer,
-    FiltersImpactProducer,
-    FiltersExportProducer,
 )
-
 from tests.mail_tests.fixtures import FakeGmailClient, make_args, make_pipeline_client
 
 
@@ -84,8 +83,8 @@ class FiltersPlanProcessorSadPathTests(unittest.TestCase):
 
     def test_producer_handles_error_envelope_gracefully(self):
         """FiltersPlanProducer.produce() on an error envelope emits fallback message."""
+        from core.cli_output import OutputConfig, OutputWriter
         from core.pipeline import ResultEnvelope
-        from core.cli_output import OutputWriter, OutputConfig
 
         buf = io.StringIO()
         writer = OutputWriter(OutputConfig(file=buf))
@@ -99,8 +98,8 @@ class FiltersPlanProcessorSadPathTests(unittest.TestCase):
 
     def test_producer_uses_fallback_when_no_diagnostics_message(self):
         """With no diagnostics message, the class fallback is emitted."""
+        from core.cli_output import OutputConfig, OutputWriter
         from core.pipeline import ResultEnvelope
-        from core.cli_output import OutputWriter, OutputConfig
 
         buf = io.StringIO()
         producer = FiltersPlanProducer(writer=OutputWriter(OutputConfig(file=buf)))
@@ -109,11 +108,10 @@ class FiltersPlanProcessorSadPathTests(unittest.TestCase):
 
     def test_producer_emits_nothing_extra_on_success(self):
         """Happy path renders the plan summary, not a failure message."""
-        from core.pipeline import ResultEnvelope
-        from core.cli_output import OutputWriter, OutputConfig
-
         from collections import Counter
 
+        from core.cli_output import OutputConfig, OutputWriter
+        from core.pipeline import ResultEnvelope
         from mail.filters.processors_plan import FiltersPlanResult
 
         buf = io.StringIO()
@@ -322,8 +320,8 @@ class FiltersImpactProcessorSadPathTests(unittest.TestCase):
 
     def test_producer_handles_impact_error_envelope(self):
         """FiltersImpactProducer.produce() on error envelope emits fallback message."""
+        from core.cli_output import OutputConfig, OutputWriter
         from core.pipeline import ResultEnvelope
-        from core.cli_output import OutputWriter, OutputConfig
 
         buf = io.StringIO()
         writer = OutputWriter(OutputConfig(file=buf))
@@ -336,8 +334,8 @@ class FiltersImpactProcessorSadPathTests(unittest.TestCase):
 
     def test_producer_impact_uses_fallback_without_message(self):
         """With no diagnostics message, the class fallback is emitted."""
+        from core.cli_output import OutputConfig, OutputWriter
         from core.pipeline import ResultEnvelope
-        from core.cli_output import OutputWriter, OutputConfig
 
         buf = io.StringIO()
         producer = FiltersImpactProducer(writer=OutputWriter(OutputConfig(file=buf)))
@@ -370,8 +368,8 @@ class FiltersExportProcessorSadPathTests(unittest.TestCase):
 
     def test_producer_handles_export_error_envelope(self):
         """A processor-supplied message wins over the class fallback."""
+        from core.cli_output import OutputConfig, OutputWriter
         from core.pipeline import ResultEnvelope
-        from core.cli_output import OutputWriter, OutputConfig
 
         buf = io.StringIO()
         producer = FiltersExportProducer(writer=OutputWriter(OutputConfig(file=buf)))
@@ -382,8 +380,8 @@ class FiltersExportProcessorSadPathTests(unittest.TestCase):
 
     def test_producer_export_uses_fallback_without_message(self):
         """With no diagnostics message, the class fallback is emitted."""
+        from core.cli_output import OutputConfig, OutputWriter
         from core.pipeline import ResultEnvelope
-        from core.cli_output import OutputWriter, OutputConfig
 
         buf = io.StringIO()
         producer = FiltersExportProducer(writer=OutputWriter(OutputConfig(file=buf)))

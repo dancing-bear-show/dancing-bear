@@ -1,11 +1,14 @@
 """Desk assistant pipeline components (scan/plan/apply)."""
+
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Protocol
+from typing import Any, Protocol
 
 from core.cli_output import OutputWriter
-from core.pipeline import SafeProcessor, BaseProducer, RequestConsumer
+from core.pipeline import BaseProducer, RequestConsumer, SafeProcessor
+
 from .apply_ops import apply_plan_file
 from .planner import plan_from_config
 from .scan import run_scan

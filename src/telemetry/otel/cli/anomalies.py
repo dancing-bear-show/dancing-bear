@@ -38,9 +38,7 @@ def main(argv: list[str] | None = None) -> int:
     if err is not None:
         return err
 
-    flags = detect_anomalies(
-        data_dir=data_dir, since=since, threshold=args.threshold
-    )
+    flags = detect_anomalies(data_dir=data_dir, since=since, threshold=args.threshold)
 
     headers = ["session_id", "metric", "value", "mean", "z_score"]
     rows = [

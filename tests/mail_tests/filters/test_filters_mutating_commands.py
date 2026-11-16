@@ -14,16 +14,14 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from mail.filters.commands import (
-    run_filters_sweep,
-    run_filters_sweep_range,
-    run_filters_prune_empty,
     run_filters_add_forward_by_label,
     run_filters_add_from_token,
+    run_filters_prune_empty,
     run_filters_rm_from_token,
+    run_filters_sweep,
+    run_filters_sweep_range,
 )
-
-from tests.mail_tests.fixtures import make_args, make_success_envelope, make_error_envelope
-
+from tests.mail_tests.fixtures import make_args, make_error_envelope, make_success_envelope
 
 # ---------------------------------------------------------------------------
 # Shared pipeline-patching helpers
@@ -64,10 +62,12 @@ def _run_capturing_stdout(run_fn, args):
 # Payload helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_sweep_payload(client=None):
     """Return a SimpleNamespace that mimics FiltersSweepPayload."""
-    from mail.filters.producers import SweepProducerConfig
     from mail.filters.processors_sweep import SweepConfig
+    from mail.filters.producers import SweepProducerConfig
+
     return SimpleNamespace(
         filters=[],
         sweep_config=SweepConfig(days=None, only_inbox=False),
@@ -79,6 +79,7 @@ def _make_sweep_payload(client=None):
 def _make_sweep_range_payload(client=None):
     """Return a SimpleNamespace that mimics FiltersSweepRangePayload."""
     from mail.filters.producers import SweepProducerConfig
+
     return SimpleNamespace(
         filters=[],
         from_days=0,
@@ -131,6 +132,7 @@ def _make_token_payload(client=None, dry_run=False):
 # ---------------------------------------------------------------------------
 # run_filters_sweep
 # ---------------------------------------------------------------------------
+
 
 class TestRunFiltersSweep(unittest.TestCase):
     """Tests for run_filters_sweep."""
@@ -188,6 +190,7 @@ class TestRunFiltersSweep(unittest.TestCase):
 # run_filters_sweep_range
 # ---------------------------------------------------------------------------
 
+
 class TestRunFiltersSweepRange(unittest.TestCase):
     """Tests for run_filters_sweep_range."""
 
@@ -243,6 +246,7 @@ class TestRunFiltersSweepRange(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # run_filters_prune_empty
 # ---------------------------------------------------------------------------
+
 
 class TestRunFiltersPruneEmpty(unittest.TestCase):
     """Tests for run_filters_prune_empty."""
@@ -315,6 +319,7 @@ class TestRunFiltersPruneEmpty(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # run_filters_add_forward_by_label (custom inline pipeline)
 # ---------------------------------------------------------------------------
+
 
 class TestRunFiltersAddForwardByLabel(unittest.TestCase):
     """Tests for run_filters_add_forward_by_label.
@@ -413,6 +418,7 @@ class TestRunFiltersAddForwardByLabel(unittest.TestCase):
 # run_filters_add_from_token
 # ---------------------------------------------------------------------------
 
+
 class TestRunFiltersAddFromToken(unittest.TestCase):
     """Tests for run_filters_add_from_token."""
 
@@ -485,6 +491,7 @@ class TestRunFiltersAddFromToken(unittest.TestCase):
 # run_filters_rm_from_token
 # ---------------------------------------------------------------------------
 
+
 class TestRunFiltersRmFromToken(unittest.TestCase):
     """Tests for run_filters_rm_from_token."""
 
@@ -494,7 +501,9 @@ class TestRunFiltersRmFromToken(unittest.TestCase):
         envelope = make_success_envelope()
 
         with _patched_pipeline(
-            "FiltersRemoveTokenConsumer", "FiltersRemoveTokenProcessor", "FiltersRemoveTokenProducer"
+            "FiltersRemoveTokenConsumer",
+            "FiltersRemoveTokenProcessor",
+            "FiltersRemoveTokenProducer",
         ) as (MockConsumer, MockProcessor, MockProducer):
             MockConsumer.return_value.consume.return_value = payload
             MockProcessor.return_value.process.return_value = envelope
@@ -513,7 +522,9 @@ class TestRunFiltersRmFromToken(unittest.TestCase):
         envelope = make_success_envelope()
 
         with _patched_pipeline(
-            "FiltersRemoveTokenConsumer", "FiltersRemoveTokenProcessor", "FiltersRemoveTokenProducer"
+            "FiltersRemoveTokenConsumer",
+            "FiltersRemoveTokenProcessor",
+            "FiltersRemoveTokenProducer",
         ) as (MockConsumer, MockProcessor, MockProducer):
             MockConsumer.return_value.consume.return_value = payload
             MockProcessor.return_value.process.return_value = envelope
@@ -526,7 +537,9 @@ class TestRunFiltersRmFromToken(unittest.TestCase):
     def test_rm_token_consumer_value_error_returns_one(self):
         """Failure path: consumer ValueError → exit code 1."""
         with _patched_pipeline(
-            "FiltersRemoveTokenConsumer", "FiltersRemoveTokenProcessor", "FiltersRemoveTokenProducer"
+            "FiltersRemoveTokenConsumer",
+            "FiltersRemoveTokenProcessor",
+            "FiltersRemoveTokenProducer",
         ) as (MockConsumer, _MockProcessor, _MockProducer):
             MockConsumer.return_value.consume.side_effect = ValueError("missing --remove")
 
@@ -541,7 +554,9 @@ class TestRunFiltersRmFromToken(unittest.TestCase):
         envelope = make_error_envelope(diagnostics={"message": "remove failed", "code": 6})
 
         with _patched_pipeline(
-            "FiltersRemoveTokenConsumer", "FiltersRemoveTokenProcessor", "FiltersRemoveTokenProducer"
+            "FiltersRemoveTokenConsumer",
+            "FiltersRemoveTokenProcessor",
+            "FiltersRemoveTokenProducer",
         ) as (MockConsumer, MockProcessor, MockProducer):
             MockConsumer.return_value.consume.return_value = payload
             MockProcessor.return_value.process.return_value = envelope

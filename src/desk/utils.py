@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Iterable
+from collections.abc import Iterable
 
 from core.cli_output import emit_one
 from core.fileutil import atomic_write_json as _write_json
@@ -31,9 +31,9 @@ def parse_size(s: str | int | float) -> int:
     u = unit[0].lower()
     mult = {
         "k": 1024,
-        "m": 1024 ** 2,
-        "g": 1024 ** 3,
-        "t": 1024 ** 4,
+        "m": 1024**2,
+        "g": 1024**3,
+        "t": 1024**4,
     }[u]
     return int(num * mult)
 

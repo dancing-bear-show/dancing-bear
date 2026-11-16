@@ -16,8 +16,7 @@ from telemetry.otel.cli._format_helpers import add_format_argument, get_work_dir
 from telemetry.timeutil import now_utc, parse_window
 
 _NO_METADATA_MSG = (
-    "No cost metadata found in stage results — workflow skill version"
-    " may predate cost tracking"
+    "No cost metadata found in stage results — workflow skill version may predate cost tracking"
 )
 
 
@@ -75,7 +74,11 @@ def _run_workspace_mode(workspace: Path, fmt: str) -> int:
 
     if not has_cost:
         print(_NO_METADATA_MSG, file=sys.stderr, flush=True)
-        emit_rows([], fmt=fmt, headers=["stage", "model", "tokens", "cost_usd", "tool_uses", "duration_agent_ms"])
+        emit_rows(
+            [],
+            fmt=fmt,
+            headers=["stage", "model", "tokens", "cost_usd", "tool_uses", "duration_agent_ms"],
+        )
         return 0
 
     emit_rows(
@@ -191,12 +194,34 @@ def _run_since_mode(since_str: str, fmt: str) -> int:
         run_groups.setdefault(run_id, []).append(data)
 
     if stages_in_window == 0:
-        emit_rows([], fmt=fmt, headers=["run_id", "workflow", "started_at", "stages", "total_tokens", "total_cost_usd"])
+        emit_rows(
+            [],
+            fmt=fmt,
+            headers=[
+                "run_id",
+                "workflow",
+                "started_at",
+                "stages",
+                "total_tokens",
+                "total_cost_usd",
+            ],
+        )
         return 0
 
     if not has_cost:
         print(_NO_METADATA_MSG, file=sys.stderr, flush=True)
-        emit_rows([], fmt=fmt, headers=["run_id", "workflow", "started_at", "stages", "total_tokens", "total_cost_usd"])
+        emit_rows(
+            [],
+            fmt=fmt,
+            headers=[
+                "run_id",
+                "workflow",
+                "started_at",
+                "stages",
+                "total_tokens",
+                "total_cost_usd",
+            ],
+        )
         return 0
 
     rows = _build_since_rows(run_groups)
@@ -229,8 +254,12 @@ def _build_since_rows(run_groups: dict[str, list[dict]]) -> list[dict]:
     for run_id, stages in sorted(run_groups.items()):
         workflow = re.sub(r"-\d{8}-[0-9a-f]{8}$", "", run_id)
         started_at = _earliest_started_at(stages)
-        total_tokens = sum(_coerce_int(s.get("metadata", {}).get("subagent_tokens", 0)) for s in stages)
-        total_cost = sum(_coerce_float(s.get("metadata", {}).get("subagent_cost_usd", 0.0)) for s in stages)
+        total_tokens = sum(
+            _coerce_int(s.get("metadata", {}).get("subagent_tokens", 0)) for s in stages
+        )
+        total_cost = sum(
+            _coerce_float(s.get("metadata", {}).get("subagent_cost_usd", 0.0)) for s in stages
+        )
         rows.append(
             {
                 "run_id": run_id,

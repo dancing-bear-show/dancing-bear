@@ -1,4 +1,5 @@
 """Additional tests for schedule/cli/main.py covering previously uncovered lines."""
+
 from __future__ import annotations
 
 import datetime as dt
@@ -101,8 +102,18 @@ class TestGroupOneOffs(unittest.TestCase):
         from schedule.cli.main import _group_one_offs
 
         events = [
-            {"subject": "Yoga", "start": "2025-01-13T18:00:00", "end": "2025-01-13T19:00:00", "location": "Studio"},
-            {"subject": "Yoga", "start": "2025-01-20T18:00:00", "end": "2025-01-20T19:00:00", "location": "Studio"},
+            {
+                "subject": "Yoga",
+                "start": "2025-01-13T18:00:00",
+                "end": "2025-01-13T19:00:00",
+                "location": "Studio",
+            },
+            {
+                "subject": "Yoga",
+                "start": "2025-01-20T18:00:00",
+                "end": "2025-01-20T19:00:00",
+                "location": "Studio",
+            },
         ]
         groups, _meta = _group_one_offs(events)
         key = list(groups.keys())[0]
@@ -132,26 +143,30 @@ class TestComputeExdates(unittest.TestCase):
 
 class TestBuildOneOffEvent(unittest.TestCase):
     def test_basic_event(self):
-        from schedule.cli.main import _build_one_off_event, EventParams
+        from schedule.cli.main import EventParams, _build_one_off_event
 
         result = _build_one_off_event(EventParams("Yoga", "18:00", "19:00"), dt.date(2025, 1, 13))
         self.assertEqual(result["subject"], "Yoga")
         self.assertEqual(result["start"], "2025-01-13T18:00")
 
     def test_with_location(self):
-        from schedule.cli.main import _build_one_off_event, EventParams
+        from schedule.cli.main import EventParams, _build_one_off_event
 
-        result = _build_one_off_event(EventParams("Yoga", "18:00", "19:00", location="Studio"), dt.date(2025, 1, 13))
+        result = _build_one_off_event(
+            EventParams("Yoga", "18:00", "19:00", location="Studio"), dt.date(2025, 1, 13)
+        )
         self.assertEqual(result["location"], "Studio")
 
     def test_with_calendar(self):
-        from schedule.cli.main import _build_one_off_event, EventParams
+        from schedule.cli.main import EventParams, _build_one_off_event
 
-        result = _build_one_off_event(EventParams("Yoga", "18:00", "19:00", calendar="Health"), dt.date(2025, 1, 13))
+        result = _build_one_off_event(
+            EventParams("Yoga", "18:00", "19:00", calendar="Health"), dt.date(2025, 1, 13)
+        )
         self.assertEqual(result["calendar"], "Health")
 
     def test_no_location_or_cal(self):
-        from schedule.cli.main import _build_one_off_event, EventParams
+        from schedule.cli.main import EventParams, _build_one_off_event
 
         result = _build_one_off_event(EventParams("Yoga", "18:00", "19:00"), dt.date(2025, 1, 13))
         self.assertNotIn("location", result)
@@ -160,32 +175,51 @@ class TestBuildOneOffEvent(unittest.TestCase):
 
 class TestBuildSeriesEvent(unittest.TestCase):
     def test_basic_series(self):
-        from schedule.cli.main import _build_series_event, SeriesParams
+        from schedule.cli.main import SeriesParams, _build_series_event
 
-        result = _build_series_event(SeriesParams(
-            subject="Yoga", start_time="18:00", end_time="19:00", day_of_week="MO",
-            start_date=dt.date(2025, 1, 6), end_date=dt.date(2025, 1, 27),
-        ))
+        result = _build_series_event(
+            SeriesParams(
+                subject="Yoga",
+                start_time="18:00",
+                end_time="19:00",
+                day_of_week="MO",
+                start_date=dt.date(2025, 1, 6),
+                end_date=dt.date(2025, 1, 27),
+            )
+        )
         self.assertEqual(result["subject"], "Yoga")
         self.assertEqual(result["repeat"], "weekly")
         self.assertEqual(result["byday"], ["MO"])
 
     def test_with_exdates(self):
-        from schedule.cli.main import _build_series_event, SeriesParams
+        from schedule.cli.main import SeriesParams, _build_series_event
 
-        result = _build_series_event(SeriesParams(
-            subject="Yoga", start_time="18:00", end_time="19:00", day_of_week="MO",
-            start_date=dt.date(2025, 1, 6), end_date=dt.date(2025, 1, 27), exdates=["2025-01-13"],
-        ))
+        result = _build_series_event(
+            SeriesParams(
+                subject="Yoga",
+                start_time="18:00",
+                end_time="19:00",
+                day_of_week="MO",
+                start_date=dt.date(2025, 1, 6),
+                end_date=dt.date(2025, 1, 27),
+                exdates=["2025-01-13"],
+            )
+        )
         self.assertEqual(result["exdates"], ["2025-01-13"])
 
     def test_no_exdates_not_in_result(self):
-        from schedule.cli.main import _build_series_event, SeriesParams
+        from schedule.cli.main import SeriesParams, _build_series_event
 
-        result = _build_series_event(SeriesParams(
-            subject="Yoga", start_time="18:00", end_time="19:00", day_of_week="MO",
-            start_date=dt.date(2025, 1, 6), end_date=dt.date(2025, 1, 27),
-        ))
+        result = _build_series_event(
+            SeriesParams(
+                subject="Yoga",
+                start_time="18:00",
+                end_time="19:00",
+                day_of_week="MO",
+                start_date=dt.date(2025, 1, 6),
+                end_date=dt.date(2025, 1, 27),
+            )
+        )
         self.assertNotIn("exdates", result)
 
 
@@ -195,10 +229,18 @@ class TestCompressEvents(unittest.TestCase):
 
         groups = {
             ("Yoga", "18:00", "19:00", "MO", ""): [
-                dt.date(2025, 1, 6), dt.date(2025, 1, 13), dt.date(2025, 1, 20)
+                dt.date(2025, 1, 6),
+                dt.date(2025, 1, 13),
+                dt.date(2025, 1, 20),
             ]
         }
-        meta = {("Yoga", "18:00", "19:00", "MO", ""): {"calendar": "Health", "subject": "Yoga", "location": ""}}
+        meta = {
+            ("Yoga", "18:00", "19:00", "MO", ""): {
+                "calendar": "Health",
+                "subject": "Yoga",
+                "location": "",
+            }
+        }
         result = _compress_events(groups, meta, min_occur=2, override_cal=None)
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["repeat"], "weekly")
@@ -206,10 +248,14 @@ class TestCompressEvents(unittest.TestCase):
     def test_keeps_as_oneoffs_below_threshold(self):
         from schedule.cli.main import _compress_events
 
-        groups = {
-            ("Yoga", "18:00", "19:00", "MO", ""): [dt.date(2025, 1, 6)]
+        groups = {("Yoga", "18:00", "19:00", "MO", ""): [dt.date(2025, 1, 6)]}
+        meta = {
+            ("Yoga", "18:00", "19:00", "MO", ""): {
+                "calendar": None,
+                "subject": "Yoga",
+                "location": "",
+            }
         }
-        meta = {("Yoga", "18:00", "19:00", "MO", ""): {"calendar": None, "subject": "Yoga", "location": ""}}
         result = _compress_events(groups, meta, min_occur=2, override_cal=None)
         self.assertEqual(len(result), 1)
         self.assertNotIn("repeat", result[0])
@@ -217,12 +263,14 @@ class TestCompressEvents(unittest.TestCase):
     def test_override_calendar(self):
         from schedule.cli.main import _compress_events
 
-        groups = {
-            ("Yoga", "18:00", "19:00", "MO", ""): [
-                dt.date(2025, 1, 6), dt.date(2025, 1, 13)
-            ]
+        groups = {("Yoga", "18:00", "19:00", "MO", ""): [dt.date(2025, 1, 6), dt.date(2025, 1, 13)]}
+        meta = {
+            ("Yoga", "18:00", "19:00", "MO", ""): {
+                "calendar": "OldCal",
+                "subject": "Yoga",
+                "location": "",
+            }
         }
-        meta = {("Yoga", "18:00", "19:00", "MO", ""): {"calendar": "OldCal", "subject": "Yoga", "location": ""}}
         result = _compress_events(groups, meta, min_occur=2, override_cal="NewCal")
         self.assertEqual(result[0]["calendar"], "NewCal")
 
@@ -231,7 +279,13 @@ class TestCompressSortKey(unittest.TestCase):
     def test_sort_key_for_series(self):
         from schedule.cli.main import _compress_sort_key
 
-        e = {"subject": "Yoga", "repeat": "weekly", "byday": ["MO"], "range": {"start_date": "2025-01-06"}, "start_time": "18:00"}
+        e = {
+            "subject": "Yoga",
+            "repeat": "weekly",
+            "byday": ["MO"],
+            "range": {"start_date": "2025-01-06"},
+            "start_time": "18:00",
+        }
         key = _compress_sort_key(e)
         self.assertEqual(key[0], "Yoga")
         self.assertEqual(key[1], "MO")
@@ -247,8 +301,9 @@ class TestCompressSortKey(unittest.TestCase):
 
 class TestCmdCompress(unittest.TestCase):
     def test_compress_from_yaml(self):
-        from schedule.cli.main import cmd_compress
         import argparse
+
+        from schedule.cli.main import cmd_compress
 
         with tempfile.TemporaryDirectory() as tmp:  # nosec B108 - test-only temp file, not a security concern
             in_path = Path(tmp) / "input.yaml"
@@ -276,9 +331,10 @@ class TestCmdCompress(unittest.TestCase):
             self.assertIn("Compressed", buf.getvalue())
 
     def test_compress_missing_input(self):
-        from schedule.cli.main import cmd_compress
-        from core.cli_errors import ExitCode
         import argparse
+
+        from core.cli_errors import ExitCode
+        from schedule.cli.main import cmd_compress
 
         args = argparse.Namespace(
             in_path="/nonexistent/plan.yaml",
@@ -290,8 +346,9 @@ class TestCmdCompress(unittest.TestCase):
         self.assertEqual(result, ExitCode.NOT_FOUND)
 
     def test_compress_no_oneoffs(self):
-        from schedule.cli.main import cmd_compress
         import argparse
+
+        from schedule.cli.main import cmd_compress
 
         with tempfile.TemporaryDirectory() as tmp:  # nosec B108 - test-only temp file, not a security concern
             in_path = Path(tmp) / "input.yaml"
@@ -318,9 +375,10 @@ class TestCmdCompress(unittest.TestCase):
 
 class TestCmdApplyMissingPlan(unittest.TestCase):
     def test_missing_plan_returns_2(self):
-        from schedule.cli.main import cmd_apply
-        from core.cli_errors import CLIError, ExitCode
         import argparse
+
+        from core.cli_errors import CLIError, ExitCode
+        from schedule.cli.main import cmd_apply
 
         args = argparse.Namespace(
             plan=None,

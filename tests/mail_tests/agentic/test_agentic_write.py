@@ -11,10 +11,10 @@ class TestAgenticWrite(unittest.TestCase):
 
     def test_agentic_write_to_file(self):
         import mail.llm_cli as mod
+
         with tempfile.TemporaryDirectory() as td:
-            target = Path(td) / 'AGENTIC.out.md'
+            target = Path(td) / "AGENTIC.out.md"
             rc = mod.main(["agentic", "--write", str(target)])
             self.assertEqual(rc, 0)
-            content = target.read_text(encoding='utf-8')
+            content = target.read_text(encoding="utf-8")
             self.assertTrue(content.startswith("agentic: mail"))
-

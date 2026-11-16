@@ -58,9 +58,7 @@ def _args(
     auto-stub any attribute the handler gains later, so a wiring mistake would
     read as a pass.
     """
-    return argparse.Namespace(
-        file=file, check=check, top_level=top_level, print_param=print_param
-    )
+    return argparse.Namespace(file=file, check=check, top_level=top_level, print_param=print_param)
 
 
 class ParamGuardTempMixin(unittest.TestCase):
@@ -124,9 +122,7 @@ class TestCheckParams(unittest.TestCase):
         self.assertFalse(result.ok)
 
     def test_rejects_command_substitution_payload(self) -> None:
-        result = check_params(
-            {"ollama_host": SUBSHELL}, [ParamCheck("ollama_host", HOST_PATTERN)]
-        )
+        result = check_params({"ollama_host": SUBSHELL}, [ParamCheck("ollama_host", HOST_PATTERN)])
         self.assertFalse(result.ok)
 
     def test_match_is_anchored_at_both_ends(self) -> None:
@@ -159,9 +155,7 @@ class TestCheckParams(unittest.TestCase):
 
     def test_failure_text_does_not_echo_the_rejected_value(self) -> None:
         """A hostile value must not be reproduced into logs."""
-        result = check_params(
-            {"ollama_host": SUBSHELL}, [ParamCheck("ollama_host", HOST_PATTERN)]
-        )
+        result = check_params({"ollama_host": SUBSHELL}, [ParamCheck("ollama_host", HOST_PATTERN)])
         self.assertNotIn("PWNED", " ".join(result.failures))
 
     def test_all_checks_pass_together(self) -> None:
@@ -285,7 +279,11 @@ class TestCheckParamsEndToEnd(ParamGuardTempMixin):
         if print_param is not None:
             argv += ["--print", print_param]
         return subprocess.run(  # nosec B603 - fixed argv, no shell, repo-owned binary
-            argv, capture_output=True, text=True, cwd=str(_REPO_ROOT), check=False,
+            argv,
+            capture_output=True,
+            text=True,
+            cwd=str(_REPO_ROOT),
+            check=False,
             timeout=_WRAPPER_TIMEOUT_S,
         )
 
@@ -473,9 +471,7 @@ class TestCheckParamsPrintEndToEnd(TestCheckParamsEndToEnd):
         and the exit status stops being the single contract the YAML branches
         on.
         """
-        path = self.write_manifest(
-            {"ollama_host": SUBSHELL, "model_tag": "qwen2.5-coder:14b"}
-        )
+        path = self.write_manifest({"ollama_host": SUBSHELL, "model_tag": "qwen2.5-coder:14b"})
         proc = self._run(
             path,
             [f"ollama_host={HOST_PATTERN}", r"model_tag=[A-Za-z0-9._-]+(:[A-Za-z0-9._-]+)?"],

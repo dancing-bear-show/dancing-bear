@@ -2,6 +2,7 @@
 
 Provides shared functionality for Gmail and Outlook pipelines.
 """
+
 from __future__ import annotations
 
 import datetime as _dt
@@ -9,28 +10,28 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any
 
+from core.auth import build_gmail_service as _build_gmail_service
 from core.collections import dedupe
+from core.constants import DAY_END_TIME, DAY_START_TIME
 from core.date_utils import DAY_MAP, MONTH_MAP, parse_month, to_iso_str
 from core.pipeline import BaseProducer, RequestConsumer
-from core.auth import build_gmail_service as _build_gmail_service
-from core.constants import DAY_START_TIME, DAY_END_TIME
 
 from .gmail_service import GmailService
 
 __all__ = [
-    "RequestConsumer",
+    "DAY_MAP",
+    "MONTH_MAP",
     "BaseProducer",
+    "DateWindowResolver",
     "GmailAuth",
     "GmailServiceBuilder",
     "GmailServiceBuilderMixin",
-    "DateWindowResolver",
+    "RequestConsumer",
     "check_service_required",
-    "to_iso_str",
     "dedupe_events",
-    "parse_month",
-    "DAY_MAP",
-    "MONTH_MAP",
     "load_schedule_sources",
+    "parse_month",
+    "to_iso_str",
 ]
 
 # Error message constant
@@ -50,6 +51,7 @@ def check_service_required(service: Any, error_msg: str = ERR_SERVICE_REQUIRED) 
 @dataclass
 class GmailAuth:
     """Gmail authentication configuration."""
+
     profile: str | None
     credentials: str | None
     token: str | None
@@ -81,9 +83,7 @@ class GmailServiceBuilderMixin:
 
     _service_cls: Any = None
 
-    def __init__(
-        self, service_builder: Callable[[GmailAuth], Any] | None = None
-    ) -> None:
+    def __init__(self, service_builder: Callable[[GmailAuth], Any] | None = None) -> None:
         self._service_builder = service_builder or self._default_service_builder
 
     def _default_service_builder(self, auth: GmailAuth) -> Any:
@@ -182,9 +182,7 @@ def _schedule_item_to_event(item: Any) -> dict[str, Any]:
     return ev
 
 
-def load_schedule_sources(
-    sources: Iterable[str], kind: str | None
-) -> list[dict[str, Any]]:
+def load_schedule_sources(sources: Iterable[str], kind: str | None) -> list[dict[str, Any]]:
     """Load schedule items from multiple sources, normalized to event dicts.
 
     Carries every ScheduleItem field (one-off times, recurrence, range, count,

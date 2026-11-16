@@ -6,7 +6,7 @@ import io
 import tempfile
 import unittest
 import zipfile
-from contextlib import redirect_stdout, redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 
@@ -155,11 +155,7 @@ class TestDocxStructureMode(unittest.TestCase):
     def test_structure_mode_does_not_print_document_text(self) -> None:
         """--structure replaces the text dump; it must not emit both."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            xml = (
-                "<w:document><w:body>"
-                "<w:p><w:t>SECRET_BODY_TEXT</w:t></w:p>"
-                "</w:body></w:document>"
-            )
+            xml = "<w:document><w:body><w:p><w:t>SECRET_BODY_TEXT</w:t></w:p></w:body></w:document>"
             path = _make_docx(Path(tmpdir), xml)
             rc, out, _ = self._run(["--structure", str(path)])
         self.assertEqual(rc, 0)

@@ -29,6 +29,8 @@ from worker.queue_ops import (
     Job,
     enqueue,
     requeue_processing,
+)
+from worker.queue_ops import (
     start_processing as _real_start,
 )
 
@@ -293,7 +295,9 @@ class TestShutdownGraceFlag(unittest.TestCase):
         return runner_cls.call_args[0][0]
 
     def test_flag_parses_into_config(self) -> None:
-        self.assertEqual(self._config_for(["daemon", "--shutdown-grace", "2.5"]).shutdown_grace, 2.5)
+        self.assertEqual(
+            self._config_for(["daemon", "--shutdown-grace", "2.5"]).shutdown_grace, 2.5
+        )
 
     def test_default_applies_when_omitted(self) -> None:
         self.assertEqual(self._config_for(["daemon"]).shutdown_grace, 10.0)
@@ -301,8 +305,11 @@ class TestShutdownGraceFlag(unittest.TestCase):
     def test_negative_grace_is_rejected(self) -> None:
         from worker.cli import main
 
-        with patch("worker.cli.DaemonRunner") as runner_cls, patch("worker.cli.JobProcessor"), \
-             patch("sys.stderr"):
+        with (
+            patch("worker.cli.DaemonRunner") as runner_cls,
+            patch("worker.cli.JobProcessor"),
+            patch("sys.stderr"),
+        ):
             self.assertNotEqual(main(["daemon", "--shutdown-grace", "-1"]), 0)
         runner_cls.assert_not_called()
 

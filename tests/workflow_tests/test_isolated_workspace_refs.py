@@ -59,14 +59,19 @@ _EXEMPT_REACH = 12
 _REVIEWED_EXPLANATIONS = frozenset(
     {
         # Explains why an uncopied report deadlocks; tells the agent nothing.
-        ("workflows/code/calendar-plan-symmetry.yaml", "implement-producer",
-         "the completion check waits for the report under"),
+        (
+            "workflows/code/calendar-plan-symmetry.yaml",
+            "implement-producer",
+            "the completion check waits for the report under",
+        ),
         # Describes where read-the-seam validated the params upstream.
-        ("workflows/demo/qwen-job-type.yaml", "write-handler",
-         "validated by read-the-seam's STEP 0 against"),
+        (
+            "workflows/demo/qwen-job-type.yaml",
+            "write-handler",
+            "validated by read-the-seam's STEP 0 against",
+        ),
         # "Writing to a literal <ws> path instead would ..." -- a warning.
-        ("workflows/demo/qwen-job-type.yaml", "write-handler",
-         "Writing to a literal"),
+        ("workflows/demo/qwen-job-type.yaml", "write-handler", "Writing to a literal"),
     }
 )
 
@@ -107,13 +112,15 @@ def _rendered_catalog() -> list[tuple[str, str, bool, str]]:
                 continue
             rel = str(path.relative_to(REPO_ROOT))
             defn = parse_workflow(str(path))
-            manifest = compile_workflow(defn, project_root=REPO_ROOT,
-                                        trigger_params=_sample_params(path, defn))
+            manifest = compile_workflow(
+                defn, project_root=REPO_ROOT, trigger_params=_sample_params(path, defn)
+            )
             for name, stage in manifest.resolved_stages.items():
                 agent = stage.spec.agent
                 prompt = build_agent_prompt(stage, defn.name, ws)
-                rows.append((rel, name, bool(agent and agent.isolation),
-                             prompt.replace(ws, _WS_MARK)))
+                rows.append(
+                    (rel, name, bool(agent and agent.isolation), prompt.replace(ws, _WS_MARK))
+                )
     return rows
 
 
@@ -127,8 +134,14 @@ class TestIsolatedStagesAvoidWorkspace(unittest.TestCase):
         isolated = {(wf, st) for wf, st, iso, _ in _ROWS if iso}
         # A floor, not a count: an empty render would pass every check below.
         self.assertGreaterEqual(len(isolated), 20)
-        for stage in ("impl-schema", "test-schema", "migrate-callsites",
-                      "test-e2e-data", "impl-pdf", "test-pdf"):
+        for stage in (
+            "impl-schema",
+            "test-schema",
+            "migrate-callsites",
+            "test-e2e-data",
+            "impl-pdf",
+            "test-pdf",
+        ):
             self.assertIn(("workflows/resume/consolidate-schema.yaml", stage), isolated)
 
     def test_no_isolated_task_tells_the_agent_to_use_the_workspace(self) -> None:
@@ -137,17 +150,22 @@ class TestIsolatedStagesAvoidWorkspace(unittest.TestCase):
                 continue
             with self.subTest(workflow=wf, stage=stage):
                 hits = [
-                    before for before in _instructions_to_use_workspace(_task(prompt), _WS_MARK)
+                    before
+                    for before in _instructions_to_use_workspace(_task(prompt), _WS_MARK)
                     if not any(
                         (wf, stage) == (r_wf, r_stage) and before.endswith(r_text)
                         for r_wf, r_stage, r_text in _REVIEWED_EXPLANATIONS
                     )
                 ]
-                self.assertEqual(hits, [], msg=(
-                    "an isolated stage's description sends its agent to the shared "
-                    "workspace, which it cannot reach. Point it at "
-                    "<your-cwd>/inputs/<declared path> or <your-cwd>/outputs/<name>."
-                ))
+                self.assertEqual(
+                    hits,
+                    [],
+                    msg=(
+                        "an isolated stage's description sends its agent to the shared "
+                        "workspace, which it cannot reach. Point it at "
+                        "<your-cwd>/inputs/<declared path> or <your-cwd>/outputs/<name>."
+                    ),
+                )
 
     def test_reviewed_explanations_are_not_stale(self) -> None:
         """Each allowlisted sentence must still exist, or the entry is dead weight
@@ -171,7 +189,7 @@ class TestOutputPathsResolve(unittest.TestCase):
         for wf, stage, _, prompt in _ROWS:
             with self.subTest(workflow=wf, stage=stage):
                 generated = _ENGINE_HEADINGS.split(prompt, maxsplit=1)
-                tail = prompt[len(generated[0]):] if len(generated) > 1 else ""
+                tail = prompt[len(generated[0]) :] if len(generated) > 1 else ""
                 self.assertEqual(path_token.findall(tail), [])
 
 
@@ -222,7 +240,8 @@ class TestConsolidateSchemaInputs(unittest.TestCase):
         create_idx = task.index("E2E_TMP=$(mktemp")
         trap_idx = task.index("trap 'rm -rf \"$E2E_TMP\"' EXIT")
         self.assertLess(
-            create_idx, trap_idx,
+            create_idx,
+            trap_idx,
             msg="trap must be registered immediately after E2E_TMP is created, "
             "not after other commands run in between",
         )
@@ -246,9 +265,7 @@ class TestConsolidateSchemaInputs(unittest.TestCase):
         # empty input regardless of git's own status, so that form silently
         # swallows a git failure. git's exit status must be checked on its
         # own line.
-        self.assertIn(
-            "WT_LIST=$(git worktree list --porcelain) || exit 1", task
-        )
+        self.assertIn("WT_LIST=$(git worktree list --porcelain) || exit 1", task)
         self.assertNotIn("git worktree list --porcelain | awk", task)
         # A repo always has at least one worktree, so zero enumerated roots
         # means enumeration broke, not that no checkouts exist -- abort.

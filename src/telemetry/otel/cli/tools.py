@@ -41,7 +41,14 @@ def main(argv: list[str] | None = None) -> int:
     summaries = get_tool_summaries(data_dir=data_dir, since=since)
     summaries = _sort_summaries(summaries, args.sort)
 
-    headers = ["tool_name", "total_calls", "failures", "failure_rate", "avg_duration_ms", "sessions_affected"]
+    headers = [
+        "tool_name",
+        "total_calls",
+        "failures",
+        "failure_rate",
+        "avg_duration_ms",
+        "sessions_affected",
+    ]
     rows = [
         {
             "tool_name": s.tool_name,
@@ -56,9 +63,7 @@ def main(argv: list[str] | None = None) -> int:
     return emit_rows(rows, args.format, headers=headers, empty_msg="No tool usage data found.")
 
 
-def _sort_summaries(
-    summaries: list[ToolErrorSummary], sort_key: str
-) -> list[ToolErrorSummary]:
+def _sort_summaries(summaries: list[ToolErrorSummary], sort_key: str) -> list[ToolErrorSummary]:
     """Sort tool summaries by the specified key."""
     if sort_key == "calls":
         return sorted(summaries, key=lambda s: s.total_calls, reverse=True)

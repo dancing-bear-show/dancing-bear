@@ -157,8 +157,11 @@ def cmd_threads_fetch(args) -> int:
         # inspected, but a count mismatch must not read as success: callers
         # resolve and triage from this file, and a missing page would
         # silently drop threads from both.
-        print("threads fetch: incomplete — a count GitHub reported did not match what was "
-              "fetched (truncated: true); not safe to act on", file=sys.stderr)
+        print(
+            "threads fetch: incomplete — a count GitHub reported did not match what was "
+            "fetched (truncated: true); not safe to act on",
+            file=sys.stderr,
+        )
         return ExitCode.ERROR
     return ExitCode.SUCCESS
 
@@ -191,7 +194,10 @@ def _reply_result_exit(resolved_asked: bool, resolved: bool) -> int:
 
 
 def _handle_already_replied(
-    gh: GhCLI, thread_id: str, resolve_asked: bool, forged: bool,
+    gh: GhCLI,
+    thread_id: str,
+    resolve_asked: bool,
+    forged: bool,
 ) -> int:
     """The marker check found the reply already landed on a prior run.
 
@@ -204,15 +210,17 @@ def _handle_already_replied(
     err: str | None = None
     if resolve_asked:
         resolved, err = _try_resolve(gh, thread_id)
-    emit_one({
-        "thread_id": thread_id,
-        "status": "already_replied",
-        "comment_id": None,
-        "url": None,
-        "resolved": resolved,
-        "forged_marker": forged,
-        "error": err,
-    })
+    emit_one(
+        {
+            "thread_id": thread_id,
+            "status": "already_replied",
+            "comment_id": None,
+            "url": None,
+            "resolved": resolved,
+            "forged_marker": forged,
+            "error": err,
+        }
+    )
     return _reply_result_exit(resolve_asked, resolved)
 
 
@@ -223,22 +231,26 @@ def _handle_reply_failure(thread_id: str, exc: GhError) -> int:
     explanation. Emit the failure JSON and exit non-zero without touching the
     resolve path at all.
     """
-    emit_one({
-        "thread_id": thread_id,
-        "status": "failed",
-        "comment_id": None,
-        "url": None,
-        "resolved": False,
-        "forged_marker": False,
-        "error": str(exc),
-    })
+    emit_one(
+        {
+            "thread_id": thread_id,
+            "status": "failed",
+            "comment_id": None,
+            "url": None,
+            "resolved": False,
+            "forged_marker": False,
+            "error": str(exc),
+        }
+    )
     return ExitCode.ERROR
 
 
 @threads_group.command("reply", help="Reply into a thread; optionally resolve after verifying")
 @app.argument("--thread", required=True, help="Review thread node id")
 @app.argument("--body-file", required=True, dest="body_file", help="Body path (- for stdin)")
-@app.argument("--run-id", dest="run_id", help="Append a run marker; skip if our own reply carries it")
+@app.argument(
+    "--run-id", dest="run_id", help="Append a run marker; skip if our own reply carries it"
+)
 @app.argument("--resolve", action="store_true", help="Resolve after a verified reply")
 def cmd_threads_reply(args) -> int:
     """Post ``--body-file`` into ``--thread``.
@@ -290,15 +302,17 @@ def cmd_threads_reply(args) -> int:
     if args.resolve:
         resolved, resolve_error = _try_resolve(gh, thread_id)
 
-    emit_one({
-        "thread_id": thread_id,
-        "status": "replied",
-        "comment_id": reply["comment_id"],
-        "url": reply.get("url") or "",
-        "resolved": resolved,
-        "forged_marker": forged,
-        "error": resolve_error,
-    })
+    emit_one(
+        {
+            "thread_id": thread_id,
+            "status": "replied",
+            "comment_id": reply["comment_id"],
+            "url": reply.get("url") or "",
+            "resolved": resolved,
+            "forged_marker": forged,
+            "error": resolve_error,
+        }
+    )
     return _reply_result_exit(bool(args.resolve), resolved)
 
 
@@ -325,21 +339,25 @@ def cmd_threads_state(args) -> int:
         # A count GitHub reported did not match what came back, so any number
         # here is unverified. Report null, never a partial count that would
         # make an incomplete run look complete.
-        emit_one({
-            "total": None,
-            "unresolved": None,
-            "unresolved_ids": None,
-            "truncated": True,
-            "error": "fetched thread counts did not match GitHub's reported totals",
-        })
+        emit_one(
+            {
+                "total": None,
+                "unresolved": None,
+                "unresolved_ids": None,
+                "truncated": True,
+                "error": "fetched thread counts did not match GitHub's reported totals",
+            }
+        )
         return ExitCode.ERROR
     unresolved_ids = [str(n["id"]) for n in raw_threads if not n.get("isResolved") and n.get("id")]
-    emit_one({
-        "total": len(raw_threads),
-        "unresolved": len(unresolved_ids),
-        "unresolved_ids": unresolved_ids,
-        "truncated": False,
-    })
+    emit_one(
+        {
+            "total": len(raw_threads),
+            "unresolved": len(unresolved_ids),
+            "unresolved_ids": unresolved_ids,
+            "truncated": False,
+        }
+    )
     return ExitCode.SUCCESS
 
 
@@ -390,7 +408,9 @@ def cmd_pr_view(args) -> int:
 @pr_group.command("diff", help="Print the PR's unified diff, or its changed paths")
 @app.argument("--repo", help="OWNER/NAME (defaults to current checkout)")
 @app.argument("--pr", type=int, help="PR number (default: current branch's PR)")
-@app.argument("--name-only", action="store_true", dest="name_only", help="One changed path per line")
+@app.argument(
+    "--name-only", action="store_true", dest="name_only", help="One changed path per line"
+)
 def cmd_pr_diff(args) -> int:
     if args.name_only:
         # pr_files strips blank lines and returns a clean list, which is what
@@ -518,7 +538,9 @@ def cmd_pr_checks(args) -> int:
         # Watch mode surfaces gh's own exit code (0 = all passed). Same
         # bucket-vs-exit-code trap as unwatched checks: gh exits nonzero while
         # pending, so the caller must interpret the code — never a stdout body.
-        return _pulls.pr_checks_watch(_gh(), _pr_arg(args), interval=int(args.interval), repo=_repo(args))
+        return _pulls.pr_checks_watch(
+            _gh(), _pr_arg(args), interval=int(args.interval), repo=_repo(args)
+        )
     emit_one(_pulls.pr_checks(_gh(), _pr_arg(args), repo=_repo(args)))
     return ExitCode.SUCCESS
 
@@ -562,8 +584,12 @@ def cmd_pr_comment(args) -> int:
 @pr_group.command("comments", help="List every review or issue comment on a PR")
 @app.argument("--repo", help="OWNER/NAME (defaults to current checkout)")
 @app.argument("--pr", required=True, type=int, help="PR number")
-@app.argument("--kind", choices=("review", "issue"), default="review",
-              help="review = inline pulls/N/comments; issue = issues/N/comments")
+@app.argument(
+    "--kind",
+    choices=("review", "issue"),
+    default="review",
+    help="review = inline pulls/N/comments; issue = issues/N/comments",
+)
 def cmd_pr_comments(args) -> int:
     gh = _gh()
     owner, name = resolve_owner_repo(gh, _repo(args))
@@ -577,16 +603,26 @@ def cmd_pr_comments(args) -> int:
 @app.argument("--path", required=True, help="File path in the PR diff")
 @app.argument("--line", required=True, type=int, help="Line in the file (RIGHT side = new code)")
 @app.argument("--side", choices=("RIGHT", "LEFT"), default="RIGHT", help="Diff side")
-@app.argument("--commit", dest="commit_id", help="Commit SHA (default: the PR head SHA from GitHub)")
+@app.argument(
+    "--commit", dest="commit_id", help="Commit SHA (default: the PR head SHA from GitHub)"
+)
 @app.argument("--body-file", required=True, dest="body_file", help="Body path (- for stdin)")
 def cmd_pr_review_comment(args) -> int:
     gh = _gh()
     owner, name = resolve_owner_repo(gh, _repo(args))
-    emit_one(_pulls.pr_review_comment(
-        gh, owner, name, int(args.pr),
-        path=args.path, line=int(args.line), side=args.side,
-        commit_id=args.commit_id, body=_read_body(args.body_file),
-    ))
+    emit_one(
+        _pulls.pr_review_comment(
+            gh,
+            owner,
+            name,
+            int(args.pr),
+            path=args.path,
+            line=int(args.line),
+            side=args.side,
+            commit_id=args.commit_id,
+            body=_read_body(args.body_file),
+        )
+    )
     return ExitCode.SUCCESS
 
 
@@ -595,8 +631,12 @@ def _summary_targets(gh: GhCLI, args) -> list[int]:
     if args.pr is not None:
         return [int(args.pr)]
     rows = _pulls.pr_list(
-        gh, fields=["number"], state=args.state, limit=int(args.limit),
-        author=args.author, repo=_repo(args),
+        gh,
+        fields=["number"],
+        state=args.state,
+        limit=int(args.limit),
+        author=args.author,
+        repo=_repo(args),
     )
     return [int(r["number"]) for r in rows if isinstance(r, dict) and r.get("number") is not None]
 
@@ -607,10 +647,20 @@ def _summary_targets(gh: GhCLI, args) -> list[int]:
 @app.argument("--state", choices=("open", "closed", "merged", "all"), default="merged")
 @app.argument("--author", help="Filter by author login (@me allowed)")
 @app.argument("--limit", type=int, default=5, help="Max PRs scanned before path filtering")
-@app.argument("--include-path", action="append", default=[], dest="include_path",
-              help="Keep PRs touching this path (repeatable)")
-@app.argument("--exclude-path", action="append", default=[], dest="exclude_path",
-              help="Drop PRs touching this path (repeatable)")
+@app.argument(
+    "--include-path",
+    action="append",
+    default=[],
+    dest="include_path",
+    help="Keep PRs touching this path (repeatable)",
+)
+@app.argument(
+    "--exclude-path",
+    action="append",
+    default=[],
+    dest="exclude_path",
+    help="Drop PRs touching this path (repeatable)",
+)
 @app.argument("--path-mode", choices=_summary.PATH_MODES, default="prefix", dest="path_mode")
 @app.argument("--files", action="store_true", help="Include per-file changes in JSON")
 @app.argument("--format", choices=("json", "text"), default="json", help="Output format")
@@ -621,8 +671,10 @@ def cmd_pr_summary(args) -> int:
     for number in _summary_targets(gh, args):
         s = _summary.fetch_pr_summary(gh, owner, name, number)
         if _summary.matches_paths(
-            (f.path for f in s.files), include=args.include_path,
-            exclude=args.exclude_path, mode=args.path_mode,
+            (f.path for f in s.files),
+            include=args.include_path,
+            exclude=args.exclude_path,
+            mode=args.path_mode,
         ):
             summaries.append(s)
     if args.format == "text":
@@ -669,8 +721,13 @@ def cmd_copilot_request(args) -> int:
     switch = _copilot.copilot_review_switch()
     if switch.warning:
         print(f"warning: {switch.warning}", file=sys.stderr)
-    out: dict[str, Any] = {"pr": int(args.pr), "requested": False, "planned": False,
-                           "skip_reason": None, "requested_reviewers": []}
+    out: dict[str, Any] = {
+        "pr": int(args.pr),
+        "requested": False,
+        "planned": False,
+        "skip_reason": None,
+        "requested_reviewers": [],
+    }
     if not switch.enabled:
         out["skip_reason"] = _review_cycle.SKIP_DISABLED
     elif args.dry_run:
@@ -682,19 +739,25 @@ def cmd_copilot_request(args) -> int:
     return ExitCode.SUCCESS
 
 
-@copilot_group.command("cycle", help="Reply to + resolve open Copilot threads, then re-request review")
+@copilot_group.command(
+    "cycle", help="Reply to + resolve open Copilot threads, then re-request review"
+)
 @app.argument("--repo", help="OWNER/NAME (defaults to current checkout)")
 @app.argument("--pr", required=True, type=int, help="PR number")
 @app.argument("--body-file", required=True, dest="body_file", help="Reply body path (- for stdin)")
 @app.argument("--run-id", dest="run_id", help="Append a run marker; skip threads already answered")
-@app.argument("--no-request", action="store_true", dest="no_request", help="Skip the re-review request")
+@app.argument(
+    "--no-request", action="store_true", dest="no_request", help="Skip the re-review request"
+)
 @app.argument("--dry-run", action="store_true", dest="dry_run", help="Report only; post nothing")
 def cmd_copilot_cycle(args) -> int:
     gh = _gh()
     owner, name = resolve_owner_repo(gh, _repo(args))
     opts = _review_cycle.CycleOptions(
-        body=_read_body(args.body_file), run_id=args.run_id,
-        request=not args.no_request, dry_run=bool(args.dry_run),
+        body=_read_body(args.body_file),
+        run_id=args.run_id,
+        request=not args.no_request,
+        dry_run=bool(args.dry_run),
     )
     result = _review_cycle.run_review_cycle(gh, owner, name, int(args.pr), opts)
     for warning in result.warnings:

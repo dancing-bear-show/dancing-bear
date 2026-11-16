@@ -96,10 +96,7 @@ class TestSaveCredentialValue(TempDirMixin, unittest.TestCase):
     def test_preserves_other_sections(self) -> None:
         from apple_music.cli_helpers import save_credential_value
 
-        config = self._make_config(
-            "[musickit.personal]\nkey1 = val1\n"
-            "[other.section]\nfoo = bar\n"
-        )
+        config = self._make_config("[musickit.personal]\nkey1 = val1\n[other.section]\nfoo = bar\n")
         save_credential_value(config, "musickit.personal", "key2", "val2")
 
         parser = configparser.ConfigParser()
@@ -131,9 +128,7 @@ class TestSaveCredentialValue(TempDirMixin, unittest.TestCase):
 
         files_after = set(tmpdir.iterdir())
         leaked = files_after - files_before
-        self.assertEqual(
-            leaked, set(), f"Leaked temp file(s): {leaked}"
-        )
+        self.assertEqual(leaked, set(), f"Leaked temp file(s): {leaked}")
 
 
 class TestOutputJson(unittest.TestCase):
@@ -153,6 +148,7 @@ class TestOutputJson(unittest.TestCase):
 
         self.assertEqual(rc, 0)
         import json
+
         result = json.loads(buf.getvalue())
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["count"], 3)
@@ -171,6 +167,7 @@ class TestOutputJson(unittest.TestCase):
             self.assertEqual(rc, 0)
 
             import json
+
             data = json.loads(Path(out_path).read_text())
             self.assertEqual(data["key"], "value")
 

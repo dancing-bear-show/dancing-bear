@@ -17,10 +17,10 @@ from telemetry.otel.health import (
 )
 from telemetry.otel.reader import OTLPDataDir
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _data_dir(path: str | Path) -> OTLPDataDir:
     return OTLPDataDir(path=Path(path))
@@ -30,12 +30,15 @@ def _data_dir(path: str | Path) -> OTLPDataDir:
 # check_otel_infrastructure
 # ---------------------------------------------------------------------------
 
+
 class TestCheckOtelInfrastructure(unittest.TestCase):
     def test_directory_does_not_exist_returns_false(self):
         with tempfile.TemporaryDirectory() as td:
             # Point to a non-existent sub-directory
             missing = Path(td) / "nonexistent"
-            with patch("telemetry.otel.health.OTLPDataDir.from_env", return_value=_data_dir(missing)):
+            with patch(
+                "telemetry.otel.health.OTLPDataDir.from_env", return_value=_data_dir(missing)
+            ):
                 buf = io.StringIO()
                 with redirect_stderr(buf):
                     result = check_otel_infrastructure()
@@ -91,7 +94,9 @@ class TestCheckOtelInfrastructure(unittest.TestCase):
     def test_missing_dir_prints_to_stderr(self):
         with tempfile.TemporaryDirectory() as td:
             missing = Path(td) / "nonexistent"
-            with patch("telemetry.otel.health.OTLPDataDir.from_env", return_value=_data_dir(missing)):
+            with patch(
+                "telemetry.otel.health.OTLPDataDir.from_env", return_value=_data_dir(missing)
+            ):
                 buf = io.StringIO()
                 with redirect_stderr(buf):
                     check_otel_infrastructure()
@@ -111,6 +116,7 @@ class TestCheckOtelInfrastructure(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _print_no_infrastructure_message
 # ---------------------------------------------------------------------------
+
 
 class TestPrintNoInfrastructureMessage(unittest.TestCase):
     def test_message_contains_data_dir_path(self):
@@ -190,15 +196,19 @@ class TestPrintNoInfrastructureMessage(unittest.TestCase):
 # require_otel_infrastructure
 # ---------------------------------------------------------------------------
 
+
 class TestRequireOtelInfrastructure(unittest.TestCase):
     def test_returns_normally_when_infrastructure_present(self):
-        with patch("telemetry.otel.health.check_otel_infrastructure", return_value=True) as mock_check:
+        with patch(
+            "telemetry.otel.health.check_otel_infrastructure", return_value=True
+        ) as mock_check:
             # Should not raise
             require_otel_infrastructure()
         mock_check.assert_called_once()
 
     def test_raises_cli_error_when_infrastructure_missing(self):
         from core.cli_errors import CLIError, ExitCode
+
         with patch("telemetry.otel.health.check_otel_infrastructure", return_value=False):
             with self.assertRaises(CLIError) as ctx:
                 require_otel_infrastructure()

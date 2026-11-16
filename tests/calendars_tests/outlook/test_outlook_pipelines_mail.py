@@ -31,7 +31,9 @@ def _make_message(
     }
 
 
-def _make_request(svc, folder: str = "inbox", top: int = 5, pages: int = 1) -> OutlookMailListRequest:
+def _make_request(
+    svc, folder: str = "inbox", top: int = 5, pages: int = 1
+) -> OutlookMailListRequest:
     return OutlookMailListRequest(service=svc, folder=folder, top=top, pages=pages)
 
 
@@ -151,11 +153,13 @@ class OutlookMailListProducerTests(unittest.TestCase):
 
     def _ok_env(self, messages: list, folder: str = "inbox"):
         from core.pipeline import ResultEnvelope
+
         payload = OutlookMailListResult(messages=messages, folder=folder)
         return ResultEnvelope(status="success", payload=payload)
 
     def _err_env(self, message: str = "something went wrong"):
         from core.pipeline import ResultEnvelope
+
         return ResultEnvelope(status="error", diagnostics={"message": message})
 
     # --- success paths ---
@@ -219,7 +223,12 @@ class OutlookMailListProducerTests(unittest.TestCase):
     # --- defensive: missing fields in message dict ---
 
     def test_produce_tolerates_missing_subject(self):
-        msgs = [{"receivedDateTime": "2025-06-01T09:00:00Z", "from": {"emailAddress": {"address": "a@b.com"}}}]
+        msgs = [
+            {
+                "receivedDateTime": "2025-06-01T09:00:00Z",
+                "from": {"emailAddress": {"address": "a@b.com"}},
+            }
+        ]
         out = self._produce(self._ok_env(msgs))
 
         self.assertIn("Listed 1 message(s).", out)

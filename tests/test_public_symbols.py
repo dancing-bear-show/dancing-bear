@@ -23,11 +23,7 @@ import unittest
 from pathlib import Path
 
 _SCRIPT = (
-    Path(__file__).resolve().parents[1]
-    / "workflows"
-    / "code"
-    / "scripts"
-    / "public_symbols.py"
+    Path(__file__).resolve().parents[1] / "workflows" / "code" / "scripts" / "public_symbols.py"
 )
 
 
@@ -241,9 +237,7 @@ class FromModuleTests(unittest.TestCase):
             def public_thing(): pass
             """,
         )
-        self.assertEqual(
-            public_symbols.from_module(mod), ["deco", "public_thing"]
-        )
+        self.assertEqual(public_symbols.from_module(mod), ["deco", "public_thing"])
 
     def test_no_wraps_decorator_matches_source_side(self):
         source = """
@@ -292,9 +286,7 @@ class FromModuleTests(unittest.TestCase):
             """
         mod = self._make_module("aliasparity", source)
         path = self._module_path(mod)
-        self.assertEqual(
-            public_symbols.from_source(path), public_symbols.from_module(mod)
-        )
+        self.assertEqual(public_symbols.from_source(path), public_symbols.from_module(mod))
 
 
 class CliTests(unittest.TestCase):

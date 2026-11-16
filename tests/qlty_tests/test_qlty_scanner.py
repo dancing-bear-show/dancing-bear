@@ -9,7 +9,7 @@ from pathlib import Path
 
 from qlty.models import Scope, Source, WireFormat
 from qlty.runner import parse_json_findings
-from qlty.scanner import ScanRequest, Scanner, sibling_uses_params_object
+from qlty.scanner import Scanner, ScanRequest, sibling_uses_params_object
 from tests.qlty_tests.shared_fixtures import (
     FakeRunner,
     load,
@@ -56,9 +56,7 @@ class MergeTests(unittest.TestCase):
     def test_path_scan_includes_tests(self):
         """A path-scoped scan keeps --include-tests: it is what stops a scan of
         a test file from analysing zero files and reporting a false clean."""
-        self.assertTrue(
-            ScanRequest(paths=("tests/foo_test.py",)).effective_include_tests
-        )
+        self.assertTrue(ScanRequest(paths=("tests/foo_test.py",)).effective_include_tests)
 
     def test_repo_wide_scan_excludes_tests_by_default(self):
         """A repo-wide scan drops it: with hundreds of files analysed there is no
@@ -84,16 +82,12 @@ class MergeTests(unittest.TestCase):
         UsageError, but ScanRequest is constructible directly, so the opt-out
         still wins rather than silently including tests."""
         self.assertFalse(
-            ScanRequest(
-                include_tests=False, force_include_tests=True
-            ).effective_include_tests
+            ScanRequest(include_tests=False, force_include_tests=True).effective_include_tests
         )
 
     def test_no_include_tests_beats_path_scope(self):
         self.assertFalse(
-            ScanRequest(
-                include_tests=False, paths=("tests/foo_test.py",)
-            ).effective_include_tests
+            ScanRequest(include_tests=False, paths=("tests/foo_test.py",)).effective_include_tests
         )
 
     def test_repo_wide_scan_does_not_pass_include_tests_to_runner(self):
@@ -174,9 +168,7 @@ class RescanTests(unittest.TestCase):
         # A finding crowded out of run 1 but present in run 2 must survive:
         # the union is closer to the truth than any single run.
         first = result_of([make_finding(path="src/a.py")])
-        second = result_of(
-            [make_finding(path="src/a.py"), make_finding(path="src/b.py")]
-        )
+        second = result_of([make_finding(path="src/a.py"), make_finding(path="src/b.py")])
         runner = FakeRunner({Source.SMELLS: [first, second]})
         result = Scanner(runner).scan(
             ScanRequest(sources=(Source.SMELLS,)), rescan_until_stable=True
@@ -289,17 +281,13 @@ class RescanTests(unittest.TestCase):
         # The guard is scoped to the rescan path: a plain single scan never
         # reads either parameter, so it must not start raising on them.
         runner = FakeRunner({Source.SMELLS: [result_of([make_finding()])]})
-        result = Scanner(runner).scan(
-            ScanRequest(sources=(Source.SMELLS,)), dry_streak=0
-        )
+        result = Scanner(runner).scan(ScanRequest(sources=(Source.SMELLS,)), dry_streak=0)
         self.assertEqual(result.iterations, 1)
 
     def test_unstable_scan_is_flagged_at_the_cap(self):
         # Alternating results never settle; the run must report instability
         # rather than silently presenting the last iteration as complete.
-        runs = [
-            result_of([make_finding(path=f"src/{i}.py")]) for i in range(10)
-        ]
+        runs = [result_of([make_finding(path=f"src/{i}.py")]) for i in range(10)]
         runner = FakeRunner({Source.SMELLS: runs})
         result = Scanner(runner).scan(
             ScanRequest(sources=(Source.SMELLS,)),
@@ -368,17 +356,13 @@ class SiblingParamsObjectTests(unittest.TestCase):
         return tmp, "mod.py"
 
     def test_detects_existing_params_object(self):
-        root, name = self._write(
-            "@dataclass\nclass EventCreationParams:\n    a: int\n"
-        )
+        root, name = self._write("@dataclass\nclass EventCreationParams:\n    a: int\n")
         self.assertTrue(sibling_uses_params_object(name, root=root))
 
     def test_detects_request_and_options_suffixes(self):
         for suffix in ("Request", "Options", "Config", "Patch", "Spec"):
             root, name = self._write(f"class Update{suffix}:\n    pass\n")
-            self.assertTrue(
-                sibling_uses_params_object(name, root=root), msg=suffix
-            )
+            self.assertTrue(sibling_uses_params_object(name, root=root), msg=suffix)
 
     def test_module_without_params_object(self):
         root, name = self._write("def f(a, b, c):\n    return a\n")
@@ -387,9 +371,7 @@ class SiblingParamsObjectTests(unittest.TestCase):
     def test_unreadable_module_reports_no_evidence(self):
         # Must not guess: absence of evidence keeps the finding in the
         # default-LEAVE bucket rather than proposing a fix.
-        self.assertFalse(
-            sibling_uses_params_object("does/not/exist.py", root=self._tmpdir())
-        )
+        self.assertFalse(sibling_uses_params_object("does/not/exist.py", root=self._tmpdir()))
 
 
 if __name__ == "__main__":

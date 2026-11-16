@@ -25,7 +25,7 @@ from typing import Any
 
 from .schema import Resume, _Item
 
-__all__ = ["emit_schema", "dataclass_schema"]
+__all__ = ["dataclass_schema", "emit_schema"]
 
 _PY_TO_JSON: dict[Any, str] = {
     str: "string",

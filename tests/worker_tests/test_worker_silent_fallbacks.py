@@ -24,6 +24,7 @@ class TestParseTimestampSafeFormats(unittest.TestCase):
 
     def _parse(self, value: str):
         from worker.queue_ops import _parse_timestamp_safe
+
         return _parse_timestamp_safe(value, Path("/tmp/x.json"), "updated_at")  # nosec B108 - test only
 
     def test_explicit_utc_offset_parses(self):
@@ -58,6 +59,7 @@ class TestThroughputMalformedLogLines(unittest.TestCase):
 
     def setUp(self):
         import os
+
         from worker._helpers import DATE_FORMAT_YMD
 
         self.tmp = tempfile.TemporaryDirectory()
@@ -86,24 +88,29 @@ class TestThroughputMalformedLogLines(unittest.TestCase):
             path.write_text(body, encoding="utf-8")
 
     def _ok_line(self, ts: str, duration_ms: int = 100) -> str:
-        return json.dumps({
-            "ts": ts,
-            "args": ["daemon", "run_cli", "ok"],
-            "duration_ms": duration_ms,
-        })
+        return json.dumps(
+            {
+                "ts": ts,
+                "args": ["daemon", "run_cli", "ok"],
+                "duration_ms": duration_ms,
+            }
+        )
 
     def _throughput(self):
         from worker.commands import StatusCommand
+
         return StatusCommand._calculate_throughput()
 
     def test_malformed_line_between_valid_ones_is_skipped(self):
         start = datetime.now(UTC) - timedelta(minutes=5)
-        self._write_lines([
-            self._ok_line(start.strftime("%Y-%m-%dT%H:%M:%SZ")),
-            "{not valid json",
-            "",
-            self._ok_line((start + timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")),
-        ])
+        self._write_lines(
+            [
+                self._ok_line(start.strftime("%Y-%m-%dT%H:%M:%SZ")),
+                "{not valid json",
+                "",
+                self._ok_line((start + timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")),
+            ]
+        )
         result = self._throughput()
         self.assertIsNotNone(result)
         self.assertIn("Throughput", result)

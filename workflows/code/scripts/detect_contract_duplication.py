@@ -106,8 +106,16 @@ _REPO_ROOT: Path = Path(__file__).resolve().parents[3]
 
 TESTS: str = str(_REPO_ROOT / "tests")
 SKIP_WALK_DIRS = {
-    ".git", ".venv", ".claude", "__pycache__", "node_modules",
-    ".cache", "out", "_out", "backups", "personal_assistants.egg-info",
+    ".git",
+    ".venv",
+    ".claude",
+    "__pycache__",
+    "node_modules",
+    ".cache",
+    "out",
+    "_out",
+    "backups",
+    "personal_assistants.egg-info",
 }
 
 # Shared contract mixin modules and their class names.
@@ -143,6 +151,7 @@ _MOCK_INDICATORS = frozenset({"patch", "mock_open", "MagicMock", "AsyncMock", "M
 # ---------------------------------------------------------------------------
 # AST helpers
 # ---------------------------------------------------------------------------
+
 
 def _parse(path: str) -> ast.Module | None:
     try:
@@ -225,8 +234,10 @@ def _base_names(cls_node: ast.ClassDef) -> list[str]:
 # Mixin method index
 # ---------------------------------------------------------------------------
 
+
 def _load_mixin_methods(
-    mixin_file: str, mixin_class: str,
+    mixin_file: str,
+    mixin_class: str,
 ) -> dict[str, frozenset[str]]:
     """Return {method_name: called_names} for all test methods in the mixin."""
     tree = _parse(mixin_file)
@@ -234,16 +245,14 @@ def _load_mixin_methods(
         return {}
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef) and node.name == mixin_class:
-            return {
-                name: calls
-                for name, (calls, _lineno, _node) in _test_methods(node).items()
-            }
+            return {name: calls for name, (calls, _lineno, _node) in _test_methods(node).items()}
     return {}
 
 
 # ---------------------------------------------------------------------------
 # Similarity
 # ---------------------------------------------------------------------------
+
 
 def _jaccard(a: frozenset[str], b: frozenset[str]) -> float:
     union = len(a | b)
@@ -255,6 +264,7 @@ def _jaccard(a: frozenset[str], b: frozenset[str]) -> float:
 # ---------------------------------------------------------------------------
 # Scanner
 # ---------------------------------------------------------------------------
+
 
 def _iter_test_files() -> Iterator[str]:
     for dirpath, dirnames, filenames in os.walk(TESTS):
@@ -336,8 +346,14 @@ def _scan_class(
             if local_name in mixin_names:
                 continue  # intentional override -- skip
             candidate = _best_match_for_method(
-                local_name, local_calls, local_line, local_node,
-                mixin_class, mixin_methods, test_file, cls_node.name,
+                local_name,
+                local_calls,
+                local_line,
+                local_node,
+                mixin_class,
+                mixin_methods,
+                test_file,
+                cls_node.name,
             )
             if candidate is None:
                 continue
@@ -389,12 +405,13 @@ def scan() -> list[dict]:
 # Entry point
 # ---------------------------------------------------------------------------
 
+
 def main(_argv: list[str]) -> int:
     findings = scan()
 
     json.dump(
         {
-            "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "generated_at": datetime.datetime.now(datetime.UTC).isoformat(),
             "similarity_threshold": SIMILARITY_THRESHOLD,
             "min_shared_calls": MIN_SHARED_CALLS,
             "finding_count": len(findings),

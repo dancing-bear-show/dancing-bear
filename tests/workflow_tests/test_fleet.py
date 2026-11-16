@@ -82,7 +82,9 @@ class _DataHomeCase(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name).resolve()
-        patcher = unittest.mock.patch.dict(os.environ, {"DANCING_BEAR_DATA_HOME": str(self.root / "data")})
+        patcher = unittest.mock.patch.dict(
+            os.environ, {"DANCING_BEAR_DATA_HOME": str(self.root / "data")}
+        )
         patcher.start()
         self.addCleanup(patcher.stop)
         self.wf = self.root / "fleet-demo.yaml"
@@ -97,8 +99,16 @@ class _DataHomeCase(unittest.TestCase):
 
     def _fleet_run(self, *extra: str) -> tuple[int, str, str]:
         return _run(
-            "fleet", "run", str(self.wf), "--fan-over", "items:alpha,beta,gamma",
-            "--fan-param", "target={item}", "--base-dir", str(self.ws_base), *extra,
+            "fleet",
+            "run",
+            str(self.wf),
+            "--fan-over",
+            "items:alpha,beta,gamma",
+            "--fan-param",
+            "target={item}",
+            "--base-dir",
+            str(self.ws_base),
+            *extra,
         )
 
     def _ledger(self) -> Ledger:
@@ -141,18 +151,29 @@ class LedgerModelTests(unittest.TestCase):
             workflow_slug("///")
 
     def test_round_trip_and_unknown_status(self) -> None:
-        ledger = Ledger("wf", "p.yaml", "items:a", "t0", "t1", {"a": ItemRecord(ItemStatus.done, "/w")})
+        ledger = Ledger(
+            "wf", "p.yaml", "items:a", "t0", "t1", {"a": ItemRecord(ItemStatus.done, "/w")}
+        )
         again = Ledger.from_dict(json.loads(json.dumps(ledger.as_dict())))
         self.assertEqual(again, ledger)
         self.assertEqual(ItemRecord.from_dict({"status": "exploded"}).status, ItemStatus.pending)
         self.assertEqual(Ledger.from_dict({"items": ["junk"]}).items, {})
 
     def test_select_batch_sorted_and_retries_failed(self) -> None:
-        ledger = Ledger("wf", "p", "s", "t", "t", {
-            "d": ItemRecord(ItemStatus.pending), "a": ItemRecord(ItemStatus.done),
-            "c": ItemRecord(ItemStatus.failed), "b": ItemRecord(ItemStatus.running),
-            "e": ItemRecord(ItemStatus.pending),
-        })
+        ledger = Ledger(
+            "wf",
+            "p",
+            "s",
+            "t",
+            "t",
+            {
+                "d": ItemRecord(ItemStatus.pending),
+                "a": ItemRecord(ItemStatus.done),
+                "c": ItemRecord(ItemStatus.failed),
+                "b": ItemRecord(ItemStatus.running),
+                "e": ItemRecord(ItemStatus.pending),
+            },
+        )
         self.assertEqual(select_batch(ledger, 2), ["c", "d"])
         self.assertEqual(select_batch(ledger, 0), ["c", "d", "e"])
 
@@ -219,7 +240,9 @@ class FleetRunCliTests(_DataHomeCase):
         code, out, err = self._fleet_run("--batch-size", "2", "-f", "json")
         self.assertEqual(code, 0, err)
         rows = json.loads(out)
-        self.assertEqual([(r["item"], r["status"]) for r in rows], [("alpha", "running"), ("beta", "running")])
+        self.assertEqual(
+            [(r["item"], r["status"]) for r in rows], [("alpha", "running"), ("beta", "running")]
+        )
         ledger = self._ledger()
         self.assertEqual(ledger.items["gamma"].status, ItemStatus.pending)
         for item in ("alpha", "beta"):
@@ -231,7 +254,9 @@ class FleetRunCliTests(_DataHomeCase):
     def test_failed_item_retry_reuses_workspace(self) -> None:
         self._fleet_run("--batch-size", "1")
         first = self._ledger().items["alpha"].workspace
-        self.assertEqual(_run("fleet", "mark", str(self.wf), "alpha", "failed", "--error", "boom")[0], 0)
+        self.assertEqual(
+            _run("fleet", "mark", str(self.wf), "alpha", "failed", "--error", "boom")[0], 0
+        )
         code, _, err = self._fleet_run("--batch-size", "1")
         self.assertEqual(code, 0, err)
         rec = self._ledger().items["alpha"]
@@ -263,7 +288,9 @@ class FleetRunCliTests(_DataHomeCase):
         self.assertIn("not found", err)
 
     def test_workspace_init_failure_marks_item_failed(self) -> None:
-        code, out, _ = self._fleet_run("--batch-size", "1", "--base-dir", str(self.root / "bad dir"), "-f", "json")
+        code, out, _ = self._fleet_run(
+            "--batch-size", "1", "--base-dir", str(self.root / "bad dir"), "-f", "json"
+        )
         self.assertEqual(code, 1)
         self.assertEqual(json.loads(out)[0]["status"], "failed")
         rec = self._ledger().items["alpha"]
@@ -348,7 +375,9 @@ class FleetMarkCliTests(_DataHomeCase):
         code, _, _ = self._mark("alpha", "failed", "--error", "boom", "--workspace", "/elsewhere")
         self.assertEqual(code, 0)
         rec = self._ledger().items["alpha"]
-        self.assertEqual((rec.status, rec.error, rec.workspace), (ItemStatus.failed, "boom", "/elsewhere"))
+        self.assertEqual(
+            (rec.status, rec.error, rec.workspace), (ItemStatus.failed, "boom", "/elsewhere")
+        )
 
     def test_unknown_item(self) -> None:
         code, _, err = self._mark("nobody", "done")

@@ -25,6 +25,7 @@ def _docx_available() -> bool:
     """Check if python-docx is installed."""
     try:
         import docx  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -36,7 +37,6 @@ def _docx_available() -> bool:
 if _docx_available():
     from resume.docx_writer import write_resume_docx
     from resume.schema import Resume
-
     from tests.resume_tests.golden.golden_fixtures import (
         sidebar_template,
         standard_template,
@@ -82,19 +82,20 @@ def _multi_group_skills(group_count: int = 7, items_per_group: int = 6) -> dict:
     """
     groups = []
     for gi in range(group_count):
-        groups.append({
-            "title": f"Group {gi}",
-            "items": [
-                {
-                    "name": f"Capability {gi}-{i}",
-                    "desc": "a representative description of the capability "
-                            "and the context where it was applied",
-                }
-                for i in range(items_per_group)
-            ],
-        })
-    return {"name": "Example Candidate", "headline": "Example Headline",
-            "skills_groups": groups}
+        groups.append(
+            {
+                "title": f"Group {gi}",
+                "items": [
+                    {
+                        "name": f"Capability {gi}-{i}",
+                        "desc": "a representative description of the capability "
+                        "and the context where it was applied",
+                    }
+                    for i in range(items_per_group)
+                ],
+            }
+        )
+    return {"name": "Example Candidate", "headline": "Example Headline", "skills_groups": groups}
 
 
 @unittest.skipUnless(_docx_available(), "python-docx not installed")
@@ -112,7 +113,8 @@ class SkillsGroupBulletLayoutTests(unittest.TestCase):
 
         offenders = [p.text for p in paragraphs if p.text.count(BULLET) > 1]
         self.assertEqual(
-            offenders, [],
+            offenders,
+            [],
             f"{len(offenders)} paragraph(s) hold more than one '{BULLET}'; "
             "skill items were joined into a single paragraph instead of "
             "getting one paragraph each.",
@@ -129,7 +131,8 @@ class SkillsGroupBulletLayoutTests(unittest.TestCase):
                 needle = f"Capability {gi}-{i}"
                 matches = [t for t in bullet_texts if needle in t]
                 self.assertEqual(
-                    len(matches), 1,
+                    len(matches),
+                    1,
                     f"expected exactly one bullet paragraph for {needle}, got {matches}",
                 )
 
@@ -140,7 +143,8 @@ class SkillsGroupBulletLayoutTests(unittest.TestCase):
 
         titles = [p.text for p in paragraphs if p.text.strip() in ("Group 0", "Group 1")]
         self.assertEqual(
-            sorted(titles), ["Group 0", "Group 1"],
+            sorted(titles),
+            ["Group 0", "Group 1"],
             "group titles must render on their own line, unprefixed and "
             "not folded into the first item's paragraph",
         )
@@ -151,7 +155,8 @@ class SkillsGroupBulletLayoutTests(unittest.TestCase):
 
         longest = max((len(p.text) for p in paragraphs), default=0)
         self.assertLessEqual(
-            longest, REFERENCE_MAX_PARAGRAPH_CHARS,
+            longest,
+            REFERENCE_MAX_PARAGRAPH_CHARS,
             f"longest paragraph is {longest} chars, over the "
             f"{REFERENCE_MAX_PARAGRAPH_CHARS}-char reference maximum",
         )
@@ -182,17 +187,24 @@ class SidebarEntryIndentTests(unittest.TestCase):
         return {
             "name": "Example Candidate",
             "education": [
-                {"degree": "BSc Example", "institution": "Example University",
-                 "year": "2010"},
+                {"degree": "BSc Example", "institution": "Example University", "year": "2010"},
             ],
             "experience": [
-                {"title": "Example Role", "company": "Example Co",
-                 "start": "2020", "end": "2024",
-                 "bullets": [{"text": "an example accomplishment line"}]},
+                {
+                    "title": "Example Role",
+                    "company": "Example Co",
+                    "start": "2020",
+                    "end": "2024",
+                    "bullets": [{"text": "an example accomplishment line"}],
+                },
             ],
             "presentations": [
-                {"title": "Example Talk Title", "authors": "A. Author",
-                 "event": "Example Conference 2019", "note": "an example note"},
+                {
+                    "title": "Example Talk Title",
+                    "authors": "A. Author",
+                    "event": "Example Conference 2019",
+                    "note": "an example note",
+                },
             ],
         }
 
@@ -214,9 +226,7 @@ class SidebarEntryIndentTests(unittest.TestCase):
         """The glyph-bearing headline is unindented in every sidebar section."""
         paragraphs = _render(self._entry_fixture(), sidebar_template())
 
-        headlines = [
-            p for p in paragraphs if p.text.strip().startswith(BULLET)
-        ]
+        headlines = [p for p in paragraphs if p.text.strip().startswith(BULLET)]
         self.assertGreaterEqual(len(headlines), 3, "expected edu/exp/pres headlines")
         for p in headlines:
             self.assertIsNone(
@@ -241,7 +251,7 @@ def _bullet_texts(paragraphs: list[Paragraph]) -> list[str]:
 
 def _bullet_bodies(paragraphs: list[Paragraph]) -> list[str]:
     """The text of each bullet paragraph with its leading glyph removed."""
-    return [t.strip()[len(BULLET):].strip() for t in _bullet_texts(paragraphs)]
+    return [t.strip()[len(BULLET) :].strip() for t in _bullet_texts(paragraphs)]
 
 
 @unittest.skipUnless(_docx_available(), "python-docx not installed")
@@ -259,25 +269,20 @@ class SkillsGroupEmptyItemTests(unittest.TestCase):
 
     def test_rejects_item_with_unknown_name_key(self):
         """An unrecognised key yields no paragraph, not a bare glyph."""
-        data = _group_with_items(
-            [{"name": "AWS"}, {"bogus": "ignored"}, {"name": "K8s"}]
-        )
+        data = _group_with_items([{"name": "AWS"}, {"bogus": "ignored"}, {"name": "K8s"}])
         paragraphs = _render(data, standard_template())
 
         self.assertEqual(
-            _bullet_bodies(paragraphs), ["AWS", "K8s"],
+            _bullet_bodies(paragraphs),
+            ["AWS", "K8s"],
             "an item normalizing to empty must emit no paragraph at all",
         )
 
     def test_rejects_item_whose_name_is_only_whitespace(self):
         """A whitespace-only name normalizes to empty and is skipped."""
-        data = _group_with_items(
-            [{"name": "AWS"}, {"name": "   "}, {"name": "K8s"}]
-        )
+        data = _group_with_items([{"name": "AWS"}, {"name": "   "}, {"name": "K8s"}])
 
-        self.assertEqual(
-            _bullet_bodies(_render(data, standard_template())), ["AWS", "K8s"]
-        )
+        self.assertEqual(_bullet_bodies(_render(data, standard_template())), ["AWS", "K8s"])
 
     def test_surrounding_items_render_in_order(self):
         """Skipping an empty item does not disturb the items around it."""
@@ -302,9 +307,7 @@ class SkillsGroupEmptyItemTests(unittest.TestCase):
         keyed off the raw dict rather than the normalized string would drop
         them silently.
         """
-        data = _group_with_items(
-            [{"title": "Aliased Title"}, {"label": "Aliased Label"}]
-        )
+        data = _group_with_items([{"title": "Aliased Title"}, {"label": "Aliased Label"}])
 
         self.assertEqual(
             _bullet_bodies(_render(data, standard_template())),
@@ -334,7 +337,8 @@ class SkillsGroupEmptyItemTests(unittest.TestCase):
 
         normalized = renderer._normalize_group_items(raw, True, " - ")
         self.assertEqual(
-            [it.text for it in normalized], ["AWS", "K8s"],
+            [it.text for it in normalized],
+            ["AWS", "K8s"],
             "the empty item must be dropped before either render branch",
         )
 
@@ -344,9 +348,7 @@ class SkillsGroupEmptyItemTests(unittest.TestCase):
         ``_labeled_item`` keeps the desc as real content even with no name, so
         this normalizes to non-empty text rather than "".
         """
-        data = _group_with_items(
-            [{"name": "AWS"}, {"desc": "a real description"}, {"name": "K8s"}]
-        )
+        data = _group_with_items([{"name": "AWS"}, {"desc": "a real description"}, {"name": "K8s"}])
         bodies = _bullet_bodies(_render(data, standard_template()))
 
         self.assertEqual(len(bodies), 3, f"desc-only item was dropped: {bodies}")

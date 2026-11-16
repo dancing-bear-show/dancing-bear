@@ -37,7 +37,9 @@ class TestInferStructureFromDocx(unittest.TestCase):
 
                     result = infer_structure_from_docx("/fake/path.docx")
 
-                    self.assertEqual(result["order"], ["summary", "experience", "skills", "education"])
+                    self.assertEqual(
+                        result["order"], ["summary", "experience", "skills", "education"]
+                    )
                     self.assertEqual(result["titles"]["summary"], "Summary")
                     self.assertEqual(result["titles"]["experience"], "Experience")
 
@@ -58,7 +60,9 @@ class TestInferStructureFromDocx(unittest.TestCase):
 
                     result = infer_structure_from_docx("/fake/path.docx")
 
-                    self.assertEqual(result["order"], ["summary", "skills", "experience", "education"])
+                    self.assertEqual(
+                        result["order"], ["summary", "skills", "experience", "education"]
+                    )
                     self.assertEqual(result["titles"]["summary"], "Summary")
 
     def test_skips_non_heading_styles(self):
@@ -170,7 +174,9 @@ class TestInferStructureFromDocx(unittest.TestCase):
 
                     # Should not raise, returns default
                     result = infer_structure_from_docx("/fake/path.docx")
-                    self.assertEqual(result["order"], ["summary", "skills", "experience", "education"])
+                    self.assertEqual(
+                        result["order"], ["summary", "skills", "experience", "education"]
+                    )
 
 
 if __name__ == "__main__":

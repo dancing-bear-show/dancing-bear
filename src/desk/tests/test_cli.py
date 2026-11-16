@@ -25,7 +25,7 @@ class TestCLI(unittest.TestCase):
             target = os.path.join(td, "rules.yaml")
             main(["rules", "export", "--out", target])
             self.assertTrue(os.path.exists(target))
-            with open(target, "r", encoding="utf-8") as f:
+            with open(target, encoding="utf-8") as f:
                 content = f.read()
             self.assertIn("rules:", content)
 

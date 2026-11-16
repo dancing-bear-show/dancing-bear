@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import UTC
 from email.message import EmailMessage
 from typing import Any
 
@@ -51,7 +52,9 @@ def _compose_reply(
 
     content = body_text or ""
     if opts.include_quote and (opts.original_text or "").strip():
-        content = f"{content}\n\nOn previous message:\n> " + "\n> ".join((opts.original_text or "").splitlines())
+        content = f"{content}\n\nOn previous message:\n> " + "\n> ".join(
+            (opts.original_text or "").splitlines()
+        )
     msg.set_content(content)
     return msg
 
@@ -74,10 +77,10 @@ def _internal_date_to_iso(ms: Any) -> str:
 
     Returns "" when the value is missing or not coercible to an integer.
     """
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     try:
-        return datetime.fromtimestamp(int(ms) / 1000, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return datetime.fromtimestamp(int(ms) / 1000, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     except (TypeError, ValueError, OSError, OverflowError):
         return ""
 
@@ -86,7 +89,9 @@ def candidates_from_metadata(msgs: list[dict[str, Any]]) -> list[Candidate]:
     out: list[Candidate] = []
     for m in msgs:
         payload = m.get("payload") or {}
-        headers = {h.get("name", "").lower(): h.get("value", "") for h in (payload.get("headers") or [])}
+        headers = {
+            h.get("name", "").lower(): h.get("value", "") for h in (payload.get("headers") or [])
+        }
         labels = [str(x) for x in (m.get("labelIds") or [])]
         out.append(
             Candidate(
@@ -106,4 +111,3 @@ def candidates_from_metadata(msgs: list[dict[str, Any]]) -> list[Candidate]:
 
 def encode_email_message(msg: EmailMessage) -> bytes:
     return msg.as_bytes()
-

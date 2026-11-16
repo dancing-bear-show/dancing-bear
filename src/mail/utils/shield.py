@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from typing import Any
 import os
 import re
+from typing import Any
 
 from core.secrets import is_sensitive_key
-
 
 # Key substrings shield masks on top of core.secrets.is_sensitive_key. These are
 # deliberately broader than core's rules (a bare "key" substring masks

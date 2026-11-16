@@ -36,7 +36,9 @@ _JOB_ID = "j1"
 _real_link = os.link
 
 
-def _link_without_hardlinks_for_staged(src: str | os.PathLike[str], dst: str | os.PathLike[str]) -> None:
+def _link_without_hardlinks_for_staged(
+    src: str | os.PathLike[str], dst: str | os.PathLike[str]
+) -> None:
     """``os.link`` that reports "no hard links" for the staged file only.
 
     Sends ``_publish_no_clobber`` down the ``_copy_exclusive`` temp-link path.
@@ -200,9 +202,7 @@ class TestUnpublishedStagedIsStillPublished(_Base):
         self.assertEqual(q.recover_staged_requeues(self.root), [_JOB_ID])
 
         self.assertTrue(self.dest.exists())
-        self.assertNotEqual(
-            json.loads(self.dest.read_text())[q.REQUEUE_ID_FIELD], "a" * 32
-        )
+        self.assertNotEqual(json.loads(self.dest.read_text())[q.REQUEUE_ID_FIELD], "a" * 32)
 
     def test_staged_without_identity_is_published(self) -> None:
         record = {"id": _JOB_ID, "type": "noop", "status": "pending"}
@@ -287,7 +287,12 @@ class TestUnreadableCandidateKeepsStaged(_Base):
         self.proc = self.processing / f"{_JOB_ID}.json"
 
     def _write_claimed(self, requeue_id: str) -> None:
-        claimed = {"id": _JOB_ID, "type": "noop", "status": "processing", q.REQUEUE_ID_FIELD: requeue_id}
+        claimed = {
+            "id": _JOB_ID,
+            "type": "noop",
+            "status": "processing",
+            q.REQUEUE_ID_FIELD: requeue_id,
+        }
         self.proc.write_text(json.dumps(claimed))
 
     def _recover_with_eio(self) -> list[str]:

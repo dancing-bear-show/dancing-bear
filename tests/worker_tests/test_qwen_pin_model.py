@@ -39,7 +39,9 @@ class RecordModelPinWriteTests(PinRecordCase):
     def test_no_temp_file_is_left_beside_the_record(self) -> None:
         qwen.record_model_pin(MODEL)
 
-        self.assertEqual(sorted(p.name for p in self.record_path.parent.iterdir()), ["model_digest.json"])
+        self.assertEqual(
+            sorted(p.name for p in self.record_path.parent.iterdir()), ["model_digest.json"]
+        )
 
     def test_other_tags_are_kept_when_merging(self) -> None:
         self.write_record(json.dumps({OTHER_MODEL: OTHER_DIGEST, MODEL: OLD_DIGEST}))
@@ -96,7 +98,11 @@ class RecordModelPinRefusalTests(PinRecordCase):
     def test_digest_unavailable_writes_nothing(self) -> None:
         cases: list[tuple[str, dict[str, object], BaseException | None]] = [
             ("ollama down", {}, ConnectionError("refused")),
-            ("model not installed", {"models": [{"name": OTHER_MODEL, "digest": OTHER_DIGEST}]}, None),
+            (
+                "model not installed",
+                {"models": [{"name": OTHER_MODEL, "digest": OTHER_DIGEST}]},
+                None,
+            ),
             ("no digest field", {"models": [{"name": MODEL}]}, None),
         ]
         for label, response, error in cases:
@@ -115,7 +121,9 @@ class RecordModelPinRefusalTests(PinRecordCase):
         self.assert_refused_without_write("unreadable digest record")
 
         self.assertTrue(self.record_path.is_symlink())
-        self.assertEqual(json.loads(target.read_text(encoding="utf-8")), {OTHER_MODEL: OTHER_DIGEST})
+        self.assertEqual(
+            json.loads(target.read_text(encoding="utf-8")), {OTHER_MODEL: OTHER_DIGEST}
+        )
 
     def test_dangling_symlink_is_refused_and_not_created_through(self) -> None:
         target = self.state_dir / "planted.json"

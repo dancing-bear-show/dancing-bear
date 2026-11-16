@@ -5,14 +5,14 @@ import os
 import unittest
 import unittest.mock
 
-from tests.fixtures import TempDirMixin
 from desk.utils import (
-    expand_paths,
-    parse_size,
-    parse_duration,
-    human_size,
     dump_output,
+    expand_paths,
+    human_size,
+    parse_duration,
+    parse_size,
 )
+from tests.fixtures import TempDirMixin
 
 
 class ExpandPathsTests(unittest.TestCase):
@@ -60,27 +60,27 @@ class ParseSizeTests(unittest.TestCase):
         self.assertEqual(parse_size("1Kb"), 1024)
 
     def test_megabytes(self):
-        self.assertEqual(parse_size("1M"), 1024 ** 2)
-        self.assertEqual(parse_size("1MB"), 1024 ** 2)
+        self.assertEqual(parse_size("1M"), 1024**2)
+        self.assertEqual(parse_size("1MB"), 1024**2)
 
     def test_gigabytes(self):
-        self.assertEqual(parse_size("1G"), 1024 ** 3)
-        self.assertEqual(parse_size("1GB"), 1024 ** 3)
+        self.assertEqual(parse_size("1G"), 1024**3)
+        self.assertEqual(parse_size("1GB"), 1024**3)
 
     def test_terabytes(self):
-        self.assertEqual(parse_size("1T"), 1024 ** 4)
-        self.assertEqual(parse_size("1TB"), 1024 ** 4)
+        self.assertEqual(parse_size("1T"), 1024**4)
+        self.assertEqual(parse_size("1TB"), 1024**4)
 
     def test_fractional_sizes(self):
-        self.assertEqual(parse_size("1.5MB"), int(1.5 * 1024 ** 2))
-        self.assertEqual(parse_size("2.5G"), int(2.5 * 1024 ** 3))
+        self.assertEqual(parse_size("1.5MB"), int(1.5 * 1024**2))
+        self.assertEqual(parse_size("2.5G"), int(2.5 * 1024**3))
 
     def test_whitespace_stripped(self):
-        self.assertEqual(parse_size("  100MB  "), 100 * 1024 ** 2)
+        self.assertEqual(parse_size("  100MB  "), 100 * 1024**2)
 
     def test_common_sizes(self):
-        self.assertEqual(parse_size("50MB"), 50 * 1024 ** 2)
-        self.assertEqual(parse_size("100GB"), 100 * 1024 ** 3)
+        self.assertEqual(parse_size("50MB"), 50 * 1024**2)
+        self.assertEqual(parse_size("100GB"), 100 * 1024**3)
 
 
 class ParseDurationTests(unittest.TestCase):
@@ -137,15 +137,15 @@ class HumanSizeTests(unittest.TestCase):
         self.assertIn("KB", result)
 
     def test_megabytes(self):
-        result = human_size(1024 ** 2)
+        result = human_size(1024**2)
         self.assertIn("MB", result)
 
     def test_gigabytes(self):
-        result = human_size(1024 ** 3)
+        result = human_size(1024**3)
         self.assertIn("GB", result)
 
     def test_terabytes(self):
-        result = human_size(1024 ** 4)
+        result = human_size(1024**4)
         self.assertIn("TB", result)
 
     def test_fractional_display(self):
@@ -155,7 +155,6 @@ class HumanSizeTests(unittest.TestCase):
 
 
 class DumpOutputTests(TempDirMixin, unittest.TestCase):
-
     def test_json_file_output(self):
         out_path = os.path.join(self.tmpdir, "output.json")
         data = {"key": "value", "count": 42}

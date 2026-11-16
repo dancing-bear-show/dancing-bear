@@ -65,15 +65,13 @@ _FAILURE_MESSAGES: dict[ConversionFailure, str] = {
         "DOCX to PDF conversion failed: LibreOffice ('soffice') was not found."
     ),
     ConversionFailure.CONVERTER_TIMEOUT: (
-        f"DOCX to PDF conversion failed: LibreOffice timed out after "
-        f"{CONVERT_TIMEOUT_SECONDS}s."
+        f"DOCX to PDF conversion failed: LibreOffice timed out after {CONVERT_TIMEOUT_SECONDS}s."
     ),
     ConversionFailure.CONVERTER_ERROR: (
         "DOCX to PDF conversion failed: LibreOffice exited with an error."
     ),
     ConversionFailure.NO_OUTPUT: (
-        "DOCX to PDF conversion failed: LibreOffice exited successfully but "
-        "wrote no PDF."
+        "DOCX to PDF conversion failed: LibreOffice exited successfully but wrote no PDF."
     ),
 }
 
@@ -83,12 +81,9 @@ _FAILURE_HINTS: dict[ConversionFailure, str] = {
         "(macOS: brew install --cask libreoffice)"
     ),
     ConversionFailure.CONVERTER_TIMEOUT: (
-        "retry, or convert a smaller document; LibreOffice may be waiting on a "
-        "stale profile lock"
+        "retry, or convert a smaller document; LibreOffice may be waiting on a stale profile lock"
     ),
-    ConversionFailure.CONVERTER_ERROR: (
-        "check that the .docx is readable and not corrupt"
-    ),
+    ConversionFailure.CONVERTER_ERROR: ("check that the .docx is readable and not corrupt"),
     ConversionFailure.NO_OUTPUT: (
         "check that the output directory is writable and the .docx is not corrupt"
     ),
@@ -123,15 +118,11 @@ def convert_docx_to_pdf(docx_path: str, pdf_path: str) -> ConversionResult:
 
     stderr = result.stderr
     if result.returncode != 0:
-        return ConversionResult(
-            ok=False, failure=ConversionFailure.CONVERTER_ERROR, stderr=stderr
-        )
+        return ConversionResult(ok=False, failure=ConversionFailure.CONVERTER_ERROR, stderr=stderr)
 
     produced = outdir / f"{Path(docx_path).stem}.pdf"
     if not produced.is_file():
-        return ConversionResult(
-            ok=False, failure=ConversionFailure.NO_OUTPUT, stderr=stderr
-        )
+        return ConversionResult(ok=False, failure=ConversionFailure.NO_OUTPUT, stderr=stderr)
 
     return ConversionResult(ok=True, stderr=stderr, pdf_path=produced)
 
@@ -226,14 +217,9 @@ def main():
         description="Convert resume DOCX to upside-down PDF (Australian orientation)"
     )
     parser.add_argument("docx", help="Input DOCX file")
+    parser.add_argument("-o", "--output", help="Output PDF path (default: <input>.australian.pdf)")
     parser.add_argument(
-        "-o", "--output",
-        help="Output PDF path (default: <input>.australian.pdf)"
-    )
-    parser.add_argument(
-        "--keep-temp",
-        action="store_true",
-        help="Keep intermediate non-rotated PDF"
+        "--keep-temp", action="store_true", help="Keep intermediate non-rotated PDF"
     )
 
     args = parser.parse_args()

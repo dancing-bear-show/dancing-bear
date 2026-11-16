@@ -7,36 +7,36 @@ import unittest
 from core.pipeline import ResultEnvelope
 from mail.accounts.pipeline_list import AccountInfo
 from mail.accounts.pipeline_list_export import (
-    ExportedLabelsInfo,
-    AccountsExportLabelsResult,
-    AccountsExportLabelsProducer,
-    ExportedFiltersInfo,
-    AccountsExportFiltersResult,
     AccountsExportFiltersProducer,
+    AccountsExportFiltersResult,
+    AccountsExportLabelsProducer,
+    AccountsExportLabelsResult,
+    ExportedFiltersInfo,
+    ExportedLabelsInfo,
 )
 from mail.accounts.pipeline_list_plan import (
-    LabelsPlanInfo,
-    AccountsPlanLabelsResult,
-    AccountsPlanLabelsProducer,
-    FiltersPlanInfo,
-    AccountsPlanFiltersResult,
     AccountsPlanFiltersProducer,
-)
-from mail.accounts.pipeline_list_sync import (
-    SyncedLabelInfo,
-    AccountsSyncLabelsResult,
-    AccountsSyncLabelsProducer,
-    SyncedFiltersInfo,
-    AccountsSyncFiltersResult,
-    AccountsSyncFiltersProducer,
+    AccountsPlanFiltersResult,
+    AccountsPlanLabelsProducer,
+    AccountsPlanLabelsResult,
+    FiltersPlanInfo,
+    LabelsPlanInfo,
 )
 from mail.accounts.pipeline_list_signatures import (
-    ExportedSignaturesInfo,
-    AccountsExportSignaturesResult,
     AccountsExportSignaturesProducer,
-    SyncedSignaturesInfo,
-    AccountsSyncSignaturesResult,
+    AccountsExportSignaturesResult,
     AccountsSyncSignaturesProducer,
+    AccountsSyncSignaturesResult,
+    ExportedSignaturesInfo,
+    SyncedSignaturesInfo,
+)
+from mail.accounts.pipeline_list_sync import (
+    AccountsSyncFiltersProducer,
+    AccountsSyncFiltersResult,
+    AccountsSyncLabelsProducer,
+    AccountsSyncLabelsResult,
+    SyncedFiltersInfo,
+    SyncedLabelInfo,
 )
 from tests.fixtures import capture_stdout
 
@@ -55,9 +55,13 @@ class TestAccountsExportLabelsProducer(unittest.TestCase):
     """Tests for AccountsExportLabelsProducer."""
 
     def test_produce_items_outputs_export_info(self):
-        result = AccountsExportLabelsResult(exports=[
-            ExportedLabelsInfo(account_name="personal", output_path="/out/labels.yaml", label_count=5),
-        ])
+        result = AccountsExportLabelsResult(
+            exports=[
+                ExportedLabelsInfo(
+                    account_name="personal", output_path="/out/labels.yaml", label_count=5
+                ),
+            ]
+        )
         envelope = ResultEnvelope(status="success", payload=result)
         producer = AccountsExportLabelsProducer()
         with capture_stdout() as buf:
@@ -71,9 +75,13 @@ class TestAccountsExportFiltersProducer(unittest.TestCase):
     """Tests for AccountsExportFiltersProducer."""
 
     def test_produce_items_outputs_export_info(self):
-        result = AccountsExportFiltersResult(exports=[
-            ExportedFiltersInfo(account_name="work", output_path="/out/filters.yaml", filter_count=7),
-        ])
+        result = AccountsExportFiltersResult(
+            exports=[
+                ExportedFiltersInfo(
+                    account_name="work", output_path="/out/filters.yaml", filter_count=7
+                ),
+            ]
+        )
         envelope = ResultEnvelope(status="success", payload=result)
         producer = AccountsExportFiltersProducer()
         with capture_stdout() as buf:
@@ -87,9 +95,11 @@ class TestAccountsPlanLabelsProducer(unittest.TestCase):
     """Tests for AccountsPlanLabelsProducer."""
 
     def test_produce_items_outputs_plan_info(self):
-        result = AccountsPlanLabelsResult(plans=[
-            LabelsPlanInfo(account_name="personal", provider="gmail", to_create=2, to_update=1),
-        ])
+        result = AccountsPlanLabelsResult(
+            plans=[
+                LabelsPlanInfo(account_name="personal", provider="gmail", to_create=2, to_update=1),
+            ]
+        )
         envelope = ResultEnvelope(status="success", payload=result)
         producer = AccountsPlanLabelsProducer()
         with capture_stdout() as buf:
@@ -106,9 +116,11 @@ class TestAccountsSyncLabelsProducer(unittest.TestCase):
     """Tests for AccountsSyncLabelsProducer."""
 
     def test_produce_items_outputs_sync_info(self):
-        result = AccountsSyncLabelsResult(synced=[
-            SyncedLabelInfo(account_name="personal", provider="gmail", created=3, updated=1),
-        ])
+        result = AccountsSyncLabelsResult(
+            synced=[
+                SyncedLabelInfo(account_name="personal", provider="gmail", created=3, updated=1),
+            ]
+        )
         envelope = ResultEnvelope(status="success", payload=result)
         producer = AccountsSyncLabelsProducer(dry_run=False)
         with capture_stdout() as buf:
@@ -119,9 +131,11 @@ class TestAccountsSyncLabelsProducer(unittest.TestCase):
         self.assertIn("created=3", output)
 
     def test_produce_items_includes_would_for_dry_run(self):
-        result = AccountsSyncLabelsResult(synced=[
-            SyncedLabelInfo(account_name="personal", provider="gmail", created=3, updated=1),
-        ])
+        result = AccountsSyncLabelsResult(
+            synced=[
+                SyncedLabelInfo(account_name="personal", provider="gmail", created=3, updated=1),
+            ]
+        )
         envelope = ResultEnvelope(status="success", payload=result)
         producer = AccountsSyncLabelsProducer(dry_run=True)
         with capture_stdout() as buf:
@@ -134,9 +148,11 @@ class TestAccountsPlanFiltersProducer(unittest.TestCase):
     """Tests for AccountsPlanFiltersProducer."""
 
     def test_produce_items_outputs_plan_info(self):
-        result = AccountsPlanFiltersResult(plans=[
-            FiltersPlanInfo(account_name="personal", provider="gmail", to_create=4),
-        ])
+        result = AccountsPlanFiltersResult(
+            plans=[
+                FiltersPlanInfo(account_name="personal", provider="gmail", to_create=4),
+            ]
+        )
         envelope = ResultEnvelope(status="success", payload=result)
         producer = AccountsPlanFiltersProducer()
         with capture_stdout() as buf:
@@ -147,9 +163,11 @@ class TestAccountsPlanFiltersProducer(unittest.TestCase):
         self.assertIn("create=4", output)
 
     def test_produce_items_outputs_unsupported_for_negative(self):
-        result = AccountsPlanFiltersResult(plans=[
-            FiltersPlanInfo(account_name="other", provider="yahoo", to_create=-1),
-        ])
+        result = AccountsPlanFiltersResult(
+            plans=[
+                FiltersPlanInfo(account_name="other", provider="yahoo", to_create=-1),
+            ]
+        )
         envelope = ResultEnvelope(status="success", payload=result)
         producer = AccountsPlanFiltersProducer()
         with capture_stdout() as buf:
@@ -162,9 +180,11 @@ class TestAccountsSyncFiltersProducer(unittest.TestCase):
     """Tests for AccountsSyncFiltersProducer."""
 
     def test_produce_items_outputs_sync_info(self):
-        result = AccountsSyncFiltersResult(synced=[
-            SyncedFiltersInfo(account_name="personal", provider="outlook", created=2, errors=0),
-        ])
+        result = AccountsSyncFiltersResult(
+            synced=[
+                SyncedFiltersInfo(account_name="personal", provider="outlook", created=2, errors=0),
+            ]
+        )
         envelope = ResultEnvelope(status="success", payload=result)
         producer = AccountsSyncFiltersProducer(dry_run=False)
         with capture_stdout() as buf:
@@ -175,9 +195,11 @@ class TestAccountsSyncFiltersProducer(unittest.TestCase):
         self.assertIn("created=2", output)
 
     def test_produce_items_shows_delegated_for_negative(self):
-        result = AccountsSyncFiltersResult(synced=[
-            SyncedFiltersInfo(account_name="personal", provider="gmail", created=-1, errors=0),
-        ])
+        result = AccountsSyncFiltersResult(
+            synced=[
+                SyncedFiltersInfo(account_name="personal", provider="gmail", created=-1, errors=0),
+            ]
+        )
         envelope = ResultEnvelope(status="success", payload=result)
         producer = AccountsSyncFiltersProducer(dry_run=False)
         with capture_stdout() as buf:
@@ -190,14 +212,16 @@ class TestAccountsExportSignaturesProducer(unittest.TestCase):
     """Tests for AccountsExportSignaturesProducer."""
 
     def test_produce_items_outputs_export_info(self):
-        result = AccountsExportSignaturesResult(exports=[
-            ExportedSignaturesInfo(
-                account_name="personal",
-                provider="gmail",
-                output_path="/out/sigs.yaml",
-                signature_count=1,
-            ),
-        ])
+        result = AccountsExportSignaturesResult(
+            exports=[
+                ExportedSignaturesInfo(
+                    account_name="personal",
+                    provider="gmail",
+                    output_path="/out/sigs.yaml",
+                    signature_count=1,
+                ),
+            ]
+        )
         envelope = ResultEnvelope(status="success", payload=result)
         producer = AccountsExportSignaturesProducer()
         with capture_stdout() as buf:
@@ -210,9 +234,11 @@ class TestAccountsSyncSignaturesProducer(unittest.TestCase):
     """Tests for AccountsSyncSignaturesProducer."""
 
     def test_produce_items_outputs_delegated_status(self):
-        result = AccountsSyncSignaturesResult(synced=[
-            SyncedSignaturesInfo(account_name="personal", provider="gmail", status="delegated"),
-        ])
+        result = AccountsSyncSignaturesResult(
+            synced=[
+                SyncedSignaturesInfo(account_name="personal", provider="gmail", status="delegated"),
+            ]
+        )
         envelope = ResultEnvelope(status="success", payload=result)
         producer = AccountsSyncSignaturesProducer()
         with capture_stdout() as buf:
@@ -222,9 +248,13 @@ class TestAccountsSyncSignaturesProducer(unittest.TestCase):
         self.assertIn("(delegated)", output)
 
     def test_produce_items_outputs_wrote_guidance_status(self):
-        result = AccountsSyncSignaturesResult(synced=[
-            SyncedSignaturesInfo(account_name="work", provider="outlook", status="wrote_guidance"),
-        ])
+        result = AccountsSyncSignaturesResult(
+            synced=[
+                SyncedSignaturesInfo(
+                    account_name="work", provider="outlook", status="wrote_guidance"
+                ),
+            ]
+        )
         envelope = ResultEnvelope(status="success", payload=result)
         producer = AccountsSyncSignaturesProducer()
         with capture_stdout() as buf:
@@ -233,9 +263,11 @@ class TestAccountsSyncSignaturesProducer(unittest.TestCase):
         self.assertIn("wrote guidance", output)
 
     def test_produce_items_outputs_generic_status(self):
-        result = AccountsSyncSignaturesResult(synced=[
-            SyncedSignaturesInfo(account_name="other", provider="yahoo", status="unsupported"),
-        ])
+        result = AccountsSyncSignaturesResult(
+            synced=[
+                SyncedSignaturesInfo(account_name="other", provider="yahoo", status="unsupported"),
+            ]
+        )
         envelope = ResultEnvelope(status="success", payload=result)
         producer = AccountsSyncSignaturesProducer()
         with capture_stdout() as buf:

@@ -45,10 +45,11 @@ def resolve_gmail_credentials(
     Resolution order: CLI arg > environment > INI profile > default paths.
     """
     import os
+
     from mail.config_resolver import (
-        resolve_paths_profile,
         DEFAULT_GMAIL_CREDENTIALS,
         DEFAULT_GMAIL_TOKEN,
+        resolve_paths_profile,
     )
 
     # Use config_resolver for profile-aware resolution
@@ -80,6 +81,7 @@ def resolve_outlook_credentials(
 ):
     """Return (client_id, tenant, token_path) folded over env/profile defaults."""
     import os
+
     from mail.config_resolver import (
         get_outlook_client_id,
         get_outlook_tenant,
@@ -117,7 +119,9 @@ def build_outlook_service(
     cid, ten, tok = resolve_outlook_credentials(
         config.profile, config.client_id, config.tenant, config.token_path
     )
-    return service_cls(context_cls(client_id=cid, tenant=ten, token_path=tok, profile=config.profile))
+    return service_cls(
+        context_cls(client_id=cid, tenant=ten, token_path=tok, profile=config.profile)
+    )
 
 
 def build_gmail_service(
@@ -129,6 +133,7 @@ def build_gmail_service(
 ):
     """Instantiate a GmailService (via existing CLI helper resolution)."""
     from types import SimpleNamespace
+
     from calendars.gmail_service import GmailService as DefaultService  # reuse existing helper
 
     service_cls = service_cls or DefaultService

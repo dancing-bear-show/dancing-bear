@@ -1,23 +1,24 @@
 """Convenience orchestration helpers for auto commands."""
+
 from __future__ import annotations
 
 from pathlib import Path
 
 from ..context import MailContext
 from .consumers import (
+    AutoApplyConsumer,
     AutoProposeConsumer,
     AutoSummaryConsumer,
-    AutoApplyConsumer,
 )
 from .processors import (
+    AutoApplyProcessor,
     AutoProposeProcessor,
     AutoSummaryProcessor,
-    AutoApplyProcessor,
 )
 from .producers import (
+    AutoApplyProducer,
     AutoProposeProducer,
     AutoSummaryProducer,
-    AutoApplyProducer,
 )
 
 

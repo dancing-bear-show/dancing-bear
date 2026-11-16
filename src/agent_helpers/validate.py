@@ -36,7 +36,9 @@ def validate_symbols(module_name: str, symbols: list[str]) -> dict[str, object]:
     """Import ``module_name`` and check each symbol exists as an attribute."""
     try:
         mod = importlib.import_module(module_name)
-    except Exception as exc:  # module-level code in arbitrary imports can raise any type; reported, not swallowed
+    except (
+        Exception
+    ) as exc:  # module-level code in arbitrary imports can raise any type; reported, not swallowed
         results = [SymbolResult(s, FAIL, f"{type(exc).__name__}: {exc}") for s in symbols]
         return {"module": module_name, "symbols": [asdict(r) for r in results], "overall": FAIL}
 
@@ -46,7 +48,11 @@ def validate_symbols(module_name: str, symbols: list[str]) -> dict[str, object]:
         else SymbolResult(s, FAIL, f"module {module_name!r} has no attribute {s!r}")
         for s in symbols
     ]
-    return {"module": module_name, "symbols": [asdict(r) for r in results], "overall": _overall(results)}
+    return {
+        "module": module_name,
+        "symbols": [asdict(r) for r in results],
+        "overall": _overall(results),
+    }
 
 
 def validate_import_order(module_names: list[str]) -> dict[str, object]:
@@ -101,7 +107,11 @@ def _find_function(tree: ast.Module, name: str) -> ast.FunctionDef | ast.AsyncFu
 def _str_elements(node: ast.expr) -> list[str]:
     """Extract string literals from a list or tuple AST node."""
     if isinstance(node, (ast.List, ast.Tuple)):
-        return [elt.value for elt in node.elts if isinstance(elt, ast.Constant) and isinstance(elt.value, str)]
+        return [
+            elt.value
+            for elt in node.elts
+            if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
+        ]
     return []
 
 
@@ -198,7 +208,9 @@ def _walrus_names(node: ast.AST) -> set[str]:
     """
     names: set[str] = set()
     for child in ast.iter_child_nodes(node):
-        if isinstance(child, (ast.stmt, ast.Lambda, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+        if isinstance(
+            child, (ast.stmt, ast.Lambda, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+        ):
             continue
         if isinstance(child, ast.NamedExpr):
             names.add(child.target.id)
@@ -258,7 +270,9 @@ def check_all_exported(tree: ast.Module, file: str) -> dict[str, object]:
     }
 
 
-def check_function_nesting(tree: ast.Module, file: str, func_name: str, *, report_depth: bool = False) -> dict[str, object]:
+def check_function_nesting(
+    tree: ast.Module, file: str, func_name: str, *, report_depth: bool = False
+) -> dict[str, object]:
     """Report whether a top-level function exists; include nesting depth when ``report_depth`` is True."""
     fn_node = _find_function(tree, func_name)
     if fn_node is None:
@@ -271,7 +285,9 @@ def check_function_nesting(tree: ast.Module, file: str, func_name: str, *, repor
     return result
 
 
-def validate_ast(file: str, *, all_exported: bool, function: str | None, complexity: bool = False) -> dict[str, object]:
+def validate_ast(
+    file: str, *, all_exported: bool, function: str | None, complexity: bool = False
+) -> dict[str, object]:
     """Parse ``file`` and run the requested structural check."""
     try:
         source = Path(file).read_text(encoding="utf-8")

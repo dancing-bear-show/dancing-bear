@@ -2,6 +2,7 @@
 
 Split out of commands.py to keep that module focused on search/summarize.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -19,7 +20,9 @@ def _reply_show_plan(args, to_email: str, orig_subj: str) -> int:
         print(f"  cc: {', '.join(args.cc)}")
     if getattr(args, "bcc", None):
         print(f"  bcc: {', '.join(args.bcc)}")
-    print(f"  subject: {'Re: ' + orig_subj if not getattr(args, 'subject', None) else args.subject}")
+    print(
+        f"  subject: {'Re: ' + orig_subj if not getattr(args, 'subject', None) else args.subject}"
+    )
     if when:
         print(f"  when: {when}")
     print("  action: send (with --apply) or create draft (--create-draft)")
@@ -28,8 +31,9 @@ def _reply_show_plan(args, to_email: str, orig_subj: str) -> int:
 
 def _reply_schedule(args, raw: bytes, thread_id: str | None, to_email: str, subject: str) -> int:
     """Schedule reply for later sending."""
-    from ..scheduler import parse_send_at, parse_send_in, enqueue, ScheduledItem
     import base64
+
+    from ..scheduler import ScheduledItem, enqueue, parse_send_at, parse_send_in
 
     due = None
     send_at = getattr(args, "send_at", None)
@@ -56,6 +60,7 @@ def _reply_schedule(args, raw: bytes, thread_id: str | None, to_email: str, subj
     )
     enqueue(item)
     from datetime import datetime
+
     print(f"Queued reply to {to_email} at {datetime.fromtimestamp(due).strftime('%Y-%m-%d %H:%M')}")
 
     draft_out = getattr(args, "draft_out", None)
@@ -70,6 +75,7 @@ def _reply_schedule(args, raw: bytes, thread_id: str | None, to_email: str, subj
 def _load_points_from_file(plan_path: str, args) -> str:
     """Load points text from a plan file."""
     from core.yamlio import load_config
+
     doc = load_config(plan_path)
     goals = doc.get("goals") or doc.get("points") or []
     points = "\n".join(f"- {g}" for g in goals if g) if isinstance(goals, list) else ""
@@ -117,7 +123,7 @@ def _reply_execute(args, client, raw: bytes, thread_id: str | None, to_email: st
 
     if getattr(args, "create_draft", False):
         d = client.create_draft_raw(raw, thread_id=thread_id)
-        did = (d or {}).get('id') or '(draft id unavailable)'
+        did = (d or {}).get("id") or "(draft id unavailable)"
         print(f"Created Gmail draft id={did}")
         return
 
@@ -137,6 +143,7 @@ def _reply_execute(args, client, raw: bytes, thread_id: str | None, to_email: st
 def _extract_reply_headers(msg_full: dict) -> dict:
     """Extract relevant headers from message for reply."""
     from ..gmail_api import GmailClient
+
     headers = GmailClient.headers_to_dict(msg_full)
     return {
         "subject": headers.get("subject", ""),
@@ -148,9 +155,10 @@ def _extract_reply_headers(msg_full: dict) -> dict:
 
 def run_messages_reply(args) -> int:
     """Compose and send/draft a reply to a message."""
-    from ..utils.cli_helpers import gmail_provider_from_args
-    from ..messages import _compose_reply, encode_email_message, ReplyEnvelope, ReplyOptions
     from email.utils import formatdate
+
+    from ..messages import ReplyEnvelope, ReplyOptions, _compose_reply, encode_email_message
+    from ..utils.cli_helpers import gmail_provider_from_args
 
     client = gmail_provider_from_args(args)
     client.authenticate()
@@ -166,7 +174,7 @@ def run_messages_reply(args) -> int:
         print("Could not determine recipient from original message headers")
         return 1
 
-    profile = client.get_profile() if hasattr(client, 'get_profile') else {}
+    profile = client.get_profile() if hasattr(client, "get_profile") else {}
     from_email = (profile or {}).get("emailAddress") or "me"
 
     # Build reply body and compose message
@@ -184,7 +192,11 @@ def run_messages_reply(args) -> int:
         body_text="\n".join(body_lines).strip(),
         options=ReplyOptions(
             in_reply_to=hdr["message_id"],
-            references=(f"{hdr['references']} {hdr['message_id']}".strip() if hdr["message_id"] else hdr["references"]),
+            references=(
+                f"{hdr['references']} {hdr['message_id']}".strip()
+                if hdr["message_id"]
+                else hdr["references"]
+            ),
             include_quote=include_quote,
             original_text=client.get_message_text(mid) if include_quote else None,
         ),

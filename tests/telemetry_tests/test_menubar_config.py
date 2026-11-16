@@ -1,4 +1,5 @@
 """Tests for telemetry/_menubar_config.py — config loading, saving, and parsing helpers."""
+
 from __future__ import annotations
 
 import json
@@ -146,10 +147,21 @@ class TestIconTemplateVars(unittest.TestCase):
 
 class TestAnyOtelSectionsEnabled(unittest.TestCase):
     def test_all_disabled_returns_false(self) -> None:
-        cfg = {"sections": {k: {"enabled": False} for k in [
-            "otel_usage", "otel_models", "otel_meta", "otel_hooks",
-            "otel_tools", "otel_code", "otel_skills", "otel_sessions",
-        ]}}
+        cfg = {
+            "sections": {
+                k: {"enabled": False}
+                for k in [
+                    "otel_usage",
+                    "otel_models",
+                    "otel_meta",
+                    "otel_hooks",
+                    "otel_tools",
+                    "otel_code",
+                    "otel_skills",
+                    "otel_sessions",
+                ]
+            }
+        }
         self.assertFalse(_any_otel_sections_enabled(cfg))
 
     def test_one_enabled_returns_true(self) -> None:

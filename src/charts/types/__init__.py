@@ -7,10 +7,10 @@ from charts.types.dual import DualAxisChartSpec
 from charts.types.line import LineChartSpec
 
 __all__ = [
-    "ChartSpec",
-    "SeriesSpec",
-    "LineChartSpec",
-    "BarChartSpec",
     "AreaChartSpec",
+    "BarChartSpec",
+    "ChartSpec",
     "DualAxisChartSpec",
+    "LineChartSpec",
+    "SeriesSpec",
 ]

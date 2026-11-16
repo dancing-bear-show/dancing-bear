@@ -1,31 +1,28 @@
 """Tests for calendar pipeline processors and producers (Gmail and Outlook)."""
 
+import io
 import tempfile
 from contextlib import redirect_stdout
-import io
 from pathlib import Path
 from unittest import TestCase
 from unittest.mock import MagicMock
 
-from calendars.outlook_pipelines.verify import (
-    OutlookVerifyProcessor,
-    OutlookVerifyProducer,
-    OutlookVerifyRequest,
-    OutlookVerifyRequestConsumer,
-)
 from calendars.outlook_pipelines.dedup import (
     OutlookDedupProcessor,
     OutlookDedupProducer,
     OutlookDedupRequest,
     OutlookDedupRequestConsumer,
 )
-
-
+from calendars.outlook_pipelines.verify import (
+    OutlookVerifyProcessor,
+    OutlookVerifyProducer,
+    OutlookVerifyRequest,
+    OutlookVerifyRequestConsumer,
+)
 from tests.calendars_tests.fixtures import make_occurrence as _make_occurrence  # noqa: E402
 
 
 class CalendarPipelineTests(TestCase):
-
     def test_outlook_verify_processor_counts_duplicates_and_missing_together(self):
         """Two config entries — one with a matching real event (duplicate),
         one with none (missing) — exercises the missing-count branch, which
@@ -53,6 +50,7 @@ class CalendarPipelineTests(TestCase):
         }
         with tempfile.NamedTemporaryFile("w+", delete=False, suffix=".yaml") as tf:
             import yaml
+
             yaml.safe_dump(cfg, tf)
             tf_path = Path(tf.name)
         svc = MagicMock()
@@ -66,9 +64,7 @@ class CalendarPipelineTests(TestCase):
             },
         ]
         request = OutlookVerifyRequest(config_path=tf_path, calendar=None, service=svc)
-        env = OutlookVerifyProcessor().process(
-            OutlookVerifyRequestConsumer(request).consume()
-        )
+        env = OutlookVerifyProcessor().process(OutlookVerifyRequestConsumer(request).consume())
         self.assertTrue(env.ok())
         self.assertEqual(env.payload.total, 2)
         self.assertEqual(env.payload.duplicates, 1)
@@ -87,10 +83,18 @@ class CalendarPipelineTests(TestCase):
         svc = MagicMock()
         svc.list_calendar_view.return_value = [
             _make_occurrence(
-                "Soccer", "A", "2025-01-06T17:00:00+00:00", "2025-01-06T17:30:00+00:00", "2024-01-01T00:00:00Z",
+                "Soccer",
+                "A",
+                "2025-01-06T17:00:00+00:00",
+                "2025-01-06T17:30:00+00:00",
+                "2024-01-01T00:00:00Z",
             ),
             _make_occurrence(
-                "Soccer", "B", "2025-01-13T17:00:00+00:00", "2025-01-13T17:30:00+00:00", "2024-06-01T00:00:00Z",
+                "Soccer",
+                "B",
+                "2025-01-13T17:00:00+00:00",
+                "2025-01-13T17:30:00+00:00",
+                "2024-06-01T00:00:00Z",
                 location={"address": {"street": "X", "city": "Y"}},
             ),
         ]

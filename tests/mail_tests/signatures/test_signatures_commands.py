@@ -6,7 +6,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from tests.mail_tests.fixtures import make_args as _make_base_args, make_success_envelope, make_error_envelope
+from tests.mail_tests.fixtures import make_args as _make_base_args
+from tests.mail_tests.fixtures import make_error_envelope, make_success_envelope
 
 
 def _make_args(**kwargs):
@@ -39,8 +40,11 @@ class TestRunSignaturesExport(unittest.TestCase):
     @patch("mail.signatures.commands.SignaturesExportProcessor")
     @patch("mail.signatures.commands.SignaturesExportConsumer")
     @patch("mail.signatures.commands.MailContext")
-    def test_returns_zero_on_success(self, mock_ctx_cls, mock_consumer_cls, mock_processor_cls, mock_producer_cls):
+    def test_returns_zero_on_success(
+        self, mock_ctx_cls, mock_consumer_cls, mock_processor_cls, mock_producer_cls
+    ):
         from mail.signatures.commands import run_signatures_export
+
         envelope = _make_ok_envelope()
         mock_processor_cls.return_value.process.return_value = envelope
         mock_consumer_cls.return_value.consume.return_value = MagicMock()
@@ -53,8 +57,11 @@ class TestRunSignaturesExport(unittest.TestCase):
     @patch("mail.signatures.commands.SignaturesExportProcessor")
     @patch("mail.signatures.commands.SignaturesExportConsumer")
     @patch("mail.signatures.commands.MailContext")
-    def test_returns_nonzero_on_error(self, mock_ctx_cls, mock_consumer_cls, mock_processor_cls, mock_producer_cls):
+    def test_returns_nonzero_on_error(
+        self, mock_ctx_cls, mock_consumer_cls, mock_processor_cls, mock_producer_cls
+    ):
         from mail.signatures.commands import run_signatures_export
+
         envelope = _make_error_envelope(code=2)
         mock_processor_cls.return_value.process.return_value = envelope
         mock_consumer_cls.return_value.consume.return_value = MagicMock()
@@ -67,8 +74,11 @@ class TestRunSignaturesExport(unittest.TestCase):
     @patch("mail.signatures.commands.SignaturesExportProcessor")
     @patch("mail.signatures.commands.SignaturesExportConsumer")
     @patch("mail.signatures.commands.MailContext")
-    def test_consumer_receives_correct_paths(self, mock_ctx_cls, mock_consumer_cls, mock_processor_cls, mock_producer_cls):
+    def test_consumer_receives_correct_paths(
+        self, mock_ctx_cls, mock_consumer_cls, mock_processor_cls, mock_producer_cls
+    ):
         from mail.signatures.commands import run_signatures_export
+
         envelope = _make_ok_envelope()
         mock_processor_cls.return_value.process.return_value = envelope
         mock_consumer_cls.return_value.consume.return_value = MagicMock()
@@ -88,8 +98,11 @@ class TestRunSignaturesExport(unittest.TestCase):
     @patch("mail.signatures.commands.SignaturesExportProcessor")
     @patch("mail.signatures.commands.SignaturesExportConsumer")
     @patch("mail.signatures.commands.MailContext")
-    def test_pipeline_produces_with_envelope(self, mock_ctx_cls, mock_consumer_cls, mock_processor_cls, mock_producer_cls):
+    def test_pipeline_produces_with_envelope(
+        self, mock_ctx_cls, mock_consumer_cls, mock_processor_cls, mock_producer_cls
+    ):
         from mail.signatures.commands import run_signatures_export
+
         envelope = _make_ok_envelope()
         payload = MagicMock()
         mock_processor_cls.return_value.process.return_value = envelope
@@ -108,8 +121,11 @@ class TestRunSignaturesSync(unittest.TestCase):
     @patch("mail.signatures.commands.SignaturesSyncProcessor")
     @patch("mail.signatures.commands.SignaturesSyncConsumer")
     @patch("mail.signatures.commands.MailContext")
-    def test_returns_zero_on_success(self, mock_ctx_cls, mock_consumer_cls, mock_processor_cls, mock_producer_cls):
+    def test_returns_zero_on_success(
+        self, mock_ctx_cls, mock_consumer_cls, mock_processor_cls, mock_producer_cls
+    ):
         from mail.signatures.commands import run_signatures_sync
+
         envelope = _make_ok_envelope()
         mock_processor_cls.return_value.process.return_value = envelope
         mock_consumer_cls.return_value.consume.return_value = MagicMock()
@@ -122,8 +138,11 @@ class TestRunSignaturesSync(unittest.TestCase):
     @patch("mail.signatures.commands.SignaturesSyncProcessor")
     @patch("mail.signatures.commands.SignaturesSyncConsumer")
     @patch("mail.signatures.commands.MailContext")
-    def test_returns_nonzero_on_error(self, mock_ctx_cls, mock_consumer_cls, mock_processor_cls, mock_producer_cls):
+    def test_returns_nonzero_on_error(
+        self, mock_ctx_cls, mock_consumer_cls, mock_processor_cls, mock_producer_cls
+    ):
         from mail.signatures.commands import run_signatures_sync
+
         envelope = _make_error_envelope(code=3)
         mock_processor_cls.return_value.process.return_value = envelope
         mock_consumer_cls.return_value.consume.return_value = MagicMock()
@@ -136,8 +155,11 @@ class TestRunSignaturesSync(unittest.TestCase):
     @patch("mail.signatures.commands.SignaturesSyncProcessor")
     @patch("mail.signatures.commands.SignaturesSyncConsumer")
     @patch("mail.signatures.commands.MailContext")
-    def test_consumer_receives_dry_run_and_send_as(self, mock_ctx_cls, mock_consumer_cls, mock_processor_cls, mock_producer_cls):
+    def test_consumer_receives_dry_run_and_send_as(
+        self, mock_ctx_cls, mock_consumer_cls, mock_processor_cls, mock_producer_cls
+    ):
         from mail.signatures.commands import run_signatures_sync
+
         envelope = _make_ok_envelope()
         mock_processor_cls.return_value.process.return_value = envelope
         mock_consumer_cls.return_value.consume.return_value = MagicMock()
@@ -157,9 +179,12 @@ class TestRunSignaturesSync(unittest.TestCase):
     @patch("mail.signatures.commands.SignaturesSyncProcessor")
     @patch("mail.signatures.commands.SignaturesSyncConsumer")
     @patch("mail.signatures.commands.MailContext")
-    def test_sync_with_no_optional_args(self, mock_ctx_cls, mock_consumer_cls, mock_processor_cls, mock_producer_cls):
+    def test_sync_with_no_optional_args(
+        self, mock_ctx_cls, mock_consumer_cls, mock_processor_cls, mock_producer_cls
+    ):
         """Args without send_as/account_display_name default to None."""
         from mail.signatures.commands import run_signatures_sync
+
         envelope = _make_ok_envelope()
         mock_processor_cls.return_value.process.return_value = envelope
         mock_consumer_cls.return_value.consume.return_value = MagicMock()
@@ -180,8 +205,11 @@ class TestRunSignaturesNormalize(unittest.TestCase):
     @patch("mail.signatures.commands.SignaturesNormalizeProducer")
     @patch("mail.signatures.commands.SignaturesNormalizeProcessor")
     @patch("mail.signatures.commands.SignaturesNormalizeConsumer")
-    def test_returns_zero_on_success(self, mock_consumer_cls, mock_processor_cls, mock_producer_cls):
+    def test_returns_zero_on_success(
+        self, mock_consumer_cls, mock_processor_cls, mock_producer_cls
+    ):
         from mail.signatures.commands import run_signatures_normalize
+
         envelope = _make_ok_envelope()
         mock_processor_cls.return_value.process.return_value = envelope
         mock_consumer_cls.return_value.consume.return_value = MagicMock()
@@ -192,8 +220,11 @@ class TestRunSignaturesNormalize(unittest.TestCase):
     @patch("mail.signatures.commands.SignaturesNormalizeProducer")
     @patch("mail.signatures.commands.SignaturesNormalizeProcessor")
     @patch("mail.signatures.commands.SignaturesNormalizeConsumer")
-    def test_returns_nonzero_on_error(self, mock_consumer_cls, mock_processor_cls, mock_producer_cls):
+    def test_returns_nonzero_on_error(
+        self, mock_consumer_cls, mock_processor_cls, mock_producer_cls
+    ):
         from mail.signatures.commands import run_signatures_normalize
+
         envelope = _make_error_envelope(code=4)
         mock_processor_cls.return_value.process.return_value = envelope
         mock_consumer_cls.return_value.consume.return_value = MagicMock()
@@ -204,8 +235,11 @@ class TestRunSignaturesNormalize(unittest.TestCase):
     @patch("mail.signatures.commands.SignaturesNormalizeProducer")
     @patch("mail.signatures.commands.SignaturesNormalizeProcessor")
     @patch("mail.signatures.commands.SignaturesNormalizeConsumer")
-    def test_consumer_receives_correct_params(self, mock_consumer_cls, mock_processor_cls, mock_producer_cls):
+    def test_consumer_receives_correct_params(
+        self, mock_consumer_cls, mock_processor_cls, mock_producer_cls
+    ):
         from mail.signatures.commands import run_signatures_normalize
+
         envelope = _make_ok_envelope()
         mock_processor_cls.return_value.process.return_value = envelope
         mock_consumer_cls.return_value.consume.return_value = MagicMock()
@@ -222,9 +256,12 @@ class TestRunSignaturesNormalize(unittest.TestCase):
     @patch("mail.signatures.commands.SignaturesNormalizeProducer")
     @patch("mail.signatures.commands.SignaturesNormalizeProcessor")
     @patch("mail.signatures.commands.SignaturesNormalizeConsumer")
-    def test_var_defaults_to_empty_list(self, mock_consumer_cls, mock_processor_cls, mock_producer_cls):
+    def test_var_defaults_to_empty_list(
+        self, mock_consumer_cls, mock_processor_cls, mock_producer_cls
+    ):
         """When var is None, defaults to empty list."""
         from mail.signatures.commands import run_signatures_normalize
+
         envelope = _make_ok_envelope()
         mock_processor_cls.return_value.process.return_value = envelope
         mock_consumer_cls.return_value.consume.return_value = MagicMock()
@@ -241,6 +278,7 @@ class TestSignaturesExportConsumer(unittest.TestCase):
 
     def test_consume_returns_payload(self):
         from mail.signatures.consumers import SignaturesExportConsumer, SignaturesExportPayload
+
         ctx = MagicMock()
         consumer = SignaturesExportConsumer(
             context=ctx,
@@ -259,9 +297,12 @@ class TestSignaturesSyncConsumer(unittest.TestCase):
 
     def test_consume_loads_config(self):
         from mail.signatures.consumers import SignaturesSyncConsumer, SignaturesSyncPayload
+
         ctx = MagicMock()
 
-        with patch("mail.signatures.consumers.load_config", return_value={"signatures": {}}) as mock_load:
+        with patch(
+            "mail.signatures.consumers.load_config", return_value={"signatures": {}}
+        ) as mock_load:
             consumer = SignaturesSyncConsumer(
                 context=ctx,
                 config_path="/tmp/config.yaml",  # nosec B108 - test-only temp file, not a security concern
@@ -278,6 +319,7 @@ class TestSignaturesSyncConsumer(unittest.TestCase):
 
     def test_consume_defaults(self):
         from mail.signatures.consumers import SignaturesSyncConsumer
+
         ctx = MagicMock()
 
         with patch("mail.signatures.consumers.load_config", return_value={}):
@@ -293,7 +335,10 @@ class TestSignaturesNormalizeConsumer(unittest.TestCase):
     """Tests for SignaturesNormalizeConsumer."""
 
     def test_consume_parses_variables(self):
-        from mail.signatures.consumers import SignaturesNormalizeConsumer, SignaturesNormalizePayload
+        from mail.signatures.consumers import (
+            SignaturesNormalizeConsumer,
+            SignaturesNormalizePayload,
+        )
 
         with patch("mail.signatures.consumers.load_config", return_value={"signatures": {}}):
             consumer = SignaturesNormalizeConsumer(

@@ -259,7 +259,10 @@ class TestShutdownTimeoutMarkerWritten(_RuntimeTestBase):
         # Manually plant a processing/ record to simulate an in-flight job
         paths = q._ensure_dirs(self.root)
         proc = paths["processing"] / "st1.json"
-        proc.write_text(json.dumps({"id": "st1", "claim_token": "c89b8fb8c4dd560f722a0020452041f9"}), encoding="utf-8")
+        proc.write_text(
+            json.dumps({"id": "st1", "claim_token": "c89b8fb8c4dd560f722a0020452041f9"}),
+            encoding="utf-8",
+        )
         # Register a fake dead thread so drain_live_threads iterates over it
         dead_thread = threading.Thread(target=lambda: None, daemon=True)
         dead_thread.start()
@@ -285,7 +288,10 @@ class TestShutdownTimeoutMarkerWritten(_RuntimeTestBase):
         runner = _make_runner(self.root, max_per_tick=1)
         paths = q._ensure_dirs(self.root)
         proc = paths["processing"] / "st2.json"
-        proc.write_text(json.dumps({"id": "st2", "claim_token": "1b976f14465708e1a58a9272cceb5767"}), encoding="utf-8")
+        proc.write_text(
+            json.dumps({"id": "st2", "claim_token": "1b976f14465708e1a58a9272cceb5767"}),
+            encoding="utf-8",
+        )
         dead_thread = threading.Thread(target=lambda: None, daemon=True)
         dead_thread.start()
         dead_thread.join()
@@ -309,7 +315,10 @@ class TestShutdownTimeoutMarkerWritten(_RuntimeTestBase):
         runner = _make_runner(self.root, max_per_tick=1)
         paths = q._ensure_dirs(self.root)
         proc = paths["processing"] / "st8.json"
-        proc.write_text(json.dumps({"id": "st8", "claim_token": "5071f176e4b4ca7f9f82103860727de4"}), encoding="utf-8")
+        proc.write_text(
+            json.dumps({"id": "st8", "claim_token": "5071f176e4b4ca7f9f82103860727de4"}),
+            encoding="utf-8",
+        )
         dead_thread = threading.Thread(target=lambda: None, daemon=True)
         dead_thread.start()
         dead_thread.join()
@@ -323,12 +332,13 @@ class TestShutdownTimeoutMarkerWritten(_RuntimeTestBase):
             # call that is still "in flight": the marker must already exist
             # at this point, before the (simulated) filesystem work completes.
             seen_during_call.append(marker.exists())
-            return None
 
         with patch.object(q, "requeue_processing", side_effect=_check_marker_exists):
             runner.drain_live_threads(grace=0.0)
 
-        self.assertEqual(seen_during_call, [True], "marker must exist before the call, not only after it fails")
+        self.assertEqual(
+            seen_during_call, [True], "marker must exist before the call, not only after it fails"
+        )
         # The call returned normally (no exception), so the now-unneeded
         # marker was removed afterward.
         self.assertFalse(marker.exists(), "marker should be removed after a normal return")
@@ -349,8 +359,13 @@ class TestRecoverShutdownTimeoutMarkers(unittest.TestCase, QueueRootIsolationMix
         proc = paths["processing"] / "st3.json"
         proc.write_text(
             json.dumps(
-                {"id": "st3", "type": "noop", "payload": {}, "status": "processing",
-                 "claim_token": "157da89b190077d5db54e8dc14c8e031"}
+                {
+                    "id": "st3",
+                    "type": "noop",
+                    "payload": {},
+                    "status": "processing",
+                    "claim_token": "157da89b190077d5db54e8dc14c8e031",
+                }
             ),
             encoding="utf-8",
         )
@@ -389,8 +404,13 @@ class TestRecoverShutdownTimeoutMarkers(unittest.TestCase, QueueRootIsolationMix
         proc = paths["processing"] / "st3c.json"
         proc.write_text(
             json.dumps(
-                {"id": "st3c", "type": "noop", "payload": {}, "status": "processing",
-                 "claim_token": "d1fdda4c2518ec248d59b4e542d3edf5"}
+                {
+                    "id": "st3c",
+                    "type": "noop",
+                    "payload": {},
+                    "status": "processing",
+                    "claim_token": "d1fdda4c2518ec248d59b4e542d3edf5",
+                }
             ),
             encoding="utf-8",
         )
@@ -440,8 +460,13 @@ class TestRecoverShutdownTimeoutMarkers(unittest.TestCase, QueueRootIsolationMix
         proc = paths["processing"] / "st6.json"
         proc.write_text(
             json.dumps(
-                {"id": "st6", "type": "noop", "payload": {}, "status": "processing",
-                 "claim_token": "d25840337eeea75771588cc1dd5484c9"}
+                {
+                    "id": "st6",
+                    "type": "noop",
+                    "payload": {},
+                    "status": "processing",
+                    "claim_token": "d25840337eeea75771588cc1dd5484c9",
+                }
             ),
             encoding="utf-8",
         )
@@ -464,8 +489,13 @@ class TestRecoverShutdownTimeoutMarkers(unittest.TestCase, QueueRootIsolationMix
         proc = paths["processing"] / "st7.json"
         proc.write_text(
             json.dumps(
-                {"id": "st7", "type": "noop", "payload": {}, "status": "processing",
-                 "claim_token": "b2f5ce4c0127de9b40f0e9e73d400d90"}
+                {
+                    "id": "st7",
+                    "type": "noop",
+                    "payload": {},
+                    "status": "processing",
+                    "claim_token": "b2f5ce4c0127de9b40f0e9e73d400d90",
+                }
             ),
             encoding="utf-8",
         )
@@ -506,7 +536,11 @@ class TestWriteShutdownTimeoutMarker(unittest.TestCase, QueueRootIsolationMixin)
         q.write_shutdown_timeout_marker("m2", "be104824eccd93d21fe73175f39589c8", root=self.root)
         q.write_shutdown_timeout_marker("m2", "be104824eccd93d21fe73175f39589c8", root=self.root)
         paths = q._ensure_dirs(self.root)
-        self.assertTrue((paths["processing"] / "m2.json.shutdown-timeout.be104824eccd93d21fe73175f39589c8").exists())
+        self.assertTrue(
+            (
+                paths["processing"] / "m2.json.shutdown-timeout.be104824eccd93d21fe73175f39589c8"
+            ).exists()
+        )
 
 
 class TestRemoveShutdownTimeoutMarker(unittest.TestCase, QueueRootIsolationMixin):
@@ -526,7 +560,9 @@ class TestRemoveShutdownTimeoutMarker(unittest.TestCase, QueueRootIsolationMixin
     def test_missing_marker_is_a_noop(self) -> None:
         """Removing a marker that was never written (or already removed)
         does not raise."""
-        q.remove_shutdown_timeout_marker("rm2", "73995df32dfc9d471e1285d3a0fd7026", root=self.root)  # must not raise
+        q.remove_shutdown_timeout_marker(
+            "rm2", "73995df32dfc9d471e1285d3a0fd7026", root=self.root
+        )  # must not raise
 
 
 class TestRecoverShutdownTimeoutMarkersParsesJobIdWithEmbeddedSuffix(
@@ -550,12 +586,19 @@ class TestRecoverShutdownTimeoutMarkersParsesJobIdWithEmbeddedSuffix(
         proc = paths["processing"] / f"{tricky_id}.json"
         proc.write_text(
             json.dumps(
-                {"id": tricky_id, "type": "noop", "payload": {}, "status": "processing",
-                 "claim_token": "960c2822cae41d21c036af8b8f5b21b4"}
+                {
+                    "id": tricky_id,
+                    "type": "noop",
+                    "payload": {},
+                    "status": "processing",
+                    "claim_token": "960c2822cae41d21c036af8b8f5b21b4",
+                }
             ),
             encoding="utf-8",
         )
-        q.write_shutdown_timeout_marker(tricky_id, "960c2822cae41d21c036af8b8f5b21b4", root=self.root)
+        q.write_shutdown_timeout_marker(
+            tricky_id, "960c2822cae41d21c036af8b8f5b21b4", root=self.root
+        )
 
         recovered = q.recover_shutdown_timeout_markers(root=self.root)
 
@@ -591,8 +634,13 @@ class TestRecoverShutdownTimeoutMarkersParsesJobIdWithEmbeddedSuffix(
         proc = paths["processing"] / f"{tricky_id}.json"
         proc.write_text(
             json.dumps(
-                {"id": tricky_id, "type": "noop", "payload": {}, "status": "processing",
-                 "claim_token": "1c3e7a28533a07d1d3efce37c3d23469"}
+                {
+                    "id": tricky_id,
+                    "type": "noop",
+                    "payload": {},
+                    "status": "processing",
+                    "claim_token": "1c3e7a28533a07d1d3efce37c3d23469",
+                }
             ),
             encoding="utf-8",
         )

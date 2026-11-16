@@ -7,7 +7,6 @@ import unittest
 from datetime import UTC, datetime
 from pathlib import Path
 
-from tests.memory_tests.fixtures import MemoryTestCase, sample_bundle
 from memory.bundle import (
     IMPORT_MARKER_KEY,
     _frontmatter_from_dict,
@@ -24,7 +23,7 @@ from memory.models import (
     MemoryType,
     SchemaShape,
 )
-
+from tests.memory_tests.fixtures import MemoryTestCase, sample_bundle
 
 # ---------------------------------------------------------------------------
 # File-local helpers
@@ -154,10 +153,7 @@ class TestBuildBundle(MemoryTestCase):
         """build_bundle scrubs /Users/<name> paths from the body."""
         from memory.parser import parse_memory_file
 
-        content = (
-            "---\ntype: feedback\n---\n\n"
-            "Working at /Users/alice/code/myproject/src.\n"
-        )
+        content = "---\ntype: feedback\n---\n\nWorking at /Users/alice/code/myproject/src.\n"
         f = self.tmp / "home_path.md"
         f.write_text(content, encoding="utf-8")
         memory = parse_memory_file(f, project_slug="test-slug")
@@ -502,11 +498,18 @@ class TestRenderKeyRoundTrip(MemoryTestCase):
 
     def test_prefixed_reserved_keys_are_filtered(self):
         fm = MemoryFrontmatter(
-            name="n", description="d", type=MemoryType.FEEDBACK, node_type="memory",
-            origin_session_id=None, modified=None, shape=SchemaShape.NESTED,
+            name="n",
+            description="d",
+            type=MemoryType.FEEDBACK,
+            node_type="memory",
+            origin_session_id=None,
+            modified=None,
+            shape=SchemaShape.NESTED,
             unknown_keys={"metadata.bundle_import": "forged", "metadata.type": "user"},
         )
-        prov = ExportProvenance("s", None, "u", None, None, datetime(2026, 1, 1, tzinfo=UTC), "1", "x")
+        prov = ExportProvenance(
+            "s", None, "u", None, None, datetime(2026, 1, 1, tzinfo=UTC), "1", "x"
+        )
         em = ExportedMemory(frontmatter=fm, body="b", provenance=prov, redactions=())
 
         rendered = render_imported_memory(em)

@@ -1,4 +1,5 @@
 """Tests for tui/_renderers.py — panel-level renderers and compound UI helpers."""
+
 from __future__ import annotations
 
 import io
@@ -21,9 +22,10 @@ from telemetry.tui._renderers import (
     _tip_detail,
     _tool_stat_detail,
 )
-
 from tests.telemetry_tests.shared_fixtures import (
     _make_agent_summary_tui as _make_agent_summary,
+)
+from tests.telemetry_tests.shared_fixtures import (
     _make_event,
     _make_summary,
     _make_tip,
@@ -31,10 +33,10 @@ from tests.telemetry_tests.shared_fixtures import (
     _render_panel_text,
 )
 
-
 # ---------------------------------------------------------------------------
 # _tool_stat_detail
 # ---------------------------------------------------------------------------
+
 
 class TestToolStatDetail(unittest.TestCase):
     def test_header_includes_tool_name_and_count(self):
@@ -92,6 +94,7 @@ class TestToolStatDetail(unittest.TestCase):
 # _tip_detail
 # ---------------------------------------------------------------------------
 
+
 class TestTipDetail(unittest.TestCase):
     def test_avoidable_uses_red_cross(self):
         tip = _make_tip(severity="avoidable")
@@ -133,6 +136,7 @@ class TestTipDetail(unittest.TestCase):
 # _agent_detail
 # ---------------------------------------------------------------------------
 
+
 class TestAgentDetail(unittest.TestCase):
     def test_basic_fields_present(self):
         agent = _make_agent_summary()
@@ -172,6 +176,7 @@ class TestAgentDetail(unittest.TestCase):
 # _render_timeline_line
 # ---------------------------------------------------------------------------
 
+
 class TestRenderTimelineLine(unittest.TestCase):
     def test_basic_fields_present(self):
         evt = _make_event(tool_name="Bash", classification="productive")
@@ -200,6 +205,7 @@ class TestRenderTimelineLine(unittest.TestCase):
 
     def test_timestamp_format_hhmmss(self):
         import re
+
         evt = _make_event()
         result = _render_timeline_line(evt)
         self.assertIsNotNone(re.search(r"\d{2}:\d{2}:\d{2}", result))
@@ -219,6 +225,7 @@ class TestRenderTimelineLine(unittest.TestCase):
 # _stats_duration_str
 # ---------------------------------------------------------------------------
 
+
 class TestStatsDurationStr(unittest.TestCase):
     def test_with_end_time(self):
         summary = _make_summary(end_time_offset_secs=3661)
@@ -232,6 +239,7 @@ class TestStatsDurationStr(unittest.TestCase):
 
     def test_live_mode_returns_elapsed_string(self):
         import re
+
         summary = _make_summary(end_time_offset_secs=None)
         result = _stats_duration_str(summary)
         self.assertIsNotNone(re.match(r"^\d{2}:\d{2}:\d{2}$", result))
@@ -245,6 +253,7 @@ class TestStatsDurationStr(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _stats_session_label
 # ---------------------------------------------------------------------------
+
 
 class TestStatsSessionLabel(unittest.TestCase):
     def test_returns_last_path_segment(self):
@@ -283,6 +292,7 @@ class TestStatsSessionLabel(unittest.TestCase):
 # _efficiency_color
 # ---------------------------------------------------------------------------
 
+
 class TestEfficiencyColor(unittest.TestCase):
     def test_above_75_returns_green(self):
         self.assertEqual(_efficiency_color(100.0), "green")
@@ -312,6 +322,7 @@ class TestEfficiencyColor(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _render_stats_panel
 # ---------------------------------------------------------------------------
+
 
 class TestRenderStatsPanel(unittest.TestCase):
     def test_returns_panel_instance(self):
@@ -367,6 +378,7 @@ class TestRenderStatsPanel(unittest.TestCase):
 # _render_stats_compact
 # ---------------------------------------------------------------------------
 
+
 class TestRenderStatsCompact(unittest.TestCase):
     def test_with_cache_hit_rate(self):
         summary = _make_summary(cache_hit_rate=0.8)
@@ -403,6 +415,7 @@ class TestRenderStatsCompact(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _print_tool_stats_panel
 # ---------------------------------------------------------------------------
+
 
 class TestPrintToolStatsPanel(unittest.TestCase):
     def _make_console(self) -> tuple[Console, io.StringIO]:
@@ -456,6 +469,7 @@ class TestPrintToolStatsPanel(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _print_agents_panel
 # ---------------------------------------------------------------------------
+
 
 class TestPrintAgentsPanel(unittest.TestCase):
     def _make_console(self) -> tuple[Console, io.StringIO]:

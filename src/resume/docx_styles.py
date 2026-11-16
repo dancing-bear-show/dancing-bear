@@ -2,16 +2,16 @@
 
 Provides StyleManager for handling colors, shading, and paragraph formatting.
 """
+
 from __future__ import annotations
 
 import re
 from functools import lru_cache
 
-from docx.shared import Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-
+from docx.shared import Pt, RGBColor
 
 # Type alias for RGB tuples
 RGB = tuple[int, int, int]
@@ -37,7 +37,7 @@ class StyleManager:
         """
         if not hex_str:
             return None
-        v = hex_str.strip().lstrip('#')
+        v = hex_str.strip().lstrip("#")
         if len(v) != 6:
             return None
         try:
@@ -134,13 +134,13 @@ class StyleManager:
         try:
             p = paragraph._p  # low-level OXML paragraph
             p_pr = p.get_or_add_pPr()
-            shd = OxmlElement('w:shd')
-            shd.set(qn('w:val'), 'clear')
-            shd.set(qn('w:color'), 'auto')
-            shd.set(qn('w:fill'), StyleManager.hex_fill(bg_rgb))
+            shd = OxmlElement("w:shd")
+            shd.set(qn("w:val"), "clear")
+            shd.set(qn("w:color"), "auto")
+            shd.set(qn("w:fill"), StyleManager.hex_fill(bg_rgb))
             # Remove existing shd if present to avoid duplicates
             for child in list(p_pr):
-                if child.tag == qn('w:shd'):
+                if child.tag == qn("w:shd"):
                     p_pr.remove(child)
             p_pr.append(shd)
         except Exception:  # nosec B110 - shading failure
@@ -188,9 +188,9 @@ class TextFormatter:
         end_n = TextFormatter.normalize_present(end)
         if start_n and end_n:
             return f"{start_n} – {end_n}"
-        elif start_n and not end_n:
+        if start_n and not end_n:
             return f"{start_n} – Present"
-        elif end_n and not start_n:
+        if end_n and not start_n:
             return end_n
         return ""
 
@@ -237,7 +237,7 @@ class TextFormatter:
         - Optionally strips terminal period for fragment style
         """
         s = TextFormatter.clean_inline(text)
-        if strip_terminal_period and s.endswith('.'):
+        if strip_terminal_period and s.endswith("."):
             s = s.rstrip()[:-1].rstrip()
         return s
 

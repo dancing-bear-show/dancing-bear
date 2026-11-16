@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from core.date_utils import now_utc, parse_iso_utc, parse_window
 
@@ -19,7 +19,7 @@ def nano_to_datetime(unix_nano: int) -> datetime:
     """Convert Unix nanoseconds to a UTC datetime with microsecond precision."""
     seconds, nanoseconds = divmod(unix_nano, 1_000_000_000)
     microseconds = nanoseconds // 1_000
-    return datetime.fromtimestamp(seconds, tz=timezone.utc).replace(microsecond=microseconds)
+    return datetime.fromtimestamp(seconds, tz=UTC).replace(microsecond=microseconds)
 
 
 def format_latency(ms: float) -> str:

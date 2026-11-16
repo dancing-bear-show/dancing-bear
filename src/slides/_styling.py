@@ -51,8 +51,8 @@ class StylingMixin:
         self,
         run,
         *,
-        font_size: "Pt | int | None" = None,
-        theme_color: "MSO_THEME_COLOR | int | None" = None,
+        font_size: Pt | int | None = None,
+        theme_color: MSO_THEME_COLOR | int | None = None,
         bold: bool | None = None,
     ) -> None:
         """Apply styling to a text run.
@@ -97,7 +97,7 @@ class StylingMixin:
     def _split_by_highlights(text: str, highlights: list[str]) -> list[str]:
         """Split text into segments around highlight terms, longest-first."""
         sorted_highlights = sorted(highlights, key=len, reverse=True)
-        pattern = '(' + '|'.join(re.escape(h) for h in sorted_highlights) + ')'
+        pattern = "(" + "|".join(re.escape(h) for h in sorted_highlights) + ")"
         return [s for s in re.split(pattern, text) if s]
 
     def _style_highlighted_run(
@@ -237,7 +237,12 @@ class StylingMixin:
             run.text = segment
             is_highlighted = any(segment.lower() == h.lower() for h in highlights)
             self._style_highlighted_run(
-                run, segment, highlights, font_size, theme_color, bold,
+                run,
+                segment,
+                highlights,
+                font_size,
+                theme_color,
+                bold,
             )
             if url:
                 self._apply_hyperlink(run, url, preserve_color=is_highlighted)

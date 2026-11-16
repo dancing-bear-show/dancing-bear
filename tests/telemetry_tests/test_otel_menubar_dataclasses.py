@@ -1,8 +1,9 @@
 """Tests for telemetry/otel/menubar_dataclasses.py — frozen dataclasses and zero constructors."""
+
 from __future__ import annotations
 
 import unittest
-from datetime import timezone
+from datetime import UTC
 
 from telemetry.otel.menubar_dataclasses import (
     CodeImpact,
@@ -160,7 +161,7 @@ class TestUnavailable(unittest.TestCase):
 
     def test_collected_at_is_utc(self) -> None:
         result = _unavailable()
-        self.assertEqual(result.collected_at.tzinfo, timezone.utc)
+        self.assertEqual(result.collected_at.tzinfo, UTC)
 
     def test_sub_objects_are_zero(self) -> None:
         result = _unavailable()

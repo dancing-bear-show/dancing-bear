@@ -3,20 +3,19 @@
 import os
 import unittest
 
-from tests.fixtures import TempDirMixin, write_csv_content
-
 from calendars.importer import (
-    ScheduleItem,
     CSVParser,
+    ScheduleItem,
     ScheduleParser,
     extract_time_ranges,
+    load_schedule,
     normalize_day,
     normalize_days,
     parse_time_range,
-    load_schedule,
     strip_html_tags,
     to_24h,
 )
+from tests.fixtures import TempDirMixin, write_csv_content
 
 
 class TestScheduleItem(unittest.TestCase):
@@ -176,7 +175,9 @@ Morning Yoga,06:00,07:00,"MO,WE,FR",weekly
         Distinct from test_parse_csv_skips_empty_subject, which has a subject
         column present but blank for one row.
         """
-        csv_content = "Start,End,Location,Notes\n2025-01-12T10:00,2025-01-12T10:30,Place,No subject row\n"
+        csv_content = (
+            "Start,End,Location,Notes\n2025-01-12T10:00,2025-01-12T10:30,Place,No subject row\n"
+        )
         path = self._write_csv("no_subject_column.csv", csv_content)
         items = CSVParser().parse(path)
         self.assertEqual(len(items), 0)
@@ -248,14 +249,16 @@ class TestRegexPatterns(unittest.TestCase):
 
     def test_strip_tags_pattern(self):
         import re
+
         from calendars.importer import RE_STRIP_TAGS
 
         html = "<strong>Bold</strong> and <em>italic</em>"
-        result = re.sub(RE_STRIP_TAGS, '', html)
+        result = re.sub(RE_STRIP_TAGS, "", html)
         self.assertEqual(result, "Bold and italic")
 
     def test_ampm_pattern(self):
         import re
+
         from calendars.importer import RE_AMPM
 
         self.assertIsNotNone(re.search(RE_AMPM, "10:00 a.m."))
@@ -265,6 +268,7 @@ class TestRegexPatterns(unittest.TestCase):
 
     def test_time_pattern(self):
         import re
+
         from calendars.importer import RE_TIME
 
         m = re.match(RE_TIME, "10:30")

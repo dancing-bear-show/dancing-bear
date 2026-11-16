@@ -53,12 +53,14 @@ from tests.worker_tests.test_daemon_nonblocking import (
     _patch_queue_root,
     _wait_for,
 )
+from worker import queue_ops as q
 from worker.queue_ops import (
     Job,
     enqueue,
+)
+from worker.queue_ops import (
     start_processing as _real_start,
 )
-from worker import queue_ops as q
 
 
 def _read(path: Path) -> dict[str, Any]:
@@ -82,7 +84,9 @@ class TestPruneLiveThreadsRequeuesDeadRecords(unittest.TestCase, QueueRootIsolat
         self.setup_queue_root()
         self.join_new_threads_before_restore()
         base = _patch_queue_root(self.root)
-        base.enter_context(patch.dict("worker.job_runtime.HANDLERS", {"fast": lambda _d: (True, "ok")}))
+        base.enter_context(
+            patch.dict("worker.job_runtime.HANDLERS", {"fast": lambda _d: (True, "ok")})
+        )
         self.addCleanup(base.close)
 
     def test_happy_path_completed_thread_leaves_no_residual(self) -> None:
@@ -161,7 +165,9 @@ class TestStartProcessingReturnsTokenAtomically(unittest.TestCase, QueueRootIsol
         proc_path, token = result
         self.assertTrue(token, "token must be non-empty after a successful claim")
         data = json.loads(proc_path.read_text(encoding="utf-8"))
-        self.assertEqual(data.get(q.CLAIM_TOKEN_FIELD), token, "returned token must match the on-disk record")
+        self.assertEqual(
+            data.get(q.CLAIM_TOKEN_FIELD), token, "returned token must match the on-disk record"
+        )
 
     def test_sad_path_metadata_failure_returns_empty_token(self) -> None:
         """When the metadata write inside start_processing fails, the returned
@@ -181,9 +187,7 @@ class TestStartProcessingReturnsTokenAtomically(unittest.TestCase, QueueRootIsol
 
         real_start = q.start_processing
 
-        def _start_empty_token(
-            job_path: Path, root: Path | None = None
-        ) -> tuple[Path, str] | None:
+        def _start_empty_token(job_path: Path, root: Path | None = None) -> tuple[Path, str] | None:
             result = real_start(job_path, root)
             if result is not None:
                 proc, _tok = result
@@ -193,9 +197,11 @@ class TestStartProcessingReturnsTokenAtomically(unittest.TestCase, QueueRootIsol
                 return proc, ""
             return result
 
-        with patch.dict("worker.job_runtime.HANDLERS", {"fast": _record}), \
-             patch("worker.job_runtime.q.start_processing", side_effect=_start_empty_token), \
-             self.assertLogs("worker.job_runtime", "WARNING"):
+        with (
+            patch.dict("worker.job_runtime.HANDLERS", {"fast": _record}),
+            patch("worker.job_runtime.q.start_processing", side_effect=_start_empty_token),
+            self.assertLogs("worker.job_runtime", "WARNING"),
+        ):
             started = runner.tick()
 
         self.assertEqual(started, 0, "no thread should start when the token is empty")
@@ -301,8 +307,10 @@ class TestDrainContinuesAfterRequeueError(unittest.TestCase, QueueRootIsolationM
                 raise OSError("simulated I/O error during drain")
             return real_requeue(job_id, **kw)
 
-        with patch("worker.job_runtime.q.requeue_processing", side_effect=_fail_first), \
-             self.assertLogs("worker.job_runtime", "ERROR"):
+        with (
+            patch("worker.job_runtime.q.requeue_processing", side_effect=_fail_first),
+            self.assertLogs("worker.job_runtime", "ERROR"),
+        ):
             requeued = runner.drain_live_threads(grace=0.2)
 
         # The second stem must still be requeued even though the first raised.
@@ -392,8 +400,10 @@ class TestDrainRespectsDeadlineViaLockTimeout(unittest.TestCase, QueueRootIsolat
         def _raise_lock_timeout(job_id: str, **kw: Any) -> Path | None:
             raise q._TransitionLockTimeout("simulated lock timeout during drain")
 
-        with patch("worker.job_runtime.q.requeue_processing", side_effect=_raise_lock_timeout), \
-             self.assertLogs("worker.job_runtime", "ERROR") as logs:
+        with (
+            patch("worker.job_runtime.q.requeue_processing", side_effect=_raise_lock_timeout),
+            self.assertLogs("worker.job_runtime", "ERROR") as logs,
+        ):
             requeued = runner.drain_live_threads(grace=0.5)
 
         self.assertEqual(requeued, [], "no job requeued when all locks timed out")
@@ -431,7 +441,9 @@ class TestDrainRespectsDeadlineViaLockTimeout(unittest.TestCase, QueueRootIsolat
                 self.fail("lock must raise before this body executes")
         elapsed = time.monotonic() - start
         # Must not have blocked past the timeout by more than a small margin.
-        self.assertLess(elapsed, 0.5, "lock acquisition must not block significantly past the timeout")
+        self.assertLess(
+            elapsed, 0.5, "lock acquisition must not block significantly past the timeout"
+        )
 
     def test_transition_lock_blocking_default_still_acquires(self) -> None:
         """The default (no timeout) still acquires the lock normally."""

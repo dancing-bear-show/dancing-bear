@@ -4,35 +4,35 @@ from __future__ import annotations
 
 import unittest
 
-from resume.parsing_experience_text import (
-    SECTION_PATTERNS,
-    _parse_experience_entry,
-    _parse_education_entry,
-    _split_lines,
-    _split_date_range,
-    _extract_contact,
-    _extract_sections,
-    _parse_experience,
-    _parse_experience_block,
-    _parse_education,
-    _parse_skills,
-    parse_resume_text,
-    merge_profiles,
-)
 from resume.parsing_experience_docx import (
     _filter_summary_lines,
     _key_from_heading,
     _looks_like_company_line,
     _looks_like_section_heading,
 )
+from resume.parsing_experience_pdf import (
+    _pdf_find_sections,
+    _pdf_get_section_lines,
+)
+from resume.parsing_experience_text import (
+    SECTION_PATTERNS,
+    _extract_contact,
+    _extract_sections,
+    _parse_education,
+    _parse_education_entry,
+    _parse_experience,
+    _parse_experience_block,
+    _parse_experience_entry,
+    _parse_skills,
+    _split_date_range,
+    _split_lines,
+    merge_profiles,
+    parse_resume_text,
+)
 from tests.resume_tests.fixtures import (
     SAMPLE_CONTACT_LINES,
     SAMPLE_RESUME_TEXT,
     make_empty_profile,
-)
-from resume.parsing_experience_pdf import (
-    _pdf_find_sections,
-    _pdf_get_section_lines,
 )
 
 
@@ -113,7 +113,9 @@ class TestParseExperienceEntry(unittest.TestCase):
         self.assertEqual(result["end"], "Present")
 
     def test_parse_generated_docx_format(self):
-        result = _parse_experience_entry("Product Manager at StartupXYZ — [San Francisco] — (2021 – 2023)")
+        result = _parse_experience_entry(
+            "Product Manager at StartupXYZ — [San Francisco] — (2021 – 2023)"
+        )
         self.assertIsNotNone(result)
         self.assertEqual(result["title"], "Product Manager")
         self.assertEqual(result["company"], "StartupXYZ")
@@ -505,7 +507,9 @@ class TestLooksLikeSectionHeading(unittest.TestCase):
         self.assertFalse(_looks_like_section_heading("Professional Background"))
 
     def test_too_long(self):
-        self.assertFalse(_looks_like_section_heading("This is a very long line that cannot be a section heading"))
+        self.assertFalse(
+            _looks_like_section_heading("This is a very long line that cannot be a section heading")
+        )
 
     def test_empty(self):
         self.assertFalse(_looks_like_section_heading(""))

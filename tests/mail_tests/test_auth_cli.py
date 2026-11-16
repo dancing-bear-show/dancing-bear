@@ -55,7 +55,7 @@ class AuthCLITests(unittest.TestCase):
         googleapiclient_discovery = types.ModuleType("googleapiclient.discovery")
 
         class _Users:
-            def getProfile(self, userId="me"):  # NOSONAR - must match Google API camelCase interface
+            def getProfile(self, userId="me"):  # NOSONAR - must match Google API camelCase interface  # fmt: skip
                 class _Exec:
                     def execute(self):
                         return {"emailAddress": "me@example.com"}
@@ -165,7 +165,9 @@ class AuthCLITests(unittest.TestCase):
         with patch.dict("sys.modules", {"msal": msal, "requests": requests}, clear=False):
             from mail.outlook.commands import run_outlook_auth_validate
 
-            args = SimpleNamespace(client_id="fake", tenant="consumers", token=tok_path, profile=None)
+            args = SimpleNamespace(
+                client_id="fake", tenant="consumers", token=tok_path, profile=None
+            )
             buf = io.StringIO()
             with redirect_stdout(buf):
                 rc = run_outlook_auth_validate(args)
@@ -176,4 +178,3 @@ class AuthCLITests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

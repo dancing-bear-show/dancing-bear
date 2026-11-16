@@ -1,12 +1,12 @@
 """Outlook Calendar Share Pipeline - share calendars with recipients."""
 
 from ._base import (
-    dataclass,
     Any,
-    SafeProcessor,
     BaseProducer,
     RequestConsumer,
+    SafeProcessor,
     check_service_required,
+    dataclass,
 )
 
 
@@ -28,7 +28,9 @@ class OutlookCalendarShareResult:
     role: str
 
 
-class OutlookCalendarShareProcessor(SafeProcessor[OutlookCalendarShareRequest, OutlookCalendarShareResult]):
+class OutlookCalendarShareProcessor(
+    SafeProcessor[OutlookCalendarShareRequest, OutlookCalendarShareResult]
+):
     def _process_safe(self, payload: OutlookCalendarShareRequest) -> OutlookCalendarShareResult:
         check_service_required(payload.service)
         svc = payload.service
@@ -38,7 +40,9 @@ class OutlookCalendarShareProcessor(SafeProcessor[OutlookCalendarShareRequest, O
             cal_id = svc.ensure_calendar_exists(cal_name)
         role = self._normalize_role(payload.role)
         svc.ensure_calendar_permission(cal_id, payload.recipient, role)
-        result = OutlookCalendarShareResult(calendar=cal_name, recipient=payload.recipient, role=role)
+        result = OutlookCalendarShareResult(
+            calendar=cal_name, recipient=payload.recipient, role=role
+        )
         return result
 
     def _normalize_role(self, role: str) -> str:
@@ -66,14 +70,16 @@ class OutlookCalendarShareProcessor(SafeProcessor[OutlookCalendarShareRequest, O
 
 
 class OutlookCalendarShareProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookCalendarShareResult, diagnostics: dict[str, Any] | None) -> None:
+    def _produce_success(
+        self, payload: OutlookCalendarShareResult, diagnostics: dict[str, Any] | None
+    ) -> None:
         print(f"Shared '{payload.calendar}' with {payload.recipient} role={payload.role}")
 
 
 __all__ = [
+    "OutlookCalendarShareProcessor",
+    "OutlookCalendarShareProducer",
     "OutlookCalendarShareRequest",
     "OutlookCalendarShareRequestConsumer",
     "OutlookCalendarShareResult",
-    "OutlookCalendarShareProcessor",
-    "OutlookCalendarShareProducer",
 ]

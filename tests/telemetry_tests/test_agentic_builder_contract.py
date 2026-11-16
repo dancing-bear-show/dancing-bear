@@ -1,4 +1,5 @@
 """Agentic builder contract for the telemetry domain (minimal tier)."""
+
 from __future__ import annotations
 
 import unittest

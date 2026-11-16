@@ -21,9 +21,7 @@ BIG = 100_000
 _WALL_SECS = 2.0
 
 
-def _build_strings(
-    tokens: list[str], n: int = 5000, seed: int | None = None
-) -> list[str]:
+def _build_strings(tokens: list[str], n: int = 5000, seed: int | None = None) -> list[str]:
     rng = random.Random(seed)  # nosec B311 - test-data generator, not security
     return ["".join(rng.choices(tokens, k=rng.randint(1, 20))) for _ in range(n)]
 
@@ -79,9 +77,7 @@ class TestPrivateKeyRegex(unittest.TestCase):
     def test_private_key_pattern_pathological_is_linear(self) -> None:
         text = "-----BEGIN " + "PRIVATE KEY" + " " * BIG
         assert_fast(lambda: _private_key_rule().search(text))
-        self.assertIsNotNone(
-            _private_key_rule().search("-----BEGIN RSA " + "PRIVATE KEY-----")
-        )
+        self.assertIsNotNone(_private_key_rule().search("-----BEGIN RSA " + "PRIVATE KEY-----"))
 
 
 class TestSlackTokenRegex(unittest.TestCase):

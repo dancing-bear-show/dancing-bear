@@ -1,4 +1,5 @@
 """Mail assistant application context."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -13,7 +14,7 @@ class MailContext(AppContext):
     gmail_client: Any | None = field(default=None, init=False)
 
     @classmethod
-    def from_args(cls, args: object, config: dict[str, str] | None = None) -> "MailContext":
+    def from_args(cls, args: object, config: dict[str, str] | None = None) -> MailContext:
         return cls(root=Path.cwd(), config=config or {}, args=args)
 
     def get_gmail_client(self):

@@ -43,9 +43,7 @@ class ManifestFromExportResult:
 class ManifestFromExportProcessor(
     SafeProcessor[ManifestFromExportRequest, ManifestFromExportResult]
 ):
-    def _process_safe(
-        self, payload: ManifestFromExportRequest
-    ) -> ManifestFromExportResult:
+    def _process_safe(self, payload: ManifestFromExportRequest) -> ManifestFromExportResult:
         try:
             exp = read_yaml(payload.export_path)
         except FileNotFoundError:
@@ -87,11 +85,10 @@ class ManifestFromDeviceResult:
 class ManifestFromDeviceProcessor(
     SafeProcessor[ManifestFromDeviceRequest, ManifestFromDeviceResult]
 ):
-    def _process_safe(
-        self, payload: ManifestFromDeviceRequest
-    ) -> ManifestFromDeviceResult:
+    def _process_safe(self, payload: ManifestFromDeviceRequest) -> ManifestFromDeviceResult:
         import os
-        from .device import find_cfgutil_path, map_udid_to_ecid, export_from_device
+
+        from .device import export_from_device, find_cfgutil_path, map_udid_to_ecid
 
         cfgutil = find_cfgutil_path()
 
@@ -177,9 +174,7 @@ def _extract_plan_from_manifest(man: dict[str, Any]) -> dict[str, Any]:
     return plan
 
 
-def _determine_profile_path(
-    payload_path: Path | None, manifest: dict[str, Any]
-) -> Path:
+def _determine_profile_path(payload_path: Path | None, manifest: dict[str, Any]) -> Path:
     """Determine output path for profile."""
     if payload_path:
         return payload_path
@@ -201,13 +196,9 @@ def _build_install_command(
 
     dev = manifest.get("device") or {}
     udid = payload.udid or dev.get("udid") or os.environ.get("IOS_DEVICE_UDID")
-    label = (
-        payload.device_label or dev.get("label") or os.environ.get("IOS_DEVICE_LABEL")
-    )
+    label = payload.device_label or dev.get("label") or os.environ.get("IOS_DEVICE_LABEL")
     creds_profile = (
-        payload.creds_profile
-        or dev.get("creds_profile")
-        or os.environ.get("IOS_CREDS_PROFILE")
+        payload.creds_profile or dev.get("creds_profile") or os.environ.get("IOS_CREDS_PROFILE")
     )
 
     repo_root = Path(__file__).resolve().parents[1]
@@ -224,11 +215,10 @@ def _build_install_command(
     return cmd
 
 
-class ManifestInstallProcessor(
-    SafeProcessor[ManifestInstallRequest, ManifestInstallResult]
-):
+class ManifestInstallProcessor(SafeProcessor[ManifestInstallRequest, ManifestInstallResult]):
     def _process_safe(self, payload: ManifestInstallRequest) -> ManifestInstallResult:
         import plistlib
+
         from .profile import build_mobileconfig
 
         man = _load_and_validate_manifest(payload.manifest_path)
@@ -248,9 +238,7 @@ class ManifestInstallProcessor(
         )
 
         out_path = _determine_profile_path(payload.out_path, man)
-        profile_bytes = plistlib.dumps(
-            profile_dict, fmt=plistlib.FMT_XML, sort_keys=False
-        )
+        profile_bytes = plistlib.dumps(profile_dict, fmt=plistlib.FMT_XML, sort_keys=False)
         install_cmd = _build_install_command(payload, man, out_path)
 
         return ManifestInstallResult(
@@ -336,16 +324,15 @@ class IdentityVerifyResult:
     org_match: bool | None
 
 
-class IdentityVerifyProcessor(
-    SafeProcessor[IdentityVerifyRequest, IdentityVerifyResult]
-):
+class IdentityVerifyProcessor(SafeProcessor[IdentityVerifyRequest, IdentityVerifyResult]):
     def _process_safe(self, payload: IdentityVerifyRequest) -> IdentityVerifyResult:
         import os
+
         from .device import (
-            read_credentials_ini,
-            resolve_p12_path,
             extract_p12_cert_info,
             get_device_supervision_status,
+            read_credentials_ini,
+            resolve_p12_path,
             resolve_udid_from_label,
         )
 

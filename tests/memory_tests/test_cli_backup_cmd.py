@@ -18,7 +18,7 @@ import memory.cli as memory_cli
 from memory.backup import BackupResult, BackupStatus
 from memory.commands.backup import default_backup_dest
 from memory.discovery import load_store
-from tests.memory_tests.fixtures import MemoryTestCase, SLUG_MAIN, make_projects_root
+from tests.memory_tests.fixtures import SLUG_MAIN, MemoryTestCase, make_projects_root
 
 
 def _run_backup(*argv: str) -> tuple[int, str, str]:
@@ -83,9 +83,7 @@ class TestTargetValidation(MemoryTestCase):
         # not SystemExit(2) from argparse.
         dest = self.tmp / "backup-repo"
 
-        rc, _, err = _run_backup(
-            "--store=some-slug", "--all-stores", "--dest", str(dest)
-        )
+        rc, _, err = _run_backup("--store=some-slug", "--all-stores", "--dest", str(dest))
 
         self.assertNotEqual(rc, 0)
         self.assertIn("validation error", err.lower())
@@ -216,9 +214,7 @@ class TestStoreDispatch(MemoryTestCase):
                 "--message",
                 "custom msg",
             )
-            mock_backup_stores.assert_called_once_with(
-                (store,), dest, message="custom msg"
-            )
+            mock_backup_stores.assert_called_once_with((store,), dest, message="custom msg")
 
         self.assertEqual(rc, 0)
 

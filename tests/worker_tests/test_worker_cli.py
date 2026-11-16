@@ -54,7 +54,17 @@ class TestWorkerBuildParser(unittest.TestCase):
         """Test that build_parser creates expected subcommands."""
         parser = app.build_parser()
 
-        subcommands = ["enqueue", "run-once", "daemon", "list", "status", "show", "requeue-errors", "retry", "purge"]
+        subcommands = [
+            "enqueue",
+            "run-once",
+            "daemon",
+            "list",
+            "status",
+            "show",
+            "requeue-errors",
+            "retry",
+            "purge",
+        ]
 
         for cmd in subcommands:
             if cmd == "enqueue":
@@ -69,13 +79,19 @@ class TestWorkerBuildParser(unittest.TestCase):
         """Test enqueue subcommand options."""
         parser = app.build_parser()
 
-        args = parser.parse_args([
-            "enqueue",
-            "--type", "run_cli",
-            "--payload-json", '{"cmd": ["echo"]}',
-            "--priority", "3",
-            "--max-attempts", "5"
-        ])
+        args = parser.parse_args(
+            [
+                "enqueue",
+                "--type",
+                "run_cli",
+                "--payload-json",
+                '{"cmd": ["echo"]}',
+                "--priority",
+                "3",
+                "--max-attempts",
+                "5",
+            ]
+        )
 
         self.assertEqual(args.type, "run_cli")
         self.assertEqual(args.payload_json, '{"cmd": ["echo"]}')
@@ -86,14 +102,21 @@ class TestWorkerBuildParser(unittest.TestCase):
         """Test daemon subcommand options."""
         parser = app.build_parser()
 
-        args = parser.parse_args([
-            "daemon",
-            "--interval", "10",
-            "--max-per-tick", "5",
-            "--backoff", "120",
-            "--max-inflight", "10",
-            "--job-timeout", "60"
-        ])
+        args = parser.parse_args(
+            [
+                "daemon",
+                "--interval",
+                "10",
+                "--max-per-tick",
+                "5",
+                "--backoff",
+                "120",
+                "--max-inflight",
+                "10",
+                "--job-timeout",
+                "60",
+            ]
+        )
 
         self.assertEqual(args.interval, "10")
         self.assertEqual(args.max_per_tick, 5)
@@ -115,15 +138,22 @@ class TestWorkerBuildParser(unittest.TestCase):
         """Test requeue-errors subcommand options."""
         parser = app.build_parser()
 
-        args = parser.parse_args([
-            "requeue-errors",
-            "--limit", "10",
-            "--delay", "30",
-            "--reset-attempts",
-            "--new-max-attempts", "5",
-            "--since", "2d",
-            "--match", "timeout"
-        ])
+        args = parser.parse_args(
+            [
+                "requeue-errors",
+                "--limit",
+                "10",
+                "--delay",
+                "30",
+                "--reset-attempts",
+                "--new-max-attempts",
+                "5",
+                "--since",
+                "2d",
+                "--match",
+                "timeout",
+            ]
+        )
 
         self.assertEqual(args.limit, 10)
         self.assertEqual(args.delay, 30)
@@ -136,11 +166,7 @@ class TestWorkerBuildParser(unittest.TestCase):
         """Test purge subcommand options."""
         parser = app.build_parser()
 
-        args = parser.parse_args([
-            "purge",
-            "--older-than", "7d",
-            "--folders", "done"
-        ])
+        args = parser.parse_args(["purge", "--older-than", "7d", "--folders", "done"])
 
         self.assertEqual(args.older_than, "7d")
         self.assertEqual(args.folders, "done")

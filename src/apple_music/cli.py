@@ -10,8 +10,9 @@ dedupe handlers. Supporting pieces it draws on:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from functools import lru_cache
-from typing import Any, Callable
+from typing import Any
 
 from core.assistant import BaseAssistant
 from core.cli_errors import AuthError, ConfigError
@@ -19,7 +20,6 @@ from core.cli_framework import CLIApp
 from core.cli_help_text import HELP_JSON_OUT, HELP_PRETTY_JSON
 from core.pipeline import ResultEnvelope
 
-from .client import AppleMusicCLIError, AppleMusicClient  # noqa: F401 — AppleMusicClient for mock-patch compat
 from .cli_helpers import (  # noqa: F401
     PlaylistCreationConfig,
     _format_timestamp,
@@ -46,17 +46,14 @@ from .cli_pipeline import (
     _produce_and_write,
     _tracks_to_dict,
 )
-from .config import DEFAULT_PROFILE, load_profile
-from .developer_token import MAX_TTL_DAYS, SECONDS_PER_DAY, decode_claims, mint_developer_token
-from .meta import META
 from .cli_playlist import (  # noqa: F401
     ALIZEE,
     GIPSY_KINGS,
     GREAT_BIG_SEA,
     JUAN_LUIS_GUERRA,
     KNIFE_PARTY,
-    LINKIN_PARK,
     LIMP_BIZKIT,
+    LINKIN_PARK,
     MYLENE_FARMER,
     PRESETS,
     RAGE_AGAINST_THE_MACHINE,
@@ -69,6 +66,13 @@ from .cli_playlist import (  # noqa: F401
     _parse_playlist_date,
     _playlist_sort_key,
 )
+from .client import (  # noqa: F401 — AppleMusicClient for mock-patch compat
+    AppleMusicClient,
+    AppleMusicCLIError,
+)
+from .config import DEFAULT_PROFILE, load_profile
+from .developer_token import MAX_TTL_DAYS, SECONDS_PER_DAY, decode_claims, mint_developer_token
+from .meta import META
 
 # ---------------------------------------------------------------------------
 # CLI app
@@ -123,7 +127,12 @@ token_group = app.group("token", help="Manage Apple Music tokens")
 @token_group.argument("--key-path", help="Path to the MusicKit .p8 key (overrides credentials.ini)")
 @token_group.argument("--team-id", help="Apple Developer team ID (overrides credentials.ini)")
 @token_group.argument("--key-id", help="MusicKit key ID (overrides credentials.ini)")
-@token_group.argument("--ttl-days", type=int, default=MAX_TTL_DAYS, help=f"Token lifetime in days (max {MAX_TTL_DAYS})")
+@token_group.argument(
+    "--ttl-days",
+    type=int,
+    default=MAX_TTL_DAYS,
+    help=f"Token lifetime in days (max {MAX_TTL_DAYS})",
+)
 @token_group.argument("--save", action="store_true", help="Write the token back to credentials.ini")
 @token_group.argument("--out", help=HELP_JSON_OUT)
 @token_group.argument("--pretty", action="store_true", help=HELP_PRETTY_JSON)
@@ -206,13 +215,15 @@ def cmd_token_status(args: Any) -> int:
     if developer_token:
         claims = decode_claims(developer_token)
         remaining = claims.seconds_remaining()
-        payload["developer_token"].update({
-            "key_id": claims.key_id,
-            "issued_at": _format_timestamp(claims.issued_at),
-            "expires_at": _format_timestamp(claims.expires_at),
-            "expired": claims.is_expired(),
-            "days_remaining": remaining // SECONDS_PER_DAY if remaining is not None else None,
-        })
+        payload["developer_token"].update(
+            {
+                "key_id": claims.key_id,
+                "issued_at": _format_timestamp(claims.issued_at),
+                "expires_at": _format_timestamp(claims.expires_at),
+                "expired": claims.is_expired(),
+                "days_remaining": remaining // SECONDS_PER_DAY if remaining is not None else None,
+            }
+        )
 
     # A user token carries no expiry to inspect, and an orphaned one (issued under a
     # replaced key) still looks present while every call fails. Only a live call can
@@ -339,7 +350,11 @@ def cmd_create(args: Any) -> int:
     client = _get_client(args)
     preset = PRESETS[args.preset]
     name = getattr(args, "name", None) or preset["name"]
-    desc = args.description if getattr(args, "description", None) is not None else preset["description"]
+    desc = (
+        args.description
+        if getattr(args, "description", None) is not None
+        else preset["description"]
+    )
     config = PlaylistCreationConfig(
         name=name,
         description=desc,
@@ -366,7 +381,9 @@ def cmd_create(args: Any) -> int:
 @app.argument("--user-token", help="Music user token (overrides credentials.ini / env)")
 @app.argument("--out", help=HELP_JSON_OUT)
 @app.argument("--pretty", action="store_true", help=HELP_PRETTY_JSON)
-@app.argument("--keep", choices=["latest", "first"], default="latest", help="Which duplicate to keep")
+@app.argument(
+    "--keep", choices=["latest", "first"], default="latest", help="Which duplicate to keep"
+)
 @app.argument("--delete", action="store_true", help="Delete duplicates (default: plan only)")
 @app.argument("--playlist-limit", type=int, help="Maximum playlists to fetch")
 def cmd_dedupe(args: Any) -> int:
@@ -387,11 +404,13 @@ def cmd_dedupe(args: Any) -> int:
         sorted_pls = sorted(pls, key=_playlist_sort_key, reverse=args.keep == "latest")
         keep = sorted_pls[0]
         remove = sorted_pls[1:]
-        plan.append({
-            "name": name,
-            "keep": keep.get("id"),
-            "remove": [p.get("id") for p in remove],
-        })
+        plan.append(
+            {
+                "name": name,
+                "keep": keep.get("id"),
+                "remove": [p.get("id") for p in remove],
+            }
+        )
         if do_delete:
             deleted.extend(_delete_duplicate_playlists(client, remove))
 

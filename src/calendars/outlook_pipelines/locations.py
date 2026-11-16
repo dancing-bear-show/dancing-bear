@@ -4,12 +4,12 @@ from core.cli_errors import NotFoundError
 from core.outlook.models import UpdateEventLocationRequest
 
 from ._base import (
+    LOG_DRY_RUN,
+    MSG_PREVIEW_COMPLETE,
     Any,
     BaseProducer,
     DateWindowResolver,
     LocationSync,
-    LOG_DRY_RUN,
-    MSG_PREVIEW_COMPLETE,
     Path,
     RequestConsumer,
     ResultEnvelope,
@@ -26,6 +26,7 @@ ENRICHABLE_SUBJECT_PREFIXES = ("public skating", "leisure swim", "fun n fit")
 # =============================================================================
 # Outlook Locations Enrich Pipeline
 # =============================================================================
+
 
 @dataclass
 class OutlookLocationsEnrichRequest:
@@ -53,7 +54,9 @@ class CalendarNotFoundError(NotFoundError):
         super().__init__(f"Calendar not found: {calendar_name}")
 
 
-class OutlookLocationsEnrichProcessor(SafeProcessor[OutlookLocationsEnrichRequest, OutlookLocationsEnrichResult]):
+class OutlookLocationsEnrichProcessor(
+    SafeProcessor[OutlookLocationsEnrichRequest, OutlookLocationsEnrichResult]
+):
     def __init__(self, today_factory=None, enricher=None) -> None:
         self._window = DateWindowResolver(today_factory)
         self._enricher = enricher
@@ -68,15 +71,19 @@ class OutlookLocationsEnrichProcessor(SafeProcessor[OutlookLocationsEnrichReques
 
         start_iso, end_iso = self._window.resolve_year_end(payload.from_date, payload.to_date)
         from calendars.outlook_service import ListEventsRequest
-        events = svc.list_events_in_range(ListEventsRequest(
-            start_iso=start_iso,
-            end_iso=end_iso,
-            calendar_id=cal_id,
-        ))
+
+        events = svc.list_events_in_range(
+            ListEventsRequest(
+                start_iso=start_iso,
+                end_iso=end_iso,
+                calendar_id=cal_id,
+            )
+        )
 
         enricher = self._enricher
         if enricher is None:
             from calendars.locations_map import enrich_location as default_enrich
+
             enricher = default_enrich
 
         series = self._build_series_map(events or [])
@@ -115,11 +122,15 @@ class OutlookLocationsEnrichProcessor(SafeProcessor[OutlookLocationsEnrichReques
             if not new_loc or new_loc == loc:
                 continue
             if dry_run:
-                self._logs.append(f"{LOG_DRY_RUN} would update series {sid} location '{loc}' -> '{new_loc}'")
+                self._logs.append(
+                    f"{LOG_DRY_RUN} would update series {sid} location '{loc}' -> '{new_loc}'"
+                )
                 continue
             try:
                 svc.update_event_location(
-                    UpdateEventLocationRequest(event_id=sid, location_str=new_loc, calendar_id=cal_id)
+                    UpdateEventLocationRequest(
+                        event_id=sid, location_str=new_loc, calendar_id=cal_id
+                    )
                 )
                 updated += 1
                 self._logs.append(f"Updated series {sid} location -> {new_loc}")
@@ -127,17 +138,23 @@ class OutlookLocationsEnrichProcessor(SafeProcessor[OutlookLocationsEnrichReques
                 self._logs.append(f"Failed to update series {sid}: {exc}")
         return updated
 
-    def process(self, payload: OutlookLocationsEnrichRequest) -> ResultEnvelope[OutlookLocationsEnrichResult]:
+    def process(
+        self, payload: OutlookLocationsEnrichRequest
+    ) -> ResultEnvelope[OutlookLocationsEnrichResult]:
         """Override to add logs to diagnostics."""
         self._logs = []
         env = super().process(payload)
         if env.ok() and self._logs:
-            env = ResultEnvelope(status="success", payload=env.payload, diagnostics={"logs": self._logs})
+            env = ResultEnvelope(
+                status="success", payload=env.payload, diagnostics={"logs": self._logs}
+            )
         return env
 
 
 class OutlookLocationsEnrichProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookLocationsEnrichResult, diagnostics: dict[str, Any] | None) -> None:
+    def _produce_success(
+        self, payload: OutlookLocationsEnrichResult, diagnostics: dict[str, Any] | None
+    ) -> None:
         logs = (diagnostics or {}).get("logs") or []
         self.print_logs(logs)
         if payload.dry_run:
@@ -149,6 +166,7 @@ class OutlookLocationsEnrichProducer(BaseProducer):
 # =============================================================================
 # Outlook Locations Update/Apply Pipeline
 # =============================================================================
+
 
 @dataclass
 class OutlookLocationsRequest:
@@ -167,7 +185,9 @@ class OutlookLocationsResult:
     message: str
 
 
-class OutlookLocationsUpdateProcessor(SafeProcessor[OutlookLocationsRequest, OutlookLocationsResult]):
+class OutlookLocationsUpdateProcessor(
+    SafeProcessor[OutlookLocationsRequest, OutlookLocationsResult]
+):
     def __init__(self, config_loader=None) -> None:
         self._config_loader = config_loader
 
@@ -187,7 +207,9 @@ class OutlookLocationsUpdateProcessor(SafeProcessor[OutlookLocationsRequest, Out
         return OutlookLocationsResult(message=msg)
 
 
-class OutlookLocationsApplyProcessor(SafeProcessor[OutlookLocationsRequest, OutlookLocationsResult]):
+class OutlookLocationsApplyProcessor(
+    SafeProcessor[OutlookLocationsRequest, OutlookLocationsResult]
+):
     def __init__(self, config_loader=None) -> None:
         self._config_loader = config_loader
 
@@ -208,20 +230,22 @@ class OutlookLocationsApplyProcessor(SafeProcessor[OutlookLocationsRequest, Outl
 
 
 class OutlookLocationsProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookLocationsResult, diagnostics: dict[str, Any] | None) -> None:
+    def _produce_success(
+        self, payload: OutlookLocationsResult, diagnostics: dict[str, Any] | None
+    ) -> None:
         print(payload.message)
 
 
 __all__ = [
+    "OutlookLocationsApplyProcessor",
+    "OutlookLocationsEnrichProcessor",
+    "OutlookLocationsEnrichProducer",
     "OutlookLocationsEnrichRequest",
     "OutlookLocationsEnrichRequestConsumer",
     "OutlookLocationsEnrichResult",
-    "OutlookLocationsEnrichProcessor",
-    "OutlookLocationsEnrichProducer",
+    "OutlookLocationsProducer",
     "OutlookLocationsRequest",
     "OutlookLocationsRequestConsumer",
     "OutlookLocationsResult",
     "OutlookLocationsUpdateProcessor",
-    "OutlookLocationsApplyProcessor",
-    "OutlookLocationsProducer",
 ]

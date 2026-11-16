@@ -19,7 +19,13 @@ from memory.models import (
 )
 from memory.redaction import scrub
 
-__all__ = ["build_bundle", "load_bundle", "render_imported_memory", "serialize_bundle", "string_values"]
+__all__ = [
+    "build_bundle",
+    "load_bundle",
+    "render_imported_memory",
+    "serialize_bundle",
+    "string_values",
+]
 
 _SUPPORTED_FORMATS = ("yaml", "json")
 
@@ -201,9 +207,7 @@ def serialize_bundle(b: MemoryBundle, fmt: str) -> str:
     verbatim. bundle_version comes from the BUNDLE_VERSION constant.
     """
     if fmt not in _SUPPORTED_FORMATS:
-        raise ValueError(
-            f"unsupported format: {fmt!r} (expected one of {_SUPPORTED_FORMATS})"
-        )
+        raise ValueError(f"unsupported format: {fmt!r} (expected one of {_SUPPORTED_FORMATS})")
 
     payload: dict[str, Any] = {
         "bundle_version": b.bundle_version,
@@ -324,9 +328,7 @@ def load_bundle(path: str | Path) -> MemoryBundle:
         )
 
     created_at_raw = data.get("created_at")
-    created_at = (
-        _parse_timestamp(created_at_raw) if created_at_raw else datetime.now(UTC)
-    )
+    created_at = _parse_timestamp(created_at_raw) if created_at_raw else datetime.now(UTC)
 
     return MemoryBundle(
         bundle_version=bundle_version,
@@ -361,7 +363,7 @@ def render_imported_memory(
         # The parser stores nested keys as "metadata.<k>"; strip it so a
         # round-trip does not grow a prefix. Unprefixed keys were top-level.
         if key.startswith(_METADATA_PREFIX):
-            bare = key[len(_METADATA_PREFIX):]
+            bare = key[len(_METADATA_PREFIX) :]
             if bare and bare not in reserved_keys:
                 metadata[bare] = value
         elif key not in top_level_reserved:

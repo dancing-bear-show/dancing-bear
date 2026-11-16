@@ -29,11 +29,14 @@ _WORKFLOW = _ROOT / "workflows/code/review-and-fix.yaml"
 
 def _prompts(**params: str) -> dict[str, str]:
     defn = parse_workflow(str(_WORKFLOW))
-    manifest = compile_workflow(defn, project_root=_ROOT,
-                                trigger_params={"pr_number": "406", **params})
+    manifest = compile_workflow(
+        defn, project_root=_ROOT, trigger_params={"pr_number": "406", **params}
+    )
     with tempfile.TemporaryDirectory() as ws:
-        return {name: build_agent_prompt(stage, defn.name, ws)
-                for name, stage in manifest.resolved_stages.items()}
+        return {
+            name: build_agent_prompt(stage, defn.name, ws)
+            for name, stage in manifest.resolved_stages.items()
+        }
 
 
 def _flat(text: str) -> str:
@@ -140,8 +143,9 @@ class TestMergeFixWorktreesFailsClosed(unittest.TestCase):
     def test_no_match_fails_closed_without_the_self_reported_fallback(self) -> None:
         self.assertIn('detail "fixer worktree not found; cannot verify". Fail closed.', self.prompt)
         self.assertIn('Do NOT fall back to the fixer\'s "uncommitted_paths"', self.prompt)
-        self.assertNotIn("fall back to the fixer's \"uncommitted_paths\" field only as a last resort",
-                         self.prompt)
+        self.assertNotIn(
+            'fall back to the fixer\'s "uncommitted_paths" field only as a last resort', self.prompt
+        )
 
     def test_the_check_runs_as_one_bash_call(self) -> None:
         self.assertIn("shell variables do not survive between calls", self.prompt)
@@ -156,13 +160,20 @@ class TestEmptyBranchStillChecksTheWorktree(unittest.TestCase):
         self.prompt = _flat(_prompts()["merge-fix-worktrees"])
 
     def test_check_runs_for_every_fixer_including_an_empty_branch(self) -> None:
-        self.assertIn("Run that check for EVERY fixer, whatever this step found — an empty branch included.",
-                      self.prompt)
-        self.assertIn("When the branch is empty AND the check is clean, record a no-op", self.prompt)
+        self.assertIn(
+            "Run that check for EVERY fixer, whatever this step found — an empty branch included.",
+            self.prompt,
+        )
+        self.assertIn(
+            "When the branch is empty AND the check is clean, record a no-op", self.prompt
+        )
         self.assertNotIn("Record it as a no-op, skip the merge, and CONTINUE.", self.prompt)
 
     def test_no_op_requires_a_clean_worktree(self) -> None:
-        self.assertIn('an empty branch with a dirty or unverifiable worktree goes in "uncommitted"', self.prompt)
+        self.assertIn(
+            'an empty branch with a dirty or unverifiable worktree goes in "uncommitted"',
+            self.prompt,
+        )
 
 
 class TestMergeFixWorktreesBranchNeverTyped(unittest.TestCase):
@@ -173,16 +184,21 @@ class TestMergeFixWorktreesBranchNeverTyped(unittest.TestCase):
         self.prompt = _flat(_prompts()["merge-fix-worktrees"])
 
     def test_no_git_command_takes_the_raw_placeholder(self) -> None:
-        for raw in ("--is-ancestor <PRE_FIX_SHA> <branch>", "<PRE_FIX_SHA>..<branch>",
-                    "git merge --no-ff <branch>"):
+        for raw in (
+            "--is-ancestor <PRE_FIX_SHA> <branch>",
+            "<PRE_FIX_SHA>..<branch>",
+            "git merge --no-ff <branch>",
+        ):
             with self.subTest(raw=raw):
                 self.assertNotIn(raw, self.prompt)
 
     def test_every_consumer_validates_and_quotes_the_full_ref(self) -> None:
-        for cmd in ('git merge-base --is-ancestor <PRE_FIX_SHA> "refs/heads/$BRANCH"',
-                    'git log --oneline <PRE_FIX_SHA>.."refs/heads/$BRANCH"',
-                    'git rev-parse --verify -q "refs/heads/$BRANCH^{commit}"',
-                    'git merge --no-ff "$WANT"'):
+        for cmd in (
+            'git merge-base --is-ancestor <PRE_FIX_SHA> "refs/heads/$BRANCH"',
+            'git log --oneline <PRE_FIX_SHA>.."refs/heads/$BRANCH"',
+            'git rev-parse --verify -q "refs/heads/$BRANCH^{commit}"',
+            'git merge --no-ff "$WANT"',
+        ):
             with self.subTest(cmd=cmd):
                 self.assertIn(cmd, self.prompt)
         self.assertEqual(self.prompt.count('git check-ref-format --branch "$BRANCH"'), 4)
@@ -197,11 +213,14 @@ def _bash_block(workspace: str, marker: str) -> str:
     """The merge-fix-worktrees Bash block containing *marker*, as rendered."""
     defn = parse_workflow(str(_WORKFLOW))
     manifest = compile_workflow(defn, project_root=_ROOT, trigger_params={"pr_number": "406"})
-    prompt = build_agent_prompt(manifest.resolved_stages["merge-fix-worktrees"], defn.name, workspace)
+    prompt = build_agent_prompt(
+        manifest.resolved_stages["merge-fix-worktrees"], defn.name, workspace
+    )
     chunk = next(c for c in prompt.split("Bash tool: ") if marker in c)
     block = chunk[: chunk.index('echo "EXIT=$?"') + len('echo "EXIT=$?"')]
     return "\n".join(line.strip() for line in block.splitlines()).replace(
-        "<fixer result file>", "r.json")
+        "<fixer result file>", "r.json"
+    )
 
 
 @unittest.skipUnless(all(map(shutil.which, ("git", "jq", "bash"))), "needs git, jq and bash")
@@ -220,7 +239,9 @@ class TestWorktreeCheckBlockExecutes(unittest.TestCase):
         self.wt = root / "wt dir"
         self._git("init", "-q", str(self.repo))
         self._git("-C", str(self.repo), "commit", "-q", "--allow-empty", "-m", "i")
-        self._git("-C", str(self.repo), "worktree", "add", "-q", "-b", "worktree-agent-abc", str(self.wt))
+        self._git(
+            "-C", str(self.repo), "worktree", "add", "-q", "-b", "worktree-agent-abc", str(self.wt)
+        )
         listing = self._git("-C", str(self.repo), "worktree", "list", "--porcelain", "-z")
         (self.ws / "validation/worktree-list.txt").write_bytes(listing)
         self.block = _worktree_check_block(str(self.ws))
@@ -290,11 +311,17 @@ class TestMergeBlockBindsToRecordedHead(unittest.TestCase):
 
     def _run(self, head_commit: object) -> subprocess.CompletedProcess[str]:
         (self.ws / "outputs/fix/r.json").write_text(
-            json.dumps({"branch": "worktree-agent-abc", "head_commit": head_commit}))
+            json.dumps({"branch": "worktree-agent-abc", "head_commit": head_commit})
+        )
         argv = [str(shutil.which("bash")), "-c", self.block]
-        env = {"PATH": os.environ.get("PATH", ""), "HOME": os.environ.get("HOME", ""),
-               "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
-               "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+        env = {
+            "PATH": os.environ.get("PATH", ""),
+            "HOME": os.environ.get("HOME", ""),
+            "GIT_AUTHOR_NAME": "t",
+            "GIT_AUTHOR_EMAIL": "t@t",
+            "GIT_COMMITTER_NAME": "t",
+            "GIT_COMMITTER_EMAIL": "t@t",
+        }
         return subprocess.run(argv, cwd=self.repo, env=env, capture_output=True, text=True)  # nosec B603 - runs the workflow's own rendered block in a temp repo
 
     def test_matching_head_is_merged(self) -> None:

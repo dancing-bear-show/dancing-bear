@@ -4,6 +4,7 @@ Production implementor of the CalendarProvider Protocol backed by the
 Microsoft Graph API via OutlookCalendarMixin.  Dependency-injected so
 tests can pass a fake service without touching the network.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -15,7 +16,7 @@ from calendars.outlook_pipelines.export import (
     _convert_one_off,
     _reverse_recurrence,
 )
-from core.outlook.models import EventCreationParams, RecurringEventCreationParams, ListEventsRequest
+from core.outlook.models import EventCreationParams, ListEventsRequest, RecurringEventCreationParams
 
 
 def _collect_exdates(occurrences: list[dict[str, Any]]) -> list[str]:
@@ -23,11 +24,7 @@ def _collect_exdates(occurrences: list[dict[str, Any]]) -> list[str]:
     exdates: list[str] = []
     for occ in occurrences:
         if occ.get("isCancelled") or (occ.get("type") or "").lower() == "exceptionoccurrence":
-            st = (
-                occ.get("originalStart")
-                or (occ.get("start") or {}).get("dateTime")
-                or ""
-            )
+            st = occ.get("originalStart") or (occ.get("start") or {}).get("dateTime") or ""
             date_only = st.split("T", 1)[0] if "T" in st else st
             if date_only:
                 exdates.append(date_only)
@@ -91,7 +88,9 @@ class OutlookCalendarProvider:
         self.skipped = []
         start_iso, end_iso = date_range
         raw_events = self.svc.list_events_in_range(
-            ListEventsRequest(start_iso=start_iso, end_iso=end_iso, calendar_name=self.calendar_name)
+            ListEventsRequest(
+                start_iso=start_iso, end_iso=end_iso, calendar_name=self.calendar_name
+            )
         )
 
         one_offs, by_master = self._partition_events(raw_events or [])
@@ -139,7 +138,9 @@ class OutlookCalendarProvider:
 
         master = self.svc.get_event(master_id)
         if master is None:
-            self.skipped.append({"seriesMasterId": master_id, "subject": subject, "reason": "orphaned_master"})
+            self.skipped.append(
+                {"seriesMasterId": master_id, "subject": subject, "reason": "orphaned_master"}
+            )
             return None
 
         plan_ev = self._reverse_series_master(master_id, subject, master)
@@ -162,31 +163,39 @@ class OutlookCalendarProvider:
         ptype = ptype_raw.lower()
 
         if ptype not in _SUPPORTED_PATTERNS:
-            self.skipped.append({
-                "seriesMasterId": master_id,
-                "subject": subject,
-                "pattern_type": ptype_raw,
-                "reason": "unsupported_pattern",
-            })
+            self.skipped.append(
+                {
+                    "seriesMasterId": master_id,
+                    "subject": subject,
+                    "pattern_type": ptype_raw,
+                    "reason": "unsupported_pattern",
+                }
+            )
             return None
 
         if "interval" not in pattern:
-            self.skipped.append({"seriesMasterId": master_id, "subject": subject, "reason": "missing_interval"})
+            self.skipped.append(
+                {"seriesMasterId": master_id, "subject": subject, "reason": "missing_interval"}
+            )
             return None
 
         try:
             plan_ev = _reverse_recurrence(master, self.svc)
         except ValueError as exc:
-            self.skipped.append({"seriesMasterId": master_id, "subject": subject, "reason": str(exc)})
+            self.skipped.append(
+                {"seriesMasterId": master_id, "subject": subject, "reason": str(exc)}
+            )
             return None
 
         if plan_ev is None:
-            self.skipped.append({
-                "seriesMasterId": master_id,
-                "subject": subject,
-                "pattern_type": ptype_raw,
-                "reason": "unsupported_pattern",
-            })
+            self.skipped.append(
+                {
+                    "seriesMasterId": master_id,
+                    "subject": subject,
+                    "pattern_type": ptype_raw,
+                    "reason": "unsupported_pattern",
+                }
+            )
             return None
 
         return plan_ev

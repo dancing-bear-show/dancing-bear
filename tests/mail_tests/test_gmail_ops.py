@@ -11,18 +11,21 @@ class TestMessageQueryParams(unittest.TestCase):
 
     def test_required_fields(self):
         from mail.utils.gmail_ops import MessageQueryParams
+
         params = MessageQueryParams(query="is:unread", pages=2)
         self.assertEqual(params.query, "is:unread")
         self.assertEqual(params.pages, 2)
 
     def test_optional_fields_default_to_none(self):
         from mail.utils.gmail_ops import MessageQueryParams
+
         params = MessageQueryParams(query="label:inbox", pages=1)
         self.assertIsNone(params.max_msgs)
         self.assertIsNone(params.page_size)
 
     def test_optional_fields_set(self):
         from mail.utils.gmail_ops import MessageQueryParams
+
         params = MessageQueryParams(query="from:me", pages=3, max_msgs=50, page_size=100)
         self.assertEqual(params.max_msgs, 50)
         self.assertEqual(params.page_size, 100)
@@ -33,6 +36,7 @@ class TestClipIds(unittest.TestCase):
 
     def _clip(self, ids, max_msgs):
         from mail.utils.gmail_ops import _clip_ids
+
         return _clip_ids(ids, max_msgs)
 
     def test_within_limit_returns_same_list(self):
@@ -80,6 +84,7 @@ class TestListMessageIds(unittest.TestCase):
 
     def test_happy_path_returns_ids(self):
         from mail.utils.gmail_ops import MessageQueryParams, list_message_ids
+
         client = self._make_client(["m1", "m2", "m3"])
         params = MessageQueryParams(query="is:unread", pages=1)
         result = list_message_ids(client, params)
@@ -87,6 +92,7 @@ class TestListMessageIds(unittest.TestCase):
 
     def test_calls_client_with_correct_args(self):
         from mail.utils.gmail_ops import MessageQueryParams, list_message_ids
+
         client = self._make_client([])
         params = MessageQueryParams(query="label:work", pages=2, page_size=100)
         list_message_ids(client, params)
@@ -98,6 +104,7 @@ class TestListMessageIds(unittest.TestCase):
 
     def test_default_page_size_500_when_none(self):
         from mail.utils.gmail_ops import MessageQueryParams, list_message_ids
+
         client = self._make_client([])
         params = MessageQueryParams(query="from:me", pages=1)
         list_message_ids(client, params)
@@ -109,6 +116,7 @@ class TestListMessageIds(unittest.TestCase):
 
     def test_clips_to_max_msgs(self):
         from mail.utils.gmail_ops import MessageQueryParams, list_message_ids
+
         client = self._make_client(["a", "b", "c", "d", "e"])
         params = MessageQueryParams(query="is:read", pages=1, max_msgs=3)
         result = list_message_ids(client, params)
@@ -116,6 +124,7 @@ class TestListMessageIds(unittest.TestCase):
 
     def test_no_clip_when_max_msgs_none(self):
         from mail.utils.gmail_ops import MessageQueryParams, list_message_ids
+
         ids = ["a", "b", "c", "d", "e"]
         client = self._make_client(ids)
         params = MessageQueryParams(query="label:all", pages=1)
@@ -124,6 +133,7 @@ class TestListMessageIds(unittest.TestCase):
 
     def test_empty_result_from_client(self):
         from mail.utils.gmail_ops import MessageQueryParams, list_message_ids
+
         client = self._make_client([])
         params = MessageQueryParams(query="nothing", pages=1)
         result = list_message_ids(client, params)
@@ -141,6 +151,7 @@ class TestFetchMessagesWithMetadata(unittest.TestCase):
 
     def test_returns_ids_and_metadata(self):
         from mail.utils.gmail_ops import MessageQueryParams, fetch_messages_with_metadata
+
         meta = [{"id": "m1", "snippet": "hello"}, {"id": "m2", "snippet": "world"}]
         client = self._make_client(["m1", "m2"], meta)
         params = MessageQueryParams(query="is:unread", pages=1)
@@ -150,6 +161,7 @@ class TestFetchMessagesWithMetadata(unittest.TestCase):
 
     def test_calls_get_messages_metadata_with_ids(self):
         from mail.utils.gmail_ops import MessageQueryParams, fetch_messages_with_metadata
+
         client = self._make_client(["x1", "x2"], [])
         params = MessageQueryParams(query="from:test", pages=1)
         fetch_messages_with_metadata(client, params)
@@ -157,6 +169,7 @@ class TestFetchMessagesWithMetadata(unittest.TestCase):
 
     def test_clips_before_fetching_metadata(self):
         from mail.utils.gmail_ops import MessageQueryParams, fetch_messages_with_metadata
+
         all_ids = ["a", "b", "c", "d", "e"]
         clipped_meta = [{"id": "a"}, {"id": "b"}]
         client = self._make_client(all_ids, clipped_meta)
@@ -168,6 +181,7 @@ class TestFetchMessagesWithMetadata(unittest.TestCase):
 
     def test_empty_results(self):
         from mail.utils.gmail_ops import MessageQueryParams, fetch_messages_with_metadata
+
         client = self._make_client([], [])
         params = MessageQueryParams(query="nothing", pages=1)
         ids, messages = fetch_messages_with_metadata(client, params)

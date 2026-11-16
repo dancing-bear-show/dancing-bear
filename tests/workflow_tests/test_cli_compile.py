@@ -21,7 +21,6 @@ from workflow.cli_compile import (
     _write_once,
 )
 
-
 # ---------------------------------------------------------------------------
 # Minimal YAML fixture
 # ---------------------------------------------------------------------------
@@ -228,8 +227,18 @@ class TestRenderCompileOutput(unittest.TestCase):
                 {"group": 1, "stages": "propose", "parallelism": 1},
             ],
             "resolutions": [
-                {"stage": "gather", "template_resolved": False, "guide_resolved": False, "cli_commands": 0},
-                {"stage": "propose", "template_resolved": False, "guide_resolved": False, "cli_commands": 0},
+                {
+                    "stage": "gather",
+                    "template_resolved": False,
+                    "guide_resolved": False,
+                    "cli_commands": 0,
+                },
+                {
+                    "stage": "propose",
+                    "template_resolved": False,
+                    "guide_resolved": False,
+                    "cli_commands": 0,
+                },
             ],
             "contract_warnings_detail": [],
         }
@@ -444,9 +453,11 @@ class TestCmdCompile(unittest.TestCase):
             args = _make_args(path=path, format="json", no_cache=False)
             out = io.StringIO()
             # Patch _try_read_cached_compile to return our cached payload
-            with patch("workflow.cli_compile._try_read_cached_compile", return_value=cached_payload), \
-                 patch("sys.stdout", out), \
-                 patch("sys.stderr", io.StringIO()):
+            with (
+                patch("workflow.cli_compile._try_read_cached_compile", return_value=cached_payload),
+                patch("sys.stdout", out),
+                patch("sys.stderr", io.StringIO()),
+            ):
                 rc = _cmd_compile(args)
             self.assertEqual(rc, 0)
             data = json.loads(out.getvalue())
@@ -457,9 +468,11 @@ class TestCmdCompile(unittest.TestCase):
             path = str(_write_yaml(tmp_dir, _MINIMAL_YAML))
             args = _make_args(path=path, format="json", no_cache=True)
             out = io.StringIO()
-            with patch("workflow.cli_compile._try_read_cached_compile") as mock_cache, \
-                 patch("sys.stdout", out), \
-                 patch("sys.stderr", io.StringIO()):
+            with (
+                patch("workflow.cli_compile._try_read_cached_compile") as mock_cache,
+                patch("sys.stdout", out),
+                patch("sys.stderr", io.StringIO()),
+            ):
                 rc = _cmd_compile(args)
             # _try_read_cached_compile should not be called when no_cache=True
             mock_cache.assert_not_called()
@@ -481,16 +494,16 @@ class TestCmdCompile(unittest.TestCase):
             args = _make_args(path=path, format="json", no_cache=True)
             written_paths = []
 
-            __import__(
-                "workflow.cli_compile", fromlist=["_write_once"]
-            )._write_once
+            __import__("workflow.cli_compile", fromlist=["_write_once"])._write_once
 
             def capture_write(p, content):
                 written_paths.append(p)
 
-            with patch("workflow.cli_compile._write_once", side_effect=capture_write), \
-                 patch("sys.stdout", io.StringIO()), \
-                 patch("sys.stderr", io.StringIO()):
+            with (
+                patch("workflow.cli_compile._write_once", side_effect=capture_write),
+                patch("sys.stdout", io.StringIO()),
+                patch("sys.stderr", io.StringIO()),
+            ):
                 _cmd_compile(args)
 
             self.assertEqual(len(written_paths), 1)
@@ -500,8 +513,10 @@ class TestCmdCompile(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = str(_write_yaml(tmp_dir, _MINIMAL_YAML))
             args = _make_args(path=path, format="json", no_cache=True)
-            with patch("pathlib.Path.read_bytes", side_effect=OSError("disk error")), \
-                 patch("sys.stderr", io.StringIO()):
+            with (
+                patch("pathlib.Path.read_bytes", side_effect=OSError("disk error")),
+                patch("sys.stderr", io.StringIO()),
+            ):
                 rc = _cmd_compile(args)
             self.assertEqual(rc, 1)
 
@@ -530,13 +545,13 @@ _CONDITIONAL_YAML = (
     "    description: Fast branch\n"
     "    agent:\n"
     "      role: doc-writer\n"
-    "    when: '\"{mode}\" contains \"fast\"'\n"
+    '    when: \'"{mode}" contains "fast"\'\n'
     "  - name: slow-path\n"
     "    kind: execute\n"
     "    description: Slow branch\n"
     "    agent:\n"
     "      role: doc-writer\n"
-    "    when: '\"{mode}\" does not contain \"fast\"'\n"
+    '    when: \'"{mode}" does not contain "fast"\'\n'
 )
 
 
@@ -630,10 +645,7 @@ class TestSwarmPathContract(unittest.TestCase):
         if not path.exists():  # pragma: no cover - workflow renamed or removed
             self.skipTest(f"{rel_path} not present")
         payload = _build_compile_payload(str(path))
-        return [
-            r for r in payload["resolutions"]
-            if r.get("when") and "pr_size" in r["when"]
-        ]
+        return [r for r in payload["resolutions"] if r.get("when") and "pr_size" in r["when"]]
 
     def _running(self, rel_path: str):
         stages = self._pr_size_stages(rel_path)
@@ -664,9 +676,7 @@ class TestSwarmPathContract(unittest.TestCase):
         ):
             with self.subTest(workflow=rel):
                 stages = self._pr_size_stages(rel)
-                consolidated = [
-                    r for r in stages if r["stage"].endswith("review-consolidated")
-                ]
+                consolidated = [r for r in stages if r["stage"].endswith("review-consolidated")]
                 fanned = [r for r in stages if r not in consolidated]
                 self.assertTrue(consolidated, "no consolidated stage found")
                 c_runs = any(r["will_run"] for r in consolidated)
@@ -799,13 +809,13 @@ class TestManifestHonoursParamOverrides(unittest.TestCase):
         "    description: fast\n"
         "    agent:\n"
         "      role: doc-writer\n"
-        "    when: '\"{mode}\" contains \"fast\"'\n"
+        '    when: \'"{mode}" contains "fast"\'\n'
         "  - name: slow-path\n"
         "    kind: execute\n"
         "    description: slow\n"
         "    agent:\n"
         "      role: doc-writer\n"
-        "    when: '\"{mode}\" does not contain \"fast\"'\n"
+        '    when: \'"{mode}" does not contain "fast"\'\n'
     )
 
     def _running(self, overrides=None):

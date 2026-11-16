@@ -15,8 +15,8 @@ from maker.pipeline import (
     ToolRequest,
     ToolRequestConsumer,
     ToolResult,
-    ToolRunnerProcessor,
     ToolResultProducer,
+    ToolRunnerProcessor,
     ToolSpec,
 )
 from tests.fixtures import repo_root
@@ -71,7 +71,9 @@ class MakerPipelineTests(TestCase):
 
     # ToolSpec tests
     def test_tool_spec_display_row(self):
-        spec = ToolSpec(relative_path=Path("card/gen_snug_variants.py"), module="maker.card.gen_snug_variants")
+        spec = ToolSpec(
+            relative_path=Path("card/gen_snug_variants.py"), module="maker.card.gen_snug_variants"
+        )
         self.assertEqual("- maker/card/gen_snug_variants.py", spec.display_row())
 
     def test_tool_spec_display_row_nested_path(self):
@@ -154,7 +156,9 @@ class MakerPipelineTests(TestCase):
     def test_tool_result_producer_non_zero_exit_code(self):
         buf = io.StringIO()
         # With BaseProducer pattern, error messages go in diagnostics and print to stderr
-        envelope = ResultEnvelope(status="error", diagnostics={"message": "[maker] test.module exited with code 2"})
+        envelope = ResultEnvelope(
+            status="error", diagnostics={"message": "[maker] test.module exited with code 2"}
+        )
         with redirect_stderr(buf):
             ToolResultProducer().produce(envelope)
         self.assertIn("test.module", buf.getvalue())
@@ -163,7 +167,9 @@ class MakerPipelineTests(TestCase):
     def test_tool_result_producer_error_with_message(self):
         buf = io.StringIO()
         # With BaseProducer pattern, error messages go in diagnostics and print to stderr
-        envelope = ResultEnvelope(status="error", diagnostics={"message": "[maker] test.module: Import failed"})
+        envelope = ResultEnvelope(
+            status="error", diagnostics={"message": "[maker] test.module: Import failed"}
+        )
         with redirect_stderr(buf):
             ToolResultProducer().produce(envelope)
         self.assertIn("Import failed", buf.getvalue())
@@ -188,6 +194,7 @@ class ToolCatalogProcessorTests(TestCase):
     def test_processor_empty_directory(self):
         """ToolCatalogProcessor handles empty directories gracefully."""
         import tempfile
+
         with tempfile.TemporaryDirectory() as tmp:
             request = ToolCatalogRequest(tools_root=Path(tmp))
             env = ToolCatalogProcessor().process(ToolCatalogRequestConsumer(request).consume())

@@ -6,12 +6,12 @@ import argparse
 import unittest
 
 from core.agentic import (
-    section,
     build_capsule,
     build_cli_tree,
     build_domain_map,
     cli_path_exists,
     list_subcommands,
+    section,
     tree_and_flow_sections,
 )
 

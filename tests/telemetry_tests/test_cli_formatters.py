@@ -1,8 +1,9 @@
 """Tests for telemetry/cli_formatters.py — pure formatting helpers."""
+
 from __future__ import annotations
 
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from core.cli_errors import CLIError
 from telemetry.cli import (
@@ -11,13 +12,12 @@ from telemetry.cli import (
     _parse_since_cli,
     _truncate_id,
 )
-
 from tests.telemetry_tests.shared_fixtures import _make_session_summary
-
 
 # ---------------------------------------------------------------------------
 # _fmt_tokens
 # ---------------------------------------------------------------------------
+
 
 class TestFmtTokens(unittest.TestCase):
     def test_small(self):
@@ -60,6 +60,7 @@ class TestFmtTokens(unittest.TestCase):
 # _fmt_duration
 # ---------------------------------------------------------------------------
 
+
 class TestFmtDuration(unittest.TestCase):
     def test_minutes_only(self):
         s = _make_session_summary()
@@ -67,8 +68,8 @@ class TestFmtDuration(unittest.TestCase):
         self.assertEqual(result, "30m")
 
     def test_hours_and_minutes(self):
-        start = datetime(2026, 4, 16, 10, 0, 0, tzinfo=timezone.utc)
-        end = datetime(2026, 4, 16, 11, 15, 0, tzinfo=timezone.utc)
+        start = datetime(2026, 4, 16, 10, 0, 0, tzinfo=UTC)
+        end = datetime(2026, 4, 16, 11, 15, 0, tzinfo=UTC)
         s = _make_session_summary()
         s.start_time = start
         s.end_time = end
@@ -90,6 +91,7 @@ class TestFmtDuration(unittest.TestCase):
 # _truncate_id
 # ---------------------------------------------------------------------------
 
+
 class TestTruncateId(unittest.TestCase):
     def test_short_id_unchanged(self):
         self.assertEqual(_truncate_id("abc"), "abc")
@@ -104,11 +106,12 @@ class TestTruncateId(unittest.TestCase):
 # _parse_since_cli
 # ---------------------------------------------------------------------------
 
+
 class TestParseSinceCli(unittest.TestCase):
     def test_valid_window_string(self):
         result = _parse_since_cli("7d")
         self.assertIsInstance(result, datetime)
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         diff = now - result
         self.assertAlmostEqual(diff.days, 7, delta=1)
 

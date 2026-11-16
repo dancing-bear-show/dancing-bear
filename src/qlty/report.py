@@ -11,8 +11,8 @@ import csv
 import io
 import json
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Optional, Sequence
 
 from .models import Finding, RuleStrategy, Scope, Tier
 from .scanner import ScanResult
@@ -23,7 +23,9 @@ _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b
 
 # Framing required by F5: qlty's per-run issue cap means a count is never
 # provably complete, so output must never claim to show everything.
-_RUN_SCOPED_NOTE = "issues visible in this run (qlty caps issues per run; not a completeness signal)"
+_RUN_SCOPED_NOTE = (
+    "issues visible in this run (qlty caps issues per run; not a completeness signal)"
+)
 
 _PATHS_EMPTY_NOTE = "0 findings in the requested paths; run without paths to scan the repo."
 
@@ -161,9 +163,7 @@ def scan_payload(result: ScanResult) -> dict:
         "degraded": result.degraded,
         "degradations": list(result.degradations),
         "duplicates_collapsed": result.duplicates_collapsed,
-        "counts_by_rule": {
-            rule: len(items) for rule, items in result.by_rule().items()
-        },
+        "counts_by_rule": {rule: len(items) for rule, items in result.by_rule().items()},
         "findings": [_finding_payload(f) for f in result.findings],
     }
 
@@ -211,9 +211,7 @@ def render_scan_markdown(result: ScanResult) -> str:
 
     lines.extend(["| rule | tier | count |", "|---|---|---|"])
     for rule, findings in result.by_rule().items():
-        lines.append(
-            f"| `{rule}` | {strategy_for(rule).tier.value} | {len(findings)} |"
-        )
+        lines.append(f"| `{rule}` | {strategy_for(rule).tier.value} | {len(findings)} |")
     return "\n".join(lines)
 
 
@@ -267,9 +265,7 @@ def _render_triage_entry(entry: TriageEntry) -> list[str]:
         lines.append("    no fix proposed: read the finding before acting.")
 
     if entry.drift_files:
-        lines.append(
-            "    candidates (module already uses a params object -- pattern drift):"
-        )
+        lines.append("    candidates (module already uses a params object -- pattern drift):")
         lines.extend(f"      {path}" for path in entry.drift_files)
         remaining = entry.count - len(entry.drift_files)
         if remaining > 0:
@@ -280,9 +276,7 @@ def _render_triage_entry(entry: TriageEntry) -> list[str]:
     return lines
 
 
-def triage_payload(
-    entries: Sequence[TriageEntry], result: ScanResult
-) -> dict:
+def triage_payload(entries: Sequence[TriageEntry], result: ScanResult) -> dict:
     return {
         "note": _RUN_SCOPED_NOTE,
         "scope": result.scope.value,
@@ -308,9 +302,7 @@ def triage_payload(
     }
 
 
-def render_triage_json(
-    entries: Sequence[TriageEntry], result: ScanResult
-) -> str:
+def render_triage_json(entries: Sequence[TriageEntry], result: ScanResult) -> str:
     return json.dumps(triage_payload(entries, result), indent=2, sort_keys=False)
 
 
@@ -334,7 +326,7 @@ def render_triage_csv(entries: Sequence[TriageEntry], result: ScanResult) -> str
 
 
 def render_rules_csv(
-    strategies: Sequence[RuleStrategy], counts: Optional[dict[str, int]] = None
+    strategies: Sequence[RuleStrategy], counts: dict[str, int] | None = None
 ) -> str:
     """One row per known rule, with live counts when a scan supplied them."""
     buf = io.StringIO()
@@ -368,23 +360,19 @@ def _no_fix_label(tier: Tier) -> str:
     return _NO_FIX_LABELS.get(tier, "no (report-only)")
 
 
-def render_triage_markdown(
-    entries: Sequence[TriageEntry], result: ScanResult
-) -> str:
+def render_triage_markdown(entries: Sequence[TriageEntry], result: ScanResult) -> str:
     lines = ["# qlty triage", ""]
     lines.extend(f"- {line}" for line in _scan_header(result))
     lines.append("")
     lines.extend(["| rule | tier | count | proposes fix |", "|---|---|---|---|"])
     for entry in entries:
         fix = "yes" if entry.proposes_fix else _no_fix_label(entry.strategy.tier)
-        lines.append(
-            f"| `{entry.rule}` | {entry.strategy.tier.value} | {entry.count} | {fix} |"
-        )
+        lines.append(f"| `{entry.rule}` | {entry.strategy.tier.value} | {entry.count} | {fix} |")
     return "\n".join(lines)
 
 
 def render_rules_text(
-    strategies: Sequence[RuleStrategy], counts: Optional[dict[str, int]] = None
+    strategies: Sequence[RuleStrategy], counts: dict[str, int] | None = None
 ) -> str:
     """List known rules, their tier, tooling, and optionally live counts."""
     lines = ["known qlty rules (Phase 1 strategy table):", ""]
@@ -400,9 +388,7 @@ def render_rules_text(
     return "\n".join(lines).rstrip()
 
 
-def rules_payload(
-    strategies: Sequence[RuleStrategy], counts: Optional[dict[str, int]] = None
-) -> dict:
+def rules_payload(strategies: Sequence[RuleStrategy], counts: dict[str, int] | None = None) -> dict:
     return {
         "rules": [
             {
@@ -421,13 +407,13 @@ def rules_payload(
 
 
 def render_rules_json(
-    strategies: Sequence[RuleStrategy], counts: Optional[dict[str, int]] = None
+    strategies: Sequence[RuleStrategy], counts: dict[str, int] | None = None
 ) -> str:
     return json.dumps(rules_payload(strategies, counts), indent=2, sort_keys=False)
 
 
 def render_rules_markdown(
-    strategies: Sequence[RuleStrategy], counts: Optional[dict[str, int]] = None
+    strategies: Sequence[RuleStrategy], counts: dict[str, int] | None = None
 ) -> str:
     header = "| rule | tier | tooling |"
     sep = "|---|---|---|"
@@ -438,9 +424,7 @@ def render_rules_markdown(
     for s in strategies:
         tooling = tooling_for(s.rule) or "none"
         if counts is not None:
-            lines.append(
-                f"| `{s.rule}` | {s.tier.value} | {counts.get(s.rule, 0)} | {tooling} |"
-            )
+            lines.append(f"| `{s.rule}` | {s.tier.value} | {counts.get(s.rule, 0)} | {tooling} |")
         else:
             lines.append(f"| `{s.rule}` | {s.tier.value} | {tooling} |")
     return "\n".join(lines)

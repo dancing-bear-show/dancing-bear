@@ -8,8 +8,8 @@ documents them as supported on every app.
 import unittest
 
 from tests.agentic_cli_contract import AgenticCLIContractMixin
-from tests.cli_separator_contract import SeparatorContractMixin
 from tests.cli_no_subcommand_contract import NoSubcommandContractMixin
+from tests.cli_separator_contract import SeparatorContractMixin
 
 
 class TestResumeAgenticCLI(AgenticCLIContractMixin, unittest.TestCase):
@@ -26,13 +26,13 @@ class TestResumeSeparatorCLI(SeparatorContractMixin, unittest.TestCase):
     APP_ID = "resume"
 
 
-
 class TestResumeNoSubcommand(NoSubcommandContractMixin, unittest.TestCase):
     """Rule A7 — the no-subcommand exit code is deliberate."""
 
     MODULE_PATH = "resume.cli.main"
     EXPECTED_RC = 0
     EXPECTED_STREAM = "stdout"
+
 
 if __name__ == "__main__":
     unittest.main()

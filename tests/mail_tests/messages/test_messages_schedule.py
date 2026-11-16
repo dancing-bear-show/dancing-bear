@@ -9,17 +9,17 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from tests.fixtures import capture_stdout
-from tests.mail_tests.fixtures import FakeGmailClient, make_args
 from mail.messages_cli.commands_reply import (
-    run_messages_reply,
-    run_messages_apply_scheduled,
-    _reply_show_plan,
     _format_points,
     _load_points_from_file,
     _reply_execute,
+    _reply_show_plan,
     _send_one_scheduled,
+    run_messages_apply_scheduled,
+    run_messages_reply,
 )
+from tests.fixtures import capture_stdout
+from tests.mail_tests.fixtures import FakeGmailClient, make_args
 
 
 def _make_messages_client():
@@ -79,7 +79,6 @@ class MessagesScheduleTests(unittest.TestCase):
             client = _make_messages_client()
 
             with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
-
                 args = make_args(
                     id="MSG1",
                     query=None,
@@ -107,7 +106,7 @@ class MessagesScheduleTests(unittest.TestCase):
 
                 self.assertEqual(rc, 0)
                 # Queue should contain one item
-                with open(os.environ["MAIL_ASSISTANT_SCHEDULE_PATH"], "r", encoding="utf-8") as fh:
+                with open(os.environ["MAIL_ASSISTANT_SCHEDULE_PATH"], encoding="utf-8") as fh:
                     data = json.loads(fh.read())
                 self.assertEqual(len(data), 1)
 
@@ -117,23 +116,24 @@ class MessagesScheduleTests(unittest.TestCase):
             # Pre-populate queue with one due item
             due = int(time.time()) - 1
             raw = base64.b64encode(b"From: a@b\nTo: c@d\n\nhi").decode("utf-8")
-            queued = [{
-                "provider": "gmail",
-                "profile": "gmail_personal",
-                "due_at": due,
-                "raw_b64": raw,
-                "thread_id": None,
-                "to": "c@d",
-                "subject": "hi",
-                "created_at": due,
-            }]
+            queued = [
+                {
+                    "provider": "gmail",
+                    "profile": "gmail_personal",
+                    "due_at": due,
+                    "raw_b64": raw,
+                    "thread_id": None,
+                    "to": "c@d",
+                    "subject": "hi",
+                    "created_at": due,
+                }
+            ]
             with open(os.environ["MAIL_ASSISTANT_SCHEDULE_PATH"], "w", encoding="utf-8") as fh:
                 fh.write(json.dumps(queued))
 
             client = _make_messages_client()
 
             with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
-
                 args = make_args(max=5, profile="gmail_personal")
 
                 with capture_stdout():
@@ -146,6 +146,7 @@ class MessagesScheduleTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _reply_show_plan: branch coverage (lines 18-26)
 # ---------------------------------------------------------------------------
+
 
 class ReplyShowPlanTests(unittest.TestCase):
     """Tests for _reply_show_plan covering all optional branches."""
@@ -209,6 +210,7 @@ class ReplyShowPlanTests(unittest.TestCase):
 # _format_points: branch coverage (lines 83-88)
 # ---------------------------------------------------------------------------
 
+
 class FormatPointsTests(unittest.TestCase):
     """Tests for _format_points."""
 
@@ -242,6 +244,7 @@ class FormatPointsTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _load_points_from_file: tests (lines 72-78)
 # ---------------------------------------------------------------------------
+
 
 class LoadPointsFromFileTests(unittest.TestCase):
     """Tests for _load_points_from_file."""
@@ -285,6 +288,7 @@ class LoadPointsFromFileTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _reply_execute: branch coverage (lines 113-134)
 # ---------------------------------------------------------------------------
+
 
 class ReplyExecuteTests(unittest.TestCase):
     """Tests for _reply_execute."""
@@ -339,6 +343,7 @@ class ReplyExecuteTests(unittest.TestCase):
 # run_messages_reply: error paths (lines 158-159, 165-166)
 # ---------------------------------------------------------------------------
 
+
 class RunMessagesReplyErrorTests(unittest.TestCase):
     """Tests for run_messages_reply sad paths."""
 
@@ -389,7 +394,9 @@ class RunMessagesReplyErrorTests(unittest.TestCase):
         client = _make_messages_client()
         with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
             # summarize_text is imported inside _build_reply_body from mail.llm_adapter
-            with patch("mail.llm_adapter.summarize_text", return_value="A short summary") as mock_summ:
+            with patch(
+                "mail.llm_adapter.summarize_text", return_value="A short summary"
+            ) as mock_summ:
                 args = _base_reply_args(include_summary=True, draft_out=None)
                 buf = io.StringIO()
                 with redirect_stdout(buf):
@@ -415,12 +422,14 @@ class RunMessagesReplyErrorTests(unittest.TestCase):
 # _reply_schedule: invalid due path (lines 44-45)
 # ---------------------------------------------------------------------------
 
+
 class ReplyScheduleTests(unittest.TestCase):
     """Tests for _reply_schedule covering the invalid due path."""
 
     def test_invalid_send_at_and_no_send_in_returns_1(self):
         # Lines 44-45: due is None after trying both send_at and send_in
         from mail.messages_cli.commands_reply import _reply_schedule
+
         args = make_args(send_at="not-a-date", send_in=None, profile=None, draft_out=None)
         raw = b"From: a@b\nTo: c@d\n\nHi"
         buf = io.StringIO()
@@ -434,6 +443,7 @@ class ReplyScheduleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             os.environ["MAIL_ASSISTANT_SCHEDULE_PATH"] = os.path.join(td, "sched.json")
             from mail.messages_cli.commands_reply import _reply_schedule
+
             args = make_args(send_at=None, send_in="gibberish", profile=None, draft_out=None)
             raw = b"From: a@b\nTo: c@d\n\nHi"
             with patch("mail.scheduler.parse_send_in", return_value=None):
@@ -448,6 +458,7 @@ class ReplyScheduleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             os.environ["MAIL_ASSISTANT_SCHEDULE_PATH"] = os.path.join(td, "sched.json")
             from mail.messages_cli.commands_reply import _reply_schedule
+
             out_path = os.path.join(td, "reply.eml")
             args = make_args(send_at=None, send_in="1s", profile="default", draft_out=out_path)
             raw = b"From: a@b\nTo: c@d\n\nHi"
@@ -462,6 +473,7 @@ class ReplyScheduleTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # _send_one_scheduled: failure path (lines 215-217)
 # ---------------------------------------------------------------------------
+
 
 class SendOneScheduledTests(unittest.TestCase):
     """Tests for _send_one_scheduled failure path."""
@@ -494,6 +506,7 @@ class SendOneScheduledTests(unittest.TestCase):
 # run_messages_apply_scheduled: no-due path (lines 238-239)
 # ---------------------------------------------------------------------------
 
+
 class ApplyScheduledNoDueTests(unittest.TestCase):
     """Tests for run_messages_apply_scheduled when nothing is due."""
 
@@ -517,16 +530,18 @@ class ApplyScheduledNoDueTests(unittest.TestCase):
             os.environ["MAIL_ASSISTANT_SCHEDULE_PATH"] = os.path.join(td, "sched.json")
             due = int(time.time()) - 1
             raw = base64.b64encode(b"From: a@b\nTo: c@d\n\nhi").decode()
-            queued = [{
-                "provider": "gmail",
-                "profile": "fail_profile",
-                "due_at": due,
-                "raw_b64": raw,
-                "thread_id": None,
-                "to": "c@d",
-                "subject": "hi",
-                "created_at": due,
-            }]
+            queued = [
+                {
+                    "provider": "gmail",
+                    "profile": "fail_profile",
+                    "due_at": due,
+                    "raw_b64": raw,
+                    "thread_id": None,
+                    "to": "c@d",
+                    "subject": "hi",
+                    "created_at": due,
+                }
+            ]
             with open(os.environ["MAIL_ASSISTANT_SCHEDULE_PATH"], "w") as f:
                 f.write(json.dumps(queued))
 

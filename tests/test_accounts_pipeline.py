@@ -1,4 +1,5 @@
 """Unit tests for the mail/accounts/pipeline_*.py modules."""
+
 import unittest
 from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
@@ -180,7 +181,9 @@ class TestSyncLabelsForAccount(unittest.TestCase):
         desired = [{"name": "NewLabel", "color": "#ff0000"}]
         existing = {}
 
-        created, updated = _sync_labels_for_account(client, desired, existing, "gmail", dry_run=False)
+        created, updated = _sync_labels_for_account(
+            client, desired, existing, "gmail", dry_run=False
+        )
 
         self.assertEqual(created, 1)
         self.assertEqual(updated, 0)
@@ -192,7 +195,9 @@ class TestSyncLabelsForAccount(unittest.TestCase):
         desired = [{"name": "NewLabel", "color": "#ff0000"}]
         existing = {}
 
-        created, updated = _sync_labels_for_account(client, desired, existing, "gmail", dry_run=True)
+        created, updated = _sync_labels_for_account(
+            client, desired, existing, "gmail", dry_run=True
+        )
 
         self.assertEqual(created, 1)
         self.assertEqual(updated, 0)
@@ -204,7 +209,9 @@ class TestSyncLabelsForAccount(unittest.TestCase):
         desired = [{"name": "ExistingLabel", "color": "#ff0000"}]
         existing = {"ExistingLabel": {"id": "id1", "name": "ExistingLabel", "color": "#00ff00"}}
 
-        created, updated = _sync_labels_for_account(client, desired, existing, "gmail", dry_run=False)
+        created, updated = _sync_labels_for_account(
+            client, desired, existing, "gmail", dry_run=False
+        )
 
         self.assertEqual(created, 0)
         self.assertEqual(updated, 1)
@@ -216,7 +223,9 @@ class TestSyncLabelsForAccount(unittest.TestCase):
         desired = [{"color": "#ff0000"}, {"name": "ValidLabel"}]
         existing = {}
 
-        created, _updated = _sync_labels_for_account(client, desired, existing, "gmail", dry_run=False)
+        created, _updated = _sync_labels_for_account(
+            client, desired, existing, "gmail", dry_run=False
+        )
 
         self.assertEqual(created, 1)
         self.assertEqual(client.create_label.call_count, 1)
@@ -225,15 +234,25 @@ class TestSyncLabelsForAccount(unittest.TestCase):
 class TestAccountsListProcessor(unittest.TestCase):
     """Test AccountsListProcessor."""
 
-    @patch('mail.accounts.helpers.load_accounts')
+    @patch("mail.accounts.helpers.load_accounts")
     def test_list_processor_success(self, mock_load_accounts):
         """Test listing accounts successfully."""
-        from mail.accounts.pipeline_list import AccountsListProcessor
         from core.pipeline import RequestConsumer
+        from mail.accounts.pipeline_list import AccountsListProcessor
 
         mock_load_accounts.return_value = [
-            {"name": "account1", "provider": "gmail", "credentials": "creds1.json", "token": "token1.json"},
-            {"name": "account2", "provider": "outlook", "credentials": "creds2.json", "token": "token2.json"},
+            {
+                "name": "account1",
+                "provider": "gmail",
+                "credentials": "creds1.json",
+                "token": "token1.json",
+            },
+            {
+                "name": "account2",
+                "provider": "outlook",
+                "credentials": "creds2.json",
+                "token": "token2.json",
+            },
         ]
 
         request = AccountsListRequest(config_path="test_config.yaml")
@@ -250,12 +269,12 @@ class TestAccountsListProcessor(unittest.TestCase):
 class TestAccountsExportLabelsProcessor(unittest.TestCase):
     """Test AccountsExportLabelsProcessor."""
 
-    @patch('core.yamlio.dump_config')
+    @patch("core.yamlio.dump_config")
     def test_export_labels_success(self, mock_dump_config):
         """Test exporting labels successfully."""
-        from mail.accounts.pipeline_list_export import AccountsExportLabelsProcessor
         from core.pipeline import RequestConsumer
         from mail.accounts.pipeline_auth import AccountAuthenticator
+        from mail.accounts.pipeline_list_export import AccountsExportLabelsProcessor
 
         # Mock authenticated accounts
         mock_client = MagicMock()
@@ -265,11 +284,13 @@ class TestAccountsExportLabelsProcessor(unittest.TestCase):
         ]
 
         with TemporaryDirectory() as tmpdir:
-            with patch.object(AccountAuthenticator, 'iter_authenticated_accounts', return_value=[({"name": "test_account"}, mock_client)]):
+            with patch.object(
+                AccountAuthenticator,
+                "iter_authenticated_accounts",
+                return_value=[({"name": "test_account"}, mock_client)],
+            ):
                 request = AccountsExportLabelsRequest(
-                    config_path="test_config.yaml",
-                    out_dir=tmpdir,
-                    accounts_filter=None
+                    config_path="test_config.yaml", out_dir=tmpdir, accounts_filter=None
                 )
                 processor = AccountsExportLabelsProcessor()
                 envelope = processor.process(RequestConsumer(request).consume())
@@ -284,19 +305,19 @@ class TestAccountsExportLabelsProcessor(unittest.TestCase):
 class TestAccountsPlanLabelsProcessor(unittest.TestCase):
     """Test AccountsPlanLabelsProcessor."""
 
-    @patch('mail.accounts.helpers.load_accounts')
-    @patch('core.yamlio.load_config')
-    @patch('mail.accounts.helpers.build_provider_for_account')
-    @patch('mail.accounts.helpers.iter_accounts')
-    def test_plan_labels_finds_new_labels(self, mock_iter, mock_build, mock_load_config, mock_load_accounts):
+    @patch("mail.accounts.helpers.load_accounts")
+    @patch("core.yamlio.load_config")
+    @patch("mail.accounts.helpers.build_provider_for_account")
+    @patch("mail.accounts.helpers.iter_accounts")
+    def test_plan_labels_finds_new_labels(
+        self, mock_iter, mock_build, mock_load_config, mock_load_accounts
+    ):
         """Test planning identifies new labels to create."""
-        from mail.accounts.pipeline_list_plan import AccountsPlanLabelsProcessor
         from core.pipeline import RequestConsumer
+        from mail.accounts.pipeline_list_plan import AccountsPlanLabelsProcessor
 
         mock_load_accounts.return_value = [{"name": "test", "provider": "gmail"}]
-        mock_load_config.return_value = {
-            "labels": [{"name": "NewLabel", "color": "#ff0000"}]
-        }
+        mock_load_config.return_value = {"labels": [{"name": "NewLabel", "color": "#ff0000"}]}
         mock_iter.return_value = [{"name": "test", "provider": "gmail"}]
 
         mock_client = MagicMock()
@@ -304,8 +325,7 @@ class TestAccountsPlanLabelsProcessor(unittest.TestCase):
         mock_build.return_value = mock_client
 
         request = AccountsPlanLabelsRequest(
-            config_path="test_config.yaml",
-            labels_path="labels.yaml"
+            config_path="test_config.yaml", labels_path="labels.yaml"
         )
         processor = AccountsPlanLabelsProcessor()
         envelope = processor.process(RequestConsumer(request).consume())
@@ -320,14 +340,16 @@ class TestAccountsPlanLabelsProcessor(unittest.TestCase):
 class TestAccountsPlanFiltersProcessor(unittest.TestCase):
     """Test AccountsPlanFiltersProcessor."""
 
-    @patch('mail.accounts.helpers.load_accounts')
-    @patch('core.yamlio.load_config')
-    @patch('mail.accounts.helpers.build_provider_for_account')
-    @patch('mail.accounts.helpers.iter_accounts')
-    def test_plan_filters_unsupported_provider(self, mock_iter, mock_build, mock_load_config, mock_load_accounts):
+    @patch("mail.accounts.helpers.load_accounts")
+    @patch("core.yamlio.load_config")
+    @patch("mail.accounts.helpers.build_provider_for_account")
+    @patch("mail.accounts.helpers.iter_accounts")
+    def test_plan_filters_unsupported_provider(
+        self, mock_iter, mock_build, mock_load_config, mock_load_accounts
+    ):
         """Test planning for unsupported provider."""
-        from mail.accounts.pipeline_list_plan import AccountsPlanFiltersProcessor
         from core.pipeline import RequestConsumer
+        from mail.accounts.pipeline_list_plan import AccountsPlanFiltersProcessor
 
         mock_load_accounts.return_value = [{"name": "test", "provider": "unsupported"}]
         mock_load_config.return_value = {"filters": []}
@@ -338,8 +360,7 @@ class TestAccountsPlanFiltersProcessor(unittest.TestCase):
         mock_build.return_value = mock_client
 
         request = AccountsPlanFiltersRequest(
-            config_path="test_config.yaml",
-            filters_path="filters.yaml"
+            config_path="test_config.yaml", filters_path="filters.yaml"
         )
         processor = AccountsPlanFiltersProcessor()
         envelope = processor.process(RequestConsumer(request).consume())

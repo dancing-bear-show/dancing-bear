@@ -7,25 +7,17 @@ Extracted from docx_sidebar. Provides:
   - write_resume_docx_sidebar: backward-compatible function
   - SidebarResumeWriter: two-column sidebar layout writer class
 """
+
 from __future__ import annotations
 
 from typing import Any
 
-from docx.shared import Pt, Inches, RGBColor
 from docx.enum.table import WD_TABLE_ALIGNMENT
+from docx.shared import Inches, Pt, RGBColor
 
 from .docx_base import ResumeWriterBase
-from .docx_standard import _seed_keywords
 from .docx_bullets import bold_text_in_paragraph
 from .docx_links import add_hyperlink, display_url, normalize_link_url
-from .schema import ExperienceEntry, PriorityItem, Presentation, Project, Resume, _Item
-from .docx_styles import (
-    TextFormatter,
-    _apply_paragraph_shading,
-    _parse_hex_color,
-    _tight_paragraph,
-)
-from .render_config import CenteredHeaderLineStyle, IndentedRunStyle
 from .docx_sidebar_cells import (
     _add_indented_run,
     _remove_cell_borders,
@@ -34,6 +26,15 @@ from .docx_sidebar_cells import (
     _render_sidebar_section,
     _set_cell_shading,
 )
+from .docx_standard import _seed_keywords
+from .docx_styles import (
+    TextFormatter,
+    _apply_paragraph_shading,
+    _parse_hex_color,
+    _tight_paragraph,
+)
+from .render_config import CenteredHeaderLineStyle, IndentedRunStyle
+from .schema import ExperienceEntry, Presentation, PriorityItem, Project, Resume, _Item
 
 
 def _add_colored_bullet_run(p, bullet_color: str) -> None:
@@ -78,7 +79,7 @@ def _item_text(item: _Item) -> str:
     return str(getattr(item, primary, "") or "")
 
 
-def _render_main_education(cell, resume: Resume, page_cfg: dict[str, Any], sec: dict[str, Any] | None = None) -> None:  # nosec - sec kept for API compatibility
+def _render_main_education(cell, resume: Resume, page_cfg: dict[str, Any], sec: dict[str, Any] | None = None) -> None:  # nosec - sec kept for API compatibility  # fmt: skip
     """Render education in main column."""
     bullet_color = page_cfg.get("main_bullet_color", "#4A90A4")
 
@@ -97,7 +98,9 @@ def _render_main_education(cell, resume: Resume, page_cfg: dict[str, Any], sec: 
         _render_edu_meta(cell, institution, year, page_cfg)
 
 
-def _render_exp_entry(cell, exp: ExperienceEntry, page_cfg: dict[str, Any], bullet_color: str, max_bullets: int) -> None:
+def _render_exp_entry(
+    cell, exp: ExperienceEntry, page_cfg: dict[str, Any], bullet_color: str, max_bullets: int
+) -> None:
     """Render a single experience entry."""
     title = exp.title
     company = exp.company
@@ -144,7 +147,9 @@ def _render_exp_entry(cell, exp: ExperienceEntry, page_cfg: dict[str, Any], bull
         _tight_paragraph(p3, after_pt=1)
 
 
-def _render_main_experience(cell, resume: Resume, page_cfg: dict[str, Any], sec: dict[str, Any]) -> None:
+def _render_main_experience(
+    cell, resume: Resume, page_cfg: dict[str, Any], sec: dict[str, Any]
+) -> None:
     """Render experience in main column."""
     bullet_color = page_cfg.get("main_bullet_color", "#4A90A4")
     max_bullets = sec.get("recent_max_bullets", 3)
@@ -152,7 +157,7 @@ def _render_main_experience(cell, resume: Resume, page_cfg: dict[str, Any], sec:
         _render_exp_entry(cell, exp, page_cfg, bullet_color, max_bullets)
 
 
-def _render_main_teaching(cell, resume: Resume, page_cfg: dict[str, Any], sec: dict[str, Any] | None = None) -> None:  # nosec - sec kept for API compatibility
+def _render_main_teaching(cell, resume: Resume, page_cfg: dict[str, Any], sec: dict[str, Any] | None = None) -> None:  # nosec - sec kept for API compatibility  # fmt: skip
     """Render teaching in main column (uppercase titles with institution below)."""
     teaching = resume.teaching
 
@@ -183,7 +188,9 @@ def _render_main_teaching(cell, resume: Resume, page_cfg: dict[str, Any], sec: d
             _tight_paragraph(p2, after_pt=6)
 
 
-def _render_pres_entry(cell, pres: Presentation, page_cfg: dict[str, Any], bullet_color: str) -> None:
+def _render_pres_entry(
+    cell, pres: Presentation, page_cfg: dict[str, Any], bullet_color: str
+) -> None:
     """Render a single presentation entry."""
     title = pres.title
     authors = pres.authors
@@ -197,11 +204,21 @@ def _render_pres_entry(cell, pres: Presentation, page_cfg: dict[str, Any], bulle
     title_run.font.size = Pt(page_cfg.get("body_pt", 10))
     _tight_paragraph(p, after_pt=0)
 
-    p2 = _add_indented_run(cell, authors, page_cfg, IndentedRunStyle(italic=True)) if authors else None
-    p3 = _add_indented_run(cell, event, page_cfg, IndentedRunStyle(size_offset=-1, color="#888888")) if event else None
+    p2 = (
+        _add_indented_run(cell, authors, page_cfg, IndentedRunStyle(italic=True))
+        if authors
+        else None
+    )
+    p3 = (
+        _add_indented_run(cell, event, page_cfg, IndentedRunStyle(size_offset=-1, color="#888888"))
+        if event
+        else None
+    )
 
     if note:
-        _add_indented_run(cell, note, page_cfg, IndentedRunStyle(italic=True, size_offset=-1, after_pt=4))
+        _add_indented_run(
+            cell, note, page_cfg, IndentedRunStyle(italic=True, size_offset=-1, after_pt=4)
+        )
     else:
         if p3:
             p3.paragraph_format.space_after = Pt(4)
@@ -209,14 +226,16 @@ def _render_pres_entry(cell, pres: Presentation, page_cfg: dict[str, Any], bulle
             p2.paragraph_format.space_after = Pt(4)
 
 
-def _render_main_presentations(cell, resume: Resume, page_cfg: dict[str, Any], sec: dict[str, Any] | None = None) -> None:  # nosec - sec kept for API compatibility
+def _render_main_presentations(cell, resume: Resume, page_cfg: dict[str, Any], sec: dict[str, Any] | None = None) -> None:  # nosec - sec kept for API compatibility  # fmt: skip
     """Render presentations/publications in main column."""
     bullet_color = page_cfg.get("main_bullet_color", "#4A90A4")
     for pres in resume.presentations:
         _render_pres_entry(cell, pres, page_cfg, bullet_color)
 
 
-def _render_proj_bullets(cell, bullets: list[PriorityItem], keywords: list[str] | None, body_pt: float) -> None:
+def _render_proj_bullets(
+    cell, bullets: list[PriorityItem], keywords: list[str] | None, body_pt: float
+) -> None:
     """Render normalised, keyword-bolded bullet paragraphs for a project entry."""
     for b in bullets:
         text = TextFormatter.normalize_bullet(str(b.text or "").strip())
@@ -270,10 +289,15 @@ def _render_proj_entry(
 
     tech = str(proj.tech or "").strip()
     if tech:
-        _add_indented_run(cell, f"Tech: {tech}", page_cfg, IndentedRunStyle(italic=True, size_offset=-1, after_pt=4))
+        _add_indented_run(
+            cell,
+            f"Tech: {tech}",
+            page_cfg,
+            IndentedRunStyle(italic=True, size_offset=-1, after_pt=4),
+        )
 
 
-def _render_main_projects(cell, resume: Resume, page_cfg: dict[str, Any], sec: dict[str, Any] | None = None, keywords: list[str] | None = None) -> None:  # nosec - sec kept for API compatibility
+def _render_main_projects(cell, resume: Resume, page_cfg: dict[str, Any], sec: dict[str, Any] | None = None, keywords: list[str] | None = None) -> None:  # nosec - sec kept for API compatibility  # fmt: skip
     """Render projects in main column with optional keyword bolding."""
     bullet_color = page_cfg.get("main_bullet_color", "#4A90A4")
     for proj in resume.projects:
@@ -322,20 +346,16 @@ def _validate_column_width(value: Any, name: str, max_width: float | None = None
     # `sidebar_width: true` would otherwise pass validation and quietly render
     # a 1-inch column. Reject it before coercion.
     if isinstance(value, bool):
-        raise ValueError(
-            f"layout.{name} must be a number of INCHES, got boolean {value!r}"
-        )
+        raise ValueError(f"layout.{name} must be a number of INCHES, got boolean {value!r}")
     try:
         width = float(value)
     except (TypeError, ValueError):
-        raise ValueError(
-            f"layout.{name} must be a number of INCHES, got {value!r}"
-        ) from None
+        raise ValueError(f"layout.{name} must be a number of INCHES, got {value!r}") from None
     if not 0 < width <= limit:
         raise ValueError(
             f"layout.{name}={width} is out of range: expected inches in "
             f"(0, {limit:g}]. Widths are inches, not percent — the usable page "
-            f"width (page size minus margins) is {limit:g}\"."
+            f'width (page size minus margins) is {limit:g}".'
         )
     return width
 
@@ -372,7 +392,7 @@ class SidebarResumeWriter(ResumeWriterBase):
             raise ValueError(
                 f"layout.sidebar_width ({sidebar_width:g}) + layout.main_width "
                 f"({main_width:g}) = {sidebar_width + main_width:g} exceeds the "
-                f"{usable:g}\" usable page width (page size minus margins)."
+                f'{usable:g}" usable page width (page size minus margins).'
             )
         sidebar_bg = self.layout_cfg.get("sidebar_bg")
 
@@ -385,6 +405,7 @@ class SidebarResumeWriter(ResumeWriterBase):
         table.autofit = False
 
         from docx.shared import Inches as _Inches
+
         table.columns[0].width = _Inches(sidebar_width)
         table.columns[1].width = _Inches(main_width)
 
@@ -445,20 +466,28 @@ class SidebarResumeWriter(ResumeWriterBase):
         else:
             p = header.add_paragraph()
         self._render_centered_header_line(
-            p, name,
+            p,
+            name,
             CenteredHeaderLineStyle(
                 size_pt=self.page_cfg.get("sidebar_name_pt", 20),
-                color=name_color, bold=True, after_pt=0, bg_rgb=bg_rgb,
+                color=name_color,
+                bold=True,
+                after_pt=0,
+                bg_rgb=bg_rgb,
             ),
         )
 
         # Headline (centered)
         if headline:
             self._render_centered_header_line(
-                header.add_paragraph(), headline,
+                header.add_paragraph(),
+                headline,
                 CenteredHeaderLineStyle(
                     size_pt=self.page_cfg.get("sidebar_headline_pt", 10),
-                    color=text_color, bold=False, after_pt=2, bg_rgb=bg_rgb,
+                    color=text_color,
+                    bold=False,
+                    after_pt=2,
+                    bg_rgb=bg_rgb,
                 ),
             )
 
@@ -469,17 +498,19 @@ class SidebarResumeWriter(ResumeWriterBase):
         contact_parts.extend(self._collect_link_extras())
         if contact_parts:
             self._render_centered_header_line(
-                header.add_paragraph(), " | ".join(contact_parts),
+                header.add_paragraph(),
+                " | ".join(contact_parts),
                 CenteredHeaderLineStyle(
                     size_pt=self.page_cfg.get("body_pt", 10) - 1,
-                    color="#666666", bold=False, after_pt=6, bg_rgb=bg_rgb,
+                    color="#666666",
+                    bold=False,
+                    after_pt=6,
+                    bg_rgb=bg_rgb,
                 ),
             )
 
     @staticmethod
-    def _normalize_summary_items(
-        summary: list[PriorityItem], is_scalar: bool = False
-    ) -> list[str]:
+    def _normalize_summary_items(summary: list[PriorityItem], is_scalar: bool = False) -> list[str]:
         """Normalize summary to a flat list of strings.
 
         Load-time normalization already collapsed the scalar-vs-list and
@@ -505,7 +536,7 @@ class SidebarResumeWriter(ResumeWriterBase):
 
     def _render_sidebar_summary(self, cell) -> None:
         """Render summary section in sidebar."""
-        for sec in (self.template.get("sections") or []):
+        for sec in self.template.get("sections") or []:
             if sec.get("key") == "summary":
                 summary_items = self._normalize_summary_items(
                     self.resume.summary, self.resume.summary_is_scalar
@@ -516,21 +547,21 @@ class SidebarResumeWriter(ResumeWriterBase):
                         sec.get("title", "Perfil profesional"),
                         summary_items[:6],
                         self.page_cfg,
-                        bulleted=True
+                        bulleted=True,
                     )
                 break
 
     def _render_sidebar_skills(self, cell) -> None:
         """Render skills section in sidebar."""
-        for sec in (self.template.get("sections") or []):
+        for sec in self.template.get("sections") or []:
             if sec.get("key") == "skills":
                 skill_items = [
-                    _item_text(item)
-                    for group in self.resume.skills_groups
-                    for item in group.items
+                    _item_text(item) for group in self.resume.skills_groups for item in group.items
                 ]
                 if skill_items:
-                    _render_sidebar_section(cell, sec.get("title", "Habilidades claves"), skill_items[:8], self.page_cfg)
+                    _render_sidebar_section(
+                        cell, sec.get("title", "Habilidades claves"), skill_items[:8], self.page_cfg
+                    )
                 break
 
     def _render_sidebar_content(self, cell) -> None:
@@ -568,5 +599,3 @@ class SidebarResumeWriter(ResumeWriterBase):
                 renderer(cell, self.resume, self.page_cfg, sec, keywords)
             else:
                 renderer(cell, self.resume, self.page_cfg, sec)
-
-

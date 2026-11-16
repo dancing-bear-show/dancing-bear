@@ -9,38 +9,42 @@ from unittest.mock import MagicMock, patch
 
 from mail.context import MailContext
 from mail.labels.consumers import (
+    LabelsExportConsumer,
     LabelsPlanConsumer,
     LabelsSyncConsumer,
-    LabelsExportConsumer,
 )
 from mail.labels.processors import (
+    LabelsExportProcessor,
     LabelsPlanProcessor,
     LabelsSyncProcessor,
-    LabelsExportProcessor,
 )
 from mail.labels.producers import (
+    LabelsExportProducer,
     LabelsPlanProducer,
     LabelsSyncProducer,
-    LabelsExportProducer,
 )
 from tests.fixtures import capture_stdout
 from tests.mail_tests.fixtures import (
     FakeGmailClient,
     make_args,
-    make_user_label,
-    make_system_label,
-    make_success_envelope,
     make_error_envelope,
+    make_success_envelope,
+    make_system_label,
+    make_user_label,
 )
 
 
 def _make_labels_client() -> FakeGmailClient:
     """Create a FakeGmailClient with standard test labels."""
-    return FakeGmailClient(labels=[
-        make_user_label("Keep", "LBL_KEEP", color={"textColor": "#111", "backgroundColor": "#eee"}),
-        make_user_label("OldLabel", "LBL_OLD"),
-        make_system_label("INBOX"),
-    ])
+    return FakeGmailClient(
+        labels=[
+            make_user_label(
+                "Keep", "LBL_KEEP", color={"textColor": "#111", "backgroundColor": "#eee"}
+            ),
+            make_user_label("OldLabel", "LBL_OLD"),
+            make_system_label("INBOX"),
+        ]
+    )
 
 
 class LabelsPipelineTests(unittest.TestCase):
@@ -157,9 +161,11 @@ class RunLabelsCommandsTests(unittest.TestCase):
         from mail.labels import commands_plan
 
         envelope = make_success_envelope()
-        with patch.object(commands_plan, "LabelsPlanConsumer") as mock_consumer_cls, \
-                patch.object(commands_plan, "LabelsPlanProcessor") as mock_processor_cls, \
-                patch.object(commands_plan, "LabelsPlanProducer") as mock_producer_cls:
+        with (
+            patch.object(commands_plan, "LabelsPlanConsumer") as mock_consumer_cls,
+            patch.object(commands_plan, "LabelsPlanProcessor") as mock_processor_cls,
+            patch.object(commands_plan, "LabelsPlanProducer") as mock_producer_cls,
+        ):
             mock_processor_cls.return_value.process.return_value = envelope
             result = commands_plan.run_labels_plan(self._make_args())
 
@@ -172,9 +178,11 @@ class RunLabelsCommandsTests(unittest.TestCase):
         from mail.labels import commands_plan
 
         envelope = make_error_envelope()
-        with patch.object(commands_plan, "LabelsPlanConsumer"), \
-                patch.object(commands_plan, "LabelsPlanProcessor") as mock_processor_cls, \
-                patch.object(commands_plan, "LabelsPlanProducer"):
+        with (
+            patch.object(commands_plan, "LabelsPlanConsumer"),
+            patch.object(commands_plan, "LabelsPlanProcessor") as mock_processor_cls,
+            patch.object(commands_plan, "LabelsPlanProducer"),
+        ):
             mock_processor_cls.return_value.process.return_value = envelope
             result = commands_plan.run_labels_plan(self._make_args())
 
@@ -183,9 +191,11 @@ class RunLabelsCommandsTests(unittest.TestCase):
     def test_run_labels_plan_returns_1_and_prints_on_value_error(self):
         from mail.labels import commands_plan
 
-        with patch.object(commands_plan, "LabelsPlanConsumer") as mock_consumer_cls, \
-                patch.object(commands_plan, "LabelsPlanProcessor") as mock_processor_cls, \
-                patch.object(commands_plan, "LabelsPlanProducer") as mock_producer_cls:
+        with (
+            patch.object(commands_plan, "LabelsPlanConsumer") as mock_consumer_cls,
+            patch.object(commands_plan, "LabelsPlanProcessor") as mock_processor_cls,
+            patch.object(commands_plan, "LabelsPlanProducer") as mock_producer_cls,
+        ):
             mock_consumer_cls.return_value.consume.side_effect = ValueError("bad config")
             with capture_stdout() as buf:
                 result = commands_plan.run_labels_plan(self._make_args())
@@ -201,9 +211,11 @@ class RunLabelsCommandsTests(unittest.TestCase):
         from mail.labels import commands_plan
 
         envelope = make_success_envelope()
-        with patch.object(commands_plan, "LabelsExportConsumer"), \
-                patch.object(commands_plan, "LabelsExportProcessor") as mock_processor_cls, \
-                patch.object(commands_plan, "LabelsExportProducer") as mock_producer_cls:
+        with (
+            patch.object(commands_plan, "LabelsExportConsumer"),
+            patch.object(commands_plan, "LabelsExportProcessor") as mock_processor_cls,
+            patch.object(commands_plan, "LabelsExportProducer") as mock_producer_cls,
+        ):
             mock_processor_cls.return_value.process.return_value = envelope
             result = commands_plan.run_labels_export(self._make_args())
 
@@ -213,9 +225,11 @@ class RunLabelsCommandsTests(unittest.TestCase):
     def test_run_labels_export_returns_1_on_value_error(self):
         from mail.labels import commands_plan
 
-        with patch.object(commands_plan, "LabelsExportConsumer") as mock_consumer_cls, \
-                patch.object(commands_plan, "LabelsExportProcessor"), \
-                patch.object(commands_plan, "LabelsExportProducer"):
+        with (
+            patch.object(commands_plan, "LabelsExportConsumer") as mock_consumer_cls,
+            patch.object(commands_plan, "LabelsExportProcessor"),
+            patch.object(commands_plan, "LabelsExportProducer"),
+        ):
             mock_consumer_cls.return_value.consume.side_effect = ValueError("no such file")
             with capture_stdout() as buf:
                 result = commands_plan.run_labels_export(self._make_args())
@@ -230,9 +244,11 @@ class RunLabelsCommandsTests(unittest.TestCase):
 
         envelope = make_success_envelope()
         fake_client = FakeGmailClient()
-        with patch.object(commands_plan, "LabelsSyncConsumer") as mock_consumer_cls, \
-                patch.object(commands_plan, "LabelsSyncProcessor") as mock_processor_cls, \
-                patch.object(commands_plan, "LabelsSyncProducer") as mock_producer_cls:
+        with (
+            patch.object(commands_plan, "LabelsSyncConsumer") as mock_consumer_cls,
+            patch.object(commands_plan, "LabelsSyncProcessor") as mock_processor_cls,
+            patch.object(commands_plan, "LabelsSyncProducer") as mock_producer_cls,
+        ):
             mock_processor_cls.return_value.process.return_value = envelope
             args = self._make_args(dry_run=True)
             args._gmail_client = fake_client  # noqa: SLF001 - test seam, not the module under test's leak
@@ -251,9 +267,11 @@ class RunLabelsCommandsTests(unittest.TestCase):
 
         envelope = make_error_envelope()
         fake_client = FakeGmailClient()
-        with patch.object(commands_plan, "LabelsSyncConsumer"), \
-                patch.object(commands_plan, "LabelsSyncProcessor") as mock_processor_cls, \
-                patch.object(commands_plan, "LabelsSyncProducer") as mock_producer_cls:
+        with (
+            patch.object(commands_plan, "LabelsSyncConsumer"),
+            patch.object(commands_plan, "LabelsSyncProcessor") as mock_processor_cls,
+            patch.object(commands_plan, "LabelsSyncProducer") as mock_producer_cls,
+        ):
             mock_processor_cls.return_value.process.return_value = envelope
             args = self._make_args(dry_run=False)
 
@@ -268,9 +286,11 @@ class RunLabelsCommandsTests(unittest.TestCase):
 
         envelope = make_success_envelope()
         fake_client = FakeGmailClient()
-        with patch.object(commands_plan, "LabelsSyncConsumer"), \
-                patch.object(commands_plan, "LabelsSyncProcessor") as mock_processor_cls, \
-                patch.object(commands_plan, "LabelsSyncProducer") as mock_producer_cls:
+        with (
+            patch.object(commands_plan, "LabelsSyncConsumer"),
+            patch.object(commands_plan, "LabelsSyncProcessor") as mock_processor_cls,
+            patch.object(commands_plan, "LabelsSyncProducer") as mock_producer_cls,
+        ):
             mock_processor_cls.return_value.process.return_value = envelope
             args = self._make_args()  # no dry_run attribute at all
 
@@ -284,9 +304,11 @@ class RunLabelsCommandsTests(unittest.TestCase):
         from mail.labels import commands_plan
 
         fake_client = FakeGmailClient()
-        with patch.object(commands_plan, "LabelsSyncConsumer") as mock_consumer_cls, \
-                patch.object(commands_plan, "LabelsSyncProcessor") as mock_processor_cls, \
-                patch.object(commands_plan, "LabelsSyncProducer") as mock_producer_cls:
+        with (
+            patch.object(commands_plan, "LabelsSyncConsumer") as mock_consumer_cls,
+            patch.object(commands_plan, "LabelsSyncProcessor") as mock_processor_cls,
+            patch.object(commands_plan, "LabelsSyncProducer") as mock_producer_cls,
+        ):
             mock_consumer_cls.return_value.consume.side_effect = ValueError("bad redirects")
             args = self._make_args(dry_run=False)
 
@@ -342,7 +364,9 @@ class RunLabelsCommandsTests(unittest.TestCase):
         client.list_labels.return_value = []
         args = self._make_args()  # no _gmail_client attribute
 
-        with patch("mail.utils.cli_helpers.gmail_client_authenticated", return_value=client) as mock_auth:
+        with patch(
+            "mail.utils.cli_helpers.gmail_client_authenticated", return_value=client
+        ) as mock_auth:
             with capture_stdout():
                 result = commands_plan.run_labels_list(args)
 
@@ -355,11 +379,13 @@ class RunLabelsCommandsTests(unittest.TestCase):
 # _print_list_section: boundary tests for line 26 (> 20 items)
 # ---------------------------------------------------------------------------
 
+
 class PrintListSectionTests(unittest.TestCase):
     """Tests for _print_list_section in labels/producers.py."""
 
     def test_empty_items_prints_nothing(self):
         from mail.labels.producers import _print_list_section
+
         buf = io.StringIO()
         with redirect_stdout(buf):
             _print_list_section("Title", [], lambda x: x)
@@ -367,6 +393,7 @@ class PrintListSectionTests(unittest.TestCase):
 
     def test_exactly_20_items_no_trailer(self):
         from mail.labels.producers import _print_list_section
+
         items = [f"item{i}" for i in range(20)]
         buf = io.StringIO()
         with redirect_stdout(buf):
@@ -377,6 +404,7 @@ class PrintListSectionTests(unittest.TestCase):
 
     def test_more_than_20_items_shows_trailer(self):
         from mail.labels.producers import _print_list_section
+
         items = [f"item{i}" for i in range(21)]
         buf = io.StringIO()
         with redirect_stdout(buf):
@@ -389,12 +417,16 @@ class PrintListSectionTests(unittest.TestCase):
 # LabelsPlanProducer: error-path tests (lines 42-43)
 # ---------------------------------------------------------------------------
 
+
 class LabelsPlanProducerErrorTests(unittest.TestCase):
     """LabelsPlanProducer failure paths — pairing each sad path with happy path."""
 
     def test_produce_succeeds_with_valid_envelope(self):
         from mail.labels.processors import LabelsPlanResult
-        plan = LabelsPlanResult(to_create=[{"name": "NewX"}], to_update=[], to_delete=[], show_delete=False)
+
+        plan = LabelsPlanResult(
+            to_create=[{"name": "NewX"}], to_update=[], to_delete=[], show_delete=False
+        )
         envelope = make_success_envelope(payload=plan)
         buf = io.StringIO()
         producer = LabelsPlanProducer()
@@ -435,6 +467,7 @@ class LabelsPlanProducerErrorTests(unittest.TestCase):
 # LabelsSyncProducer: error-path and apply-path tests
 # ---------------------------------------------------------------------------
 
+
 class LabelsSyncProducerUncoveredTests(unittest.TestCase):
     """LabelsSyncProducer: sad-path and apply-path coverage."""
 
@@ -463,9 +496,12 @@ class LabelsSyncProducerUncoveredTests(unittest.TestCase):
     def test_apply_creates_skips_spec_without_name(self):
         # Sad path: spec missing 'name' key (line 85 branch — continue)
         from mail.labels.processors import LabelsPlanResult, LabelsSyncResult
+
         client = _make_labels_client()
         initial_count = len(client.labels)
-        plan = LabelsPlanResult(to_create=[{"color": "red"}], to_update=[], to_delete=[], show_delete=False)
+        plan = LabelsPlanResult(
+            to_create=[{"color": "red"}], to_update=[], to_delete=[], show_delete=False
+        )
         sync_result = LabelsSyncResult(plan=plan, redirects=[])
         envelope = make_success_envelope(payload=sync_result)
         buf = io.StringIO()
@@ -478,8 +514,11 @@ class LabelsSyncProducerUncoveredTests(unittest.TestCase):
     def test_apply_creates_dry_run_prints_would_create(self):
         # Happy dry-run path (line 88 not taken)
         from mail.labels.processors import LabelsPlanResult, LabelsSyncResult
+
         client = _make_labels_client()
-        plan = LabelsPlanResult(to_create=[{"name": "DryNew"}], to_update=[], to_delete=[], show_delete=False)
+        plan = LabelsPlanResult(
+            to_create=[{"name": "DryNew"}], to_update=[], to_delete=[], show_delete=False
+        )
         sync_result = LabelsSyncResult(plan=plan, redirects=[])
         envelope = make_success_envelope(payload=sync_result)
         buf = io.StringIO()
@@ -492,8 +531,11 @@ class LabelsSyncProducerUncoveredTests(unittest.TestCase):
     def test_apply_creates_live_creates_label(self):
         # Happy live path (line 88 — client.create_label called)
         from mail.labels.processors import LabelsPlanResult, LabelsSyncResult
+
         client = _make_labels_client()
-        plan = LabelsPlanResult(to_create=[{"name": "NewOne"}], to_update=[], to_delete=[], show_delete=False)
+        plan = LabelsPlanResult(
+            to_create=[{"name": "NewOne"}], to_update=[], to_delete=[], show_delete=False
+        )
         sync_result = LabelsSyncResult(plan=plan, redirects=[])
         envelope = make_success_envelope(payload=sync_result)
         buf = io.StringIO()
@@ -506,9 +548,12 @@ class LabelsSyncProducerUncoveredTests(unittest.TestCase):
     # -- _apply_updates (lines 98-109) ----------------------------------------
 
     def test_apply_updates_dry_run_prints_would_update(self):
-        from mail.labels.processors import LabelsPlanResult, LabelsSyncResult, LabelChange
+        from mail.labels.processors import LabelChange, LabelsPlanResult, LabelsSyncResult
+
         client = _make_labels_client()
-        change = LabelChange(name="Keep", changes={"color": {"from": "#000", "to": "#fff"}}, spec={})
+        change = LabelChange(
+            name="Keep", changes={"color": {"from": "#000", "to": "#fff"}}, spec={}
+        )
         plan = LabelsPlanResult(to_create=[], to_update=[change], to_delete=[], show_delete=False)
         sync_result = LabelsSyncResult(plan=plan, redirects=[])
         envelope = make_success_envelope(payload=sync_result)
@@ -520,9 +565,12 @@ class LabelsSyncProducerUncoveredTests(unittest.TestCase):
 
     def test_apply_updates_live_updates_label(self):
         # Happy path: label found in map, update_label called
-        from mail.labels.processors import LabelsPlanResult, LabelsSyncResult, LabelChange
+        from mail.labels.processors import LabelChange, LabelsPlanResult, LabelsSyncResult
+
         client = _make_labels_client()
-        change = LabelChange(name="Keep", changes={"color": {"from": "#000", "to": "#fff"}}, spec={})
+        change = LabelChange(
+            name="Keep", changes={"color": {"from": "#000", "to": "#fff"}}, spec={}
+        )
         plan = LabelsPlanResult(to_create=[], to_update=[change], to_delete=[], show_delete=False)
         sync_result = LabelsSyncResult(plan=plan, redirects=[])
         envelope = make_success_envelope(payload=sync_result)
@@ -534,9 +582,12 @@ class LabelsSyncProducerUncoveredTests(unittest.TestCase):
 
     def test_apply_updates_live_skips_label_not_in_map(self):
         # Sad path: label_id not found in get_label_id_map() — continue (line 106)
-        from mail.labels.processors import LabelsPlanResult, LabelsSyncResult, LabelChange
+        from mail.labels.processors import LabelChange, LabelsPlanResult, LabelsSyncResult
+
         client = _make_labels_client()
-        change = LabelChange(name="NotExist", changes={"color": {"from": "#000", "to": "#fff"}}, spec={})
+        change = LabelChange(
+            name="NotExist", changes={"color": {"from": "#000", "to": "#fff"}}, spec={}
+        )
         plan = LabelsPlanResult(to_create=[], to_update=[change], to_delete=[], show_delete=False)
         sync_result = LabelsSyncResult(plan=plan, redirects=[])
         envelope = make_success_envelope(payload=sync_result)
@@ -550,8 +601,11 @@ class LabelsSyncProducerUncoveredTests(unittest.TestCase):
 
     def test_apply_deletes_dry_run_prints_would_delete(self):
         from mail.labels.processors import LabelsPlanResult, LabelsSyncResult
+
         client = _make_labels_client()
-        plan = LabelsPlanResult(to_create=[], to_update=[], to_delete=["OldLabel"], show_delete=True)
+        plan = LabelsPlanResult(
+            to_create=[], to_update=[], to_delete=["OldLabel"], show_delete=True
+        )
         sync_result = LabelsSyncResult(plan=plan, redirects=[])
         envelope = make_success_envelope(payload=sync_result)
         buf = io.StringIO()
@@ -563,8 +617,11 @@ class LabelsSyncProducerUncoveredTests(unittest.TestCase):
     def test_apply_deletes_live_deletes_label(self):
         # Happy path: delete_label called, label removed
         from mail.labels.processors import LabelsPlanResult, LabelsSyncResult
+
         client = _make_labels_client()
-        plan = LabelsPlanResult(to_create=[], to_update=[], to_delete=["OldLabel"], show_delete=True)
+        plan = LabelsPlanResult(
+            to_create=[], to_update=[], to_delete=["OldLabel"], show_delete=True
+        )
         sync_result = LabelsSyncResult(plan=plan, redirects=[])
         envelope = make_success_envelope(payload=sync_result)
         buf = io.StringIO()
@@ -577,6 +634,7 @@ class LabelsSyncProducerUncoveredTests(unittest.TestCase):
     def test_apply_deletes_live_skips_label_not_in_map(self):
         # Sad path: label not found in id map (line 119 branch — label_id falsy)
         from mail.labels.processors import LabelsPlanResult, LabelsSyncResult
+
         client = _make_labels_client()
         plan = LabelsPlanResult(to_create=[], to_update=[], to_delete=["Ghost"], show_delete=True)
         sync_result = LabelsSyncResult(plan=plan, redirects=[])
@@ -592,6 +650,7 @@ class LabelsSyncProducerUncoveredTests(unittest.TestCase):
     def test_apply_one_redirect_same_src_and_dest_skipped(self):
         # Sad path: old == new (line 149-150, returns None)
         from mail.labels.processors import LabelsPlanResult, LabelsSyncResult
+
         client = _make_labels_client()
         plan = LabelsPlanResult(to_create=[], to_update=[], to_delete=[], show_delete=False)
         sync_result = LabelsSyncResult(plan=plan, redirects=[{"from": "Keep", "to": "Keep"}])
@@ -605,6 +664,7 @@ class LabelsSyncProducerUncoveredTests(unittest.TestCase):
     def test_apply_one_redirect_old_id_not_found_skipped(self):
         # Sad path: old label not in id map (line 155 — not old_id, returns None)
         from mail.labels.processors import LabelsPlanResult, LabelsSyncResult
+
         client = _make_labels_client()
         plan = LabelsPlanResult(to_create=[], to_update=[], to_delete=[], show_delete=False)
         sync_result = LabelsSyncResult(plan=plan, redirects=[{"from": "Ghost", "to": "Keep"}])
@@ -618,6 +678,7 @@ class LabelsSyncProducerUncoveredTests(unittest.TestCase):
     def test_apply_one_redirect_dry_run_prints_would_merge(self):
         # Dry-run path (lines 158-159)
         from mail.labels.processors import LabelsPlanResult, LabelsSyncResult
+
         client = _make_labels_client()
         plan = LabelsPlanResult(to_create=[], to_update=[], to_delete=[], show_delete=False)
         sync_result = LabelsSyncResult(plan=plan, redirects=[{"from": "OldLabel", "to": "Keep"}])
@@ -632,6 +693,7 @@ class LabelsSyncProducerUncoveredTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # LabelsExportProducer: error-path tests (lines 192-193)
 # ---------------------------------------------------------------------------
+
 
 class LabelsExportProducerErrorTests(unittest.TestCase):
     """LabelsExportProducer failure paths."""

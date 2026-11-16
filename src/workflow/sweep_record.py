@@ -193,7 +193,9 @@ def _require_selected_guides(workspace: Path, guides: list[str]) -> None:
     except FileNotFoundError:
         raise SweepRecordError(f"{CHANGED_FILES_NAME} not found: {path}") from None
     except (OSError, UnicodeDecodeError) as exc:
-        raise SweepRecordError(f"{CHANGED_FILES_NAME} is unreadable or not UTF-8: {path} ({exc})") from None
+        raise SweepRecordError(
+            f"{CHANGED_FILES_NAME} is unreadable or not UTF-8: {path} ({exc})"
+        ) from None
     if not changed:
         raise SweepRecordError(f"{CHANGED_FILES_NAME} is empty: the swarm reviewed no diff")
     missing = [g for g in select_guides(changed) if g not in guides]
@@ -251,9 +253,7 @@ def _check_context_head(data: dict[str, object], head: str) -> None:
     if ctx_head is None:
         return
     if not isinstance(ctx_head, str) or not _SHA_RE.fullmatch(ctx_head):
-        raise SweepRecordError(
-            f"{CONTEXT_NAME} head_sha {ctx_head!r} is not a valid 40-hex SHA"
-        )
+        raise SweepRecordError(f"{CONTEXT_NAME} head_sha {ctx_head!r} is not a valid 40-hex SHA")
     if ctx_head != head:
         raise SweepRecordError(
             f"{CONTEXT_NAME} head_sha {ctx_head!r} does not match --head {head}; "
@@ -307,8 +307,9 @@ def _require_diff_matches_workspace(repo: Path, workspace: Path, head: str) -> N
     _check_context_head(data, head)
     merge_base = _extract_merge_base(repo, data, head)
 
-    diff_out = _git(repo, "-c", "core.quotePath=false", "diff",
-                    f"{merge_base}..{head}", "--name-only")
+    diff_out = _git(
+        repo, "-c", "core.quotePath=false", "diff", f"{merge_base}..{head}", "--name-only"
+    )
     git_paths = {ln for ln in diff_out.splitlines() if ln}
     ws_paths = _read_workspace_paths(workspace)
     extra = ws_paths - git_paths
@@ -365,8 +366,12 @@ def write_swept(repo: Path, head: str, workspace: Path) -> tuple[Path, SweepReco
     _require_workspace_swept_head(ws, head)
     _require_diff_matches_workspace(root, ws, head)
     record = SweepRecord(
-        head_sha=head, mode=MODE_SWEPT, guides=guides, workspace=str(ws),
-        reason=None, recorded_at=iso_now(),
+        head_sha=head,
+        mode=MODE_SWEPT,
+        guides=guides,
+        workspace=str(ws),
+        reason=None,
+        recorded_at=iso_now(),
     )
     path = record_path(root, head)
     _write_atomic(path, record)
@@ -380,8 +385,12 @@ def write_waived(repo: Path, head: str, reason: str) -> tuple[Path, SweepRecord]
         raise SweepRecordError("--reason must be non-empty")
     root = checkout_root(repo)
     record = SweepRecord(
-        head_sha=head, mode=MODE_WAIVED, guides=[], workspace=None,
-        reason=reason.strip(), recorded_at=iso_now(),
+        head_sha=head,
+        mode=MODE_WAIVED,
+        guides=[],
+        workspace=None,
+        reason=reason.strip(),
+        recorded_at=iso_now(),
     )
     path = record_path(root, head)
     _write_atomic(path, record)

@@ -16,7 +16,7 @@ class YamlIOTests(unittest.TestCase):
             self.assertEqual(load_config(missing), {})
 
     def test_dump_and_load_roundtrip(self):
-        from core.yamlio import load_config, dump_config
+        from core.yamlio import dump_config, load_config
 
         data = {
             "filters": [
@@ -27,7 +27,10 @@ class YamlIOTests(unittest.TestCase):
                 }
             ],
             "labels": [
-                {"name": "Lists/Commercial", "color": {"backgroundColor": "#00ff00", "textColor": "#000000"}}
+                {
+                    "name": "Lists/Commercial",
+                    "color": {"backgroundColor": "#00ff00", "textColor": "#000000"},
+                }
             ],
         }
         with tempfile.TemporaryDirectory() as td:

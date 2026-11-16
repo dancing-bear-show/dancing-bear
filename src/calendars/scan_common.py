@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Sequence
+from typing import Any
 
 from core.date_utils import MONTH_MAP
 from core.text_utils import html_to_text  # noqa: F401 - re-exported for calendars.outlook.commands
@@ -96,13 +97,67 @@ MEETING_DATES_PAT = re.compile(r"Meeting\s+Dates:\s*\w", re.I)
 # containing any of these is prose, not a name.
 NON_NAME_WORDS = frozenset(
     {
-        "a", "an", "and", "are", "as", "at", "be", "been", "by", "can", "for",
-        "found", "from", "get", "give", "has", "have", "here", "highest", "how",
-        "in", "is", "it", "its", "more", "most", "new", "now", "of", "on", "or",
-        "our", "out", "please", "see", "sign", "sign-up", "so", "that", "the",
-        "their", "them", "then", "there", "these", "they", "this", "to", "up",
-        "use", "was", "we", "were", "what", "when", "which", "who", "will",
-        "with", "you", "your",
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "been",
+        "by",
+        "can",
+        "for",
+        "found",
+        "from",
+        "get",
+        "give",
+        "has",
+        "have",
+        "here",
+        "highest",
+        "how",
+        "in",
+        "is",
+        "it",
+        "its",
+        "more",
+        "most",
+        "new",
+        "now",
+        "of",
+        "on",
+        "or",
+        "our",
+        "out",
+        "please",
+        "see",
+        "sign",
+        "sign-up",
+        "so",
+        "that",
+        "the",
+        "their",
+        "them",
+        "then",
+        "there",
+        "these",
+        "they",
+        "this",
+        "to",
+        "up",
+        "use",
+        "was",
+        "we",
+        "were",
+        "what",
+        "when",
+        "which",
+        "who",
+        "will",
+        "with",
+        "you",
+        "your",
     }
 )
 
@@ -110,9 +165,7 @@ CHILD_PAT_PARTS = [
     # Stop before the next "Label:" token — "Student: Bruce Sherwin Class: ..."
     # would otherwise capture the word "Class" as part of the name.
     re.compile(r"Student:\s*(?P<name>[a-z][a-z\s'\-]*?[a-z])(?=\s+[a-z]+:|\s*[\r\n]|$)", re.I),
-    re.compile(
-        r"(?P<name>[a-z][a-z\s'\-]*?[a-z])\s+(?:pending\s+)?enrollment\s+in\b", re.I
-    ),
+    re.compile(r"(?P<name>[a-z][a-z\s'\-]*?[a-z])\s+(?:pending\s+)?enrollment\s+in\b", re.I),
     re.compile(r"Registrant:\s*(?:\r?\n\s*)?(?P<name>[a-z][a-z\s'\-]*[a-z])", re.I),
 ]
 
@@ -313,7 +366,7 @@ def extract_activity(text: str | None) -> str | None:
     return None
 
 
-def _infer_subject(text: str, cfg: "MetaParserConfig") -> str | None:
+def _infer_subject(text: str, cfg: MetaParserConfig) -> str | None:
     """Derive the event subject, preferring a structurally-extracted activity."""
     activity = extract_activity(text)
     if activity:
@@ -324,7 +377,7 @@ def _infer_subject(text: str, cfg: "MetaParserConfig") -> str | None:
     return None
 
 
-def _infer_location(text: str, cfg: "MetaParserConfig") -> str | None:
+def _infer_location(text: str, cfg: MetaParserConfig) -> str | None:
     """Extract location from text using label pattern or facility list."""
     loc_match = cfg.loc_label_pat.search(text)
     if loc_match:
@@ -335,7 +388,7 @@ def _infer_location(text: str, cfg: "MetaParserConfig") -> str | None:
     return None
 
 
-def _infer_date_range(text: str, cfg: "MetaParserConfig") -> dict[str, str] | None:
+def _infer_date_range(text: str, cfg: MetaParserConfig) -> dict[str, str] | None:
     """Extract date range from text. Returns dict or None."""
     date_match = cfg.date_range_pat.search(text)
     if not date_match:
@@ -354,7 +407,7 @@ def _infer_date_range(text: str, cfg: "MetaParserConfig") -> dict[str, str] | No
 
 def infer_meta_from_text(
     text: str | None,
-    config: "MetaParserConfig | None" = None,
+    config: MetaParserConfig | None = None,
 ) -> dict[str, Any]:
     """Extract metadata from class schedule text.
 

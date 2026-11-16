@@ -2,7 +2,7 @@
 
 import unittest
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest import mock
 
 from telemetry.otel.analytics.cost import (
@@ -21,8 +21,8 @@ from telemetry.otel.cost_models import SessionPerf
 from telemetry.otel.models import (
     MetricDataPoint,
     OTLPAttribute,
-    OTLPEventsRecord,
     OTLPEvent,
+    OTLPEventsRecord,
     OTLPResource,
     OTLPValue,
 )
@@ -33,13 +33,13 @@ from telemetry.pricing import (
     get_model_pricing,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixture helpers
 # ---------------------------------------------------------------------------
 
+
 def _utc(year: int, month: int, day: int, hour: int = 0) -> datetime:
-    return datetime(year, month, day, hour, tzinfo=timezone.utc)
+    return datetime(year, month, day, hour, tzinfo=UTC)
 
 
 def _nano(dt: datetime) -> int:
@@ -203,8 +203,8 @@ def _make_api_request_dict(
 # get_model_pricing
 # ---------------------------------------------------------------------------
 
-class TestGetModelPricing(unittest.TestCase):
 
+class TestGetModelPricing(unittest.TestCase):
     def test_exact_match_sonnet_4_6(self):
         result = get_model_pricing("claude-sonnet-4-6")
         self.assertEqual(result, (3.0, 15.0))
@@ -286,7 +286,9 @@ class TestGetModelPricing(unittest.TestCase):
         self.assertNotEqual(result, MODEL_PRICING["claude-opus-4-7-1m"])
 
     def test_other_opus_1m_unaffected_by_opus_5_5_rule(self):
-        self.assertEqual(get_model_pricing("claude-opus-5[1m]"), MODEL_PRICING["claude-opus-4-7-1m"])
+        self.assertEqual(
+            get_model_pricing("claude-opus-5[1m]"), MODEL_PRICING["claude-opus-4-7-1m"]
+        )
 
     def test_fable_and_mythos_5_1_resolve_to_own_keys(self):
         self.assertEqual(get_model_pricing("claude-fable-5-1"), (10.0, 50.0))
@@ -295,7 +297,11 @@ class TestGetModelPricing(unittest.TestCase):
         self.assertEqual(get_cache_read_multiplier("claude-fable-5"), 0.1)
 
     def test_cache_read_multiplier_defaults_to_standard(self):
-        for model in ("claude-sonnet-4-6", "claude-opus-5[1m]", "completely-unrecognized-model-xyz"):
+        for model in (
+            "claude-sonnet-4-6",
+            "claude-opus-5[1m]",
+            "completely-unrecognized-model-xyz",
+        ):
             with self.subTest(model=model):
                 self.assertEqual(get_cache_read_multiplier(model), 0.1)
 
@@ -322,7 +328,11 @@ class TestCurrentModelIdPricing(unittest.TestCase):
                 self.assertEqual(get_model_pricing(model), expected)
 
     def test_haiku_5_5_variants_do_not_fall_back_to_haiku_4_5(self):
-        for model in ("claude-haiku-5-5-20261101", "anthropic.claude-haiku-5-5", "claude-haiku-5.5"):
+        for model in (
+            "claude-haiku-5-5-20261101",
+            "anthropic.claude-haiku-5-5",
+            "claude-haiku-5.5",
+        ):
             with self.subTest(model=model):
                 self.assertEqual(get_model_pricing(model), (0.10, 0.50))
 
@@ -359,8 +369,8 @@ class TestCurrentModelIdPricing(unittest.TestCase):
 # _aggregate_requests_by_key
 # ---------------------------------------------------------------------------
 
-class TestAggregateRequestsByKey(unittest.TestCase):
 
+class TestAggregateRequestsByKey(unittest.TestCase):
     def test_empty_list(self):
         result = _aggregate_requests_by_key([], "model")
         self.assertEqual(dict(result), {})
@@ -418,8 +428,8 @@ class TestAggregateRequestsByKey(unittest.TestCase):
 # _aggregate_requests_by_session_and_model
 # ---------------------------------------------------------------------------
 
-class TestAggregateRequestsBySessionAndModel(unittest.TestCase):
 
+class TestAggregateRequestsBySessionAndModel(unittest.TestCase):
     def test_empty_list(self):
         result = _aggregate_requests_by_session_and_model([])
         self.assertEqual(dict(result), {})
@@ -466,8 +476,8 @@ class TestAggregateRequestsBySessionAndModel(unittest.TestCase):
 # _calculate_totals
 # ---------------------------------------------------------------------------
 
-class TestCalculateTotals(unittest.TestCase):
 
+class TestCalculateTotals(unittest.TestCase):
     def test_empty_list(self):
         result = _calculate_totals([])
         self.assertEqual(result["api_calls"], 0)
@@ -478,8 +488,10 @@ class TestCalculateTotals(unittest.TestCase):
 
     def test_single_request(self):
         req = _make_api_request_dict(
-            input_tokens=100, output_tokens=50,
-            cache_creation_tokens=20, cache_read_tokens=300,
+            input_tokens=100,
+            output_tokens=50,
+            cache_creation_tokens=20,
+            cache_read_tokens=300,
         )
         result = _calculate_totals([req])
         self.assertEqual(result["api_calls"], 1)
@@ -504,8 +516,8 @@ class TestCalculateTotals(unittest.TestCase):
 # _build_session_timestamps
 # ---------------------------------------------------------------------------
 
-class TestBuildSessionTimestamps(unittest.TestCase):
 
+class TestBuildSessionTimestamps(unittest.TestCase):
     def test_empty_list(self):
         result = _build_session_timestamps([])
         self.assertEqual(result, {})
@@ -568,8 +580,8 @@ class TestBuildSessionTimestamps(unittest.TestCase):
 # _build_session_costs
 # ---------------------------------------------------------------------------
 
-class TestBuildSessionCosts(unittest.TestCase):
 
+class TestBuildSessionCosts(unittest.TestCase):
     def _make_session_model_data(
         self,
         session_id: str,
@@ -593,8 +605,10 @@ class TestBuildSessionCosts(unittest.TestCase):
     def test_basic_cost_calculation(self):
         # sonnet-4-6: input=$3/M, output=$15/M
         data = self._make_session_model_data(
-            "s1", "claude-sonnet-4-6",
-            input_tokens=1_000_000, output_tokens=1_000_000,
+            "s1",
+            "claude-sonnet-4-6",
+            input_tokens=1_000_000,
+            output_tokens=1_000_000,
         )
         costs = _build_session_costs(data)
         self.assertEqual(len(costs), 1)
@@ -605,8 +619,10 @@ class TestBuildSessionCosts(unittest.TestCase):
     def test_cache_creation_costs(self):
         # sonnet-4-6 input=$3/M; cache_creation = input * 1.25 / 1M
         data = self._make_session_model_data(
-            "s1", "claude-sonnet-4-6",
-            input_tokens=0, output_tokens=0,
+            "s1",
+            "claude-sonnet-4-6",
+            input_tokens=0,
+            output_tokens=0,
             cache_creation_tokens=1_000_000,
         )
         costs = _build_session_costs(data)
@@ -616,8 +632,10 @@ class TestBuildSessionCosts(unittest.TestCase):
     def test_cache_read_costs(self):
         # sonnet-4-6 input=$3/M; cache_read = input * 0.1 / 1M
         data = self._make_session_model_data(
-            "s1", "claude-sonnet-4-6",
-            input_tokens=0, output_tokens=0,
+            "s1",
+            "claude-sonnet-4-6",
+            input_tokens=0,
+            output_tokens=0,
             cache_read_tokens=1_000_000,
         )
         costs = _build_session_costs(data)
@@ -627,24 +645,29 @@ class TestBuildSessionCosts(unittest.TestCase):
     def test_cache_read_costs_use_per_model_multiplier(self):
         # 1M cache-read tokens: input rate x that model's cache-read multiplier
         cases = [
-            ("claude-opus-5-5", 4.0 * 0.05),       # $0.20
+            ("claude-opus-5-5", 4.0 * 0.05),  # $0.20
             ("claude-opus-5-5[1m]", 4.0 * 0.05),
-            ("claude-fable-5-1", 10.0 * 0.025),     # $0.25
+            ("claude-fable-5-1", 10.0 * 0.025),  # $0.25
             ("claude-mythos-5-1", 10.0 * 0.025),
-            ("claude-fable-5", 10.0 * 0.1),         # Fable 5 keeps the standard 0.1x
+            ("claude-fable-5", 10.0 * 0.1),  # Fable 5 keeps the standard 0.1x
             ("claude-opus-5", 5.0 * 0.1),
         ]
         for model, expected in cases:
             with self.subTest(model=model):
                 data = self._make_session_model_data(
-                    "s1", model, input_tokens=0, cache_read_tokens=1_000_000,
+                    "s1",
+                    model,
+                    input_tokens=0,
+                    cache_read_tokens=1_000_000,
                 )
                 self.assertAlmostEqual(_build_session_costs(data)[0].cost, expected, places=6)
 
     def test_efficiency_ratio(self):
         data = self._make_session_model_data(
-            "s1", "claude-haiku-4-5",
-            input_tokens=200, output_tokens=50,
+            "s1",
+            "claude-haiku-4-5",
+            input_tokens=200,
+            output_tokens=50,
         )
         costs = _build_session_costs(data)
         self.assertAlmostEqual(costs[0].efficiency_ratio, 50 / 200, places=6)
@@ -652,8 +675,10 @@ class TestBuildSessionCosts(unittest.TestCase):
     def test_efficiency_ratio_zero_input_tokens(self):
         # Guard against ZeroDivisionError when input_tokens==0
         data = self._make_session_model_data(
-            "s1", "claude-haiku-4-5",
-            input_tokens=0, output_tokens=100,
+            "s1",
+            "claude-haiku-4-5",
+            input_tokens=0,
+            output_tokens=100,
         )
         costs = _build_session_costs(data)
         self.assertEqual(costs[0].efficiency_ratio, 0.0)
@@ -686,8 +711,20 @@ class TestBuildSessionCosts(unittest.TestCase):
 
     def test_sorted_by_session_id(self):
         data = {
-            ("s-bravo", "claude-haiku-4-5"): {"api_calls": 1, "input_tokens": 10, "output_tokens": 5, "cache_creation_tokens": 0, "cache_read_tokens": 0},
-            ("s-alpha", "claude-haiku-4-5"): {"api_calls": 1, "input_tokens": 20, "output_tokens": 10, "cache_creation_tokens": 0, "cache_read_tokens": 0},
+            ("s-bravo", "claude-haiku-4-5"): {
+                "api_calls": 1,
+                "input_tokens": 10,
+                "output_tokens": 5,
+                "cache_creation_tokens": 0,
+                "cache_read_tokens": 0,
+            },
+            ("s-alpha", "claude-haiku-4-5"): {
+                "api_calls": 1,
+                "input_tokens": 20,
+                "output_tokens": 10,
+                "cache_creation_tokens": 0,
+                "cache_read_tokens": 0,
+            },
         }
         costs = _build_session_costs(data)
         self.assertEqual(costs[0].session_id, "s-alpha")
@@ -695,8 +732,20 @@ class TestBuildSessionCosts(unittest.TestCase):
 
     def test_multiple_models_same_session_summed(self):
         data = {
-            ("s1", "claude-haiku-4-5"): {"api_calls": 1, "input_tokens": 100_000, "output_tokens": 50_000, "cache_creation_tokens": 0, "cache_read_tokens": 0},
-            ("s1", "claude-sonnet-4-6"): {"api_calls": 2, "input_tokens": 200_000, "output_tokens": 100_000, "cache_creation_tokens": 0, "cache_read_tokens": 0},
+            ("s1", "claude-haiku-4-5"): {
+                "api_calls": 1,
+                "input_tokens": 100_000,
+                "output_tokens": 50_000,
+                "cache_creation_tokens": 0,
+                "cache_read_tokens": 0,
+            },
+            ("s1", "claude-sonnet-4-6"): {
+                "api_calls": 2,
+                "input_tokens": 200_000,
+                "output_tokens": 100_000,
+                "cache_creation_tokens": 0,
+                "cache_read_tokens": 0,
+            },
         }
         costs = _build_session_costs(data)
         self.assertEqual(len(costs), 1)
@@ -715,8 +764,8 @@ class TestBuildSessionCosts(unittest.TestCase):
 # _build_model_costs
 # ---------------------------------------------------------------------------
 
-class TestBuildModelCosts(unittest.TestCase):
 
+class TestBuildModelCosts(unittest.TestCase):
     def _make_model_data(
         self,
         model_name: str,
@@ -740,7 +789,8 @@ class TestBuildModelCosts(unittest.TestCase):
         # haiku: $1/M input, $5/M output
         data = self._make_model_data(
             "claude-haiku-4-5",
-            input_tokens=1_000_000, output_tokens=1_000_000,
+            input_tokens=1_000_000,
+            output_tokens=1_000_000,
         )
         costs = _build_model_costs(data)
         self.assertEqual(len(costs), 1)
@@ -770,8 +820,20 @@ class TestBuildModelCosts(unittest.TestCase):
 
     def test_sorted_by_model_name(self):
         data = {
-            "claude-sonnet-4-6": {"api_calls": 1, "input_tokens": 100, "output_tokens": 50, "cache_creation_tokens": 0, "cache_read_tokens": 0},
-            "claude-haiku-4-5": {"api_calls": 1, "input_tokens": 200, "output_tokens": 80, "cache_creation_tokens": 0, "cache_read_tokens": 0},
+            "claude-sonnet-4-6": {
+                "api_calls": 1,
+                "input_tokens": 100,
+                "output_tokens": 50,
+                "cache_creation_tokens": 0,
+                "cache_read_tokens": 0,
+            },
+            "claude-haiku-4-5": {
+                "api_calls": 1,
+                "input_tokens": 200,
+                "output_tokens": 80,
+                "cache_creation_tokens": 0,
+                "cache_read_tokens": 0,
+            },
         }
         costs = _build_model_costs(data)
         self.assertEqual(costs[0].model_name, "claude-haiku-4-5")
@@ -782,8 +844,8 @@ class TestBuildModelCosts(unittest.TestCase):
 # _accumulate_cost_datapoints
 # ---------------------------------------------------------------------------
 
-class TestAccumulateCostDatapoints(unittest.TestCase):
 
+class TestAccumulateCostDatapoints(unittest.TestCase):
     def _make_metric_point(self, value: float, dt: datetime) -> MetricDataPoint:
         ts_nano = _nano(dt)
         return MetricDataPoint(
@@ -809,9 +871,11 @@ class TestAccumulateCostDatapoints(unittest.TestCase):
         daily_calls: dict[str, int] = defaultdict(int)
         since = _utc(2026, 7, 2)
         points = [
-            self._make_metric_point(1.5, _utc(2026, 7, 1)),   # strictly before cutoff — excluded
-            self._make_metric_point(2.0, _utc(2026, 7, 2)),   # equal to cutoff — included (filter is <, not <=)
-            self._make_metric_point(3.0, _utc(2026, 7, 3)),   # after cutoff — included
+            self._make_metric_point(1.5, _utc(2026, 7, 1)),  # strictly before cutoff — excluded
+            self._make_metric_point(
+                2.0, _utc(2026, 7, 2)
+            ),  # equal to cutoff — included (filter is <, not <=)
+            self._make_metric_point(3.0, _utc(2026, 7, 3)),  # after cutoff — included
         ]
         _accumulate_cost_datapoints(points, since, daily_cost, daily_calls)
         self.assertNotIn("2026-07-01", daily_cost)
@@ -845,8 +909,8 @@ class TestAccumulateCostDatapoints(unittest.TestCase):
 # get_all_costs — integration with mocked OTLPReader
 # ---------------------------------------------------------------------------
 
-class TestGetAllCosts(unittest.TestCase):
 
+class TestGetAllCosts(unittest.TestCase):
     def _make_simple_record(
         self,
         session_id: str = "sess-1",
@@ -876,6 +940,7 @@ class TestGetAllCosts(unittest.TestCase):
         )
         mock_reader_cls.return_value.read_events.return_value = [record]
         from telemetry.otel.reader import OTLPDataDir
+
         data_dir = OTLPDataDir.default()
 
         result = get_all_costs(data_dir=data_dir)
@@ -893,10 +958,12 @@ class TestGetAllCosts(unittest.TestCase):
     @mock.patch("telemetry.otel.analytics.cost.OTLPReader")
     def test_efficiency_ratio_calculation(self, mock_reader_cls):
         record = self._make_simple_record(
-            input_tokens=400_000, output_tokens=100_000,
+            input_tokens=400_000,
+            output_tokens=100_000,
         )
         mock_reader_cls.return_value.read_events.return_value = [record]
         from telemetry.otel.reader import OTLPDataDir
+
         result = get_all_costs(data_dir=OTLPDataDir.default())
         self.assertAlmostEqual(result.efficiency_ratio, 100_000 / 400_000, places=6)
 
@@ -912,6 +979,7 @@ class TestGetAllCosts(unittest.TestCase):
     @mock.patch("telemetry.otel.analytics.cost.OTLPReader")
     def test_explicit_data_dir_skips_from_env(self, mock_reader_cls):
         from telemetry.otel.reader import OTLPDataDir
+
         data_dir = OTLPDataDir.default()
         mock_reader_cls.return_value.read_events.return_value = []
         get_all_costs(data_dir=data_dir)
@@ -931,6 +999,7 @@ class TestGetAllCosts(unittest.TestCase):
         )
         mock_reader_cls.return_value.read_events.return_value = [record]
         from telemetry.otel.reader import OTLPDataDir
+
         result = get_all_costs(data_dir=OTLPDataDir.default())
         self.assertAlmostEqual(result.total_cache_savings, 0.44415, places=4)
 
@@ -938,16 +1007,21 @@ class TestGetAllCosts(unittest.TestCase):
     def test_since_cutoff_filters_events(self, mock_reader_cls):
         # Event before cutoff is excluded; event after is included
         old_event = _make_api_request_event(
-            session_id="sess-old", model="claude-haiku-4-5",
-            input_tokens=500, dt=_utc(2026, 1, 1),
+            session_id="sess-old",
+            model="claude-haiku-4-5",
+            input_tokens=500,
+            dt=_utc(2026, 1, 1),
         )
         new_event = _make_api_request_event(
-            session_id="sess-new", model="claude-haiku-4-5",
-            input_tokens=1000, dt=_utc(2026, 7, 15),
+            session_id="sess-new",
+            model="claude-haiku-4-5",
+            input_tokens=1000,
+            dt=_utc(2026, 7, 15),
         )
         record = _make_events_record([old_event, new_event])
         mock_reader_cls.return_value.read_events.return_value = [record]
         from telemetry.otel.reader import OTLPDataDir
+
         since = _utc(2026, 7, 1)
         result = get_all_costs(data_dir=OTLPDataDir.default(), since=since)
         self.assertEqual(result.total_api_calls, 1)
@@ -959,6 +1033,7 @@ class TestGetAllCosts(unittest.TestCase):
         r2 = self._make_simple_record(session_id="s2", input_tokens=200)
         mock_reader_cls.return_value.read_events.return_value = [r1, r2]
         from telemetry.otel.reader import OTLPDataDir
+
         result = get_all_costs(data_dir=OTLPDataDir.default())
         self.assertEqual(result.total_api_calls, 2)
         self.assertEqual(len(result.by_session), 2)
@@ -967,6 +1042,7 @@ class TestGetAllCosts(unittest.TestCase):
     def test_empty_events_zero_cost(self, mock_reader_cls):
         mock_reader_cls.return_value.read_events.return_value = []
         from telemetry.otel.reader import OTLPDataDir
+
         result = get_all_costs(data_dir=OTLPDataDir.default())
         self.assertEqual(result.total_cost, 0.0)
         self.assertEqual(result.efficiency_ratio, 0.0)
@@ -983,6 +1059,7 @@ class TestGetAllCosts(unittest.TestCase):
         record = _make_events_record([api_event, err_event, tool_event, prompt_event])
         mock_reader_cls.return_value.read_events.return_value = [record]
         from telemetry.otel.reader import OTLPDataDir
+
         result = get_all_costs(data_dir=OTLPDataDir.default())
         # Only api_request contributes to api_calls/costs
         self.assertEqual(result.total_api_calls, 1)
@@ -999,22 +1076,29 @@ class TestGetAllCosts(unittest.TestCase):
 # get_daily_costs — integration with mocked OTLPReader
 # ---------------------------------------------------------------------------
 
-class TestGetDailyCosts(unittest.TestCase):
 
+class TestGetDailyCosts(unittest.TestCase):
     @mock.patch("telemetry.otel.analytics.cost.OTLPReader")
     def test_basic_daily_aggregation(self, mock_reader_cls):
         dt1 = _utc(2026, 7, 1, 10)
         dt2 = _utc(2026, 7, 2, 10)
-        r1 = _make_events_record([
-            _make_api_request_event("s1", model="claude-haiku-4-5",
-                                    input_tokens=1_000_000, output_tokens=0, dt=dt1),
-        ])
-        r2 = _make_events_record([
-            _make_api_request_event("s2", model="claude-haiku-4-5",
-                                    input_tokens=0, output_tokens=1_000_000, dt=dt2),
-        ])
+        r1 = _make_events_record(
+            [
+                _make_api_request_event(
+                    "s1", model="claude-haiku-4-5", input_tokens=1_000_000, output_tokens=0, dt=dt1
+                ),
+            ]
+        )
+        r2 = _make_events_record(
+            [
+                _make_api_request_event(
+                    "s2", model="claude-haiku-4-5", input_tokens=0, output_tokens=1_000_000, dt=dt2
+                ),
+            ]
+        )
         mock_reader_cls.return_value.read_events.return_value = [r1, r2]
         from telemetry.otel.reader import OTLPDataDir
+
         result = get_daily_costs(data_dir=OTLPDataDir.default())
         self.assertEqual(len(result), 2)
         self.assertEqual(result[0].date, "2026-07-01")
@@ -1031,19 +1115,23 @@ class TestGetDailyCosts(unittest.TestCase):
         r2 = _make_events_record([_make_api_request_event("s2", dt=dt2)])
         mock_reader_cls.return_value.read_events.return_value = [r1, r2]
         from telemetry.otel.reader import OTLPDataDir
+
         result = get_daily_costs(data_dir=OTLPDataDir.default())
         dates = [d.date for d in result]
-        self.assertEqual(dates, ['2026-07-01', '2026-07-03'])
+        self.assertEqual(dates, ["2026-07-01", "2026-07-03"])
 
     @mock.patch("telemetry.otel.analytics.cost.OTLPReader")
     def test_same_day_requests_summed(self, mock_reader_cls):
         dt = _utc(2026, 7, 1)
-        record = _make_events_record([
-            _make_api_request_event("s1", input_tokens=500_000, dt=dt),
-            _make_api_request_event("s2", input_tokens=500_000, dt=dt),
-        ])
+        record = _make_events_record(
+            [
+                _make_api_request_event("s1", input_tokens=500_000, dt=dt),
+                _make_api_request_event("s2", input_tokens=500_000, dt=dt),
+            ]
+        )
         mock_reader_cls.return_value.read_events.return_value = [record]
         from telemetry.otel.reader import OTLPDataDir
+
         result = get_daily_costs(data_dir=OTLPDataDir.default())
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0].api_calls, 2)
@@ -1052,6 +1140,7 @@ class TestGetDailyCosts(unittest.TestCase):
     def test_empty_events_empty_list(self, mock_reader_cls):
         mock_reader_cls.return_value.read_events.return_value = []
         from telemetry.otel.reader import OTLPDataDir
+
         result = get_daily_costs(data_dir=OTLPDataDir.default())
         self.assertEqual(result, [])
 
@@ -1059,11 +1148,14 @@ class TestGetDailyCosts(unittest.TestCase):
     def test_since_string_filters_events(self, mock_reader_cls):
         # Use "99999d" window — always includes 2026 fixture regardless of wall-clock
         dt_recent = _utc(2026, 7, 1)
-        record = _make_events_record([
-            _make_api_request_event("s1", dt=dt_recent),
-        ])
+        record = _make_events_record(
+            [
+                _make_api_request_event("s1", dt=dt_recent),
+            ]
+        )
         mock_reader_cls.return_value.read_events.return_value = [record]
         from telemetry.otel.reader import OTLPDataDir
+
         result = get_daily_costs(data_dir=OTLPDataDir.default(), since="99999d")
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0].date, "2026-07-01")
@@ -1078,15 +1170,21 @@ class TestGetDailyCosts(unittest.TestCase):
 
     @mock.patch("telemetry.otel.analytics.cost.OTLPReader")
     def test_daily_cost_includes_token_fields(self, mock_reader_cls):
-        record = _make_events_record([
-            _make_api_request_event(
-                "s1", input_tokens=100, output_tokens=50,
-                cache_creation_tokens=20, cache_read_tokens=300,
-                dt=_utc(2026, 7, 1),
-            ),
-        ])
+        record = _make_events_record(
+            [
+                _make_api_request_event(
+                    "s1",
+                    input_tokens=100,
+                    output_tokens=50,
+                    cache_creation_tokens=20,
+                    cache_read_tokens=300,
+                    dt=_utc(2026, 7, 1),
+                ),
+            ]
+        )
         mock_reader_cls.return_value.read_events.return_value = [record]
         from telemetry.otel.reader import OTLPDataDir
+
         result = get_daily_costs(data_dir=OTLPDataDir.default())
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0].input_tokens, 100)
@@ -1099,19 +1197,24 @@ class TestGetDailyCosts(unittest.TestCase):
 # get_model_performance — integration with mocked OTLPReader
 # ---------------------------------------------------------------------------
 
-class TestGetModelPerformance(unittest.TestCase):
 
+class TestGetModelPerformance(unittest.TestCase):
     @mock.patch("telemetry.otel.analytics.cost.OTLPReader")
     def test_basic_model_performance(self, mock_reader_cls):
-        record = _make_events_record([
-            _make_api_request_event(
-                "s1", model="claude-haiku-4-5",
-                input_tokens=1_000_000, output_tokens=0,
-                duration_ms=500.0,
-            ),
-        ])
+        record = _make_events_record(
+            [
+                _make_api_request_event(
+                    "s1",
+                    model="claude-haiku-4-5",
+                    input_tokens=1_000_000,
+                    output_tokens=0,
+                    duration_ms=500.0,
+                ),
+            ]
+        )
         mock_reader_cls.return_value.read_events.return_value = [record]
         from telemetry.otel.reader import OTLPDataDir
+
         result = get_model_performance(data_dir=OTLPDataDir.default())
         self.assertEqual(len(result), 1)
         perf = result[0]
@@ -1124,15 +1227,21 @@ class TestGetModelPerformance(unittest.TestCase):
     def test_cost_prices_cache_writes_and_reads(self, mock_reader_cls):
         # Same formula as get_all_costs: cache writes at 1.25x input, cache
         # reads at 0.1x input. It once billed writes at 1x and dropped reads.
-        record = _make_events_record([
-            _make_api_request_event(
-                "s1", model="claude-haiku-4-5",
-                input_tokens=1_000_000, output_tokens=1_000_000,
-                cache_creation_tokens=1_000_000, cache_read_tokens=1_000_000,
-            ),
-        ])
+        record = _make_events_record(
+            [
+                _make_api_request_event(
+                    "s1",
+                    model="claude-haiku-4-5",
+                    input_tokens=1_000_000,
+                    output_tokens=1_000_000,
+                    cache_creation_tokens=1_000_000,
+                    cache_read_tokens=1_000_000,
+                ),
+            ]
+        )
         mock_reader_cls.return_value.read_events.return_value = [record]
         from telemetry.otel.reader import OTLPDataDir
+
         result = get_model_performance(data_dir=OTLPDataDir.default())
         perf = result[0]
         # haiku-4-5: $1 input + $5 output + $1.25 cache writes + $0.10 cache reads
@@ -1142,23 +1251,29 @@ class TestGetModelPerformance(unittest.TestCase):
     @mock.patch("telemetry.otel.analytics.cost.OTLPReader")
     def test_sorted_by_model_name(self, mock_reader_cls):
         # Feed models in reverse-sorted order (sonnet before haiku) to exercise sort
-        record = _make_events_record([
-            _make_api_request_event("s1", model="claude-sonnet-4-6"),
-            _make_api_request_event("s1", model="claude-haiku-4-5"),
-        ])
+        record = _make_events_record(
+            [
+                _make_api_request_event("s1", model="claude-sonnet-4-6"),
+                _make_api_request_event("s1", model="claude-haiku-4-5"),
+            ]
+        )
         mock_reader_cls.return_value.read_events.return_value = [record]
         from telemetry.otel.reader import OTLPDataDir
+
         result = get_model_performance(data_dir=OTLPDataDir.default())
         model_names = [p.model_name for p in result]
-        self.assertEqual(model_names, ['claude-haiku-4-5', 'claude-sonnet-4-6'])
+        self.assertEqual(model_names, ["claude-haiku-4-5", "claude-sonnet-4-6"])
 
     @mock.patch("telemetry.otel.analytics.cost.OTLPReader")
     def test_error_rate_zero_when_no_errors(self, mock_reader_cls):
-        record = _make_events_record([
-            _make_api_request_event("s1", model="claude-haiku-4-5"),
-        ])
+        record = _make_events_record(
+            [
+                _make_api_request_event("s1", model="claude-haiku-4-5"),
+            ]
+        )
         mock_reader_cls.return_value.read_events.return_value = [record]
         from telemetry.otel.reader import OTLPDataDir
+
         result = get_model_performance(data_dir=OTLPDataDir.default())
         self.assertEqual(result[0].error_count, 0)
         self.assertEqual(result[0].error_rate, 0.0)
@@ -1173,6 +1288,7 @@ class TestGetModelPerformance(unittest.TestCase):
         record = _make_events_record([e1, e2, err])
         mock_reader_cls.return_value.read_events.return_value = [record]
         from telemetry.otel.reader import OTLPDataDir
+
         result = get_model_performance(data_dir=OTLPDataDir.default())
         # Exactly one ModelPerformance result for claude-haiku-4-5
         self.assertEqual(len(result), 1)
@@ -1189,6 +1305,7 @@ class TestGetModelPerformance(unittest.TestCase):
         # But we can also check with empty events
         mock_reader_cls.return_value.read_events.return_value = []
         from telemetry.otel.reader import OTLPDataDir
+
         result = get_model_performance(data_dir=OTLPDataDir.default())
         # No division error
         self.assertEqual(result, [])
@@ -1201,17 +1318,21 @@ class TestGetModelPerformance(unittest.TestCase):
         record = _make_events_record([_make_error_event("s1")])
         mock_reader_cls.return_value.read_events.return_value = [record]
         from telemetry.otel.reader import OTLPDataDir
+
         result = get_model_performance(data_dir=OTLPDataDir.default())
         self.assertEqual(result, [])
 
     @mock.patch("telemetry.otel.analytics.cost.OTLPReader")
     def test_avg_latency_across_multiple_calls(self, mock_reader_cls):
-        record = _make_events_record([
-            _make_api_request_event("s1", model="claude-haiku-4-5", duration_ms=100.0),
-            _make_api_request_event("s1", model="claude-haiku-4-5", duration_ms=300.0),
-        ])
+        record = _make_events_record(
+            [
+                _make_api_request_event("s1", model="claude-haiku-4-5", duration_ms=100.0),
+                _make_api_request_event("s1", model="claude-haiku-4-5", duration_ms=300.0),
+            ]
+        )
         mock_reader_cls.return_value.read_events.return_value = [record]
         from telemetry.otel.reader import OTLPDataDir
+
         result = get_model_performance(data_dir=OTLPDataDir.default())
         self.assertAlmostEqual(result[0].avg_latency_ms, 200.0, places=1)
 
@@ -1226,11 +1347,14 @@ class TestGetModelPerformance(unittest.TestCase):
     @mock.patch("telemetry.otel.analytics.cost.OTLPReader")
     def test_since_string_parsing(self, mock_reader_cls):
         # "99999d" window always includes 2026 fixture regardless of wall-clock
-        record = _make_events_record([
-            _make_api_request_event("s1", model="claude-haiku-4-5", dt=_utc(2026, 7, 15)),
-        ])
+        record = _make_events_record(
+            [
+                _make_api_request_event("s1", model="claude-haiku-4-5", dt=_utc(2026, 7, 15)),
+            ]
+        )
         mock_reader_cls.return_value.read_events.return_value = [record]
         from telemetry.otel.reader import OTLPDataDir
+
         result = get_model_performance(data_dir=OTLPDataDir.default(), since="99999d")
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0].model_name, "claude-haiku-4-5")
@@ -1258,6 +1382,7 @@ class TestGetModelPerformance(unittest.TestCase):
         record = _make_events_record([event_no_dur])
         mock_reader_cls.return_value.read_events.return_value = [record]
         from telemetry.otel.reader import OTLPDataDir
+
         result = get_model_performance(data_dir=OTLPDataDir.default())
         self.assertEqual(len(result), 1)
         # avg_latency_ms and p95 should both be 0 when no duration data

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
-
 import json
 import os
 import tempfile
@@ -11,19 +9,21 @@ import time
 import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any, cast
 
 from tests.worker_tests.helpers import QueueRootIsolationMixin
-
 
 # ---------------------------------------------------------------------------
 # Job dataclass
 # ---------------------------------------------------------------------------
+
 
 class TestJobDataclass(unittest.TestCase):
     """Job.to_dict must populate timestamps and return correct structure."""
 
     def test_to_dict_returns_expected_keys(self):
         from worker.queue_ops import Job
+
         job = Job(id="abc", type="run_cli", payload={"cmd": ["echo"]})
         d = job.to_dict()
         self.assertEqual(d["id"], "abc")
@@ -33,12 +33,14 @@ class TestJobDataclass(unittest.TestCase):
 
     def test_to_dict_fills_enqueued_at_when_empty(self):
         from worker.queue_ops import Job
+
         job = Job(id="x", type="noop", payload={}, enqueued_at="")
         d = job.to_dict()
         self.assertTrue(d["enqueued_at"])
 
     def test_to_dict_preserves_existing_enqueued_at(self):
         from worker.queue_ops import Job
+
         ts = "2025-01-01T00:00:00Z"
         job = Job(id="x", type="noop", payload={}, enqueued_at=ts)
         d = job.to_dict()
@@ -46,12 +48,14 @@ class TestJobDataclass(unittest.TestCase):
 
     def test_to_dict_sets_updated_at(self):
         from worker.queue_ops import Job
+
         job = Job(id="x", type="noop", payload={})
         d = job.to_dict()
         self.assertRegex(d["updated_at"], r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
 
     def test_to_dict_includes_priority(self):
         from worker.queue_ops import Job
+
         job = Job(id="x", type="noop", payload={}, priority=1)
         d = job.to_dict()
         self.assertEqual(d["priority"], 1)
@@ -61,12 +65,14 @@ class TestJobDataclass(unittest.TestCase):
 # enqueue
 # ---------------------------------------------------------------------------
 
+
 class TestEnqueue(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
         self.setup_queue_root()
 
     def test_enqueue_creates_pending_file(self):
         from worker.queue_ops import Job, enqueue
+
         job = Job(id="j1", type="noop", payload={})
         path = enqueue(job, root=self.root)
         self.assertTrue(path.exists())
@@ -74,6 +80,7 @@ class TestEnqueue(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_enqueue_sets_not_before_when_empty(self):
         from worker.queue_ops import Job, enqueue
+
         job = Job(id="j2", type="noop", payload={}, not_before="")
         enqueue(job, root=self.root)
         p = self.root / "pending" / "j2.json"
@@ -82,6 +89,7 @@ class TestEnqueue(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_enqueue_preserves_not_before_when_set(self):
         from worker.queue_ops import Job, enqueue
+
         ts = "2099-01-01T00:00:00Z"
         job = Job(id="j3", type="noop", payload={}, not_before=ts)
         enqueue(job, root=self.root)
@@ -91,6 +99,7 @@ class TestEnqueue(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_enqueue_writes_valid_json(self):
         from worker.queue_ops import Job, enqueue
+
         job = Job(id="j4", type="noop", payload={"key": "val"})
         path = enqueue(job, root=self.root)
         data = json.loads(path.read_text())
@@ -99,6 +108,7 @@ class TestEnqueue(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_enqueue_returns_path_object(self):
         from worker.queue_ops import Job, enqueue
+
         job = Job(id="j5", type="noop", payload={})
         result = enqueue(job, root=self.root)
         self.assertIsInstance(result, Path)
@@ -108,9 +118,11 @@ class TestEnqueue(unittest.TestCase, QueueRootIsolationMixin):
 # _ensure_dirs
 # ---------------------------------------------------------------------------
 
+
 class TestEnsureDirs(unittest.TestCase):
     def test_creates_all_subdirs(self):
         from worker.queue_ops import _ensure_dirs
+
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "q"
             paths = _ensure_dirs(root)
@@ -122,17 +134,20 @@ class TestEnsureDirs(unittest.TestCase):
 # list_pending
 # ---------------------------------------------------------------------------
 
+
 class TestListPending(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
         self.setup_queue_root()
 
     def test_empty_queue_returns_empty_list(self):
         from worker.queue_ops import list_pending
+
         result = list_pending(self.root)
         self.assertEqual(result, [])
 
     def test_eligible_job_returned(self):
         from worker.queue_ops import Job, enqueue, list_pending
+
         job = Job(id="p1", type="noop", payload={})
         enqueue(job, root=self.root)
         result = list_pending(self.root)
@@ -141,6 +156,7 @@ class TestListPending(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_future_job_excluded(self):
         from worker.queue_ops import Job, enqueue, list_pending
+
         future_ts = (datetime.now(UTC) + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
         job = Job(id="p2", type="noop", payload={}, not_before=future_ts)
         enqueue(job, root=self.root)
@@ -149,10 +165,13 @@ class TestListPending(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_sorted_by_priority_then_enqueued_at(self):
         from worker.queue_ops import Job, enqueue, list_pending
-        job_hi = Job(id="hi_pri", type="noop", payload={}, priority=1,
-                     enqueued_at="2025-01-01T00:00:00Z")
-        job_lo = Job(id="lo_pri", type="noop", payload={}, priority=9,
-                     enqueued_at="2025-01-01T00:00:00Z")
+
+        job_hi = Job(
+            id="hi_pri", type="noop", payload={}, priority=1, enqueued_at="2025-01-01T00:00:00Z"
+        )
+        job_lo = Job(
+            id="lo_pri", type="noop", payload={}, priority=9, enqueued_at="2025-01-01T00:00:00Z"
+        )
         enqueue(job_lo, root=self.root)
         enqueue(job_hi, root=self.root)
         result = list_pending(self.root)
@@ -165,9 +184,12 @@ class TestListPending(unittest.TestCase, QueueRootIsolationMixin):
         eligible=True, which silently ran a deliberately deferred job.
         """
         from worker.queue_ops import _ensure_dirs, list_pending
+
         _ensure_dirs(self.root)
         p = self.root / "pending" / "bad.json"
-        p.write_text(json.dumps({"id": "bad", "type": "noop", "not_before": "not-a-date"}), encoding="utf-8")
+        p.write_text(
+            json.dumps({"id": "bad", "type": "noop", "not_before": "not-a-date"}), encoding="utf-8"
+        )
         with self.assertLogs("worker.queue_ops", level="WARNING") as logs:
             result = list_pending(self.root)
         self.assertEqual(result, [])
@@ -180,12 +202,14 @@ class TestListPending(unittest.TestCase, QueueRootIsolationMixin):
 # start_processing
 # ---------------------------------------------------------------------------
 
+
 class TestStartProcessing(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
         self.setup_queue_root()
 
     def test_moves_to_processing(self):
         from worker.queue_ops import Job, enqueue, start_processing
+
         job = Job(id="s1", type="noop", payload={})
         pending_path = enqueue(job, root=self.root)
         result = start_processing(pending_path, self.root)
@@ -196,6 +220,7 @@ class TestStartProcessing(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_returns_none_when_file_missing(self):
         from worker.queue_ops import _ensure_dirs, start_processing
+
         _ensure_dirs(self.root)
         nonexistent = self.root / "pending" / "ghost.json"
         result = start_processing(nonexistent, self.root)
@@ -203,6 +228,7 @@ class TestStartProcessing(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_updates_status_to_processing(self):
         from worker.queue_ops import Job, enqueue, start_processing
+
         job = Job(id="s2", type="noop", payload={})
         pending_path = enqueue(job, root=self.root)
         result = start_processing(pending_path, self.root)
@@ -213,6 +239,7 @@ class TestStartProcessing(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_sets_processing_started_at(self):
         from worker.queue_ops import Job, enqueue, start_processing
+
         job = Job(id="s3", type="noop", payload={})
         pending_path = enqueue(job, root=self.root)
         result = start_processing(pending_path, self.root)
@@ -226,12 +253,14 @@ class TestStartProcessing(unittest.TestCase, QueueRootIsolationMixin):
 # finish
 # ---------------------------------------------------------------------------
 
+
 class TestFinish(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
         self.setup_queue_root()
 
     def _enqueue_and_start(self, job_id: str) -> Path:
         from worker.queue_ops import Job, enqueue, start_processing
+
         job = Job(id=job_id, type="noop", payload={})
         pending_path = enqueue(job, root=self.root)
         result = start_processing(pending_path, self.root)
@@ -241,6 +270,7 @@ class TestFinish(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_success_moves_to_done(self):
         from worker.queue_ops import finish
+
         proc_path = self._enqueue_and_start("f1")
         done_path = finish(proc_path, success=True, root=self.root)
         self.assertEqual(done_path.parent.name, "done")
@@ -248,6 +278,7 @@ class TestFinish(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_failure_moves_to_error(self):
         from worker.queue_ops import finish
+
         proc_path = self._enqueue_and_start("f2")
         err_path = finish(proc_path, success=False, error_msg="oops", root=self.root)
         self.assertEqual(err_path.parent.name, "error")
@@ -255,6 +286,7 @@ class TestFinish(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_success_sets_status_done(self):
         from worker.queue_ops import finish
+
         proc_path = self._enqueue_and_start("f3")
         done_path = finish(proc_path, success=True, root=self.root)
         data = json.loads(done_path.read_text())
@@ -262,6 +294,7 @@ class TestFinish(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_failure_sets_status_error(self):
         from worker.queue_ops import finish
+
         proc_path = self._enqueue_and_start("f4")
         err_path = finish(proc_path, success=False, error_msg="bad", root=self.root)
         data = json.loads(err_path.read_text())
@@ -270,6 +303,7 @@ class TestFinish(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_result_stored_on_success(self):
         from worker.queue_ops import finish
+
         proc_path = self._enqueue_and_start("f5")
         done_path = finish(proc_path, success=True, root=self.root, result={"out": 42})
         data = json.loads(done_path.read_text())
@@ -289,6 +323,7 @@ class TestFinish(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_processing_file_removed_after_finish(self):
         from worker.queue_ops import finish
+
         proc_path = self._enqueue_and_start("f7")
         finish(proc_path, success=True, root=self.root)
         self.assertFalse(proc_path.exists())
@@ -298,12 +333,14 @@ class TestFinish(unittest.TestCase, QueueRootIsolationMixin):
 # retry
 # ---------------------------------------------------------------------------
 
+
 class TestRetry(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
         self.setup_queue_root()
 
     def _enqueue_and_start(self, job_id: str) -> Path:
         from worker.queue_ops import Job, enqueue, start_processing
+
         job = Job(id=job_id, type="noop", payload={})
         pending_path = enqueue(job, root=self.root)
         result = start_processing(pending_path, self.root)
@@ -313,12 +350,14 @@ class TestRetry(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_retry_moves_back_to_pending(self):
         from worker.queue_ops import retry
+
         proc_path = self._enqueue_and_start("r1")
         new_path = retry(proc_path, delay_sec=0, root=self.root)
         self.assertEqual(new_path.parent.name, "pending")
 
     def test_retry_increments_attempts(self):
         from worker.queue_ops import retry
+
         proc_path = self._enqueue_and_start("r2")
         new_path = retry(proc_path, delay_sec=0, root=self.root)
         data = json.loads(new_path.read_text())
@@ -326,6 +365,7 @@ class TestRetry(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_retry_sets_not_before_in_future_with_delay(self):
         from worker.queue_ops import retry
+
         proc_path = self._enqueue_and_start("r3")
         new_path = retry(proc_path, delay_sec=30, root=self.root)
         data = json.loads(new_path.read_text())
@@ -334,6 +374,7 @@ class TestRetry(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_retry_sets_last_error_reason(self):
         from worker.queue_ops import retry
+
         proc_path = self._enqueue_and_start("r4")
         new_path = retry(proc_path, delay_sec=0, root=self.root, reason="timed out")
         data = json.loads(new_path.read_text())
@@ -341,6 +382,7 @@ class TestRetry(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_retry_removes_processing_file(self):
         from worker.queue_ops import retry
+
         proc_path = self._enqueue_and_start("r5")
         retry(proc_path, delay_sec=0, root=self.root)
         self.assertFalse(proc_path.exists())
@@ -350,25 +392,29 @@ class TestRetry(unittest.TestCase, QueueRootIsolationMixin):
 # counts
 # ---------------------------------------------------------------------------
 
+
 class TestCounts(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
         self.setup_queue_root()
 
     def test_counts_empty_queue(self):
         from worker.queue_metrics import counts
+
         c = counts(self.root)
         for k in ("pending", "processing", "done", "error"):
             self.assertEqual(c.get(k), 0)
 
     def test_counts_after_enqueue(self):
-        from worker.queue_ops import Job, enqueue
         from worker.queue_metrics import counts
+        from worker.queue_ops import Job, enqueue
+
         enqueue(Job(id="c1", type="noop", payload={}), root=self.root)
         c = counts(self.root)
         self.assertEqual(c["pending"], 1)
 
     def test_counts_return_dict(self):
         from worker.queue_metrics import counts
+
         c = counts(self.root)
         self.assertIsInstance(c, dict)
 
@@ -377,16 +423,19 @@ class TestCounts(unittest.TestCase, QueueRootIsolationMixin):
 # list_processing and list_error
 # ---------------------------------------------------------------------------
 
+
 class TestListProcessingAndError(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
         self.setup_queue_root()
 
     def test_list_processing_empty(self):
         from worker.queue_ops import list_processing
+
         self.assertEqual(list_processing(self.root), [])
 
     def test_list_processing_returns_jobs_in_processing(self):
         from worker.queue_ops import Job, enqueue, list_processing, start_processing
+
         job = Job(id="lp1", type="noop", payload={})
         pending = enqueue(job, root=self.root)
         start_processing(pending, self.root)
@@ -396,10 +445,12 @@ class TestListProcessingAndError(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_list_error_empty(self):
         from worker.queue_ops import list_error
+
         self.assertEqual(list_error(self.root), [])
 
     def test_list_error_returns_failed_jobs(self):
         from worker.queue_ops import Job, enqueue, finish, list_error, start_processing
+
         job = Job(id="le1", type="noop", payload={})
         pending = enqueue(job, root=self.root)
         claim = start_processing(pending, self.root)
@@ -415,12 +466,14 @@ class TestListProcessingAndError(unittest.TestCase, QueueRootIsolationMixin):
 # requeue_error
 # ---------------------------------------------------------------------------
 
+
 class TestRequeueError(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
         self.setup_queue_root()
 
     def _make_error_job(self, job_id: str) -> Path:
         from worker.queue_ops import Job, enqueue, finish, start_processing
+
         job = Job(id=job_id, type="noop", payload={})
         p = enqueue(job, root=self.root)
         claim = start_processing(p, self.root)
@@ -432,12 +485,14 @@ class TestRequeueError(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_requeue_error_moves_to_pending(self):
         from worker.queue_ops import requeue_error
+
         err_path = self._make_error_job("re1")
         new_path = requeue_error(err_path, root=self.root)
         self.assertEqual(new_path.parent.name, "pending")
 
     def test_requeue_error_resets_status_to_pending(self):
         from worker.queue_ops import requeue_error
+
         err_path = self._make_error_job("re2")
         new_path = requeue_error(err_path, root=self.root)
         data = json.loads(new_path.read_text())
@@ -445,6 +500,7 @@ class TestRequeueError(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_requeue_error_reset_attempts(self):
         from worker.queue_ops import requeue_error
+
         err_path = self._make_error_job("re3")
         new_path = requeue_error(err_path, root=self.root, reset_attempts=True)
         data = json.loads(new_path.read_text())
@@ -452,6 +508,7 @@ class TestRequeueError(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_requeue_error_preserves_attempts_without_reset(self):
         from worker.queue_ops import requeue_error
+
         err_path = self._make_error_job("re4")
         data = json.loads(err_path.read_text())
         data["attempts"] = 2
@@ -462,6 +519,7 @@ class TestRequeueError(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_requeue_error_sets_new_max_attempts(self):
         from worker.queue_ops import requeue_error
+
         err_path = self._make_error_job("re5")
         new_path = requeue_error(err_path, root=self.root, new_max_attempts=10)
         data = json.loads(new_path.read_text())
@@ -469,6 +527,7 @@ class TestRequeueError(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_requeue_error_strips_error_field(self):
         from worker.queue_ops import requeue_error
+
         err_path = self._make_error_job("re6")
         new_path = requeue_error(err_path, root=self.root)
         data = json.loads(new_path.read_text())
@@ -477,12 +536,14 @@ class TestRequeueError(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_requeue_error_removes_old_file(self):
         from worker.queue_ops import requeue_error
+
         err_path = self._make_error_job("re7")
         requeue_error(err_path, root=self.root)
         self.assertFalse(err_path.exists())
 
     def test_requeue_error_with_delay(self):
         from worker.queue_ops import requeue_error
+
         err_path = self._make_error_job("re8")
         new_path = requeue_error(err_path, delay_sec=60, root=self.root)
         data = json.loads(new_path.read_text())
@@ -494,35 +555,46 @@ class TestRequeueError(unittest.TestCase, QueueRootIsolationMixin):
 # status
 # ---------------------------------------------------------------------------
 
+
 class TestStatus(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
         self.setup_queue_root()
 
     def test_status_returns_expected_keys(self):
         from worker.queue_metrics import status
+
         s = status(self.root)
-        for key in ("counts", "pending_by_priority", "oldest_pending_wait_sec",
-                    "next_scheduled_in_sec", "processing_oldest_age_sec",
-                    "recent_error_ids", "root"):
+        for key in (
+            "counts",
+            "pending_by_priority",
+            "oldest_pending_wait_sec",
+            "next_scheduled_in_sec",
+            "processing_oldest_age_sec",
+            "recent_error_ids",
+            "root",
+        ):
             self.assertIn(key, s)
 
     def test_status_empty_queue(self):
         from worker.queue_metrics import status
+
         s = status(self.root)
         self.assertEqual(s["oldest_pending_wait_sec"], 0)
         self.assertIsNone(s["next_scheduled_in_sec"])
         self.assertEqual(s["recent_error_ids"], [])
 
     def test_status_counts_jobs(self):
-        from worker.queue_ops import Job, enqueue
         from worker.queue_metrics import status
+        from worker.queue_ops import Job, enqueue
+
         enqueue(Job(id="st1", type="noop", payload={}), root=self.root)
         s = status(self.root)
         self.assertEqual(s["counts"]["pending"], 1)
 
     def test_status_recent_error_ids(self):
-        from worker.queue_ops import Job, enqueue, finish, start_processing
         from worker.queue_metrics import status
+        from worker.queue_ops import Job, enqueue, finish, start_processing
+
         job = Job(id="sterr1", type="noop", payload={})
         p = enqueue(job, root=self.root)
         claim = start_processing(p, self.root)
@@ -534,12 +606,14 @@ class TestStatus(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_status_root_matches(self):
         from worker.queue_metrics import status
+
         s = status(self.root)
         self.assertEqual(s["root"], str(self.root))
 
     def test_status_pending_by_priority(self):
-        from worker.queue_ops import Job, enqueue
         from worker.queue_metrics import status
+        from worker.queue_ops import Job, enqueue
+
         enqueue(Job(id="spri1", type="noop", payload={}, priority=1), root=self.root)
         enqueue(Job(id="spri2", type="noop", payload={}, priority=1), root=self.root)
         s = status(self.root)
@@ -547,8 +621,9 @@ class TestStatus(unittest.TestCase, QueueRootIsolationMixin):
         self.assertEqual(by_pri.get("1"), 2)
 
     def test_status_next_scheduled_in_sec_for_future_job(self):
-        from worker.queue_ops import Job, enqueue
         from worker.queue_metrics import status
+        from worker.queue_ops import Job, enqueue
+
         future_ts = (datetime.now(UTC) + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
         enqueue(Job(id="sfut", type="noop", payload={}, not_before=future_ts), root=self.root)
         s = status(self.root)
@@ -556,16 +631,25 @@ class TestStatus(unittest.TestCase, QueueRootIsolationMixin):
         self.assertGreater(s["next_scheduled_in_sec"], 0)
 
     def test_status_oldest_pending_wait_populated(self):
-        from worker.queue_ops import _ensure_dirs
         from worker.queue_metrics import status
+        from worker.queue_ops import _ensure_dirs
+
         _ensure_dirs(self.root)
         # Write a job with a past not_before to force wait > 0
         p = self.root / "pending" / "past_job.json"
         past_ts = (datetime.now(UTC) - timedelta(seconds=100)).strftime("%Y-%m-%dT%H:%M:%SZ")
-        p.write_text(json.dumps({
-            "id": "past_job", "type": "noop", "priority": 5,
-            "not_before": past_ts, "enqueued_at": past_ts
-        }), encoding="utf-8")
+        p.write_text(
+            json.dumps(
+                {
+                    "id": "past_job",
+                    "type": "noop",
+                    "priority": 5,
+                    "not_before": past_ts,
+                    "enqueued_at": past_ts,
+                }
+            ),
+            encoding="utf-8",
+        )
         s = status(self.root)
         self.assertGreater(s["oldest_pending_wait_sec"], 0)
 
@@ -574,19 +658,22 @@ class TestStatus(unittest.TestCase, QueueRootIsolationMixin):
 # find_job_path_by_id
 # ---------------------------------------------------------------------------
 
+
 class TestFindJobPathById(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
         self.setup_queue_root()
 
     def test_finds_pending_job(self):
         from worker.queue_ops import Job, enqueue, find_job_path_by_id
+
         enqueue(Job(id="fj1", type="noop", payload={}), root=self.root)
         p = find_job_path_by_id("fj1", root=self.root)
         self.assertIsNotNone(p)
         self.assertEqual(p.parent.name, "pending")
 
     def test_finds_done_job(self):
-        from worker.queue_ops import Job, enqueue, finish, find_job_path_by_id, start_processing
+        from worker.queue_ops import Job, enqueue, find_job_path_by_id, finish, start_processing
+
         job = Job(id="fj2", type="noop", payload={})
         pending = enqueue(job, root=self.root)
         claim = start_processing(pending, self.root)
@@ -598,7 +685,8 @@ class TestFindJobPathById(unittest.TestCase, QueueRootIsolationMixin):
         self.assertEqual(p.parent.name, "done")
 
     def test_finds_error_job(self):
-        from worker.queue_ops import Job, enqueue, finish, find_job_path_by_id, start_processing
+        from worker.queue_ops import Job, enqueue, find_job_path_by_id, finish, start_processing
+
         job = Job(id="fj3", type="noop", payload={})
         pending = enqueue(job, root=self.root)
         claim = start_processing(pending, self.root)
@@ -610,7 +698,8 @@ class TestFindJobPathById(unittest.TestCase, QueueRootIsolationMixin):
         self.assertEqual(p.parent.name, "error")
 
     def test_returns_none_for_missing_job(self):
-        from worker.queue_ops import find_job_path_by_id, _ensure_dirs
+        from worker.queue_ops import _ensure_dirs, find_job_path_by_id
+
         _ensure_dirs(self.root)
         p = find_job_path_by_id("no-such-id", root=self.root)
         self.assertIsNone(p)
@@ -620,12 +709,14 @@ class TestFindJobPathById(unittest.TestCase, QueueRootIsolationMixin):
 # purge
 # ---------------------------------------------------------------------------
 
+
 class TestPurge(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
         self.setup_queue_root()
 
     def _make_old_file(self, folder: str, job_id: str, age_sec: int = 3600) -> Path:
         from worker.queue_ops import _ensure_dirs
+
         paths = _ensure_dirs(self.root)
         p = paths[folder] / f"{job_id}.json"
         p.write_text(json.dumps({"id": job_id, "type": "noop"}), encoding="utf-8")
@@ -635,6 +726,7 @@ class TestPurge(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_purge_removes_old_done_jobs(self):
         from worker.queue_ops import purge
+
         p = self._make_old_file("done", "old1", age_sec=3600)
         result = purge(1800, root=self.root, folders=["done"])
         self.assertEqual(result["done"], 1)
@@ -642,6 +734,7 @@ class TestPurge(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_purge_removes_old_error_jobs(self):
         from worker.queue_ops import purge
+
         p = self._make_old_file("error", "olderr1", age_sec=3600)
         result = purge(1800, root=self.root, folders=["error"])
         self.assertEqual(result["error"], 1)
@@ -649,13 +742,15 @@ class TestPurge(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_purge_skips_recent_files(self):
         from worker.queue_ops import purge
+
         p = self._make_old_file("done", "recent1", age_sec=10)
         result = purge(3600, root=self.root, folders=["done"])
         self.assertEqual(result["done"], 0)
         self.assertTrue(p.exists())
 
     def test_purge_defaults_to_done_and_error(self):
-        from worker.queue_ops import purge, _ensure_dirs
+        from worker.queue_ops import _ensure_dirs, purge
+
         _ensure_dirs(self.root)
         result = purge(1800, root=self.root)
         self.assertIn("done", result)
@@ -663,11 +758,13 @@ class TestPurge(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_purge_returns_zero_for_empty_folder(self):
         from worker.queue_ops import purge
+
         result = purge(1800, root=self.root, folders=["done"])
         self.assertEqual(result["done"], 0)
 
     def test_purge_dry_run_counts_without_deleting(self):
         from worker.queue_ops import purge
+
         old = self._make_old_file("done", "dry1", age_sec=7200)
         recent = self._make_old_file("done", "dry2", age_sec=10)
         result = purge(3600, root=self.root, folders=["done"], dry_run=True)
@@ -677,19 +774,26 @@ class TestPurge(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_purge_dry_run_creates_no_queue_folders(self):
         from worker.queue_ops import purge
+
         root = self.root / "fresh-root"
-        result = purge(3600, root=root, folders=["pending", "processing", "done", "error"], dry_run=True)
+        result = purge(
+            3600, root=root, folders=["pending", "processing", "done", "error"], dry_run=True
+        )
         self.assertEqual(result, {"pending": 0, "processing": 0, "done": 0, "error": 0})
         self.assertFalse(root.exists(), "a dry run created the queue root or its folders")
 
     def test_purge_still_creates_queue_folders(self):
         from worker.queue_ops import purge
+
         root = self.root / "fresh-root"
         purge(3600, root=root, folders=["done"])
-        self.assertEqual(sorted(p.name for p in root.iterdir()), ["done", "error", "pending", "processing"])
+        self.assertEqual(
+            sorted(p.name for p in root.iterdir()), ["done", "error", "pending", "processing"]
+        )
 
     def test_purge_multiple_old_files(self):
         from worker.queue_ops import purge
+
         p1 = self._make_old_file("done", "multi1", age_sec=7200)
         p2 = self._make_old_file("done", "multi2", age_sec=7200)
         result = purge(3600, root=self.root, folders=["done"])
@@ -702,12 +806,14 @@ class TestPurge(unittest.TestCase, QueueRootIsolationMixin):
 # reap_stale_processing_jobs
 # ---------------------------------------------------------------------------
 
+
 class TestReapStaleProcessingJobs(unittest.TestCase, QueueRootIsolationMixin):
     def setUp(self):
         self.setup_queue_root()
 
     def test_reap_moves_stale_job_to_pending(self):
-        from worker.queue_ops import Job, enqueue, start_processing, reap_stale_processing_jobs
+        from worker.queue_ops import Job, enqueue, reap_stale_processing_jobs, start_processing
+
         job = Job(id="reap1", type="noop", payload={})
         pending = enqueue(job, root=self.root)
         claim = start_processing(pending, self.root)
@@ -725,7 +831,8 @@ class TestReapStaleProcessingJobs(unittest.TestCase, QueueRootIsolationMixin):
         self.assertTrue((self.root / "pending" / "reap1.json").exists())
 
     def test_reap_skips_job_within_timeout(self):
-        from worker.queue_ops import Job, enqueue, start_processing, reap_stale_processing_jobs
+        from worker.queue_ops import Job, enqueue, reap_stale_processing_jobs, start_processing
+
         job = Job(id="norap1", type="noop", payload={})
         pending = enqueue(job, root=self.root)
         claim = start_processing(pending, self.root)
@@ -737,7 +844,8 @@ class TestReapStaleProcessingJobs(unittest.TestCase, QueueRootIsolationMixin):
         self.assertNotIn("norap1", reaped)
 
     def test_reap_skips_when_timeout_zero(self):
-        from worker.queue_ops import Job, enqueue, start_processing, reap_stale_processing_jobs
+        from worker.queue_ops import Job, enqueue, reap_stale_processing_jobs, start_processing
+
         job = Job(id="norap2", type="noop", payload={})
         pending = enqueue(job, root=self.root)
         claim = start_processing(pending, self.root)
@@ -749,7 +857,8 @@ class TestReapStaleProcessingJobs(unittest.TestCase, QueueRootIsolationMixin):
         self.assertNotIn("norap2", reaped)
 
     def test_reap_uses_per_job_timeout_override(self):
-        from worker.queue_ops import Job, enqueue, start_processing, reap_stale_processing_jobs
+        from worker.queue_ops import Job, enqueue, reap_stale_processing_jobs, start_processing
+
         job = Job(id="pertob", type="noop", payload={}, timeout_sec=30)
         pending = enqueue(job, root=self.root)
         claim = start_processing(pending, self.root)
@@ -766,6 +875,7 @@ class TestReapStaleProcessingJobs(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_reap_job_with_no_start_time_uses_mtime(self):
         from worker.queue_ops import _ensure_dirs, reap_stale_processing_jobs
+
         _ensure_dirs(self.root)
         p = self.root / "processing" / "mtime_job.json"
         data = {"id": "mtime_job", "type": "noop", "status": "processing"}
@@ -777,7 +887,8 @@ class TestReapStaleProcessingJobs(unittest.TestCase, QueueRootIsolationMixin):
         self.assertIn("mtime_job", reaped)
 
     def test_reap_returns_empty_when_no_processing_jobs(self):
-        from worker.queue_ops import reap_stale_processing_jobs, _ensure_dirs
+        from worker.queue_ops import _ensure_dirs, reap_stale_processing_jobs
+
         _ensure_dirs(self.root)
         reaped = reap_stale_processing_jobs(60, root=self.root)
         self.assertEqual(reaped, [])
@@ -787,9 +898,11 @@ class TestReapStaleProcessingJobs(unittest.TestCase, QueueRootIsolationMixin):
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 class TestParseTimestampSafe(unittest.TestCase):
     def test_valid_timestamp(self):
         from worker.queue_ops import _parse_timestamp_safe
+
         dummy_path = Path("/tmp/x.json")  # nosec B108 - test only
         result = _parse_timestamp_safe("2025-01-01T00:00:00Z", dummy_path, "updated_at")
         self.assertIsNotNone(result)
@@ -797,12 +910,14 @@ class TestParseTimestampSafe(unittest.TestCase):
 
     def test_empty_string_returns_none(self):
         from worker.queue_ops import _parse_timestamp_safe
+
         dummy_path = Path("/tmp/x.json")  # nosec B108 - test only
         result = _parse_timestamp_safe("", dummy_path, "updated_at")
         self.assertIsNone(result)
 
     def test_invalid_timestamp_returns_none(self):
         from worker.queue_ops import _parse_timestamp_safe
+
         dummy_path = Path("/tmp/x.json")  # nosec B108 - test only
         result = _parse_timestamp_safe("not-a-date", dummy_path, "updated_at")
         self.assertIsNone(result)
@@ -811,6 +926,7 @@ class TestParseTimestampSafe(unittest.TestCase):
 class TestGetFileMtime(unittest.TestCase):
     def test_existing_file_returns_datetime(self):
         from worker.queue_ops import _get_file_mtime
+
         with tempfile.NamedTemporaryFile() as f:
             result = _get_file_mtime(Path(f.name))
         self.assertIsNotNone(result)
@@ -818,6 +934,7 @@ class TestGetFileMtime(unittest.TestCase):
 
     def test_missing_file_returns_none(self):
         from worker.queue_ops import _get_file_mtime
+
         result = _get_file_mtime(Path("/tmp/no-such-file-xyz.json"))  # nosec B108 - test only
         self.assertIsNone(result)
 
@@ -825,6 +942,7 @@ class TestGetFileMtime(unittest.TestCase):
 class TestUpdateWaitMetrics(unittest.TestCase):
     def test_eligible_job_increases_oldest_wait(self):
         from worker.queue_metrics import _update_wait_metrics
+
         now = datetime.now(UTC)
         nb = now - timedelta(seconds=100)
         oldest_wait, _ = _update_wait_metrics(nb, None, now, 0, None)
@@ -832,6 +950,7 @@ class TestUpdateWaitMetrics(unittest.TestCase):
 
     def test_future_job_sets_next_in(self):
         from worker.queue_metrics import _update_wait_metrics
+
         now = datetime.now(UTC)
         nb = now + timedelta(seconds=120)
         _, next_in = _update_wait_metrics(nb, None, now, 0, None)
@@ -840,6 +959,7 @@ class TestUpdateWaitMetrics(unittest.TestCase):
 
     def test_next_in_takes_minimum_of_existing(self):
         from worker.queue_metrics import _update_wait_metrics
+
         now = datetime.now(UTC)
         nb = now + timedelta(seconds=60)
         # Existing next_in=300 (larger); new delta ~60 should win (be smaller)
@@ -848,6 +968,7 @@ class TestUpdateWaitMetrics(unittest.TestCase):
 
     def test_next_in_not_overridden_when_larger(self):
         from worker.queue_metrics import _update_wait_metrics
+
         now = datetime.now(UTC)
         nb = now + timedelta(seconds=600)
         # Existing next_in=30 is smaller; must not be replaced by 600
@@ -856,6 +977,7 @@ class TestUpdateWaitMetrics(unittest.TestCase):
 
     def test_uses_enq_when_nb_is_none(self):
         from worker.queue_metrics import _update_wait_metrics
+
         now = datetime.now(UTC)
         enq = now - timedelta(seconds=50)
         oldest_wait, _ = _update_wait_metrics(None, enq, now, 0, None)
@@ -865,12 +987,14 @@ class TestUpdateWaitMetrics(unittest.TestCase):
 class TestApplyMaxAttempts(unittest.TestCase):
     def test_sets_max_attempts_on_data(self):
         from worker.queue_ops import _apply_max_attempts
+
         data = {}
         _apply_max_attempts(data, 7)
         self.assertEqual(data["max_attempts"], 7)
 
     def test_invalid_value_does_not_raise(self):
         from worker.queue_ops import _apply_max_attempts
+
         data = {}
         # Should not raise — logs debug instead
         _apply_max_attempts(data, cast(Any, "not-a-number"))  # cast: exercises int() coercion guard
@@ -879,6 +1003,7 @@ class TestApplyMaxAttempts(unittest.TestCase):
 class TestStripErrorField(unittest.TestCase):
     def test_moves_error_to_last_error(self):
         from worker.queue_ops import _strip_error_field
+
         data = {"error": "boom"}
         _strip_error_field(data, Path("/tmp/x.json"))  # nosec B108 - test only
         self.assertNotIn("error", data)
@@ -886,6 +1011,7 @@ class TestStripErrorField(unittest.TestCase):
 
     def test_last_error_set_when_no_error_key(self):
         from worker.queue_ops import _strip_error_field
+
         data = {}
         _strip_error_field(data, Path("/tmp/x.json"))  # nosec B108 - test only
         self.assertIn("last_error", data)
@@ -894,6 +1020,7 @@ class TestStripErrorField(unittest.TestCase):
 class TestRemoveJobFile(unittest.TestCase):
     def test_removes_existing_file(self):
         from worker.queue_ops import _remove_job_file
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as f:
             tmp = Path(f.name)
         _remove_job_file(tmp)
@@ -901,6 +1028,7 @@ class TestRemoveJobFile(unittest.TestCase):
 
     def test_missing_file_does_not_raise(self):
         from worker.queue_ops import _remove_job_file
+
         _remove_job_file(Path("/tmp/no-such-file-remove.json"))  # nosec B108 - test only
 
 
@@ -909,8 +1037,9 @@ class TestComputePendingInsights(unittest.TestCase, QueueRootIsolationMixin):
         self.setup_queue_root()
 
     def test_empty_folder_returns_zeros(self):
-        from worker.queue_ops import _ensure_dirs
         from worker.queue_metrics import _compute_pending_insights
+        from worker.queue_ops import _ensure_dirs
+
         paths = _ensure_dirs(self.root)
         now = datetime.now(UTC)
         oldest, next_in, by_pri = _compute_pending_insights(paths["pending"], now)
@@ -919,8 +1048,9 @@ class TestComputePendingInsights(unittest.TestCase, QueueRootIsolationMixin):
         self.assertEqual(by_pri, {})
 
     def test_counts_by_priority(self):
-        from worker.queue_ops import Job, enqueue, _ensure_dirs
         from worker.queue_metrics import _compute_pending_insights
+        from worker.queue_ops import Job, _ensure_dirs, enqueue
+
         enqueue(Job(id="ci1", type="noop", payload={}, priority=2), root=self.root)
         enqueue(Job(id="ci2", type="noop", payload={}, priority=2), root=self.root)
         paths = _ensure_dirs(self.root)
@@ -935,13 +1065,15 @@ class TestComputeProcessingOldestAge(unittest.TestCase, QueueRootIsolationMixin)
 
     def test_no_processing_returns_zero(self):
         from worker.queue_metrics import _compute_processing_oldest_age
+
         now = datetime.now(UTC)
         result = _compute_processing_oldest_age([], now)
         self.assertEqual(result, 0)
 
     def test_with_processing_job_returns_age(self):
-        from worker.queue_ops import Job, enqueue, start_processing, list_processing
         from worker.queue_metrics import _compute_processing_oldest_age
+        from worker.queue_ops import Job, enqueue, list_processing, start_processing
+
         job = Job(id="age1", type="noop", payload={})
         pending = enqueue(job, root=self.root)
         claim = start_processing(pending, self.root)
@@ -960,11 +1092,13 @@ class TestComputeProcessingOldestAge(unittest.TestCase, QueueRootIsolationMixin)
 class TestListJobPaths(unittest.TestCase):
     def test_nonexistent_folder_returns_empty(self):
         from worker.queue_ops import _list_job_paths
+
         result = _list_job_paths(Path("/tmp/no-such-folder-xyz"))  # nosec B108 - test only
         self.assertEqual(result, [])
 
     def test_only_json_files_returned(self):
         from worker.queue_ops import _list_job_paths
+
         with tempfile.TemporaryDirectory() as td:
             folder = Path(td)
             (folder / "job.json").write_text("{}")
@@ -982,12 +1116,12 @@ class TestReapResolveFallbackToUpdatedAt(unittest.TestCase, QueueRootIsolationMi
 
     def test_falls_back_to_updated_at_when_no_processing_started_at(self):
         from worker.queue_ops import _ensure_dirs, reap_stale_processing_jobs
+
         _ensure_dirs(self.root)
         old_ts = (datetime.now(UTC) - timedelta(seconds=200)).strftime("%Y-%m-%dT%H:%M:%SZ")
         p = self.root / "processing" / "fallback_job.json"
         # Use updated_at but no processing_started_at
-        data = {"id": "fallback_job", "type": "noop", "status": "processing",
-                "updated_at": old_ts}
+        data = {"id": "fallback_job", "type": "noop", "status": "processing", "updated_at": old_ts}
         p.write_text(json.dumps(data), encoding="utf-8")
         reaped = reap_stale_processing_jobs(100, root=self.root)
         self.assertIn("fallback_job", reaped)

@@ -34,7 +34,6 @@ import sys
 from pathlib import Path
 from typing import IO
 
-
 #: Severity levels that are NOT blocking. Everything else (including unknown
 #: values) counts as blocking so a new severity level is never silently ignored.
 _NON_BLOCKING_SEVERITIES: frozenset[str] = frozenset({"minor", "info"})
@@ -85,19 +84,13 @@ def count_blocking(path: str) -> tuple[int, int | None]:
         raise CountBlockingError("'findings' key is missing")
     findings_raw = doc["findings"]
     if not isinstance(findings_raw, list):
-        raise CountBlockingError(
-            f"'findings' must be a list, got {type(findings_raw).__name__}"
-        )
+        raise CountBlockingError(f"'findings' must be a list, got {type(findings_raw).__name__}")
     for i, item in enumerate(findings_raw):
         _validate_finding(i, item)
     blocking_raw = doc.get("blocking")
     if "blocking" in doc:
         _validate_blocking(blocking_raw)
-    derived = sum(
-        1
-        for f in findings_raw
-        if f.get("severity") not in _NON_BLOCKING_SEVERITIES
-    )
+    derived = sum(1 for f in findings_raw if f.get("severity") not in _NON_BLOCKING_SEVERITIES)
     reported: int | None = None
     if isinstance(blocking_raw, int) and not isinstance(blocking_raw, bool):
         reported = blocking_raw
@@ -107,9 +100,7 @@ def count_blocking(path: str) -> tuple[int, int | None]:
 def _validate_finding(i: int, item: object) -> None:
     """Raise :class:`CountBlockingError` if findings[*i*] is malformed."""
     if not isinstance(item, dict):
-        raise CountBlockingError(
-            f"findings[{i}] is not an object, got {type(item).__name__}"
-        )
+        raise CountBlockingError(f"findings[{i}] is not an object, got {type(item).__name__}")
     sev = item.get("severity")
     if sev is None:
         raise CountBlockingError(f"findings[{i}] is missing the 'severity' field")
@@ -130,8 +121,7 @@ def _validate_blocking(value: object) -> None:
     """
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise CountBlockingError(
-            f"'blocking' must be a non-negative integer, "
-            f"got {type(value).__name__!r} {value!r}"
+            f"'blocking' must be a non-negative integer, got {type(value).__name__!r} {value!r}"
         )
 
 

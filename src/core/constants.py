@@ -8,11 +8,12 @@ from __future__ import annotations
 
 import configparser
 import os
-from typing import Iterable
+from collections.abc import Iterable
 
 # -----------------------------------------------------------------------------
 # Credential paths
 # -----------------------------------------------------------------------------
+
 
 def _config_roots() -> list[str]:
     """Return ordered list of config root directories."""

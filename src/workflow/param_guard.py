@@ -132,9 +132,7 @@ def check_params(params: dict[str, object], checks: list[ParamCheck]) -> ParamGu
     return ParamGuardResult(ok=not failures, failures=tuple(failures))
 
 
-def select_printable(
-    name: str, params: dict[str, object], checks: list[ParamCheck]
-) -> str:
+def select_printable(name: str, params: dict[str, object], checks: list[ParamCheck]) -> str:
     """Return the value of ``name``, but only if a check covers and accepts it.
 
     This exists so ``check-params --print`` can hand a value to a shell

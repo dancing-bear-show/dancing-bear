@@ -1,4 +1,5 @@
 """Additional tests for phone/device.py — covering previously uncovered lines."""
+
 from __future__ import annotations
 
 import os
@@ -28,14 +29,18 @@ class TestFindCfgutilPath(unittest.TestCase):
 
     def test_finds_cfgutil_at_alt_path(self):
         alt = "/Applications/Apple Configurator.app/Contents/MacOS/cfgutil"
-        with patch("phone.device.which", return_value=None), \
-             patch.object(Path, "exists", return_value=True):
+        with (
+            patch("phone.device.which", return_value=None),
+            patch.object(Path, "exists", return_value=True),
+        ):
             result = find_cfgutil_path()
             self.assertEqual(result, alt)
 
     def test_raises_when_not_found(self):
-        with patch("phone.device.which", return_value=None), \
-             patch.object(Path, "exists", return_value=False):
+        with (
+            patch("phone.device.which", return_value=None),
+            patch.object(Path, "exists", return_value=False),
+        ):
             with self.assertRaises(FileNotFoundError):
                 find_cfgutil_path()
 
@@ -69,9 +74,11 @@ class TestExportFromDevice(unittest.TestCase):
         plist_data = {"buttonBar": [], "iconLists": []}
         plist_bytes = plistlib.dumps(plist_data)
 
-        with patch("phone.device.subprocess.check_output", return_value=plist_bytes), \
-             patch("phone.device.normalize_iconstate", return_value=mock_layout), \
-             patch("phone.device.to_yaml_export", return_value={"dock": ["com.dock"], "pages": []}):
+        with (
+            patch("phone.device.subprocess.check_output", return_value=plist_bytes),
+            patch("phone.device.normalize_iconstate", return_value=mock_layout),
+            patch("phone.device.to_yaml_export", return_value={"dock": ["com.dock"], "pages": []}),
+        ):
             result = export_from_device("/usr/bin/cfgutil")
             self.assertIn("dock", result)
 
@@ -88,9 +95,11 @@ class TestExportFromDevice(unittest.TestCase):
         mock_layout.pages = []
         plist_bytes = plistlib.dumps({})
 
-        with patch("phone.device.subprocess.check_output", return_value=plist_bytes), \
-             patch("phone.device.normalize_iconstate", return_value=mock_layout), \
-             patch("phone.device.to_yaml_export", return_value={}):
+        with (
+            patch("phone.device.subprocess.check_output", return_value=plist_bytes),
+            patch("phone.device.normalize_iconstate", return_value=mock_layout),
+            patch("phone.device.to_yaml_export", return_value={}),
+        ):
             result = export_from_device("/usr/bin/cfgutil", ecid="0x12345")
             self.assertIsInstance(result, dict)
 
@@ -100,8 +109,10 @@ class TestExportFromDevice(unittest.TestCase):
         plist_data = {"buttonBar": [{"bundleIdentifier": "com.app"}], "iconLists": []}
         plist_bytes = plistlib.dumps(plist_data)
 
-        with patch("phone.device.subprocess.check_output", return_value=plist_bytes), \
-             patch("phone.device.normalize_iconstate", side_effect=Exception("parse error")):
+        with (
+            patch("phone.device.subprocess.check_output", return_value=plist_bytes),
+            patch("phone.device.normalize_iconstate", side_effect=Exception("parse error")),
+        ):
             result = export_from_device("/usr/bin/cfgutil")
             self.assertIsInstance(result, dict)
 
@@ -145,10 +156,13 @@ class TestReadCredentialsIni(unittest.TestCase):
 
 class TestExtractCertPem(unittest.TestCase):
     def test_tries_legacy_then_standard(self):
-        with patch("phone.device.subprocess.check_output", side_effect=[
-            Exception("legacy failed"),
-            b"-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n",
-        ]):
+        with patch(
+            "phone.device.subprocess.check_output",
+            side_effect=[
+                Exception("legacy failed"),
+                b"-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n",
+            ],
+        ):
             result = _extract_cert_pem("/fake/cert.p12", "password")
             self.assertIn(b"CERTIFICATE", result)
 
@@ -187,8 +201,10 @@ class TestExtractP12CertInfo(unittest.TestCase):
             fname = f.name
 
         try:
-            with patch("phone.device._extract_cert_pem", return_value=b"fake_pem"), \
-                 patch("phone.device._x509_field", side_effect=["CN=Test", "CN=CA"]):
+            with (
+                patch("phone.device._extract_cert_pem", return_value=b"fake_pem"),
+                patch("phone.device._x509_field", side_effect=["CN=Test", "CN=CA"]),
+            ):
                 info = extract_p12_cert_info(fname, "password")
                 self.assertEqual(info.subject, "CN=Test")
                 self.assertEqual(info.issuer, "CN=CA")
@@ -203,14 +219,18 @@ class TestGetDeviceSupervisionStatus(unittest.TestCase):
             self.assertIsNone(result)
 
     def test_returns_status_when_found(self):
-        with patch("phone.device.find_cfgutil_path", return_value="/usr/bin/cfgutil"), \
-             patch("phone.device.subprocess.check_output", return_value="Supervised: true\n"):
+        with (
+            patch("phone.device.find_cfgutil_path", return_value="/usr/bin/cfgutil"),
+            patch("phone.device.subprocess.check_output", return_value="Supervised: true\n"),
+        ):
             result = get_device_supervision_status()
             self.assertEqual(result, "true")
 
     def test_returns_none_on_subprocess_failure(self):
-        with patch("phone.device.find_cfgutil_path", return_value="/usr/bin/cfgutil"), \
-             patch("phone.device.subprocess.check_output", side_effect=Exception("fail")):
+        with (
+            patch("phone.device.find_cfgutil_path", return_value="/usr/bin/cfgutil"),
+            patch("phone.device.subprocess.check_output", side_effect=Exception("fail")),
+        ):
             result = get_device_supervision_status()
             self.assertIsNone(result)
 

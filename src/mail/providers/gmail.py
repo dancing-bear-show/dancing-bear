@@ -2,16 +2,22 @@ from __future__ import annotations
 
 from typing import Any
 
-from .base import BaseProvider
 from ..gmail_api import GmailClient
+from .base import BaseProvider
 
 
 class GmailProvider(BaseProvider):
     _provider_name = "gmail"
 
-    def __init__(self, *, credentials_path: str, token_path: str, cache_dir: str | None = None) -> None:
-        super().__init__(credentials_path=credentials_path, token_path=token_path, cache_dir=cache_dir)
-        self._client = GmailClient(credentials_path=credentials_path, token_path=token_path, cache_dir=cache_dir)
+    def __init__(
+        self, *, credentials_path: str, token_path: str, cache_dir: str | None = None
+    ) -> None:
+        super().__init__(
+            credentials_path=credentials_path, token_path=token_path, cache_dir=cache_dir
+        )
+        self._client = GmailClient(
+            credentials_path=credentials_path, token_path=token_path, cache_dir=cache_dir
+        )
 
     # ---- lifecycle ----
     def authenticate(self) -> None:
@@ -59,8 +65,12 @@ class GmailProvider(BaseProvider):
     def get_auto_forwarding(self) -> dict[str, Any]:
         return self._client.get_auto_forwarding()
 
-    def set_auto_forwarding(self, *, enabled: bool, email: str | None = None, disposition: str | None = None) -> dict[str, Any]:
-        return self._client.update_auto_forwarding(enabled=enabled, email=email, disposition=disposition)
+    def set_auto_forwarding(
+        self, *, enabled: bool, email: str | None = None, disposition: str | None = None
+    ) -> dict[str, Any]:
+        return self._client.update_auto_forwarding(
+            enabled=enabled, email=email, disposition=disposition
+        )
 
     # ---- sweeping / messages ----
     def list_message_ids(
@@ -70,7 +80,9 @@ class GmailProvider(BaseProvider):
         max_pages: int = 1,
         page_size: int = 500,
     ) -> list[str]:
-        return self._client.list_message_ids(query=query, label_ids=label_ids, max_pages=max_pages, page_size=page_size)
+        return self._client.list_message_ids(
+            query=query, label_ids=label_ids, max_pages=max_pages, page_size=page_size
+        )
 
     def batch_modify_messages(
         self,
@@ -78,7 +90,9 @@ class GmailProvider(BaseProvider):
         add_label_ids: list[str] | None = None,
         remove_label_ids: list[str] | None = None,
     ) -> None:
-        self._client.batch_modify_messages(ids, add_label_ids=add_label_ids, remove_label_ids=remove_label_ids)
+        self._client.batch_modify_messages(
+            ids, add_label_ids=add_label_ids, remove_label_ids=remove_label_ids
+        )
 
     # ---- signatures ----
     def list_signatures(self) -> list[dict[str, Any]]:

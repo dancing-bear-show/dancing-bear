@@ -4,9 +4,8 @@ import os
 import time
 import unittest
 
-from tests.fixtures import TempDirMixin
-
 from core.cache import ConfigCacheMixin
+from tests.fixtures import TempDirMixin
 
 
 class TestConfigCacheMixin(TempDirMixin, unittest.TestCase):

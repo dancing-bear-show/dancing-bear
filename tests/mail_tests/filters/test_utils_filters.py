@@ -6,10 +6,11 @@ class TestUtilsFilters(unittest.TestCase):
         from mail.utils.filters import categories_to_system_labels
 
         self.assertEqual(categories_to_system_labels({}), [])
-        self.assertEqual(categories_to_system_labels({"categorizeAs": "promotions"}), ["CATEGORY_PROMOTIONS"])
+        self.assertEqual(
+            categories_to_system_labels({"categorizeAs": "promotions"}), ["CATEGORY_PROMOTIONS"]
+        )
         self.assertEqual(
             sorted(categories_to_system_labels({"categories": ["updates", "forums", "x"]})),
             ["CATEGORY_FORUMS", "CATEGORY_UPDATES"],
         )
         self.assertEqual(categories_to_system_labels({"categorize": "social"}), ["CATEGORY_SOCIAL"])
-

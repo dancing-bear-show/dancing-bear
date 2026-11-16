@@ -9,11 +9,11 @@ from __future__ import annotations
 
 import os
 import unittest
-from pathlib import Path
 import unittest.mock as mock
+from pathlib import Path
 
-from worker import qwen
 from tests.worker_tests.qwen_fixtures import GIB, QwenHandlerCase
+from worker import qwen
 
 UNSAFE_IDS = (
     "../escape",
@@ -52,7 +52,10 @@ class QwenJobIdPathTests(QwenHandlerCase):
         )
         for name, build in builders:
             for job_id in ("../escape", "..", "a/b"):
-                with self.subTest(builder=name, job_id=job_id), self.assertRaises(qwen.QwenGuardError) as ctx:
+                with (
+                    self.subTest(builder=name, job_id=job_id),
+                    self.assertRaises(qwen.QwenGuardError) as ctx,
+                ):
                     build(job_id)
                 self.assertEqual(str(ctx.exception), qwen.INVALID_JOB_ID_OUTCOME)
         self.assertEqual(sorted(p.name for p in Path(self.tmpdir).iterdir() if p.is_file()), [])
@@ -72,8 +75,10 @@ class QwenJobIdPathTests(QwenHandlerCase):
         self.assertTrue(qwen.is_safe_job_id(job_id))
         self.deferral_dir.mkdir(parents=True)
 
-        with mock.patch("pathlib.Path.unlink", side_effect=OSError(f"cannot remove {job_id}.json")), \
-                self.assertLogs("worker.qwen", level="WARNING") as logs:
+        with (
+            mock.patch("pathlib.Path.unlink", side_effect=OSError(f"cannot remove {job_id}.json")),
+            self.assertLogs("worker.qwen", level="WARNING") as logs,
+        ):
             qwen._clear_deferral_state(job_id)
 
         joined = "\n".join(logs.output)
@@ -113,8 +118,10 @@ class QwenNoFollowReadTests(QwenHandlerCase):
     def test_recorded_digest_read_does_not_follow_a_symlink(self) -> None:
         link = self._link_to("planted_digest.json", '{"qwen2.5-coder:14b": "sha256:planted"}')
 
-        with mock.patch.object(qwen, "recorded_digest_path", return_value=link), \
-                self.assertLogs("worker.qwen", level="WARNING"):
+        with (
+            mock.patch.object(qwen, "recorded_digest_path", return_value=link),
+            self.assertLogs("worker.qwen", level="WARNING"),
+        ):
             self.assertIsNone(qwen._load_recorded_digest("qwen2.5-coder:14b"))
 
     def test_valid_json_that_is_not_an_object_reads_as_empty(self) -> None:
@@ -152,7 +159,9 @@ class QwenSameDirSymlinkTests(QwenHandlerCase):
         return link, victim, content
 
     def _assert_untouched(self, victim: Path, content: bytes) -> None:
-        self.assertEqual(victim.read_bytes(), content, "job-b's file was written through job-a's link")
+        self.assertEqual(
+            victim.read_bytes(), content, "job-b's file was written through job-a's link"
+        )
         self.assertEqual(victim.stat().st_mtime_ns, self.OLD_MTIME_NS)
 
     def test_deferral_write_through_a_same_dir_link_is_refused(self) -> None:
@@ -206,7 +215,9 @@ class QwenSameDirSymlinkTests(QwenHandlerCase):
         self._assert_untouched(victim, content)
         self.assertFalse(link.is_symlink())
         self.assertEqual(link.read_text(encoding="utf-8"), '{"count": 1}')
-        self.assertEqual(sorted(p.name for p in self.deferral_dir.iterdir()), ["job-a.json", "job-b.json"])
+        self.assertEqual(
+            sorted(p.name for p in self.deferral_dir.iterdir()), ["job-a.json", "job-b.json"]
+        )
 
 
 class QwenJobIdHandlerTests(QwenHandlerCase):

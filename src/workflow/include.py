@@ -7,21 +7,22 @@ the parent workflow's stage list.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Callable, cast
+from typing import Any, cast
 
 from .models import FanOutSpec, IncludeSpec, ParamRules, StageSpec
 from .param_rules import parse_param_rules
 
 __all__ = [
     "FragmentContext",
-    "parse_fragment",
-    "_parse_include",
-    "_parse_fragment_str",
     "_expand_includes",
-    "resolve_fragment_path",
+    "_parse_fragment_str",
+    "_parse_include",
     "extract_include_entries",
+    "parse_fragment",
+    "resolve_fragment_path",
 ]
 
 
@@ -62,6 +63,7 @@ def extract_include_entries(content: str | bytes) -> list[object]:
     Swallows all YAML errors — callers use this as a best-effort pre-parse.
     """
     import yaml  # lazy — optional dep
+
     try:
         data = yaml.safe_load(content)
     except yaml.YAMLError:
@@ -106,11 +108,13 @@ def _parse_fragment_str(
     parse_stage: Callable[[dict[str, Any], str], StageSpec] | None = None,
 ) -> tuple[StageSpec, ...]:
     """Parse stages from a fragment YAML string."""
-    from workflow.parser import WorkflowParseError, _parse_stage as _default_parse_stage  # noqa: PLC0415
+    from workflow.parser import WorkflowParseError  # noqa: PLC0415
+    from workflow.parser import _parse_stage as _default_parse_stage
 
     _ps = parse_stage if parse_stage is not None else _default_parse_stage
 
     import yaml  # lazy — optional dep
+
     try:
         data = yaml.safe_load(content)
     except yaml.YAMLError as exc:
@@ -144,10 +148,10 @@ def _parse_fragment_str(
 def _require_list(value: object, field: str, context: str, source: str) -> list[Any]:
     """Return *value* as a list or raise WorkflowParseError."""
     from workflow.parser import WorkflowParseError  # noqa: PLC0415
+
     if not isinstance(value, (list, tuple)):
         raise WorkflowParseError(
-            f"{source}: include '{context}' '{field}' must be a list, "
-            f"got {type(value).__name__}"
+            f"{source}: include '{context}' '{field}' must be a list, got {type(value).__name__}"
         )
     return list(value)
 
@@ -155,10 +159,10 @@ def _require_list(value: object, field: str, context: str, source: str) -> list[
 def _require_dict(value: object, field: str, context: str, source: str) -> dict[str, Any]:
     """Return *value* as a dict or raise WorkflowParseError."""
     from workflow.parser import WorkflowParseError  # noqa: PLC0415
+
     if not isinstance(value, dict):
         raise WorkflowParseError(
-            f"{source}: include '{context}' '{field}' must be a mapping, "
-            f"got {type(value).__name__}"
+            f"{source}: include '{context}' '{field}' must be a mapping, got {type(value).__name__}"
         )
     return value
 
@@ -209,9 +213,7 @@ def _load_frag_text(frag_path: Path, source: str) -> str:
             f"{source}: include references missing fragment file: {frag_path}"
         ) from None
     except OSError as exc:
-        raise WorkflowParseError(
-            f"{source}: cannot read fragment {frag_path}: {exc}"
-        ) from exc
+        raise WorkflowParseError(f"{source}: cannot read fragment {frag_path}: {exc}") from exc
 
 
 def _inline_frag_stages(
@@ -220,8 +222,7 @@ def _inline_frag_stages(
 ) -> list[StageSpec]:
     """Rename and inline fragment stages according to the IncludeSpec."""
     rename: dict[str, str] = {
-        s.name: s.name if not inc.prefix else f"{inc.prefix}-{s.name}"
-        for s in frag_stages
+        s.name: s.name if not inc.prefix else f"{inc.prefix}-{s.name}" for s in frag_stages
     }
 
     def _rewrite(refs: tuple[str, ...]) -> tuple[str, ...]:
@@ -230,27 +231,33 @@ def _inline_frag_stages(
     inlined: list[StageSpec] = []
     for frag_stage in frag_stages:
         is_root = frag_stage.depends_on == ()
-        new_depends = inc.depends_on if (is_root and inc.depends_on) else _rewrite(frag_stage.depends_on)
-        new_reads = inc.reads_from if (is_root and inc.reads_from) else _rewrite(frag_stage.reads_from)
-        inlined.append(StageSpec(
-            name=rename[frag_stage.name],
-            kind=frag_stage.kind,
-            description=frag_stage.description,
-            agent=frag_stage.agent,
-            depends_on=new_depends,
-            outputs=frag_stage.outputs,
-            validation=frag_stage.validation,
-            human_gate=frag_stage.human_gate,
-            required=frag_stage.required,
-            reads_from=new_reads,
-            writes_to=frag_stage.writes_to,
-            when=frag_stage.when,
-            fan_out=_rewrite_fan_out(frag_stage.fan_out, rename),
-            executor=frag_stage.executor,
-            script=frag_stage.script,
-            sub_workflow=frag_stage.sub_workflow,
-            validates_output=frag_stage.validates_output,
-        ))
+        new_depends = (
+            inc.depends_on if (is_root and inc.depends_on) else _rewrite(frag_stage.depends_on)
+        )
+        new_reads = (
+            inc.reads_from if (is_root and inc.reads_from) else _rewrite(frag_stage.reads_from)
+        )
+        inlined.append(
+            StageSpec(
+                name=rename[frag_stage.name],
+                kind=frag_stage.kind,
+                description=frag_stage.description,
+                agent=frag_stage.agent,
+                depends_on=new_depends,
+                outputs=frag_stage.outputs,
+                validation=frag_stage.validation,
+                human_gate=frag_stage.human_gate,
+                required=frag_stage.required,
+                reads_from=new_reads,
+                writes_to=frag_stage.writes_to,
+                when=frag_stage.when,
+                fan_out=_rewrite_fan_out(frag_stage.fan_out, rename),
+                executor=frag_stage.executor,
+                script=frag_stage.script,
+                sub_workflow=frag_stage.sub_workflow,
+                validates_output=frag_stage.validates_output,
+            )
+        )
     return inlined
 
 
@@ -396,6 +403,7 @@ def _frag_trigger(frag_text: str, source: str) -> tuple[dict[str, str], ParamRul
 def _parse_nested_includes(frag_text: str, source: str) -> tuple[IncludeSpec, ...]:
     """Extract and parse the ``include:`` list from a fragment's YAML text."""
     import yaml  # lazy — optional dep
+
     try:
         data = yaml.safe_load(frag_text)
     except yaml.YAMLError:
@@ -409,6 +417,7 @@ def _parse_nested_includes(frag_text: str, source: str) -> tuple[IncludeSpec, ..
         return ()
     if not isinstance(raw_includes, list):
         from workflow.parser import WorkflowParseError  # noqa: PLC0415
+
         raise WorkflowParseError(
             f"{source}: 'include' must be a list, got {type(raw_includes).__name__}"
         )

@@ -3,10 +3,12 @@
 Centralizes provider construction and basic operations used by CLI
 parsers for Gmail scans.
 """
+
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Sequence
+from typing import Any
 
 
 @dataclass
@@ -26,8 +28,9 @@ class GmailService:
     provider: Any
 
     @classmethod
-    def from_args(cls, args: Any) -> "GmailService":
+    def from_args(cls, args: Any) -> GmailService:
         from mail.utils.cli_helpers import gmail_provider_from_args  # lazy
+
         prov = gmail_provider_from_args(args)
         return cls(prov)
 
@@ -35,7 +38,9 @@ class GmailService:
         self.provider.authenticate()
 
     def list_message_ids(self, *, query: str, max_pages: int, page_size: int) -> list[str]:
-        return self.provider.list_message_ids(query=query, max_pages=int(max_pages), page_size=int(page_size))
+        return self.provider.list_message_ids(
+            query=query, max_pages=int(max_pages), page_size=int(page_size)
+        )
 
     def query_and_list_ids(
         self,
@@ -70,9 +75,9 @@ class GmailService:
         if params.from_text:
             parts.append(f'from:"{params.from_text}"')
         if params.days is not None:
-            parts.append(f'newer_than:{int(params.days)}d')
+            parts.append(f"newer_than:{int(params.days)}d")
         if params.inbox_only:
-            parts.append('in:inbox')
+            parts.append("in:inbox")
         if params.phrase:
             parts.append(f'"{params.phrase}"')
         if params.include_terms:
@@ -85,24 +90,40 @@ class GmailService:
     @staticmethod
     def build_receipts_query(*, from_text: str | None, days: int, explicit: str | None) -> str:
         tokens = '(Swimmer OR "Swim Kids" OR Preschool OR Bronze)'
-        return GmailService.build_query_from_params(QueryParams(
-            explicit=explicit,
-            from_text=from_text,
-            days=days,
-            include_terms=tokens,
-            phrase='Enrollment in',
-        ))
+        return GmailService.build_query_from_params(
+            QueryParams(
+                explicit=explicit,
+                from_text=from_text,
+                days=days,
+                include_terms=tokens,
+                phrase="Enrollment in",
+            )
+        )
 
     @staticmethod
-    def build_activerh_query(*, days: int, explicit: str | None = None, programs: list[str] | None = None, from_text: str | None = None) -> str:
+    def build_activerh_query(
+        *,
+        days: int,
+        explicit: str | None = None,
+        programs: list[str] | None = None,
+        from_text: str | None = None,
+    ) -> str:
         """Construct a broad ActiveRH receipt query (delegates to build_query)."""
         progs = programs or [
-            "Swimmer", "Swim Kids", "Chess", "Sportball", "Culinary", "Preschool", "Bronze",
+            "Swimmer",
+            "Swim Kids",
+            "Chess",
+            "Sportball",
+            "Culinary",
+            "Preschool",
+            "Bronze",
         ]
-        return GmailService.build_query_from_params(QueryParams(
-            explicit=explicit,
-            from_text=from_text,
-            days=days,
-            include_terms=list(progs),
-            phrase='Enrollment in',
-        ))
+        return GmailService.build_query_from_params(
+            QueryParams(
+                explicit=explicit,
+                from_text=from_text,
+                days=days,
+                include_terms=list(progs),
+                phrase="Enrollment in",
+            )
+        )

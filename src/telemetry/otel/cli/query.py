@@ -81,9 +81,7 @@ def _select_metrics_by_pattern(record: OTLPMetricsRecord, metric_pattern: str | 
     return record.metrics
 
 
-def _filter_data_points(
-    data_points: list, cutoff_time: datetime | None
-) -> list:
+def _filter_data_points(data_points: list, cutoff_time: datetime | None) -> list:
     """Filter data points by time window."""
     if cutoff_time:
         return [dp for dp in data_points if dp.timestamp >= cutoff_time]

@@ -9,7 +9,9 @@ def build_agentic_capsule() -> str:
     lines.append("agentic: slides")
     lines.append("purpose: Generate PowerPoint slides from YAML deck definitions")
     lines.append("commands:")
-    lines.append("  - generate: ./bin/slides generate deck.yaml --template template.pptx -o out.pptx")
+    lines.append(
+        "  - generate: ./bin/slides generate deck.yaml --template template.pptx -o out.pptx"
+    )
     lines.append("  - validate: ./bin/slides validate deck.yaml")
     lines.append("  - list layouts: ./bin/slides templates template.pptx --format json")
     lines.append(

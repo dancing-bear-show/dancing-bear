@@ -1,4 +1,5 @@
 """Export labels and filters pipeline implementations for accounts commands."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -10,8 +11,8 @@ from .pipeline_auth import (
     AccountAuthenticator,
     AccountsResultProducer,
     SimpleConsumer,
-    _build_label_id_to_name_map,
     _build_filter_dsl_entry,
+    _build_label_id_to_name_map,
 )
 
 
@@ -43,7 +44,9 @@ class AccountsExportLabelsResult:
 AccountsExportLabelsRequestConsumer = SimpleConsumer[AccountsExportLabelsRequest]
 
 
-class AccountsExportLabelsProcessor(SafeProcessor[AccountsExportLabelsRequest, AccountsExportLabelsResult]):
+class AccountsExportLabelsProcessor(
+    SafeProcessor[AccountsExportLabelsRequest, AccountsExportLabelsResult]
+):
     def _process_safe(self, payload: AccountsExportLabelsRequest) -> AccountsExportLabelsResult:
         from core.yamlio import dump_config
 
@@ -57,18 +60,25 @@ class AccountsExportLabelsProcessor(SafeProcessor[AccountsExportLabelsRequest, A
             labels = client.list_labels()
             doc = {
                 "labels": [
-                    {k: v for k, v in lab.items() if k in ("name", "color", "labelListVisibility", "messageListVisibility")}
-                    for lab in labels if lab.get("type") != "system"
+                    {
+                        k: v
+                        for k, v in lab.items()
+                        if k in ("name", "color", "labelListVisibility", "messageListVisibility")
+                    }
+                    for lab in labels
+                    if lab.get("type") != "system"
                 ],
                 "redirects": [],
             }
             path = out_dir / f"labels_{account.get('name', 'account')}.yaml"
             dump_config(str(path), doc)
-            exports.append(ExportedLabelsInfo(
-                account_name=account.get("name", "account"),
-                output_path=str(path),
-                label_count=len(doc["labels"]),
-            ))
+            exports.append(
+                ExportedLabelsInfo(
+                    account_name=account.get("name", "account"),
+                    output_path=str(path),
+                    label_count=len(doc["labels"]),
+                )
+            )
 
         return AccountsExportLabelsResult(exports=exports)
 
@@ -112,10 +122,13 @@ class AccountsExportFiltersResult:
 AccountsExportFiltersRequestConsumer = SimpleConsumer[AccountsExportFiltersRequest]
 
 
-class AccountsExportFiltersProcessor(SafeProcessor[AccountsExportFiltersRequest, AccountsExportFiltersResult]):
+class AccountsExportFiltersProcessor(
+    SafeProcessor[AccountsExportFiltersRequest, AccountsExportFiltersResult]
+):
     def _process_safe(self, payload: AccountsExportFiltersRequest) -> AccountsExportFiltersResult:
-        from .helpers import load_accounts, iter_accounts, build_provider_for_account
         from core.yamlio import dump_config
+
+        from .helpers import build_provider_for_account, iter_accounts, load_accounts
 
         accts = load_accounts(payload.config_path)
         out_dir = Path(payload.out_dir)
@@ -131,11 +144,13 @@ class AccountsExportFiltersProcessor(SafeProcessor[AccountsExportFiltersRequest,
 
             path = out_dir / f"filters_{a.get('name', 'account')}.yaml"
             dump_config(str(path), {"filters": dsl})
-            exports.append(ExportedFiltersInfo(
-                account_name=a.get("name", "account"),
-                output_path=str(path),
-                filter_count=len(dsl),
-            ))
+            exports.append(
+                ExportedFiltersInfo(
+                    account_name=a.get("name", "account"),
+                    output_path=str(path),
+                    filter_count=len(dsl),
+                )
+            )
 
         return AccountsExportFiltersResult(exports=exports)
 

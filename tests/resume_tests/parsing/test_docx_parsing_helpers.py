@@ -6,12 +6,12 @@ import unittest
 from unittest.mock import MagicMock
 
 from resume.parsing_experience_docx import (
-    _DocxParaHelper,
-    _docx_find_sections,
-    _docx_extract_name_headline,
-    _docx_extract_summary,
     _docx_extract_education,
     _docx_extract_experience,
+    _docx_extract_name_headline,
+    _docx_extract_summary,
+    _docx_find_sections,
+    _DocxParaHelper,
     _key_from_heading,
     _parse_h2_education,
     _parse_h2_experience,
@@ -47,11 +47,13 @@ class TestDocxParaHelper(unittest.TestCase):
         self.assertEqual(helper.text(0), "text with spaces")
 
     def test_len(self):
-        helper = _make_helper([
-            ("Text 1", "Normal"),
-            ("Text 2", "Heading 1"),
-            ("Text 3", "Normal"),
-        ])
+        helper = _make_helper(
+            [
+                ("Text 1", "Normal"),
+                ("Text 2", "Heading 1"),
+                ("Text 3", "Normal"),
+            ]
+        )
         self.assertEqual(len(helper), 3)
 
     def test_handles_missing_style_name(self):
@@ -67,13 +69,15 @@ class TestDocxFindSections(unittest.TestCase):
     """Tests for _docx_find_sections."""
 
     def test_finds_experience_section(self):
-        helper = _make_helper([
-            ("John Doe", "Title"),
-            ("Experience", "Heading 1"),
-            ("Senior Engineer at TechCorp", "Normal"),
-            ("Education", "Heading 1"),
-            ("B.S. CS at MIT", "Normal"),
-        ])
+        helper = _make_helper(
+            [
+                ("John Doe", "Title"),
+                ("Experience", "Heading 1"),
+                ("Senior Engineer at TechCorp", "Normal"),
+                ("Education", "Heading 1"),
+                ("B.S. CS at MIT", "Normal"),
+            ]
+        )
         h1_indices, sections = _docx_find_sections(helper)
         self.assertIn(1, h1_indices)
         self.assertIn(3, h1_indices)
@@ -81,12 +85,14 @@ class TestDocxFindSections(unittest.TestCase):
         self.assertIn("education", sections)
 
     def test_marks_section_end_bounds(self):
-        helper = _make_helper([
-            ("Summary", "Heading 1"),
-            ("Summary text", "Normal"),
-            ("Experience", "Heading 1"),
-            ("Job 1", "Normal"),
-        ])
+        helper = _make_helper(
+            [
+                ("Summary", "Heading 1"),
+                ("Summary text", "Normal"),
+                ("Experience", "Heading 1"),
+                ("Job 1", "Normal"),
+            ]
+        )
         _h1_indices, sections = _docx_find_sections(helper)
         # Summary ends before Experience
         self.assertEqual(sections["summary"]["end"], 1)
@@ -94,19 +100,23 @@ class TestDocxFindSections(unittest.TestCase):
         self.assertEqual(sections["experience"]["end"], 3)
 
     def test_no_headings(self):
-        helper = _make_helper([
-            ("John Doe", "Normal"),
-            ("Developer", "Normal"),
-        ])
+        helper = _make_helper(
+            [
+                ("John Doe", "Normal"),
+                ("Developer", "Normal"),
+            ]
+        )
         h1_indices, sections = _docx_find_sections(helper)
         self.assertEqual(h1_indices, [])
         self.assertEqual(sections, {})
 
     def test_unknown_heading_is_skipped(self):
-        helper = _make_helper([
-            ("Projects", "Heading 1"),  # Not a known section key
-            ("Some project", "Normal"),
-        ])
+        helper = _make_helper(
+            [
+                ("Projects", "Heading 1"),  # Not a known section key
+                ("Some project", "Normal"),
+            ]
+        )
         h1_indices, sections = _docx_find_sections(helper)
         self.assertIn(0, h1_indices)
         self.assertEqual(sections, {})
@@ -116,37 +126,45 @@ class TestDocxExtractNameHeadline(unittest.TestCase):
     """Tests for _docx_extract_name_headline."""
 
     def test_extracts_title_style_name(self):
-        helper = _make_helper([
-            ("John Doe", "Title"),
-            ("Software Engineer", "Normal"),
-            ("Experience", "Heading 1"),
-        ])
+        helper = _make_helper(
+            [
+                ("John Doe", "Title"),
+                ("Software Engineer", "Normal"),
+                ("Experience", "Heading 1"),
+            ]
+        )
         name, _headline, _early_lines = _docx_extract_name_headline(helper, first_h1=2)
         self.assertEqual(name, "John Doe")
 
     def test_extracts_headline_from_second_normal_line(self):
-        helper = _make_helper([
-            ("John Doe", "Title"),
-            ("Software Engineer", "Normal"),
-            ("Experience", "Heading 1"),
-        ])
+        helper = _make_helper(
+            [
+                ("John Doe", "Title"),
+                ("Software Engineer", "Normal"),
+                ("Experience", "Heading 1"),
+            ]
+        )
         _name, headline, _early_lines = _docx_extract_name_headline(helper, first_h1=2)
         self.assertEqual(headline, "Software Engineer")
 
     def test_skips_headline_with_at_sign(self):
-        helper = _make_helper([
-            ("John Doe", "Title"),
-            ("john@example.com | 555-1234", "Normal"),
-            ("Experience", "Heading 1"),
-        ])
+        helper = _make_helper(
+            [
+                ("John Doe", "Title"),
+                ("john@example.com | 555-1234", "Normal"),
+                ("Experience", "Heading 1"),
+            ]
+        )
         _name, headline, _early_lines = _docx_extract_name_headline(helper, first_h1=2)
         self.assertEqual(headline, "")
 
     def test_handles_no_title_style(self):
-        helper = _make_helper([
-            ("Some text", "Normal"),
-            ("Experience", "Heading 1"),
-        ])
+        helper = _make_helper(
+            [
+                ("Some text", "Normal"),
+                ("Experience", "Heading 1"),
+            ]
+        )
         name, _headline, _early_lines = _docx_extract_name_headline(helper, first_h1=1)
         self.assertEqual(name, "")
 
@@ -161,35 +179,41 @@ class TestDocxExtractSummary(unittest.TestCase):
     """Tests for _docx_extract_summary."""
 
     def test_extracts_from_summary_section(self):
-        helper = _make_helper([
-            ("John Doe", "Title"),
-            ("Summary", "Heading 1"),
-            ("Experienced developer", "Normal"),
-            ("Experience", "Heading 1"),
-            ("Job", "Normal"),
-        ])
+        helper = _make_helper(
+            [
+                ("John Doe", "Title"),
+                ("Summary", "Heading 1"),
+                ("Experienced developer", "Normal"),
+                ("Experience", "Heading 1"),
+                ("Job", "Normal"),
+            ]
+        )
         _, sections = _docx_find_sections(helper)
         h1_indices = [1, 3]
         summary = _docx_extract_summary(helper, sections, h1_indices, first_h1=1)
         self.assertIn("Experienced developer", summary)
 
     def test_extracts_preface_when_no_summary_section(self):
-        helper = _make_helper([
-            ("John Doe", "Title"),
-            ("10 years building systems", "Normal"),
-            ("Experience", "Heading 1"),
-            ("Job", "Normal"),
-        ])
+        helper = _make_helper(
+            [
+                ("John Doe", "Title"),
+                ("10 years building systems", "Normal"),
+                ("Experience", "Heading 1"),
+                ("Job", "Normal"),
+            ]
+        )
         _, sections = _docx_find_sections(helper)
         h1_indices = [2]
         summary = _docx_extract_summary(helper, sections, h1_indices, first_h1=2)
         self.assertIn("10 years building systems", summary)
 
     def test_returns_empty_when_no_h1(self):
-        helper = _make_helper([
-            ("John Doe", "Title"),
-            ("Some text", "Normal"),
-        ])
+        helper = _make_helper(
+            [
+                ("John Doe", "Title"),
+                ("Some text", "Normal"),
+            ]
+        )
         h1_indices = []
         sections = {}
         summary = _docx_extract_summary(helper, sections, h1_indices, first_h1=len(helper))
@@ -200,11 +224,13 @@ class TestDocxExtractEducation(unittest.TestCase):
     """Tests for _docx_extract_education."""
 
     def test_extracts_education(self):
-        helper = _make_helper([
-            ("John Doe", "Title"),
-            ("Education", "Heading 1"),
-            ("B.S. Computer Science at MIT — (2018)", "Normal"),
-        ])
+        helper = _make_helper(
+            [
+                ("John Doe", "Title"),
+                ("Education", "Heading 1"),
+                ("B.S. Computer Science at MIT — (2018)", "Normal"),
+            ]
+        )
         _, sections = _docx_find_sections(helper)
         result = _docx_extract_education(helper, sections)
         self.assertEqual(len(result), 1)
@@ -212,31 +238,37 @@ class TestDocxExtractEducation(unittest.TestCase):
         self.assertEqual(result[0]["institution"], "MIT")
 
     def test_handles_h2_style_education(self):
-        helper = _make_helper([
-            ("Education", "Heading 1"),
-            ("B.S. Computer Science\t2018", "Heading 2"),
-        ])
+        helper = _make_helper(
+            [
+                ("Education", "Heading 1"),
+                ("B.S. Computer Science\t2018", "Heading 2"),
+            ]
+        )
         _, sections = _docx_find_sections(helper)
         result = _docx_extract_education(helper, sections)
         self.assertEqual(len(result), 1)
         self.assertIn("B.S. Computer Science", result[0]["degree"])
 
     def test_returns_empty_when_no_education_section(self):
-        helper = _make_helper([
-            ("John Doe", "Title"),
-            ("Experience", "Heading 1"),
-            ("Job text", "Normal"),
-        ])
+        helper = _make_helper(
+            [
+                ("John Doe", "Title"),
+                ("Experience", "Heading 1"),
+                ("Job text", "Normal"),
+            ]
+        )
         _, sections = _docx_find_sections(helper)
         result = _docx_extract_education(helper, sections)
         self.assertEqual(result, [])
 
     def test_skips_empty_lines(self):
-        helper = _make_helper([
-            ("Education", "Heading 1"),
-            ("", "Normal"),
-            ("B.S. CS, MIT, 2018", "Normal"),
-        ])
+        helper = _make_helper(
+            [
+                ("Education", "Heading 1"),
+                ("", "Normal"),
+                ("B.S. CS, MIT, 2018", "Normal"),
+            ]
+        )
         _, sections = _docx_find_sections(helper)
         result = _docx_extract_education(helper, sections)
         self.assertGreaterEqual(len(result), 1)
@@ -246,12 +278,14 @@ class TestDocxExtractExperience(unittest.TestCase):
     """Tests for _docx_extract_experience."""
 
     def test_extracts_experience(self):
-        helper = _make_helper([
-            ("Experience", "Heading 1"),
-            ("Senior Engineer at TechCorp — [NYC] — (2020 – 2023)", "Normal"),
-            ("Built APIs", "List Paragraph"),
-            ("Led team", "List Paragraph"),
-        ])
+        helper = _make_helper(
+            [
+                ("Experience", "Heading 1"),
+                ("Senior Engineer at TechCorp — [NYC] — (2020 – 2023)", "Normal"),
+                ("Built APIs", "List Paragraph"),
+                ("Led team", "List Paragraph"),
+            ]
+        )
         _, sections = _docx_find_sections(helper)
         result = _docx_extract_experience(helper, sections)
         self.assertEqual(len(result), 1)
@@ -259,43 +293,51 @@ class TestDocxExtractExperience(unittest.TestCase):
         self.assertEqual(len(result[0]["bullets"]), 2)
 
     def test_returns_empty_when_no_experience_section(self):
-        helper = _make_helper([
-            ("Education", "Heading 1"),
-            ("BS CS, MIT, 2018", "Normal"),
-        ])
+        helper = _make_helper(
+            [
+                ("Education", "Heading 1"),
+                ("BS CS, MIT, 2018", "Normal"),
+            ]
+        )
         _, sections = _docx_find_sections(helper)
         result = _docx_extract_experience(helper, sections)
         self.assertEqual(result, [])
 
     def test_handles_h2_experience_heading(self):
-        helper = _make_helper([
-            ("Experience", "Heading 1"),
-            ("TechCorp", "Normal"),  # company line
-            ("Senior Engineer\t2020-2023", "Heading 2"),
-            ("Built APIs", "List Paragraph"),
-        ])
+        helper = _make_helper(
+            [
+                ("Experience", "Heading 1"),
+                ("TechCorp", "Normal"),  # company line
+                ("Senior Engineer\t2020-2023", "Heading 2"),
+                ("Built APIs", "List Paragraph"),
+            ]
+        )
         _, sections = _docx_find_sections(helper)
         result = _docx_extract_experience(helper, sections)
         self.assertGreaterEqual(len(result), 1)
 
     def test_skips_empty_lines(self):
-        helper = _make_helper([
-            ("Experience", "Heading 1"),
-            ("", "Normal"),
-            ("Engineer at Corp (2020 - 2022)", "Normal"),
-        ])
+        helper = _make_helper(
+            [
+                ("Experience", "Heading 1"),
+                ("", "Normal"),
+                ("Engineer at Corp (2020 - 2022)", "Normal"),
+            ]
+        )
         _, sections = _docx_find_sections(helper)
         result = _docx_extract_experience(helper, sections)
         self.assertGreaterEqual(len(result), 0)  # May or may not parse
 
     def test_multiple_roles(self):
-        helper = _make_helper([
-            ("Experience", "Heading 1"),
-            ("Manager at BigCo (2022 - 2024)", "Normal"),
-            ("Led team", "List Paragraph"),
-            ("Engineer at SmallCo (2020 - 2022)", "Normal"),
-            ("Wrote code", "List Paragraph"),
-        ])
+        helper = _make_helper(
+            [
+                ("Experience", "Heading 1"),
+                ("Manager at BigCo (2022 - 2024)", "Normal"),
+                ("Led team", "List Paragraph"),
+                ("Engineer at SmallCo (2020 - 2022)", "Normal"),
+                ("Wrote code", "List Paragraph"),
+            ]
+        )
         _, sections = _docx_find_sections(helper)
         result = _docx_extract_experience(helper, sections)
         self.assertEqual(len(result), 2)
@@ -453,8 +495,7 @@ class TestSelfContainedRoleHeader(unittest.TestCase):
     """A Heading-2 role line carrying every field on the line itself."""
 
     HEADER = (
-        "Staff Site Reliability Engineer at Confluent "
-        "— [Toronto, Canada] — (May 2025 – Present)"
+        "Staff Site Reliability Engineer at Confluent — [Toronto, Canada] — (May 2025 – Present)"
     )
 
     def test_self_contained_header_splits_into_fields(self):
@@ -498,14 +539,16 @@ class TestSectionBoundsAgainstUnrecognizedHeadings(unittest.TestCase):
     """An unrecognized H1 still ends the section above it."""
 
     def _doc(self):
-        return _make_helper([
-            ("Brian Cory Sherwin", "Title"),
-            ("Education", "Heading 1"),
-            ("Bachelor of Science, Computer Science at University of Rochester", "Normal"),
-            ("Speaking & Publications", "Heading 1"),
-            ("Introducing Nurse: Auto-Remediation at LinkedIn", "Normal"),
-            ("SREcon EMEA (USENIX) 2019", "Normal"),
-        ])
+        return _make_helper(
+            [
+                ("Brian Cory Sherwin", "Title"),
+                ("Education", "Heading 1"),
+                ("Bachelor of Science, Computer Science at University of Rochester", "Normal"),
+                ("Speaking & Publications", "Heading 1"),
+                ("Introducing Nurse: Auto-Remediation at LinkedIn", "Normal"),
+                ("SREcon EMEA (USENIX) 2019", "Normal"),
+            ]
+        )
 
     def test_unrecognized_heading_closes_previous_section(self):
         helper = self._doc()
@@ -530,10 +573,12 @@ class TestSectionBoundsAgainstUnrecognizedHeadings(unittest.TestCase):
 
     def test_last_recognized_section_still_reaches_end_of_document(self):
         """With no trailing heading, the final section keeps its EOF bound."""
-        helper = _make_helper([
-            ("Education", "Heading 1"),
-            ("Bachelor of Arts, Linguistics at University of Rochester", "Normal"),
-        ])
+        helper = _make_helper(
+            [
+                ("Education", "Heading 1"),
+                ("Bachelor of Arts, Linguistics at University of Rochester", "Normal"),
+            ]
+        )
         _, sections = _docx_find_sections(helper)
         self.assertEqual(sections["education"]["end"], len(helper) - 1)
 
@@ -588,12 +633,14 @@ class TestSummaryKeepsBulletBoundaries(unittest.TestCase):
     """Profile paragraphs stay separable for downstream provenance checks."""
 
     def test_paragraphs_join_on_newline(self):
-        helper = _make_helper([
-            ("Profile", "Heading 1"),
-            ("Build OpenTelemetry-based telemetry systems", "Normal"),
-            ("Architect agent orchestration systems", "Normal"),
-            ("Founded the SRE function at SailPoint", "Normal"),
-        ])
+        helper = _make_helper(
+            [
+                ("Profile", "Heading 1"),
+                ("Build OpenTelemetry-based telemetry systems", "Normal"),
+                ("Architect agent orchestration systems", "Normal"),
+                ("Founded the SRE function at SailPoint", "Normal"),
+            ]
+        )
         h1s, sections = _docx_find_sections(helper)
         summary = _docx_extract_summary(helper, sections, h1s, h1s[0])
         lines = summary.split("\n")
@@ -603,11 +650,13 @@ class TestSummaryKeepsBulletBoundaries(unittest.TestCase):
 
     def test_paragraphs_are_not_space_fused(self):
         """The defect signature: distinct claims run together into one line."""
-        helper = _make_helper([
-            ("Profile", "Heading 1"),
-            ("Own production systems end to end", "Normal"),
-            ("Founded the SRE function at SailPoint", "Normal"),
-        ])
+        helper = _make_helper(
+            [
+                ("Profile", "Heading 1"),
+                ("Own production systems end to end", "Normal"),
+                ("Founded the SRE function at SailPoint", "Normal"),
+            ]
+        )
         h1s, sections = _docx_find_sections(helper)
         summary = _docx_extract_summary(helper, sections, h1s, h1s[0])
         self.assertNotIn("end to end Founded", summary)

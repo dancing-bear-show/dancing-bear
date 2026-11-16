@@ -56,7 +56,9 @@ class RefusedOutput:
     param: str | None = None
 
 
-def find_refused_outputs(stages: Iterable[StageSpec], params: Mapping[str, str]) -> list[RefusedOutput]:
+def find_refused_outputs(
+    stages: Iterable[StageSpec], params: Mapping[str, str]
+) -> list[RefusedOutput]:
     """Every agent-stage output the harness would refuse, given *params*.
 
     Literal writes_to names, writes_to names with a param in the filename, and
@@ -79,8 +81,14 @@ def _from_writes_to(stage: StageSpec, params: Mapping[str, str]) -> list[Refused
         name_refs = sorted(find_refs(PurePosixPath(path).name))
         resolved = substitute(path, params) if name_refs else path
         if is_refused(resolved):
-            found.append(RefusedOutput(stage.name, path, PurePosixPath(resolved).name.lower(),
-                                       param=name_refs[-1] if name_refs else None))
+            found.append(
+                RefusedOutput(
+                    stage.name,
+                    path,
+                    PurePosixPath(resolved).name.lower(),
+                    param=name_refs[-1] if name_refs else None,
+                )
+            )
     return found
 
 
@@ -91,8 +99,11 @@ def _from_description(stage: StageSpec, params: Mapping[str, str]) -> list[Refus
     for name in sorted(find_refs(stage.description) - in_writes):
         value = params.get(name)
         if isinstance(value, str) and is_refused(value):
-            found.append(RefusedOutput(stage.name, "{" + name + "}",
-                                       PurePosixPath(value).name.lower(), param=name))
+            found.append(
+                RefusedOutput(
+                    stage.name, "{" + name + "}", PurePosixPath(value).name.lower(), param=name
+                )
+            )
     return found
 
 

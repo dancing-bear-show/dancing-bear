@@ -12,12 +12,11 @@ from core.cli_errors import CLIError, ExitCode
 from core.paths import config_home, output_dir
 
 from ..io_utils import read_text_any, read_text_raw, read_yaml_or_json
-from ..schema import Resume
+from ..overlays import _validate_profile_name
 from ..parsing_experience_text import parse_resume_text
 from ..pipeline import FilterPipeline
-
+from ..schema import Resume
 from .args import DEFAULT_PROFILE, OUT_DIR_DOMAIN
-from ..overlays import _validate_profile_name
 
 
 def _extend_seed_with_style(seed: dict, style_profile_path: str | None) -> dict:
@@ -196,10 +195,12 @@ def _read_linkedin_text(linkedin_path: str) -> str:
 def _parse_resume_source(resume_path: str, resume_text: str) -> dict:
     """Parse a resume source, dispatching by file extension."""
     resume_lower = str(resume_path).lower()
-    if resume_lower.endswith('.docx'):
+    if resume_lower.endswith(".docx"):
         from ..parsing_experience_docx import parse_resume_docx
+
         return parse_resume_docx(resume_path)
-    if resume_lower.endswith('.pdf'):
+    if resume_lower.endswith(".pdf"):
         from ..parsing_experience_pdf import parse_resume_pdf
+
         return parse_resume_pdf(resume_path)
     return parse_resume_text(resume_text) if resume_text else {}

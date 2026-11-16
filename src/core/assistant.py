@@ -1,8 +1,10 @@
 """Shared assistant utilities (agentic flags/output)."""
+
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 
 @dataclass
@@ -57,8 +59,10 @@ class BaseAssistant:
 
         # Auto-schema mode: --agentic-format json uses parser introspection
         if fmt == "json" and parser is not None:
-            from .agentic_schema import build_schema_json
             import json as _json
+
+            from .agentic_schema import build_schema_json
+
             domain = getattr(args, "agentic_domain", None)
             schema = build_schema_json(parser, compact=compact, domain=domain)
             print(_json.dumps(schema, indent=2, default=str))

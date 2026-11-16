@@ -1,4 +1,5 @@
 """Tests for core/cli_suggestions.py — fuzzy 'did you mean' suggestions."""
+
 from __future__ import annotations
 
 import unittest

@@ -27,7 +27,6 @@ from workflow.linter_shell import (
 )
 from workflow.linter_types import LintWarning
 
-
 # The check behind each rule id, for the teeth tests.
 _RULE_CHECKS: dict[str, str] = {
     RULE_UNVALIDATED_PARAM: "_unvalidated_params",
@@ -68,10 +67,7 @@ def _workflow(*stages: str, params: str = "", rules: str = "", tail: str = "") -
         trigger += f"  params:\n{_indent(params, 4)}\n"
     if rules:
         trigger += f"  param_rules:\n{_indent(rules, 4)}\n"
-    return (
-        'name: t\nversion: "1.0"\ndescription: d\n'
-        f"{trigger}stages:\n" + "".join(stages) + tail
-    )
+    return f'name: t\nversion: "1.0"\ndescription: d\n{trigger}stages:\n' + "".join(stages) + tail
 
 
 def _lint_text(yaml_text: str, tmp_dir: str, name: str = "wf.yaml") -> LintResult:

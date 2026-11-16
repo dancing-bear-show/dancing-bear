@@ -119,9 +119,7 @@ class TestFilterSkillsByKeywords(unittest.TestCase):
         )
 
     def test_filters_groups_by_keyword(self):
-        result = filter_skills_by_keywords(
-            self.candidate_with_groups, ["Python", "Docker"]
-        )
+        result = filter_skills_by_keywords(self.candidate_with_groups, ["Python", "Docker"])
         # Should keep Python and Docker
         all_items = []
         for group in result["skills_groups"]:
@@ -133,16 +131,12 @@ class TestFilterSkillsByKeywords(unittest.TestCase):
         self.assertNotIn("Go", names)
 
     def test_drops_empty_groups(self):
-        result = filter_skills_by_keywords(
-            self.candidate_with_groups, ["RandomSkillNotPresent"]
-        )
+        result = filter_skills_by_keywords(self.candidate_with_groups, ["RandomSkillNotPresent"])
         # All groups should be empty and dropped
         self.assertEqual(result["skills_groups"], [])
 
     def test_filters_flat_skills(self):
-        result = filter_skills_by_keywords(
-            self.candidate_with_flat_skills, ["Python", "Docker"]
-        )
+        result = filter_skills_by_keywords(self.candidate_with_flat_skills, ["Python", "Docker"])
         self.assertIn("Python", result["skills"])
         self.assertIn("Docker", result["skills"])
         self.assertNotIn("JavaScript", result["skills"])

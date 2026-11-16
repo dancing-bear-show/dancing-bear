@@ -49,9 +49,7 @@ def main(argv: list[str] | None = None) -> int:
 
     writer = OutputWriter()
     try:
-        comparison = compare_sessions(
-            args.session_a, args.session_b, data_dir=data_dir
-        )
+        comparison = compare_sessions(args.session_a, args.session_b, data_dir=data_dir)
     except ValueError as e:
         writer.print_error(str(e))
         return 1
@@ -110,12 +108,7 @@ def _output_table(comp: SessionComparison, writer: OutputWriter | None = None) -
     w.print(f"  {'Duration':<24} {dur_a:<20} {dur_b:<20} {dur_delta:<12}")
 
     cost_delta = _format_delta(comp.cost_delta, prefix="$")
-    w.print(
-        f"  {'Cost':<24} "
-        f"${a.cost:<19.4f} "
-        f"${b.cost:<19.4f} "
-        f"{cost_delta:<12}"
-    )
+    w.print(f"  {'Cost':<24} ${a.cost:<19.4f} ${b.cost:<19.4f} {cost_delta:<12}")
 
     tok_delta = _format_delta(comp.token_delta)
     w.print(
@@ -126,22 +119,12 @@ def _output_table(comp: SessionComparison, writer: OutputWriter | None = None) -
     )
 
     calls_delta = _format_delta(b.api_calls - a.api_calls)
-    w.print(
-        f"  {'API calls':<24} "
-        f"{a.api_calls:<20,} "
-        f"{b.api_calls:<20,} "
-        f"{calls_delta:<12}"
-    )
+    w.print(f"  {'API calls':<24} {a.api_calls:<20,} {b.api_calls:<20,} {calls_delta:<12}")
 
     err_delta = _format_delta(comp.error_delta)
     errors_a = a.perf.error_count if a.perf else 0
     errors_b = b.perf.error_count if b.perf else 0
-    w.print(
-        f"  {'Errors':<24} "
-        f"{errors_a:<20} "
-        f"{errors_b:<20} "
-        f"{err_delta:<12}"
-    )
+    w.print(f"  {'Errors':<24} {errors_a:<20} {errors_b:<20} {err_delta:<12}")
 
     w.print("=" * 72)
 
@@ -158,9 +141,7 @@ def _output_json(comp: SessionComparison) -> None:
             "billable_tokens": a.billable_tokens,
             "api_calls": a.api_calls,
             "duration_minutes": (
-                round(a.duration_minutes, 1)
-                if a.duration_minutes is not None
-                else None
+                round(a.duration_minutes, 1) if a.duration_minutes is not None else None
             ),
             "errors": a.perf.error_count if a.perf else 0,
         },
@@ -170,9 +151,7 @@ def _output_json(comp: SessionComparison) -> None:
             "billable_tokens": b.billable_tokens,
             "api_calls": b.api_calls,
             "duration_minutes": (
-                round(b.duration_minutes, 1)
-                if b.duration_minutes is not None
-                else None
+                round(b.duration_minutes, 1) if b.duration_minutes is not None else None
             ),
             "errors": b.perf.error_count if b.perf else 0,
         },

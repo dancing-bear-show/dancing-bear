@@ -23,20 +23,18 @@ from __future__ import annotations
 
 import unittest
 
-from workflow.compiler import compile_workflow, resolve_params
-from workflow.linter_types import LintWarning
-from workflow.models import (
-    StageKind,
-    ValidationStrategy,
-)
-
 from tests.workflow_tests.helpers.factories import (
     make_stage_spec,
     make_trigger_spec,
     make_validation_spec,
     make_workflow_definition,
 )
-
+from workflow.compiler import compile_workflow, resolve_params
+from workflow.linter_types import LintWarning
+from workflow.models import (
+    StageKind,
+    ValidationStrategy,
+)
 
 # ---------------------------------------------------------------------------
 # resolve_params: param substitution, verbatim braces, no unescape
@@ -464,7 +462,7 @@ class TestUndeclaredVarLintBacktickExemption(unittest.TestCase):
     def test_backtick_var_no_undeclared_warning(self) -> None:
         """{pkg} inside a backtick span is not flagged as undeclared."""
         warnings = self._check_var_warnings(
-            description="importlib.import_module(f\"`{pkg}`.meta\")",
+            description='importlib.import_module(f"`{pkg}`.meta")',
             declared_params={},
         )
         self.assertFalse(any("pkg" in w for w in warnings))

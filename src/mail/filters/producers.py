@@ -4,6 +4,7 @@ Plan/sync/impact/export/add-forward producers live here.
 Sweep producers are in producers_sweep.py.
 Token-update producers are in producers_token.py.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -18,22 +19,22 @@ from ..utils.filters import action_to_label_changes
 from ..utils.plan import print_plan_summary
 from .processors_plan import (
     FilterPlanEntry,
+    FiltersExportResult,
+    FiltersImpactResult,
     FiltersPlanResult,
     FiltersSyncResult,
-    FiltersImpactResult,
-    FiltersExportResult,
 )
 from .processors_sweep import FiltersAddForwardResult
 from .producers_sweep import (  # noqa: F401
-    SweepProducerConfig,
+    FiltersPruneProducer,
     FiltersSweepProducer,
     FiltersSweepRangeProducer,
-    FiltersPruneProducer,
+    SweepProducerConfig,
 )
 from .producers_token import (  # noqa: F401
-    _produce_token_updates,
     FiltersAddTokenProducer,
     FiltersRemoveTokenProducer,
+    _produce_token_updates,
 )
 
 _EMPTY_QUERY = "(empty)"
@@ -77,8 +78,7 @@ class FiltersPlanProducer(BaseProducer):
         remove = actions.get("remove") or []
         forward = actions.get("forward")
         self._writer.print(
-            f"  {preview_criteria(entry.criteria)} -> "
-            f"add={add} remove={remove} forward={forward}"
+            f"  {preview_criteria(entry.criteria)} -> add={add} remove={remove} forward={forward}"
         )
 
     def _print_delete_entry(self, entry: dict, id_to_name: dict[str, str]) -> None:
@@ -88,8 +88,7 @@ class FiltersPlanProducer(BaseProducer):
         remove_names = [id_to_name.get(x, x) for x in (action.get("removeLabelIds") or [])]
         forward = action.get("forward")
         self._writer.print(
-            f"  {preview_criteria(crit)} -> "
-            f"add={add_names} remove={remove_names} forward={forward}"
+            f"  {preview_criteria(crit)} -> add={add_names} remove={remove_names} forward={forward}"
         )
 
 
@@ -98,7 +97,9 @@ class FiltersSyncProducer(BaseProducer):
 
     failure_message = "Filters sync failed."
 
-    def __init__(self, client: BaseProvider, *, dry_run: bool = False, writer: OutputWriter | None = None):
+    def __init__(
+        self, client: BaseProvider, *, dry_run: bool = False, writer: OutputWriter | None = None
+    ):
         super().__init__(writer)
         self.client = client
         self.dry_run = dry_run
@@ -113,7 +114,9 @@ class FiltersSyncProducer(BaseProducer):
         for entry in entries:
             actions = entry.action_names
             if self.dry_run:
-                self._writer.print_dry_run(f"create filter: criteria={entry.criteria} action={actions}")
+                self._writer.print_dry_run(
+                    f"create filter: criteria={entry.criteria} action={actions}"
+                )
             else:
                 act_ids = self._build_action_ids(actions)
                 self.client.create_filter(entry.criteria, act_ids)
@@ -167,7 +170,9 @@ class FiltersAddForwardProducer(BaseProducer):
 
     failure_message = "Filters add-forward failed."
 
-    def __init__(self, client: BaseProvider, *, dry_run: bool = False, writer: OutputWriter | None = None):
+    def __init__(
+        self, client: BaseProvider, *, dry_run: bool = False, writer: OutputWriter | None = None
+    ):
         super().__init__(writer)
         self.client = client
         self.dry_run = dry_run

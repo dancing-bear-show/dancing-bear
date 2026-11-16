@@ -188,8 +188,16 @@ class TestSlideGeneratorGetThemeColor(unittest.TestCase):
     def test_all_theme_colors_mapped(self):
         """All expected theme colors have mappings."""
         expected_colors = [
-            "LIGHT_1", "LIGHT_2", "DARK_1", "DARK_2",
-            "ACCENT_1", "ACCENT_2", "ACCENT_3", "ACCENT_4", "ACCENT_5", "ACCENT_6",
+            "LIGHT_1",
+            "LIGHT_2",
+            "DARK_1",
+            "DARK_2",
+            "ACCENT_1",
+            "ACCENT_2",
+            "ACCENT_3",
+            "ACCENT_4",
+            "ACCENT_5",
+            "ACCENT_6",
         ]
         for color_name in expected_colors:
             result = self.generator._get_theme_color(color_name)
@@ -419,7 +427,7 @@ class TestSlideGeneratorAddTextToParagraph(unittest.TestCase):
         # _apply_hyperlink should not have been called — verify address was never set
         # (MagicMock auto-creates attributes, so we check it wasn't assigned a real URL)
         for run in runs:
-            if hasattr(run.hyperlink.address, '_mock_name'):
+            if hasattr(run.hyperlink.address, "_mock_name"):
                 pass  # Mock attribute, never explicitly set — correct
             else:
                 self.assertIsNone(run.hyperlink.address)
@@ -667,7 +675,7 @@ class TestSlideGeneratorSetSlideContent(unittest.TestCase):
         ]
 
         # Patch _apply_native_bullet since it requires real lxml elements
-        with patch.object(generator, '_apply_native_bullet'):
+        with patch.object(generator, "_apply_native_bullet"):
             generator._set_slide_content(
                 mock_slide,
                 "Test Title",
@@ -920,9 +928,7 @@ class TestSetTableColumnWidths(unittest.TestCase):
         mock_table = MagicMock()
         mock_table.columns.__getitem__ = lambda self, i: mock_columns[i]
 
-        generator._set_table_column_widths(
-            mock_table, num_cols, total_width, first_col_width=3.0
-        )
+        generator._set_table_column_widths(mock_table, num_cols, total_width, first_col_width=3.0)
 
         # num_cols <= 1 so falls to else branch: equal widths
         self.assertEqual(mock_columns[0].width, int(total_width / num_cols))
@@ -937,9 +943,7 @@ class TestSetTableColumnWidths(unittest.TestCase):
         mock_table = MagicMock()
         mock_table.columns.__getitem__ = lambda self, i: mock_columns[i]
 
-        generator._set_table_column_widths(
-            mock_table, num_cols, total_width, first_col_width=0
-        )
+        generator._set_table_column_widths(mock_table, num_cols, total_width, first_col_width=0)
 
         expected_width = int(total_width / num_cols)
         for col in mock_columns:
@@ -968,7 +972,7 @@ class TestStyleTableHeader(unittest.TestCase):
 
         theme_color = MagicMock()
 
-        with patch.object(generator, '_style_run'):
+        with patch.object(generator, "_style_run"):
             generator._style_table_header(mock_table, headers, theme_color)
 
         for j, header in enumerate(headers):
@@ -988,7 +992,7 @@ class TestStyleTableHeader(unittest.TestCase):
         mock_table = MagicMock()
         mock_table.cell = lambda row, col: cells[col]
 
-        with patch.object(generator, '_style_run'):
+        with patch.object(generator, "_style_run"):
             generator._style_table_header(mock_table, headers, MagicMock())
 
         first_paragraph = cells[0].text_frame.paragraphs[0]
@@ -1004,7 +1008,7 @@ class TestStyleTableHeader(unittest.TestCase):
         mock_table = MagicMock()
         mock_table.cell = lambda row, col: cells[col]
 
-        with patch.object(generator, '_style_run'):
+        with patch.object(generator, "_style_run"):
             generator._style_table_header(mock_table, headers, MagicMock())
 
         for j in range(1, len(headers)):
@@ -1020,12 +1024,12 @@ class TestStyleTableHeader(unittest.TestCase):
         mock_table.cell = lambda row, col: cells[col]
         theme_color = MagicMock()
 
-        with patch.object(generator, '_style_run') as mock_style_run:
+        with patch.object(generator, "_style_run") as mock_style_run:
             generator._style_table_header(mock_table, headers, theme_color)
 
         self.assertTrue(mock_style_run.called)
         call_kwargs = mock_style_run.call_args
-        self.assertTrue(call_kwargs[1].get('bold') or call_kwargs.kwargs.get('bold'))
+        self.assertTrue(call_kwargs[1].get("bold") or call_kwargs.kwargs.get("bold"))
 
 
 class TestStyleTableDataRows(unittest.TestCase):
@@ -1054,7 +1058,7 @@ class TestStyleTableDataRows(unittest.TestCase):
         mock_table = MagicMock()
         mock_table.cell = lambda row, col: cells[(row, col)]
 
-        with patch.object(generator, '_style_run'):
+        with patch.object(generator, "_style_run"):
             generator._style_table_data_rows(mock_table, rows, MagicMock())
 
         # Row 0 (even): TABLE_ROW_EVEN_BG
@@ -1076,7 +1080,7 @@ class TestStyleTableDataRows(unittest.TestCase):
         mock_table = MagicMock()
         mock_table.cell = lambda row, col: cell
 
-        with patch.object(generator, '_style_run'):
+        with patch.object(generator, "_style_run"):
             generator._style_table_data_rows(mock_table, rows, MagicMock())
 
         self.assertEqual(cell.vertical_anchor, VERTICAL_ANCHOR_MIDDLE)
@@ -1096,7 +1100,7 @@ class TestStyleTableDataRows(unittest.TestCase):
         mock_table = MagicMock()
         mock_table.cell = lambda row, col: cells[(row, col)]
 
-        with patch.object(generator, '_style_run'):
+        with patch.object(generator, "_style_run"):
             generator._style_table_data_rows(mock_table, rows, MagicMock())
 
         p0 = cells[(1, 0)].text_frame.paragraphs[0]
@@ -1117,7 +1121,7 @@ class TestStyleTableDataRows(unittest.TestCase):
         mock_table = MagicMock()
         mock_table.cell = lambda row, col: cells[(row, col)]
 
-        with patch.object(generator, '_style_run'):
+        with patch.object(generator, "_style_run"):
             generator._style_table_data_rows(mock_table, rows, MagicMock())
 
         for j in range(1, 3):
@@ -1139,7 +1143,7 @@ class TestStyleTableDataRows(unittest.TestCase):
         mock_table = MagicMock()
         mock_table.cell = lambda row, col: cells[(row, col)]
 
-        with patch.object(generator, '_style_run'):
+        with patch.object(generator, "_style_run"):
             generator._style_table_data_rows(mock_table, rows, MagicMock())
 
         self.assertEqual(runs[(1, 0)].text, "hello")
@@ -1159,7 +1163,7 @@ class TestStyleTableDataRows(unittest.TestCase):
         mock_table = MagicMock()
         mock_table.cell = lambda row, col: cells[(row, col)]
 
-        with patch.object(generator, '_style_run') as mock_style_run:
+        with patch.object(generator, "_style_run") as mock_style_run:
             generator._style_table_data_rows(mock_table, rows, MagicMock())
 
         # 2 rows * 2 cols = 4 calls
@@ -1170,7 +1174,7 @@ class TestStyleTableDataRows(unittest.TestCase):
         generator = SlideGenerator(template_path="/template.pptx")
         mock_table = MagicMock()
 
-        with patch.object(generator, '_style_run') as mock_style_run:
+        with patch.object(generator, "_style_run") as mock_style_run:
             generator._style_table_data_rows(mock_table, [], MagicMock())
 
         mock_style_run.assert_not_called()

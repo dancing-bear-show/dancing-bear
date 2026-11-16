@@ -1,6 +1,7 @@
 """Unit tests for core.outlook.models dataclasses."""
 
-from unittest import TestCase, main as unittest_main
+from unittest import TestCase
+from unittest import main as unittest_main
 
 from core.outlook.models import (
     EventCreationParams,
@@ -78,14 +79,20 @@ class TestListCalendarViewRequest(TestCase):
     """Tests for ListCalendarViewRequest dataclass."""
 
     def test_required_fields(self):
-        req = ListCalendarViewRequest(start_iso="2025-01-01T00:00:00", end_iso="2025-01-31T23:59:59")
+        req = ListCalendarViewRequest(
+            start_iso="2025-01-01T00:00:00", end_iso="2025-01-31T23:59:59"
+        )
         self.assertEqual(req.start_iso, "2025-01-01T00:00:00")
         self.assertEqual(req.end_iso, "2025-01-31T23:59:59")
 
     def test_default_values(self):
-        req = ListCalendarViewRequest(start_iso="2025-01-01T00:00:00", end_iso="2025-01-31T23:59:59")
+        req = ListCalendarViewRequest(
+            start_iso="2025-01-01T00:00:00", end_iso="2025-01-31T23:59:59"
+        )
         self.assertIsNone(req.calendar_id)
-        self.assertEqual(req.select, "subject,start,end,seriesMasterId,type,createdDateTime,location")
+        self.assertEqual(
+            req.select, "subject,start,end,seriesMasterId,type,createdDateTime,location"
+        )
         self.assertEqual(req.top, 200)
 
     def test_optional_fields(self):
@@ -102,8 +109,12 @@ class TestListCalendarViewRequest(TestCase):
 
     def test_larger_page_size_than_list_events(self):
         """ListCalendarViewRequest should have larger default page size for bulk operations."""
-        view_req = ListCalendarViewRequest(start_iso="2025-01-01T00:00:00", end_iso="2025-01-31T23:59:59")
-        events_req = ListEventsRequest(start_iso="2025-01-01T00:00:00", end_iso="2025-01-31T23:59:59")
+        view_req = ListCalendarViewRequest(
+            start_iso="2025-01-01T00:00:00", end_iso="2025-01-31T23:59:59"
+        )
+        events_req = ListEventsRequest(
+            start_iso="2025-01-01T00:00:00", end_iso="2025-01-31T23:59:59"
+        )
         self.assertGreater(view_req.top, events_req.top)
 
 

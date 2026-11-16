@@ -9,86 +9,96 @@ class TestLlmCli(unittest.TestCase):
     def test_help(self):
         import subprocess  # nosec B404
         import sys
+
         root = repo_root()
-        proc = subprocess.run([sys.executable, str(bin_path('llm')), '--help'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=str(root))  # nosec B603 - test code with trusted local script
+        proc = subprocess.run([sys.executable, str(bin_path("llm")), "--help"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=str(root))  # nosec B603 - test code with trusted local script  # fmt: skip
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
-        self.assertIn('Unified LLM utilities', proc.stdout)
+        self.assertIn("Unified LLM utilities", proc.stdout)
 
     def test_inventory_stdout(self):
         from mail import llm_cli
+
         buf = io.StringIO()
         with redirect_stdout(buf):
-            rc = llm_cli.main(['inventory', '--stdout'])
+            rc = llm_cli.main(["inventory", "--stdout"])
         self.assertEqual(rc, 0)
         out = buf.getvalue()
-        self.assertIn('LLM Agent Inventory', out)
+        self.assertIn("LLM Agent Inventory", out)
 
     def test_familiar_stdout(self):
         from mail import llm_cli
+
         buf = io.StringIO()
         with redirect_stdout(buf):
-            rc = llm_cli.main(['familiar', '--stdout'])
+            rc = llm_cli.main(["familiar", "--stdout"])
         self.assertEqual(rc, 0)
         out = buf.getvalue()
-        self.assertIn('agent_note:', out)
+        self.assertIn("agent_note:", out)
 
     def test_inventory_json(self):
         from mail import llm_cli
+
         buf = io.StringIO()
         with redirect_stdout(buf):
-            rc = llm_cli.main(['inventory', '--format', 'json', '--stdout'])
+            rc = llm_cli.main(["inventory", "--format", "json", "--stdout"])
         self.assertEqual(rc, 0)
         import json
+
         data = json.loads(buf.getvalue())
-        self.assertIn('wrappers', data)
-        self.assertIn('areas', data)
-        self.assertIn('mail_groups', data)
+        self.assertIn("wrappers", data)
+        self.assertIn("areas", data)
+        self.assertIn("mail_groups", data)
 
     def test_inventory_is_not_self_referential(self):
         """The markdown inventory must carry real content, not a pointer to itself."""
         from mail import llm_cli
+
         buf = io.StringIO()
         with redirect_stdout(buf):
-            rc = llm_cli.main(['inventory', '--stdout'])
+            rc = llm_cli.main(["inventory", "--stdout"])
         self.assertEqual(rc, 0)
         out = buf.getvalue()
-        self.assertNotIn('(see .llm/INVENTORY.md)', out)
-        for package in ('mail', 'calendars', 'workflow', 'telemetry'):
+        self.assertNotIn("(see .llm/INVENTORY.md)", out)
+        for package in ("mail", "calendars", "workflow", "telemetry"):
             self.assertIn(package, out)
 
     def test_inventory_json_reflects_real_packages(self):
         """JSON inventory is derived from the repo, not a hardcoded stub."""
-        from mail import llm_cli
         import json
+
+        from mail import llm_cli
+
         buf = io.StringIO()
         with redirect_stdout(buf):
-            rc = llm_cli.main(['inventory', '--format', 'json', '--stdout'])
+            rc = llm_cli.main(["inventory", "--format", "json", "--stdout"])
         self.assertEqual(rc, 0)
         data = json.loads(buf.getvalue())
         # The old stub returned exactly ["bin/mail-assistant"] and ["mail", "calendar"].
-        self.assertGreater(len(data['packages']), 10)
-        self.assertGreater(len(data['wrappers']), 10)
-        self.assertIn('workflow', data['packages'])
+        self.assertGreater(len(data["packages"]), 10)
+        self.assertGreater(len(data["wrappers"]), 10)
+        self.assertIn("workflow", data["packages"])
 
     def test_check_respects_sla_env(self):
+        import os
         import subprocess  # nosec B404
         import sys
-        import os
+
         root = repo_root()
         env = dict(os.environ)
         # Allow .llm to be considered within SLA to avoid failing in CI
-        env['LLM_SLA'] = '.llm:365,Root:365'
-        proc = subprocess.run([sys.executable, str(bin_path('llm')), 'check'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=str(root), env=env)  # nosec B603 - test code with trusted local script
+        env["LLM_SLA"] = ".llm:365,Root:365"
+        proc = subprocess.run([sys.executable, str(bin_path("llm")), "check"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=str(root), env=env)  # nosec B603 - test code with trusted local script  # fmt: skip
         self.assertEqual(proc.returncode, 0, msg=proc.stdout + "\n" + proc.stderr)
 
     def test_repo_llm_app_phone(self):
         from core import llm_cli as repo_llm
+
         buf = io.StringIO()
         with redirect_stdout(buf):
-            rc = repo_llm.main(['--app', 'phone', 'agentic', '--stdout'])
+            rc = repo_llm.main(["--app", "phone", "agentic", "--stdout"])
         self.assertEqual(rc, 0)
         out = buf.getvalue()
-        self.assertIn('agentic: phone', out)
+        self.assertIn("agentic: phone", out)
 
     def test_default_llm_config_derive_all_includes_shared_files(self):
         """A config that does not opt out still derives the three shared docs.
@@ -106,21 +116,21 @@ class TestLlmCli(unittest.TestCase):
         from core.llm_cli import _collect_derive_outputs, make_app_llm_config
 
         config = make_app_llm_config(
-            prog='llm-probe',
-            description='probe',
-            agentic=lambda: 'agentic: probe',
-            domain_map=lambda: 'domain map',
-            inventory=lambda: 'inventory body',
-            familiar_compact=lambda: 'familiar body',
-            policies=lambda: 'policies body',
+            prog="llm-probe",
+            description="probe",
+            agentic=lambda: "agentic: probe",
+            domain_map=lambda: "domain map",
+            inventory=lambda: "inventory body",
+            familiar_compact=lambda: "familiar body",
+            policies=lambda: "policies body",
         )
         written = {name for name, _ in _collect_derive_outputs(config)}
-        for name in ('INVENTORY.md', 'familiarize.yaml', 'PR_POLICIES.yaml'):
+        for name in ("INVENTORY.md", "familiarize.yaml", "PR_POLICIES.yaml"):
             self.assertIn(
                 name,
                 written,
-                f'default LlmConfig must still derive {name}; a caller that does '
-                'not opt out relies on these defaults',
+                f"default LlmConfig must still derive {name}; a caller that does "
+                "not opt out relies on these defaults",
             )
 
     def test_repo_derive_all_still_writes_shared_files(self):
@@ -149,24 +159,20 @@ class TestLlmCli(unittest.TestCase):
             buf = io.StringIO()
             with redirect_stdout(buf):
                 rc = repo_llm.main(
-                    ['derive-all', '--out-dir', td, '--include-generated', '--stdout']
+                    ["derive-all", "--out-dir", td, "--include-generated", "--stdout"]
                 )
             self.assertEqual(rc, 0)
             for name in (
-                'AGENTIC.md',
-                'DOMAIN_MAP.md',
-                'INVENTORY.md',
-                'familiarize.yaml',
-                'PR_POLICIES.yaml',
+                "AGENTIC.md",
+                "DOMAIN_MAP.md",
+                "INVENTORY.md",
+                "familiarize.yaml",
+                "PR_POLICIES.yaml",
             ):
                 path = Path(td) / name
-                self.assertTrue(
-                    path.exists(), f'repo-level derive-all must write {name}'
-                )
-                self.assertGreater(
-                    path.stat().st_size, 0, f'{name} was written empty'
-                )
+                self.assertTrue(path.exists(), f"repo-level derive-all must write {name}")
+                self.assertGreater(path.stat().st_size, 0, f"{name} was written empty")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

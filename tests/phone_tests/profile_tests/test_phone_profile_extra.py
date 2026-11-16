@@ -1,4 +1,5 @@
 """Additional tests for phone/profile.py covering previously uncovered lines."""
+
 from __future__ import annotations
 
 import unittest
@@ -9,6 +10,7 @@ from phone.profile import (
     FolderItem,
     HomeScreenConfigBuilder,
     HslPayloadConfig,
+    MobileConfigOptions,
     Page,
     _add_all_apps_folder,
     _add_auto_categorized_folders,
@@ -18,7 +20,6 @@ from phone.profile import (
     _collect_assigned_apps,
     _normalize_pages_spec,
     _resolve_dock,
-    MobileConfigOptions,
     build_mobileconfig,
 )
 
@@ -71,7 +72,9 @@ class TestFolderItemFunction(unittest.TestCase):
         self.assertEqual(result["DisplayName"], "Work")
 
     def test_folder_item_zero_page_size(self):
-        result = FolderItem("Work", [AppItem(a) for a in ["com.app1", "com.app2"]], page_size=0).as_spec()
+        result = FolderItem(
+            "Work", [AppItem(a) for a in ["com.app1", "com.app2"]], page_size=0
+        ).as_spec()
         self.assertEqual(len(result["Pages"]), 1)
 
     def test_folder_item_filters_empty_apps(self):
@@ -118,7 +121,10 @@ class TestAllAppsFolderFromExport(unittest.TestCase):
 
     def test_empty_yaml_keys_read_as_no_apps(self):
         """A key left blank in hand-edited YAML loads as None, not a list."""
-        export = {"dock": None, "pages": [{"apps": None, "folders": [{"apps": None}]}, {"apps": ["com.app1"]}]}
+        export = {
+            "dock": None,
+            "pages": [{"apps": None, "folders": [{"apps": None}]}, {"apps": ["com.app1"]}],
+        }
         self.assertEqual(self._folder_ids(export), ["com.app1"])
 
     def test_exclude_filters_apps(self):
@@ -219,50 +225,58 @@ class TestHomeScreenConfigBuilder(unittest.TestCase):
 
 class TestBuildHslPayload(unittest.TestCase):
     def test_with_pages_items(self):
-        payload = _build_hsl_payload(HslPayloadConfig(
-            dock_ids=["com.dock"],
-            pinned_ids=[],
-            folders={},
-            payload_identifier="com.test.hs",
-            display_name="Test",
-            pages_items=[[{"Type": "Application", "BundleID": "com.app1"}]],
-        ))
+        payload = _build_hsl_payload(
+            HslPayloadConfig(
+                dock_ids=["com.dock"],
+                pinned_ids=[],
+                folders={},
+                payload_identifier="com.test.hs",
+                display_name="Test",
+                pages_items=[[{"Type": "Application", "BundleID": "com.app1"}]],
+            )
+        )
         self.assertEqual(payload["PayloadType"], "com.apple.homescreenlayout")
         self.assertEqual(len(payload["Pages"]), 1)
 
     def test_without_pages_items_uses_pins_and_folders(self):
-        payload = _build_hsl_payload(HslPayloadConfig(
-            dock_ids=["com.dock"],
-            pinned_ids=["com.pin1"],
-            folders={"Work": ["com.slack"]},
-            payload_identifier="com.test.hs",
-            display_name="Test",
-        ))
+        payload = _build_hsl_payload(
+            HslPayloadConfig(
+                dock_ids=["com.dock"],
+                pinned_ids=["com.pin1"],
+                folders={"Work": ["com.slack"]},
+                payload_identifier="com.test.hs",
+                display_name="Test",
+            )
+        )
         self.assertEqual(len(payload["Pages"]), 1)
         # Pins go to page 1 (if not in dock), plus folders
         page1 = payload["Pages"][0]
         self.assertGreater(len(page1), 0)
 
     def test_pins_in_dock_not_on_page1(self):
-        payload = _build_hsl_payload(HslPayloadConfig(
-            dock_ids=["com.pin1"],
-            pinned_ids=["com.pin1"],  # same as dock
-            folders={},
-            payload_identifier="com.test.hs",
-            display_name="Test",
-        ))
+        payload = _build_hsl_payload(
+            HslPayloadConfig(
+                dock_ids=["com.pin1"],
+                pinned_ids=["com.pin1"],  # same as dock
+                folders={},
+                payload_identifier="com.test.hs",
+                display_name="Test",
+            )
+        )
         page1 = payload["Pages"][0]
         pin_ids = [i.get("BundleID") for i in page1 if i.get("Type") == "Application"]
         self.assertNotIn("com.pin1", pin_ids)
 
     def test_empty_folders_skipped(self):
-        payload = _build_hsl_payload(HslPayloadConfig(
-            dock_ids=[],
-            pinned_ids=[],
-            folders={"Empty": []},
-            payload_identifier="com.test.hs",
-            display_name="Test",
-        ))
+        payload = _build_hsl_payload(
+            HslPayloadConfig(
+                dock_ids=[],
+                pinned_ids=[],
+                folders={"Empty": []},
+                payload_identifier="com.test.hs",
+                display_name="Test",
+            )
+        )
         page1 = payload["Pages"][0]
         folder_names = [i.get("DisplayName") for i in page1 if i.get("Type") == "Folder"]
         self.assertNotIn("Empty", folder_names)

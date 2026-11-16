@@ -25,12 +25,15 @@ from charts.config import GridConfig
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
     from matplotlib.figure import Figure
-from charts.theme import ChartTheme, get_theme
-from charts.types.area import AreaChartSpec
-from charts.types.bar import BarChartSpec
-from charts.types.base import ChartKind, ChartSpec
-from charts.types.dual import DualAxisChartSpec
-from charts.types.line import LineChartSpec
+# ---------------------------------------------------------------------------
+# Re-exports from renderer_bar (backwards-compatible shim)
+# ---------------------------------------------------------------------------
+from charts.renderer_bar import (  # noqa: F401
+    _render_bar,
+    _render_grouped_bars,
+    _render_stacked_bars,
+    _x_key,
+)
 
 # ---------------------------------------------------------------------------
 # Re-exports from renderer_line_area (backwards-compatible shim)
@@ -56,16 +59,12 @@ from charts.renderer_line_area import (  # noqa: F401
     _split_by_name_lists,
     _split_dual_series,
 )
-
-# ---------------------------------------------------------------------------
-# Re-exports from renderer_bar (backwards-compatible shim)
-# ---------------------------------------------------------------------------
-from charts.renderer_bar import (  # noqa: F401
-    _render_bar,
-    _render_grouped_bars,
-    _render_stacked_bars,
-    _x_key,
-)
+from charts.theme import ChartTheme, get_theme
+from charts.types.area import AreaChartSpec
+from charts.types.bar import BarChartSpec
+from charts.types.base import ChartKind, ChartSpec
+from charts.types.dual import DualAxisChartSpec
+from charts.types.line import LineChartSpec
 
 # ---------------------------------------------------------------------------
 # Orchestration-only symbols (no sibling home; coordinate the siblings above)
@@ -79,9 +78,7 @@ def _require_matplotlib() -> None:
     try:
         import matplotlib  # noqa: F401
     except ImportError:
-        raise ImportError(
-            "matplotlib is not installed. Run: pip install matplotlib"
-        )
+        raise ImportError("matplotlib is not installed. Run: pip install matplotlib")
 
 
 def _normalize_axes_grid(axes: Any, rows: int, cols: int) -> list[list[Axes]]:
@@ -136,7 +133,7 @@ def _dispatch(fig: Figure, ax: Axes, spec: ChartSpec, theme: ChartTheme) -> None
         area_spec = spec if isinstance(spec, AreaChartSpec) else AreaChartSpec(**_base_kwargs(spec))  # type: ignore[arg-type]
         _render_area(ax, area_spec, theme)
     elif spec.kind == ChartKind.dual:
-        dual_spec = spec if isinstance(spec, DualAxisChartSpec) else DualAxisChartSpec(**_base_kwargs(spec))  # type: ignore[arg-type]
+        dual_spec = spec if isinstance(spec, DualAxisChartSpec) else DualAxisChartSpec(**_base_kwargs(spec))  # type: ignore[arg-type]  # fmt: skip
         _render_dual(fig, ax, dual_spec, theme)
     else:
         raise ValueError(f"Unknown chart kind: {spec.kind!r}")
@@ -156,6 +153,7 @@ def render_chart(
     _require_matplotlib()
 
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
@@ -179,8 +177,7 @@ def render_chart(
     _dispatch(fig, ax, spec, chart_theme)
     _apply_labels(ax, spec, chart_theme)
 
-    fig.savefig(str(out), dpi=effective_dpi, bbox_inches="tight",
-                facecolor=fig.get_facecolor())
+    fig.savefig(str(out), dpi=effective_dpi, bbox_inches="tight", facecolor=fig.get_facecolor())
     plt.close(fig)
     return out
 
@@ -196,6 +193,7 @@ def render_grid(
     _require_matplotlib()
 
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
@@ -245,7 +243,6 @@ def render_grid(
         )
 
     fig.tight_layout()
-    fig.savefig(str(out), dpi=grid_cfg.dpi, bbox_inches="tight",
-                facecolor=fig.get_facecolor())
+    fig.savefig(str(out), dpi=grid_cfg.dpi, bbox_inches="tight", facecolor=fig.get_facecolor())
     plt.close(fig)
     return out

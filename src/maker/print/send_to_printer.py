@@ -9,6 +9,7 @@ Usage:
   python print/send_to_printer.py --type moonraker --url http://printer.local \
     --file path/to/model.gcode --print
 """
+
 import argparse
 import os
 from pathlib import Path
@@ -42,11 +43,19 @@ def upload_moonraker(url: str, file: Path, do_print: bool) -> dict[str, str]:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--type", choices=["octoprint", "moonraker"], default=os.getenv("PRINTER_TYPE", "octoprint"))
+    ap.add_argument(
+        "--type", choices=["octoprint", "moonraker"], default=os.getenv("PRINTER_TYPE", "octoprint")
+    )
     ap.add_argument("--url", default=os.getenv("PRINTER_URL"), help="Base URL of printer service")
-    ap.add_argument("--api-key", default=os.getenv("PRINTER_API_KEY"), help="OctoPrint API key (if type=octoprint)")
+    ap.add_argument(
+        "--api-key",
+        default=os.getenv("PRINTER_API_KEY"),
+        help="OctoPrint API key (if type=octoprint)",
+    )
     ap.add_argument("--file", required=True, type=Path, help="Path to .gcode file to upload")
-    ap.add_argument("--print", dest="do_print", action="store_true", help="Start printing after upload")
+    ap.add_argument(
+        "--print", dest="do_print", action="store_true", help="Start printing after upload"
+    )
     args = ap.parse_args()
 
     if not args.url:

@@ -28,11 +28,14 @@ _WORKFLOW = _ROOT / "workflows/code/review-fix-threads.yaml"
 
 def _prompts(**params: str) -> dict[str, str]:
     defn = parse_workflow(str(_WORKFLOW))
-    manifest = compile_workflow(defn, project_root=_ROOT,
-                                trigger_params={"pr_number": "405", **params})
+    manifest = compile_workflow(
+        defn, project_root=_ROOT, trigger_params={"pr_number": "405", **params}
+    )
     with tempfile.TemporaryDirectory() as ws:
-        return {name: build_agent_prompt(stage, defn.name, ws)
-                for name, stage in manifest.resolved_stages.items()}
+        return {
+            name: build_agent_prompt(stage, defn.name, ws)
+            for name, stage in manifest.resolved_stages.items()
+        }
 
 
 def _flat(text: str) -> str:
@@ -53,9 +56,7 @@ class TestPushVerification(unittest.TestCase):
         # head_branch must be loaded into a shell variable via a controlled
         # `jq` command substitution, never typed into shell source directly —
         # a git ref can contain "$(...)" or backticks. See PRRT_kwDOQr1kjM6lOUjx.
-        self.assertIn(
-            "HEAD_BRANCH=$(jq -er '.head_branch' ", self.prompt
-        )
+        self.assertIn("HEAD_BRANCH=$(jq -er '.head_branch' ", self.prompt)
         self.assertNotIn("git push origin <head_branch", self.prompt)
         self.assertNotIn("git ls-remote origin refs/heads/<head_branch", self.prompt)
 
@@ -73,9 +74,12 @@ def _five_a_commands(workspace: str) -> str:
     defn = parse_workflow(str(_WORKFLOW))
     manifest = compile_workflow(defn, project_root=_ROOT, trigger_params={"pr_number": "405"})
     prompt = build_agent_prompt(manifest.resolved_stages["commit-and-push"], defn.name, workspace)
-    section = prompt[prompt.index("5a, the remote ref"): prompt.index("The first field of the ls-remote line")]
-    cmds = [ln.strip() for ln in section.splitlines()
-            if ln.strip().startswith(("git ", "HEAD_BRANCH="))]
+    section = prompt[
+        prompt.index("5a, the remote ref") : prompt.index("The first field of the ls-remote line")
+    ]
+    cmds = [
+        ln.strip() for ln in section.splitlines() if ln.strip().startswith(("git ", "HEAD_BRANCH="))
+    ]
     return "\n".join(cmds)
 
 
@@ -245,7 +249,9 @@ class TestQltyPathsAreValidated(unittest.TestCase):
         the writable workspace, so a list read from it could be rewritten
         after staging. The targets come from the pushed commit instead."""
         prompt = _flat(_prompts()["verify-fixes"])
-        self.assertIn("git diff-tree --no-commit-id --name-only -r -z --no-renames --diff-filter=d", prompt)
+        self.assertIn(
+            "git diff-tree --no-commit-id --name-only -r -z --no-renames --diff-filter=d", prompt
+        )
         self.assertIn('[ "$HEAD_SHA" = "$REMOTE_SHA" ] || { echo "HEAD-NOT-PUSHED', prompt)
         self.assertNotIn("jq -e -r '.files_changed[]'", prompt)
 
@@ -253,8 +259,8 @@ class TestQltyPathsAreValidated(unittest.TestCase):
         prompt = _flat(_prompts()["verify-fixes"])
         self.assertIn("while IFS= read -r -d '' p; do", prompt)
         self.assertIn('~/.qlty/bin/qlty check "$p" || qlty_status=1', prompt)
-        self.assertIn('done < ', prompt)
-        self.assertIn('validation/qlty-paths.z', prompt)
+        self.assertIn("done < ", prompt)
+        self.assertIn("validation/qlty-paths.z", prompt)
 
 
 class TestQltyLoopAccumulatesStatus(unittest.TestCase):
@@ -273,8 +279,7 @@ class TestQltyLoopAccumulatesStatus(unittest.TestCase):
         self.assertIn("qlty_status=0", self.prompt)
         self.assertIn('qlty check "$p" || qlty_status=1', self.prompt)
         self.assertIn(
-            "the exit status of a `while ...; done` loop is only the status "
-            "of its LAST iteration",
+            "the exit status of a `while ...; done` loop is only the status of its LAST iteration",
             self.prompt,
         )
         # Broken form: a bare loop with no per-iteration status capture,
@@ -296,13 +301,15 @@ class TestQltyLoopAccumulatesStatus(unittest.TestCase):
         """PR #406 round 5: resetting qlty_status before pass two erased a
         pass-one failure whenever pass two came back clean."""
         self.assertEqual(self.prompt.count("qlty_status=0"), 1)
-        self.assertLess(self.prompt.index("qlty_status=0"), self.prompt.index("for pass in 1 2; do"))
+        self.assertLess(
+            self.prompt.index("qlty_status=0"), self.prompt.index("for pass in 1 2; do")
+        )
         self.assertNotIn("a fresh `qlty_status=0` reset first", self.prompt)
         self.assertIn('echo "QLTY_STATUS=$qlty_status"', self.prompt)
 
     def test_lint_fail_is_set_from_either_pass_or_a_nonzero_status(self) -> None:
         self.assertIn(
-            'finding in either qlty pass, a non-zero QLTY_STATUS, a failed path '
+            "finding in either qlty pass, a non-zero QLTY_STATUS, a failed path "
             'list or a commit that changed nothing, or a non-zero `make lint`, sets "lint": "fail"',
             self.prompt,
         )
@@ -319,7 +326,7 @@ class TestQltyPathListMustBeNonEmpty(unittest.TestCase):
         self.assertIn("echo \"PATHS=$(tr -cd '\\0' <", self.prompt)
 
     def test_empty_or_failed_list_is_a_lint_failure_not_a_pass(self) -> None:
-        self.assertIn("or DIFFTREE-FAILED, or CHANGED=0: set \"lint\": \"fail\"", self.prompt)
+        self.assertIn('or DIFFTREE-FAILED, or CHANGED=0: set "lint": "fail"', self.prompt)
         self.assertIn("do not run qlty", self.prompt)
 
     def test_deletion_only_commit_skips_qlty_without_failing(self) -> None:
@@ -337,7 +344,10 @@ class TestCoverageAuditReadsOnlyValidatedTests(unittest.TestCase):
         self.prompt = _flat(_prompts()["verify-fixes"])
 
     def test_tests_come_from_the_validated_map(self) -> None:
-        self.assertIn('Take the tests to read ONLY from fix-results-merged.json\'s top-level "tests_by_result"', self.prompt)
+        self.assertIn(
+            'Take the tests to read ONLY from fix-results-merged.json\'s top-level "tests_by_result"',
+            self.prompt,
+        )
         self.assertIn('"rejected_tests_added"; never open those', self.prompt)
         self.assertNotIn('For every result with action "fixed" that lists tests_added', self.prompt)
 
@@ -347,7 +357,11 @@ def _qlty_paths_block(workspace: str) -> str:
     defn = parse_workflow(str(_WORKFLOW))
     manifest = compile_workflow(defn, project_root=_ROOT, trigger_params={"pr_number": "405"})
     prompt = build_agent_prompt(manifest.resolved_stages["verify-fixes"], defn.name, workspace)
-    section = prompt[prompt.index("HEAD_SHA=$(git rev-parse HEAD)"): prompt.index("`--diff-filter=d` leaves out")]
+    section = prompt[
+        prompt.index("HEAD_SHA=$(git rev-parse HEAD)") : prompt.index(
+            "`--diff-filter=d` leaves out"
+        )
+    ]
     # Only command lines; the block ends at echo "CHANGED=...".
     return "\n".join(ln.strip() for ln in section.splitlines() if ln.strip())
 
@@ -368,7 +382,9 @@ class TestQltyPathsComeFromThePushedCommit(unittest.TestCase):
         (self.ws / "validation").mkdir()
         (self.ws / "outputs/pr-context.json").write_text(json.dumps({"head_branch": "feat/x"}))
         # A decoy list: nothing the block does may read it.
-        (self.ws / "outputs/fix-results.json").write_text(json.dumps({"files_changed": ["decoy.py"]}))
+        (self.ws / "outputs/fix-results.json").write_text(
+            json.dumps({"files_changed": ["decoy.py"]})
+        )
         git = TestPushVerificationRunsAsItsOwnCall._git
         git("init", "-q", "--bare", str(origin))
         git("init", "-q", "-b", "feat/x", str(self.repo))
@@ -431,7 +447,7 @@ class TestUnlinkedFindingTriageAndDispatchRules(unittest.TestCase):
         # (b) prior_same_path alone grants nothing; each id is compared by
         # its own title/body before it can enter repeat_of.
         self.assertIn(
-            "compare ITS \"title\" and \"body\" against the current finding's "
+            'compare ITS "title" and "body" against the current finding\'s '
             "own title and body. Judge each prior id independently",
             self.triage_prompt,
         )
@@ -441,23 +457,22 @@ class TestUnlinkedFindingTriageAndDispatchRules(unittest.TestCase):
         )
         # Positive rule: a same-concern prior IS recorded.
         self.assertIn(
-            "record its id in this triage entry's \"repeat_of\" list",
+            'record its id in this triage entry\'s "repeat_of" list',
             self.triage_prompt,
         )
-        self.assertIn("do NOT add it to \"repeat_of\"", self.triage_prompt)
+        self.assertIn('do NOT add it to "repeat_of"', self.triage_prompt)
 
     def test_own_previously_missed_keeps_weight_with_empty_repeat_of(self) -> None:
         # (c) the Uv2O fix: _merge_drifted folds an earlier same-title raise
         # into the current entry (previously_missed stays true) without
         # populating repeat_of. That must still carry full weight.
         self.assertIn(
-            "\"previously_missed\" can be true here with \"repeat_of\" left "
-            "empty",
+            '"previously_missed" can be true here with "repeat_of" left empty',
             self.triage_prompt,
         )
         self.assertIn(
-            "grant this finding the same \"previously missed\" weight "
-            "regardless of what \"repeat_of\" ends up containing",
+            'grant this finding the same "previously missed" weight '
+            'regardless of what "repeat_of" ends up containing',
             self.triage_prompt,
         )
 
@@ -466,18 +481,15 @@ class TestUnlinkedFindingTriageAndDispatchRules(unittest.TestCase):
         # triage-judged repeat_of list, not the raw prior_same_path list.
         self.assertIn(
             'When triage.json\'s "repeat_of" for this entry is non-empty, add '
-            'one more synthetic comment per listed id',
+            "one more synthetic comment per listed id",
             self.dispatch_prompt,
         )
-        self.assertIn(
-            'Read "repeat_of", never "prior_same_path", here', self.dispatch_prompt
-        )
+        self.assertIn('Read "repeat_of", never "prior_same_path", here', self.dispatch_prompt)
         self.assertIn('prefixed "Earlier raise (<path>:<line>):"', self.dispatch_prompt)
         # Negative: the dispatch prose must never instruct sourcing the
         # embedded comment directly from prior_same_path.
         self.assertNotIn(
-            "add one more synthetic comment per listed id in "
-            '"prior_same_path"',
+            'add one more synthetic comment per listed id in "prior_same_path"',
             self.dispatch_prompt,
         )
 
@@ -485,15 +497,13 @@ class TestUnlinkedFindingTriageAndDispatchRules(unittest.TestCase):
         # (e) report: "superseded by" only fires from a triage-confirmed
         # repeat_of match, and a rejected path is shown labelled, not
         # "null:<line>".
+        self.assertIn('Say "superseded by <id>" ONLY when', self.report_prompt)
         self.assertIn(
-            'Say "superseded by <id>" ONLY when', self.report_prompt
-        )
-        self.assertIn(
-            'triage.json records that current finding\'s "repeat_of" as '
-            'containing this stale id', self.report_prompt
+            'triage.json records that current finding\'s "repeat_of" as containing this stale id',
+            self.report_prompt,
         )
         self.assertIn("not merely a current finding sharing the same path", self.report_prompt)
-        self.assertIn("never \"null:<line>\"", self.report_prompt)
+        self.assertIn('never "null:<line>"', self.report_prompt)
 
     def test_both_path_and_path_rejected_null_falls_back_to_id(self) -> None:
         # (f) a bare "unlinked:<digest>" finding (no path line was present to
@@ -505,12 +515,8 @@ class TestUnlinkedFindingTriageAndDispatchRules(unittest.TestCase):
             'A finding can also have BOTH "path" and "path_rejected" null',
             self.triage_prompt,
         )
-        self.assertIn(
-            "this finding has nowhere to be dispatched", self.triage_prompt
-        )
-        self.assertIn(
-            'When BOTH "path" and "path_rejected" are null', self.report_prompt
-        )
+        self.assertIn("this finding has nowhere to be dispatched", self.triage_prompt)
+        self.assertIn('When BOTH "path" and "path_rejected" are null', self.report_prompt)
         self.assertIn('labelled "(path unavailable)"', self.report_prompt)
 
     def test_partial_parse_stale_guidance_in_triage_and_report(self) -> None:
@@ -545,12 +551,8 @@ class TestUnlinkedFindingTriageAndDispatchRules(unittest.TestCase):
             'review-overview.json "newest"."review_id"',
             self.triage_prompt,
         )
-        self.assertIn(
-            "never by timestamp", self.triage_prompt
-        )
-        self.assertIn(
-            "treat the finding as indeterminate", self.triage_prompt
-        )
+        self.assertIn("never by timestamp", self.triage_prompt)
+        self.assertIn("treat the finding as indeterminate", self.triage_prompt)
         # Negative: the prose must no longer instruct selecting by latest
         # submitted_at for this fallback.
         self.assertNotIn(
@@ -567,13 +569,14 @@ class TestUnlinkedFindingTriageAndDispatchRules(unittest.TestCase):
         # report's re-confirmed/indeterminate split depends on that entry
         # existing.
         self.assertIn(
-            'If the title is present in a non-resolved section, triage it like a current '
-            "finding", self.triage_prompt,
+            "If the title is present in a non-resolved section, triage it like a current finding",
+            self.triage_prompt,
         )
         self.assertIn(
-            'give it the usual triage fields including this finding\'s '
+            "give it the usual triage fields including this finding's "
             'original "id" from review-overview.json so the report can join '
-            "on it", self.triage_prompt,
+            "on it",
+            self.triage_prompt,
         )
 
     def test_report_splits_reconfirmed_from_indeterminate_stale_findings(
@@ -583,42 +586,34 @@ class TestUnlinkedFindingTriageAndDispatchRules(unittest.TestCase):
         # stale id under a partial parse — a stale id triage re-confirmed
         # (its own triage.json entry) must report its real fix-results.json
         # outcome; only a stale id with no triage entry is indeterminate.
-        self.assertIn(
-            'This id has its OWN entry in triage.json', self.report_prompt
-        )
-        self.assertIn(
-            "Report its actual outcome from fix-results-merged.json", self.report_prompt
-        )
-        self.assertIn(
-            "never \"indeterminate\"", self.report_prompt
-        )
-        self.assertIn(
-            "This id has NO entry in triage.json", self.report_prompt
-        )
-        self.assertIn(
-            "No live match was established, so label it", self.report_prompt
-        )
+        self.assertIn("This id has its OWN entry in triage.json", self.report_prompt)
+        self.assertIn("Report its actual outcome from fix-results-merged.json", self.report_prompt)
+        self.assertIn('never "indeterminate"', self.report_prompt)
+        self.assertIn("This id has NO entry in triage.json", self.report_prompt)
+        self.assertIn("No live match was established, so label it", self.report_prompt)
 
     def test_section_aware_title_check_uses_enclosing_section(self) -> None:
         # PR #453 PRRT_kwDOQr1kjM6oLmgJ: the title search must determine
         # the enclosing section of each occurrence, not just whether the title
         # string appears anywhere in the raw body.
         self.assertIn(
-            "enclosing section", self.triage_prompt,
+            "enclosing section",
+            self.triage_prompt,
         )
         self.assertIn(
-            "nearest preceding", self.triage_prompt,
+            "nearest preceding",
+            self.triage_prompt,
         )
         self.assertIn(
-            "<summary><strong>NAME (N)</strong></summary>", self.triage_prompt,
+            "<summary><strong>NAME (N)</strong></summary>",
+            self.triage_prompt,
         )
 
     def test_resolved_section_occurrence_is_not_dispatched(self) -> None:
         # A title found only under "Resolved since last review" must NOT be
         # treated as live and must not be dispatched.
         self.assertIn(
-            'title occurrence that falls inside a "Resolved since last review" '
-            "section is NOT live",
+            'title occurrence that falls inside a "Resolved since last review" section is NOT live',
             self.triage_prompt,
         )
         self.assertIn(
@@ -626,10 +621,12 @@ class TestUnlinkedFindingTriageAndDispatchRules(unittest.TestCase):
             self.triage_prompt,
         )
         self.assertIn(
-            "do NOT dispatch it", self.triage_prompt,
+            "do NOT dispatch it",
+            self.triage_prompt,
         )
         self.assertIn(
-            'resolved by the reviewer', self.report_prompt,
+            "resolved by the reviewer",
+            self.report_prompt,
         )
 
     def test_report_labels_resolved_section_occurrence_separately(self) -> None:
@@ -637,8 +634,7 @@ class TestUnlinkedFindingTriageAndDispatchRules(unittest.TestCase):
         # the report must label it as resolved by the reviewer — not as
         # "fixed or re-raised" and not as "indeterminate".
         self.assertIn(
-            'resolved by the reviewer (title found only in Resolved since '
-            'last review section)',
+            "resolved by the reviewer (title found only in Resolved since last review section)",
             self.report_prompt,
         )
 
@@ -661,7 +657,7 @@ class TestUnlinkedFindingTriageAndDispatchRules(unittest.TestCase):
         # Negative case: indeterminate branch must also reference the same
         # field so it's clear the absence of membership drives that label.
         self.assertIn(
-            'does NOT appear in',
+            "does NOT appear in",
             self.report_prompt,
         )
 
@@ -677,8 +673,7 @@ class TestTriageThreadsValidatesOutput(unittest.TestCase):
 
     def setUp(self) -> None:
         defn = parse_workflow(str(_WORKFLOW))
-        manifest = compile_workflow(defn, project_root=_ROOT,
-                                    trigger_params={"pr_number": "405"})
+        manifest = compile_workflow(defn, project_root=_ROOT, trigger_params={"pr_number": "405"})
         self.stage = manifest.resolved_stages["triage-threads"]
 
     def test_triage_output_check_present(self) -> None:
@@ -696,14 +691,20 @@ class TestTriageThreadsValidatesOutput(unittest.TestCase):
         # lacks resolved_by_reviewer — the has_key check must fail.
         with tempfile.TemporaryDirectory() as ws:
             import os
+
             os.makedirs(os.path.join(ws, "outputs"))
             triage_path = os.path.join(ws, "outputs", "triage.json")
             with open(triage_path, "w") as fh:
                 json.dump({"threads": [], "counts": {}}, fh)
-            results = run_output_checks(ws, [OutputCheck(
-                path="outputs/triage.json",
-                checks=["has_key:resolved_by_reviewer"],
-            )])
+            results = run_output_checks(
+                ws,
+                [
+                    OutputCheck(
+                        path="outputs/triage.json",
+                        checks=["has_key:resolved_by_reviewer"],
+                    )
+                ],
+            )
             self.assertEqual(len(results), 1)
             self.assertFalse(
                 results[0].passed,
@@ -715,14 +716,20 @@ class TestTriageThreadsValidatesOutput(unittest.TestCase):
         # includes resolved_by_reviewer (empty list is valid) — must pass.
         with tempfile.TemporaryDirectory() as ws:
             import os
+
             os.makedirs(os.path.join(ws, "outputs"))
             triage_path = os.path.join(ws, "outputs", "triage.json")
             with open(triage_path, "w") as fh:
                 json.dump({"threads": [], "counts": {}, "resolved_by_reviewer": []}, fh)
-            results = run_output_checks(ws, [OutputCheck(
-                path="outputs/triage.json",
-                checks=["has_key:resolved_by_reviewer"],
-            )])
+            results = run_output_checks(
+                ws,
+                [
+                    OutputCheck(
+                        path="outputs/triage.json",
+                        checks=["has_key:resolved_by_reviewer"],
+                    )
+                ],
+            )
             self.assertEqual(len(results), 1)
             self.assertTrue(
                 results[0].passed,
@@ -747,9 +754,15 @@ class TestSweepFixRegressions(unittest.TestCase):
     def test_sweep_pipeline_ordering(self) -> None:
         """fix-aggregate → sweep → refix-dispatch → refix-threads →
         refix-aggregate → resweep → commit-and-push."""
-        order = ["fix-aggregate", "sweep-fix-regressions", "refix-dispatch",
-                 "refix-threads", "refix-aggregate", "resweep-regressions",
-                 "commit-and-push"]
+        order = [
+            "fix-aggregate",
+            "sweep-fix-regressions",
+            "refix-dispatch",
+            "refix-threads",
+            "refix-aggregate",
+            "resweep-regressions",
+            "commit-and-push",
+        ]
         positions = [self.stages.index(name) for name in order]
         self.assertEqual(positions, sorted(positions))
 
@@ -807,13 +820,15 @@ class TestSweepFixRegressions(unittest.TestCase):
     def test_refix_threads_is_a_fan_out_over_refix_dispatch(self) -> None:
         """One thread-fixer per refix item, like fix-threads -- not one agent
         for the whole index."""
-        stage = next(st for st in parse_workflow(str(_WORKFLOW)).stages
-                     if st.name == "refix-threads")
+        stage = next(
+            st for st in parse_workflow(str(_WORKFLOW)).stages if st.name == "refix-threads"
+        )
         fan_out = stage.fan_out
         if fan_out is None:
             self.fail("refix-threads has no fan_out declaration")
-        self.assertEqual((fan_out.source, fan_out.field, fan_out.key),
-                         ("refix-dispatch", "items", "index"))
+        self.assertEqual(
+            (fan_out.source, fan_out.field, fan_out.key), ("refix-dispatch", "items", "index")
+        )
         self.assertEqual(stage.agent.role if stage.agent else None, "thread-fixer")
 
     def test_refix_dispatch_writes_an_empty_index_when_nothing_blocks(self) -> None:
@@ -871,10 +886,10 @@ class TestSweepFixRegressions(unittest.TestCase):
         tests_by_result, so the merge and verify-fixes see retry tests."""
         with tempfile.TemporaryDirectory() as ws:
             defn = parse_workflow(str(_WORKFLOW))
-            manifest = compile_workflow(defn, project_root=_ROOT,
-                                        trigger_params={"pr_number": "405"})
-            prompt = build_agent_prompt(manifest.resolved_stages["refix-aggregate"],
-                                        defn.name, ws)
+            manifest = compile_workflow(
+                defn, project_root=_ROOT, trigger_params={"pr_number": "405"}
+            )
+            prompt = build_agent_prompt(manifest.resolved_stages["refix-aggregate"], defn.name, ws)
             ws = str(Path(ws).resolve())
         self.assertIn(
             f'./bin/workflow aggregate-fix-results "{ws}/outputs/refix-index.json" '
@@ -886,11 +901,11 @@ class TestSweepFixRegressions(unittest.TestCase):
 
     def test_resweep_exit_contract(self) -> None:
         prompt = _flat(self.prompts["resweep-regressions"])
-        self.assertIn("still_blocking > 0: set your stage result status to \"failed\" "
-                      "and exit 1", prompt)
+        self.assertIn(
+            'still_blocking > 0: set your stage result status to "failed" and exit 1', prompt
+        )
         self.assertIn("still_blocking == 0: exit 0", prompt)
-        self.assertIn("the check did not run — count it as still blocking",
-                      prompt)
+        self.assertIn("the check did not run — count it as still blocking", prompt)
 
     def test_resweep_is_read_only_no_edit(self) -> None:
         """resweep must not edit source files."""
@@ -909,7 +924,7 @@ class TestSweepFixRegressions(unittest.TestCase):
 
     def test_a_fixed_claim_never_resolves_a_finding(self) -> None:
         prompt = _flat(self.prompts["resweep-regressions"])
-        self.assertIn('is a claim, not evidence — it never resolves a finding', prompt)
+        self.assertIn("is a claim, not evidence — it never resolves a finding", prompt)
 
     # --- commit-and-push sees refix files ---
 
@@ -974,7 +989,7 @@ class TestSweepFixRegressions(unittest.TestCase):
         self.assertIn("merge-fix-results", prompt_commit)
         # The merge must not use python3 -c (which can cause IndentationError)
         self.assertNotIn('python3 -I -S -c "', prompt_commit)
-        self.assertNotIn("python3 -c \"", prompt_commit)
+        self.assertNotIn('python3 -c "', prompt_commit)
 
     def test_downstream_readers_reference_merged_file(self) -> None:
         """verify-fixes, check-prose, plan-resolution, and report must read
@@ -1005,8 +1020,9 @@ _DIFF_LINES = ("jq -r '.files_changed[]'", "sort -u ", f"bash {_FIX_DIFF}")
 _SUPPRESSION_LINE = ("awk '", "grep -nE '")
 
 
-@unittest.skipUnless(all(map(shutil.which, ("git", "jq", "bash", "awk"))),
-                     "needs git, jq, bash and awk")
+@unittest.skipUnless(
+    all(map(shutil.which, ("git", "jq", "bash", "awk"))), "needs git, jq, bash and awk"
+)
 class TestSweepShellRunsAsRendered(unittest.TestCase):
     """Run the sweep/resweep shell lines exactly as rendered, in a temp repo.
 
@@ -1044,8 +1060,14 @@ class TestSweepShellRunsAsRendered(unittest.TestCase):
 
     def _bash(self, script: str) -> subprocess.CompletedProcess[str]:
         argv = [str(shutil.which("bash")), "-c", script]
-        return subprocess.run(argv, cwd=self.repo, capture_output=True, text=True,  # nosec B603 - runs the workflow's own rendered lines in a temp repo
-                              timeout=60, check=False)
+        return subprocess.run(
+            argv,
+            cwd=self.repo,
+            capture_output=True,
+            text=True,  # nosec B603 - runs the workflow's own rendered lines in a temp repo
+            timeout=60,
+            check=False,
+        )
 
     def _patch(self, stage: str, name: str) -> str:
         script = _stage_shell_lines(stage, str(self.ws), _DIFF_LINES)
@@ -1082,7 +1104,9 @@ class TestSweepShellRunsAsRendered(unittest.TestCase):
         self.assertEqual((res.returncode, res.stdout), (1, ""))
 
     def test_an_added_suppression_in_an_untracked_file_is_reported(self) -> None:
-        self.new_test.write_text("import unittest\n@unittest.skip('later')\ndef test_x():\n    pass\n")
+        self.new_test.write_text(
+            "import unittest\n@unittest.skip('later')\ndef test_x():\n    pass\n"
+        )
         res = self._suppressions()
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertEqual(len(res.stdout.splitlines()), 1)
@@ -1096,8 +1120,9 @@ class TestSweepShellRunsAsRendered(unittest.TestCase):
         self.assertNotIn("E501", res.stdout)
 
 
-@unittest.skipUnless(all(map(shutil.which, ("git", "jq", "bash", "awk"))),
-                     "needs git, jq, bash and awk")
+@unittest.skipUnless(
+    all(map(shutil.which, ("git", "jq", "bash", "awk"))), "needs git, jq, bash and awk"
+)
 class TestResweepSuppressionAlwaysRuns(TestSweepShellRunsAsRendered):
     """Suppression scan must run even when derived blocking count is 0.
 
@@ -1123,13 +1148,12 @@ class TestResweepSuppressionAlwaysRuns(TestSweepShellRunsAsRendered):
         # immediately on 0.  The corrected version must only skip if no files changed.
         lines = prompt.splitlines()
         zero_exit_idx = next(
-            (i for i, ln in enumerate(lines)
-             if "still_blocking\": 0" in ln and "exit 0" in ln), None
+            (i for i, ln in enumerate(lines) if 'still_blocking": 0' in ln and "exit 0" in ln), None
         )
         # Any early-exit sentence on zero blocking must be conditional on
         # files_changed also being empty, not on the derived count alone.
         if zero_exit_idx is not None:
-            context = " ".join(lines[max(0, zero_exit_idx - 3): zero_exit_idx + 3])
+            context = " ".join(lines[max(0, zero_exit_idx - 3) : zero_exit_idx + 3])
             self.assertIn(
                 "files_changed",
                 context,
@@ -1159,27 +1183,27 @@ class TestResweepSuppressionAlwaysRuns(TestSweepShellRunsAsRendered):
             "silently when derived=0",
         )
 
-    @unittest.skipUnless(all(map(shutil.which, ("git", "jq", "bash", "awk"))),
-                         "needs git, jq, bash and awk")
+    @unittest.skipUnless(
+        all(map(shutil.which, ("git", "jq", "bash", "awk"))), "needs git, jq, bash and awk"
+    )
     def test_suppression_detected_when_blocking_is_zero(self) -> None:
         """When sweep found 0 blocking findings but a fixer added # type: ignore,
         the suppression scan must still run and report it as still-blocking."""
         # The sweep found nothing blocking.
         self._sweep_findings_with_blocking(0)
         # The fixer added a # type: ignore in a tracked file.
-        (self.repo / "src/kept.py").write_text(
-            "a = 1  # noqa: E501\nb = 3  # type: ignore\n"
-        )
+        (self.repo / "src/kept.py").write_text("a = 1  # noqa: E501\nb = 3  # type: ignore\n")
         # Build the resweep diff (Step 2).
         patch_content = self._patch("resweep-regressions", "resweep-diff.patch")
-        self.assertIn("# type: ignore", patch_content,
-                      "diff must contain the added type: ignore")
+        self.assertIn("# type: ignore", patch_content, "diff must contain the added type: ignore")
         # Run the suppression grep (Step 3).
         script = _stage_shell_lines("resweep-regressions", str(self.ws), _SUPPRESSION_LINE)
         res = self._bash(script)
-        self.assertEqual(res.returncode, 0,
-                         f"suppression grep must exit 0 (hit) even when blocking=0; "
-                         f"stderr={res.stderr!r}")
+        self.assertEqual(
+            res.returncode,
+            0,
+            f"suppression grep must exit 0 (hit) even when blocking=0; stderr={res.stderr!r}",
+        )
         self.assertIn("# type: ignore", res.stdout)
 
 
@@ -1191,17 +1215,21 @@ class TestSuppressionRegexAnchoring(unittest.TestCase):
 
     # The suppression grep pattern extracted from the rendered prompt.
     _PATTERN = (
-        r'# type: ignore|# noqa|# nosec|# NOSONAR'
-        r'|@unittest\.skip(\(|$|[[:space:]])'
-        r'|@pytest\.mark\.skip(\(|$|[[:space:]])'
-        r'|@unittest\.expectedFailure'
+        r"# type: ignore|# noqa|# nosec|# NOSONAR"
+        r"|@unittest\.skip(\(|$|[[:space:]])"
+        r"|@pytest\.mark\.skip(\(|$|[[:space:]])"
+        r"|@unittest\.expectedFailure"
     )
 
     def _grep(self, line: str) -> bool:
         """Return True if the ERE pattern matches ``line``."""
         res = subprocess.run(  # nosec B603 - fixed argv, grep ERE, no shell
             [str(shutil.which("grep")), "-qE", self._PATTERN],
-            input=line, text=True, capture_output=True, check=False, timeout=10,
+            input=line,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=10,
         )
         return res.returncode == 0
 
@@ -1264,10 +1292,14 @@ class TestUnbackedVerificationUsesRealSchema(unittest.TestCase):
     def test_schema_contains_test_command_not_test_output_tail(self) -> None:
         """Confirm test_command is in the schema and test_output_tail is not."""
         fields = self._schema_fields()
-        self.assertIn("test_command", fields,
-                      f"test_command missing from thread-fixer schema; found: {fields}")
-        self.assertNotIn("test_output_tail", fields,
-                         "test_output_tail must not be in thread-fixer schema")
+        self.assertIn(
+            "test_command",
+            fields,
+            f"test_command missing from thread-fixer schema; found: {fields}",
+        )
+        self.assertNotIn(
+            "test_output_tail", fields, "test_output_tail must not be in thread-fixer schema"
+        )
 
     def test_sweep_prompt_references_only_schema_fields(self) -> None:
         """The unbacked-verification concern in the sweep prompt must not
@@ -1275,9 +1307,12 @@ class TestUnbackedVerificationUsesRealSchema(unittest.TestCase):
         defines (test_command, test_result). The sweep must not instruct
         executing test_command."""
         prompt = _flat(_prompts()["sweep-fix-regressions"])
-        self.assertNotIn("test_output_tail", prompt,
-                         "sweep prompt references test_output_tail, which is not "
-                         "in thread-fixer schema and would flag every normal result")
+        self.assertNotIn(
+            "test_output_tail",
+            prompt,
+            "sweep prompt references test_output_tail, which is not "
+            "in thread-fixer schema and would flag every normal result",
+        )
         # Both real schema fields must be present in the concern
         self.assertIn("test_command", prompt)
         self.assertIn("test_result", prompt)
@@ -1293,9 +1328,12 @@ class TestUnbackedVerificationUsesRealSchema(unittest.TestCase):
         start = guide.find("### unbacked-verification-claims")
         end = guide.find("\n### ", start + 1)
         section = guide[start:end] if end != -1 else guide[start:]
-        self.assertNotIn("test_output_tail", section,
-                         "fix-regressions.md unbacked-verification sweep references "
-                         "test_output_tail, which is not in the thread-fixer schema")
+        self.assertNotIn(
+            "test_output_tail",
+            section,
+            "fix-regressions.md unbacked-verification sweep references "
+            "test_output_tail, which is not in the thread-fixer schema",
+        )
         self.assertIn("test_command", section)
         # The guide must not instruct executing test_command
         self.assertNotIn("re-run `test_command`", section)
@@ -1347,16 +1385,19 @@ class TestUnbackedVerificationUsesRealSchema(unittest.TestCase):
         accept empty tests_added when coverage_note is non-empty, matching
         the thread-fixer contract."""
         prompt = _flat(_prompts()["sweep-fix-regressions"])
-        self.assertIn("coverage_note", prompt,
-                      "sweep prompt must reference coverage_note in "
-                      "unbacked-verification-claims check")
+        self.assertIn(
+            "coverage_note",
+            prompt,
+            "sweep prompt must reference coverage_note in unbacked-verification-claims check",
+        )
 
     def test_sweep_guide_coverage_note_is_in_thread_fixer_schema(self) -> None:
         """coverage_note must be in the thread-fixer result schema so the
         sweep's reference to it is not a phantom-field false positive."""
         fixer_md = (_ROOT / ".claude/agents/thread-fixer.md").read_text()
-        self.assertIn('"coverage_note"', fixer_md,
-                      "coverage_note must appear in thread-fixer.md schema block")
+        self.assertIn(
+            '"coverage_note"', fixer_md, "coverage_note must appear in thread-fixer.md schema block"
+        )
 
 
 class TestSweepPipelineFailClosed(unittest.TestCase):
@@ -1378,8 +1419,7 @@ class TestSweepPipelineFailClosed(unittest.TestCase):
         self.assertNotIn(
             "jq -r '.files_changed[]'",
             self._lines_containing(prompt, "| sort"),
-            "jq must not pipe into sort — a separate step is required so "
-            "jq failure is detectable",
+            "jq must not pipe into sort — a separate step is required so jq failure is detectable",
         )
 
     def test_resweep_awk_step_does_not_pipe_into_grep(self) -> None:
@@ -1393,12 +1433,14 @@ class TestSweepPipelineFailClosed(unittest.TestCase):
             "awk failure is detectable",
         )
 
-    @unittest.skipUnless(all(map(shutil.which, ("jq", "bash", "awk", "sort"))),
-                         "needs jq, bash, awk and sort")
+    @unittest.skipUnless(
+        all(map(shutil.which, ("jq", "bash", "awk", "sort"))), "needs jq, bash, awk and sort"
+    )
     def test_jq_failure_is_visible_before_sort(self) -> None:
         """When jq fails (malformed JSON), the exit code must be non-zero
         before sort runs.  The old single-pipeline form masked this."""
         import tempfile as _tempfile
+
         with _tempfile.TemporaryDirectory() as tmp:
             bad = Path(tmp) / "bad.json"
             bad.write_text("not valid json\n")
@@ -1406,28 +1448,31 @@ class TestSweepPipelineFailClosed(unittest.TestCase):
             rc = subprocess.run(  # nosec B603 - fixed argv list, no shell, temp dir
                 [str(shutil.which("jq")), "-r", ".files_changed[]", str(bad)],
                 stdout=out.open("wb"),
-                check=False, timeout=10,
+                check=False,
+                timeout=10,
             ).returncode
             self.assertNotEqual(rc, 0, "jq must exit non-zero on malformed input")
 
-    @unittest.skipUnless(all(map(shutil.which, ("awk", "grep"))),
-                         "needs awk and grep")
+    @unittest.skipUnless(all(map(shutil.which, ("awk", "grep"))), "needs awk and grep")
     def test_awk_failure_is_visible_before_grep(self) -> None:
         """When awk cannot read its input file, the exit code must be non-zero
         before grep runs.  The old single-pipeline form masked this."""
         import tempfile as _tempfile
+
         with _tempfile.TemporaryDirectory() as tmp:
             missing = Path(tmp) / "does-not-exist.patch"
             out = Path(tmp) / "added-lines.txt"
             rc = subprocess.run(  # nosec B603 - fixed argv list, no shell, temp dir
-                [str(shutil.which("awk")),
-                 "/^diff --git /{h=0; next} /^@@/{h=1; next} h && /^\\+/",
-                 str(missing)],
+                [
+                    str(shutil.which("awk")),
+                    "/^diff --git /{h=0; next} /^@@/{h=1; next} h && /^\\+/",
+                    str(missing),
+                ],
                 stdout=out.open("wb"),
-                check=False, timeout=10,
+                check=False,
+                timeout=10,
             ).returncode
-            self.assertNotEqual(rc, 0,
-                                "awk must exit non-zero when its input file is missing")
+            self.assertNotEqual(rc, 0, "awk must exit non-zero when its input file is missing")
 
 
 if __name__ == "__main__":

@@ -20,13 +20,11 @@ import os
 import subprocess  # nosec B404 - builds throwaway git repos inside the test temp dir
 import time
 import unittest
+import unittest.mock as mock
 import urllib.error
 from pathlib import Path
-import unittest.mock as mock
 
 from telemetry.otel.models import OTLPSpansRecord
-from worker import queue_ops as q
-from worker import qwen, qwen_telemetry
 from tests.worker_tests.qwen_fixtures import (
     GREET_DIFF,
     GREET_EDIT,
@@ -42,6 +40,8 @@ from tests.worker_tests.qwen_fixtures import (
     model_says,
     require,
 )
+from worker import queue_ops as q
+from worker import qwen, qwen_telemetry
 
 _PLAIN = qwen.TRANSIENT_OUTCOME_PREFIX
 _FAKE_TOKEN = "ghp_abcdefghijklmnopqrstuvwxyz0123456789"  # nosec B105 - fixture value asserted as masked, not a real credential
@@ -55,7 +55,9 @@ def _git(repo: Path, *args: str) -> str:
 
 
 def _many_files_diff(count: int) -> str:
-    return "".join(f"--- a/src/f{i}.py\n+++ b/src/f{i}.py\n@@ -0,0 +1 @@\n+line{i}\n" for i in range(count))
+    return "".join(
+        f"--- a/src/f{i}.py\n+++ b/src/f{i}.py\n@@ -0,0 +1 @@\n+line{i}\n" for i in range(count)
+    )
 
 
 def _single_file_diff(path: str) -> str:
@@ -104,7 +106,9 @@ class QwenHandlerHappyPathTests(QwenHandlerCase):
         self.assertEqual(body["model"], MODEL)
         self.assertIs(body["stream"], False)
         self.assertEqual(body["system"], "be terse")
-        self.assertEqual(body["options"], {"temperature": 0.2, "num_predict": 8192, "num_ctx": 16384})
+        self.assertEqual(
+            body["options"], {"temperature": 0.2, "num_predict": 8192, "num_ctx": 16384}
+        )
         self.assertAlmostEqual(require(timeout), qwen._derived_timeout(8192), places=1)
         self.assertIn("return the greeting", body["prompt"])
 
@@ -160,7 +164,9 @@ class QwenRetryMapTests(QwenHandlerCase):
         self.assertEqual(out, f"{_PLAIN}: {detail}")
 
     def test_connection_refused_is_plain_failure(self) -> None:
-        self.generate_error = urllib.error.URLError(ConnectionRefusedError(61, "Connection refused"))
+        self.generate_error = urllib.error.URLError(
+            ConnectionRefusedError(61, "Connection refused")
+        )
 
         ok, out = self.run_handler()
 
@@ -230,7 +236,10 @@ class QwenRetryMapTests(QwenHandlerCase):
             (ConnectionError("refused"), f"{_PLAIN}: refused"),
         )
         for exc, expected in cases:
-            with self.subTest(exc=repr(exc)), mock.patch("worker.qwen._ollama_request", side_effect=exc):
+            with (
+                self.subTest(exc=repr(exc)),
+                mock.patch("worker.qwen._ollama_request", side_effect=exc),
+            ):
                 self.assertEqual(self.run_handler(), (False, expected))
 
     def test_malformed_json_body_is_plain_failure(self) -> None:
@@ -262,9 +271,15 @@ class QwenRetryMapTests(QwenHandlerCase):
         cases = (
             (edit_block("src/other.py", "def greet(name):", "x"), "terminal-edit-outside-inputs"),
             (edit_block(GREET_PATH, "absent line", "x"), "terminal-edit-not-found"),
-            (f"FILE: {GREET_PATH}\n<<<<<<< SEARCH\n=======\nx\n>>>>>>> REPLACE\n", "terminal-edit-ambiguous"),
+            (
+                f"FILE: {GREET_PATH}\n<<<<<<< SEARCH\n=======\nx\n>>>>>>> REPLACE\n",
+                "terminal-edit-ambiguous",
+            ),
             (edit_block(GREET_PATH, "def greet(name):", "def greet(name):"), "terminal-no-change"),
-            (f"FILE: {GREET_PATH}\n<<<<<<< SEARCH\ndef greet(name):\n=======\n", "terminal-edit-malformed"),
+            (
+                f"FILE: {GREET_PATH}\n<<<<<<< SEARCH\ndef greet(name):\n=======\n",
+                "terminal-edit-malformed",
+            ),
         )
         for text, expected in cases:
             with self.subTest(expected=expected):
@@ -325,7 +340,8 @@ class QwenRetryMapTests(QwenHandlerCase):
         """num_ctx - 1 is the largest valid max_tokens; it leaves one token of
         budget, which no real prompt fits. Larger values are invalid payloads."""
         self.assertEqual(
-            self.run_handler({"max_tokens": qwen.THRESHOLDS.num_ctx - 1}), (False, "terminal-prompt-too-large")
+            self.run_handler({"max_tokens": qwen.THRESHOLDS.num_ctx - 1}),
+            (False, "terminal-prompt-too-large"),
         )
         self.assertEqual(self.generate_requests(), [])
 
@@ -362,7 +378,11 @@ class QwenBackwardCompatibilityTests(QwenHandlerCase):
         """A qwen job enqueued with the default timeout_sec is never reaped
         under the shipped plist's job_timeout of 0, however old it is."""
         queue_root = Path(self.tmpdir) / "queue"
-        job = q.Job(id="qwen-reaper-job", type="qwen_patch", payload={"files": [GREET_PATH], "instruction": "x"})
+        job = q.Job(
+            id="qwen-reaper-job",
+            type="qwen_patch",
+            payload={"files": [GREET_PATH], "instruction": "x"},
+        )
         self.assertEqual(job.timeout_sec, 0)
         claim = require(q.start_processing(q.enqueue(job, root=queue_root), root=queue_root))
         proc_path, _tok = claim
@@ -379,7 +399,9 @@ class QwenTelemetryTests(QwenHandlerCase):
     """One qwen.job span per completed model call, with contract attributes."""
 
     def test_job_succeeds_when_telemetry_export_raises(self) -> None:
-        with mock.patch("worker.qwen.export_job_span", side_effect=RuntimeError("collector unreachable")):
+        with mock.patch(
+            "worker.qwen.export_job_span", side_effect=RuntimeError("collector unreachable")
+        ):
             ok, result = self.run_handler()
 
         self.assertTrue(ok)
@@ -487,7 +509,9 @@ class QwenTelemetryTests(QwenHandlerCase):
         self.assertEqual(metrics_posts[0].args[0], "http://localhost:4318/v1/metrics")
 
     def test_job_succeeds_when_metrics_export_raises(self) -> None:
-        with mock.patch("worker.qwen.export_job_metrics", side_effect=RuntimeError("collector unreachable")):
+        with mock.patch(
+            "worker.qwen.export_job_metrics", side_effect=RuntimeError("collector unreachable")
+        ):
             ok, result = self.run_handler()
 
         self.assertTrue(ok)
@@ -495,14 +519,18 @@ class QwenTelemetryTests(QwenHandlerCase):
         self.assertTrue(Path(str(result["patch_path"])).exists())
 
     def test_metrics_export_failure_does_not_skip_span_export(self) -> None:
-        with mock.patch("worker.qwen.export_job_metrics", side_effect=RuntimeError("collector unreachable")):
+        with mock.patch(
+            "worker.qwen.export_job_metrics", side_effect=RuntimeError("collector unreachable")
+        ):
             ok, _ = self.run_handler()
 
         self.assertTrue(ok)
         self.export.assert_called_once()
 
     def test_span_export_failure_does_not_skip_metrics_export(self) -> None:
-        with mock.patch("worker.qwen.export_job_span", side_effect=RuntimeError("collector unreachable")):
+        with mock.patch(
+            "worker.qwen.export_job_span", side_effect=RuntimeError("collector unreachable")
+        ):
             ok, _ = self.run_handler()
 
         self.assertTrue(ok)
@@ -588,7 +616,7 @@ class QwenUtf8ValidationTests(QwenHandlerCase):
         # Append a UTF-8 encoded comment so multi-byte characters are present
         # while keeping the SEARCH target the default edit needs intact.
         original = greet.read_bytes()
-        greet.write_bytes(original + "# à bientôt\n".encode("utf-8"))
+        greet.write_bytes(original + "# à bientôt\n".encode())
 
         ok, out = self.run_handler()
 
@@ -632,7 +660,9 @@ class QwenDiskGuardTests(QwenHandlerCase):
         self.assertFalse(ok)
         self.assertEqual(out, "deferred-low-disk")
         response_files = self.response_files()
-        self.assertEqual(len(response_files), 1, "persisted response file was not created on low-disk deferral")
+        self.assertEqual(
+            len(response_files), 1, "persisted response file was not created on low-disk deferral"
+        )
 
 
 class QwenModelPinningTests(QwenHandlerCase):
@@ -729,7 +759,11 @@ class QwenDeferralBoundTests(QwenHandlerCase):
         not_before, updated_at and last_error, so a payload-embedded counter
         is inert. The side-channel file must survive a deferral retry()."""
         queue_root = Path(self.tmpdir) / "queue"
-        job = q.Job(id="deferral-persist-job", type="qwen_patch", payload={"files": [GREET_PATH], "instruction": "x"})
+        job = q.Job(
+            id="deferral-persist-job",
+            type="qwen_patch",
+            payload={"files": [GREET_PATH], "instruction": "x"},
+        )
         claim = require(q.start_processing(q.enqueue(job, root=queue_root), root=queue_root))
         proc_path, _tok = claim
 
@@ -740,7 +774,9 @@ class QwenDeferralBoundTests(QwenHandlerCase):
             qwen.handle_qwen_patch(self.job(id=job.id))
 
         self.assertFalse(ok)
-        on_disk = json.loads((queue_root / "pending" / f"{job.id}.json").read_text(encoding="utf-8"))
+        on_disk = json.loads(
+            (queue_root / "pending" / f"{job.id}.json").read_text(encoding="utf-8")
+        )
         self.assertEqual(on_disk["attempts"], 0)
         self.assertEqual(on_disk["last_error"], "deferred-qwen-busy")
         counter = json.loads(self.deferral_file(job.id).read_text(encoding="utf-8"))
@@ -765,10 +801,15 @@ class QwenDeferralBoundTests(QwenHandlerCase):
             ok, out = self.run_handler()
 
         self.assertEqual((ok, out), (False, "terminal-deferral-limit: qwen-busy"))
-        self.assertFalse(self.deferral_file().exists(), "side-channel file must be deleted on a terminal exit")
+        self.assertFalse(
+            self.deferral_file().exists(), "side-channel file must be deleted on a terminal exit"
+        )
 
     def test_low_memory_and_low_disk_deferrals_reach_the_limit(self) -> None:
-        for reason, seam in (("low-memory", "_available_memory_bytes"), ("low-disk", "_free_disk_bytes")):
+        for reason, seam in (
+            ("low-memory", "_available_memory_bytes"),
+            ("low-disk", "_free_disk_bytes"),
+        ):
             with self.subTest(reason=reason):
                 self.seed_deferrals(qwen.THRESHOLDS.deferral_ceiling_count - 1, reason)
                 with mock.patch(f"worker.qwen.{seam}", return_value=1024):
@@ -780,7 +821,9 @@ class QwenDeferralBoundTests(QwenHandlerCase):
         self.deferral_dir.mkdir(parents=True)
         forty_six_min_ago = time.time() - 46 * 60
         self.deferral_file().write_text(
-            json.dumps({"count": 1, "reasons": {"qwen-busy": 1}, "first_deferred_at": forty_six_min_ago}),
+            json.dumps(
+                {"count": 1, "reasons": {"qwen-busy": 1}, "first_deferred_at": forty_six_min_ago}
+            ),
             encoding="utf-8",
         )
 
@@ -794,14 +837,18 @@ class QwenDeferralBoundTests(QwenHandlerCase):
         self.deferral_dir.mkdir(parents=True)
         forty_four_min_ago = time.time() - 44 * 60
         self.deferral_file().write_text(
-            json.dumps({"count": 1, "reasons": {"qwen-busy": 1}, "first_deferred_at": forty_four_min_ago}),
+            json.dumps(
+                {"count": 1, "reasons": {"qwen-busy": 1}, "first_deferred_at": forty_four_min_ago}
+            ),
             encoding="utf-8",
         )
 
         with self._lock_unavailable():
             self.assertEqual(self.run_handler(), (False, "deferred-qwen-busy"))
 
-    def _cleanup_case(self, expected_prefix: str, survives: bool, payload: dict[str, object] | None = None) -> None:
+    def _cleanup_case(
+        self, expected_prefix: str, survives: bool, payload: dict[str, object] | None = None
+    ) -> None:
         self.seed_deferrals(3, "qwen-busy")
         ok, out = self.run_handler(payload)
         self.assertTrue(str(out if not ok else "success").startswith(expected_prefix), out)
@@ -819,7 +866,9 @@ class QwenDeferralBoundTests(QwenHandlerCase):
             self.generate_response = {"response": "no"}
             self._cleanup_case("terminal-no-edits-found", survives=False)
         with self.subTest(outcome="terminal-path-not-allowed"):
-            self._cleanup_case("terminal-path-not-allowed", survives=False, payload={"files": ["src/missing.py"]})
+            self._cleanup_case(
+                "terminal-path-not-allowed", survives=False, payload={"files": ["src/missing.py"]}
+            )
         with self.subTest(outcome="terminal-model-not-found"):
             self.generate_error = http_error(404)
             self._cleanup_case("terminal-model-not-found", survives=False)
@@ -860,7 +909,9 @@ class QwenAdmissionCapTests(QwenHandlerCase):
         so a count built on it would let a deferred backlog grow unbounded."""
         queue_root = Path(self.tmpdir) / "queue"
         q.enqueue(
-            q.Job(id="qwen-deferred", type="qwen_patch", payload={}, not_before="2999-01-01T00:00:00Z"),
+            q.Job(
+                id="qwen-deferred", type="qwen_patch", payload={}, not_before="2999-01-01T00:00:00Z"
+            ),
             root=queue_root,
         )
         for i in range(qwen.THRESHOLDS.max_lane_depth - 1):
@@ -901,7 +952,10 @@ class QwenRedactionTests(QwenHandlerCase):
                 self._assert_masked(out)
 
     def test_secret_in_guard_error_is_masked(self) -> None:
-        with mock.patch("worker.qwen._ollama_request", side_effect=qwen.QwenGuardError(f"http-error-502 token={_FAKE_TOKEN}")):
+        with mock.patch(
+            "worker.qwen._ollama_request",
+            side_effect=qwen.QwenGuardError(f"http-error-502 token={_FAKE_TOKEN}"),
+        ):
             ok, out = self.run_handler()
 
         self.assertFalse(ok)
@@ -933,7 +987,9 @@ class QwenPatchCapsTests(unittest.TestCase):
 
     def test_check_patch_caps_max_lines_exceeded(self) -> None:
         def big(n: int) -> str:
-            return "--- a/src/big.py\n+++ b/src/big.py\n@@ -0,0 +1 @@\n" + "".join(f"+l{i}\n" for i in range(n))
+            return "--- a/src/big.py\n+++ b/src/big.py\n@@ -0,0 +1 @@\n" + "".join(
+                f"+l{i}\n" for i in range(n)
+            )
 
         self.assertEqual(qwen.check_patch_caps(big(401)), "terminal-patch-too-broad")
         self.assertIsNone(qwen.check_patch_caps(big(400)))
@@ -961,10 +1017,18 @@ class QwenPatchCapsTests(unittest.TestCase):
         )
         for target in denied:
             with self.subTest(target=target):
-                self.assertEqual(qwen.check_patch_caps(_single_file_diff(target)), "terminal-patch-too-broad")
+                self.assertEqual(
+                    qwen.check_patch_caps(_single_file_diff(target)), "terminal-patch-too-broad"
+                )
 
     def test_similar_but_allowed_targets_pass(self) -> None:
-        for target in ("src/binder.py", "src/bin/x.py", "docs/configs.md", "src/binary.txt", "src/./x.py"):
+        for target in (
+            "src/binder.py",
+            "src/bin/x.py",
+            "docs/configs.md",
+            "src/binary.txt",
+            "src/./x.py",
+        ):
             with self.subTest(target=target):
                 self.assertIsNone(qwen.check_patch_caps(_single_file_diff(target)))
 
@@ -980,13 +1044,24 @@ class QwenPatchCapsTests(unittest.TestCase):
             "src/Credentials.INI",
         ):
             with self.subTest(target=target):
-                self.assertEqual(qwen.check_patch_caps(_single_file_diff(target)), "terminal-patch-too-broad")
+                self.assertEqual(
+                    qwen.check_patch_caps(_single_file_diff(target)), "terminal-patch-too-broad"
+                )
 
     def test_targets_outside_the_allowlisted_directories_are_denied(self) -> None:
         """A patch may only write where the job may read: src/, tests/, workflows/, concerns/, docs/."""
-        for target in ("README.md", "binary.txt", "pyproject.toml", "out/generated.json", "_data/q.json", "srcevil/x.py"):
+        for target in (
+            "README.md",
+            "binary.txt",
+            "pyproject.toml",
+            "out/generated.json",
+            "_data/q.json",
+            "srcevil/x.py",
+        ):
             with self.subTest(target=target):
-                self.assertEqual(qwen.check_patch_caps(_single_file_diff(target)), "terminal-patch-too-broad")
+                self.assertEqual(
+                    qwen.check_patch_caps(_single_file_diff(target)), "terminal-patch-too-broad"
+                )
 
     def test_quoted_header_path_is_unquoted_before_the_check(self) -> None:
         """git quotes a path holding special characters, a/ b/ prefix included."""
@@ -1112,14 +1187,22 @@ class QwenPatchCapsThroughHandlerTests(QwenHandlerCase):
             ok, out = self.run_handler({"files": ["bin/tool"]})
 
         check.assert_called_once()
-        self.assertTrue(REAL_GIT_APPLY_CHECK(check.call_args.args[0], self.repo_root), "built diff must apply")
+        self.assertTrue(
+            REAL_GIT_APPLY_CHECK(check.call_args.args[0], self.repo_root), "built diff must apply"
+        )
         self.assertEqual((ok, out), (False, "terminal-patch-too-broad"))
         self.assertEqual(self.patch_files(), [])
 
     def test_edit_naming_a_non_input_path_is_refused_before_any_diff(self) -> None:
         """A case variant, an escape, or another file: the model can only edit
         the files it was given, so none of these ever reaches git apply."""
-        for target in ("Bin/qwen", "../outside.py", "./configs/x.plist", "SRC/example/greet.py", "/etc/passwd"):
+        for target in (
+            "Bin/qwen",
+            "../outside.py",
+            "./configs/x.plist",
+            "SRC/example/greet.py",
+            "/etc/passwd",
+        ):
             with self.subTest(target=target), mock.patch("worker.qwen._git_apply_check") as check:
                 self.generate_response = model_says(edit_block(target, "def greet(name):", "x"))
                 self.assertEqual(self.run_handler(), (False, "terminal-edit-outside-inputs"))
@@ -1149,7 +1232,9 @@ class QwenOutputTruncationTests(QwenHandlerCase):
         self.assertEqual((ok, out), (False, qwen.OUTPUT_TRUNCATED_OUTCOME))
         self.assertEqual(out, "terminal-output-truncated")
         self.assertEqual(self.patch_files(), [])
-        self.assertEqual(len(self.generate_requests()), 1, "the model call must not be retried in-handler")
+        self.assertEqual(
+            len(self.generate_requests()), 1, "the model call must not be retried in-handler"
+        )
         [saved] = self.response_files()
         self.assertEqual(saved.name, "qwen-test-job.txt")
         self.assertEqual(saved.read_text(encoding="utf-8"), response_text)
@@ -1189,14 +1274,18 @@ class QwenOutputTruncationTests(QwenHandlerCase):
                 ok, result = self.run_handler()
 
                 self.assertTrue(ok, result)
-                self.assertEqual(self.as_dict(result)["patch_path"], str(self.patch_dir / "qwen-test-job.patch"))
+                self.assertEqual(
+                    self.as_dict(result)["patch_path"], str(self.patch_dir / "qwen-test-job.patch")
+                )
                 self.assertEqual(self.response_files(), [])
 
 
 class QwenThresholdInvariantTests(QwenHandlerCase):
     def test_stale_ceiling_exceeds_the_request_timeout(self) -> None:
         """A live job inside its model call must never make the lock look stale."""
-        self.assertGreater(qwen.THRESHOLDS.stale_ceiling_sec, qwen.THRESHOLDS.ollama_request_timeout_sec)
+        self.assertGreater(
+            qwen.THRESHOLDS.stale_ceiling_sec, qwen.THRESHOLDS.ollama_request_timeout_sec
+        )
 
     def test_effective_request_timeout_never_reaches_the_stale_ceiling(self) -> None:
         """job_runtime copies a daemon --job-timeout into payload["timeout"];
@@ -1303,7 +1392,10 @@ class QwenExplainModeTests(QwenHandlerCase):
             (None, all_pass),
             (("_available_memory_bytes", 1024), {**all_pass, "memory": "deferred-low-memory"}),
             (("_free_disk_bytes", 1024 * 1024), {**all_pass, "disk": "deferred-low-disk"}),
-            (("_lane_depth", qwen.THRESHOLDS.max_lane_depth), {**all_pass, "admission": "terminal-lane-over-capacity"}),
+            (
+                ("_lane_depth", qwen.THRESHOLDS.max_lane_depth),
+                {**all_pass, "admission": "terminal-lane-over-capacity"},
+            ),
         )
         for override, expected in cases:
             with self.subTest(override=override):
@@ -1359,14 +1451,20 @@ class QwenSeamTests(unittest.TestCase):
             (ps("", rc=1), None),
         )
         for completed, expected in cases:
-            with self.subTest(stdout=completed.stdout), mock.patch("subprocess.run", return_value=completed) as run:
+            with (
+                self.subTest(stdout=completed.stdout),
+                mock.patch("subprocess.run", return_value=completed) as run,
+            ):
                 self.assertIs(qwen._pid_is_worker(123), expected)
                 self.assertEqual(run.call_args.args[0], ["ps", "-p", "123", "-o", "command="])
 
     def test_pid_is_worker_is_unknown_when_ps_cannot_run(self) -> None:
         """An unreadable process table is "unknown", never "confirmed not a worker"."""
         for error in (FileNotFoundError("ps"), subprocess.TimeoutExpired(["ps"], 5)):
-            with self.subTest(error=type(error).__name__), mock.patch("subprocess.run", side_effect=error):
+            with (
+                self.subTest(error=type(error).__name__),
+                mock.patch("subprocess.run", side_effect=error),
+            ):
                 self.assertIsNone(qwen._pid_is_worker(123))
 
     def test_free_disk_bytes_is_none_on_error_and_int_for_a_real_file(self) -> None:
@@ -1397,9 +1495,13 @@ class QwenSystemPromptBudgetTests(QwenHandlerCase):
 
         self.assertTrue(ok)
         report = self.as_dict(report)
-        self.assertEqual(self.as_dict(report["guard_results"])["prompt_budget"], "terminal-prompt-too-large")
+        self.assertEqual(
+            self.as_dict(report["guard_results"])["prompt_budget"], "terminal-prompt-too-large"
+        )
         size = (self.repo_root / GREET_PATH).stat().st_size
-        self.assertEqual(report["total_prompt_chars"], len("return the greeting") + size + len(system))
+        self.assertEqual(
+            report["total_prompt_chars"], len("return the greeting") + size + len(system)
+        )
         tokens = report["assembled_prompt_tokens"]
         self.assertIsInstance(tokens, int)
         self.assertGreater(int(str(tokens)), len(system) // 4)
@@ -1418,9 +1520,13 @@ class QwenOptionValidationTests(QwenHandlerCase):
     def _assert_invalid(self, key: str, raw: object, message: str) -> None:
         with (
             self.subTest(key=key, raw=raw),
-            mock.patch("worker.qwen._resolve_real_path", side_effect=AssertionError("touched a file")),
+            mock.patch(
+                "worker.qwen._resolve_real_path", side_effect=AssertionError("touched a file")
+            ),
         ):
-            self.assertEqual(self.run_handler({key: raw}), (False, f"terminal-invalid-payload: {message}"))
+            self.assertEqual(
+                self.run_handler({key: raw}), (False, f"terminal-invalid-payload: {message}")
+            )
 
     def test_invalid_max_tokens_is_rejected(self) -> None:
         upper = qwen.THRESHOLDS.num_ctx - 1
@@ -1430,7 +1536,9 @@ class QwenOptionValidationTests(QwenHandlerCase):
 
     def test_invalid_temperature_is_rejected(self) -> None:
         for raw in (float("nan"), float("inf"), float("-inf"), -0.1, 2.5, True, "0.2"):
-            self._assert_invalid("temperature", raw, "temperature must be a finite number in [0, 2.0]")
+            self._assert_invalid(
+                "temperature", raw, "temperature must be a finite number in [0, 2.0]"
+            )
         self.assertEqual(self.generate_requests(), [])
 
     def test_invalid_timeout_is_rejected(self) -> None:
@@ -1451,7 +1559,10 @@ class QwenOptionValidationTests(QwenHandlerCase):
     def test_explain_mode_rejects_an_invalid_option_too(self) -> None:
         self.assertEqual(
             self.run_handler({"explain": True, "max_tokens": -1}),
-            (False, f"terminal-invalid-payload: max_tokens must be an int in [1, {qwen.THRESHOLDS.num_ctx - 1}]"),
+            (
+                False,
+                f"terminal-invalid-payload: max_tokens must be an int in [1, {qwen.THRESHOLDS.num_ctx - 1}]",
+            ),
         )
 
     def test_boundary_values_are_accepted_and_sent(self) -> None:
@@ -1476,8 +1587,12 @@ class _ResponseDirHelpers(QwenHandlerCase):
         return outside
 
     def _assert_outside_untouched(self, outside: Path) -> None:
-        self.assertEqual(sorted(p.name for p in outside.iterdir()), [], "a file was written outside responses/")
-        self.assertEqual(oct(outside.stat().st_mode & 0o777), oct(0o755), "outside dir mode was changed")
+        self.assertEqual(
+            sorted(p.name for p in outside.iterdir()), [], "a file was written outside responses/"
+        )
+        self.assertEqual(
+            oct(outside.stat().st_mode & 0o777), oct(0o755), "outside dir mode was changed"
+        )
 
     def _plant_response(self, name: str, age_days: float) -> Path:
         """A regular file in responses/ whose mtime is age_days in the past."""
@@ -1498,7 +1613,9 @@ class QwenPersistResponseTests(_ResponseDirHelpers):
 
     def _response_file(self) -> Path | None:
         """The persisted response file for job 'qwen-test-job', or None."""
-        candidates = list(self.response_dir.glob("qwen-test-job*")) if self.response_dir.exists() else []
+        candidates = (
+            list(self.response_dir.glob("qwen-test-job*")) if self.response_dir.exists() else []
+        )
         return candidates[0] if len(candidates) == 1 else None
 
     def test_chmod_enforced_on_existing_directory(self) -> None:
@@ -1581,7 +1698,9 @@ class QwenPersistResponseTests(_ResponseDirHelpers):
         self.assertFalse(ok)
         self.assertTrue(str(out).startswith("terminal-internal-error"), out)
         response_file = self._response_file()
-        self.assertIsNotNone(response_file, "persisted response file was not created after _finalize_success failure")
+        self.assertIsNotNone(
+            response_file, "persisted response file was not created after _finalize_success failure"
+        )
 
     def test_symlink_at_responses_dir_is_refused(self) -> None:
         """A pre-existing symlink at the responses directory path must be
@@ -1599,7 +1718,9 @@ class QwenPersistResponseTests(_ResponseDirHelpers):
         # The handler must not have written anything through the symlink.
         self.assertFalse(ok)
         self.assertEqual(out, "terminal-no-edits-found")
-        self.assertEqual(list(real_target.glob("*")), [], "response was written through the symlink")
+        self.assertEqual(
+            list(real_target.glob("*")), [], "response was written through the symlink"
+        )
 
     def test_real_directory_at_responses_dir_is_accepted(self) -> None:
         """A real (non-symlink) responses directory must be accepted normally;
@@ -1651,7 +1772,9 @@ class QwenPersistResponseTests(_ResponseDirHelpers):
         for age, name in enumerate(["a-job.txt", "b-job.txt", "c-job.txt"], start=1):
             self._plant_response(name, age)
 
-        with mock.patch.object(qwen, "THRESHOLDS", qwen.QwenThresholds(response_retention_max_files=2)):
+        with mock.patch.object(
+            qwen, "THRESHOLDS", qwen.QwenThresholds(response_retention_max_files=2)
+        ):
             qwen._persist_response("qwen-test-job", "some response")
 
         self.assertEqual(self._response_names(), ["a-job.txt", "qwen-test-job.txt"])
@@ -1660,7 +1783,9 @@ class QwenPersistResponseTests(_ResponseDirHelpers):
         stale_days = qwen.THRESHOLDS.response_retention_days + 1
         outside_file = self.response_dir.parent / "outside.txt"
         outside_file.write_text("keep me", encoding="utf-8")
-        foreign = [self._plant_response(n, stale_days).name for n in ("notes.md", ".hidden", "-bad.txt")]
+        foreign = [
+            self._plant_response(n, stale_days).name for n in ("notes.md", ".hidden", "-bad.txt")
+        ]
         link = self.response_dir / "linked-job.txt"
         link.symlink_to(outside_file)
         stamp = time.time() - stale_days * 86400
@@ -1668,7 +1793,9 @@ class QwenPersistResponseTests(_ResponseDirHelpers):
 
         qwen._persist_response("qwen-test-job", "some response")
 
-        self.assertEqual(self._response_names(), sorted([*foreign, "linked-job.txt", "qwen-test-job.txt"]))
+        self.assertEqual(
+            self._response_names(), sorted([*foreign, "linked-job.txt", "qwen-test-job.txt"])
+        )
         self.assertTrue(link.is_symlink())
         self.assertEqual(outside_file.read_text(encoding="utf-8"), "keep me")
 
@@ -1686,7 +1813,9 @@ class QwenPersistResponseTests(_ResponseDirHelpers):
     def test_prune_error_does_not_change_the_job_outcome(self) -> None:
         self.generate_response = model_says("no edit blocks here")
 
-        with mock.patch.object(qwen, "_response_entries", side_effect=OSError("listdir failed")) as entries:
+        with mock.patch.object(
+            qwen, "_response_entries", side_effect=OSError("listdir failed")
+        ) as entries:
             ok, out = self.run_handler()
 
         entries.assert_called_once()
@@ -1701,7 +1830,9 @@ class QwenPersistResponseTests(_ResponseDirHelpers):
         real_mkdir = Path.mkdir
         response_dir = self.response_dir
 
-        def racing_mkdir(path: Path, mode: int = 0o777, parents: bool = False, exist_ok: bool = False) -> None:
+        def racing_mkdir(
+            path: Path, mode: int = 0o777, parents: bool = False, exist_ok: bool = False
+        ) -> None:
             real_mkdir(path, mode, parents, exist_ok)
             if path == response_dir and not path.is_symlink():
                 path.rmdir()
@@ -1734,7 +1865,9 @@ class QwenPruneResponsesTests(_ResponseDirHelpers):
         for age, name in enumerate(["a-job.txt", "b-job.txt", "c-job.txt"], start=1):
             self._plant_response(name, age)
 
-        with mock.patch.object(qwen, "THRESHOLDS", qwen.QwenThresholds(response_retention_max_files=1)):
+        with mock.patch.object(
+            qwen, "THRESHOLDS", qwen.QwenThresholds(response_retention_max_files=1)
+        ):
             removed = qwen.prune_responses(self.window_sec)
 
         self.assertEqual(removed, 0)
@@ -1780,7 +1913,9 @@ class QwenPruneResponsesTests(_ResponseDirHelpers):
             qwen.prune_responses(self.window_sec)
 
         self.assertTrue(target.exists(), "a file was deleted through the symlinked responses/")
-        self.assertEqual(oct(outside.stat().st_mode & 0o777), oct(0o755), "outside dir mode was changed")
+        self.assertEqual(
+            oct(outside.stat().st_mode & 0o777), oct(0o755), "outside dir mode was changed"
+        )
 
     def test_failed_unlink_is_skipped_and_not_counted(self) -> None:
         self._plant_response("a-job.txt", 8)
@@ -1818,7 +1953,9 @@ class QwenPruneResponsesTests(_ResponseDirHelpers):
         os.chmod(self.response_dir, 0o755)  # nosec B103 - temp test dir; asserts the dry run does not chmod it
 
         self.assertEqual(qwen.prune_responses(self.window_sec, dry_run=True), 1)
-        self.assertEqual(oct(self.response_dir.stat().st_mode & 0o777), oct(0o755), "a dry run changed the mode")
+        self.assertEqual(
+            oct(self.response_dir.stat().st_mode & 0o777), oct(0o755), "a dry run changed the mode"
+        )
 
         self.assertEqual(qwen.prune_responses(self.window_sec), 1)
         self.assertEqual(oct(self.response_dir.stat().st_mode & 0o777), oct(0o700))
@@ -1835,7 +1972,9 @@ class QwenPruneResponsesTests(_ResponseDirHelpers):
             qwen.prune_responses(self.window_sec, dry_run=True)
 
         self.assertTrue(target.exists())
-        self.assertEqual(oct(outside.stat().st_mode & 0o777), oct(0o755), "outside dir mode was changed")
+        self.assertEqual(
+            oct(outside.stat().st_mode & 0o777), oct(0o755), "outside dir mode was changed"
+        )
 
 
 class QwenResponsesLockTests(_ResponseDirHelpers):
@@ -1857,7 +1996,9 @@ class QwenResponsesLockTests(_ResponseDirHelpers):
             os.close(fd)  # closing also releases a probe lock that was taken
         return False
 
-    def _recording(self, name: str, seen: list[tuple[str, bool]]) -> contextlib.AbstractContextManager[object]:
+    def _recording(
+        self, name: str, seen: list[tuple[str, bool]]
+    ) -> contextlib.AbstractContextManager[object]:
         """Patch qwen.<name> to record whether the lock is held, then run it."""
         real = getattr(qwen, name)
 
@@ -1881,7 +2022,10 @@ class QwenResponsesLockTests(_ResponseDirHelpers):
         self.response_dir.mkdir(mode=0o700)
         seen: list[tuple[str, bool]] = []
 
-        with self._recording("_replace_file_at", seen), self._recording("_prune_response_entries", seen):
+        with (
+            self._recording("_replace_file_at", seen),
+            self._recording("_prune_response_entries", seen),
+        ):
             qwen._persist_response("qwen-test-job", "some response")
 
         self.assertEqual(seen, [("_replace_file_at", True), ("_prune_response_entries", True)])
@@ -1908,13 +2052,17 @@ class QwenResponsesLockTests(_ResponseDirHelpers):
                     qwen._persist_response(job_id, "fresh response")  # the writer wins the race
             return entries
 
-        with mock.patch.object(qwen, "_response_entries", side_effect=entries_then_concurrent_write):
+        with mock.patch.object(
+            qwen, "_response_entries", side_effect=entries_then_concurrent_write
+        ):
             removed = qwen.prune_responses(self.window_sec)
         if deferred == [True]:
             qwen._persist_response(job_id, "fresh response")  # the blocked writer resumes
 
         saved = self.response_dir / name
-        self.assertTrue(saved.exists(), "the prune deleted the fresh response written after its lstat")
+        self.assertTrue(
+            saved.exists(), "the prune deleted the fresh response written after its lstat"
+        )
         self.assertEqual(saved.read_text(encoding="utf-8"), "fresh response")
         self.assertEqual(removed, 1)
         self.assertEqual(deferred, [True], "the writer was not held off by the prune's lock")

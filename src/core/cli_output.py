@@ -3,17 +3,20 @@
 Provides consistent output formatting across all assistant CLIs.
 Supports JSON, YAML, and table formats.
 """
+
 from __future__ import annotations
 
 import json
 import sys
-from dataclasses import dataclass, asdict, is_dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import asdict, dataclass, is_dataclass
 from enum import Enum
-from typing import Any, Mapping, Sequence, TextIO
+from typing import Any, TextIO
 
 
 class OutputFormat(str, Enum):
     """Output format options."""
+
     TEXT = "text"
     JSON = "json"
     YAML = "yaml"
@@ -23,6 +26,7 @@ class OutputFormat(str, Enum):
 @dataclass
 class OutputConfig:
     """Configuration for output formatting."""
+
     format: OutputFormat = OutputFormat.TEXT
     verbose: bool = False
     quiet: bool = False
@@ -163,10 +167,13 @@ class OutputWriter:
         """Print data as YAML."""
         try:
             import yaml
+
             normalized = self._normalize_for_json(data)
-            self.print(yaml.safe_dump(
-                normalized, default_flow_style=False, sort_keys=False, allow_unicode=True
-            ))
+            self.print(
+                yaml.safe_dump(
+                    normalized, default_flow_style=False, sort_keys=False, allow_unicode=True
+                )
+            )
         except ImportError:
             # Fallback to JSON if yaml not available
             self._print_json(data)
@@ -182,7 +189,11 @@ class OutputWriter:
             List of string values.
         """
         if isinstance(row, dict):
-            return [str(row.get(h, "")) for h in headers] if headers else [str(v) for v in row.values()]
+            return (
+                [str(row.get(h, "")) for h in headers]
+                if headers
+                else [str(v) for v in row.values()]
+            )
         if isinstance(row, (list, tuple)):
             return [str(v) for v in row]
         return [str(row)]
@@ -220,8 +231,10 @@ class OutputWriter:
 
         # Print rows
         for str_row in str_rows:
-            padded = [str_row[i].ljust(widths[i]) if i < len(widths) else str_row[i]
-                      for i in range(len(str_row))]
+            padded = [
+                str_row[i].ljust(widths[i]) if i < len(widths) else str_row[i]
+                for i in range(len(str_row))
+            ]
             self.print(" | ".join(padded))
 
     def _print_rows_without_headers(self, rows: list[Any]) -> None:
@@ -343,6 +356,7 @@ def _emit_rows_csv(rows: Sequence[Mapping[str, object]], cols: list[str]) -> Non
     """Write rows as CSV to stdout."""
     import csv
     import sys as _sys
+
     w = csv.DictWriter(_sys.stdout, fieldnames=cols, extrasaction="ignore")
     w.writeheader()
     w.writerows(rows)
@@ -358,8 +372,9 @@ def _emit_rows_table_plain(rows: Sequence[Mapping[str, object]], cols: list[str]
 def _emit_rows_table(rows: Sequence[Mapping[str, object]], cols: list[str]) -> None:
     """Write rows as a rich table, falling back to plain text if rich is unavailable."""
     try:
-        from rich.table import Table
         from rich.console import Console
+        from rich.table import Table
+
         t = Table(*cols, show_header=True, header_style="bold")
         for row in rows:
             t.add_row(*[str(row.get(c, "")) for c in cols])
