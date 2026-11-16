@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Auto-fix staged Python with ruff (lint --fix, then format), using the same
-# qlty-pinned ruff and [tool.ruff] config that CI enforces.
+# qlty-pinned ruff and ruff.toml config that CI enforces.
 # Install: git config core.hooksPath .githooks  (or: make hooks)
 #
 # Fully staged files are fixed in place and re-staged. A file that ALSO has

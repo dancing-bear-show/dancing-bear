@@ -237,8 +237,11 @@ Always pass `-t .` with `-s tests/<pkg>` (the repo requires it anyway:
 - Use `make lint` (or `make lint-fix`), never a bare `ruff check`
 - Format with `make fmt` (`make fmt-check` to verify). CI enforces formatting:
   qlty's ruff plugin runs the `format` driver, and `qlty check` fails on `fmt`
-- Config lives in `[tool.ruff]` in `pyproject.toml` — read by `make`, the hook,
-  and qlty alike. Its `ignore` list has a **BURN-DOWN** block of pre-existing
+- Config lives in the root `ruff.toml` — read by `make`, the hook, and both
+  qlty drivers. **Do not move it into `[tool.ruff]` in `pyproject.toml`:** qlty
+  runs `ruff format` in a staging dir that receives only `ruff.toml`/`.ruff.toml`,
+  so pyproject settings never reach it and qlty formats to 88 columns while
+  `make fmt-check` passes. Its `ignore` list has a **BURN-DOWN** block of pre-existing
   findings: remove a code once fixed, never add one to dodge a new finding
 - `make hooks` activates `.githooks/pre-commit`, which runs `ruff check --fix`
   and `ruff format` on staged `.py` files and re-stages them. A file with

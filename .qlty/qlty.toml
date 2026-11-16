@@ -292,7 +292,9 @@ mode = "comment"
 [[plugin]]
 name = "ruff"
 # "format" makes `qlty check` (CI) fail on unformatted Python: check's default
-# --fail-level is `fmt`. Both drivers read [tool.ruff] in pyproject.toml.
+# --fail-level is `fmt`. Both drivers read the root ruff.toml. Not
+# [tool.ruff] in pyproject.toml: `format` runs in a staging dir that only gets
+# the plugin's own config files, so pyproject.toml settings never reach it.
 drivers = [
   "lint",
   "format",

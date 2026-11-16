@@ -1,0 +1,54 @@
+# The single source of ruff config, read by every ruff invocation: `make lint`,
+# `lint-fix`, `fmt`, the pre-commit hook, and both qlty ruff drivers in CI.
+#
+# Why this file and not [tool.ruff] in pyproject.toml: qlty runs the `format`
+# driver in a temp staging directory holding copies of the target files plus
+# the plugin's own config files (ruff.toml / .ruff.toml). pyproject.toml is not
+# copied, so a [tool.ruff] section was silently ignored there and qlty formatted
+# to ruff's defaults (88 columns), failing CI on files `make fmt-check` passed.
+# The lint driver runs in the repo root and would have found either file.
+# Verified by A/B probe on an export of the repo.
+
+target-version = "py311"
+line-length = 100
+# src/ packages are first-party for import sorting; "." covers `tests.*`.
+src = ["src", "."]
+
+[lint]
+# Families chosen for being mostly auto-fixable or high-signal. Deliberately
+# not enabled: PL (4.7k findings, mostly opinion), PTH (900, hand edits only),
+# TRY (860, none auto-fixable).
+select = [
+  "E", "W", "F",  # pycodestyle + pyflakes
+  "I",            # import sorting
+  "UP",           # pyupgrade: modern syntax for the target version
+  "B",            # bugbear: likely bugs
+  "C4",           # comprehensions
+  "PIE",          # misc. redundancies
+  "RET",          # return-statement hygiene
+  "RUF",          # ruff-specific
+]
+ignore = [
+  "E501",  # line length is the formatter's job; it cannot wrap long strings
+  # Bare trailing `# noqa` is vulture's only line-scoped suppression (see
+  # CLAUDE.md "Dead code"). Ruff sees those as unused and would strip them.
+  "RUF100",
+  # Style calls we do not want enforced.
+  "RUF001", "RUF002", "RUF003",  # em dashes, arrows, × in prose are intentional
+  "RUF012",  # ClassVar on every mutable class attr: noise for little gain
+  "C408",    # dict(a=1) vs {"a": 1}
+  "RUF005",  # [*a, b] vs a + [b]
+  "RET504",  # assign-then-return often aids debugging
+  "RUF022",  # __all__ ordering is often deliberate grouping
+  # BURN-DOWN: real signal, pre-existing findings, not auto-fixable. Remove a
+  # code once its findings are fixed by hand; do not add new codes here.
+  "B904",    # raise ... from err inside except
+  "B905",    # zip() without strict=
+  "B007", "B015", "B017", "B018", "B023",
+  "C401", "C416", "PIE810", "RET503",
+  "RUF007", "RUF015", "RUF046", "RUF059",
+  "UP022", "UP036",
+]
+
+[format]
+# Formatter defaults (double quotes, magic trailing comma) on purpose.
