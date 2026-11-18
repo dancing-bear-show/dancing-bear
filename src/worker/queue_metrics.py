@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from core.date_utils import now_utc
-from core.fileutil import safe_load_json
+from core.fileutil import load_json_object
 from worker.queue_ops import (
     _ensure_dirs,
     _get_file_mtime,
@@ -59,7 +59,7 @@ def _compute_pending_insights(
     by_pri: dict[str, int] = {}
 
     for p in _list_job_paths(pending_folder):
-        d = safe_load_json(p, default={})
+        d = load_json_object(p) or {}
         pri = str(int(d.get("priority", 5)))
         by_pri[pri] = by_pri.get(pri, 0) + 1
 

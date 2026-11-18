@@ -247,10 +247,12 @@ def _cmd_snapshot_dirty(args: argparse.Namespace) -> int:
 
 
 def _load_json_object(path: str, what: str) -> dict:
+    from workflow.json_read import JsonReadError, read_json
+
     try:
-        doc = json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ValueError(f"{what} unreadable: {exc}") from exc
+        doc = read_json(path)
+    except JsonReadError as exc:
+        raise ValueError(f"{what} unreadable: {exc.cause}") from exc.cause
     if not isinstance(doc, dict):
         raise ValueError(f"{what} is not a JSON object")
     return doc
@@ -521,16 +523,13 @@ def _cmd_count_sweep(args: argparse.Namespace) -> int:
 
 def _read_json_file(path: str, label: str) -> tuple[object, bool]:
     """``(document, True)``, or ``(None, False)`` after printing why not."""
+    from workflow.json_read import JsonReadError, JsonReadFailure, read_json
+
     try:
-        text = Path(path).read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError) as exc:
-        msg = exc.strerror if isinstance(exc, OSError) else str(exc)
-        print(f"merge-fix-results: {label} is unreadable: {msg}", file=sys.stderr)
-        return None, False
-    try:
-        return json.loads(text), True
-    except json.JSONDecodeError as exc:
-        print(f"merge-fix-results: {label} is not valid JSON: {exc.msg}", file=sys.stderr)
+        return read_json(path), True
+    except JsonReadError as exc:
+        problem = "is not valid JSON" if exc.kind is JsonReadFailure.INVALID else "is unreadable"
+        print(f"merge-fix-results: {label} {problem}: {exc.detail}", file=sys.stderr)
         return None, False
 
 

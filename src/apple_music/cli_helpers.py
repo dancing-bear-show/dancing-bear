@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 import os
-import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from core.cli_output import OutputConfig, OutputFormat, OutputWriter
+from core.fileutil import atomic_write_text
 
 from .config import DEFAULT_PROFILE, load_profile
 
@@ -58,8 +59,9 @@ def _format_timestamp(epoch: int | None) -> str | None:
 def save_credential_value(config_path: Path, profile: str, key: str, value: str) -> None:
     """Set ``key = value`` under ``profile`` in credentials.ini, preserving other content.
 
-    Writes via a private temp file in the same directory and an atomic replace, so a
-    failure mid-write cannot truncate the credentials file.
+    Writes via a temp file in the same directory and an atomic replace, so a
+    failure mid-write cannot truncate the credentials file. The file keeps its
+    permission bits; one created by a race with a delete gets 0600.
     """
     import configparser  # noqa: PLC0415 - stdlib, only needed on the save path
 
@@ -69,19 +71,9 @@ def save_credential_value(config_path: Path, profile: str, key: str, value: str)
         parser.add_section(profile)
     parser.set(profile, key, value)
 
-    original_mode = config_path.stat().st_mode & 0o777
-    fd, tmp_name = tempfile.mkstemp(
-        dir=str(config_path.parent), prefix=".credentials-", suffix=".tmp"
-    )
-    tmp_path = Path(tmp_name)
-    try:
-        os.fchmod(fd, original_mode)
-        with os.fdopen(fd, "w") as handle:
-            parser.write(handle)
-        os.replace(tmp_path, config_path)
-    except BaseException:
-        tmp_path.unlink(missing_ok=True)
-        raise
+    buf = io.StringIO()
+    parser.write(buf)
+    atomic_write_text(config_path, buf.getvalue(), new_file_mode=0o600)
 
 
 def _output_json(args: Any, payload: dict[str, Any]) -> int:

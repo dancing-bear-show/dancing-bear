@@ -90,10 +90,10 @@ class GmailClient(ConfigCacheMixin):
         # SCOPES argument it was handed, not to what the file records — so
         # comparing creds.scopes against SCOPES compares SCOPES with itself
         # and can never detect a missing scope.
-        from core.fileutil import safe_load_json
+        from core.fileutil import load_json_object
 
-        token_data = safe_load_json(self.token_path, {})
-        token_scopes: set[str] = set((token_data or {}).get("scopes") or [])
+        token_data = load_json_object(self.token_path) or {}
+        token_scopes: set[str] = set(token_data.get("scopes") or [])
         if token_scopes:
             required_scopes = set(SCOPES)
             missing = required_scopes - token_scopes

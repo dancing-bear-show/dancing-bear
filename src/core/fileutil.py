@@ -25,6 +25,7 @@ __all__ = [
     "find_rotated_files",
     "iter_jsonl_file",
     "iter_rotated_jsonl",
+    "load_json_object",
     "load_json_or_exit",
     "safe_load_json",
     "write_once",
@@ -37,27 +38,17 @@ def atomic_write_json(
     *,
     indent: int | None = 2,
 ) -> None:
-    """Write JSON atomically via unique temp file + rename."""
-    path = require_path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd = tempfile.NamedTemporaryFile(
-        mode="w",
-        dir=path.parent,
-        delete=False,
-        suffix=".tmp",
-        encoding="utf-8",
+    """Write JSON atomically via unique temp file + rename; the result is always 0600.
+
+    An existing file is narrowed to 0600 rather than keeping its mode, so a
+    token or queue record never stays readable by other accounts.
+    """
+    atomic_write_text(
+        path,
+        json.dumps(data, indent=indent, ensure_ascii=False),
+        new_file_mode=0o600,
+        keep_existing_mode=False,
     )
-    try:
-        json.dump(data, fd, indent=indent, ensure_ascii=False)
-        fd.close()
-        os.replace(fd.name, path)
-    except Exception:
-        fd.close()
-        try:
-            os.unlink(fd.name)
-        except OSError:  # nosec B110 - cleanup failure is non-fatal; original exception re-raised below
-            pass
-        raise
 
 
 class SymlinkDestinationError(OSError):
@@ -91,25 +82,32 @@ def atomic_write_bytes(
     *,
     refuse_symlink: bool = False,
     new_file_mode: int = 0o666,
+    keep_existing_mode: bool = True,
+    fsync: bool = False,
 ) -> None:
     """Write ``data`` atomically via a uniquely named temp file + rename.
 
     Overwriting a regular file keeps its permission bits; a new file gets
-    ``new_file_mode & ~umask``. A symlink at ``path`` is replaced by a regular
-    file, never written through — or refused with ``SymlinkDestinationError``
-    when ``refuse_symlink`` is set. On failure the temp file is removed and
-    the previous content of ``path`` is left untouched.
+    ``new_file_mode & ~umask``. With ``keep_existing_mode=False`` every write
+    gets ``new_file_mode & ~umask``, narrowing an existing file. ``fsync``
+    flushes the temp file to disk before the rename. A symlink at ``path`` is
+    replaced by a regular file, never written through — or refused with
+    ``SymlinkDestinationError`` when ``refuse_symlink`` is set. On failure the
+    temp file is removed and the previous content of ``path`` is left untouched.
     """
     path = require_path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     mode = _existing_file_mode(path, refuse_symlink=refuse_symlink)
-    if mode is None:
+    if mode is None or not keep_existing_mode:
         mode = new_file_mode & ~_current_umask()
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
         with os.fdopen(fd, "wb") as fh:
             os.fchmod(fh.fileno(), mode)
             fh.write(data)
+            if fsync:
+                fh.flush()
+                os.fsync(fh.fileno())
         os.replace(tmp, path)
     except BaseException:
         with contextlib.suppress(OSError):
@@ -123,6 +121,8 @@ def atomic_write_text(
     *,
     refuse_symlink: bool = False,
     new_file_mode: int = 0o666,
+    keep_existing_mode: bool = True,
+    fsync: bool = False,
 ) -> None:
     """Write ``text`` (UTF-8) atomically; see ``atomic_write_bytes`` for semantics."""
     atomic_write_bytes(
@@ -130,6 +130,8 @@ def atomic_write_text(
         text.encode("utf-8"),
         refuse_symlink=refuse_symlink,
         new_file_mode=new_file_mode,
+        keep_existing_mode=keep_existing_mode,
+        fsync=fsync,
     )
 
 
@@ -164,6 +166,17 @@ def safe_load_json(
         return json.loads(Path(path).read_text(encoding="utf-8"))
     except Exception:  # nosec B110 - intentional fallback; caller supplies default
         return default
+
+
+def load_json_object(path: str | Path) -> dict[str, Any] | None:
+    """Load a JSON object from path; None when missing, unreadable, invalid, or not an object.
+
+    Unlike ``safe_load_json(path, default={})``, a file holding valid JSON of
+    another type (``null``, ``[]``, a scalar) never reaches the caller, so the
+    result is always safe to index as a dict.
+    """
+    data = safe_load_json(path)
+    return data if isinstance(data, dict) else None
 
 
 def load_json_or_exit(path: str | Path) -> Any:

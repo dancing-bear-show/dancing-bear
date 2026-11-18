@@ -135,7 +135,7 @@ class SweepRecordTests(unittest.TestCase):
         self.assertRegex(data["recorded_at"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
         self.assertEqual(path.parent.stat().st_mode & 0o777, 0o700)
         self.assertEqual(path.stat().st_mode & 0o777, 0o600)
-        self.assertEqual(list(path.parent.glob(".tmp-*")), [])
+        self.assertEqual(list(path.parent.glob("*.tmp")), [])
         code, out, _ = _run(self.repo, "check", "--head", self.head)
         self.assertEqual((code, out.strip()), (0, "swept"))
 

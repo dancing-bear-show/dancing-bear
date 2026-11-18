@@ -168,6 +168,20 @@ class TestEnable(unittest.TestCase):
             tmp_files = list(Path(tmpdir).glob("*.tmp"))
             self.assertEqual(tmp_files, [])
 
+    def test_enable_writes_plist_0600_new_or_existing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fake_plist = Path(tmpdir) / _PLIST_NAME
+            fake_bundle = Path("/Applications/ClaudeStats.app")
+            with (
+                patch("telemetry.login_item.bundle_path", return_value=fake_bundle),
+                patch("telemetry.login_item.plist_path", return_value=fake_plist),
+            ):
+                enable()
+                self.assertEqual(fake_plist.stat().st_mode & 0o777, 0o600)
+                fake_plist.chmod(0o644)
+                enable()
+            self.assertEqual(fake_plist.stat().st_mode & 0o777, 0o600)
+
 
 class TestDisable(unittest.TestCase):
     def test_no_op_when_plist_missing(self) -> None:

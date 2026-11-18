@@ -114,6 +114,16 @@ class TestSaveCredentialValue(TempDirMixin, unittest.TestCase):
         self.assertEqual(parser.get("musickit.personal", "existing"), "preserved")
         self.assertEqual(parser.get("musickit.personal", "new_key"), "new_val")
 
+    def test_preserves_existing_file_mode(self) -> None:
+        from apple_music.cli_helpers import save_credential_value
+
+        for mode in (0o600, 0o640):
+            with self.subTest(mode=oct(mode)):
+                config = self._make_config("[musickit.personal]\n")
+                config.chmod(mode)
+                save_credential_value(config, "musickit.personal", "user_token", "V")
+                self.assertEqual(config.stat().st_mode & 0o777, mode)
+
     def test_cleans_up_temp_file_on_error(self) -> None:
         """Temp file must not be left behind when write fails."""
         from apple_music.cli_helpers import save_credential_value
@@ -122,7 +132,7 @@ class TestSaveCredentialValue(TempDirMixin, unittest.TestCase):
         tmpdir = Path(self.tmpdir)
 
         files_before = set(tmpdir.iterdir())
-        with patch("apple_music.cli_helpers.os.fchmod", side_effect=OSError("permission denied")):
+        with patch("core.fileutil.os.fchmod", side_effect=OSError("permission denied")):
             with self.assertRaises(OSError):
                 save_credential_value(config, "musickit.personal", "key", "val")
 

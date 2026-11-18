@@ -215,24 +215,16 @@ def job_scoped_path(base: Path, job_id: str, suffix: str) -> Path:
 def _write_job_file(path: Path, text: str) -> None:
     """Write text to a job-scoped path atomically, never through a symlink.
 
-    The bytes go to a private temp file in the same directory, which
-    os.replace then renames over path. A rename replaces whatever directory
+    atomic_write_text stages the bytes in a 0600 temp file in the same
+    directory and renames it over path. A rename replaces whatever directory
     entry sits at path - a symlink included - instead of writing into its
     target, so a link planted between job_scoped_path's check and this write
     is swapped out rather than followed, and a reader never sees a
     half-written file.
     """
-    import tempfile
+    from core.fileutil import atomic_write_text
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(text)
-        os.replace(tmp_name, str(path))
-    except BaseException:
-        _unlink_quietly(Path(tmp_name))
-        raise
+    atomic_write_text(path, text, new_file_mode=0o600, keep_existing_mode=False)
 
 
 def _repo_root() -> Path:
@@ -630,15 +622,15 @@ def _lane_depth(job_type: str) -> int:
     jobs - exactly the backlog this cap exists to bound - would vanish from
     the count. Each job file's type is read from the file itself.
     """
-    from core.fileutil import safe_load_json
+    from core.fileutil import load_json_object
     from worker import queue_ops
 
     folders = queue_ops._ensure_dirs(queue_ops.QUEUE_ROOT)
     count = 0
     for folder in _LANE_FOLDERS:
         for path in queue_ops._list_job_paths(folders[folder]):
-            data = safe_load_json(path, default={})
-            if isinstance(data, dict) and str(data.get("type")) == job_type:
+            data = load_json_object(path)
+            if data is not None and str(data.get("type")) == job_type:
                 count += 1
     return count
 
