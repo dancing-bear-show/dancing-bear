@@ -8,26 +8,19 @@ USED (memory.commands.backup.*), not where they are defined.
 
 from __future__ import annotations
 
-import contextlib
-import io
 import json
 import unittest
 from unittest.mock import patch
 
-import memory.cli as memory_cli
 from memory.backup import BackupResult, BackupStatus
 from memory.commands.backup import default_backup_dest
 from memory.discovery import load_store
-from tests.memory_tests.fixtures import SLUG_MAIN, MemoryTestCase, make_projects_root
-
-
-def _run_backup(*argv: str) -> tuple[int, str, str]:
-    """Call memory.cli.main(["backup", *argv]) and return (rc, stdout, stderr)."""
-    out_buf = io.StringIO()
-    err_buf = io.StringIO()
-    with contextlib.redirect_stdout(out_buf), contextlib.redirect_stderr(err_buf):
-        rc = memory_cli.main(["backup", *argv])
-    return rc, out_buf.getvalue(), err_buf.getvalue()
+from tests.memory_tests.fixtures import (
+    SLUG_MAIN,
+    MemoryTestCase,
+    make_projects_root,
+    run_memory_cli,
+)
 
 
 class TestBackupStatus(MemoryTestCase):
@@ -37,7 +30,9 @@ class TestBackupStatus(MemoryTestCase):
         dest = self.tmp / "backup-repo"
 
         with patch("memory.commands.backup.backup_stores") as mock_backup_stores:
-            rc, out, _ = _run_backup("--status", "--dest", str(dest), "--format", "json")
+            rc, out, _ = run_memory_cli(
+                ["backup", "--status", "--dest", str(dest), "--format", "json"]
+            )
             mock_backup_stores.assert_not_called()
 
         self.assertEqual(rc, 0)
@@ -52,7 +47,7 @@ class TestBackupStatus(MemoryTestCase):
                 dirty=False,
                 message="not initialized",
             )
-            rc, out, _ = _run_backup("--status", "--format", "json")
+            rc, out, _ = run_memory_cli(["backup", "--status", "--format", "json"])
 
         self.assertEqual(rc, 0)
         mock_status.assert_called_once_with(default_backup_dest())
@@ -62,7 +57,9 @@ class TestBackupStatus(MemoryTestCase):
     def test_status_table_format(self) -> None:
         dest = self.tmp / "backup-repo"
 
-        rc, out, _ = _run_backup("--status", "--dest", str(dest), "--format", "table")
+        rc, out, _ = run_memory_cli(
+            ["backup", "--status", "--dest", str(dest), "--format", "table"]
+        )
 
         self.assertEqual(rc, 0)
         self.assertTrue(out, "table format must render something to stdout")
@@ -74,7 +71,7 @@ class TestTargetValidation(MemoryTestCase):
     def test_missing_target_returns_validation_error(self) -> None:
         dest = self.tmp / "backup-repo"
 
-        rc, _, _ = _run_backup("--dest", str(dest))
+        rc, _, _ = run_memory_cli(["backup", "--dest", str(dest)])
 
         self.assertEqual(rc, 1)
 
@@ -83,7 +80,9 @@ class TestTargetValidation(MemoryTestCase):
         # not SystemExit(2) from argparse.
         dest = self.tmp / "backup-repo"
 
-        rc, _, err = _run_backup("--store=some-slug", "--all-stores", "--dest", str(dest))
+        rc, _, err = run_memory_cli(
+            ["backup", "--store=some-slug", "--all-stores", "--dest", str(dest)]
+        )
 
         self.assertNotEqual(rc, 0)
         self.assertIn("validation error", err.lower())
@@ -99,7 +98,7 @@ class TestStoreDispatch(MemoryTestCase):
             "memory.commands.backup.load_store",
             side_effect=RuntimeError("no such slug"),
         ):
-            rc, _, _ = _run_backup("--store=bad-slug", "--dest", str(dest))
+            rc, _, _ = run_memory_cli(["backup", "--store=bad-slug", "--dest", str(dest)])
 
         self.assertEqual(rc, 1)
 
@@ -121,12 +120,8 @@ class TestStoreDispatch(MemoryTestCase):
                 "memory.commands.backup.backup_stores", return_value=fake_result
             ) as mock_backup_stores,
         ):
-            rc, out, _ = _run_backup(
-                f"--store={store.project_slug}",
-                "--dest",
-                str(dest),
-                "--format",
-                "json",
+            rc, out, _ = run_memory_cli(
+                ["backup", f"--store={store.project_slug}", "--dest", str(dest), "--format", "json"]
             )
             mock_backup_stores.assert_called_once()
             called_stores = mock_backup_stores.call_args[0][0]
@@ -156,7 +151,7 @@ class TestStoreDispatch(MemoryTestCase):
                 "memory.commands.backup.backup_stores", return_value=fake_result
             ) as mock_backup_stores,
         ):
-            rc, _, _ = _run_backup("--all-stores", "--dest", str(dest))
+            rc, _, _ = run_memory_cli(["backup", "--all-stores", "--dest", str(dest)])
             mock_backup_stores.assert_called_once()
             called_stores = mock_backup_stores.call_args[0][0]
             self.assertEqual(called_stores, (store,))
@@ -167,7 +162,7 @@ class TestStoreDispatch(MemoryTestCase):
         dest = self.tmp / "backup-repo"
 
         with patch("memory.commands.backup.discover_stores", return_value=()):
-            rc, _, err = _run_backup("--all-stores", "--dest", str(dest))
+            rc, _, err = run_memory_cli(["backup", "--all-stores", "--dest", str(dest)])
 
         self.assertEqual(rc, 0)
         self.assertIn("No stores to back up", err)
@@ -184,7 +179,9 @@ class TestStoreDispatch(MemoryTestCase):
                 side_effect=RuntimeError("git exploded"),
             ),
         ):
-            rc, _, err = _run_backup(f"--store={store.project_slug}", "--dest", str(dest))
+            rc, _, err = run_memory_cli(
+                ["backup", f"--store={store.project_slug}", "--dest", str(dest)]
+            )
 
         self.assertEqual(rc, 1)
         self.assertIn("backup failed", err)
@@ -207,12 +204,15 @@ class TestStoreDispatch(MemoryTestCase):
                 "memory.commands.backup.backup_stores", return_value=fake_result
             ) as mock_backup_stores,
         ):
-            rc, _, _ = _run_backup(
-                f"--store={store.project_slug}",
-                "--dest",
-                str(dest),
-                "--message",
-                "custom msg",
+            rc, _, _ = run_memory_cli(
+                [
+                    "backup",
+                    f"--store={store.project_slug}",
+                    "--dest",
+                    str(dest),
+                    "--message",
+                    "custom msg",
+                ]
             )
             mock_backup_stores.assert_called_once_with((store,), dest, message="custom msg")
 

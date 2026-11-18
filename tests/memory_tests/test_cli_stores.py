@@ -24,67 +24,29 @@ from memory.commands.stores import (
 from memory.models import (
     IndexEntry,
     Memory,
-    MemoryFrontmatter,
-    MemoryStore,
     SchemaShape,
 )
-from tests.memory_tests.fixtures import MemoryTestCase
+from tests.memory_tests.fixtures import (
+    MemoryTestCase,
+    make_memory,
+    make_store,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def _make_store(
-    *,
-    slug: str = "test-slug",
-    root: str = "/nonexistent/test",
-    memories: tuple = (),
-    non_memory_files: tuple = (),
-    index_path: str | None = None,
-    index_entries: tuple = (),
-    inferred_repo: str | None = None,
-    is_worktree: bool = False,
-) -> MemoryStore:
-    return MemoryStore(
-        project_slug=slug,
-        root=root,
-        memories=memories,
-        non_memory_files=non_memory_files,
-        index_path=index_path,
-        index_entries=index_entries,
-        inferred_repo=inferred_repo,
-        is_worktree_slug=is_worktree,
-    )
-
-
 def _make_memory(slug: str = "mem", mtime: datetime | None = None) -> Memory:
-    if mtime is None:
-        mtime = datetime.now(UTC)
-    fm = MemoryFrontmatter(
-        name=slug,
+    return make_memory(
+        slug,
+        mtime=mtime,
+        mem_type=None,
         description="test memory",
-        type=None,
-        node_type="memory",
-        origin_session_id=None,
-        modified=None,
         shape=SchemaShape.ABSENT,
-        unknown_keys={},
-    )
-    return Memory(
-        slug=slug,
-        path=f"/nonexistent/{slug}.md",
-        project_slug="test-slug",
-        frontmatter=fm,
         body="test body",
         why=None,
         how_to_apply=None,
-        wikilinks=(),
-        mtime=mtime,
-        size_bytes=100,
-        indexed=False,
-        index_hook=None,
-        index_section=None,
     )
 
 
@@ -105,13 +67,13 @@ def _make_index_entry(target: str = "mem") -> IndexEntry:
 
 class TestNewestMtimeStr(MemoryTestCase):
     def test_empty_memories_returns_empty_string(self) -> None:
-        store = _make_store(memories=())
+        store = make_store(memories=())
         self.assertEqual(_newest_mtime_str(store), "")
 
     def test_single_memory_returns_isoformat(self) -> None:
         mtime = datetime(2024, 6, 15, 12, 0, 0, tzinfo=UTC)
         mem = _make_memory(mtime=mtime)
-        store = _make_store(memories=(mem,))
+        store = make_store(memories=(mem,))
         result = _newest_mtime_str(store)
         self.assertIn("2024-06-15", result)
 
@@ -120,7 +82,7 @@ class TestNewestMtimeStr(MemoryTestCase):
         new_mtime = datetime(2024, 12, 31, tzinfo=UTC)
         old_mem = _make_memory(slug="old", mtime=old_mtime)
         new_mem = _make_memory(slug="new", mtime=new_mtime)
-        store = _make_store(memories=(old_mem, new_mem))
+        store = make_store(memories=(old_mem, new_mem))
         result = _newest_mtime_str(store)
         self.assertIn("2024-12-31", result)
 
@@ -132,20 +94,20 @@ class TestNewestMtimeStr(MemoryTestCase):
 
 class TestMemoryDirExists(MemoryTestCase):
     def test_returns_false_when_no_memories_no_index_no_non_memory(self) -> None:
-        store = _make_store()
+        store = make_store()
         self.assertIs(_memory_dir_exists(store), False)
 
     def test_returns_true_when_memories_present(self) -> None:
         mem = _make_memory()
-        store = _make_store(memories=(mem,))
+        store = make_store(memories=(mem,))
         self.assertIs(_memory_dir_exists(store), True)
 
     def test_returns_true_when_non_memory_files_present(self) -> None:
-        store = _make_store(non_memory_files=("README.txt",))
+        store = make_store(non_memory_files=("README.txt",))
         self.assertIs(_memory_dir_exists(store), True)
 
     def test_returns_true_when_index_path_set(self) -> None:
-        store = _make_store(index_path="/nonexistent/MEMORY.md")
+        store = make_store(index_path="/nonexistent/MEMORY.md")
         self.assertIs(_memory_dir_exists(store), True)
 
 
@@ -156,17 +118,17 @@ class TestMemoryDirExists(MemoryTestCase):
 
 class TestClassifyRole(MemoryTestCase):
     def test_canonical_store_returns_canonical(self) -> None:
-        store = _make_store(memories=(_make_memory(),))
+        store = make_store(memories=(_make_memory(),))
         self.assertEqual(_classify_role(store, canonicals={id(store)}), "canonical")
 
     def test_store_with_memories_not_canonical_returns_superseded(self) -> None:
-        canonical = _make_store(slug="canonical", memories=(_make_memory(),))
-        store = _make_store(slug="other", memories=(_make_memory(),))
+        canonical = make_store(slug="canonical", memories=(_make_memory(),))
+        store = make_store(slug="other", memories=(_make_memory(),))
         self.assertEqual(_classify_role(store, canonicals={id(canonical)}), "superseded")
 
     def test_store_with_index_no_memories_returns_orphan_index(self) -> None:
-        canonical = _make_store(slug="canonical", memories=(_make_memory(),))
-        store = _make_store(
+        canonical = make_store(slug="canonical", memories=(_make_memory(),))
+        store = make_store(
             slug="orphan",
             memories=(),
             index_entries=(_make_index_entry(),),
@@ -174,13 +136,13 @@ class TestClassifyRole(MemoryTestCase):
         self.assertEqual(_classify_role(store, canonicals={id(canonical)}), "orphan-index")
 
     def test_store_with_no_memories_no_index_returns_no_memory(self) -> None:
-        canonical = _make_store(slug="canonical", memories=(_make_memory(),))
-        store = _make_store(slug="empty", memories=(), index_entries=())
+        canonical = make_store(slug="canonical", memories=(_make_memory(),))
+        store = make_store(slug="empty", memories=(), index_entries=())
         self.assertEqual(_classify_role(store, canonicals={id(canonical)}), "no-memory")
 
     def test_canonicals_empty_non_canonical_store_with_memories(self) -> None:
         # When canonicals is empty, store is never a member of it.
-        store = _make_store(slug="alone", memories=(_make_memory(),))
+        store = make_store(slug="alone", memories=(_make_memory(),))
         self.assertEqual(_classify_role(store, canonicals=set()), "superseded")
 
 
@@ -202,7 +164,7 @@ class TestMainStores(MemoryTestCase):
 
     def test_json_format_valid_json_with_stores(self) -> None:
         mem = _make_memory()
-        store = _make_store(slug="json-test-slug", memories=(mem,), inferred_repo="/repo/a")
+        store = make_store(slug="json-test-slug", memories=(mem,), inferred_repo="/repo/a")
         out_buf = io.StringIO()
         with (
             patch("memory.commands.stores.discover_stores", return_value=(store,)),
@@ -219,8 +181,8 @@ class TestMainStores(MemoryTestCase):
 
     def test_with_memory_only_excludes_empty_stores(self) -> None:
         mem = _make_memory()
-        store_with = _make_store(slug="with-mem", memories=(mem,), inferred_repo="/repo/a")
-        store_empty = _make_store(slug="no-mem", memories=(), inferred_repo="/repo/a")
+        store_with = make_store(slug="with-mem", memories=(mem,), inferred_repo="/repo/a")
+        store_empty = make_store(slug="no-mem", memories=(), inferred_repo="/repo/a")
         out_buf = io.StringIO()
         err_buf = io.StringIO()
         with (
@@ -240,8 +202,8 @@ class TestMainStores(MemoryTestCase):
 
     def test_with_memory_only_shows_all_when_flag_absent(self) -> None:
         mem = _make_memory()
-        store_with = _make_store(slug="with-mem2", memories=(mem,), inferred_repo="/repo/a")
-        store_empty = _make_store(slug="no-mem2", memories=(), inferred_repo="/repo/a")
+        store_with = make_store(slug="with-mem2", memories=(mem,), inferred_repo="/repo/a")
+        store_empty = make_store(slug="no-mem2", memories=(), inferred_repo="/repo/a")
         out_buf = io.StringIO()
         err_buf = io.StringIO()
         with (
@@ -261,20 +223,20 @@ class TestMainStores(MemoryTestCase):
 
     def test_all_role_labels_appear_in_output(self) -> None:
         mem = _make_memory()
-        canonical_store = _make_store(
+        canonical_store = make_store(
             slug="canonical-slug", memories=(mem,), inferred_repo="/repo/a"
         )
-        superseded_store = _make_store(
+        superseded_store = make_store(
             slug="superseded-slug",
             memories=(_make_memory(slug="s"),),
             inferred_repo="/repo/a",
         )
-        orphan_store = _make_store(
+        orphan_store = make_store(
             slug="orphan-slug",
             index_entries=(_make_index_entry(),),
             inferred_repo="/repo/a",
         )
-        empty_store = _make_store(slug="empty-slug", inferred_repo="/repo/a")
+        empty_store = make_store(slug="empty-slug", inferred_repo="/repo/a")
 
         stores = (canonical_store, superseded_store, orphan_store, empty_store)
         out_buf = io.StringIO()
@@ -296,10 +258,10 @@ class TestMainStores(MemoryTestCase):
 
     def test_is_worktree_and_memory_count_reflected_in_rows(self) -> None:
         mem = _make_memory()
-        store = _make_store(
+        store = make_store(
             slug="worktree-slug",
             memories=(mem,),
-            is_worktree=True,
+            is_worktree_slug=True,
             inferred_repo="/repo/a",
         )
         out_buf = io.StringIO()

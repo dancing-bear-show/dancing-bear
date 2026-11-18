@@ -20,7 +20,10 @@ from memory.consolidate import (
     plan_consolidation,
 )
 from memory.models import MemoryStore
-from tests.memory_tests.fixtures import MemoryTestCase
+from tests.memory_tests.fixtures import (
+    MemoryTestCase,
+    write_store,
+)
 
 _SHARED_INFERRED_REPO = "/Users/alice/code/shared-repo"
 
@@ -34,26 +37,10 @@ def _make_store(
     is_worktree_slug: bool = False,
 ) -> MemoryStore:
     """Build a MemoryStore with real files on disk and the given inferred_repo."""
-    from memory.parser import parse_memory_file
-
-    store_root = tmp_path / slug
-    mem_dir = store_root / "memory"
-    mem_dir.mkdir(parents=True)
-
-    memories = []
-    for filename, content in files.items():
-        f = mem_dir / filename
-        f.write_text(content, encoding="utf-8")
-        mem = parse_memory_file(f, project_slug=slug)
-        memories.append(mem)
-
-    return MemoryStore(
-        project_slug=slug,
-        root=str(store_root),
-        memories=tuple(memories),
-        non_memory_files=(),
-        index_path=None,
-        index_entries=(),
+    return write_store(
+        tmp_path,
+        slug,
+        files.items(),
         inferred_repo=inferred_repo,
         is_worktree_slug=is_worktree_slug,
     )
