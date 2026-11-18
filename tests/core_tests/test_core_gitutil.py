@@ -42,7 +42,8 @@ class TestGitToplevel(unittest.TestCase):
             sub = root / "a" / "b"
             sub.mkdir(parents=True)
             top = git_toplevel(sub)
-        self.assertIsNotNone(top)
+        if top is None:
+            self.fail("git_toplevel returned None inside a repository")
         self.assertEqual(top.resolve(), root)
 
     def test_inherited_git_dir_does_not_redirect(self) -> None:
@@ -52,7 +53,8 @@ class TestGitToplevel(unittest.TestCase):
             subprocess.run(["git", "init", "-q", other], check=True)  # nosec B603 B607
             with mock.patch.dict(os.environ, {"GIT_DIR": str(Path(other) / ".git")}):
                 top = git_toplevel(root)
-        self.assertIsNotNone(top)
+        if top is None:
+            self.fail("git_toplevel returned None inside a repository")
         self.assertEqual(top.resolve(), root)
 
     def test_not_a_repo_returns_none(self) -> None:
