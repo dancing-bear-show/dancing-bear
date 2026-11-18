@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -14,6 +15,8 @@ from memory.discovery import elect_canonical
 from memory.index import append_entry, parse_index
 from memory.models import MemoryStore
 from memory.parser import parse_memory_file
+
+_log = logging.getLogger(__name__)
 
 __all__ = [
     "ConsolidationAborted",
@@ -87,12 +90,12 @@ def _warn_skipped_repos(
     skipped_repos = [repo for repo in groups if repo != target_repo]
     if not skipped_repos:
         return
-    print(
+    _log.warning(
         "Warning: plan_consolidation only consolidates one repo group per "
-        f"call; skipping {len(skipped_repos)} other repo group(s) "
-        f"({', '.join(sorted(r for r in skipped_repos if r))}) — call again "
+        "call; skipping %d other repo group(s) (%s) — call again "
         "with --store to target those stores.",
-        file=sys.stderr,
+        len(skipped_repos),
+        ", ".join(sorted(r for r in skipped_repos if r)),
     )
 
 

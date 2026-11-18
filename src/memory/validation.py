@@ -18,7 +18,7 @@ from pathlib import Path
 from core.fileutil import atomic_write_text
 from core.text_utils import slugify
 from memory.index import append_entry, merge_duplicate_sections, remove_entry
-from memory.models import MemoryStore, MemoryType, SchemaShape
+from memory.models import Memory, MemoryStore, MemoryType, SchemaShape
 from memory.parser import extract_anchors, normalize_slug
 from memory.staleness import DEFAULT_THRESHOLDS, stale_candidates
 
@@ -218,27 +218,29 @@ def _check_contradiction_topic_overlap(
     if not claude_texts:
         return ()
 
-    results = []
-    for memory in store.memories:
-        anchors = extract_anchors(memory.body)
-        for anchor in anchors:
-            for path, text in claude_texts.items():
-                if anchor in text:
-                    mem_idx = memory.body.find(anchor)
-                    excerpt_memory = memory.body[max(0, mem_idx - 40) : mem_idx + len(anchor) + 40]
-                    idx = text.find(anchor)
-                    excerpt_claude = text[max(0, idx - 40) : idx + len(anchor) + 40]
-                    results.append(
-                        CheckResult(
-                            check_id="contradiction-topic-overlap",
-                            severity="info",
-                            target=memory.slug,
-                            message=f"'{anchor}' is mentioned in both {memory.slug}.md and {path.name} — CLAUDE.md wins in any conflict",
-                            fixable=False,
-                            detail=f"memory: ...{excerpt_memory}...\nclaude_md: ...{excerpt_claude}...",
-                        )
-                    )
-    return tuple(results)
+    return tuple(
+        _overlap_result(memory, anchor, path, text)
+        for memory in store.memories
+        for anchor in extract_anchors(memory.body)
+        for path, text in claude_texts.items()
+        if anchor in text
+    )
+
+
+def _overlap_result(memory: Memory, anchor: str, path: Path, text: str) -> CheckResult:
+    """Info finding that ``anchor`` appears in both the memory body and a CLAUDE.md."""
+    mem_idx = memory.body.find(anchor)
+    excerpt_memory = memory.body[max(0, mem_idx - 40) : mem_idx + len(anchor) + 40]
+    idx = text.find(anchor)
+    excerpt_claude = text[max(0, idx - 40) : idx + len(anchor) + 40]
+    return CheckResult(
+        check_id="contradiction-topic-overlap",
+        severity="info",
+        target=memory.slug,
+        message=f"'{anchor}' is mentioned in both {memory.slug}.md and {path.name} — CLAUDE.md wins in any conflict",
+        fixable=False,
+        detail=f"memory: ...{excerpt_memory}...\nclaude_md: ...{excerpt_claude}...",
+    )
 
 
 def _check_schema_no_frontmatter(store: MemoryStore, ctx: _CheckContext) -> tuple[CheckResult, ...]:

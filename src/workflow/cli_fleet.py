@@ -156,6 +156,24 @@ def _start_item(
     return {"item": item, "status": "running", "workspace": str(workspace), "params": shown}
 
 
+def _fleet_dry_run(
+    args: argparse.Namespace, ledger: Ledger, batch: list[str], added: int, forced: int
+) -> int:
+    """Print what ``fleet run`` would start, without writing the ledger."""
+    rows: list[dict[str, object]] = [
+        {
+            "item": i,
+            "status": ledger.items[i].status.value,
+            "workspace": "-",
+            "params": " ".join(f"{k}={v}" for k, v in _item_params(args, i).items()),
+        }
+        for i in batch
+    ]
+    print(f"dry-run: {added} new, {forced} reset, {len(batch)} would start", file=sys.stderr)
+    emit_rows(rows, fmt=args.format, headers=_RUN_HEADERS, empty_msg="Nothing to start.")
+    return ExitCode.SUCCESS
+
+
 def _cmd_fleet_run(args: argparse.Namespace) -> int:
     """Merge items into the ledger and start the next batch (one workspace each)."""
     slug = _slug_for(args.path)
@@ -180,20 +198,7 @@ def _cmd_fleet_run(args: argparse.Namespace) -> int:
     batch = select_batch(ledger, args.batch_size)
 
     if args.dry_run:
-        rows: list[dict[str, object]] = [
-            {
-                "item": i,
-                "status": ledger.items[i].status.value,
-                "workspace": "-",
-                "params": " ".join(f"{k}={v}" for k, v in _item_params(args, i).items()),
-            }
-            for i in batch
-        ]
-        print(
-            f"dry-run: {added} new, {len(forced)} reset, {len(batch)} would start", file=sys.stderr
-        )
-        emit_rows(rows, fmt=args.format, headers=_RUN_HEADERS, empty_msg="Nothing to start.")
-        return ExitCode.SUCCESS
+        return _fleet_dry_run(args, ledger, batch, added, len(forced))
 
     save_ledger(ledger)
     rows = [_start_item(args, slug, item, ledger.items[item]) for item in batch]

@@ -7,9 +7,9 @@ a stderr warning instead of an exception.
 
 from __future__ import annotations
 
+import logging
 import os
 import signal
-import sys
 import time
 import uuid
 from collections.abc import Iterator
@@ -21,6 +21,8 @@ from typing import Any
 from core.date_utils import iso_now
 from core.fileutil import atomic_write_json, safe_load_json
 from core.paths import output_dir
+
+_log = logging.getLogger(__name__)
 
 STATUS_RUNNING = "running"
 STATUS_DONE = "done"
@@ -87,7 +89,7 @@ def write_state(state: PollState, root: Path | None = None) -> None:
     try:
         atomic_write_json(path, asdict(state))
     except OSError as exc:
-        print(f"warning: cannot write poll state {path}: {exc}", file=sys.stderr)
+        _log.warning("warning: cannot write poll state %s: %s", path, exc)
 
 
 @contextmanager
@@ -133,6 +135,18 @@ def is_pid_alive(pid: int) -> bool:
         return False
 
 
+def _is_live_running(path: Path) -> bool:
+    """True when ``path`` records a poll still marked running whose pid is alive."""
+    entry = PollState.from_dict(safe_load_json(path))
+    return entry is not None and entry.status == STATUS_RUNNING and is_pid_alive(entry.pid)
+
+
+def _prune_one(path: Path, cutoff: float) -> None:
+    """Delete ``path`` when older than ``cutoff`` and not a live running poll."""
+    if path.stat().st_mtime < cutoff and not _is_live_running(path):
+        path.unlink(missing_ok=True)
+
+
 def prune_stale(root: Path, now: float | None = None) -> None:
     """Delete state files not modified within ``STALE_FILE_AGE_SECONDS``.
 
@@ -143,11 +157,7 @@ def prune_stale(root: Path, now: float | None = None) -> None:
     cutoff = (time.time() if now is None else now) - STALE_FILE_AGE_SECONDS
     for path in root.glob("*.json"):
         try:
-            if path.stat().st_mtime < cutoff:
-                entry = PollState.from_dict(safe_load_json(path))
-                if entry is not None and entry.status == STATUS_RUNNING and is_pid_alive(entry.pid):
-                    continue
-                path.unlink(missing_ok=True)
+            _prune_one(path, cutoff)
         except OSError:  # nosec B110 - pruning is best-effort; a racing delete is fine
             pass
 

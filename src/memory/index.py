@@ -159,24 +159,24 @@ def _insert_entry(lines: list[str], m: Memory, section: str | None) -> list[str]
         ),
         None,
     )
-    # Preserve the on-disk header's existing casing if the section already
-    # exists; otherwise create a new one in Title Case for consistency.
-    header_text = header_names[section_idx] if section_idx is not None else target_section.title()
-
     if section_idx is None:
+        # Create a new section in Title Case for consistency; an existing one
+        # keeps its on-disk casing because only its position is used below.
         if lines and lines[-1].strip() != "":
             lines.append("")
-        lines.append(f"## {header_text}")
+        lines.append(f"## {target_section.title()}")
         section_idx = len(lines) - 1
 
-    insert_idx = len(lines)
+    lines.insert(_section_end(lines, section_idx), render_index_line(m))
+    return lines
+
+
+def _section_end(lines: list[str], section_idx: int) -> int:
+    """Index just past the last line of the section whose header is at ``section_idx``."""
     for i in range(section_idx + 1, len(lines)):
         if _SECTION_RE.match(lines[i]):
-            insert_idx = i
-            break
-
-    lines.insert(insert_idx, render_index_line(m))
-    return lines
+            return i
+    return len(lines)
 
 
 def append_entry(path: str | Path, m: Memory, *, section: str | None = None) -> None:

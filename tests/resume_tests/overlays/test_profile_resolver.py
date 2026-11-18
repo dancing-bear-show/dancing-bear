@@ -323,46 +323,39 @@ class TestApplyProfileOverlaysUnknownProfile(TempDirMixin, unittest.TestCase):
                 apply_profile_overlays({}, "no_such_profile_abc")
 
     def test_warning_includes_profile_name(self):
-        """The stderr warning names the missing profile."""
-        import io
-
+        """The warning names the missing profile."""
         from resume.overlays import apply_profile_overlays
 
         empty_home = Path(self.tmpdir) / "empty"
         empty_home.mkdir()
         profile = "definitely_missing_profile_xyz"
 
-        buf = io.StringIO()
         with self.in_tmpdir():
             with unittest.mock.patch.dict(
                 os.environ, {"DANCING_BEAR_CONFIG_HOME": str(empty_home)}
             ):
-                with unittest.mock.patch("sys.stderr", buf):
+                with self.assertLogs("resume.overlays", level="WARNING") as logs:
                     apply_profile_overlays({}, profile)
 
-        output = buf.getvalue()
-        self.assertIn(profile, output)
+        self.assertIn(profile, "\n".join(logs.output))
 
     def test_warning_includes_searched_paths(self):
-        """The stderr warning lists at least one searched directory."""
-        import io
-
+        """The warning lists at least one searched directory."""
         from resume.overlays import _searched_dirs, apply_profile_overlays
 
         empty_home = Path(self.tmpdir) / "empty"
         empty_home.mkdir()
         profile = "no_such_profile_abc"
 
-        buf = io.StringIO()
         with self.in_tmpdir():
             with unittest.mock.patch.dict(
                 os.environ, {"DANCING_BEAR_CONFIG_HOME": str(empty_home)}
             ):
                 expected_dirs = _searched_dirs(profile)
-                with unittest.mock.patch("sys.stderr", buf):
+                with self.assertLogs("resume.overlays", level="WARNING") as logs:
                     apply_profile_overlays({}, profile)
 
-        output = buf.getvalue()
+        output = "\n".join(logs.output)
         self.assertTrue(
             any(str(d) in output for d in expected_dirs),
             f"Expected at least one of {expected_dirs} in warning: {output!r}",
@@ -370,14 +363,11 @@ class TestApplyProfileOverlaysUnknownProfile(TempDirMixin, unittest.TestCase):
 
     def test_legacy_only_profile_loads_without_warning(self):
         """A profile with only legacy flat files loads silently."""
-        import io
-
         from resume.overlays import apply_profile_overlays
 
         empty_home = Path(self.tmpdir) / "empty"
         empty_home.mkdir()
 
-        buf = io.StringIO()
         with self.in_tmpdir():
             Path("config").mkdir()
             Path("config/profile.legacyonly.yaml").write_text("name: Legacy Only\n")
@@ -385,12 +375,10 @@ class TestApplyProfileOverlaysUnknownProfile(TempDirMixin, unittest.TestCase):
             with unittest.mock.patch.dict(
                 os.environ, {"DANCING_BEAR_CONFIG_HOME": str(empty_home)}
             ):
-                with unittest.mock.patch("sys.stderr", buf):
+                with self.assertNoLogs("resume.overlays", level="WARNING"):
                     result = apply_profile_overlays({}, "legacyonly")
 
         self.assertEqual(result["name"], "Legacy Only")
-        # Legacy flat files found → no warning written
-        self.assertEqual(buf.getvalue(), "")
 
     def test_rejects_unsafe_profile_name_with_cli_error(self):
         """Unsafe profile names raise CLIError with ExitCode.USAGE."""
