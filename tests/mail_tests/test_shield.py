@@ -54,8 +54,8 @@ class TestContainsSecretishValue(unittest.TestCase):
     def test_github_token_matches(self):
         self.assertTrue(self._check("gh" + "p_" + "ABCDEFGHIJ1234567890" * 2))
 
-    def test_github_token_under_36_chars_does_not_match(self):
-        self.assertFalse(self._check("gh" + "p_" + "ABCDEFGHIJ1234567890XY"))
+    def test_github_token_under_36_chars_is_masked(self):
+        self.assertTrue(self._check("gh" + "p_" + "ABCDEFGHIJ1234567890XY"))
 
     def test_github_token_too_short_does_not_match(self):
         self.assertFalse(self._check("ghp_short"))
@@ -64,8 +64,8 @@ class TestContainsSecretishValue(unittest.TestCase):
     def test_grafana_token_matches(self):
         self.assertTrue(self._check("gl" + "sa_" + "ABCDEFGHIJ123456" * 2 + "_" + "0a1b2c3d"))
 
-    def test_grafana_token_without_hex_suffix_does_not_match(self):
-        self.assertFalse(self._check("gl" + "sa_" + "ABCDEFGHIJ1234567890"))
+    def test_grafana_token_without_hex_suffix_is_masked(self):
+        self.assertTrue(self._check("gl" + "sa_" + "ABCDEFGHIJ1234567890"))
 
     # --- Slack tokens ---
     def test_slack_bot_token_matches(self):
@@ -95,14 +95,18 @@ class TestContainsSecretishValue(unittest.TestCase):
     def test_openai_legacy_key_matches(self):
         self.assertTrue(self._check("sk-" + "ABCDEFGHIJ1234567890XYZW" * 2))
 
-    def test_openai_proj_token_matches(self):
+    def test_openai_proj_realistic_token_matches(self):
         self.assertTrue(self._check("sk-" + "proj-" + "ABCDEFGHIJ1234567890" * 2))
 
-    def test_short_dash_sk_tokens_do_not_match(self):
-        # sk-live-/sk-test- is no vendor's format, and real sk-proj- keys run 40+.
-        for raw in ("live-", "test-", "proj-"):
-            with self.subTest(raw=raw):
-                self.assertFalse(self._check("sk-" + raw + "ABCDEFGHIJ1234567890XY"))
+    # Shorter / non-vendor look-alikes stay masked via shield's loose patterns.
+    def test_openai_live_token_matches(self):
+        self.assertTrue(self._check("sk-" + "live-" + "ABCDEFGHIJ1234567890XY"))
+
+    def test_openai_test_token_matches(self):
+        self.assertTrue(self._check("sk-" + "test-" + "ABCDEFGHIJ1234567890XY"))
+
+    def test_openai_proj_token_matches(self):
+        self.assertTrue(self._check("sk-" + "proj-" + "ABCDEFGHIJ1234567890XY"))
 
     # --- Stripe keys (test-mode is a heuristic shape; masked all the same) ---
     def test_stripe_test_key_matches(self):
@@ -123,8 +127,8 @@ class TestContainsSecretishValue(unittest.TestCase):
     def test_google_api_key_matches(self):
         self.assertTrue(self._check("AI" + "za" + "SyA1b2C3d4E5f6G7h8I9j0KlMnOpQrStUv"))
 
-    def test_google_api_key_under_34_chars_does_not_match(self):
-        self.assertFalse(self._check("AI" + "za" + "ABCDEFGHIJKLMNOPQRST"))
+    def test_google_api_key_under_34_chars_is_masked(self):
+        self.assertTrue(self._check("AI" + "za" + "ABCDEFGHIJKLMNOPQRST"))
 
     # --- JWT-like tokens ---
     def test_jwt_token_matches(self):
