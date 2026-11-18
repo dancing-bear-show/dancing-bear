@@ -2,8 +2,8 @@ import os
 import subprocess  # nosec B404 - test fixture runs fixed git argv
 import tempfile
 import unittest
+import unittest.mock as mock
 from pathlib import Path
-from unittest import mock
 
 from core.gitutil import GIT_ENV_OVERRIDES, git_env, git_toplevel, run_git
 from core.paths import repo_root
