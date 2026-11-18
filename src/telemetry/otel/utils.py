@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from telemetry.timeutil import now_utc, parse_window
+from core.date_utils import now_utc, parse_window
 
 
 def parse_time_window(since_arg: str | None) -> datetime | None:

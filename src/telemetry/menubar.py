@@ -8,7 +8,7 @@ menubar.NSColor, menubar.NSFont, etc.).
 """
 
 import os  # patched by tests via menubar.os
-import subprocess  # patched by tests via menubar.subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
+import subprocess  # noqa: F401  # patched by tests via menubar.subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
 from datetime import datetime
 from pathlib import Path
 
@@ -45,9 +45,11 @@ from telemetry._menubar_app import (
     _OTEL_WINDOWS,  # noqa: F401
     _PROJECTS_DIR,  # noqa: F401
     _STORAGE_WARN_DAYS,  # noqa: F401
+    _VERSION,  # noqa: F401
     _WINDOWS,  # noqa: F401
     TelemetryMenubarApp,  # noqa: F401
     _app_version_cache,  # noqa: F401
+    _build_version,  # noqa: F401
     _month_since,  # noqa: F401
     _project_short,  # noqa: F401
 )
@@ -111,8 +113,6 @@ _CONFIG_PATH = _CLAUDE_DIR / "claudestats.json"
 _LOCK_PATH = _CLAUDE_DIR / "claudestats.lock"
 _instance_lock_fd: int | None = None
 
-_VERSION = "v1.1.0"
-
 
 # ---------------------------------------------------------------------------
 # Functions defined here directly so tests can patch module-level dependencies
@@ -132,23 +132,6 @@ def _save_config(cfg: dict) -> None:
 def _window_since(seconds: int | None) -> datetime:
     """Return the UTC datetime marking the start of the given window."""
     return _window_since_impl(seconds)
-
-
-def _build_version() -> str:
-    """Return version string with git SHA, or _VERSION on failure.
-
-    Defined here so tests can patch menubar.subprocess.check_output.
-    """
-    try:
-        sha = subprocess.check_output(  # nosec B603 B607 - fixed git command with no user input
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=Path(__file__).resolve().parent,
-            stderr=subprocess.DEVNULL,
-            text=True,
-        ).strip()
-        return f"{_VERSION} ({sha})"
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return _VERSION
 
 
 _app_version_cache_shim: str | None = None

@@ -28,7 +28,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 _WRAPPER_TIMEOUT_S = 60
 
 # Variables that would otherwise decide the log dir before the state dir does.
-_LOG_ENVS = ("DANCING_BEAR_LOG_DIR", "SRE_LOG_DIR")
+_LOG_ENVS = ("DANCING_BEAR_LOG_DIR",)
 
 
 def _env_without(*names: str) -> dict[str, str]:
