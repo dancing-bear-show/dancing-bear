@@ -3,12 +3,11 @@
 This module re-exports all public names from the three implementation
 submodules. Certain names are defined here directly so that tests can patch
 their dependencies via this module (e.g. menubar._CONFIG_PATH,
-menubar.datetime, menubar.os, menubar.fcntl, menubar.subprocess,
+menubar.datetime, menubar.os, menubar.fcntl,
 menubar.NSColor, menubar.NSFont, etc.).
 """
 
 import os  # patched by tests via menubar.os
-import subprocess  # noqa: F401  # patched by tests via menubar.subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
 from datetime import datetime
 from pathlib import Path
 
@@ -45,11 +44,9 @@ from telemetry._menubar_app import (
     _OTEL_WINDOWS,  # noqa: F401
     _PROJECTS_DIR,  # noqa: F401
     _STORAGE_WARN_DAYS,  # noqa: F401
-    _VERSION,  # noqa: F401
     _WINDOWS,  # noqa: F401
     TelemetryMenubarApp,  # noqa: F401
     _app_version_cache,  # noqa: F401
-    _build_version,  # noqa: F401
     _month_since,  # noqa: F401
     _project_short,  # noqa: F401
 )
@@ -132,17 +129,6 @@ def _save_config(cfg: dict) -> None:
 def _window_since(seconds: int | None) -> datetime:
     """Return the UTC datetime marking the start of the given window."""
     return _window_since_impl(seconds)
-
-
-_app_version_cache_shim: str | None = None
-
-
-def _get_app_version() -> str:
-    """Return the cached app version string."""
-    global _app_version_cache_shim  # noqa: PLW0603
-    if _app_version_cache_shim is None:
-        _app_version_cache_shim = _build_version()
-    return _app_version_cache_shim
 
 
 def _score_color(score: int) -> object:

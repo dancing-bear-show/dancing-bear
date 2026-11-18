@@ -8,8 +8,6 @@ What is NOT tested here:
 What IS tested:
 - _load_config / _save_config delegation to _menubar_config with the shim's _CONFIG_PATH
 - _window_since correctness
-- _build_version (mocked subprocess)
-- _get_app_version caching
 - _acquire_instance_lock when _HAS_FCNTL is False (no-op path)
 - _acquire_instance_lock when fcntl raises BlockingIOError (already-running path)
 - _compose_icon_attributed with all token kinds (lit, score var, known var, unknown var/braced)
@@ -75,10 +73,6 @@ class TestMenubarReExports(unittest.TestCase):
     def test_has_rumps_is_bool(self) -> None:
         self.assertIsInstance(menubar._HAS_RUMPS, bool)
 
-    def test_version_constant(self) -> None:
-        self.assertIsInstance(menubar._VERSION, str)
-        self.assertTrue(menubar._VERSION.startswith("v"))
-
 
 class TestMenubarLoadConfig(unittest.TestCase):
     def test_delegates_to_impl_with_local_path(self) -> None:
@@ -112,37 +106,6 @@ class TestMenubarWindowSince(unittest.TestCase):
         self.assertEqual(local.hour, 0)
         self.assertEqual(local.minute, 0)
         self.assertEqual(local.second, 0)
-
-
-class TestMenubarBuildVersion(unittest.TestCase):
-    def test_success_returns_version_sha(self) -> None:
-        with patch.object(menubar.subprocess, "check_output", return_value="abc1234\n"):
-            result = menubar._build_version()
-        self.assertIn("abc1234", result)
-        self.assertIn(menubar._VERSION, result)
-
-    def test_error_returns_version_only(self) -> None:
-        import subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
-
-        with patch.object(
-            menubar.subprocess, "check_output", side_effect=subprocess.CalledProcessError(1, "git")
-        ):
-            result = menubar._build_version()
-        self.assertEqual(result, menubar._VERSION)
-
-
-class TestMenubarGetAppVersion(unittest.TestCase):
-    def setUp(self) -> None:
-        menubar._app_version_cache_shim = None
-
-    def test_caches_result(self) -> None:
-        with patch("telemetry.menubar._build_version", return_value="v99 (sha)") as mock_bv:
-            menubar._get_app_version()
-            menubar._get_app_version()
-        mock_bv.assert_called_once()
-
-    def tearDown(self) -> None:
-        menubar._app_version_cache_shim = None
 
 
 class TestAcquireInstanceLockNoFcntl(unittest.TestCase):
@@ -415,18 +378,3 @@ class TestComposeIconAttributed(unittest.TestCase):
             menubar._compose_icon_attributed("$score", icon_ctx, mtd_cost=2.0, score=5)
 
         mocks["NSColor"].systemOrangeColor.assert_called()
-
-
-class TestMenubarBuildVersionFileNotFound(unittest.TestCase):
-    """Cover the FileNotFoundError branch in _build_version."""
-
-    def test_file_not_found_returns_version_only(self) -> None:
-        with patch.object(
-            menubar.subprocess, "check_output", side_effect=FileNotFoundError("git not found")
-        ):
-            result = menubar._build_version()
-        self.assertEqual(result, menubar._VERSION)
-
-
-if __name__ == "__main__":
-    unittest.main()
