@@ -6,7 +6,7 @@ import json as _json
 from collections.abc import Callable
 from typing import Any
 
-from core.cli_output import OutputConfig, OutputFormat, OutputWriter
+from core.cli_output import OutputConfig, OutputFormat, OutputWriter, normalize_for_output
 from core.pipeline import BaseProducer, ResultEnvelope, SafeProcessor
 
 from .cli_helpers import _output_json
@@ -183,7 +183,7 @@ class _JsonOutputWriter(OutputWriter):
         self._pretty = pretty
 
     def _print_json(self, data: Any) -> None:
-        normalized = self._normalize_for_json(data)
+        normalized = normalize_for_output(data)
         indent = 2 if self._pretty else None
         self.print(_json.dumps(normalized, indent=indent))
 

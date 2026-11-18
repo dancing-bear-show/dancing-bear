@@ -9,10 +9,11 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from core.cli_args import add_format_argument
 from core.cli_output import emit_rows
 from core.date_utils import parse_iso_utc
 from telemetry._menubar_budget import _safe_float, _safe_int
-from telemetry.otel.cli._format_helpers import add_format_argument, get_work_dir
+from telemetry.otel.cli._format_helpers import get_work_dir
 from telemetry.timeutil import now_utc, parse_window
 
 _NO_METADATA_MSG = (

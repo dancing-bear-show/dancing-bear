@@ -8,6 +8,7 @@ import unittest
 from core.cli_args import (
     OutlookAuthConfig,
     _add_argument_with_help,
+    add_format_argument,
     add_outlook_auth_args,
 )
 
@@ -198,6 +199,39 @@ class TestAddOutlookAuthArgsIntegration(unittest.TestCase):
         self.assertEqual(args.client_id, "xyz789")
         self.assertEqual(args.tenant, "custom-tenant")
         self.assertEqual(args.token, "cache.json")
+
+
+class TestAddFormatArgument(unittest.TestCase):
+    def _action(self, parser: argparse.ArgumentParser) -> argparse.Action:
+        return next(a for a in parser._actions if a.dest == "format")
+
+    def test_default_choices(self):
+        parser = argparse.ArgumentParser()
+        add_format_argument(parser)
+        self.assertEqual(parser.parse_args([]).format, "table")
+        self.assertEqual(self._action(parser).choices, ["table", "json"])
+
+    def test_custom_choices_and_default(self):
+        parser = argparse.ArgumentParser()
+        add_format_argument(parser, formats=["text", "json"], default="text")
+        self.assertEqual(parser.parse_args([]).format, "text")
+        self.assertEqual(parser.parse_args(["--format", "json"]).format, "json")
+
+    def test_rejects_unlisted_choice(self):
+        parser = argparse.ArgumentParser()
+        add_format_argument(parser)
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["--format", "xml"])
+
+    def test_help_describes_default(self):
+        parser = argparse.ArgumentParser()
+        add_format_argument(parser, default="json")
+        self.assertEqual(self._action(parser).help, "Output format (default: json)")
+
+    def test_describe_false_omits_help(self):
+        parser = argparse.ArgumentParser()
+        add_format_argument(parser, ["md", "json"], "md", describe=False)
+        self.assertIsNone(self._action(parser).help)
 
 
 if __name__ == "__main__":

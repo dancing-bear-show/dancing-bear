@@ -23,21 +23,6 @@ def format_validation_error(flag: str, msg: str) -> int:
     return 2
 
 
-def add_format_argument(
-    parser: argparse.ArgumentParser,
-    formats: list[str] | None = None,
-    default: str = "table",
-) -> None:
-    """Add a --format argument to a parser."""
-    choices = formats or ["table", "json"]
-    parser.add_argument(
-        "--format",
-        choices=choices,
-        default=default,
-        help=f"Output format (default: {default})",
-    )
-
-
 def truncate_sid(sid: str, max_len: int = 20) -> str:
     """Truncate long session IDs for table display."""
     if len(sid) > max_len:

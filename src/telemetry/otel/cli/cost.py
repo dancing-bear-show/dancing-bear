@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from core.cli_args import add_format_argument
 from core.cli_output import OutputWriter, emit_one, emit_rows
 from core.pipeline import BaseProducer, RequestConsumer, SafeProcessor
 from telemetry.otel.analytics.cost import (
@@ -16,14 +17,13 @@ from telemetry.otel.analytics.cost import (
     get_model_performance,
 )
 from telemetry.otel.cli._format_helpers import (
-    add_format_argument,
-    format_validation_error,
-)
-from telemetry.otel.cli._format_helpers import (
     format_duration as _format_duration,
 )
 from telemetry.otel.cli._format_helpers import (
     format_timestamp as _format_timestamp,
+)
+from telemetry.otel.cli._format_helpers import (
+    format_validation_error,
 )
 from telemetry.otel.cli._format_helpers import (
     sort_sessions as _sort_sessions,

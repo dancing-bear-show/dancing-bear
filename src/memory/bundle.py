@@ -9,6 +9,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
+from core.yamlio import dump_yaml_text
 from memory.models import (
     BUNDLE_VERSION,
     ExportedMemory,
@@ -244,9 +245,7 @@ def serialize_bundle(b: MemoryBundle, fmt: str) -> str:
 
     if fmt == "json":
         return json.dumps(payload, indent=2)
-    import yaml
-
-    return yaml.dump(payload, default_flow_style=False, sort_keys=False)
+    return dump_yaml_text(payload)
 
 
 def load_bundle(path: str | Path) -> MemoryBundle:
@@ -385,9 +384,5 @@ def render_imported_memory(
     if fm.description:
         frontmatter_dict["description"] = fm.description
 
-    import yaml
-
-    frontmatter_yaml = yaml.dump(
-        frontmatter_dict, default_flow_style=False, sort_keys=False
-    ).rstrip("\n")
+    frontmatter_yaml = dump_yaml_text(frontmatter_dict).rstrip("\n")
     return f"---\n{frontmatter_yaml}\n---\n\n{em.body}"

@@ -4,7 +4,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core.yamlio import dump_config, load_config
+import yaml
+
+from core.yamlio import dump_config, dump_yaml_text, load_config
 
 
 class TestLoadConfig(unittest.TestCase):
@@ -162,6 +164,24 @@ class TestRoundTrip(unittest.TestCase):
             dump_config(str(path), original)
             loaded = load_config(str(path))
             self.assertEqual(loaded, original)
+
+
+class TestDumpYamlText(unittest.TestCase):
+    def test_non_ascii_round_trip_unescaped(self):
+        data = {"name": "café", "tags": ["日本語", "ñ"]}
+        text = dump_yaml_text(data)
+        self.assertIn("café", text)
+        self.assertNotIn("\\u", text)
+        self.assertEqual(yaml.safe_load(text), data)
+
+    def test_preserves_key_order_by_default(self):
+        self.assertEqual(dump_yaml_text({"b": 1, "a": 2}), "b: 1\na: 2\n")
+
+    def test_sort_keys_opt_in(self):
+        self.assertEqual(dump_yaml_text({"b": 1, "a": 2}, sort_keys=True), "a: 2\nb: 1\n")
+
+    def test_block_style_for_collections(self):
+        self.assertEqual(dump_yaml_text({"k": [1, 2]}), "k:\n- 1\n- 2\n")
 
 
 if __name__ == "__main__":

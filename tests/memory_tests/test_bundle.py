@@ -4,6 +4,7 @@ and originSessionId dropping."""
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -87,6 +88,20 @@ class TestBundleSerde(MemoryTestCase):
 # ---------------------------------------------------------------------------
 # TestLoadBundleErrors
 # ---------------------------------------------------------------------------
+
+
+class TestBundleSerdeNonAscii(MemoryTestCase):
+    def test_yaml_keeps_non_ascii_and_round_trips(self):
+        bundle = sample_bundle()
+        em = bundle.memories[0]
+        fm = replace(em.frontmatter, description="naïve café 日本語")
+        bundle = replace(bundle, memories=(replace(em, frontmatter=fm),))
+        serialized = serialize_bundle(bundle, "yaml")
+        self.assertIn("naïve café 日本語", serialized)
+        path = self.tmp / "bundle.yaml"
+        path.write_text(serialized, encoding="utf-8")
+        loaded = load_bundle(path)
+        self.assertEqual(loaded.memories[0].frontmatter.description, "naïve café 日本語")
 
 
 class TestLoadBundleErrors(MemoryTestCase):
@@ -222,6 +237,13 @@ class TestRenderImportedMemory(MemoryTestCase):
         self.assertTrue(rendered.startswith("---\n"))
         self.assertIn("metadata:", rendered)
         self.assertIn("node_type: memory", rendered)
+
+    def test_non_ascii_frontmatter_not_escaped(self):
+        em = self._make_em()
+        em = replace(em, frontmatter=replace(em.frontmatter, description="café résumé 日本語"))
+        rendered = render_imported_memory(em)
+        self.assertIn("café résumé 日本語", rendered)
+        self.assertNotIn("\\u", rendered)
 
     def test_no_origin_session_id_in_output(self):
         em = self._make_em()

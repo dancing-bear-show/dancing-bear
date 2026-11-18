@@ -16,6 +16,7 @@ from core.cli_output import (
     OutputWriter,
     emit_one,
     emit_rows,
+    normalize_for_output,
     output,
     output_json,
     output_table,
@@ -602,6 +603,72 @@ class TestEmitOneFormats(unittest.TestCase):
     def test_non_dict_table_falls_back_to_json(self):
         _, out = self._run([1, 2], "table")
         self.assertEqual(json.loads(out), [1, 2])
+
+
+class Color(Enum):
+    RED = "red"
+
+
+@dataclass
+class Row:
+    name: str
+    color: Color
+    tags: tuple[str, ...] = ()
+
+
+class TestNormalizeForOutput(unittest.TestCase):
+    def test_dataclass_enum_and_tuple(self):
+        self.assertEqual(
+            normalize_for_output(Row("a", Color.RED, ("x",))),
+            {"name": "a", "color": "red", "tags": ["x"]},
+        )
+
+    def test_nested_containers(self):
+        self.assertEqual(
+            normalize_for_output({"rows": [Row("a", Color.RED)]}),
+            {"rows": [{"name": "a", "color": "red", "tags": []}]},
+        )
+
+    def test_plain_values_and_dataclass_type_untouched(self):
+        self.assertEqual(normalize_for_output("s"), "s")
+        self.assertIs(normalize_for_output(Row), Row)
+
+
+class TestEmitNormalizesDataclasses(unittest.TestCase):
+    def _capture(self, fn, *args, **kwargs):
+        out = StringIO()
+        with unittest.mock.patch("sys.stdout", out):
+            rc = fn(*args, **kwargs)
+        return rc, out.getvalue()
+
+    def test_emit_one_json_matches_plain_dict(self):
+        _, got = self._capture(emit_one, Row("a", Color.RED))
+        _, want = self._capture(emit_one, {"name": "a", "color": "red", "tags": []})
+        self.assertEqual(got, want)
+
+    def test_emit_one_jsonl_and_yaml(self):
+        import yaml
+
+        row = Row("a", Color.RED)
+        _, jl = self._capture(emit_one, row, "jsonl")
+        self.assertEqual(json.loads(jl)["color"], "red")
+        _, ym = self._capture(emit_one, row, "yaml")
+        self.assertEqual(yaml.safe_load(ym)["name"], "a")
+
+    def test_emit_one_dataclass_csv_renders_columns(self):
+        _, out = self._capture(emit_one, Row("a", Color.RED), "csv")
+        self.assertEqual(out.splitlines()[0], "name,color,tags")
+
+    def test_emit_rows_json_and_csv_with_dataclass_rows(self):
+        rows = [Row("a", Color.RED), Row("b", Color.RED)]
+        _, js = self._capture(emit_rows, rows, "json")
+        self.assertEqual([r["name"] for r in json.loads(js)], ["a", "b"])
+        _, csv_out = self._capture(emit_rows, rows, "csv", ["name", "color"])
+        self.assertEqual(csv_out.splitlines(), ["name,color", "a,red", "b,red"])
+
+    def test_emit_rows_dict_rows_unchanged_in_csv_cells(self):
+        _, out = self._capture(emit_rows, [{"k": (1, 2)}], "csv")
+        self.assertIn("(1, 2)", out)
 
 
 if __name__ == "__main__":

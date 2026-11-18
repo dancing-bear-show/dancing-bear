@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 from core.cli_errors import CLIError, ExitCode
+from core.cli_output import emit_one
 
 # ---------------------------------------------------------------------------
 # parse-overview helpers
@@ -93,8 +94,6 @@ def _cmd_check_fix_index(args: argparse.Namespace) -> int:
 
 def _cmd_thread_fingerprints(args: argparse.Namespace) -> int:
     """Write each threads.json entry's discriminators as a JSON list to stdout."""
-    from dataclasses import asdict
-
     from workflow.review_ids import thread_fingerprints
 
     try:
@@ -102,7 +101,7 @@ def _cmd_thread_fingerprints(args: argparse.Namespace) -> int:
     except ValueError as exc:
         print(f"thread-fingerprints: {exc}", file=sys.stderr)
         return 1
-    print(json.dumps([asdict(row) for row in rows], indent=2))
+    emit_one(rows)
     return 0
 
 

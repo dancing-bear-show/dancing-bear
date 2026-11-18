@@ -10,7 +10,6 @@ Defines the StageDispatcher protocol and four implementations:
 
 from __future__ import annotations
 
-import enum
 import json
 import logging
 import subprocess  # nosec B404 - subprocess imported deliberately; the shell=True call site is separately reviewed under B602
@@ -18,6 +17,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Protocol
 
+from core.cli_output import normalize_for_output
 from core.date_utils import iso_now
 from workflow.dispatch import build_dispatch_instruction, writes_to_relpath
 from workflow.models import (
@@ -40,13 +40,6 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
-
-
-def _json_default(obj: object) -> object:
-    """JSON serializer that renders enums as their value."""
-    if isinstance(obj, enum.Enum):
-        return obj.value
-    return str(obj)
 
 
 # ---------------------------------------------------------------------------
@@ -231,7 +224,9 @@ class SkillDispatcher:
         dispatch_dir = workspace_dir / "dispatch"
         dispatch_dir.mkdir(parents=True, exist_ok=True)
         path = dispatch_dir / f"{stage.index:03d}-{stage.spec.name}.json"
-        path.write_text(json.dumps(instruction, indent=2, default=_json_default), encoding="utf-8")
+        path.write_text(
+            json.dumps(normalize_for_output(instruction), indent=2, default=str), encoding="utf-8"
+        )
 
         existing = read_stage_result(workspace_dir, stage.spec.name)
         if existing is not None:

@@ -44,7 +44,7 @@ class BackupStatus:
     at the destination — this is a reportable state, not an error.
     """
 
-    initialized: bool  # noqa - read via dataclasses.asdict in memory/commands/backup.py
+    initialized: bool  # noqa - read via core.cli_output.emit_one normalization in memory/commands/backup.py
     last_commit: str | None
     dirty: bool
     message: str

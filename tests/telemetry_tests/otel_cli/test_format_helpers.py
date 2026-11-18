@@ -8,9 +8,9 @@ import unittest
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
+from core.cli_args import add_format_argument
 from telemetry.otel.cli._format_helpers import (
     add_data_dir_argument,
-    add_format_argument,
     add_since_argument,
     format_duration,
     format_timestamp,

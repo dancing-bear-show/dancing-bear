@@ -135,6 +135,25 @@ def add_gmail_auth_args(parser, config: GmailAuthConfig | None = None):
     return parser
 
 
+def add_format_argument(
+    parser: argparse.ArgumentParser,
+    formats: list[str] | None = None,
+    default: str = "table",
+    *,
+    describe: bool = True,
+) -> None:
+    """Add ``--format`` restricted to ``formats`` (default: table, json).
+
+    ``describe=False`` omits the help string.
+    """
+    parser.add_argument(
+        "--format",
+        choices=formats or ["table", "json"],
+        default=default,
+        help=f"Output format (default: {default})" if describe else None,
+    )
+
+
 def add_output_args(parser, config: OutputFormatConfig | None = None):
     """Add output formatting arguments.
 

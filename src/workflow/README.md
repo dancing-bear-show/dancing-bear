@@ -141,7 +141,7 @@ Set `human_gate: true` on any stage to pause execution for human review after th
 
 ## Key Modules
 
-- `cli.py` — CLIApp-based dispatch; `_emit_one`/`_emit_rows` delegate to `core.cli_output`
+- `cli.py` — CLIApp-based dispatch; `_emit_one` delegates to `core.cli_output` (table renders `key: value`)
 - `cli_dispatch.py` — argument resolution; errors raise `CLIError` (not `SystemExit`)
 - `cli_compile.py` — `_cmd_compile` implementation
 - `compiler.py` — BFS topological sort; `WorkflowCompileError` subclasses `CLIError`; splits human-gated stages into isolated groups

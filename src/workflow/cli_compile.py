@@ -12,6 +12,7 @@ import json
 import sys
 from pathlib import Path
 
+from core.cli_output import emit_rows
 from core.fileutil import write_once
 from workflow.cli_helpers import check_workflow_path
 from workflow.compiler import match_when_expression, validate_dag_contracts
@@ -80,7 +81,7 @@ def _compile_cache_path(
 
 def _render_compile_output(payload: dict, fmt: str) -> None:
     """Render compile output in the requested format."""
-    from workflow.cli import _emit_one, _emit_rows
+    from workflow.cli import _emit_one
 
     _excluded = ("groups", "resolutions", "contract_warnings_detail")
     summary = {k: v for k, v in payload.items() if k not in _excluded}
@@ -98,14 +99,14 @@ def _render_compile_output(payload: dict, fmt: str) -> None:
         print(f"contract warning: {w['message']}", file=sys.stderr)
     if fmt == "table":
         _emit_one(summary, fmt=fmt)
-        _emit_rows(groups, fmt=fmt, headers=["group", "stages", "parallelism"])
-        _emit_rows(
+        emit_rows(groups, fmt=fmt, headers=["group", "stages", "parallelism"])
+        emit_rows(
             resolutions,
             fmt=fmt,
             headers=["stage", "template_resolved", "guide_resolved", "cli_commands"],
         )
         if warnings:
-            _emit_rows(warnings, fmt=fmt, headers=["stage", "upstream", "message"])
+            emit_rows(warnings, fmt=fmt, headers=["stage", "upstream", "message"])
     else:
         _emit_one(payload, fmt=fmt)
 

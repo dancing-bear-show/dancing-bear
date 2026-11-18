@@ -24,9 +24,10 @@ from functools import lru_cache
 from typing import Any
 
 from core.assistant import BaseAssistant
-from core.cli_errors import ExitCode
+from core.cli_errors import CLIError, ExitCode
 from core.cli_framework import CLIApp
-from core.cli_output import emit_one, emit_rows
+from core.cli_output import emit_one
+from core.yamlio import dump_yaml_text
 from workflow.cli_compile import _cmd_compile
 from workflow.cli_dispatch import (
     _cmd_check_params,
@@ -102,24 +103,12 @@ def _emit_one(data: dict, *, fmt: str = "table") -> None:
         emit_one(data, fmt=fmt)
     elif fmt == "yaml":
         try:
-            import yaml
-
-            print(yaml.safe_dump(data, default_flow_style=False).rstrip())
-        except ImportError:
+            print(dump_yaml_text(data, sort_keys=True).rstrip())
+        except CLIError:
             emit_one(data, fmt="json")
     else:
         for k, v in data.items():
             print(f"{k}: {v}")
-
-
-def _emit_rows(
-    rows: list[dict],
-    *,
-    fmt: str = "table",
-    headers: list[str] | None = None,
-) -> None:
-    """Emit a list of dicts — delegates to core.cli_output.emit_rows."""
-    emit_rows(rows, fmt=fmt, headers=headers)
 
 
 app = CLIApp("workflow", "Workflow engine CLI.", add_common_args=False)
