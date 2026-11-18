@@ -53,6 +53,15 @@ class TestParseSince(unittest.TestCase):
         with self.assertRaises(argparse.ArgumentTypeError):
             _parse_since("bad-value")
 
+    def test_malformed_relative_values_rejected(self):
+        import argparse
+
+        # No 's' unit, no compound, no sign, no bare digits.
+        for raw in ("30s", "1h30m", "-5h", "5", "x2h"):
+            with self.subTest(raw=raw):
+                with self.assertRaises(argparse.ArgumentTypeError):
+                    _parse_since(raw)
+
 
 # ---------------------------------------------------------------------------
 # _stage_cost_if_recent

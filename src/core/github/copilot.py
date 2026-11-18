@@ -15,6 +15,7 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
+from core.coerce import parse_bool
 from core.gh_cli import GhCLI, GhError
 
 from .authors import COPILOT_LOGIN, normalize_login
@@ -24,9 +25,6 @@ COPILOT_REVIEW_ENV = "DANCING_BEAR_COPILOT_REVIEW"
 
 #: REST spelling of the reviewer, which ``requested_reviewers`` requires.
 COPILOT_REVIEWER_REST = f"{COPILOT_LOGIN}[bot]"
-
-_FALSE_VALUES = frozenset({"0", "false", "no", "off"})
-_TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 
 
 @dataclass(frozen=True)
@@ -45,10 +43,10 @@ def copilot_review_switch(environ: dict[str, str] | None = None) -> CopilotSwitc
     """
     env = os.environ if environ is None else environ
     raw = (env.get(COPILOT_REVIEW_ENV) or "").strip()
-    value = raw.lower()
-    if not value or value in _TRUE_VALUES:
+    parsed = parse_bool(raw)
+    if not raw or parsed is True:
         return CopilotSwitch(True)
-    if value in _FALSE_VALUES:
+    if parsed is False:
         return CopilotSwitch(False)
     return CopilotSwitch(
         True,

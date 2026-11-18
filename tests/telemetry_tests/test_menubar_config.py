@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+from core.coerce import coerce_bool
 from telemetry._menubar_config import (
     _DEFAULT_COST_MULTIPLIER,
     _DEFAULT_ICON_TEMPLATE,
@@ -25,7 +26,6 @@ from telemetry._menubar_config import (
     _apply_icon_display,
     _apply_max_tips,
     _apply_poll_interval,
-    _coerce_bool,
     _coerce_cost_multiplier,
     _coerce_icon_display,
     _config_to_text,
@@ -33,7 +33,6 @@ from telemetry._menubar_config import (
     _load_config,
     _merge_section,
     _migrate_flat_keys,
-    _parse_bool,
     _parse_config_text,
     _save_config,
 )
@@ -41,47 +40,47 @@ from telemetry._menubar_config import (
 
 class TestCoerceBool(unittest.TestCase):
     def test_true_bool_passthrough(self) -> None:
-        self.assertTrue(_coerce_bool(True, False))
+        self.assertTrue(coerce_bool(True, False))
 
     def test_false_bool_passthrough(self) -> None:
-        self.assertFalse(_coerce_bool(False, True))
+        self.assertFalse(coerce_bool(False, True))
 
     def test_int_one_is_true(self) -> None:
-        self.assertTrue(_coerce_bool(1, False))
+        self.assertTrue(coerce_bool(1, False))
 
     def test_int_zero_is_false(self) -> None:
-        self.assertFalse(_coerce_bool(0, True))
+        self.assertFalse(coerce_bool(0, True))
 
     def test_string_on_is_true(self) -> None:
-        self.assertTrue(_coerce_bool("on", False))
+        self.assertTrue(coerce_bool("on", False))
 
     def test_string_true_is_true(self) -> None:
-        self.assertTrue(_coerce_bool("true", False))
+        self.assertTrue(coerce_bool("true", False))
 
     def test_string_yes_is_true(self) -> None:
-        self.assertTrue(_coerce_bool("yes", False))
+        self.assertTrue(coerce_bool("yes", False))
 
     def test_string_1_is_true(self) -> None:
-        self.assertTrue(_coerce_bool("1", False))
+        self.assertTrue(coerce_bool("1", False))
 
     def test_string_off_is_false(self) -> None:
-        self.assertFalse(_coerce_bool("off", True))
+        self.assertFalse(coerce_bool("off", True))
 
     def test_string_false_is_false(self) -> None:
-        self.assertFalse(_coerce_bool("false", True))
+        self.assertFalse(coerce_bool("false", True))
 
     def test_string_no_is_false(self) -> None:
-        self.assertFalse(_coerce_bool("no", True))
+        self.assertFalse(coerce_bool("no", True))
 
     def test_string_0_is_false(self) -> None:
-        self.assertFalse(_coerce_bool("0", True))
+        self.assertFalse(coerce_bool("0", True))
 
     def test_unrecognized_string_returns_default(self) -> None:
-        self.assertTrue(_coerce_bool("maybe", True))
-        self.assertFalse(_coerce_bool("maybe", False))
+        self.assertTrue(coerce_bool("maybe", True))
+        self.assertFalse(coerce_bool("maybe", False))
 
     def test_none_returns_default(self) -> None:
-        self.assertTrue(_coerce_bool(None, True))
+        self.assertTrue(coerce_bool(None, True))
 
 
 class TestCoerceCostMultiplier(unittest.TestCase):
@@ -395,26 +394,7 @@ class TestConfigToText(unittest.TestCase):
         self.assertIn("monthly_budget: 4000", text)
 
 
-class TestParseBool(unittest.TestCase):
-    def test_on_true_yes_1(self) -> None:
-        for val in ("on", "true", "yes", "1"):
-            with self.subTest(val=val):
-                self.assertTrue(_parse_bool(val))
-
-    def test_off_false_no_0(self) -> None:
-        for val in ("off", "false", "no", "0"):
-            with self.subTest(val=val):
-                self.assertFalse(_parse_bool(val))
-
-    def test_unrecognized_returns_none(self) -> None:
-        self.assertIsNone(_parse_bool("maybe"))
-        self.assertIsNone(_parse_bool(""))
-
-    def test_strips_whitespace(self) -> None:
-        self.assertTrue(_parse_bool("  on  "))
-
-
-class TestApplyBudget(unittest.TestCase):
+class TestParseBudget(unittest.TestCase):
     def test_valid_positive_budget_applied(self) -> None:
         cfg: dict = {}
         result = _apply_budget(cfg, "1000")

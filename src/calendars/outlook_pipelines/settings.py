@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.coerce import parse_bool
+
 from ._base import (
     LOG_DRY_RUN,
     MSG_PREVIEW_COMPLETE,
@@ -174,7 +176,7 @@ class OutlookSettingsProcessor(SafeProcessor[OutlookSettingsRequest, OutlookSett
             cats = None if cats is None else [str(cats)]
         show_as = cfg.get("show_as") or cfg.get("showAs")
         sensitivity = cfg.get("sensitivity")
-        is_rem_on = self._coerce_bool(cfg.get("is_reminder_on"))
+        is_rem_on = parse_bool(cfg.get("is_reminder_on"))
         rem_min = cfg.get("reminder_minutes")
         try:
             rem_min = int(rem_min) if rem_min is not None else None
@@ -224,18 +226,6 @@ class OutlookSettingsProcessor(SafeProcessor[OutlookSettingsRequest, OutlookSett
             return True, None
         except Exception as exc:
             return False, f"Failed to update {eid}: {exc}"
-
-    def _coerce_bool(self, value: Any) -> bool | None:
-        if isinstance(value, bool):
-            return value
-        if value is None:
-            return None
-        s = str(value).strip().lower()
-        if s in ("1", "true", "yes", "on"):
-            return True
-        if s in ("0", "false", "no", "off"):
-            return False
-        return None
 
     def _to_list(self, value: Any) -> list[str]:
         if value is None:

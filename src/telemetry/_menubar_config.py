@@ -5,6 +5,7 @@ import string
 from collections.abc import Callable
 from pathlib import Path
 
+from core.coerce import coerce_bool, parse_bool
 from core.fileutil import atomic_write_json
 from telemetry.constants import CONFIG_PATH as _CONFIG_PATH
 
@@ -94,21 +95,6 @@ def _any_otel_sections_enabled(cfg: dict) -> bool:
     return any(s.get(k, {}).get("enabled", False) for k in _OTEL_SECTION_KEYS)
 
 
-def _coerce_bool(v: object, default: bool) -> bool:
-    """Coerce a stored value to bool, treating string on/true/yes/1 as True."""
-    if isinstance(v, bool):
-        return v
-    if isinstance(v, int):
-        return bool(v)
-    if isinstance(v, str):
-        lower = v.strip().lower()
-        if lower in ("on", "true", "yes", "1"):
-            return True
-        if lower in ("off", "false", "no", "0"):
-            return False
-    return default
-
-
 def _coerce_cost_multiplier(raw: object) -> float:
     """Parse and validate a cost_multiplier value, returning the default on failure."""
     if isinstance(raw, (int, float)):
@@ -126,7 +112,7 @@ def _merge_section(defaults: dict, stored: object) -> dict:
     for k, default_v in defaults.items():
         v = stored.get(k, default_v)
         if isinstance(default_v, bool):
-            out[k] = _coerce_bool(v, default_v)
+            out[k] = coerce_bool(v, default_v)
         elif isinstance(default_v, int):
             try:
                 out[k] = max(1, min(_MAX_TIPS_LIMIT, int(v)))
@@ -149,7 +135,7 @@ def _migrate_flat_keys(raw: dict) -> dict:
     }
     for flat_key, (section, field) in mapping.items():
         if flat_key in raw:
-            sections.setdefault(section, {})[field] = _coerce_bool(raw[flat_key], True)
+            sections.setdefault(section, {})[field] = coerce_bool(raw[flat_key], True)
     return sections
 
 
@@ -323,15 +309,6 @@ def _apply_cost_multiplier(cfg: dict, val: str) -> bool:
     return False
 
 
-def _parse_bool(v: str) -> bool | None:
-    lower = v.strip().lower()
-    if lower in ("on", "true", "yes", "1"):
-        return True
-    if lower in ("off", "false", "no", "0"):
-        return False
-    return None
-
-
 # Dispatch table for scalar (non-bool-section) config keys — each handler
 # takes (cfg, val) and returns whether the value was applied.
 _SCALAR_KEY_HANDLERS: dict[str, Callable[[dict, str], bool]] = {
@@ -345,7 +322,7 @@ _SCALAR_KEY_HANDLERS: dict[str, Callable[[dict, str], bool]] = {
 
 def _apply_bool_key(key: str, val: str, bool_keys: dict) -> bool:
     """Apply a boolean section/field toggle. Returns whether it was applied."""
-    parsed = _parse_bool(val)
+    parsed = parse_bool(val)
     if parsed is None:
         return False
     section, field = bool_keys[key]

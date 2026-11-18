@@ -75,14 +75,12 @@ from telemetry._menubar_config import (
     _apply_icon_display,  # noqa: F401
     _apply_max_tips,  # noqa: F401
     _apply_poll_interval,  # noqa: F401
-    _coerce_bool,  # noqa: F401
     _coerce_icon_display,  # noqa: F401
     _config_to_text,  # noqa: F401
     _icon_template_vars,  # noqa: F401
     _IconTemplate,  # noqa: F401
     _merge_section,  # noqa: F401
     _migrate_flat_keys,  # noqa: F401
-    _parse_bool,  # noqa: F401
     _parse_config_text,  # noqa: F401
 )
 from telemetry._menubar_config import (
