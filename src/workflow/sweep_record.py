@@ -22,12 +22,12 @@ from __future__ import annotations
 import json
 import os
 import re
-import subprocess  # nosec B404 - fixed git argv lists, never a shell
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from core.date_utils import iso_now
+from core.gitutil import run_git
 
 RECORD_SUBDIR = ("dancing-bear", "concern-sweeps")
 CHANGED_FILES_NAME = "changed-files.txt"
@@ -45,17 +45,6 @@ MODE_WAIVED = "waived"
 MODES = (MODE_SWEPT, MODE_WAIVED)
 
 _SHA_RE = re.compile(r"[0-9a-f]{40}")
-# Variables that would point git at a different repository than the checkout.
-_GIT_ENV_OVERRIDES = (
-    "GIT_DIR",
-    "GIT_WORK_TREE",
-    "GIT_COMMON_DIR",
-    "GIT_INDEX_FILE",
-    "GIT_OBJECT_DIRECTORY",
-    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-    "GIT_CEILING_DIRECTORIES",
-    "GIT_DISCOVERY_ACROSS_FILESYSTEM",
-)
 
 
 class SweepRecordError(Exception):
@@ -91,16 +80,8 @@ def validate_sha(head: str) -> str:
 
 
 def _git(repo: Path, *args: str) -> str:
-    env = {k: v for k, v in os.environ.items() if k not in _GIT_ENV_OVERRIDES}
-    proc = subprocess.run(  # nosec B603 B607 - fixed argv, no shell
-        ["git", *args],
-        cwd=str(repo),
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if proc.returncode != 0:
+    proc = run_git(args, cwd=repo)
+    if not proc.ok:
         raise SweepRecordError(f"git {' '.join(args)} failed: {proc.stderr.strip()}")
     return proc.stdout.strip()
 

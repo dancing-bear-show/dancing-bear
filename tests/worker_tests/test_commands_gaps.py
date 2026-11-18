@@ -638,7 +638,7 @@ class TestDaemonRunnerDaemon(unittest.TestCase, QueueRootIsolationMixin):
 
         with (
             patch.object(runner, "tick", side_effect=_tick_raising),
-            patch("worker.job_runtime.get_repo_root", return_value=Path(self.tmp.name)),
+            patch("worker.job_runtime.repo_root", return_value=Path(self.tmp.name)),
             patch("os.chdir"),
         ):
             result = runner.run_daemon()
@@ -657,7 +657,7 @@ class TestDaemonRunnerDaemon(unittest.TestCase, QueueRootIsolationMixin):
 
         with (
             patch.object(runner, "tick", side_effect=KeyboardInterrupt),
-            patch("worker.job_runtime.get_repo_root", return_value=Path("/fake/repo")),
+            patch("worker.job_runtime.repo_root", return_value=Path("/fake/repo")),
             patch("os.chdir") as mock_chdir,
         ):
             runner.run_daemon()

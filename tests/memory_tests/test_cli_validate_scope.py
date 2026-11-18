@@ -186,6 +186,8 @@ class TestStaleSupersededPrRobustness(MemoryTestCase):
 
         class _Done:
             stdout = '{"state": "MERGED"}'
+            stderr = ""
+            returncode = 0
 
         def fake_run(argv: list[str], **kw: object) -> _Done:
             calls.append((argv, kw))
@@ -196,12 +198,12 @@ class TestStaleSupersededPrRobustness(MemoryTestCase):
         cwd = os.getcwd()
         self.addCleanup(os.chdir, cwd)
         os.chdir(elsewhere)
-        with patch("memory.validation.subprocess.run", fake_run):
+        with patch("core.process.subprocess.run", fake_run):
             results = _check_stale_superseded_pr(store, ctx)
         self.assertEqual(len(results), 1)
         argv, kw = calls[0]
         self.assertEqual(argv[0], str(repo / "bin" / "github"))
-        self.assertEqual(kw["cwd"], repo)
+        self.assertEqual(kw["cwd"], str(repo))
         self.assertIsNotNone(kw.get("timeout"))
 
 

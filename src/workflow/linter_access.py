@@ -23,6 +23,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from workflow.models import AgentSpec, StageSpec
 
+from core.paths import repo_root
+
 from .linter_types import LintResult, LintWarning
 
 __all__ = [
@@ -32,7 +34,7 @@ __all__ = [
     "_roles_that_cannot_write",
 ]
 
-_AGENTS_DIR = Path(__file__).resolve().parents[2] / ".claude" / "agents"
+_AGENTS_DIR = repo_root() / ".claude" / "agents"
 
 # The Write tool name as it appears in ``disallowedTools:`` frontmatter.
 _WRITE_TOOL = "Write"

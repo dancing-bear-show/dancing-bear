@@ -1151,8 +1151,8 @@ class TestRefDeadCli(MemoryTestCase):
         )
         store = _make_store(self.tmp, memories=(m,))
 
-        with patch("memory.validation.subprocess.check_output") as mock_sub:
-            mock_sub.return_value = str(real_repo)
+        with patch("memory.validation.git_toplevel") as mock_sub:
+            mock_sub.return_value = real_repo
             results = run_checks(store, checks=("ref-dead-cli",), repo=str(garbled_repo))
 
         dead = [r for r in results if r.check_id == "ref-dead-cli"]
@@ -1160,9 +1160,7 @@ class TestRefDeadCli(MemoryTestCase):
         mock_sub.assert_called_once()
 
     def test_dead_cli_fallback_exception_returns_empty(self) -> None:
-        """When git rev-parse raises CalledProcessError, _check_ref_dead_cli returns ()."""
-        import subprocess
-
+        """When git_toplevel finds no checkout (None), _check_ref_dead_cli returns ()."""
         garbled_repo = self.tmp / "garbled_path_that_does_not_exist"
 
         m = _make_memory(
@@ -1172,8 +1170,8 @@ class TestRefDeadCli(MemoryTestCase):
         )
         store = _make_store(self.tmp, memories=(m,))
 
-        with patch("memory.validation.subprocess.check_output") as mock_sub:
-            mock_sub.side_effect = subprocess.CalledProcessError(1, "git")
+        with patch("memory.validation.git_toplevel") as mock_sub:
+            mock_sub.return_value = None
             results = run_checks(store, checks=("ref-dead-cli",), repo=str(garbled_repo))
 
         dead = [r for r in results if r.check_id == "ref-dead-cli"]
@@ -1192,8 +1190,8 @@ class TestRefDeadCli(MemoryTestCase):
         )
         store = _make_store(self.tmp, memories=(m,))
 
-        with patch("memory.validation.subprocess.check_output") as mock_sub:
-            mock_sub.return_value = str(also_no_bin)
+        with patch("memory.validation.git_toplevel") as mock_sub:
+            mock_sub.return_value = also_no_bin
             results = run_checks(store, checks=("ref-dead-cli",), repo=str(garbled_repo))
 
         dead = [r for r in results if r.check_id == "ref-dead-cli"]
@@ -1908,8 +1906,8 @@ class TestStaleSupersededPrNoCwdFallback(MemoryTestCase):
         self.addCleanup(os.chdir, cwd)
         os.chdir(evil)
         with (
-            patch("memory.validation._git_toplevel", return_value=evil),
-            patch("memory.validation.subprocess.run") as run,
+            patch("memory.validation.git_toplevel", return_value=evil),
+            patch("core.process.subprocess.run") as run,
         ):
             m = _make_project_memory(self.tmp, "project_x", "See PR #7.")
             results = _check_stale_superseded_pr(_make_store(self.tmp, memories=(m,)), ctx)
@@ -1921,7 +1919,7 @@ class TestStaleSupersededPrNoCwdFallback(MemoryTestCase):
 
         top = self.tmp / "top"
         (top / "bin").mkdir(parents=True)
-        with patch("memory.validation._git_toplevel", return_value=top):
+        with patch("memory.validation.git_toplevel", return_value=top):
             self.assertEqual(_resolve_repo_root(None, "bin"), top)
             self.assertIsNone(_resolve_repo_root(None, "bin", allow_toplevel_fallback=False))
 

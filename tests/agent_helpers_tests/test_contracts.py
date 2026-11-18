@@ -36,17 +36,17 @@ class TestAgentHelpersNoSubcommand(NoSubcommandContractMixin, unittest.TestCase)
 class TestResolveRepoRoot(unittest.TestCase):
     def test_success_strips_newline(self):
         run = CompletedRun(stdout="/some/repo\n", stderr="", returncode=0)
-        with unittest.mock.patch("agent_helpers.repo.run_binary", return_value=run):
+        with unittest.mock.patch("agent_helpers.repo.run_git", return_value=run):
             self.assertEqual(resolve_repo_root(), ("/some/repo", None))
 
     def test_outside_repo(self):
         run = CompletedRun(stdout="", stderr="fatal", returncode=128)
-        with unittest.mock.patch("agent_helpers.repo.run_binary", return_value=run):
+        with unittest.mock.patch("agent_helpers.repo.run_git", return_value=run):
             self.assertEqual(resolve_repo_root(), ("", "not inside a git repository"))
 
     def test_timeout(self):
         run = CompletedRun(stdout="", stderr="timeout", returncode=124, timed_out=True)
-        with unittest.mock.patch("agent_helpers.repo.run_binary", return_value=run):
+        with unittest.mock.patch("agent_helpers.repo.run_git", return_value=run):
             root, error = resolve_repo_root()
         self.assertEqual(root, "")
         self.assertIn("timed out", error or "")
