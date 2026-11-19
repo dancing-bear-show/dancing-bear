@@ -88,7 +88,7 @@ class TestBackupStores(MemoryTestCase):
         )
         dest = self.tmp / "backup"
 
-        with patch("memory.backup.subprocess.run") as mock_run:
+        with patch("core.process.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
                 returncode=0,
                 stdout="[master abc1234] backup\n",
@@ -188,7 +188,7 @@ class TestBackupStores(MemoryTestCase):
     def test_backup_includes_index_and_non_memory_files(self) -> None:
         _, store = self._real_store("-Users-alice-code-full")
         dest = self.tmp / "full_backup"
-        with patch("memory.backup.subprocess.run") as mock_run:
+        with patch("core.process.subprocess.run") as mock_run:
             mock_run.return_value = _ok_proc()
             result = backup_stores((store,), dest)
         names = {Path(p).name for p in result.files_staged}
@@ -213,7 +213,7 @@ class TestBackupStores(MemoryTestCase):
 
         store = load_store("-Users-alice-code-link", projects_root=self.tmp / "projects")
         dest = self.tmp / "link_backup"
-        with patch("memory.backup.subprocess.run") as mock_run:
+        with patch("core.process.subprocess.run") as mock_run:
             mock_run.return_value = _ok_proc()
             result = backup_stores((store,), dest)
         self.assertFalse((dest / "-Users-alice-code-link__linked.md").exists())
@@ -232,7 +232,7 @@ class TestBackupStores(MemoryTestCase):
         )
         dest = self.tmp / "bkp2"
 
-        with patch("memory.backup.subprocess.run") as mock_run:
+        with patch("core.process.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0, stdout="[master abc] msg\n", stderr="")
             backup_stores((store,), dest)
 
@@ -248,7 +248,7 @@ class TestBackupStores(MemoryTestCase):
         )
         dest = self.tmp / "bkp3"
 
-        with patch("memory.backup.subprocess.run") as mock_run:
+        with patch("core.process.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0, stdout="[master abc] msg\n", stderr="")
             backup_stores((store,), dest)
 
@@ -264,7 +264,7 @@ class TestBackupStores(MemoryTestCase):
         )
         dest = self.tmp / "backup4"
 
-        with patch("memory.backup.subprocess.run") as mock_run:
+        with patch("core.process.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
                 returncode=0, stdout="[master abc1234] msg\n", stderr=""
             )
@@ -278,7 +278,7 @@ class TestBackupStores(MemoryTestCase):
     def test_empty_stores_tuple(self) -> None:
         dest = self.tmp / "empty_backup"
 
-        with patch("memory.backup.subprocess.run") as mock_run:
+        with patch("core.process.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0, stdout="nothing to commit\n", stderr="")
             result = backup_stores((), dest)
 
@@ -289,7 +289,7 @@ class TestBackupStores(MemoryTestCase):
         store = _empty_store("slug1")
         dest = self.tmp / "ts_backup"
 
-        with patch("memory.backup.subprocess.run") as mock_run:
+        with patch("core.process.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0, stdout="[master abc] msg\n", stderr="")
             result = backup_stores((store,), dest)
 
@@ -301,7 +301,7 @@ class TestBackupStores(MemoryTestCase):
         store = _empty_store("slug2")
         dest = self.tmp / "msg_backup"
 
-        with patch("memory.backup.subprocess.run") as mock_run:
+        with patch("core.process.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
                 returncode=0, stdout="[master abc] my msg\n", stderr=""
             )
@@ -324,7 +324,7 @@ class TestBackupStatus(MemoryTestCase):
 
     def test_status_is_read_only_on_nonexistent_path(self) -> None:
         """backup_status on a path with no .git must not call subprocess.run."""
-        with patch("memory.backup.subprocess.run") as mock_run:
+        with patch("core.process.subprocess.run") as mock_run:
             result = backup_status(self.tmp / "no_git")
 
         self.assertFalse(
@@ -345,7 +345,7 @@ class TestBackupStatus(MemoryTestCase):
         fake_git_dir.mkdir()
         (fake_git_dir / ".git").mkdir()
 
-        with patch("memory.backup.subprocess.run") as mock_run:
+        with patch("core.process.subprocess.run") as mock_run:
             mock_run.return_value = _ok_proc()
             result = backup_status(fake_git_dir)
 
@@ -420,7 +420,7 @@ class TestGitSubprocessFailures(MemoryTestCase):
         # dest does not have .git, so init will be attempted
         store = _empty_store("slug-init-fail")
 
-        with patch("memory.backup.subprocess.run") as mock_run:
+        with patch("core.process.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
                 returncode=1,
                 stdout="",
@@ -446,7 +446,7 @@ class TestGitSubprocessFailures(MemoryTestCase):
         dest.mkdir()
         (dest / ".git").mkdir()
 
-        with patch("memory.backup.subprocess.run") as mock_run:
+        with patch("core.process.subprocess.run") as mock_run:
             # git add fails
             mock_run.return_value = MagicMock(
                 returncode=1,
@@ -481,7 +481,7 @@ class TestGitSubprocessFailures(MemoryTestCase):
             # git add succeeds (no files to add since store is empty)
             return _ok_proc()
 
-        with patch("memory.backup.subprocess.run", side_effect=side_effect):
+        with patch("core.process.subprocess.run", side_effect=side_effect):
             result = backup_stores((store,), dest)
 
         self.assertIsInstance(result, BackupResult)
@@ -496,7 +496,7 @@ class TestGitSubprocessFailures(MemoryTestCase):
         dest.mkdir()
         (dest / ".git").mkdir()
 
-        with patch("memory.backup.subprocess.run") as mock_run:
+        with patch("core.process.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
                 returncode=1,
                 stdout="nothing to commit, working tree clean",
@@ -523,7 +523,7 @@ class TestGitSubprocessFailures(MemoryTestCase):
                 return MagicMock(returncode=1, stdout="", stderr="fatal: not a git repo")
             return _ok_proc()
 
-        with patch("memory.backup.subprocess.run", side_effect=side_effect):
+        with patch("core.process.subprocess.run", side_effect=side_effect):
             result = backup_stores((store,), dest)
 
         self.assertIsInstance(result, BackupResult)
@@ -555,7 +555,7 @@ class TestBackupStatusGitLogFailure(MemoryTestCase):
                 return MagicMock(returncode=1, stdout="", stderr="fatal: bad default revision")
             return _ok_proc()
 
-        with patch("memory.backup.subprocess.run", side_effect=side_effect):
+        with patch("core.process.subprocess.run", side_effect=side_effect):
             result = backup_status(fake_git_dir)
 
         self.assertIsInstance(result, BackupStatus)

@@ -11,11 +11,11 @@ from rich.table import Table
 
 from telemetry._cli_agents import (
     _COL_EST_COST,
-    _agent_row_to_dict,
     _build_agents_table,
     _print_agents_csv,
     _print_agents_json,
 )
+from telemetry.cli_formatters import _agent_row_to_dict
 from tests.telemetry_tests.shared_fixtures import _make_agent_token_row
 
 # ---------------------------------------------------------------------------

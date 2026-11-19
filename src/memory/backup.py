@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import subprocess
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from shutil import copy2
 
+from core.gitutil import run_git
 from memory.models import MemoryStore
 
 __all__ = ["BackupResult", "BackupStatus", "backup_status", "backup_stores"]
@@ -50,12 +50,6 @@ class BackupStatus:
     message: str
 
 
-def _run_git(args: list[str], *, cwd: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(  # nosec B603 B607 - fixed git argv, list form, no shell
-        ["git", *args], cwd=str(cwd), capture_output=True, text=True, check=False
-    )
-
-
 def _init_repo_if_absent(dest_path: Path) -> tuple[bool, BackupResult | None]:
     """Initialize a git repo at dest_path if one doesn't exist yet.
 
@@ -65,7 +59,7 @@ def _init_repo_if_absent(dest_path: Path) -> tuple[bool, BackupResult | None]:
     if (dest_path / ".git").exists():
         return False, None
     dest_path.mkdir(parents=True, exist_ok=True)
-    result = _run_git(["init"], cwd=dest_path)
+    result = run_git(["init"], cwd=dest_path)
     if result.returncode != 0:
         return False, BackupResult(
             dest=str(dest_path),
@@ -124,7 +118,7 @@ def _stage_files(
         # "--" ends option parsing: staged names are "<project_slug>__<file>"
         # and Claude project slugs begin with "-" ("-Users-..."), which git
         # would otherwise parse as a cluster of short options.
-        result = _run_git(["add", "--", relative_path], cwd=dest_path)
+        result = run_git(["add", "--", relative_path], cwd=dest_path)
         if result.returncode != 0:
             return BackupResult(
                 dest=str(dest_path),
@@ -145,7 +139,7 @@ def _commit_and_resolve_sha(
     created_repo: bool,
     skipped_symlinks: tuple[str, ...] = (),
 ) -> BackupResult:
-    result = _run_git(["commit", "-m", message], cwd=dest_path)
+    result = run_git(["commit", "-m", message], cwd=dest_path)
     # git commit exits 0 on a genuine commit. A non-zero exit with "nothing
     # to commit" in stdout is the documented no-op case, not a failure. Any
     # other non-zero exit (e.g. a pre-commit hook rejecting the commit) is a
@@ -167,7 +161,7 @@ def _commit_and_resolve_sha(
         # Resolve the SHA directly rather than scraping the bracketed summary
         # line, which embeds the branch name (e.g. "[master abc1234]") and
         # silently fails to match on any non-master/main default branch.
-        sha_result = _run_git(["rev-parse", "HEAD"], cwd=dest_path)
+        sha_result = run_git(["rev-parse", "HEAD"], cwd=dest_path)
         if sha_result.returncode == 0:
             commit_sha = sha_result.stdout.strip()
 
@@ -249,11 +243,11 @@ def backup_status(dest: str | Path) -> BackupStatus:
         )
 
     # Check for uncommitted changes
-    result = _run_git(["status", "--porcelain"], cwd=dest_path)
+    result = run_git(["status", "--porcelain"], cwd=dest_path)
     dirty = bool(result.stdout.strip())
 
     # Get last commit time
-    result = _run_git(["log", "-1", "--format=%ai"], cwd=dest_path)
+    result = run_git(["log", "-1", "--format=%ai"], cwd=dest_path)
     last_commit = result.stdout.strip() if result.returncode == 0 else None
 
     return BackupStatus(

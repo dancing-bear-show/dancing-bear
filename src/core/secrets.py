@@ -438,14 +438,14 @@ class MaskingWriter:
 def install_output_masking_from_env() -> None:
     """Install MaskingWriter on stdout/stderr based on env toggles.
 
-    - SRE_MASK_OUTPUTS: enable when truthy (default 1); disable when 0/false/no/empty
-    - SRE_MASK_BYPASS: disable when truthy (wins over MASK_OUTPUTS)
+    - DANCING_BEAR_MASK_OUTPUTS: enable when truthy (default 1); disable when 0/false/no/empty
+    - DANCING_BEAR_MASK_BYPASS: disable when truthy (wins over MASK_OUTPUTS)
     """
     try:
-        bypass = (os.getenv("SRE_MASK_BYPASS") or "").strip().lower()
+        bypass = (os.getenv("DANCING_BEAR_MASK_BYPASS") or "").strip().lower()
         if bypass and bypass not in {"0", "false", "no"}:
             return
-        val = (os.getenv("SRE_MASK_OUTPUTS", "1") or "").strip().lower()
+        val = (os.getenv("DANCING_BEAR_MASK_OUTPUTS", "1") or "").strip().lower()
         if val in {"", "0", "false", "no"}:
             return
         if not isinstance(sys.stdout, MaskingWriter):

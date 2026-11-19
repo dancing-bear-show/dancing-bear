@@ -81,9 +81,10 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
+from core.paths import repo_root
 from core.process import run_binary
 from core.secrets import mask_text
-from worker._helpers import get_repo_root, get_worker_state_dir
+from worker._helpers import get_worker_state_dir
 from worker.qwen_edits import EDIT_FORMAT_EXAMPLE, EditBlockError, edits_to_diff
 from worker.qwen_telemetry import (
     describe_exception,
@@ -228,7 +229,7 @@ def _write_job_file(path: Path, text: str) -> None:
 
 
 def _repo_root() -> Path:
-    return get_repo_root()
+    return repo_root()
 
 
 def _is_denied_name(path: Path) -> bool:

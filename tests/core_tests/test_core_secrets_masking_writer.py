@@ -140,7 +140,7 @@ class TestInstallOutputMasking(unittest.TestCase):
             sys.stdout = StringIO()
             sys.stderr = StringIO()
             with unittest.mock.patch.dict(
-                "os.environ", {"SRE_MASK_OUTPUTS": "1", "SRE_MASK_BYPASS": ""}
+                "os.environ", {"DANCING_BEAR_MASK_OUTPUTS": "1", "DANCING_BEAR_MASK_BYPASS": ""}
             ):
                 install_output_masking_from_env()
             self.assertIsInstance(sys.stdout, MaskingWriter)
@@ -155,7 +155,7 @@ class TestInstallOutputMasking(unittest.TestCase):
         try:
             sys.stdout = StringIO()
             sys.stderr = StringIO()
-            with unittest.mock.patch.dict("os.environ", {"SRE_MASK_BYPASS": "1"}):
+            with unittest.mock.patch.dict("os.environ", {"DANCING_BEAR_MASK_BYPASS": "1"}):
                 install_output_masking_from_env()
             # Should not be wrapped
             self.assertNotIsInstance(sys.stdout, MaskingWriter)
@@ -170,7 +170,7 @@ class TestInstallOutputMasking(unittest.TestCase):
             sys.stdout = StringIO()
             sys.stderr = StringIO()
             with unittest.mock.patch.dict(
-                "os.environ", {"SRE_MASK_OUTPUTS": "0", "SRE_MASK_BYPASS": ""}
+                "os.environ", {"DANCING_BEAR_MASK_OUTPUTS": "0", "DANCING_BEAR_MASK_BYPASS": ""}
             ):
                 install_output_masking_from_env()
             self.assertNotIsInstance(sys.stdout, MaskingWriter)
@@ -185,7 +185,7 @@ class TestInstallOutputMasking(unittest.TestCase):
             sys.stdout = StringIO()
             sys.stderr = StringIO()
             with unittest.mock.patch.dict(
-                "os.environ", {"SRE_MASK_OUTPUTS": "false", "SRE_MASK_BYPASS": ""}
+                "os.environ", {"DANCING_BEAR_MASK_OUTPUTS": "false", "DANCING_BEAR_MASK_BYPASS": ""}
             ):
                 install_output_masking_from_env()
             self.assertNotIsInstance(sys.stdout, MaskingWriter)
@@ -201,7 +201,7 @@ class TestInstallOutputMasking(unittest.TestCase):
             sys.stdout = StringIO()
             sys.stderr = StringIO()
             with unittest.mock.patch.dict(
-                "os.environ", {"SRE_MASK_OUTPUTS": "1", "SRE_MASK_BYPASS": ""}
+                "os.environ", {"DANCING_BEAR_MASK_OUTPUTS": "1", "DANCING_BEAR_MASK_BYPASS": ""}
             ):
                 install_output_masking_from_env()
                 install_output_masking_from_env()
@@ -219,7 +219,7 @@ class TestInstallOutputMasking(unittest.TestCase):
         try:
             sys.stdout = StringIO()
             sys.stderr = StringIO()
-            with unittest.mock.patch.dict("os.environ", {"SRE_MASK_BYPASS": "no"}):
+            with unittest.mock.patch.dict("os.environ", {"DANCING_BEAR_MASK_BYPASS": "no"}):
                 # "no" is in the bypass-disable set, so should install
                 install_output_masking_from_env()
         finally:

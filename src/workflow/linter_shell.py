@@ -91,6 +91,8 @@ from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from core.text_utils import truncate_text
+
 from .linter_types import LintResult, LintWarning
 from .placeholders import PLACEHOLDER_RE
 from .shell_guard import refused_construct
@@ -327,7 +329,7 @@ def _warn(stage: str, rule: str, message: str, field: str = _FIELD) -> LintWarni
 def _snippet(text: str) -> str:
     """The first line of *text*, trimmed for a warning message."""
     first = text.strip().splitlines()[0] if text.strip() else ""
-    return first if len(first) <= _SNIPPET_LEN else first[: _SNIPPET_LEN - 3] + "..."
+    return truncate_text(first, _SNIPPET_LEN, "...")
 
 
 # ---------------------------------------------------------------------------

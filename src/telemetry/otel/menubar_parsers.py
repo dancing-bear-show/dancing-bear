@@ -152,15 +152,24 @@ def parse_metric_points(
             point = _read_datapoint(dp, cutoff)
             if point is None:
                 continue
-            ts, value, attrs = point
-            if not is_cumulative:
-                deltas.append((name, value, attrs))
-                continue
-            key = (name, *(f"{k}={v}" for k, v in sorted(attrs.items())))
-            prev = latest.get(key)
-            if prev is None or ts > prev[0]:
-                latest[key] = point
+            if is_cumulative:
+                _keep_latest(latest, name, point)
+            else:
+                deltas.append((name, point[1], point[2]))
     return [(key[0], value, attrs) for key, (_, value, attrs) in latest.items()] + deltas
+
+
+def _keep_latest(
+    latest: dict[tuple[str, ...], tuple[float, float, dict[str, object]]],
+    name: str,
+    point: tuple[float, float, dict[str, object]],
+) -> None:
+    """Record ``point`` as the series' latest unless a newer one is already held."""
+    ts, _, attrs = point
+    key = (name, *(f"{k}={v}" for k, v in sorted(attrs.items())))
+    prev = latest.get(key)
+    if prev is None or ts > prev[0]:
+        latest[key] = point
 
 
 def _accumulate_loc_delta(

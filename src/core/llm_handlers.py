@@ -27,6 +27,7 @@ from core.llm_staleness import (
     _handle_deps,
     _handle_stale,
 )
+from core.paths import repo_root
 from core.textio import read_text as _read_text
 from core.textio import write_text as _write_text
 
@@ -191,14 +192,9 @@ def _mail_flows() -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
-def _repo_root() -> Path:
-    # llm_handlers.py lives at <root>/src/core/; two parents up is <root>.
-    return Path(__file__).resolve().parents[2]
-
-
 def _inventory_data() -> dict[str, Any]:
     """Collect inventory facts from the canonical registries, not a hardcoded list."""
-    root = _repo_root()
+    root = repo_root()
     bin_dir = root / "bin"
     wrappers = (
         sorted(

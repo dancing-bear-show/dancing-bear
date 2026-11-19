@@ -14,11 +14,11 @@ from pathlib import Path
 from typing import BinaryIO
 
 from core.cli_errors import CLIError
+from core.date_utils import now_utc, parse_window
 from core.fileutil import atomic_write_json, safe_load_json
 from telemetry._menubar_budget import _to_int
 from telemetry._transcript_record_parser import _process_one_record
 from telemetry.parse_transcripts_emit import ParseResult
-from telemetry.timeutil import now_utc, parse_window
 
 DEFAULT_INDEX_DIR = Path.home() / ".config" / "dancing-bear" / "work" / "prompt-index"
 STATE_FILE = ".state.json"

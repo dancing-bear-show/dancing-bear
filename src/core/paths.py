@@ -33,7 +33,9 @@ committed — least of all to a public repository.
 
 from __future__ import annotations
 
+import functools
 import os
+import re
 from pathlib import Path
 
 # Env var overriding the data root for this project specifically. Checked before
@@ -117,3 +119,28 @@ def output_dir(domain: str, override: str | os.PathLike[str] | None = None) -> P
     if override:
         return Path(os.path.expanduser(str(override)))
     return data_home() / domain
+
+
+_PROJECT_NAME_RE = re.compile(r'^name\s*=\s*"personal-assistants"\s*$', re.MULTILINE)
+
+
+def _names_this_project(pyproject: Path) -> bool:
+    try:
+        return _PROJECT_NAME_RE.search(pyproject.read_text(encoding="utf-8")) is not None
+    except OSError:
+        return False
+
+
+@functools.lru_cache(maxsize=1)
+def repo_root() -> Path:
+    """This checkout's root: the nearest ancestor whose pyproject.toml names this project.
+
+    Walks up from this file instead of counting ``parents[N]``, so moving a
+    module cannot leave callers one level short. Outside a checkout (no such
+    ancestor) falls back to the source-tree layout, ``<root>/src/core/paths.py``.
+    """
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        if _names_this_project(parent / "pyproject.toml"):
+            return parent
+    return here.parents[2]

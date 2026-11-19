@@ -10,6 +10,7 @@ import argparse
 import re
 
 from core.cli_output import emit_rows
+from core.text_utils import truncate_text
 from memory.commands._common import (
     ALL_STORES_ARG,
     STORE_ARG,
@@ -72,9 +73,7 @@ def _extract_snippet(text: str, start: int, end: int) -> str:
     snip_end = min(len(text), end + SNIPPET_WINDOW)
     snippet = text[snip_start:snip_end]
     snippet = " ".join(snippet.split())
-    if len(snippet) > 200:
-        snippet = snippet[:197] + "..."
-    return snippet
+    return truncate_text(snippet, 200, "...")
 
 
 def _search_field(

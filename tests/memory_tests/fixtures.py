@@ -8,10 +8,13 @@ Every memory test should inherit ``MemoryTestCase`` (or call
 
 from __future__ import annotations
 
+import contextlib
+import io
 import os
 import tempfile
 import unittest
 import unittest.mock
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -19,8 +22,11 @@ from memory.models import (
     BUNDLE_VERSION,
     ExportedMemory,
     ExportProvenance,
+    IndexEntry,
+    Memory,
     MemoryBundle,
     MemoryFrontmatter,
+    MemoryStore,
     MemoryType,
     Redaction,
     SchemaShape,
@@ -64,6 +70,127 @@ class MemoryTestCase(unittest.TestCase):
         scratch = tempfile.TemporaryDirectory()
         self.addCleanup(scratch.cleanup)
         self.tmp = Path(scratch.name)
+
+
+def run_memory_cli(argv: list[str]) -> tuple[int, str, str]:
+    """Call ``memory.cli.main(argv)`` with output captured; return (rc, stdout, stderr).
+
+    ``memory.cli`` is resolved at call time so a patch of ``memory.cli.main`` applies.
+    """
+    import memory.cli
+
+    out_buf = io.StringIO()
+    err_buf = io.StringIO()
+    with contextlib.redirect_stdout(out_buf), contextlib.redirect_stderr(err_buf):
+        rc = memory.cli.main(argv)
+    return rc, out_buf.getvalue(), err_buf.getvalue()
+
+
+def make_store(
+    slug: str = "test-slug",
+    *,
+    root: str | None = None,
+    memories: tuple[Memory, ...] = (),
+    non_memory_files: tuple[str, ...] = (),
+    index_path: str | None = None,
+    index_entries: tuple[IndexEntry, ...] = (),
+    inferred_repo: str | None = None,
+    is_worktree_slug: bool = False,
+) -> MemoryStore:
+    """An in-memory MemoryStore; ``root`` defaults to ``/nonexistent/<slug>``."""
+    return MemoryStore(
+        project_slug=slug,
+        root=f"/nonexistent/{slug}" if root is None else root,
+        memories=memories,
+        non_memory_files=non_memory_files,
+        index_path=index_path,
+        index_entries=index_entries,
+        inferred_repo=inferred_repo,
+        is_worktree_slug=is_worktree_slug,
+    )
+
+
+def write_store(
+    base: Path,
+    slug: str,
+    files: Iterable[tuple[str, str]],
+    *,
+    inferred_repo: str | None = None,
+    is_worktree_slug: bool = False,
+    with_index: bool = False,
+) -> MemoryStore:
+    """Write ``files`` to ``<base>/<slug>/memory/`` and return a MemoryStore of the parsed memories.
+
+    With ``with_index``, each memory is appended to a MEMORY.md and ``index_path`` set.
+    """
+    from memory.index import append_entry
+    from memory.parser import parse_memory_file
+
+    store_root = base / slug
+    mem_dir = store_root / "memory"
+    mem_dir.mkdir(parents=True)
+
+    memories = []
+    for filename, content in files:
+        f = mem_dir / filename
+        f.write_text(content, encoding="utf-8")
+        memories.append(parse_memory_file(f, project_slug=slug))
+
+    index_path = None
+    if with_index:
+        index_file = mem_dir / "MEMORY.md"
+        for mem in memories:
+            append_entry(index_file, mem)
+        index_path = str(index_file)
+
+    return make_store(
+        slug,
+        root=str(store_root),
+        memories=tuple(memories),
+        index_path=index_path,
+        inferred_repo=inferred_repo,
+        is_worktree_slug=is_worktree_slug,
+    )
+
+
+def make_memory(
+    slug: str = "mem",
+    *,
+    mtime: datetime | None = None,
+    indexed: bool = False,
+    mem_type: MemoryType | None = MemoryType.FEEDBACK,
+    description: str | None = None,
+    shape: SchemaShape = SchemaShape.NESTED,
+    body: str = "**Why:** Test.\n\n**How to apply:** Use in tests.",
+    why: str | None = "Test.",
+    how_to_apply: str | None = "Use in tests.",
+) -> Memory:
+    """An in-memory Memory at ``/nonexistent/<slug>.md``; description defaults per slug."""
+    fm = MemoryFrontmatter(
+        name=slug,
+        description=f"description for {slug}" if description is None else description,
+        type=mem_type,
+        node_type="memory",
+        origin_session_id=None,
+        modified=None,
+        shape=shape,
+        unknown_keys={},
+    )
+    return Memory(
+        slug=slug,
+        path=f"/nonexistent/{slug}.md",
+        project_slug="test-slug",
+        frontmatter=fm,
+        body=body,
+        why=why,
+        how_to_apply=how_to_apply,
+        wikilinks=(),
+        mtime=datetime.now(UTC) if mtime is None else mtime,
+        size_bytes=100,
+        indexed=indexed,
+        index_hook=None,
+        index_section=None,
+    )
 
 
 def write_memory_dir(projects_dir: Path, slug: str, memories: list[tuple[str, str]]) -> Path:

@@ -8,10 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-
-def _get_repo_root() -> Path:
-    """Return the dancing-bear repo root (three levels above telemetry/otel/config.py)."""
-    return Path(__file__).resolve().parents[3]
+from core.paths import repo_root
 
 
 @dataclass(frozen=True)
@@ -56,7 +53,7 @@ def _resolve_config_path(config_dir: str | None = None) -> Path:
     """
     if config_dir:
         return Path(config_dir) / "retention.yaml"
-    return _get_repo_root() / "configs" / "telemetry" / "retention.yaml"
+    return repo_root() / "configs" / "telemetry" / "retention.yaml"
 
 
 def load_retention_config(config_dir: str | None = None) -> RetentionConfig:

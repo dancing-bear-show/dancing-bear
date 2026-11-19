@@ -33,7 +33,7 @@ def _truncate_id(s: str) -> str:
 
 def _parse_since_cli(since: str) -> datetime:
     """Parse --since window string, raising CLIError on bad input."""
-    from telemetry.timeutil import now_utc, parse_window
+    from core.date_utils import now_utc, parse_window
 
     if since.strip().isdigit():
         raise CLIError(

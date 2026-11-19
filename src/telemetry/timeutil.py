@@ -1,17 +1,12 @@
-"""Time utilities — re-exports from core.date_utils plus telemetry-specific helpers."""
+"""Telemetry-specific time helpers."""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from core.date_utils import now_utc, parse_iso_utc, parse_window
-
 __all__ = [
     "format_latency",
     "nano_to_datetime",
-    "now_utc",
-    "parse_iso_utc",
-    "parse_window",
 ]
 
 

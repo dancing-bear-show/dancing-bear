@@ -27,7 +27,7 @@ class TestBuildCommand(unittest.TestCase):
     def test_relative_name_becomes_absolute(self) -> None:
         from worker.handlers import _build_command
 
-        with patch("worker.handlers.get_repo_root", return_value=Path("/repo")):
+        with patch("worker.handlers.repo_root", return_value=Path("/repo")):
             result = _build_command("worker", ["worker", "status"])
         self.assertTrue(Path(result[0]).is_absolute())
         self.assertIn("bin", result[0])
@@ -36,7 +36,7 @@ class TestBuildCommand(unittest.TestCase):
     def test_relative_name_passes_remaining_args(self) -> None:
         from worker.handlers import _build_command
 
-        with patch("worker.handlers.get_repo_root", return_value=Path("/repo")):
+        with patch("worker.handlers.repo_root", return_value=Path("/repo")):
             result = _build_command("worker", ["worker", "--dry-run", "--format", "json"])
         self.assertEqual(result[1:], ["--dry-run", "--format", "json"])
 
@@ -280,14 +280,14 @@ class TestResolveExecContext(unittest.TestCase):
     def test_missing_cwd_defaults_to_repo_root(self) -> None:
         from worker.handlers import _resolve_exec_context
 
-        with patch("worker.handlers.get_repo_root", return_value=Path("/repo")):
+        with patch("worker.handlers.repo_root", return_value=Path("/repo")):
             _env, _timeout, cwd = _resolve_exec_context({})
         self.assertEqual(cwd, "/repo")
 
     def test_empty_cwd_defaults_to_repo_root(self) -> None:
         from worker.handlers import _resolve_exec_context
 
-        with patch("worker.handlers.get_repo_root", return_value=Path("/repo")):
+        with patch("worker.handlers.repo_root", return_value=Path("/repo")):
             _env, _timeout, cwd = _resolve_exec_context({"cwd": ""})
         self.assertEqual(cwd, "/repo")
 

@@ -22,8 +22,10 @@ whole point of the CLI: review-derived text never passes through a shell.
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
+from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -31,6 +33,7 @@ from typing import Any
 from core.assistant import BaseAssistant
 from core.cli_errors import CLIError, ExitCode
 from core.cli_framework import CLIApp
+from core.cli_framework_types import CommandFunc
 from core.cli_output import emit_one
 from core.github import (
     GhCLI,
@@ -107,7 +110,12 @@ def _gh() -> GhCLI:
     return client()
 
 
-def _repo(args) -> str | None:
+def _repo_option() -> Callable[[CommandFunc], CommandFunc]:
+    """The ``--repo`` argument shared by every repo-scoped subcommand."""
+    return app.argument("--repo", help="OWNER/NAME (defaults to current checkout)")
+
+
+def _repo(args: argparse.Namespace) -> str | None:
     """Common ``--repo`` argument, threaded through unchanged."""
     return getattr(args, "repo", None) or None
 
@@ -116,9 +124,9 @@ def _repo(args) -> str | None:
 
 
 @app.command("repo", help="Print owner/name for --repo or the current checkout")
-@app.argument("--repo", help="OWNER/NAME (defaults to current checkout)")
+@_repo_option()
 @app.argument("--format", choices=("text", "json"), default="text", help="Output format")
-def cmd_repo(args) -> int:
+def cmd_repo(args: argparse.Namespace) -> int:
     owner, name = resolve_owner_repo(_gh(), _repo(args))
     if args.format == "json":
         emit_one({"owner": owner, "name": name, "nameWithOwner": f"{owner}/{name}"})
@@ -134,12 +142,12 @@ threads_group = app.group("threads", help="PR review threads: fetch, reply, reso
 
 
 @threads_group.command("fetch", help="Fetch every review thread on a PR (all three surfaces)")
-@app.argument("--repo", help="OWNER/NAME (defaults to current checkout)")
+@_repo_option()
 @app.argument("--pr", required=True, type=int, help="PR number")
 @app.argument("--out", help="Write threads.json to this path (default: stdout)")
 @app.argument("--raw", help="Write the raw response bundle to this path")
 @app.argument("--summary", help="Write a Markdown summary to this path")
-def cmd_threads_fetch(args) -> int:
+def cmd_threads_fetch(args: argparse.Namespace) -> int:
     gh = _gh()
     owner, name = resolve_owner_repo(gh, _repo(args))
     doc, raw = fetch_review_threads(gh, owner, name, int(args.pr))
@@ -168,7 +176,7 @@ def cmd_threads_fetch(args) -> int:
 
 @threads_group.command("comments", help="List every comment in one review thread")
 @app.argument("--thread", required=True, help="Review thread node id")
-def cmd_threads_comments(args) -> int:
+def cmd_threads_comments(args: argparse.Namespace) -> int:
     comments = fetch_thread_comments(_gh(), args.thread)
     emit_one(comments)
     return ExitCode.SUCCESS
@@ -252,7 +260,7 @@ def _handle_reply_failure(thread_id: str, exc: GhError) -> int:
     "--run-id", dest="run_id", help="Append a run marker; skip if our own reply carries it"
 )
 @app.argument("--resolve", action="store_true", help="Resolve after a verified reply")
-def cmd_threads_reply(args) -> int:
+def cmd_threads_reply(args: argparse.Namespace) -> int:
     """Post ``--body-file`` into ``--thread``.
 
     Any run marker already inside the body is stripped first, with or without
@@ -318,16 +326,16 @@ def cmd_threads_reply(args) -> int:
 
 @threads_group.command("resolve", help="Resolve a thread (no reply)")
 @app.argument("--thread", required=True, help="Review thread node id")
-def cmd_threads_resolve(args) -> int:
+def cmd_threads_resolve(args: argparse.Namespace) -> int:
     resolve_thread(_gh(), args.thread)
     emit_one({"thread_id": args.thread, "resolved": True})
     return ExitCode.SUCCESS
 
 
 @threads_group.command("state", help="Re-fetch resolution state for every thread on a PR")
-@app.argument("--repo", help="OWNER/NAME (defaults to current checkout)")
+@_repo_option()
 @app.argument("--pr", required=True, type=int, help="PR number")
-def cmd_threads_state(args) -> int:
+def cmd_threads_state(args: argparse.Namespace) -> int:
     gh = _gh()
     owner, name = resolve_owner_repo(gh, _repo(args))
     # A lightweight id/isResolved-only query: this verification step doesn't
@@ -367,18 +375,18 @@ def cmd_threads_state(args) -> int:
 pr_group = app.group("pr", help="Pull request porcelain: view, diff, create, edit, checks, list")
 
 
-def _pr_arg(args) -> int | None:
+def _pr_arg(args: argparse.Namespace) -> int | None:
     """``--pr`` is optional across the group: None means "current branch's PR"."""
     pr = getattr(args, "pr", None)
     return int(pr) if pr is not None else None
 
 
 @pr_group.command("view", help="Read PR fields; --value prints one bare scalar for $(...)")
-@app.argument("--repo", help="OWNER/NAME (defaults to current checkout)")
+@_repo_option()
 @app.argument("--pr", type=int, help="PR number (default: current branch's PR)")
 @app.argument("--fields", help="Comma-separated JSON fields to return")
 @app.argument("--value", help="Return this ONE field as a bare scalar")
-def cmd_pr_view(args) -> int:
+def cmd_pr_view(args: argparse.Namespace) -> int:
     if not args.fields and not args.value:
         raise CLIError("pr view needs --fields or --value", ExitCode.USAGE)
     if args.fields and args.value:
@@ -406,12 +414,12 @@ def cmd_pr_view(args) -> int:
 
 
 @pr_group.command("diff", help="Print the PR's unified diff, or its changed paths")
-@app.argument("--repo", help="OWNER/NAME (defaults to current checkout)")
+@_repo_option()
 @app.argument("--pr", type=int, help="PR number (default: current branch's PR)")
 @app.argument(
     "--name-only", action="store_true", dest="name_only", help="One changed path per line"
 )
-def cmd_pr_diff(args) -> int:
+def cmd_pr_diff(args: argparse.Namespace) -> int:
     if args.name_only:
         # pr_files strips blank lines and returns a clean list, which is what
         # callers piping into xargs actually want; a raw diff --name-only can
@@ -438,7 +446,7 @@ def _strip_one_line_ending(text: str) -> str:
     return text
 
 
-def _required_title(args) -> str:
+def _required_title(args: argparse.Namespace) -> str:
     """The PR title for ``pr create``, which cannot proceed without one."""
     title = _title(args, required=True)
     if title is None:  # _title already raised; this narrows the type
@@ -446,7 +454,7 @@ def _required_title(args) -> str:
     return title
 
 
-def _title(args, *, required: bool) -> str | None:
+def _title(args: argparse.Namespace, *, required: bool) -> str | None:
     """The PR title from --title or --title-file (exactly one when required).
 
     --title-file exists so a title composed from PR or reviewer text never has
@@ -475,14 +483,14 @@ def _title(args, *, required: bool) -> str | None:
 
 
 @pr_group.command("create", help="Open a PR from a body file; return {number,url}")
-@app.argument("--repo", help="OWNER/NAME (defaults to current checkout)")
+@_repo_option()
 @app.argument("--base", required=True, help="Base branch")
 @app.argument("--title", help="PR title (or --title-file)")
 @app.argument("--title-file", dest="title_file", help="Title path, one line (- for stdin)")
 @app.argument("--body-file", required=True, dest="body_file", help="Body path (- for stdin)")
 @app.argument("--head", help="Head branch (default: current)")
 @app.argument("--draft", action="store_true", help="Open as draft")
-def cmd_pr_create(args) -> int:
+def cmd_pr_create(args: argparse.Namespace) -> int:
     title = _required_title(args)
     body = _read_body(args.body_file)
     data = _pulls.pr_create(
@@ -499,12 +507,12 @@ def cmd_pr_create(args) -> int:
 
 
 @pr_group.command("edit", help="Edit PR title/body; exit 1 if GitHub does not hold what was sent")
-@app.argument("--repo", help="OWNER/NAME (defaults to current checkout)")
+@_repo_option()
 @app.argument("--pr", required=True, type=int, help="PR number")
 @app.argument("--title", help="New title (or --title-file)")
 @app.argument("--title-file", dest="title_file", help="Title path, one line (- for stdin)")
 @app.argument("--body-file", dest="body_file", help="Body path (- for stdin)")
-def cmd_pr_edit(args) -> int:
+def cmd_pr_edit(args: argparse.Namespace) -> int:
     title = _title(args, required=False)
     if title is None and args.body_file is None:
         raise CLIError("pr edit needs --title, --title-file or --body-file", ExitCode.USAGE)
@@ -521,19 +529,19 @@ def cmd_pr_edit(args) -> int:
 
 
 @pr_group.command("ready", help="Mark a draft PR ready for review")
-@app.argument("--repo", help="OWNER/NAME (defaults to current checkout)")
+@_repo_option()
 @app.argument("--pr", required=True, type=int, help="PR number")
-def cmd_pr_ready(args) -> int:
+def cmd_pr_ready(args: argparse.Namespace) -> int:
     _pulls.pr_ready(_gh(), int(args.pr), repo=_repo(args))
     return ExitCode.SUCCESS
 
 
 @pr_group.command("checks", help="List PR checks; --watch blocks until they finish")
-@app.argument("--repo", help="OWNER/NAME (defaults to current checkout)")
+@_repo_option()
 @app.argument("--pr", type=int, help="PR number (default: current branch's PR)")
 @app.argument("--watch", action="store_true", help="Block until checks finish; exit code is gh's")
 @app.argument("--interval", type=int, default=60, help="--watch poll interval (seconds)")
-def cmd_pr_checks(args) -> int:
+def cmd_pr_checks(args: argparse.Namespace) -> int:
     if args.watch:
         # Watch mode surfaces gh's own exit code (0 = all passed). Same
         # bucket-vs-exit-code trap as unwatched checks: gh exits nonzero while
@@ -546,14 +554,14 @@ def cmd_pr_checks(args) -> int:
 
 
 @pr_group.command("list", help="List PRs matching filters as JSON rows")
-@app.argument("--repo", help="OWNER/NAME (defaults to current checkout)")
+@_repo_option()
 @app.argument("--state", choices=("open", "closed", "merged", "all"), default="open")
 @app.argument("--limit", type=int, default=30)
 @app.argument("--author", help="Filter by author login")
 @app.argument("--head", help="Filter by head branch")
 @app.argument("--search", help="gh search expression")
 @app.argument("--fields", required=True, help="Comma-separated JSON fields to return")
-def cmd_pr_list(args) -> int:
+def cmd_pr_list(args: argparse.Namespace) -> int:
     fields = [f.strip() for f in args.fields.split(",") if f.strip()]
     if not fields:
         raise CLIError("--fields must name at least one field", ExitCode.USAGE)
@@ -572,17 +580,17 @@ def cmd_pr_list(args) -> int:
 
 
 @pr_group.command("comment", help="Post a PR-level comment from a body file; print its URL")
-@app.argument("--repo", help="OWNER/NAME (defaults to current checkout)")
+@_repo_option()
 @app.argument("--pr", required=True, type=int, help="PR number")
 @app.argument("--body-file", required=True, dest="body_file", help="Body path (- for stdin)")
-def cmd_pr_comment(args) -> int:
+def cmd_pr_comment(args: argparse.Namespace) -> int:
     url = _pulls.pr_comment(_gh(), int(args.pr), _read_body(args.body_file), repo=_repo(args))
     print(url)
     return ExitCode.SUCCESS
 
 
 @pr_group.command("comments", help="List every review or issue comment on a PR")
-@app.argument("--repo", help="OWNER/NAME (defaults to current checkout)")
+@_repo_option()
 @app.argument("--pr", required=True, type=int, help="PR number")
 @app.argument(
     "--kind",
@@ -590,7 +598,7 @@ def cmd_pr_comment(args) -> int:
     default="review",
     help="review = inline pulls/N/comments; issue = issues/N/comments",
 )
-def cmd_pr_comments(args) -> int:
+def cmd_pr_comments(args: argparse.Namespace) -> int:
     gh = _gh()
     owner, name = resolve_owner_repo(gh, _repo(args))
     emit_one(_pulls.pr_comments(gh, owner, name, int(args.pr), kind=args.kind))
@@ -598,7 +606,7 @@ def cmd_pr_comments(args) -> int:
 
 
 @pr_group.command("review-comment", help="Post an inline review comment anchored to path:line")
-@app.argument("--repo", help="OWNER/NAME (defaults to current checkout)")
+@_repo_option()
 @app.argument("--pr", required=True, type=int, help="PR number")
 @app.argument("--path", required=True, help="File path in the PR diff")
 @app.argument("--line", required=True, type=int, help="Line in the file (RIGHT side = new code)")
@@ -607,7 +615,7 @@ def cmd_pr_comments(args) -> int:
     "--commit", dest="commit_id", help="Commit SHA (default: the PR head SHA from GitHub)"
 )
 @app.argument("--body-file", required=True, dest="body_file", help="Body path (- for stdin)")
-def cmd_pr_review_comment(args) -> int:
+def cmd_pr_review_comment(args: argparse.Namespace) -> int:
     gh = _gh()
     owner, name = resolve_owner_repo(gh, _repo(args))
     emit_one(
@@ -626,7 +634,7 @@ def cmd_pr_review_comment(args) -> int:
     return ExitCode.SUCCESS
 
 
-def _summary_targets(gh: GhCLI, args) -> list[int]:
+def _summary_targets(gh: GhCLI, args: argparse.Namespace) -> list[int]:
     """``--pr`` alone, or the numbers ``pr list`` returns for the filters."""
     if args.pr is not None:
         return [int(args.pr)]
@@ -642,7 +650,7 @@ def _summary_targets(gh: GhCLI, args) -> list[int]:
 
 
 @pr_group.command("summary", help="Summarize PRs: size, branches, top dirs; path-filterable")
-@app.argument("--repo", help="OWNER/NAME (defaults to current checkout)")
+@_repo_option()
 @app.argument("--pr", type=int, help="One PR (else list by --state/--author/--limit)")
 @app.argument("--state", choices=("open", "closed", "merged", "all"), default="merged")
 @app.argument("--author", help="Filter by author login (@me allowed)")
@@ -664,7 +672,7 @@ def _summary_targets(gh: GhCLI, args) -> list[int]:
 @app.argument("--path-mode", choices=_summary.PATH_MODES, default="prefix", dest="path_mode")
 @app.argument("--files", action="store_true", help="Include per-file changes in JSON")
 @app.argument("--format", choices=("json", "text"), default="json", help="Output format")
-def cmd_pr_summary(args) -> int:
+def cmd_pr_summary(args: argparse.Namespace) -> int:
     gh = _gh()
     owner, name = resolve_owner_repo(gh, _repo(args))
     summaries = []
@@ -696,7 +704,7 @@ def cmd_pr_summary(args) -> int:
 @app.argument("--owner", help="Limit to repos owned by this user/org")
 @app.argument("--limit", type=int, default=10, help="Max items per section (1-100)")
 @app.argument("--format", choices=("json", "text"), default="json", help="Output format")
-def cmd_activity(args) -> int:
+def cmd_activity(args: argparse.Namespace) -> int:
     data = _activity.fetch_activity(_gh(), owner=args.owner, limit=int(args.limit))
     if args.format == "text":
         sys.stdout.write(_activity.render_activity_text(data))
@@ -712,10 +720,10 @@ copilot_group = app.group("copilot", help="Copilot reviewer: re-request, full re
 
 
 @copilot_group.command("request", help="Request a Copilot (re-)review on a PR")
-@app.argument("--repo", help="OWNER/NAME (defaults to current checkout)")
+@_repo_option()
 @app.argument("--pr", required=True, type=int, help="PR number")
 @app.argument("--dry-run", action="store_true", dest="dry_run", help="Report only; request nothing")
-def cmd_copilot_request(args) -> int:
+def cmd_copilot_request(args: argparse.Namespace) -> int:
     gh = _gh()
     owner, name = resolve_owner_repo(gh, _repo(args))
     switch = _copilot.copilot_review_switch()
@@ -742,7 +750,7 @@ def cmd_copilot_request(args) -> int:
 @copilot_group.command(
     "cycle", help="Reply to + resolve open Copilot threads, then re-request review"
 )
-@app.argument("--repo", help="OWNER/NAME (defaults to current checkout)")
+@_repo_option()
 @app.argument("--pr", required=True, type=int, help="PR number")
 @app.argument("--body-file", required=True, dest="body_file", help="Reply body path (- for stdin)")
 @app.argument("--run-id", dest="run_id", help="Append a run marker; skip threads already answered")
@@ -750,7 +758,7 @@ def cmd_copilot_request(args) -> int:
     "--no-request", action="store_true", dest="no_request", help="Skip the re-review request"
 )
 @app.argument("--dry-run", action="store_true", dest="dry_run", help="Report only; post nothing")
-def cmd_copilot_cycle(args) -> int:
+def cmd_copilot_cycle(args: argparse.Namespace) -> int:
     gh = _gh()
     owner, name = resolve_owner_repo(gh, _repo(args))
     opts = _review_cycle.CycleOptions(
@@ -773,10 +781,10 @@ run_group = app.group("run", help="Workflow run helpers")
 
 
 @run_group.command("log", help="Print a workflow run's failed-step log (or --all)")
-@app.argument("--repo", help="OWNER/NAME (defaults to current checkout)")
+@_repo_option()
 @app.argument("--run", required=True, help="Workflow run id")
 @app.argument("--all", action="store_true", dest="all_steps", help="Print the whole log")
-def cmd_run_log(args) -> int:
+def cmd_run_log(args: argparse.Namespace) -> int:
     text = _pulls.run_log(_gh(), args.run, failed_only=not args.all_steps, repo=_repo(args))
     sys.stdout.write(text)
     if not text.endswith("\n"):

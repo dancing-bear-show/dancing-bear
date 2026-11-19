@@ -20,7 +20,7 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from glob import escape as glob_escape
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import IO, TYPE_CHECKING
 
 from core.coerce import coerce_int
 from core.date_utils import iso_now, now_utc, parse_iso_utc_strict
@@ -175,6 +175,36 @@ def _list_job_paths(folder: Path) -> list[Path]:
     return [p for p in folder.iterdir() if p.is_file() and p.suffix == _JOB_SUFFIX]
 
 
+def _is_due(p: Path, data: dict[str, object], now: datetime) -> bool:
+    """True when the job's not_before is absent or has passed; unparseable means not due."""
+    nb = str(data.get("not_before") or "")
+    if not nb:
+        return True
+    try:
+        return parse_iso_utc_strict(nb) <= now
+    except ValueError as exc:
+        # An unparseable schedule means "we do not know when this is due",
+        # so treat it as not-yet-due and leave it in pending/. Previously
+        # this fell through to eligible=True, which silently ran a
+        # deliberately deferred job immediately behind a debug log.
+        _log.warning("Skipping job %s: unparseable not_before %r (%s)", p.name, nb, exc)
+        return False
+
+
+def _pending_sort_key(item: tuple[Path, dict[str, object]]) -> tuple[int, str]:
+    """Order by priority, then enqueued_at."""
+    d = item[1]
+    raw_pri = d.get("priority")
+    try:
+        pri = int(raw_pri) if isinstance(raw_pri, (int, float, str)) else 5
+    except (ValueError, OverflowError):
+        # A non-numeric priority string sorts as the default instead of
+        # raising out of sort() and hiding every other pending job.
+        pri = 5
+    enq = str(d.get("enqueued_at") or "9999-12-31T23:59:59Z")
+    return (pri, enq)
+
+
 def list_pending(root: Path | None = None) -> list[tuple[Path, dict[str, object]]]:
     paths = _ensure_dirs(root)
     items: list[tuple[Path, dict[str, object]]] = []
@@ -186,36 +216,9 @@ def list_pending(root: Path | None = None) -> list[tuple[Path, dict[str, object]
             # file from aborting the listing of every other pending job.
             _log.warning("Skipping job %s: record is not a JSON object", p.name)
             continue
-        nb = str(data.get("not_before") or "")
-        if not nb:
+        if _is_due(p, data, now):
             items.append((p, data))
-            continue
-        try:
-            eligible = parse_iso_utc_strict(nb) <= now
-        except ValueError as exc:
-            # An unparseable schedule means "we do not know when this is due",
-            # so treat it as not-yet-due and leave it in pending/. Previously
-            # this fell through to eligible=True, which silently ran a
-            # deliberately deferred job immediately behind a debug log.
-            _log.warning("Skipping job %s: unparseable not_before %r (%s)", p.name, nb, exc)
-            continue
-        if eligible:
-            items.append((p, data))
-
-    # Sort by priority, then enqueued_at
-    def _key(item: tuple[Path, dict[str, object]]):
-        d = item[1]
-        raw_pri = d.get("priority")
-        try:
-            pri = int(raw_pri) if isinstance(raw_pri, (int, float, str)) else 5
-        except (ValueError, OverflowError):
-            # A non-numeric priority string sorts as the default instead of
-            # raising out of sort() and hiding every other pending job.
-            pri = 5
-        enq = str(d.get("enqueued_at") or "9999-12-31T23:59:59Z")
-        return (pri, enq)
-
-    items.sort(key=_key)
+    items.sort(key=_pending_sort_key)
     return items
 
 
@@ -315,6 +318,32 @@ class _TransitionLockTimeout(Exception):
     """
 
 
+def _acquire_flock(fh: IO[str], timeout: float | None) -> None:
+    """Take an exclusive flock on ``fh``; blocks when ``timeout`` is None.
+
+    Raises _TransitionLockTimeout if the lock is still held after ``timeout`` seconds.
+    """
+    import fcntl
+
+    if timeout is None:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        return
+    # Non-blocking loop with short sleeps until the timeout elapses.
+    deadline = time.monotonic() + timeout
+    _POLL_INTERVAL = 0.05  # seconds between acquisition attempts
+    while True:
+        try:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return
+        except OSError:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise _TransitionLockTimeout(
+                    f"could not acquire transition lock within {timeout:.1f}s"
+                ) from None
+            time.sleep(min(_POLL_INTERVAL, remaining))
+
+
 @contextmanager
 def _transition_lock(root: Path | None, timeout: float | None = None) -> Iterator[None]:
     """Serialise processing/ transitions across threads and processes.
@@ -340,27 +369,7 @@ def _transition_lock(root: Path | None, timeout: float | None = None) -> Iterato
     lock_path = _q(root) / _TRANSITION_LOCK_NAME
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a") as fh:
-        if timeout is None:
-            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
-        else:
-            # Non-blocking loop with short sleeps until the timeout elapses.
-            deadline = time.monotonic() + timeout
-            _POLL_INTERVAL = 0.05  # seconds between acquisition attempts
-            acquired = False
-            while True:
-                try:
-                    fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    acquired = True
-                    break
-                except OSError:
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0:
-                        break
-                    time.sleep(min(_POLL_INTERVAL, remaining))
-            if not acquired:
-                raise _TransitionLockTimeout(
-                    f"could not acquire transition lock within {timeout:.1f}s"
-                )
+        _acquire_flock(fh, timeout)
         try:
             yield
         finally:
