@@ -392,6 +392,15 @@ class TestParseMetricPoints(unittest.TestCase):
         points = parse_metric_points(cast(list, lines), self.cutoff)
         self.assertEqual(sum(v for _, v, _ in points), 4.0)
 
+    def test_points_before_cutoff_are_dropped_for_both_temporalities(self) -> None:
+        old = self.now_nano - 7_200_000_000_000  # two hours before now, past the 1h cutoff
+        lines = [
+            _metrics_line(1, [(old, 9.0, "opus"), (self.now_nano, 1.0, "opus")]),
+            _metrics_line(2, [(old, 8.0, "haiku"), (self.now_nano, 2.0, "haiku")]),
+        ]
+        points = parse_metric_points(cast(list, lines), self.cutoff)
+        self.assertEqual(sorted(v for _, v, _ in points), [1.0, 2.0])
+
 
 class TestAccumulateTokenMetric(unittest.TestCase):
     def _counters(self) -> dict[str, int]:

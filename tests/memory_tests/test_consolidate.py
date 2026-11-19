@@ -107,6 +107,30 @@ class TestPlanConsolidation(MemoryTestCase):
         self.assertEqual(plan.conflicts, ())
         self.assertEqual(plan.to_archive, ())
 
+    def test_multiple_repo_groups_warn_about_skipped_groups(self) -> None:
+        a = _make_store(
+            self.tmp,
+            "slug-a",
+            {"mem_a.md": _feedback("mem_a", "memory a")},
+            inferred_repo="/Users/alice/code/repo-a",
+        )
+        b = _make_store(
+            self.tmp,
+            "slug-b",
+            {"mem_b.md": _feedback("mem_b", "memory b")},
+            inferred_repo="/Users/alice/code/repo-b",
+        )
+        with self.assertLogs("memory.consolidate", level="WARNING") as logs:
+            plan_consolidation((a, b))
+        output = "\n".join(logs.output)
+        self.assertIn("skipping 1 other repo group(s)", output)
+
+    def test_single_repo_group_does_not_warn(self) -> None:
+        a = _make_store(self.tmp, "slug-a", {"mem_a.md": _feedback("mem_a", "memory a")})
+        b = _make_store(self.tmp, "slug-b", {"mem_b.md": _feedback("mem_b", "memory b")})
+        with self.assertNoLogs("memory.consolidate", level="WARNING"):
+            plan_consolidation((a, b))
+
     def test_single_store_no_actions(self) -> None:
         store = _make_store(
             self.tmp,

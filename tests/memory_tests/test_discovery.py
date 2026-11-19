@@ -3,8 +3,6 @@ elect_canonical, resolve_current_store."""
 
 from __future__ import annotations
 
-import contextlib
-import io
 import os
 import unittest
 from datetime import UTC, datetime
@@ -258,11 +256,28 @@ class TestDiscoverStores(MemoryTestCase):
         self.assertEqual(stores[0].non_memory_files, (str(bad.resolve()),))
 
     def test_missing_root_returns_empty(self):
-        buf = io.StringIO()
-        with contextlib.redirect_stderr(buf):
+        with self.assertLogs("memory.discovery", level="WARNING") as logs:
             result = discover_stores(root=self.tmp / "nonexistent")
         self.assertEqual(result, ())
-        self.assertIn("Warning", buf.getvalue())
+        self.assertIn("does not exist", "\n".join(logs.output))
+
+    def test_unreadable_root_warns_and_returns_empty(self):
+        projects_root = make_projects_root(self.tmp)
+        with patch.object(Path, "iterdir", side_effect=PermissionError("denied")):
+            with self.assertLogs("memory.discovery", level="WARNING") as logs:
+                result = discover_stores(root=projects_root)
+        self.assertEqual(result, ())
+        self.assertIn("could not read projects root", "\n".join(logs.output))
+
+    def test_unloadable_store_is_skipped_with_warning(self):
+        projects_root = make_projects_root(self.tmp)
+        with patch("memory.discovery.load_store", side_effect=ValueError("boom")):
+            with self.assertLogs("memory.discovery", level="WARNING") as logs:
+                result = discover_stores(root=projects_root)
+        self.assertEqual(result, ())
+        output = "\n".join(logs.output)
+        self.assertIn("skipping store", output)
+        self.assertIn("boom", output)
 
     def test_sorted_by_slug(self):
         projects_root = make_projects_root(self.tmp)
