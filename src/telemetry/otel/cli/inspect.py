@@ -6,8 +6,8 @@ import argparse
 from collections.abc import Callable
 from pathlib import Path
 
+from core.cli_args import add_format_argument
 from core.cli_output import emit_rows
-from telemetry.otel.cli._format_helpers import add_format_argument
 from telemetry.otel.reader import OTLPDataDir, OTLPReader
 
 

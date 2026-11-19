@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from core.cli_args import add_format_argument
 from core.llm_builders import (
     _DEFAULT_POLICIES_YAML,
     _DOMAIN_MAP_UNAVAILABLE,
@@ -30,6 +31,7 @@ from core.llm_staleness import (
 from core.paths import repo_root
 from core.textio import read_text as _read_text
 from core.textio import write_text as _write_text
+from core.yamlio import dump_yaml_text
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -341,7 +343,7 @@ def _build_repo_parser() -> argparse.ArgumentParser:
     inv = sp.add_parser("inventory", help="Generate .llm/INVENTORY.md")
     inv.add_argument("--write", help="Write path (default .llm/INVENTORY.md)")
     inv.add_argument("--stdout", action="store_true")
-    inv.add_argument("--format", choices=["md", "json"], default="md")
+    add_format_argument(inv, ["md", "json"], "md", describe=False)
 
     fam = sp.add_parser("familiar", help="Show/write familiarization capsule")
     fam.add_argument("--write", help="Write path (default .llm/familiarize.yaml)")
@@ -366,7 +368,7 @@ def _build_repo_parser() -> argparse.ArgumentParser:
     flows.add_argument("--list", action="store_true")
     flows.add_argument("--id")
     flows.add_argument("--tags")
-    flows.add_argument("--format", choices=["md", "yaml", "json"], default="md")
+    add_format_argument(flows, ["md", "yaml", "json"], "md", describe=False)
     flows.add_argument("--write")
     flows.add_argument("--stdout", action="store_true")
 
@@ -379,12 +381,12 @@ def _build_repo_parser() -> argparse.ArgumentParser:
     deps.add_argument("--root", default=".")
     deps.add_argument("--limit", type=int, default=10)
     deps.add_argument("--order", choices=["asc", "desc"], default="desc")
-    deps.add_argument("--format", choices=["table", "text", "json"], default="table")
+    add_format_argument(deps, ["table", "text", "json"], "table", describe=False)
 
     stale = sp.add_parser("stale", help="Approximate staleness by area or file")
     stale.add_argument("--root", default=".")
     stale.add_argument("--limit", type=int, default=10)
-    stale.add_argument("--format", choices=["table", "text", "json"], default="table")
+    add_format_argument(stale, ["table", "text", "json"], "table", describe=False)
     stale.add_argument("--include", help="Comma-separated area names to include")
     stale.add_argument("--with-status", action="store_true")
     stale.add_argument("--with-priority", action="store_true")
@@ -455,9 +457,7 @@ def _render_flow_content(flow: dict[str, Any], fmt: str) -> str:
     if fmt == "json":
         return json.dumps(flow, indent=2)
     if fmt == "yaml":
-        import yaml
-
-        return yaml.safe_dump(flow, sort_keys=False)
+        return dump_yaml_text(flow)
     return (
         f"id: {flow.get('id')}\n"
         f"title: {flow.get('title')}\n"

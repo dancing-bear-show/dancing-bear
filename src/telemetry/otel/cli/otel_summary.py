@@ -9,11 +9,11 @@ import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from core.cli_args import add_format_argument
 from core.cli_output import emit_one, emit_rows
 from core.date_utils import now_utc
 from telemetry.otel.cli._format_helpers import (
     add_data_dir_argument,
-    add_format_argument,
     get_work_dir,
 )
 from telemetry.otel.cli.workflow_cost import load_stage_if_in_window

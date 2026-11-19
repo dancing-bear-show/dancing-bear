@@ -7,7 +7,7 @@ from typing import Any
 
 from core.cli_errors import CLIError, ExitCode
 
-__all__ = ["dump_config", "load_config"]
+__all__ = ["dump_config", "dump_yaml_text", "load_config"]
 
 
 def _require_yaml():
@@ -39,9 +39,19 @@ def load_config(path: str | None) -> dict[str, Any]:
     return result
 
 
+def dump_yaml_text(data: Any, *, sort_keys: bool = False) -> str:
+    """Serialize ``data`` to block-style YAML text.
+
+    Uses ``safe_dump`` with ``allow_unicode=True`` so non-ASCII text stays
+    readable instead of being escaped. Key order is preserved unless
+    ``sort_keys`` is set. Raises ``CLIError`` when PyYAML is not installed.
+    """
+    yaml = _require_yaml()
+    return yaml.safe_dump(data, default_flow_style=False, sort_keys=sort_keys, allow_unicode=True)
+
+
 def dump_config(path: str, data: dict[str, Any]) -> None:
     """Write a dict to YAML with stable ordering for humans."""
-    yaml = _require_yaml()
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    target.write_text(dump_yaml_text(data), encoding="utf-8")

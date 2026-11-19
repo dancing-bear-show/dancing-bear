@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import argparse
 import sys
-from dataclasses import asdict
 from pathlib import Path
 
 from core.cli_output import emit_one
@@ -57,7 +56,7 @@ def run(args: argparse.Namespace) -> int:
 
     if args.status:
         status = backup_status(dest)
-        return emit_one(asdict(status), args.format)
+        return emit_one(status, args.format)
 
     # A target must be specified for actual backup operations
     if not args.store and not args.all_stores:

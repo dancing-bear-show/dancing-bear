@@ -13,6 +13,9 @@ from dataclasses import asdict, dataclass, is_dataclass
 from enum import Enum
 from typing import Any, TextIO
 
+from core.cli_errors import CLIError
+from core.yamlio import dump_yaml_text
+
 
 class OutputFormat(str, Enum):
     """Output format options."""
@@ -48,6 +51,23 @@ class OutputConfig:
         print_error/print_warning.
         """
         return self.file or sys.stderr
+
+
+def normalize_for_output(data: Any) -> Any:
+    """Recursively convert dataclass instances and enums to plain JSON/YAML values.
+
+    Dataclasses become dicts, enums become their ``value``, tuples become lists;
+    dict/list containers are rebuilt. Anything else is returned unchanged.
+    """
+    if is_dataclass(data) and not isinstance(data, type):
+        return normalize_for_output(asdict(data))
+    if isinstance(data, dict):
+        return {k: normalize_for_output(v) for k, v in data.items()}
+    if isinstance(data, (list, tuple)):
+        return [normalize_for_output(v) for v in data]
+    if isinstance(data, Enum):
+        return data.value
+    return data
 
 
 class OutputWriter:
@@ -160,21 +180,14 @@ class OutputWriter:
 
     def _print_json(self, data: Any) -> None:
         """Print data as JSON."""
-        normalized = self._normalize_for_json(data)
+        normalized = normalize_for_output(data)
         self.print(json.dumps(normalized, indent=2, ensure_ascii=False, default=str))
 
     def _print_yaml(self, data: Any) -> None:
         """Print data as YAML."""
         try:
-            import yaml
-
-            normalized = self._normalize_for_json(data)
-            self.print(
-                yaml.safe_dump(
-                    normalized, default_flow_style=False, sort_keys=False, allow_unicode=True
-                )
-            )
-        except ImportError:
+            self.print(dump_yaml_text(normalize_for_output(data)))
+        except CLIError:
             # Fallback to JSON if yaml not available
             self._print_json(data)
 
@@ -282,18 +295,6 @@ class OutputWriter:
         else:
             self.print(str(data))
 
-    def _normalize_for_json(self, data: Any) -> Any:
-        """Normalize data for JSON serialization."""
-        if is_dataclass(data) and not isinstance(data, type):
-            return asdict(data)
-        if isinstance(data, dict):
-            return {k: self._normalize_for_json(v) for k, v in data.items()}
-        if isinstance(data, (list, tuple)):
-            return [self._normalize_for_json(v) for v in data]
-        if isinstance(data, Enum):
-            return data.value
-        return data
-
     def _to_rows(self, data: Any) -> list[Any]:
         """Convert data to a list of rows."""
         if isinstance(data, (list, tuple)):
@@ -339,8 +340,10 @@ def emit_one(data: object, fmt: str = "json") -> int:
     ``json`` (default) and ``jsonl`` print the object itself; ``yaml`` prints it
     as a YAML mapping; ``table``/``csv`` render a dict as a one-row table. A
     non-dict under ``table``/``csv`` has no columns to render and falls back to
-    indented JSON.
+    indented JSON. Dataclass instances and enums are normalized first (see
+    ``normalize_for_output``).
     """
+    data = normalize_for_output(data)
     if fmt == "jsonl":
         print(json.dumps(data, separators=(",", ":"), ensure_ascii=False, default=str))
     elif fmt == "yaml":
@@ -384,7 +387,7 @@ def _emit_rows_table(rows: Sequence[Mapping[str, object]], cols: list[str]) -> N
 
 
 def emit_rows(  # NOSONAR S3516 - always returns 0 by design; callers chain return emit_rows() as exit code
-    rows: Sequence[Mapping[str, object]],
+    rows: Sequence[Any],
     fmt: str = "json",
     headers: list[str] | None = None,
     empty_msg: str = "No results.",
@@ -395,7 +398,8 @@ def emit_rows(  # NOSONAR S3516 - always returns 0 by design; callers chain retu
 
     With no rows, ``empty_msg`` goes to stderr. ``structured_empty`` also emits
     an empty document (``[]`` or a header-only csv) for machine formats so a
-    piped consumer still receives parseable output.
+    piped consumer still receives parseable output. Dataclass rows are
+    normalized to dicts (see ``normalize_for_output``).
     """
     if not rows:
         print(empty_msg, file=sys.stderr)
@@ -406,9 +410,10 @@ def emit_rows(  # NOSONAR S3516 - always returns 0 by design; callers chain retu
         elif fmt == "csv" and headers:
             _emit_rows_csv([], headers)
         return 0
+    rows = [normalize_for_output(r) if is_dataclass(r) else r for r in rows]
     cols = headers or list(rows[0].keys())
     if fmt == "json":
-        print(json.dumps(rows, ensure_ascii=False, default=str))
+        print(json.dumps(normalize_for_output(rows), ensure_ascii=False, default=str))
     elif fmt == "yaml":
         output_yaml(rows)
     elif fmt == "csv":

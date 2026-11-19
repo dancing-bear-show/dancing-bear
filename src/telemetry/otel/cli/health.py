@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import argparse
 
+from core.cli_args import add_format_argument
 from core.cli_output import emit_one
-from telemetry.otel.cli._format_helpers import add_format_argument
 from telemetry.otel.health import check_otel_infrastructure
 from telemetry.otel.reader import OTLPDataDir
 

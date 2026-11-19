@@ -7,10 +7,10 @@ import re
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from core.cli_args import add_format_argument
 from core.cli_output import emit_rows
 from telemetry.otel.cli._format_helpers import (
     add_data_dir_argument,
-    add_format_argument,
     add_since_argument,
     resolve_data_dir,
     resolve_since,

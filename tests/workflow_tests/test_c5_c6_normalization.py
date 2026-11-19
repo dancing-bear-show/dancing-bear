@@ -4,8 +4,7 @@ Covers:
   C5 — WorkflowCompileError/ParseError/ExecutionError now subclass CLIError;
        _load_definition and _load_manifest raise CLIError (not SystemExit);
        _build_resolved_params raises CLIError on parse failure.
-  C6 — _emit_one thin wrapper covers yaml/table output paths; _emit_rows
-       delegates directly to core.cli_output.emit_rows.
+  C6 — _emit_one thin wrapper covers yaml/table output paths.
 """
 
 from __future__ import annotations
@@ -18,7 +17,7 @@ from unittest.mock import patch
 
 from core.cli_errors import CLIError, ExitCode
 from tests.workflow_tests.helpers.factories import write_yaml
-from workflow.cli import _emit_one, _emit_rows
+from workflow.cli import _emit_one
 from workflow.cli_dispatch import (
     _build_resolved_params,
     _load_definition,
@@ -351,52 +350,3 @@ class TestEmitOneYamlFormat(unittest.TestCase):
         # Should fall back to JSON when yaml is unavailable
         result = json.loads(output)
         self.assertEqual(result["key"], "val")
-
-
-# ---------------------------------------------------------------------------
-# C6 — _emit_rows thin wrapper
-# ---------------------------------------------------------------------------
-
-
-class TestEmitRowsDelegation(unittest.TestCase):
-    """_emit_rows must delegate to core.cli_output.emit_rows."""
-
-    def test_emit_rows_json_format(self) -> None:
-        rows = [{"stage": "gather", "status": "success"}, {"stage": "propose", "status": "pending"}]
-        out = io.StringIO()
-        with patch("sys.stdout", out):
-            _emit_rows(rows, fmt="json")
-        result = json.loads(out.getvalue())
-        self.assertIsInstance(result, list)
-        self.assertEqual(len(result), 2)
-        self.assertEqual(result[0]["stage"], "gather")
-
-    def test_emit_rows_table_format_includes_headers(self) -> None:
-        rows = [{"name": "a", "kind": "gather"}]
-        out = io.StringIO()
-        with patch("sys.stdout", out):
-            _emit_rows(rows, fmt="table", headers=["name", "kind"])
-        output = out.getvalue()
-        self.assertIn("name", output)
-        self.assertIn("kind", output)
-
-    def test_emit_rows_empty_list_prints_to_stderr(self) -> None:
-        err = io.StringIO()
-        out = io.StringIO()
-        with patch("sys.stdout", out), patch("sys.stderr", err):
-            _emit_rows([], fmt="json")
-        # Empty rows → emit_rows prints "No results." to stderr
-        self.assertEqual(out.getvalue(), "")
-
-    def test_emit_rows_with_headers_filters_columns(self) -> None:
-        rows = [{"a": "1", "b": "2", "c": "3"}]
-        out = io.StringIO()
-        with patch("sys.stdout", out):
-            _emit_rows(rows, fmt="json", headers=["a", "b"])
-        result = json.loads(out.getvalue())
-        # json format emits all keys regardless of headers; headers used for table
-        self.assertIsInstance(result, list)
-
-
-if __name__ == "__main__":
-    unittest.main()

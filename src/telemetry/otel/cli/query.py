@@ -7,8 +7,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from core.cli_args import add_format_argument
 from core.cli_output import emit_rows
-from telemetry.otel.cli._format_helpers import add_format_argument, format_validation_error
+from telemetry.otel.cli._format_helpers import format_validation_error
 from telemetry.otel.reader import OTLPDataDir, OTLPReader
 from telemetry.otel.utils import parse_time_window
 

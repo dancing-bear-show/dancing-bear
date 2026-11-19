@@ -21,6 +21,7 @@ from core.cli_errors import CLIError
 from core.cli_framework import CLIApp
 from core.cli_output import emit_one
 from core.date_utils import now_utc
+from core.yamlio import dump_yaml_text
 from telemetry.cli_formatters import (
     _AGENT_SORT_KEYS,
     _breakdown_by_agent,
@@ -253,8 +254,6 @@ def cmd_agents(args: argparse.Namespace) -> int:
 
 
 def _rules_init(config_path: Path) -> None:
-    import yaml
-
     config_path.parent.mkdir(parents=True, exist_ok=True)
     if config_path.exists():
         console.print(f"[yellow]Already exists:[/] {config_path}")
@@ -274,7 +273,7 @@ def _rules_init(config_path: Path) -> None:
         },
         "custom_rules": [],
     }
-    config_path.write_text(yaml.safe_dump(starter, default_flow_style=False))
+    config_path.write_text(dump_yaml_text(starter, sort_keys=True))
     console.print(f"[green]Created:[/] {config_path}")
 
 

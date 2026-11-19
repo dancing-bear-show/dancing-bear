@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 import csv
 import sys
-from dataclasses import asdict
 from functools import lru_cache
 
 from core.assistant import BaseAssistant
@@ -150,14 +149,12 @@ def cmd_git_ops(args: argparse.Namespace) -> int:
     repo_root, error = resolve_repo_root()
     if error:
         emit_one(
-            asdict(
-                _git_ops.GitOpResult(
-                    op=args.op,
-                    branch=args.branch,
-                    path=args.path,
-                    status="error",
-                    output=error,
-                )
+            _git_ops.GitOpResult(
+                op=args.op,
+                branch=args.branch,
+                path=args.path,
+                status="error",
+                output=error,
             )
         )
         return ExitCode.SUCCESS
@@ -169,7 +166,7 @@ def cmd_git_ops(args: argparse.Namespace) -> int:
         result = _git_ops.op_worktree_remove(repo_root, args.path, args.then_checkout)
     else:
         result = _git_ops.op_worktree_list(repo_root)
-    emit_one(asdict(result))
+    emit_one(result)
     return ExitCode.SUCCESS
 
 
@@ -184,19 +181,17 @@ def cmd_run_tests(args: argparse.Namespace) -> int:
     repo_root, error = resolve_repo_root()
     if error:
         emit_one(
-            asdict(
-                CheckResult(
-                    tool=args.tool,
-                    paths=list(args.paths),
-                    commands=[],
-                    exit_code=1,
-                    passed=False,
-                    error=error,
-                )
+            CheckResult(
+                tool=args.tool,
+                paths=list(args.paths),
+                commands=[],
+                exit_code=1,
+                passed=False,
+                error=error,
             )
         )
         return ExitCode.SUCCESS
-    emit_one(asdict(run_check(args.tool, repo_root, list(args.paths))))
+    emit_one(run_check(args.tool, repo_root, list(args.paths)))
     return ExitCode.SUCCESS
 
 

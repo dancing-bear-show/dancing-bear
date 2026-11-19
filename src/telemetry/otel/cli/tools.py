@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import argparse
 
+from core.cli_args import add_format_argument
 from core.cli_output import emit_rows
 from telemetry.otel.analytics.tools import get_tool_summaries
 from telemetry.otel.cli._format_helpers import (
     add_data_dir_argument,
-    add_format_argument,
     add_since_argument,
     resolve_data_dir,
     resolve_since,
