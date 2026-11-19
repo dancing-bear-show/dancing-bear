@@ -148,3 +148,40 @@ class TestNewCredentialRulesAreLinear(unittest.TestCase):
         for rule_id in _NEW_RULE_IDS:
             severities = [r.severity for r in REDACTION_RULES if r.rule_id == rule_id]
             self.assertEqual(severities, ["block"], rule_id)
+
+
+class TestScanIsLinearOnLongRuns(unittest.TestCase):
+    """A long token-character run that ends in a non-match is scanned once.
+
+    long-b64 took ~3s on 20k chars and internal-hostname ~0.8s before each was
+    anchored; 100k chars would have been minutes.
+    """
+
+    def test_scan_long_runs_is_fast(self) -> None:
+        from memory.redaction import scan
+
+        for text in (
+            "A" * BIG + ".",
+            "a" * BIG + "!",
+            "a." * (BIG // 2) + "!",
+            "a1" * (BIG // 2) + "!",
+            "M." * (BIG // 2) + "!",
+            "INC-1\n" * (BIG // 6),
+        ):
+            with self.subTest(text=text[:6]):
+                assert_fast(lambda t=text: scan(t))
+
+    def test_long_b64_still_matches_and_rejects(self) -> None:
+        pattern = _rule_pattern("long-b64")
+        self.assertIsNotNone(pattern.search("data: " + "A" * 64 + "=="))
+        self.assertIsNotNone(pattern.search("x=" + "A" * 70 + "\n"))
+        self.assertIsNone(pattern.search("A" * 63))
+        self.assertIsNone(pattern.search("A" * 200 + "."))
+
+    def test_internal_hostname_still_matches_and_rejects(self) -> None:
+        pattern = _rule_pattern("internal-hostname")
+        self.assertIsNotNone(pattern.search("db.example.internal"))
+        self.assertIsNotNone(pattern.search("(.svc.corp)"))
+        self.assertIsNone(pattern.search("host..corp"))
+        self.assertIsNone(pattern.search("internal.example.com"))
+        self.assertIsNone(pattern.search("the corporate network"))

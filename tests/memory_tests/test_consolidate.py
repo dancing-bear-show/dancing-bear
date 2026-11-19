@@ -20,7 +20,10 @@ from memory.consolidate import (
     plan_consolidation,
 )
 from memory.models import MemoryStore
-from tests.memory_tests.fixtures import MemoryTestCase
+from tests.memory_tests.fixtures import (
+    MemoryTestCase,
+    write_store,
+)
 
 _SHARED_INFERRED_REPO = "/Users/alice/code/shared-repo"
 
@@ -34,26 +37,10 @@ def _make_store(
     is_worktree_slug: bool = False,
 ) -> MemoryStore:
     """Build a MemoryStore with real files on disk and the given inferred_repo."""
-    from memory.parser import parse_memory_file
-
-    store_root = tmp_path / slug
-    mem_dir = store_root / "memory"
-    mem_dir.mkdir(parents=True)
-
-    memories = []
-    for filename, content in files.items():
-        f = mem_dir / filename
-        f.write_text(content, encoding="utf-8")
-        mem = parse_memory_file(f, project_slug=slug)
-        memories.append(mem)
-
-    return MemoryStore(
-        project_slug=slug,
-        root=str(store_root),
-        memories=tuple(memories),
-        non_memory_files=(),
-        index_path=None,
-        index_entries=(),
+    return write_store(
+        tmp_path,
+        slug,
+        files.items(),
         inferred_repo=inferred_repo,
         is_worktree_slug=is_worktree_slug,
     )
@@ -106,6 +93,30 @@ class TestPlanConsolidation(MemoryTestCase):
         self.assertEqual(plan.to_copy, ())
         self.assertEqual(plan.conflicts, ())
         self.assertEqual(plan.to_archive, ())
+
+    def test_multiple_repo_groups_warn_about_skipped_groups(self) -> None:
+        a = _make_store(
+            self.tmp,
+            "slug-a",
+            {"mem_a.md": _feedback("mem_a", "memory a")},
+            inferred_repo="/Users/alice/code/repo-a",
+        )
+        b = _make_store(
+            self.tmp,
+            "slug-b",
+            {"mem_b.md": _feedback("mem_b", "memory b")},
+            inferred_repo="/Users/alice/code/repo-b",
+        )
+        with self.assertLogs("memory.consolidate", level="WARNING") as logs:
+            plan_consolidation((a, b))
+        output = "\n".join(logs.output)
+        self.assertIn("skipping 1 other repo group(s)", output)
+
+    def test_single_repo_group_does_not_warn(self) -> None:
+        a = _make_store(self.tmp, "slug-a", {"mem_a.md": _feedback("mem_a", "memory a")})
+        b = _make_store(self.tmp, "slug-b", {"mem_b.md": _feedback("mem_b", "memory b")})
+        with self.assertNoLogs("memory.consolidate", level="WARNING"):
+            plan_consolidation((a, b))
 
     def test_single_store_no_actions(self) -> None:
         store = _make_store(

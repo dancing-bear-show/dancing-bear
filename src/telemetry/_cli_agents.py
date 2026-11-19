@@ -7,29 +7,12 @@ from typing import TYPE_CHECKING
 from rich.table import Table
 
 from core.format_utils import format_tokens as _fmt_tokens
+from telemetry.cli_formatters import _agent_row_to_dict
 
 if TYPE_CHECKING:
     from telemetry.models import AgentTokenRow
 
 _COL_EST_COST = "Est. Cost"
-
-
-def _agent_row_to_dict(r: object) -> dict[str, object]:
-    """Serialize one AgentTokenRow to a JSON-safe dict."""
-    from telemetry.models import AgentTokenRow
-
-    if not isinstance(r, AgentTokenRow):
-        return {}
-    return {
-        "agent": r.agent,
-        "calls": r.calls,
-        "input_tokens": r.input_tokens,
-        "output_tokens": r.output_tokens,
-        "cache_read_tokens": r.cache_read_tokens,
-        "cache_write_tokens": r.cache_write_tokens,
-        "models": r.models,
-        "est_cost": round(r.est_cost, 6),
-    }
 
 
 def _print_agents_json(

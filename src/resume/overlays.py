@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import logging
 import os
-import sys
 from pathlib import Path
 from typing import Any
 
 from .io_utils import read_yaml_or_json
+
+_logger = logging.getLogger(__name__)
 
 # Fields to copy from profile config
 _PROFILE_FIELDS = (
@@ -220,9 +222,8 @@ def apply_profile_overlays(data: dict[str, Any], profile: str | None) -> dict[st
         legacy_found = any((cfg_dir / f"{name}.{profile}.yaml").exists() for name in _OVERLAY_NAMES)
         if not legacy_found:
             searched = "\n  ".join(str(p) for p in _searched_dirs(profile))
-            print(
-                f"resume: no overlays found for profile '{profile}'; searched:\n  {searched}",
-                file=sys.stderr,
+            _logger.warning(
+                "resume: no overlays found for profile '%s'; searched:\n  %s", profile, searched
             )
             return out
         # Legacy flat files exist; set prof_dir to the conventional CWD location

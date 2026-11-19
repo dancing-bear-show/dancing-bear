@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from core.token_shapes import TOKEN_SHAPES, TokenShape
 from memory.models import Redaction
 
 __all__ = ["REDACTION_RULES", "RedactionRule", "has_blocking", "scan", "scrub"]
@@ -46,126 +47,43 @@ _SCRATCH_RE = re.compile(r"/private/tmp/claude-\d+/[^\s)}'\"]+/scratchpad")  # N
 _SCRATCH_REPL = "/private/tmp/claude-[REDACTED]/[...]/scratchpad"  # NOSONAR
 
 
-REDACTION_RULES: tuple[RedactionRule, ...] = (
+# Rules owned here rather than in core.token_shapes: they need surrounding
+# context (a key name, a scheme, an Authorization header), or they are
+# memory-specific scrub/warn policy.
+_LOCAL_RULES: tuple[RedactionRule, ...] = (
     # BLOCK rules — high-precision credential shapes only
-    RedactionRule(
-        rule_id="aws-access-key",
-        severity=SEVERITY_BLOCK,
-        pattern=re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b", re.ASCII),
-        replacement="[REDACTED_AWS_KEY]",
-        description="AWS access key (AKIA/ASIA prefix)",
-    ),
-    RedactionRule(
-        rule_id="private-key-block",
-        severity=SEVERITY_BLOCK,
-        pattern=re.compile(
-            r"-----BEGIN[ \t]++(?:[A-Z0-9]++[ \t]++)*PRIVATE[ \t]++KEY(?:[ \t][^\n]*)?-----"
-        ),
-        replacement="[REDACTED_PRIVATE_KEY]",
-        description="PEM private key block header (RSA/EC/DSA/OPENSSH/ENCRYPTED or bare)",
-    ),
     RedactionRule(
         rule_id="bearer-token",
         severity=SEVERITY_BLOCK,
         pattern=re.compile(
-            r"(?:^|\s|['\"])Bearer\s+([a-z0-9\-._~+/]+=*)(?:\s|$|['\"])",
+            # The token must hold a digit or run 20+ chars, so prose such as
+            # "send a Bearer token" does not block; it ends at the first
+            # non-token character, so "Bearer abc123," still matches.
+            r"(?:^|\s|['\"])Bearer\s+(?=[a-z\-._~+/]*\d|[a-z0-9\-._~+/]{20})"
+            r"([a-z0-9\-._~+/]+=*)(?![a-z0-9\-._~+/=])",
             re.IGNORECASE | re.MULTILINE,
         ),
         replacement="[REDACTED_BEARER_TOKEN]",
-        description="HTTP Bearer token",
-    ),
-    RedactionRule(
-        rule_id="github-token",
-        severity=SEVERITY_BLOCK,
-        pattern=re.compile(
-            r"(?:(?:ghp|gho|ghu|ghs|ghr)_\w{36,255}|github_pat_\w{22,255})",
-            re.ASCII,
-        ),
-        replacement="[REDACTED_GITHUB_TOKEN]",
-        description="GitHub token (ghp_/gho_/ghu_/ghs_/ghr_ or fine-grained github_pat_ prefix)",
-    ),
-    RedactionRule(
-        rule_id="anthropic-key",
-        severity=SEVERITY_BLOCK,
-        pattern=re.compile(r"\bsk-ant-[A-Za-z0-9]+-[A-Za-z0-9_\-]{20,}", re.ASCII),
-        replacement="[REDACTED_ANTHROPIC_KEY]",
-        description="Anthropic API key (sk-ant-<kind>- prefix, e.g. api03/admin01)",
-    ),
-    RedactionRule(
-        rule_id="slack-token",
-        severity=SEVERITY_BLOCK,
-        pattern=re.compile(r"xox[abposr]-[A-Za-z0-9\-]{20,}"),
-        replacement="[REDACTED_SLACK_TOKEN]",
-        description="Slack token (xox prefix)",
-    ),
-    # The lookbehinds below anchor each match at a token boundary so a long run
-    # of token characters is scanned once, not once per start offset (linear time).
-    RedactionRule(
-        rule_id="openai-key",
-        severity=SEVERITY_BLOCK,
-        pattern=re.compile(
-            r"(?<![A-Za-z0-9_\-])sk-(?:proj|svcacct|admin)-[A-Za-z0-9_\-]{40,}",
-            re.ASCII,
-        ),
-        replacement="[REDACTED_OPENAI_KEY]",
-        description="OpenAI API key (sk-proj-/sk-svcacct-/sk-admin- prefix)",
-    ),
-    RedactionRule(
-        rule_id="google-api-key",
-        severity=SEVERITY_BLOCK,
-        pattern=re.compile(
-            r"(?<![A-Za-z0-9_\-])AIza[0-9A-Za-z_\-]{30,}",
-            re.ASCII,
-        ),
-        replacement="[REDACTED_GOOGLE_KEY]",
-        description="Google API key (AIza prefix; real keys are 39 chars, matched from 34)",
-    ),
-    RedactionRule(
-        rule_id="jwt",
-        severity=SEVERITY_BLOCK,
-        pattern=re.compile(
-            r"(?<![A-Za-z0-9_\-])eyJ[A-Za-z0-9_\-]{5,}\.[A-Za-z0-9_\-]{5,}\.[A-Za-z0-9_\-]{5,}",
-            re.ASCII,
-        ),
-        replacement="[REDACTED_JWT]",
-        description="JSON Web Token (three base64url segments, header starts eyJ)",
-    ),
-    RedactionRule(
-        rule_id="stripe-key",
-        severity=SEVERITY_BLOCK,
-        pattern=re.compile(
-            r"(?<!\w)[sr]k_live_[0-9A-Za-z]{24,}", re.ASCII
-        ),
-        replacement="[REDACTED_STRIPE_KEY]",
-        description="Stripe live secret/restricted key (sk_live_/rk_live_ prefix)",
-    ),
-    RedactionRule(
-        rule_id="npm-token",
-        severity=SEVERITY_BLOCK,
-        pattern=re.compile(
-            r"(?<!\w)npm_[A-Za-z0-9]{36}(?![A-Za-z0-9])", re.ASCII
-        ),
-        replacement="[REDACTED_NPM_TOKEN]",
-        description="npm access token (npm_ prefix, 36 alphanumerics)",
+        description="HTTP Bearer token (digit-bearing or 20+ chars)",
     ),
     RedactionRule(
         rule_id="url-credentials",
         severity=SEVERITY_BLOCK,
         pattern=re.compile(
-            r"(?<![A-Za-z0-9+.\-])[A-Za-z][A-Za-z0-9+.\-]{1,20}://[^\s/:@]+:[^\s/@]+@[^\s/@]"
+            r"(?<![A-Za-z0-9+.\-])[A-Za-z][A-Za-z0-9+.\-]{1,20}://[^\s/:@]*:[^\s/@]+@[^\s/@]"
         ),
         replacement="[REDACTED_URL_CREDENTIALS]",
-        description="URL with embedded credentials (scheme://user:pass@host)",
+        description="URL with embedded credentials (scheme://[user]:pass@host)",
     ),
     RedactionRule(
         rule_id="aws-secret-key",
         severity=SEVERITY_BLOCK,
         pattern=re.compile(
-            r"aws_secret_access_key[ \t]*[=:][ \t]*[\"']?[a-z0-9/+=]{40}(?![a-z0-9/+=])",
+            r"aws_secret_access_key[\"']?[ \t]*[=:][ \t]*[\"']?[a-z0-9/+=]{40}(?![a-z0-9/+=])",
             re.IGNORECASE,
         ),
         replacement="[REDACTED_AWS_SECRET]",
-        description="AWS secret access key assignment (aws_secret_access_key = <40 chars>)",
+        description="AWS secret access key assignment (ini/env/JSON/YAML, 40-char value)",
     ),
     RedactionRule(
         rule_id="credentials-ini-content",
@@ -248,7 +166,9 @@ REDACTION_RULES: tuple[RedactionRule, ...] = (
     RedactionRule(
         rule_id="internal-hostname",
         severity=SEVERITY_WARN,
-        pattern=re.compile(r"(?:[a-z0-9\-]+\.)+(?:internal|corp)\b"),
+        # Only the label before the suffix is matched: (?:label\.)+ rescanned a
+        # long dotted run from every start offset (quadratic).
+        pattern=re.compile(r"[a-z0-9\-]\.(?:internal|corp)\b"),
         replacement="[INTERNAL_HOSTNAME]",
         description="Internal hostname (*.internal, *.corp)",
     ),
@@ -281,9 +201,18 @@ REDACTION_RULES: tuple[RedactionRule, ...] = (
     RedactionRule(
         rule_id="credential-assignment",
         severity=SEVERITY_WARN,
-        pattern=re.compile(r"(?:api_key|password|secret)\s*=\s*[a-z0-9\-_]{6,}", re.IGNORECASE),
+        pattern=re.compile(
+            r"(?:api_key|password|passwd|secret|token)\s*=\s*[a-z0-9\-_]{6,}"
+            # "key: value" needs more evidence than "key=value", since prose
+            # uses colons ("password: see vault"): the value must be the rest
+            # of the line (or end at a quote/comma/brace) and hold a digit or
+            # symbol, not just letters.
+            r"|(?:api_key|password|passwd|secret|token)[\"']?[ \t]*:[ \t]*[\"']?"
+            r"(?=[a-z]*[0-9\-_])[a-z0-9\-_]{6,}[\"']?[ \t]*(?:$|[,}])",
+            re.IGNORECASE | re.MULTILINE,
+        ),
         replacement="[REDACTED_CREDENTIAL]",
-        description="Generic api_key/password/secret assignment (warn only; block would false-positive on ordinary prose)",
+        description="Generic api_key/password/secret/token assignment (warn only; block would false-positive on ordinary prose)",
     ),
     RedactionRule(
         rule_id="jira-key",
@@ -302,10 +231,30 @@ REDACTION_RULES: tuple[RedactionRule, ...] = (
     RedactionRule(
         rule_id="long-b64",
         severity=SEVERITY_WARN,
-        pattern=re.compile(r"[A-Za-z0-9+/]{64,}={0,2}(?=\s|$)"),
+        # Anchored at the start of a run and possessive: without both, a long
+        # run that fails the lookahead was rescanned from every offset.
+        pattern=re.compile(r"(?<![A-Za-z0-9+/])[A-Za-z0-9+/]{64,}+={0,2}(?=\s|$)"),
         replacement="[BASE64_CONTENT]",
         description="Long base64-encoded content (64+ chars)",
     ),
+)
+
+
+def _shape_rule(shape: TokenShape, severity: str) -> RedactionRule:
+    return RedactionRule(
+        rule_id=shape.name,
+        severity=severity,
+        pattern=shape.pattern,
+        replacement=f"[REDACTED_{shape.label}]",
+        description=shape.description,
+    )
+
+
+# Policy over the shared catalog: exact shapes block, heuristic shapes warn.
+REDACTION_RULES: tuple[RedactionRule, ...] = (
+    *(_shape_rule(s, SEVERITY_BLOCK) for s in TOKEN_SHAPES if s.exact),
+    *_LOCAL_RULES,
+    *(_shape_rule(s, SEVERITY_WARN) for s in TOKEN_SHAPES if not s.exact),
 )
 
 
@@ -337,9 +286,13 @@ def scan(text: str, *, anonymize: bool = False) -> tuple[Redaction, ...]:
         if rule.requires_anonymize and not anonymize:
             continue
 
+        # finditer yields ascending offsets, so count newlines incrementally
+        # rather than re-counting the whole prefix per match (quadratic).
+        line_no, counted_to = 1, 0
         for match in rule.pattern.finditer(text):
             start_offset = match.start()
-            line_no = text[:start_offset].count("\n") + 1
+            line_no += text.count("\n", counted_to, start_offset)
+            counted_to = start_offset
 
             masked_preview = rule.replacement
 

@@ -4,10 +4,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from core.paths import repo_root
 from telemetry.otel.config import (
     DataTypeRetention,
     RetentionConfig,
-    _get_repo_root,
     _resolve_config_path,
     load_retention_config,
 )
@@ -115,16 +115,16 @@ class TestResolveConfigPath(unittest.TestCase):
         self.assertEqual(result.parent.parent.name, "configs")
 
     def test_repo_root_is_not_src(self):
-        # Regression guard: _get_repo_root previously landed one level short,
+        # Regression guard: repo_root previously landed one level short,
         # at <repo>/src instead of <repo>, resolving retention.yaml (and the
         # otel compose file, which shares this helper) to a nonexistent path.
-        root = _get_repo_root()
+        root = repo_root()
         self.assertNotEqual(root.name, "src")
 
     def test_repo_root_contains_compose_marker(self):
         # docker-compose.otel.yaml lives at the true repo root and is a
         # sibling consumer of this same helper (telemetry.collector).
-        root = _get_repo_root()
+        root = repo_root()
         self.assertTrue(
             (root / "docker-compose.otel.yaml").exists(),
             f"Expected {root / 'docker-compose.otel.yaml'} to exist",

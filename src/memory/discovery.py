@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import re
-import sys
 from pathlib import Path
 
 from memory.index import parse_index
 from memory.models import Memory, MemoryStore
 from memory.parser import parse_memory_file
+
+_log = logging.getLogger(__name__)
 
 __all__ = [
     "decode_project_slug",
@@ -155,16 +157,13 @@ def discover_stores(root: str | Path | None = None) -> tuple[MemoryStore, ...]:
     projects_root = Path(root) if root is not None else Path.home() / ".claude" / "projects"
 
     if not projects_root.is_dir():
-        print(f"Warning: projects root {projects_root} does not exist", file=sys.stderr)
+        _log.warning("Warning: projects root %s does not exist", projects_root)
         return ()
 
     try:
         slugs = sorted(entry.name for entry in projects_root.iterdir() if entry.is_dir())
     except OSError as exc:
-        print(
-            f"Warning: could not read projects root {projects_root}: {exc}",
-            file=sys.stderr,
-        )
+        _log.warning("Warning: could not read projects root %s: %s", projects_root, exc)
         return ()
 
     stores: list[MemoryStore] = []
@@ -172,7 +171,7 @@ def discover_stores(root: str | Path | None = None) -> tuple[MemoryStore, ...]:
         try:
             stores.append(load_store(slug, projects_root=projects_root))
         except Exception as exc:  # NOSONAR - one malformed store must not abort discovery for all others; surfaced as a stderr warning, never a silent drop
-            print(f"Warning: skipping store {slug!r}: {exc}", file=sys.stderr)
+            _log.warning("Warning: skipping store %r: %s", slug, exc)
     return tuple(stores)
 
 

@@ -30,16 +30,6 @@ FIELD_UPDATED_AT = "updated_at"
 # ---------------------------------------------------------------------------
 
 
-def get_repo_root() -> Path:
-    """Return the dancing-bear repo root (three levels above src/worker/_helpers.py).
-
-    parents[1] is <repo>/src, not <repo>. Landing one level short makes every
-    `get_repo_root() / "bin"` lookup point at a nonexistent <repo>/src/bin,
-    which silently rejects valid bin/* commands as disallowed.
-    """
-    return Path(__file__).resolve().parents[2]
-
-
 WORKER_STATE_DIR_ENV = "DANCING_BEAR_WORKER_STATE_DIR"
 
 
@@ -113,7 +103,7 @@ def log_perf_jsonl(
 
 def _get_log_dir() -> Path:
     """Return the log directory for perf logs."""
-    env_dir = os.environ.get("SRE_LOG_DIR") or os.environ.get("DANCING_BEAR_LOG_DIR")
+    env_dir = os.environ.get("DANCING_BEAR_LOG_DIR")
     if env_dir:
         return Path(env_dir)
     # Through get_worker_state_dir, so DANCING_BEAR_WORKER_STATE_DIR moves the

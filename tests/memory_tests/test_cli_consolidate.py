@@ -8,8 +8,6 @@ not where they are defined, per project convention.
 
 from __future__ import annotations
 
-import contextlib
-import io
 import json
 import unittest
 from datetime import UTC, datetime
@@ -20,7 +18,10 @@ from memory.commands.consolidate import _plan_to_rows
 from memory.consolidate import ConsolidationAborted, ConsolidationPlan, ConsolidationResult
 from memory.discovery import load_store
 from memory.models import MemoryStore
-from tests.memory_tests.fixtures import MemoryTestCase
+from tests.memory_tests.fixtures import (
+    MemoryTestCase,
+    run_memory_cli,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -81,17 +82,6 @@ def _make_result(
         warnings=warnings,
         dry_run=dry_run,
     )
-
-
-def _run_cli(argv: list[str]) -> tuple[int, str, str]:
-    """Run memory.cli.main with the consolidate subcommand; return (rc, stdout, stderr)."""
-    from memory.cli import main
-
-    out_buf = io.StringIO()
-    err_buf = io.StringIO()
-    with contextlib.redirect_stdout(out_buf), contextlib.redirect_stderr(err_buf):
-        rc = main(["consolidate"] + argv)
-    return rc, out_buf.getvalue(), err_buf.getvalue()
 
 
 # ---------------------------------------------------------------------------
@@ -156,17 +146,17 @@ class TestPlanToRows(unittest.TestCase):
 class TestMainNoStores(MemoryTestCase):
     def test_empty_stores_returns_zero(self) -> None:
         with patch("memory.commands.consolidate.discover_stores", return_value=()):
-            rc, _, _ = _run_cli([])
+            rc, _, _ = run_memory_cli(["consolidate"])
         self.assertEqual(rc, 0)
 
     def test_empty_stores_emits_empty_msg_to_stderr(self) -> None:
         with patch("memory.commands.consolidate.discover_stores", return_value=()):
-            _, _, err = _run_cli([])
+            _, _, err = run_memory_cli(["consolidate"])
         self.assertIn("No stores discovered", err)
 
     def test_empty_stores_json_format_emits_valid_output(self) -> None:
         with patch("memory.commands.consolidate.discover_stores", return_value=()):
-            _, out, _ = _run_cli(["--format", "json"])
+            _, out, _ = run_memory_cli(["consolidate", "--format", "json"])
         out_stripped = out.strip()
         if out_stripped:
             json.loads(out_stripped)  # must parse without error
@@ -185,7 +175,7 @@ class TestMainDryRun(MemoryTestCase):
             patch("memory.commands.consolidate.discover_stores", return_value=(store,)),
             patch("memory.commands.consolidate.plan_consolidation", return_value=plan),
         ):
-            rc, _, _ = _run_cli(["--dry-run"])
+            rc, _, _ = run_memory_cli(["consolidate", "--dry-run"])
         self.assertEqual(rc, 0)
 
     def test_dry_run_does_not_call_apply_plan(self) -> None:
@@ -196,7 +186,7 @@ class TestMainDryRun(MemoryTestCase):
             patch("memory.commands.consolidate.plan_consolidation", return_value=plan),
             patch("memory.commands.consolidate.apply_plan") as mock_apply,
         ):
-            _run_cli(["--dry-run"])
+            run_memory_cli(["consolidate", "--dry-run"])
         mock_apply.assert_not_called()
 
     def test_rows_emitted_before_dry_run_return(self) -> None:
@@ -206,7 +196,7 @@ class TestMainDryRun(MemoryTestCase):
             patch("memory.commands.consolidate.discover_stores", return_value=(store,)),
             patch("memory.commands.consolidate.plan_consolidation", return_value=plan),
         ):
-            _, out, _ = _run_cli(["--dry-run", "--format", "json"])
+            _, out, _ = run_memory_cli(["consolidate", "--dry-run", "--format", "json"])
         rows = json.loads(out.strip())
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["decision"], "identical")
@@ -227,7 +217,7 @@ class TestMainApply(MemoryTestCase):
             patch("memory.commands.consolidate.plan_consolidation", return_value=plan),
             patch("memory.commands.consolidate.apply_plan", return_value=result),
         ):
-            rc, _, _ = _run_cli([])
+            rc, _, _ = run_memory_cli(["consolidate"])
         self.assertEqual(rc, 0)
 
     def test_warnings_printed_to_stderr(self) -> None:
@@ -239,7 +229,7 @@ class TestMainApply(MemoryTestCase):
             patch("memory.commands.consolidate.plan_consolidation", return_value=plan),
             patch("memory.commands.consolidate.apply_plan", return_value=result),
         ):
-            _, _, err = _run_cli([])
+            _, _, err = run_memory_cli(["consolidate"])
         self.assertIn("watch out for alpha", err)
         self.assertIn("Warning:", err)
 
@@ -256,7 +246,7 @@ class TestMainApply(MemoryTestCase):
             patch("memory.commands.consolidate.plan_consolidation", return_value=plan),
             patch("memory.commands.consolidate.apply_plan", return_value=result),
         ):
-            _, _, err = _run_cli([])
+            _, _, err = run_memory_cli(["consolidate"])
         self.assertIn("warning-one", err)
         self.assertIn("warning-two", err)
 
@@ -269,7 +259,7 @@ class TestMainApply(MemoryTestCase):
             patch("memory.commands.consolidate.plan_consolidation", return_value=plan),
             patch("memory.commands.consolidate.apply_plan", return_value=result) as mock_apply,
         ):
-            _run_cli(["--archive-dest", "/nonexistent/custom-archive"])
+            run_memory_cli(["consolidate", "--archive-dest", "/nonexistent/custom-archive"])
         call_kwargs = mock_apply.call_args
         self.assertIsNotNone(call_kwargs)
         archive_dest_arg = call_kwargs[1].get("archive_dest") or call_kwargs[0][1]
@@ -293,7 +283,7 @@ class TestMainRuntimeError(MemoryTestCase):
                 side_effect=ConsolidationAborted("aborted at conflict prompt"),
             ),
         ):
-            rc, _out, err = _run_cli([])
+            rc, _out, err = run_memory_cli(["consolidate"])
         self.assertEqual(rc, 4)
         self.assertIn("aborted", err)
 
@@ -308,7 +298,7 @@ class TestMainRuntimeError(MemoryTestCase):
                 side_effect=RuntimeError("concurrent write detected"),
             ),
         ):
-            rc, _, _ = _run_cli([])
+            rc, _, _ = run_memory_cli(["consolidate"])
         self.assertEqual(rc, 3)
 
     def test_runtime_error_message_printed_to_stderr(self) -> None:
@@ -322,7 +312,7 @@ class TestMainRuntimeError(MemoryTestCase):
                 side_effect=RuntimeError("TOCTOU abort: modified since scan"),
             ),
         ):
-            _, _, err = _run_cli([])
+            _, _, err = run_memory_cli(["consolidate"])
         self.assertIn("TOCTOU abort", err)
         self.assertIn("Error:", err)
 
@@ -344,7 +334,7 @@ class TestMainOnDivergence(MemoryTestCase):
                         "memory.commands.consolidate.plan_consolidation", return_value=plan
                     ) as mock_plan,
                 ):
-                    _run_cli(["--dry-run", "--on-divergence", strategy])
+                    run_memory_cli(["consolidate", "--dry-run", "--on-divergence", strategy])
                 mock_plan.assert_called_once()
                 _, kwargs = mock_plan.call_args
                 self.assertEqual(kwargs.get("on_divergence"), strategy)

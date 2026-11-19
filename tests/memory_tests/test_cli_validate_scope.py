@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
-import io
 import os
 import unittest
 from collections.abc import Callable
@@ -11,7 +9,6 @@ from pathlib import Path
 from typing import cast
 from unittest.mock import patch
 
-import memory.cli as memory_cli
 from memory.models import MemoryStore
 from memory.parser import parse_memory_file
 from memory.validation import (
@@ -20,7 +17,12 @@ from memory.validation import (
     _CheckContext,
     run_checks,
 )
-from tests.memory_tests.fixtures import MemoryTestCase, write_memory_dir
+from tests.memory_tests.fixtures import (
+    MemoryTestCase,
+    make_store,
+    run_memory_cli,
+    write_memory_dir,
+)
 
 SLUG_A = "-Users-alice-code-aaa"
 SLUG_B = "-Users-alice-code-bbb"
@@ -30,13 +32,6 @@ SLUG_B = "-Users-alice-code-bbb"
 _UNTYPED = "---\nname: feedback_x\ndescription: d\nmetadata:\n  node_type: memory\n---\n\n**Why:** x\n\n**How to apply:** y\n"
 
 
-def _run_validate(*argv: str) -> tuple[int, str, str]:
-    out, err = io.StringIO(), io.StringIO()
-    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-        rc = memory_cli.main(["validate", *argv])
-    return rc, out.getvalue(), err.getvalue()
-
-
 def _snapshot(root: Path) -> dict[str, bytes]:
     return {
         str(p.relative_to(root)): p.read_bytes() for p in sorted(root.rglob("*")) if p.is_file()
@@ -44,16 +39,7 @@ def _snapshot(root: Path) -> dict[str, bytes]:
 
 
 def _store(root: Path, memories: tuple = ()) -> MemoryStore:
-    return MemoryStore(
-        project_slug="s",
-        root=str(root),
-        memories=memories,
-        non_memory_files=(),
-        index_path=None,
-        index_entries=(),
-        inferred_repo=None,
-        is_worktree_slug=False,
-    )
+    return make_store("s", root=str(root), memories=memories)
 
 
 class TestValidateFixScope(MemoryTestCase):
@@ -73,45 +59,45 @@ class TestValidateFixScope(MemoryTestCase):
 
     def test_fix_without_scope_is_rejected_and_writes_nothing(self) -> None:
         before = self._both()
-        rc, _, err = _run_validate("--fix")
+        rc, _, err = run_memory_cli(["validate", "--fix"])
         self.assertEqual(rc, 1)
         self.assertIn("requires --store SLUG or --all-stores", err)
         self.assertEqual(self._both(), before)
 
     def test_fix_with_store_touches_only_that_store(self) -> None:
         before_a, before_b = self._both()
-        _run_validate("--fix", f"--store={SLUG_A}")
+        run_memory_cli(["validate", "--fix", f"--store={SLUG_A}"])
         self.assertNotEqual(_snapshot(self.dir_a), before_a)
         self.assertEqual(_snapshot(self.dir_b), before_b)
 
     def test_fix_with_all_stores_touches_both(self) -> None:
         before_a, before_b = self._both()
-        _run_validate("--fix", "--all-stores")
+        run_memory_cli(["validate", "--fix", "--all-stores"])
         self.assertNotEqual(_snapshot(self.dir_a), before_a)
         self.assertNotEqual(_snapshot(self.dir_b), before_b)
 
     def test_store_and_all_stores_rejected(self) -> None:
         before = self._both()
-        rc, _, err = _run_validate("--fix", f"--store={SLUG_A}", "--all-stores")
+        rc, _, err = run_memory_cli(["validate", "--fix", f"--store={SLUG_A}", "--all-stores"])
         self.assertEqual(rc, 1)
         self.assertIn("cannot be combined", err)
         self.assertEqual(self._both(), before)
 
     def test_fix_dry_run_leaves_files_identical_and_reports_fixable(self) -> None:
         before = self._both()
-        rc, out, _ = _run_validate("--fix", "--dry-run", "--all-stores")
+        rc, out, _ = run_memory_cli(["validate", "--fix", "--dry-run", "--all-stores"])
         self.assertEqual(self._both(), before)
         self.assertNotEqual(rc, 0)
         self.assertIn("schema-missing-type", out)
         self.assertIn('"fixable": "True"', out)
 
     def test_dry_run_without_fix_rejected(self) -> None:
-        rc, _, err = _run_validate("--dry-run")
+        rc, _, err = run_memory_cli(["validate", "--dry-run"])
         self.assertEqual(rc, 1)
         self.assertIn("requires --fix", err)
 
     def test_read_only_validate_still_scans_all_stores(self) -> None:
-        _, out, _ = _run_validate("--check", "schema-missing-type")
+        _, out, _ = run_memory_cli(["validate", "--check", "schema-missing-type"])
         self.assertEqual(out.count("schema-missing-type"), 2)
 
 
@@ -186,6 +172,8 @@ class TestStaleSupersededPrRobustness(MemoryTestCase):
 
         class _Done:
             stdout = '{"state": "MERGED"}'
+            stderr = ""
+            returncode = 0
 
         def fake_run(argv: list[str], **kw: object) -> _Done:
             calls.append((argv, kw))
@@ -196,12 +184,12 @@ class TestStaleSupersededPrRobustness(MemoryTestCase):
         cwd = os.getcwd()
         self.addCleanup(os.chdir, cwd)
         os.chdir(elsewhere)
-        with patch("memory.validation.subprocess.run", fake_run):
+        with patch("core.process.subprocess.run", fake_run):
             results = _check_stale_superseded_pr(store, ctx)
         self.assertEqual(len(results), 1)
         argv, kw = calls[0]
         self.assertEqual(argv[0], str(repo / "bin" / "github"))
-        self.assertEqual(kw["cwd"], repo)
+        self.assertEqual(kw["cwd"], str(repo))
         self.assertIsNotNone(kw.get("timeout"))
 
 

@@ -78,26 +78,34 @@ def _filter_memories(
     return result
 
 
+def _select_stores(args: argparse.Namespace) -> tuple[MemoryStore, ...] | int | None:
+    """Stores to list per --store/--all-stores; an exit code on a bad --store.
+
+    None means no current store could be resolved (the caller reports it).
+    """
+    all_stores = discover_stores()
+    if args.store:
+        try:
+            return (load_store(args.store),)
+        except (Exception) as exc:  # NOSONAR - CLI boundary: surface as a validation error, never a raw traceback  # fmt: skip
+            return validation_error("--store", f"could not load store {args.store!r}: {exc}")
+    if args.all_stores:
+        return all_stores
+    current = resolve_current_store(all_stores)
+    return None if current is None else (current,)
+
+
 def run(args: argparse.Namespace) -> int:
     """List memories (or non-memory files) in the selected stores."""
     scope_error = exclusive_store_scope(args.store, args.all_stores)
     if scope_error is not None:
         return scope_error
 
-    all_stores = discover_stores()
-
-    if args.store:
-        try:
-            stores: tuple[MemoryStore, ...] = (load_store(args.store),)
-        except (Exception) as exc:  # NOSONAR - CLI boundary: surface as a validation error, never a raw traceback  # fmt: skip
-            return validation_error("--store", f"could not load store {args.store!r}: {exc}")
-    elif args.all_stores:
-        stores = all_stores
-    else:
-        current = resolve_current_store(all_stores)
-        if current is None:
-            return _emit([], args, _LIST_HEADERS, "No memory stores found.")
-        stores = (current,)
+    stores = _select_stores(args)
+    if isinstance(stores, int):
+        return stores
+    if stores is None:
+        return _emit([], args, _LIST_HEADERS, "No memory stores found.")
 
     if args.non_memory:
         rows = [

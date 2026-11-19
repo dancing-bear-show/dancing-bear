@@ -5,6 +5,7 @@ import re
 from typing import Any
 
 from core.secrets import is_sensitive_key
+from core.token_shapes import contains_token_shape
 
 # Key substrings shield masks on top of core.secrets.is_sensitive_key. These are
 # deliberately broader than core's rules (a bare "key" substring masks
@@ -28,23 +29,6 @@ def _is_secret_key(key: str) -> bool:
     return is_sensitive_key(k) or any(s in k for s in SECRET_KEY_SUBSTRINGS)
 
 
-# Heuristic patterns that imply secret values even if key name is generic
-SECRET_VALUE_PATTERNS: list[re.Pattern[str]] = [
-    re.compile(r"\bghp_[A-Za-z0-9]{20,}\b"),  # GitHub personal access token
-    re.compile(r"\bglsa_[A-Z0-9]{20,}\b", re.I),  # Grafana service account token
-    re.compile(r"\bxox[abpisr]-[A-Z0-9-]{10,}\b", re.I),  # Slack tokens
-    re.compile(r"\bapi-[A-Z0-9]{16,}\b", re.I),  # API tokens like LaunchDarkly
-    re.compile(r"\brootly_[A-Z0-9]{16,}\b", re.I),  # Rootly
-    re.compile(r"\bsk-(?:live|test|proj)-[A-Z0-9_-]{16,}\b", re.I),  # OpenAI tokens
-    re.compile(r"\bya29\.[A-Za-z0-9._-]{20,}\b"),  # Google OAuth access token
-    re.compile(r"\bAIza[A-Z0-9_-]{20,}\b", re.I),  # Google API key
-    # JWT-like three-part tokens
-    re.compile(r"eyJ[A-Za-z0-9_=-]{10,}\.[A-Za-z0-9_=-]{10,}\.[A-Za-z0-9_=-]{8,}"),
-    # MSAL/Graph opaque tokens often start with 'M.' and are long
-    re.compile(r"\bM\.[A-Za-z0-9._!*$-]{20,}\b"),
-]
-
-
 def _mask_str(v: str, *, head: int = 4, tail: int = 4) -> str:
     n = len(v)
     if n <= head + tail:
@@ -52,14 +36,26 @@ def _mask_str(v: str, *, head: int = 4, tail: int = 4) -> str:
     return f"{v[:head]}…{v[-tail:]} (len={n})"
 
 
+# Looser shapes shield masks on top of core.token_shapes: shorter or
+# non-vendor look-alikes (ghp_ under 36, AIza under 34, sk-live-/sk-test-).
+# A display mask should never narrow -- over-masking a config dump costs
+# nothing, under-masking can show a truncated real secret. Kept here, not in
+# the shared catalog, so memory export's block/warn policy is unaffected.
+_LOOSE_VALUE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"\bghp_[A-Za-z0-9]{20,}\b"),
+    re.compile(r"\bglsa_[A-Z0-9]{20,}\b", re.I),
+    re.compile(r"\bxox[abpisr]-[A-Z0-9-]{10,}\b", re.I),
+    re.compile(r"\bsk-(?:live|test|proj)-[A-Z0-9_-]{16,}\b", re.I),
+    re.compile(r"\bya29\.[A-Za-z0-9._-]{20,}\b"),
+    re.compile(r"\bAIza[A-Z0-9_-]{20,}\b", re.I),
+    re.compile(r"eyJ[A-Za-z0-9_=-]{10,}\.[A-Za-z0-9_=-]{10,}\.[A-Za-z0-9_=-]{8,}"),
+)
+
+
 def _contains_secretish_value(v: str) -> bool:
-    try:
-        for pat in SECRET_VALUE_PATTERNS:
-            if pat.search(v or ""):
-                return True
-    except Exception:
-        return False
-    return False
+    """Return True when `v` holds a catalog token shape or a shield-local loose one."""
+    text = v or ""
+    return contains_token_shape(text) or any(p.search(text) for p in _LOOSE_VALUE_PATTERNS)
 
 
 def mask_value(key: str, val: str) -> str:
