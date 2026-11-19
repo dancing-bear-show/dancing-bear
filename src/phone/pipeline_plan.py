@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from core.paths import output_dir
+from core.paths import output_dir, repo_root
 from core.pipeline import (
     RequestConsumer,
     SafeProcessor,
@@ -201,8 +201,7 @@ def _build_install_command(
         payload.creds_profile or dev.get("creds_profile") or os.environ.get("IOS_CREDS_PROFILE")
     )
 
-    repo_root = Path(__file__).resolve().parents[1]
-    installer = str(repo_root / "bin" / "ios-install-profile")
+    installer = str(repo_root() / "bin" / "ios-install-profile")
     cmd = [installer, "--profile", str(profile_path)]
     if creds_profile:
         cmd.extend(["--creds-profile", creds_profile])

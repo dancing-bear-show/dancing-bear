@@ -14,8 +14,8 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Protocol
 
+from core.date_utils import now_utc, parse_iso_utc
 from telemetry.models import AgentSummary, SessionEvent
-from telemetry.timeutil import now_utc, parse_iso_utc
 
 logger = logging.getLogger(__name__)
 

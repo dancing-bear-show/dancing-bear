@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from core.paths import repo_root
+
 # Built-in fallback map (kept for compatibility); prefer YAML at config/locations.yaml
 ADDRESS_MAP = {
     # Richmond Hill Arenas / Pools
@@ -38,8 +40,7 @@ def _default_locations_yaml_paths() -> list[Path]:
     paths = []
     paths.append(Path.cwd() / "config" / "locations.yaml")
     try:
-        repo_root = Path(__file__).resolve().parents[1]
-        paths.append(repo_root / "config" / "locations.yaml")
+        paths.append(repo_root() / "config" / "locations.yaml")
     except Exception:  # nosec B110 - fallback to other paths
         pass
     return paths

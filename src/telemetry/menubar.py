@@ -3,12 +3,11 @@
 This module re-exports all public names from the three implementation
 submodules. Certain names are defined here directly so that tests can patch
 their dependencies via this module (e.g. menubar._CONFIG_PATH,
-menubar.datetime, menubar.os, menubar.fcntl, menubar.subprocess,
+menubar.datetime, menubar.os, menubar.fcntl,
 menubar.NSColor, menubar.NSFont, etc.).
 """
 
 import os  # patched by tests via menubar.os
-import subprocess  # patched by tests via menubar.subprocess  # nosec B404 - subprocess imported deliberately; individual call sites carry their own B602/B603 review
 from datetime import datetime
 from pathlib import Path
 
@@ -109,8 +108,6 @@ _CONFIG_PATH = _CLAUDE_DIR / "claudestats.json"
 _LOCK_PATH = _CLAUDE_DIR / "claudestats.lock"
 _instance_lock_fd: int | None = None
 
-_VERSION = "v1.1.0"
-
 
 # ---------------------------------------------------------------------------
 # Functions defined here directly so tests can patch module-level dependencies
@@ -130,34 +127,6 @@ def _save_config(cfg: dict) -> None:
 def _window_since(seconds: int | None) -> datetime:
     """Return the UTC datetime marking the start of the given window."""
     return _window_since_impl(seconds)
-
-
-def _build_version() -> str:
-    """Return version string with git SHA, or _VERSION on failure.
-
-    Defined here so tests can patch menubar.subprocess.check_output.
-    """
-    try:
-        sha = subprocess.check_output(  # nosec B603 B607 - fixed git command with no user input
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=Path(__file__).resolve().parent,
-            stderr=subprocess.DEVNULL,
-            text=True,
-        ).strip()
-        return f"{_VERSION} ({sha})"
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return _VERSION
-
-
-_app_version_cache_shim: str | None = None
-
-
-def _get_app_version() -> str:
-    """Return the cached app version string."""
-    global _app_version_cache_shim  # noqa: PLW0603
-    if _app_version_cache_shim is None:
-        _app_version_cache_shim = _build_version()
-    return _app_version_cache_shim
 
 
 def _score_color(score: int) -> object:

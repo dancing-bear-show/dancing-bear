@@ -9,16 +9,17 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 
 from core.fileutil import atomic_write_text
+from core.gitutil import git_toplevel
+from core.process import run_binary
 from core.text_utils import slugify
 from memory.index import append_entry, merge_duplicate_sections, remove_entry
-from memory.models import MemoryStore, MemoryType, SchemaShape
+from memory.models import Memory, MemoryStore, MemoryType, SchemaShape
 from memory.parser import extract_anchors, normalize_slug
 from memory.staleness import DEFAULT_THRESHOLDS, stale_candidates
 
@@ -218,27 +219,29 @@ def _check_contradiction_topic_overlap(
     if not claude_texts:
         return ()
 
-    results = []
-    for memory in store.memories:
-        anchors = extract_anchors(memory.body)
-        for anchor in anchors:
-            for path, text in claude_texts.items():
-                if anchor in text:
-                    mem_idx = memory.body.find(anchor)
-                    excerpt_memory = memory.body[max(0, mem_idx - 40) : mem_idx + len(anchor) + 40]
-                    idx = text.find(anchor)
-                    excerpt_claude = text[max(0, idx - 40) : idx + len(anchor) + 40]
-                    results.append(
-                        CheckResult(
-                            check_id="contradiction-topic-overlap",
-                            severity="info",
-                            target=memory.slug,
-                            message=f"'{anchor}' is mentioned in both {memory.slug}.md and {path.name} — CLAUDE.md wins in any conflict",
-                            fixable=False,
-                            detail=f"memory: ...{excerpt_memory}...\nclaude_md: ...{excerpt_claude}...",
-                        )
-                    )
-    return tuple(results)
+    return tuple(
+        _overlap_result(memory, anchor, path, text)
+        for memory in store.memories
+        for anchor in extract_anchors(memory.body)
+        for path, text in claude_texts.items()
+        if anchor in text
+    )
+
+
+def _overlap_result(memory: Memory, anchor: str, path: Path, text: str) -> CheckResult:
+    """Info finding that ``anchor`` appears in both the memory body and a CLAUDE.md."""
+    mem_idx = memory.body.find(anchor)
+    excerpt_memory = memory.body[max(0, mem_idx - 40) : mem_idx + len(anchor) + 40]
+    idx = text.find(anchor)
+    excerpt_claude = text[max(0, idx - 40) : idx + len(anchor) + 40]
+    return CheckResult(
+        check_id="contradiction-topic-overlap",
+        severity="info",
+        target=memory.slug,
+        message=f"'{anchor}' is mentioned in both {memory.slug}.md and {path.name} — CLAUDE.md wins in any conflict",
+        fixable=False,
+        detail=f"memory: ...{excerpt_memory}...\nclaude_md: ...{excerpt_claude}...",
+    )
 
 
 def _check_schema_no_frontmatter(store: MemoryStore, ctx: _CheckContext) -> tuple[CheckResult, ...]:
@@ -442,22 +445,6 @@ def _check_ref_dead_path(store: MemoryStore, ctx: _CheckContext) -> tuple[CheckR
     return tuple(results)
 
 
-def _git_toplevel() -> Path | None:
-    """Git toplevel of the current directory, or None outside a checkout."""
-    try:
-        out = subprocess.check_output(  # nosec B603 B607 - fixed git argv, no shell
-            ["git", "rev-parse", "--show-toplevel"],
-            stderr=subprocess.DEVNULL,
-            text=True,
-            timeout=5,
-        ).strip()
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
-        # Not in a git checkout (or git missing): callers skip their check
-        # rather than flagging every mention as dead.
-        return None
-    return Path(out) if out else None
-
-
 def _resolve_repo_root(
     repo: Path | None, marker: str, *, allow_toplevel_fallback: bool = True
 ) -> Path | None:
@@ -473,7 +460,7 @@ def _resolve_repo_root(
         return repo
     if not allow_toplevel_fallback:
         return None
-    top = _git_toplevel()
+    top = git_toplevel()
     if top is not None and (top / marker).exists():
         return top
     return None
@@ -510,12 +497,13 @@ _GITHUB_CALL_TIMEOUT_SECONDS = 30
 
 
 def _default_github_caller(github_bin: Path, pr_number: int) -> dict:
-    """Call ``github_bin pr view`` for one PR number; return parsed JSON."""
-    result = subprocess.run(  # nosec B603 - fixed argv, no shell; pr_number is an int
+    """Call ``github_bin pr view`` for one PR number; return parsed JSON.
+
+    A timeout or unrunnable binary yields empty stdout, so ``json.loads``
+    raises and the caller (``_pr_state``) treats the lookup as failed.
+    """
+    result = run_binary(
         [str(github_bin), "pr", "view", "--pr", str(pr_number), "--fields", "state"],
-        capture_output=True,
-        text=True,
-        check=False,
         cwd=github_bin.parent.parent,
         timeout=_GITHUB_CALL_TIMEOUT_SECONDS,
     )

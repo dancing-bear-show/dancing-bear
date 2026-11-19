@@ -20,6 +20,11 @@ _EXTRA_RULE_SAMPLES = "\n".join(
         "t: npm" + "_" + "A1b2C3d4E5" * 3 + "abcdef",  # npm-token
         "u: https://admin:" + "hunter2pass" + "@db.example.com/x",  # url-credentials
         "aws_secret_access_key = " + "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",  # aws-secret-key
+        "t: ya" + "29." + "a0AfH6SMB" * 4,  # google-oauth-token
+        "t: gl" + "sa_" + "A1b2C3d4" * 4 + "_" + "0a1b2c3d",  # grafana-token
+        "t: M." + "C5" + "x" * 30,  # msal-token
+        "t: api" + "-" + "ABCDEF1234567890",  # api-dash-token
+        "t: root" + "ly_" + "ABCDEFGHIJKLMNOP",  # rootly-token
     ]
 )
 
@@ -269,15 +274,26 @@ def _credential_shape_samples() -> list[tuple[str, str]]:
         ("openai-key", "OPENAI_API_KEY=sk-" + "proj-" + "A1b2_C3-d4" * 6),
         ("google-api-key", "AI" + "za" + "SyA1b2C3d4E5f6G7h8I9j0KlMnOpQrStUv"),
         ("google-api-key", "key=AI" + "za" + "SyA1b2C3d4E5f6G7h8I9j0KlMnOpQrStUv&x=1"),
-        ("jwt", "ey" + "J" + "hbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"),
-        ("jwt", "Authorization: ey" + "J" + "hbGciOiJIUzI1NiJ9.ey" + "J" + "zdWIiOiIx.c2ln_nat-ure1"),
+        (
+            "jwt",
+            "ey"
+            + "J"
+            + "hbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",
+        ),
+        (
+            "jwt",
+            "Authorization: ey" + "J" + "hbGciOiJIUzI1NiJ9.ey" + "J" + "zdWIiOiIx.c2ln_nat-ure1",
+        ),
         ("stripe-key", "sk" + "_live_" + "51H" + "a" * 30),
         ("stripe-key", "rk" + "_live_" + "51H" + "b" * 30),
         ("npm-token", "npm" + "_" + "A1b2C3d4E5" * 3 + "abcdef"),
         ("url-credentials", "https://admin:" + "hunter2pass" + "@db.example.com/x"),
         ("url-credentials", "postgres://u:p" + "@host:5432/db"),
         ("aws-secret-key", "aws_secret_access_key = " + "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"),
-        ("aws-secret-key", 'AWS_SECRET_ACCESS_KEY="' + "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" + '"'),
+        (
+            "aws-secret-key",
+            'AWS_SECRET_ACCESS_KEY="' + "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" + '"',
+        ),
     ]
 
 
@@ -318,6 +334,105 @@ class TestCredentialShapeRules(unittest.TestCase):
         for rule_id, text in cases:
             with self.subTest(rule_id=rule_id, text=text[:30]):
                 self.assertNotIn(rule_id, _ids(text))
+
+
+def _gap_samples() -> list[tuple[str, str, str]]:
+    """(rule_id, missed shape, nearby benign string), assembled for push protection."""
+    aws_value_40 = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+    return [
+        ("openai-key", "OPENAI_API_KEY=sk-" + "A1b2C3d4" * 6, "sk-" + "A1b2C3d4" * 6 + "x"),
+        ("url-credentials", "redis://:" + "hunter2secret" + "@host:6379", "redis://host:6379/0"),
+        (
+            "aws-secret-key",
+            '"aws_secret_access_key": "' + aws_value_40 + '"',
+            '"aws_secret_access_key": "<your-secret-here>"',
+        ),
+        (
+            "aws-secret-key",
+            "aws_secret_access_key: '" + aws_value_40 + "'",
+            "aws_secret_access_key: TBD",
+        ),
+        ("bearer-token", "Authorization: Bearer abcdef123456,", "send a Bearer token, then retry"),
+        (
+            "slack-token",
+            "xa" + "pp-1-A0123456789-1234567890123-" + "ab12" * 10,
+            "set xapp-config in the manifest",
+        ),
+        ("google-oauth-token", "ya" + "29." + "a0AfH6SMB" * 4, "ya29.short"),
+        (
+            "grafana-token",
+            "gl" + "sa_" + "A1b2C3d4" * 4 + "_" + "0a1b2c3d",
+            "gl" + "sa_" + "A1b2C3d4",
+        ),
+    ]
+
+
+class TestPreviouslyMissedShapesBlock(unittest.TestCase):
+    """Shapes the rules used to miss must block; the nearby benign string must not."""
+
+    def test_missed_shape_blocks(self) -> None:
+        for rule_id, text, _ in _gap_samples():
+            with self.subTest(rule_id=rule_id, text=text[:30]):
+                reds = scan(text)
+                self.assertIn(rule_id, {r.rule_id for r in reds})
+                self.assertTrue(has_blocking(reds))
+
+    def test_nearby_benign_string_does_not_match(self) -> None:
+        for rule_id, _, benign in _gap_samples():
+            with self.subTest(rule_id=rule_id, text=benign[:30]):
+                self.assertNotIn(rule_id, _ids(benign))
+
+
+class TestCredentialAssignmentWarns(unittest.TestCase):
+    """key: value and token= forms warn (never block); colon prose does not match."""
+
+    def test_assignment_forms_warn(self) -> None:
+        for text in (
+            "password: hunter2secret",
+            "token = abc123def",
+            'secret: "s3cr3t-value"',
+            "db:\n  passwd: p4ssw0rd\n",
+        ):
+            with self.subTest(text=text):
+                reds = [r for r in scan(text) if r.rule_id == "credential-assignment"]
+                self.assertTrue(reds)
+                self.assertEqual({r.severity for r in reds}, {"warn"})
+
+    def test_colon_prose_does_not_match(self) -> None:
+        for text in (
+            "password: see vault",
+            "password: see the vault for details",
+            "secret: classified",
+            "token_count: 123456",
+            "token: 4096",
+        ):
+            with self.subTest(text=text):
+                self.assertNotIn("credential-assignment", _ids(text))
+
+
+class TestHeuristicShapesWarn(unittest.TestCase):
+    """Heuristic catalog shapes are reported as warn, so they never block export."""
+
+    def test_heuristic_shapes_warn_only(self) -> None:
+        for rule_id, text in (
+            ("msal-token", "M." + "C5" + "x" * 30),
+            ("api-dash-token", "api" + "-" + "ABCDEF1234567890"),
+            ("rootly-token", "root" + "ly_" + "ABCDEFGHIJKLMNOP"),
+            ("stripe-test-key", "sk" + "_test_" + "a" * 30),
+        ):
+            with self.subTest(rule_id=rule_id):
+                reds = scan(text)
+                self.assertIn(rule_id, {r.rule_id for r in reds})
+                self.assertFalse(has_blocking(reds))
+
+
+class TestScanLineNumbers(unittest.TestCase):
+    """Line numbers stay right for repeated matches of one rule."""
+
+    def test_each_match_gets_its_own_line(self) -> None:
+        text = "INC-1\nnothing\nINC-2\n\nINC-3"
+        lines = [r.line_no for r in scan(text) if r.rule_id == "incident-id"]
+        self.assertEqual(lines, [1, 3, 5])
 
 
 class TestHomePathHardening(unittest.TestCase):

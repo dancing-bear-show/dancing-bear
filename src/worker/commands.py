@@ -5,6 +5,7 @@ Each command is extracted into its own class for maintainability and testability
 
 from __future__ import annotations
 
+import argparse
 import json
 import logging
 import uuid
@@ -34,7 +35,7 @@ class EnqueueCommand:
     """Enqueue a new job to the queue."""
 
     @staticmethod
-    def run(args) -> int:
+    def run(args: argparse.Namespace) -> int:
         """Execute enqueue command."""
         payload = {}
         try:
@@ -69,7 +70,7 @@ class ListCommand:
     """List queue counts."""
 
     @staticmethod
-    def run(args) -> int:
+    def run(args: argparse.Namespace) -> int:
         """Execute list command."""
         emit_one(counts(root=q.QUEUE_ROOT))
         return 0
@@ -79,7 +80,7 @@ class StatusCommand:
     """Show queue status with optional throughput metrics."""
 
     @staticmethod
-    def run(args, writer: OutputWriter | None = None) -> int:
+    def run(args: argparse.Namespace, writer: OutputWriter | None = None) -> int:
         """Execute status command."""
         s = status(root=q.QUEUE_ROOT)
 
@@ -164,7 +165,7 @@ class ShowCommand:
     """Show a job by ID."""
 
     @staticmethod
-    def run(args, writer: OutputWriter | None = None) -> int:
+    def run(args: argparse.Namespace, writer: OutputWriter | None = None) -> int:
         """Execute show command."""
         out = writer or OutputWriter()
         jid = str(args.id)
@@ -183,7 +184,7 @@ class RequeueErrorsCommand:
     """Requeue error jobs with optional filtering."""
 
     @staticmethod
-    def run(args) -> int:
+    def run(args: argparse.Namespace) -> int:
         """Execute requeue-errors command."""
         limit = int(getattr(args, "limit", 0) or 0) or None
         delay = int(getattr(args, "delay", 0) or 0)
@@ -257,7 +258,7 @@ class RetryCommand:
     """Retry a specific error job by ID."""
 
     @staticmethod
-    def run(args) -> int:
+    def run(args: argparse.Namespace) -> int:
         """Execute retry command."""
         jid = str(args.id)
         p = q.find_job_path_by_id(jid, root=q.QUEUE_ROOT)
@@ -285,7 +286,7 @@ class PurgeCommand:
     when qwen-responses is named explicitly."""
 
     @staticmethod
-    def run(args) -> int:
+    def run(args: argparse.Namespace) -> int:
         """Execute purge command."""
         win = parse_window(str(getattr(args, "older_than", "30d")))
         secs = int(win.total_seconds())

@@ -21,26 +21,16 @@ from memory.commands.validate import (
     _exit_code_from_findings,
     _findings_to_rows,
 )
-from memory.models import MemoryStore
 from memory.validation import CHECK_REGISTRY, CheckResult
-from tests.memory_tests.fixtures import MemoryTestCase
+from tests.memory_tests.fixtures import (
+    MemoryTestCase,
+    make_store,
+    run_memory_cli,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _make_store(slug: str = "test-slug") -> MemoryStore:
-    return MemoryStore(
-        project_slug=slug,
-        root=f"/nonexistent/{slug}",
-        memories=(),
-        non_memory_files=(),
-        index_path=None,
-        index_entries=(),
-        inferred_repo=None,
-        is_worktree_slug=False,
-    )
 
 
 def _make_finding(
@@ -58,15 +48,6 @@ def _make_finding(
         message=message,
         fixable=fixable,
     )
-
-
-def _run_validate(*argv: str) -> tuple[int, str, str]:
-    """Call memory.cli.main(["validate", *argv]) and return (rc, stdout, stderr)."""
-    out_buf = io.StringIO()
-    err_buf = io.StringIO()
-    with contextlib.redirect_stdout(out_buf), contextlib.redirect_stderr(err_buf):
-        rc = memory_cli.main(["validate", *argv])
-    return rc, out_buf.getvalue(), err_buf.getvalue()
 
 
 # ---------------------------------------------------------------------------
@@ -155,7 +136,7 @@ class TestMainUnknownCheckIds(MemoryTestCase):
         # --check has argparse choices=sorted(CHECK_REGISTRY), so an unknown
         # ID is rejected by argparse with SystemExit(2) before run() is called.
         with self.assertRaises(SystemExit) as ctx:
-            _run_validate("--check", "completely-bogus-check-id")
+            run_memory_cli(["validate", "--check", "completely-bogus-check-id"])
         self.assertEqual(ctx.exception.code, 2)
 
     def test_unknown_check_writes_to_stderr(self) -> None:
@@ -169,18 +150,18 @@ class TestMainUnknownCheckIds(MemoryTestCase):
     def test_multiple_unknown_checks_exit_nonzero(self) -> None:
         # Both IDs are invalid; argparse reports the first unknown choice.
         with self.assertRaises(SystemExit) as ctx:
-            _run_validate("--check", "bogus-a", "--check", "bogus-b")
+            run_memory_cli(["validate", "--check", "bogus-a", "--check", "bogus-b"])
         self.assertEqual(ctx.exception.code, 2)
 
     def test_valid_check_id_accepted(self) -> None:
-        store = _make_store()
+        store = make_store()
         # First alphabetically-sorted check ID must pass argparse choices
         valid_check_id = sorted(CHECK_REGISTRY)[0]
         with (
             patch("memory.commands.validate.discover_stores", return_value=(store,)),
             patch("memory.commands.validate.run_checks", return_value=()) as mock_run,
         ):
-            rc, _, _ = _run_validate("--check", valid_check_id)
+            rc, _, _ = run_memory_cli(["validate", "--check", valid_check_id])
         self.assertIsInstance(rc, int)
         mock_run.assert_called_once()
         _, kwargs = mock_run.call_args
@@ -201,7 +182,7 @@ class TestMainStoreLoadFailure(MemoryTestCase):
                 side_effect=Exception("store not found"),
             ),
         ):
-            rc, _, _ = _run_validate("--store=nonexistent")
+            rc, _, _ = run_memory_cli(["validate", "--store=nonexistent"])
         self.assertEqual(rc, 1)
 
     def test_store_load_failure_writes_to_stderr(self) -> None:
@@ -212,7 +193,7 @@ class TestMainStoreLoadFailure(MemoryTestCase):
                 side_effect=Exception("boom"),
             ),
         ):
-            _, _, err = _run_validate("--store=bad-slug")
+            _, _, err = run_memory_cli(["validate", "--store=bad-slug"])
         self.assertTrue(
             "store" in err.lower() or "boom" in err.lower(),
             f"expected store/error mention in stderr, got: {err!r}",
@@ -226,43 +207,43 @@ class TestMainStoreLoadFailure(MemoryTestCase):
 
 class TestMainAutoDiscoverPath(MemoryTestCase):
     def test_discover_stores_used_when_no_store_flag(self) -> None:
-        store = _make_store()
+        store = make_store()
         with (
             patch(
                 "memory.commands.validate.discover_stores", return_value=(store,)
             ) as mock_discover,
             patch("memory.commands.validate.run_checks", return_value=()),
         ):
-            _run_validate()
+            run_memory_cli(["validate"])
         mock_discover.assert_called_once()
 
     def test_clean_store_returns_exit_code_0(self) -> None:
-        store = _make_store()
+        store = make_store()
         with (
             patch("memory.commands.validate.discover_stores", return_value=(store,)),
             patch("memory.commands.validate.run_checks", return_value=()),
         ):
-            rc, _, _ = _run_validate()
+            rc, _, _ = run_memory_cli(["validate"])
         self.assertEqual(rc, 0)
 
     def test_warn_findings_return_exit_code_1(self) -> None:
-        store = _make_store()
+        store = make_store()
         finding = _make_finding(severity="warn")
         with (
             patch("memory.commands.validate.discover_stores", return_value=(store,)),
             patch("memory.commands.validate.run_checks", return_value=(finding,)),
         ):
-            rc, _, _ = _run_validate()
+            rc, _, _ = run_memory_cli(["validate"])
         self.assertEqual(rc, 1)
 
     def test_error_finding_returns_exit_code_2(self) -> None:
-        store = _make_store()
+        store = make_store()
         finding = _make_finding(severity="error")
         with (
             patch("memory.commands.validate.discover_stores", return_value=(store,)),
             patch("memory.commands.validate.run_checks", return_value=(finding,)),
         ):
-            rc, _, _ = _run_validate()
+            rc, _, _ = run_memory_cli(["validate"])
         self.assertEqual(rc, 2)
 
 
@@ -273,22 +254,22 @@ class TestMainAutoDiscoverPath(MemoryTestCase):
 
 class TestMainFixArgForwarded(MemoryTestCase):
     def test_fix_flag_forwarded(self) -> None:
-        store = _make_store()
+        store = make_store()
         with (
             patch("memory.commands.validate.discover_stores", return_value=(store,)),
             patch("memory.commands.validate.run_checks", return_value=()) as mock_run,
         ):
-            _run_validate("--fix", "--all-stores")
+            run_memory_cli(["validate", "--fix", "--all-stores"])
         _, kwargs = mock_run.call_args
         self.assertTrue(kwargs.get("fix"))
 
     def test_no_fix_flag_defaults_to_false(self) -> None:
-        store = _make_store()
+        store = make_store()
         with (
             patch("memory.commands.validate.discover_stores", return_value=(store,)),
             patch("memory.commands.validate.run_checks", return_value=()) as mock_run,
         ):
-            _run_validate()
+            run_memory_cli(["validate"])
         _, kwargs = mock_run.call_args
         self.assertFalse(kwargs.get("fix"))
 
@@ -300,13 +281,19 @@ class TestMainFixArgForwarded(MemoryTestCase):
 
 class TestMainClaudeMdPaths(MemoryTestCase):
     def test_claude_md_paths_forwarded_to_run_checks(self) -> None:
-        store = _make_store()
+        store = make_store()
         with (
             patch("memory.commands.validate.discover_stores", return_value=(store,)),
             patch("memory.commands.validate.run_checks", return_value=()) as mock_run,
         ):
-            _run_validate(
-                "--claude-md", "/nonexistent/CLAUDE.md", "--claude-md", "/nonexistent/.llm/guide.md"
+            run_memory_cli(
+                [
+                    "validate",
+                    "--claude-md",
+                    "/nonexistent/CLAUDE.md",
+                    "--claude-md",
+                    "/nonexistent/.llm/guide.md",
+                ]
             )
         _, kwargs = mock_run.call_args
         self.assertEqual(
@@ -314,12 +301,12 @@ class TestMainClaudeMdPaths(MemoryTestCase):
         )
 
     def test_no_claude_md_sends_empty_tuple(self) -> None:
-        store = _make_store()
+        store = make_store()
         with (
             patch("memory.commands.validate.discover_stores", return_value=(store,)),
             patch("memory.commands.validate.run_checks", return_value=()) as mock_run,
         ):
-            _run_validate()
+            run_memory_cli(["validate"])
         _, kwargs = mock_run.call_args
         self.assertEqual(kwargs.get("claude_md"), ())
 
@@ -331,13 +318,13 @@ class TestMainClaudeMdPaths(MemoryTestCase):
 
 class TestMainJsonOutput(MemoryTestCase):
     def test_json_output_contains_findings(self) -> None:
-        store = _make_store()
+        store = make_store()
         finding = _make_finding(severity="warn", check_id="staleness", target="old.md")
         with (
             patch("memory.commands.validate.discover_stores", return_value=(store,)),
             patch("memory.commands.validate.run_checks", return_value=(finding,)),
         ):
-            _, out, _ = _run_validate("--format", "json")
+            _, out, _ = run_memory_cli(["validate", "--format", "json"])
         rows = json.loads(out.strip())
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["check_id"], "staleness")
@@ -345,12 +332,12 @@ class TestMainJsonOutput(MemoryTestCase):
         self.assertEqual(rows[0]["target"], "old.md")
 
     def test_json_output_clean_run(self) -> None:
-        store = _make_store()
+        store = make_store()
         with (
             patch("memory.commands.validate.discover_stores", return_value=(store,)),
             patch("memory.commands.validate.run_checks", return_value=()),
         ):
-            _, out, _ = _run_validate("--format", "json")
+            _, out, _ = run_memory_cli(["validate", "--format", "json"])
         out_stripped = out.strip()
         if out_stripped:
             data = json.loads(out_stripped)
@@ -364,8 +351,8 @@ class TestMainJsonOutput(MemoryTestCase):
 
 class TestMainMultipleStores(MemoryTestCase):
     def test_all_stores_passed_to_run_checks(self) -> None:
-        store_a = _make_store("slug-a")
-        store_b = _make_store("slug-b")
+        store_a = make_store("slug-a")
+        store_b = make_store("slug-b")
         call_count: list[int] = []
 
         def _counting_run_checks(*_a, **_kw):
@@ -382,13 +369,13 @@ class TestMainMultipleStores(MemoryTestCase):
                 side_effect=_counting_run_checks,
             ),
         ):
-            _run_validate()
+            run_memory_cli(["validate"])
 
         self.assertEqual(len(call_count), 2)
 
     def test_findings_from_multiple_stores_aggregated(self) -> None:
-        store_a = _make_store("slug-a")
-        store_b = _make_store("slug-b")
+        store_a = make_store("slug-a")
+        store_b = make_store("slug-b")
         finding_a = _make_finding(severity="warn", target="a.md")
         finding_b = _make_finding(severity="warn", target="b.md")
 
@@ -407,7 +394,7 @@ class TestMainMultipleStores(MemoryTestCase):
                 side_effect=run_checks_side_effect,
             ),
         ):
-            _, out, _ = _run_validate("--format", "json")
+            _, out, _ = run_memory_cli(["validate", "--format", "json"])
 
         rows = json.loads(out.strip())
         targets = {r["target"] for r in rows}

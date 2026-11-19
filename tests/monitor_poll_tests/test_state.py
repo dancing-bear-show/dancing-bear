@@ -51,11 +51,10 @@ class TrackedPollTests(TempDirMixin, unittest.TestCase):
     def test_unwritable_directory_warns_instead_of_raising(self):
         blocker = Path(self.tmpdir) / "file-not-dir"
         blocker.write_text("x")
-        with mock.patch("sys.stderr") as err:
+        with self.assertLogs("monitor_poll.state", level="WARNING") as logs:
             with state.tracked_poll("file", {}, blocker / "sub") as st:
                 st.status = state.STATUS_DONE
-        written = "".join(str(a) for call in err.write.call_args_list for a in call.args)
-        self.assertIn("warning", written.lower())
+        self.assertIn("cannot write poll state", "\n".join(logs.output))
 
 
 class LoadStatesTests(TempDirMixin, unittest.TestCase):

@@ -7,7 +7,7 @@ bulleted sections in the standard layout.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .docx_styles import StyleManager, TextFormatter
 from .inline_markup import (
@@ -16,6 +16,9 @@ from .inline_markup import (
     parse_inline_markup,
     strip_inline_markup,
 )
+
+if TYPE_CHECKING:
+    from docx.text.paragraph import Paragraph
 
 _logger = logging.getLogger(__name__)
 
@@ -89,7 +92,7 @@ class BulletRenderer:
                     return str(glyph)
         return "•"
 
-    def new_bullet_paragraph(self, glyph: str = "•"):
+    def new_bullet_paragraph(self, glyph: str = "•") -> Paragraph:
         """Start the one and only kind of bulleted paragraph this layout emits.
 
         THIS IS THE SINGLE BULLET MECHANISM for the standard layout. Every
@@ -184,7 +187,7 @@ class BulletRenderer:
         *,
         keywords: list[str] | None = None,
         glyph: str = "•",
-    ):
+    ) -> Paragraph:
         """Add a bullet line (glyph + text) via the shared bullet mechanism."""
         p = self.new_bullet_paragraph(glyph)
         self._add_text_with_optional_keywords(p, text, keywords)
@@ -198,7 +201,7 @@ class BulletRenderer:
         sec: dict[str, Any] | None = None,
         glyph: str = "•",
         sep: str = ": ",
-    ):
+    ) -> Paragraph:
         """Add a bullet with bold name and plain description.
 
         A name with no description emits the bold name alone. The separator
@@ -226,7 +229,7 @@ class BulletRenderer:
             self._add_text_with_optional_keywords(p, desc, None)
         return p
 
-    def add_joined_paragraph(self, items: list[str], sep: str, *, after_pt: int = 2):
+    def add_joined_paragraph(self, items: list[str], sep: str, *, after_pt: int = 2) -> Paragraph:
         """Render items as one separator-joined paragraph, honouring markup.
 
         This is the non-bullet form the skills and technologies sections take
