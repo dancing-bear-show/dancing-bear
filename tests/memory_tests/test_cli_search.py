@@ -25,8 +25,10 @@ from memory.commands.search import (
     _resolve_stores,
 )
 from memory.models import MemoryStore
-from memory.parser import parse_memory_file
-from tests.memory_tests.fixtures import MemoryTestCase
+from tests.memory_tests.fixtures import (
+    MemoryTestCase,
+    write_store,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -41,26 +43,7 @@ def _make_store(
     inferred_repo: str | None = None,
 ) -> MemoryStore:
     """Build a MemoryStore with optional memory files on disk."""
-    store_root = tmp / slug
-    mem_dir = store_root / "memory"
-    mem_dir.mkdir(parents=True)
-
-    parsed_memories = []
-    for filename, content in memories or []:
-        f = mem_dir / filename
-        f.write_text(content, encoding="utf-8")
-        parsed_memories.append(parse_memory_file(f, project_slug=slug))
-
-    return MemoryStore(
-        project_slug=slug,
-        root=str(store_root),
-        memories=tuple(parsed_memories),
-        non_memory_files=(),
-        index_path=None,
-        index_entries=(),
-        inferred_repo=inferred_repo,
-        is_worktree_slug=False,
-    )
+    return write_store(tmp, slug, memories or [], inferred_repo=inferred_repo)
 
 
 _FEEDBACK_CONTENT = (

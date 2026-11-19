@@ -10,7 +10,6 @@ where it is defined, per project convention.
 from __future__ import annotations
 
 import contextlib
-import io
 import json
 import ntpath
 import os
@@ -29,6 +28,7 @@ from tests.memory_tests.fixtures import (
     SLUG_MAIN,
     MemoryTestCase,
     make_projects_root,
+    run_memory_cli,
     sample_bundle,
 )
 
@@ -90,28 +90,6 @@ def _export_store(store: MemoryStore) -> Iterator[None]:
         patch("memory.commands._common.resolve_current_store", return_value=store),
     ):
         yield
-
-
-def _run_export(argv: list[str]) -> tuple[int, str, str]:
-    """Run memory.cli.main with the export subcommand; return (rc, stdout, stderr)."""
-    from memory.cli import main
-
-    out_buf = io.StringIO()
-    err_buf = io.StringIO()
-    with contextlib.redirect_stdout(out_buf), contextlib.redirect_stderr(err_buf):
-        rc = main(["export"] + argv)
-    return rc, out_buf.getvalue(), err_buf.getvalue()
-
-
-def _run_import(argv: list[str]) -> tuple[int, str, str]:
-    """Run memory.cli.main with the import subcommand; return (rc, stdout, stderr)."""
-    from memory.cli import main
-
-    out_buf = io.StringIO()
-    err_buf = io.StringIO()
-    with contextlib.redirect_stdout(out_buf), contextlib.redirect_stderr(err_buf):
-        rc = main(["import"] + argv)
-    return rc, out_buf.getvalue(), err_buf.getvalue()
 
 
 # ---------------------------------------------------------------------------
@@ -177,13 +155,13 @@ class TestExportMainCli(MemoryTestCase):
         self.projects_root = make_projects_root(self.tmp)
 
     def test_missing_selector_returns_validation_error(self) -> None:
-        rc, _, _ = _run_export([])
+        rc, _, _ = run_memory_cli(["export"])
 
         self.assertEqual(rc, 1)
 
     def test_no_stores_found_prints_error_and_returns_1(self) -> None:
         with patch("memory.commands._common.discover_stores", return_value=()):
-            rc, _, err = _run_export(["--all"])
+            rc, _, err = run_memory_cli(["export", "--all"])
 
         self.assertEqual(rc, 1)
         self.assertIn("No memory stores found", err)
@@ -192,7 +170,7 @@ class TestExportMainCli(MemoryTestCase):
         store = _store_from_slug(self.projects_root)
 
         with _export_store(store):
-            rc, _, err = _run_export(["--slug", "does-not-exist"])
+            rc, _, err = run_memory_cli(["export", "--slug", "does-not-exist"])
 
         self.assertEqual(rc, 0)
         self.assertIn("No memories matched", err)
@@ -212,7 +190,7 @@ class TestExportMainCli(MemoryTestCase):
         store = load_store(slug, projects_root=projects_dir)
 
         with _export_store(store):
-            rc, _, err = _run_export(["--all", "--yes"])
+            rc, _, err = run_memory_cli(["export", "--all", "--yes"])
 
         self.assertEqual(rc, 1)
         self.assertIn("Export blocked", err)
@@ -221,7 +199,7 @@ class TestExportMainCli(MemoryTestCase):
         store = _store_from_slug(self.projects_root)
 
         with _export_store(store):
-            rc, _, err = _run_export(["--all", "--dry-run"])
+            rc, _, err = run_memory_cli(["export", "--all", "--dry-run"])
 
         self.assertEqual(rc, 0)
         self.assertIn("Dry-run", err)
@@ -233,7 +211,7 @@ class TestExportMainCli(MemoryTestCase):
             _export_store(store),
             patch("builtins.input", return_value="n"),
         ):
-            rc, _, err = _run_export(["--all"])
+            rc, _, err = run_memory_cli(["export", "--all"])
 
         self.assertEqual(rc, 1)
         self.assertIn("Export cancelled", err)
@@ -248,7 +226,7 @@ class TestExportMainCli(MemoryTestCase):
             _export_store(store),
             patch("builtins.input", side_effect=_raise_eof),
         ):
-            rc, _, err = _run_export(["--all"])
+            rc, _, err = run_memory_cli(["export", "--all"])
 
         self.assertEqual(rc, 1)
         self.assertIn("EOF", err)
@@ -257,7 +235,7 @@ class TestExportMainCli(MemoryTestCase):
         store = _store_from_slug(self.projects_root)
 
         with _export_store(store):
-            rc, out, _ = _run_export(["--all", "--yes", "--format", "json"])
+            rc, out, _ = run_memory_cli(["export", "--all", "--yes", "--format", "json"])
 
         self.assertEqual(rc, 0)
         payload = json.loads(out)
@@ -268,7 +246,7 @@ class TestExportMainCli(MemoryTestCase):
         out_path = self.tmp / "out" / "bundle.yaml"
 
         with _export_store(store):
-            rc, _, err = _run_export(["--all", "--yes", "--output", str(out_path)])
+            rc, _, err = run_memory_cli(["export", "--all", "--yes", "--output", str(out_path)])
 
         self.assertEqual(rc, 0)
         self.assertTrue(out_path.exists())
@@ -285,7 +263,7 @@ class TestExportMainCli(MemoryTestCase):
                 side_effect=OSError("disk full"),
             ),
         ):
-            rc, _, err = _run_export(["--all", "--yes", "--output", str(out_path)])
+            rc, _, err = run_memory_cli(["export", "--all", "--yes", "--output", str(out_path)])
 
         self.assertEqual(rc, 1)
         self.assertIn("Error writing", err)
@@ -300,7 +278,7 @@ class TestExportMainCli(MemoryTestCase):
         out_path.symlink_to(victim)
 
         with _export_store(store):
-            rc, _, err = _run_export(["--all", "--yes", "--output", str(out_path)])
+            rc, _, err = run_memory_cli(["export", "--all", "--yes", "--output", str(out_path)])
 
         self.assertEqual(rc, 1)
         self.assertEqual(victim.read_text(encoding="utf-8"), "original\n")
@@ -322,7 +300,7 @@ class TestExportMainCli(MemoryTestCase):
         store = load_store(slug, projects_root=projects_dir)
 
         with _export_store(store):
-            rc, _, _ = _run_export(["--all", "--yes", "--allow-warn"])
+            rc, _, _ = run_memory_cli(["export", "--all", "--yes", "--allow-warn"])
 
         self.assertEqual(rc, 1)
 
@@ -409,7 +387,7 @@ class TestImportMainCli(MemoryTestCase):
         self.addCleanup(patcher.stop)
 
     def test_bad_bundle_path_returns_validation_error(self) -> None:
-        rc, _, _ = _run_import([str(self.tmp / "does-not-exist.yaml")])
+        rc, _, _ = run_memory_cli(["import", str(self.tmp / "does-not-exist.yaml")])
 
         self.assertEqual(rc, 1)
 
@@ -417,7 +395,7 @@ class TestImportMainCli(MemoryTestCase):
         bad_path = self.tmp / "bad.yaml"
         bad_path.write_text("not: a, valid: [bundle", encoding="utf-8")
 
-        rc, _, _ = _run_import([str(bad_path)])
+        rc, _, _ = run_memory_cli(["import", str(bad_path)])
 
         self.assertEqual(rc, 1)
 
@@ -435,7 +413,7 @@ class TestImportMainCli(MemoryTestCase):
         )
         bundle_path = _write_bundle_file(self.tmp, dirty_bundle)
 
-        rc, _, _ = _run_import([str(bundle_path)])
+        rc, _, _ = run_memory_cli(["import", str(bundle_path)])
 
         self.assertEqual(rc, 1)
 
@@ -444,7 +422,7 @@ class TestImportMainCli(MemoryTestCase):
         bundle_path = _write_bundle_file(self.tmp, bundle)
 
         with patch("memory.commands._common.discover_stores", return_value=()):
-            rc, _, err = _run_import([str(bundle_path)])
+            rc, _, err = run_memory_cli(["import", str(bundle_path)])
 
         self.assertEqual(rc, 1)
         self.assertIn("No memory stores found", err)
@@ -455,7 +433,7 @@ class TestImportMainCli(MemoryTestCase):
         bundle_path = _write_bundle_file(self.tmp, bundle)
 
         with patch("memory.commands._common.discover_stores", return_value=(store,)):
-            rc, out, _ = _run_import([str(bundle_path), "--format", "json"])
+            rc, out, _ = run_memory_cli(["import", str(bundle_path), "--format", "json"])
 
         self.assertEqual(rc, 0)
         rows = json.loads(out)
@@ -470,7 +448,7 @@ class TestImportMainCli(MemoryTestCase):
         bundle_path = _write_bundle_file(self.tmp, bundle)
 
         with patch("memory.commands._common.discover_stores", return_value=(store,)):
-            rc, _, _ = _run_import([str(bundle_path), "--dry-run"])
+            rc, _, _ = run_memory_cli(["import", str(bundle_path), "--dry-run"])
 
         self.assertEqual(rc, 0)
         written = Path(store.root) / "memory" / "imported_test_memory.md"
@@ -485,8 +463,8 @@ class TestImportMainCli(MemoryTestCase):
         bundle_path = _write_bundle_file(self.tmp, bundle)
 
         with patch("memory.commands._common.discover_stores", return_value=(store,)):
-            rc, out, _ = _run_import(
-                [str(bundle_path), "--on-conflict", "skip", "--format", "json"]
+            rc, out, _ = run_memory_cli(
+                ["import", str(bundle_path), "--on-conflict", "skip", "--format", "json"]
             )
 
         self.assertEqual(rc, 0)
@@ -503,8 +481,8 @@ class TestImportMainCli(MemoryTestCase):
         bundle_path = _write_bundle_file(self.tmp, bundle)
 
         with patch("memory.commands._common.discover_stores", return_value=(store,)):
-            rc, out, _ = _run_import(
-                [str(bundle_path), "--on-conflict", "rename", "--format", "json"]
+            rc, out, _ = run_memory_cli(
+                ["import", str(bundle_path), "--on-conflict", "rename", "--format", "json"]
             )
 
         self.assertEqual(rc, 0)
@@ -522,8 +500,8 @@ class TestImportMainCli(MemoryTestCase):
         bundle_path = _write_bundle_file(self.tmp, bundle)
 
         with patch("memory.commands._common.discover_stores", return_value=(store,)):
-            rc, out, _ = _run_import(
-                [str(bundle_path), "--on-conflict", "overwrite", "--format", "json"]
+            rc, out, _ = run_memory_cli(
+                ["import", str(bundle_path), "--on-conflict", "overwrite", "--format", "json"]
             )
 
         # emit_rows succeeds even though the row reports an error action
@@ -547,8 +525,8 @@ class TestImportMainCli(MemoryTestCase):
         bundle_path = _write_bundle_file(self.tmp, bundle)
 
         with patch("memory.commands._common.discover_stores", return_value=(store,)):
-            rc, out, _ = _run_import(
-                [str(bundle_path), "--on-conflict", "overwrite", "--format", "json"]
+            rc, out, _ = run_memory_cli(
+                ["import", str(bundle_path), "--on-conflict", "overwrite", "--format", "json"]
             )
 
         self.assertEqual(rc, 0)
@@ -565,7 +543,7 @@ class TestImportMainCli(MemoryTestCase):
         bundle_path = _write_bundle_file(self.tmp, bundle)
 
         with patch("memory.commands._common.discover_stores", return_value=(store,)):
-            rc, _, _ = _run_import([str(bundle_path), "--reindex", "--format", "json"])
+            rc, _, _ = run_memory_cli(["import", str(bundle_path), "--reindex", "--format", "json"])
 
         self.assertEqual(rc, 0)
         self.assertIsNotNone(store.index_path)
@@ -582,7 +560,9 @@ class TestImportMainCli(MemoryTestCase):
             patch("memory.commands._common.discover_stores", return_value=(store,)),
             patch("memory.parser.parse_memory_file", side_effect=RuntimeError("boom")),
         ):
-            rc, out, err = _run_import([str(bundle_path), "--reindex", "--format", "json"])
+            rc, out, err = run_memory_cli(
+                ["import", str(bundle_path), "--reindex", "--format", "json"]
+            )
 
         self.assertEqual(rc, 0)
         rows = json.loads(out)
@@ -601,7 +581,7 @@ class TestImportMainCli(MemoryTestCase):
                 side_effect=OSError("disk full"),
             ),
         ):
-            rc, out, _ = _run_import([str(bundle_path), "--format", "json"])
+            rc, out, _ = run_memory_cli(["import", str(bundle_path), "--format", "json"])
 
         self.assertEqual(rc, 0)
         rows = json.loads(out)
@@ -617,7 +597,9 @@ class TestImportMainCli(MemoryTestCase):
 
         with patch("memory.commands._common.discover_stores", return_value=(store,)):
             # First dry-run to discover the target filename
-            _, out, _ = _run_import([str(bundle_path), "--dry-run", "--format", "json"])
+            _, out, _ = run_memory_cli(
+                ["import", str(bundle_path), "--dry-run", "--format", "json"]
+            )
             target_name = json.loads(out)[0]["target"]
             # Plant a dangling symlink at the target
             escaped = self.tmp / "outside" / "planted.md"
@@ -625,7 +607,7 @@ class TestImportMainCli(MemoryTestCase):
             link.parent.mkdir(parents=True, exist_ok=True)
             link.symlink_to(escaped)
 
-            rc, out, _ = _run_import([str(bundle_path), "--format", "json"])
+            rc, out, _ = run_memory_cli(["import", str(bundle_path), "--format", "json"])
 
         self.assertEqual(rc, 0)
         rows = json.loads(out)
@@ -640,7 +622,9 @@ class TestImportMainCli(MemoryTestCase):
         bundle_path = _write_bundle_file(self.tmp, bundle)
 
         with patch("memory.commands._common.discover_stores", return_value=(store,)):
-            rc, out, _ = _run_import([str(bundle_path), "--prefix", "custom_", "--format", "json"])
+            rc, out, _ = run_memory_cli(
+                ["import", str(bundle_path), "--prefix", "custom_", "--format", "json"]
+            )
 
         self.assertEqual(rc, 0)
         rows = json.loads(out)
@@ -658,8 +642,8 @@ class TestImportMainCli(MemoryTestCase):
                 before = sorted(p for p in self.tmp.rglob("*") if p.is_file())
 
                 with patch("memory.commands._common.discover_stores", return_value=(store,)):
-                    rc, _, err = _run_import(
-                        [str(bundle_path), "--prefix", prefix, "--format", "json"]
+                    rc, _, err = run_memory_cli(
+                        ["import", str(bundle_path), "--prefix", prefix, "--format", "json"]
                     )
 
                 self.assertEqual(rc, 1, f"expected exit 1 for prefix={prefix!r}")
@@ -675,7 +659,9 @@ class TestImportMainCli(MemoryTestCase):
         bundle_path = _write_bundle_file(self.tmp, bundle)
 
         with patch("memory.commands._common.discover_stores", return_value=(store,)):
-            rc, out, _ = _run_import([str(bundle_path), "--prefix", "..", "--format", "json"])
+            rc, out, _ = run_memory_cli(
+                ["import", str(bundle_path), "--prefix", "..", "--format", "json"]
+            )
 
         self.assertEqual(rc, 0)
         rows = json.loads(out)
@@ -710,7 +696,7 @@ class TestImportMainCli(MemoryTestCase):
             patch("memory.commands.import_cmd.load_bundle") as mock_load,
             patch("memory.commands._common.discover_stores") as mock_discover,
         ):
-            rc, _, err = _run_import([str(bundle_path), "--prefix", "D:"])
+            rc, _, err = run_memory_cli(["import", str(bundle_path), "--prefix", "D:"])
 
         self.assertEqual(rc, 1)
         self.assertIn("drive-qualified", err)
@@ -732,7 +718,9 @@ class TestExportImportRoundTrip(MemoryTestCase):
         out_path = self.tmp / "roundtrip.yaml"
 
         with _export_store(export_store):
-            export_rc, _, _ = _run_export(["--all", "--yes", "--output", str(out_path)])
+            export_rc, _, _ = run_memory_cli(
+                ["export", "--all", "--yes", "--output", str(out_path)]
+            )
         self.assertEqual(export_rc, 0)
         self.assertTrue(out_path.exists())
 
@@ -747,7 +735,7 @@ class TestExportImportRoundTrip(MemoryTestCase):
             patch("memory.commands._common.discover_stores", return_value=(import_store,)),
             patch("memory.commands._common.resolve_current_store", return_value=import_store),
         ):
-            import_rc, out, _ = _run_import([str(out_path), "--format", "json"])
+            import_rc, out, _ = run_memory_cli(["import", str(out_path), "--format", "json"])
 
         self.assertEqual(import_rc, 0)
         rows = json.loads(out)
@@ -789,7 +777,7 @@ class TestImportStoreTargeting(MemoryTestCase):
 
     def test_linux_cwd_resolves_to_encoded_store(self) -> None:
         with patch("memory.discovery.os.getcwd", return_value=_LINUX_CWD + "/pkg"):
-            rc, _, _ = _run_import([str(self.bundle_path)])
+            rc, _, _ = run_memory_cli(["import", str(self.bundle_path)])
 
         self.assertEqual(rc, 0)
         self.assertIn("imported_test_memory.md", self._files(self.proj_mem))
@@ -797,7 +785,7 @@ class TestImportStoreTargeting(MemoryTestCase):
 
     def test_unmatched_cwd_exits_1_and_writes_nothing(self) -> None:
         with patch("memory.discovery.os.getcwd", return_value="/srv/unrelated"):
-            rc, _, err = _run_import([str(self.bundle_path), "--reindex"])
+            rc, _, err = run_memory_cli(["import", str(self.bundle_path), "--reindex"])
 
         self.assertEqual(rc, 1)
         self.assertIn("--store", err)
@@ -806,14 +794,14 @@ class TestImportStoreTargeting(MemoryTestCase):
 
     def test_store_flag_writes_into_named_store(self) -> None:
         with patch("memory.discovery.os.getcwd", return_value="/srv/unrelated"):
-            rc, _, _ = _run_import([str(self.bundle_path), f"--store={_OTHER_SLUG}"])
+            rc, _, _ = run_memory_cli(["import", str(self.bundle_path), f"--store={_OTHER_SLUG}"])
 
         self.assertEqual(rc, 0)
         self.assertIn("imported_test_memory.md", self._files(self.other_mem))
         self.assertNotIn("imported_test_memory.md", self._files(self.proj_mem))
 
     def test_store_flag_rejects_escaping_slug(self) -> None:
-        rc, _, err = _run_import([str(self.bundle_path), "--store", "../../etc"])
+        rc, _, err = run_memory_cli(["import", str(self.bundle_path), "--store", "../../etc"])
 
         self.assertEqual(rc, 1)
         self.assertIn("--store", err)
@@ -838,7 +826,7 @@ class TestImportStoreTargeting(MemoryTestCase):
     def test_blocking_secret_in_description_rejected(self) -> None:
         path = self._bundle_with(description="token " + "gh" + "p_" + "A" * 36)
 
-        rc, _, err = _run_import([str(path), f"--store={_LINUX_SLUG}"])
+        rc, _, err = run_memory_cli(["import", str(path), f"--store={_LINUX_SLUG}"])
 
         self.assertEqual(rc, 1)
         self.assertIn("blocking", err)
@@ -847,14 +835,14 @@ class TestImportStoreTargeting(MemoryTestCase):
     def test_blocking_secret_in_name_rejected(self) -> None:
         path = self._bundle_with(name="gh" + "p_" + "A" * 36)
 
-        rc, _, _ = _run_import([str(path), f"--store={_LINUX_SLUG}"])
+        rc, _, _ = run_memory_cli(["import", str(path), f"--store={_LINUX_SLUG}"])
 
         self.assertEqual(rc, 1)
 
     def test_blocking_secret_in_unknown_keys_rejected(self) -> None:
         path = self._bundle_with(unknown_keys={"note": "gh" + "p_" + "A" * 36})
 
-        rc, _, _ = _run_import([str(path), f"--store={_LINUX_SLUG}"])
+        rc, _, _ = run_memory_cli(["import", str(path), f"--store={_LINUX_SLUG}"])
 
         self.assertEqual(rc, 1)
 
@@ -866,8 +854,9 @@ class TestImportStoreTargeting(MemoryTestCase):
         )
         target.write_text(native, encoding="utf-8")
 
-        rc, out, _ = _run_import(
+        rc, out, _ = run_memory_cli(
             [
+                "import",
                 str(self.bundle_path),
                 f"--store={_LINUX_SLUG}",
                 "--on-conflict",
@@ -913,7 +902,7 @@ class TestImportScansProvenance(MemoryTestCase):
                 )
 
                 with patch("memory.commands.import_cmd.select_single_store", return_value=store):
-                    rc, _, err = _run_import([str(path)])
+                    rc, _, err = run_memory_cli(["import", str(path)])
 
                 self.assertEqual(rc, 1)
                 self.assertIn("blocking", err)
@@ -931,7 +920,7 @@ class TestExportStoreSelection(MemoryTestCase):
         store = _store_from_slug(self.projects_root)
 
         with patch("memory.commands._common.discover_stores", return_value=(store,)):
-            rc, out, err = _run_export(["--all", "--yes"])
+            rc, out, err = run_memory_cli(["export", "--all", "--yes"])
 
         self.assertEqual(rc, 1)
         self.assertIn("--store=SLUG", err)
@@ -941,7 +930,9 @@ class TestExportStoreSelection(MemoryTestCase):
         store = _store_from_slug(self.projects_root)
 
         with patch("memory.commands._common.load_store", return_value=store) as mock_load:
-            rc, out, _ = _run_export([f"--store={SLUG_MAIN}", "--all", "--yes", "--format", "json"])
+            rc, out, _ = run_memory_cli(
+                ["export", f"--store={SLUG_MAIN}", "--all", "--yes", "--format", "json"]
+            )
 
         self.assertEqual(rc, 0)
         mock_load.assert_called_once_with(SLUG_MAIN)
@@ -962,7 +953,7 @@ class TestExportBlocksNestedSecret(MemoryTestCase):
         store = load_store(slug, projects_root=projects_dir)
 
         with _export_store(store):
-            rc, out, err = _run_export(["--all", "--yes"])
+            rc, out, err = run_memory_cli(["export", "--all", "--yes"])
 
         self.assertEqual(rc, 1)
         self.assertIn("Export blocked", err)

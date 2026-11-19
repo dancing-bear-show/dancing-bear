@@ -25,25 +25,13 @@ from tests.memory_tests.fixtures import (
     SLUG_WORKTREE,
     MemoryTestCase,
     make_projects_root,
+    make_store,
     write_memory_dir,
 )
 
 # ---------------------------------------------------------------------------
 # File-local helper
 # ---------------------------------------------------------------------------
-
-
-def _make_store(slug: str, *, inferred_repo: str | None = None) -> MemoryStore:
-    return MemoryStore(
-        project_slug=slug,
-        root=f"/nonexistent/{slug}",
-        memories=(),
-        non_memory_files=(),
-        index_path=None,
-        index_entries=(),
-        inferred_repo=inferred_repo,
-        is_worktree_slug=False,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -355,8 +343,8 @@ class TestElectCanonical(MemoryTestCase):
 class TestResolveCurrentStore(MemoryTestCase):
     def test_matching_inferred_repo_prefix_returns_that_store(self):
         repo = "/Users/alice/code/my-repo"
-        store = _make_store("slug-a", inferred_repo=repo)
-        other = _make_store("slug-b", inferred_repo="/other/path")
+        store = make_store("slug-a", inferred_repo=repo)
+        other = make_store("slug-b", inferred_repo="/other/path")
 
         with patch(
             "memory.discovery.os.getcwd",
@@ -369,8 +357,8 @@ class TestResolveCurrentStore(MemoryTestCase):
     def test_exact_cwd_match_on_inferred_repo_root(self):
         """cwd exactly equal to inferred_repo (no trailing path segment) must still match."""
         repo = "/Users/alice/code/repo"
-        store = _make_store("slug-a", inferred_repo=repo)
-        other = _make_store("slug-b", inferred_repo="/Users/alice/code/repo-extended")
+        store = make_store("slug-a", inferred_repo=repo)
+        other = make_store("slug-b", inferred_repo="/Users/alice/code/repo-extended")
 
         with patch("memory.discovery.os.getcwd", return_value=repo):
             result = resolve_current_store((store, other))
@@ -380,8 +368,8 @@ class TestResolveCurrentStore(MemoryTestCase):
     def test_sibling_repo_name_prefix_does_not_false_match(self):
         """cwd under a repo whose name is a superstring of another store's
         inferred_repo must not match the shorter store via a bare startswith."""
-        repo_store = _make_store("slug-a", inferred_repo="/Users/alice/code/repo")
-        extended_store = _make_store("slug-b", inferred_repo="/Users/alice/code/repo-extended")
+        repo_store = make_store("slug-a", inferred_repo="/Users/alice/code/repo")
+        extended_store = make_store("slug-b", inferred_repo="/Users/alice/code/repo-extended")
 
         with patch(
             "memory.discovery.os.getcwd",
@@ -392,8 +380,8 @@ class TestResolveCurrentStore(MemoryTestCase):
         self.assertIs(result, extended_store)
 
     def test_none_inferred_repo_store_is_skipped(self):
-        no_repo = _make_store("no-repo-slug", inferred_repo=None)
-        with_repo = _make_store("with-repo-slug", inferred_repo="/Users/alice/code/repo")
+        no_repo = make_store("no-repo-slug", inferred_repo=None)
+        with_repo = make_store("with-repo-slug", inferred_repo="/Users/alice/code/repo")
 
         with patch(
             "memory.discovery.os.getcwd",
@@ -404,7 +392,7 @@ class TestResolveCurrentStore(MemoryTestCase):
         self.assertIs(result, with_repo)
 
     def test_no_prefix_match_falls_back_to_elect_canonical(self):
-        store = _make_store("slug-a", inferred_repo="/unrelated/path")
+        store = make_store("slug-a", inferred_repo="/unrelated/path")
 
         with (
             patch(
@@ -441,8 +429,8 @@ class TestEncodedCwdResolution(MemoryTestCase):
         )
 
     def test_linux_slug_matches_cwd_without_inferred_repo(self):
-        mine = _make_store("-home-alice-src-proj", inferred_repo=None)
-        other = _make_store("-home-alice-src-other", inferred_repo=None)
+        mine = make_store("-home-alice-src-proj", inferred_repo=None)
+        other = make_store("-home-alice-src-other", inferred_repo=None)
 
         with patch("memory.discovery.os.getcwd", return_value="/home/alice/src/proj"):
             result = resolve_current_store((other, mine), strict=True)
@@ -450,8 +438,8 @@ class TestEncodedCwdResolution(MemoryTestCase):
         self.assertIs(result, mine)
 
     def test_most_specific_ancestor_wins(self):
-        outer = _make_store("-home-alice-src", inferred_repo=None)
-        inner = _make_store("-home-alice-src-proj", inferred_repo=None)
+        outer = make_store("-home-alice-src", inferred_repo=None)
+        inner = make_store("-home-alice-src-proj", inferred_repo=None)
 
         with patch("memory.discovery.os.getcwd", return_value="/home/alice/src/proj/pkg"):
             result = resolve_current_store((outer, inner), strict=True)
@@ -459,14 +447,14 @@ class TestEncodedCwdResolution(MemoryTestCase):
         self.assertIs(result, inner)
 
     def test_strict_returns_none_when_nothing_matches(self):
-        store = _make_store("-home-alice-src-other", inferred_repo=None)
+        store = make_store("-home-alice-src-other", inferred_repo=None)
 
         with patch("memory.discovery.os.getcwd", return_value="/srv/elsewhere"):
             self.assertIsNone(resolve_current_store((store,), strict=True))
             self.assertIs(resolve_current_store((store,)), store)
 
     def test_sibling_with_shared_prefix_does_not_match(self):
-        store = _make_store("-home-alice-src-proj-extra", inferred_repo=None)
+        store = make_store("-home-alice-src-proj-extra", inferred_repo=None)
 
         with patch("memory.discovery.os.getcwd", return_value="/home/alice/src/proj"):
             self.assertIsNone(resolve_current_store((store,), strict=True))
@@ -475,7 +463,7 @@ class TestEncodedCwdResolution(MemoryTestCase):
         # A store for $HOME itself exists once Claude is launched from ~; a
         # strict (write) lookup from a project with no store must not land in it.
         home = Path.home()
-        home_store = _make_store(encode_path_slug(str(home)), inferred_repo=None)
+        home_store = make_store(encode_path_slug(str(home)), inferred_repo=None)
         project = str(home / "code" / "storeless")
 
         with patch("memory.discovery.os.getcwd", return_value=project):
@@ -484,7 +472,7 @@ class TestEncodedCwdResolution(MemoryTestCase):
 
     def test_strict_still_matches_store_below_home(self):
         home = Path.home()
-        proj_store = _make_store(encode_path_slug(str(home / "code" / "p")), inferred_repo=None)
+        proj_store = make_store(encode_path_slug(str(home / "code" / "p")), inferred_repo=None)
 
         with patch("memory.discovery.os.getcwd", return_value=str(home / "code" / "p" / "pkg")):
             self.assertIs(resolve_current_store((proj_store,), strict=True), proj_store)

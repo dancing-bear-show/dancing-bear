@@ -13,7 +13,10 @@ import json
 import unittest
 
 import memory.cli as memory_cli
-from tests.memory_tests.fixtures import MemoryTestCase
+from tests.memory_tests.fixtures import (
+    MemoryTestCase,
+    run_memory_cli,
+)
 
 _KNOWN_SUBCOMMANDS = {
     "list",
@@ -27,15 +30,6 @@ _KNOWN_SUBCOMMANDS = {
     "backup",
     "graduate",
 }
-
-
-def _invoke(argv: list[str]) -> tuple[int, str, str]:
-    """Call memory.cli.main(argv) and return (rc, stdout, stderr)."""
-    out_buf = io.StringIO()
-    err_buf = io.StringIO()
-    with contextlib.redirect_stdout(out_buf), contextlib.redirect_stderr(err_buf):
-        rc = memory_cli.main(argv)
-    return rc, out_buf.getvalue(), err_buf.getvalue()
 
 
 def _invoke_expecting_exit(test: unittest.TestCase, argv: list[str]) -> tuple[object, str, str]:
@@ -69,7 +63,7 @@ class TestBareSubcommandsWithNoStores(MemoryTestCase):
     def test_exit_codes(self) -> None:
         for subcmd, expected in self.EXPECTED.items():
             with self.subTest(subcmd=subcmd):
-                rc, _, _ = _invoke([subcmd])
+                rc, _, _ = run_memory_cli([subcmd])
                 self.assertEqual(rc, expected)
 
     def test_positional_required_by_argparse(self) -> None:
@@ -87,7 +81,7 @@ class TestSubcommandJsonOutput(MemoryTestCase):
     def test_empty_json_is_an_empty_list(self) -> None:
         for argv in (["list"], ["stores"], ["validate"], ["search", "memory", "--all-stores"]):
             with self.subTest(argv=argv):
-                rc, out, _ = _invoke([*argv, "--format", "json"])
+                rc, out, _ = run_memory_cli([*argv, "--format", "json"])
                 self.assertEqual(rc, 0)
                 self.assertEqual(json.loads(out), [])
 

@@ -11,7 +11,10 @@ from unittest.mock import patch
 
 from memory.graduate import GraduateError, _find_memory_by_slug, graduate_memory
 from memory.models import MemoryStore
-from tests.memory_tests.fixtures import MemoryTestCase
+from tests.memory_tests.fixtures import (
+    MemoryTestCase,
+    write_store,
+)
 
 # ---------------------------------------------------------------------------
 # File-local helpers
@@ -45,36 +48,13 @@ def _make_store(
     with_index: bool = False,
 ) -> MemoryStore:
     """Build a MemoryStore with real files on disk."""
-    from memory.index import append_entry
-    from memory.parser import parse_memory_file
-
-    store_root = base / slug
-    mem_dir = store_root / "memory"
-    mem_dir.mkdir(parents=True)
-
-    memories = []
-    for filename, content in files.items():
-        f = mem_dir / filename
-        f.write_text(content, encoding="utf-8")
-        mem = parse_memory_file(f, project_slug=slug)
-        memories.append(mem)
-
-    index_path = None
-    if with_index:
-        index_file = mem_dir / "MEMORY.md"
-        for mem in memories:
-            append_entry(index_file, mem)
-        index_path = str(index_file)
-
-    return MemoryStore(
-        project_slug=slug,
-        root=str(store_root),
-        memories=tuple(memories),
-        non_memory_files=(),
-        index_path=index_path,
-        index_entries=(),
+    return write_store(
+        base,
+        slug,
+        files.items(),
         inferred_repo=inferred_repo,
         is_worktree_slug=is_worktree_slug,
+        with_index=with_index,
     )
 
 

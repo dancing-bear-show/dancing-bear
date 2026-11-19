@@ -14,6 +14,7 @@ from tests.memory_tests.fixtures import (
     CURRENT_FORMAT_INDEX,
     CURRENT_FORMAT_MEMORY,
     MemoryTestCase,
+    make_store,
 )
 
 # ---------------------------------------------------------------------------
@@ -36,15 +37,12 @@ def _make_store(
     index_entries=(),
     index_path: str | None = None,
 ) -> MemoryStore:
-    return MemoryStore(
-        project_slug="test-slug",
+    return make_store(
         root=str(tmp_path),
         memories=tuple(memories),
         non_memory_files=tuple(non_memory_files),
         index_path=index_path,
         index_entries=tuple(index_entries),
-        inferred_repo=None,
-        is_worktree_slug=False,
     )
 
 
