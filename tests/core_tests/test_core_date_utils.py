@@ -10,7 +10,9 @@ from core.date_utils import (
     RRULE_CODE_TO_WEEKDAY,
     normalize_day,
     normalize_days,
+    parse_duration_seconds,
     parse_month,
+    parse_window,
     to_iso_str,
 )
 
@@ -303,6 +305,79 @@ class TestDayRangeToIso(unittest.TestCase):
         with self.assertRaises(ValueError) as ctx:
             day_range_to_iso("garbage", "2026-01-31")
         self.assertIn("YYYY-MM-DD", str(ctx.exception))
+
+
+class TestParseDurationSeconds(unittest.TestCase):
+    def test_valid_forms(self):
+        cases = {
+            "30s": 30,
+            "5m": 300,
+            "2h": 7200,
+            "1d": 86400,
+            "1w": 604800,
+            "1h30m": 5400,
+            "2d4h30m": 2 * 86400 + 4 * 3600 + 30 * 60,
+            " 2H ": 7200,
+            "0s": 0,
+        }
+        for raw, expected in cases.items():
+            with self.subTest(raw=raw):
+                self.assertEqual(parse_duration_seconds(raw), expected)
+
+    def test_garbage_negative_and_embedded_junk(self):
+        for raw in (
+            "abc",
+            "-5h",
+            "-1h30m",
+            "abc2hxyz",
+            "x2h",
+            "2hx",
+            "1h30",
+            "h30m",
+            "1.5h",
+            "1 h",
+            "+5h",
+        ):
+            with self.subTest(raw=raw):
+                self.assertIsNone(parse_duration_seconds(raw))
+
+    def test_empty_and_none(self):
+        for raw in (None, "", "   "):
+            with self.subTest(raw=raw):
+                self.assertIsNone(parse_duration_seconds(raw))
+
+    def test_bare_digits_rejected_by_default(self):
+        self.assertIsNone(parse_duration_seconds("30"))
+
+    def test_bare_digits_use_bare_unit(self):
+        self.assertEqual(parse_duration_seconds("30", bare_unit="s"), 30)
+        self.assertEqual(parse_duration_seconds("2", bare_unit="h"), 7200)
+        self.assertIsNone(parse_duration_seconds("2", bare_unit="x"))
+        self.assertIsNone(parse_duration_seconds("2", bare_unit="w", units="smhd"))
+
+    def test_units_restrict_accepted_letters(self):
+        self.assertEqual(parse_duration_seconds("2d", units="smhd"), 172800)
+        self.assertIsNone(parse_duration_seconds("1w", units="smhd"))
+        self.assertIsNone(parse_duration_seconds("5s", units="mhdw"))
+
+    def test_compound_false_accepts_single_part_only(self):
+        self.assertEqual(parse_duration_seconds("90m", compound=False), 5400)
+        self.assertIsNone(parse_duration_seconds("1h30m", compound=False))
+
+
+class TestParseWindow(unittest.TestCase):
+    def test_units_and_bare_default(self):
+        self.assertEqual(parse_window("7d"), datetime.timedelta(days=7))
+        self.assertEqual(parse_window("90S"), datetime.timedelta(seconds=90))
+        self.assertEqual(parse_window("5"), datetime.timedelta(hours=5))
+        self.assertEqual(parse_window("5", default_unit="minutes"), datetime.timedelta(minutes=5))
+        self.assertEqual(parse_window("0d"), datetime.timedelta(0))
+
+    def test_invalid_raises(self):
+        for raw in ("", "abc", "-1d", "1h30m", "1.5d", "7x"):
+            with self.subTest(raw=raw):
+                with self.assertRaises(ValueError):
+                    parse_window(raw)
 
 
 if __name__ == "__main__":

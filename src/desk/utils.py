@@ -5,6 +5,7 @@ import re
 from collections.abc import Iterable
 
 from core.cli_output import emit_one
+from core.date_utils import parse_duration_seconds
 from core.fileutil import atomic_write_json as _write_json
 from core.yamlio import dump_config as _dump_yaml
 
@@ -38,28 +39,9 @@ def parse_size(s: str | int | float) -> int:
     return int(num * mult)
 
 
-_DUR_PART = re.compile(r"(?P<num>\d+)(?P<unit>[smhdw])", re.IGNORECASE)
-
-
 def parse_duration(s: str | None) -> int | None:
-    if not s:
-        return None
-    s = s.strip()
-    total = 0
-    for m in _DUR_PART.finditer(s):
-        num = int(m.group("num"))
-        unit = m.group("unit").lower()
-        mult = {
-            "s": 1,
-            "m": 60,
-            "h": 3600,
-            "d": 86400,
-            "w": 604800,
-        }[unit]
-        total += num * mult
-    if total == 0 and s.isdigit():
-        return int(s)
-    return total or None
+    """Seconds for '90m', '1h30m' or bare '3600' (seconds); None if malformed."""
+    return parse_duration_seconds(s, bare_unit="s")
 
 
 def human_size(n: int | float) -> str:

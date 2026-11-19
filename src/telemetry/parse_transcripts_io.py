@@ -9,12 +9,12 @@ from __future__ import annotations
 import json
 import os
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import BinaryIO
 
 from core.cli_errors import CLIError
-from core.date_utils import now_utc, parse_window
+from core.date_utils import now_utc, parse_duration_seconds
 from core.fileutil import atomic_write_json, safe_load_json
 from telemetry._menubar_budget import _to_int
 from telemetry._transcript_record_parser import _process_one_record
@@ -48,26 +48,11 @@ def _parse_since_window(since: str) -> datetime | None:
     """
     if since.lower() == "all":
         return None
-    # Validate that the prefix (everything before the unit suffix) is a strict
-    # integer — this CLI historically used int() so float prefixes like "1.5d"
-    # and bare integers like "100" are rejected.
-    _VALID_SUFFIXES = ("d", "h", "m", "s", "w")
-    s = since.strip().lower()
-    for suffix in _VALID_SUFFIXES:
-        if s.endswith(suffix):
-            prefix = s[:-1]
-            try:
-                int(prefix)
-            except ValueError:
-                raise CLIError(f"Cannot parse time window: {since!r}. Use e.g. 7d, 30d, all.")
-            break
-    else:
-        # No recognized suffix — includes bare integers and unknown suffixes
+    # Unit suffix is mandatory: bare integers and float prefixes ("1.5d") are rejected.
+    secs = parse_duration_seconds(since, compound=False)
+    if secs is None:
         raise CLIError(f"Cannot parse time window: {since!r}. Use e.g. 7d, 30d, all.")
-    try:
-        return now_utc() - parse_window(since)
-    except ValueError:
-        raise CLIError(f"Cannot parse time window: {since!r}. Use e.g. 7d, 30d, all.")
+    return now_utc() - timedelta(seconds=secs)
 
 
 def _passes_since_filter(p: Path, since_dt: datetime | None) -> bool:

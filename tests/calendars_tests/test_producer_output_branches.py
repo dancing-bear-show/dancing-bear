@@ -567,16 +567,15 @@ class TestNormalizeEventEdgeCases(unittest.TestCase):
         result = normalize_event(ev)
         self.assertEqual(result["subject"], "Test")
 
-    def test_normalize_event_bool_normalize_none_for_invalid(self):
-        """Covers the None return branch in _normalize_reminder_on (line 97)."""
-        from calendars.model import _normalize_reminder_on
+    def test_normalize_event_reminder_on_values(self):
+        """is_reminder_on: known spellings map to bool ('none' is False), others to None."""
+        from calendars.model import normalize_event
 
-        # Strings not matching any known truthy/falsy value return None
-        self.assertIsNone(_normalize_reminder_on("maybe"))
-        self.assertIsNone(_normalize_reminder_on("unknown"))
-        # Valid values
-        self.assertFalse(_normalize_reminder_on("off"))
-        self.assertTrue(_normalize_reminder_on("yes"))
+        cases = {"off": False, "none": False, "yes": True, "maybe": None, "unknown": None}
+        for raw, expected in cases.items():
+            with self.subTest(raw=raw):
+                ev = {"subject": "T", "is_reminder_on": raw}
+                self.assertIs(normalize_event(ev).get("is_reminder_on"), expected)
 
 
 class TestLocationSyncResolveEventLocationNone(unittest.TestCase):

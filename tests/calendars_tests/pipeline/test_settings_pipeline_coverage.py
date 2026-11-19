@@ -397,51 +397,6 @@ class TestApplyEventPatch(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# _coerce_bool branches
-# ---------------------------------------------------------------------------
-
-
-class TestCoerceBool(unittest.TestCase):
-    """Cover all _coerce_bool branches."""
-
-    def test_bool_true_passthrough(self):
-        self.assertTrue(OutlookSettingsProcessor()._coerce_bool(True))
-
-    def test_bool_false_passthrough(self):
-        self.assertFalse(OutlookSettingsProcessor()._coerce_bool(False))
-
-    def test_none_returns_none(self):
-        """Line 217: value is None → None."""
-        self.assertIsNone(OutlookSettingsProcessor()._coerce_bool(None))
-
-    def test_truthy_strings(self):
-        """Lines 223-225: '1', 'true', 'yes', 'on' → True."""
-        p = OutlookSettingsProcessor()
-        for s in ("1", "true", "True", "TRUE", "yes", "YES", "on", "ON"):
-            with self.subTest(s=s):
-                self.assertTrue(p._coerce_bool(s))
-
-    def test_falsy_strings(self):
-        """Lines 223-225: '0', 'false', 'no', 'off' → False."""
-        p = OutlookSettingsProcessor()
-        for s in ("0", "false", "False", "FALSE", "no", "NO", "off", "OFF"):
-            with self.subTest(s=s):
-                self.assertFalse(p._coerce_bool(s))
-
-    def test_unknown_string_returns_none(self):
-        """Line 232: unrecognized string → None."""
-        self.assertIsNone(OutlookSettingsProcessor()._coerce_bool("maybe"))
-
-    def test_integer_one_coerced_true(self):
-        """Non-bool integer 1 → str '1' → True."""
-        self.assertTrue(OutlookSettingsProcessor()._coerce_bool(1))
-
-    def test_integer_zero_coerced_false(self):
-        """Non-bool integer 0 → str '0' → False."""
-        self.assertFalse(OutlookSettingsProcessor()._coerce_bool(0))
-
-
-# ---------------------------------------------------------------------------
 # _to_list branches
 # ---------------------------------------------------------------------------
 

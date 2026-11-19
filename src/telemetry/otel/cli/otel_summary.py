@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import re
 import sys
 import time
 from datetime import UTC, datetime, timedelta
@@ -11,7 +10,7 @@ from pathlib import Path
 
 from core.cli_args import add_format_argument
 from core.cli_output import emit_one, emit_rows
-from core.date_utils import now_utc
+from core.date_utils import now_utc, parse_duration_seconds
 from telemetry.otel.cli._format_helpers import (
     add_data_dir_argument,
     get_work_dir,
@@ -22,14 +21,6 @@ from telemetry.otel.menubar_provider import (
     OtelMenubarProvider,
 )
 from telemetry.otel.reader import OTLPDataDir
-
-_RELATIVE_SINCE_RE = re.compile(r"^(\d+)([mhdw])$")
-_RELATIVE_SINCE_MULTIPLIERS: dict[str, int] = {
-    "m": 60,
-    "h": 3600,
-    "d": 86400,
-    "w": 604800,
-}
 
 
 def _parse_since(value: str) -> float:
@@ -42,11 +33,9 @@ def _parse_since(value: str) -> float:
     Raises:
         argparse.ArgumentTypeError: on unrecognised format
     """
-    m = _RELATIVE_SINCE_RE.match(value)
-    if m:
-        amount = int(m.group(1))
-        unit = m.group(2)
-        return time.time() - amount * _RELATIVE_SINCE_MULTIPLIERS[unit]
+    seconds = parse_duration_seconds(value, units="mhdw", compound=False)
+    if seconds is not None:
+        return time.time() - seconds
 
     try:
         dt = datetime.fromisoformat(value)

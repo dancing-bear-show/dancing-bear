@@ -7,6 +7,7 @@ used across multiple modules.
 from __future__ import annotations
 
 import datetime as _dt
+import functools
 import re
 from datetime import datetime, timedelta
 from typing import Any
@@ -23,6 +24,7 @@ __all__ = [
     "normalize_day",
     "normalize_days",
     "now_utc",
+    "parse_duration_seconds",
     "parse_iso_utc",
     "parse_iso_utc_strict",
     "parse_month",
@@ -215,30 +217,64 @@ def parse_iso_utc_strict(ts: str) -> datetime:
     return dt
 
 
+DURATION_UNIT_SECONDS: dict[str, int] = {
+    "s": 1,
+    "m": 60,
+    "h": 3600,
+    "d": 86400,
+    "w": 604800,
+}
+
+
+@functools.lru_cache(maxsize=32)
+def _duration_patterns(units: str, compound: bool) -> tuple[re.Pattern[str], re.Pattern[str]]:
+    """Return (whole-string, single-part) patterns for the given unit letters."""
+    part = rf"\d+[{re.escape(units)}]"
+    whole = rf"(?:{part})+" if compound else part
+    return re.compile(whole), re.compile(rf"(\d+)([{re.escape(units)}])")
+
+
+def parse_duration_seconds(
+    s: str | None,
+    *,
+    units: str = "smhdw",
+    compound: bool = True,
+    bare_unit: str | None = None,
+) -> int | None:
+    """Parse a relative duration like '90m', '2h' or '1h30m' into seconds.
+
+    Strict: the whole string (after strip + lowercase) must be well-formed, so
+    embedded junk ('abc2hxyz'), signs ('-5h') and inner whitespace return None
+    rather than salvaging a digit-unit pair. Zero ('0s') is valid and returns 0.
+
+    units: allowed unit letters, a subset of 'smhdw'.
+    compound: accept several <digits><unit> parts ('1h30m') rather than one.
+    bare_unit: unit applied to a bare integer ('30'); None rejects bare digits.
+    Returns None for empty/None input and any malformed value.
+    """
+    if not s:
+        return None
+    s = s.strip().lower()
+    if bare_unit is not None and s.isascii() and s.isdigit():
+        mult = DURATION_UNIT_SECONDS.get(bare_unit.lower())
+        return int(s) * mult if mult and bare_unit.lower() in units else None
+    whole, part = _duration_patterns(units, compound)
+    if not whole.fullmatch(s):
+        return None
+    return sum(int(n) * DURATION_UNIT_SECONDS[u] for n, u in part.findall(s))
+
+
 def parse_window(win: str, default_unit: str = "hours") -> timedelta:
     """Parse a time window string like '7d', '24h', '30m' into a timedelta.
 
     Supported units: s (seconds), m (minutes), h (hours), d (days), w (weeks).
+    A bare integer uses the first letter of default_unit.
     """
-    import re as _re
-
     win = win.strip().lower()
-    m = _re.fullmatch(r"(\d+)([smhdw]?)", win)
-    if not m:
+    secs = parse_duration_seconds(win, compound=False, bare_unit=default_unit[:1])
+    if secs is None:
         raise ValueError(f"Cannot parse time window: {win!r}")
-    value = int(m.group(1))
-    unit = m.group(2) or default_unit[0]
-    if unit == "s":
-        return timedelta(seconds=value)
-    if unit == "m":
-        return timedelta(minutes=value)
-    if unit == "h":
-        return timedelta(hours=value)
-    if unit == "d":
-        return timedelta(days=value)
-    if unit == "w":
-        return timedelta(weeks=value)
-    raise ValueError(f"Unknown time unit in window: {win!r}")
+    return timedelta(seconds=secs)
 
 
 def parse_iso_utc(value: str | None) -> datetime | None:

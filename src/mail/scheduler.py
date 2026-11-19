@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import os
-import re
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from core.date_utils import parse_duration_seconds
 from core.fileutil import atomic_write_json, safe_load_json
 
 
@@ -97,29 +97,11 @@ def parse_send_at(s: str | None) -> int | None:
     return None
 
 
-_SEND_IN_UNIT_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
-# Whole string must be one or more <digits><unit> pairs and nothing else.
-_SEND_IN_RE = re.compile(r"(?:\d+[smhd])+")
-
-
 def parse_send_in(s: str | None) -> int | None:
     """Parse relative duration like '90m', '2h', '1h30m', '2d4h'. Returns seconds.
 
-    The entire string must be well-formed. A previous implementation scanned
-    with re.findall, which accepted anything containing a digit-unit pair
-    anywhere: 'abc2hxyz' parsed as 2h, and '-5h' silently became +5h because
-    the minus was never part of the pattern -- turning "5 hours ago" into
-    "5 hours from now". Both now return None so the caller reports invalid
-    input instead of scheduling a plausible wrong time.
+    Strict (see core.date_utils.parse_duration_seconds): malformed input such
+    as 'abc2hxyz' or '-5h' returns None so the caller reports invalid input
+    instead of scheduling a plausible wrong time. No weeks; zero returns None.
     """
-    if not s:
-        return None
-    s = s.strip().lower()
-    if not _SEND_IN_RE.fullmatch(s):
-        return None
-
-    total = sum(
-        int(amount) * _SEND_IN_UNIT_SECONDS[unit]
-        for amount, unit in re.findall(r"(\d+)([smhd])", s)
-    )
-    return total or None
+    return parse_duration_seconds(s, units="smhd") or None

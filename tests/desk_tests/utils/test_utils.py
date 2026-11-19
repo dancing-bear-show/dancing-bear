@@ -127,6 +127,11 @@ class ParseDurationTests(unittest.TestCase):
     def test_invalid_returns_none(self):
         self.assertIsNone(parse_duration("abc"))
 
+    def test_rejects_embedded_junk_and_negative(self):
+        for raw in ("abc2hxyz", "-5h", "2hx"):
+            with self.subTest(raw=raw):
+                self.assertIsNone(parse_duration(raw))
+
 
 class HumanSizeTests(unittest.TestCase):
     def test_bytes(self):

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.coerce import parse_bool
 from core.collections import dedupe
 
 
@@ -79,20 +80,6 @@ def _normalize_exdates(raw: Any) -> list[str] | None:
     return None
 
 
-def _normalize_reminder_on(v: Any) -> bool | None:
-    """Coerce reminder on/off value to bool or None."""
-    if isinstance(v, bool):
-        return v
-    if not isinstance(v, str):
-        return None
-    s = v.strip().lower()
-    if s in ("off", "none", "no", "false", "0"):
-        return False
-    if s in ("on", "yes", "true", "1"):
-        return True
-    return None
-
-
 def normalize_event(ev: dict[str, Any]) -> dict[str, Any]:
     """Return a canonical event dict for plan/application.
 
@@ -133,7 +120,7 @@ def normalize_event(ev: dict[str, Any]) -> dict[str, Any]:
     rng = _normalize_range(ev)
 
     rem_on_val = ev.get("is_reminder_on") or ev.get("isReminderOn") or ev.get("reminder")
-    is_reminder_on = _normalize_reminder_on(rem_on_val)
+    is_reminder_on = parse_bool(rem_on_val, extra_false=frozenset({"none"}))
     reminder_minutes = _coerce_int(
         ev.get("reminder_minutes") or ev.get("reminderMinutes") or ev.get("reminder-minutes")
     )
