@@ -10,8 +10,7 @@ up in ``git status``. The PR-create hook (``require-concern-sweep.sh``) reads
 the same path directly, without importing this module; keep the location and
 field names in step with it.
 
-Directories are created with mode 0o700 (and the record file inherits the
-0o600 of ``tempfile.mkstemp``). A record is a permission slip: the hook lets a
+Directories are created with mode 0o700 and the record file with 0o600. A record is a permission slip: the hook lets a
 PR open when one exists. Leaving the directory group- or world-writable, as a
 permissive umask would, lets another local account plant a record for any
 commit, so the tighter mode is deliberate rather than the repo default.
@@ -20,14 +19,14 @@ commit, so the tighter mode is deliberate rather than the repo default.
 from __future__ import annotations
 
 import json
-import os
 import re
-import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from core.date_utils import iso_now
+from core.fileutil import atomic_write_text
 from core.gitutil import run_git
+from workflow.json_read import JsonReadError, JsonReadFailure, read_json
 
 RECORD_SUBDIR = ("dancing-bear", "concern-sweeps")
 CHANGED_FILES_NAME = "changed-files.txt"
@@ -114,11 +113,11 @@ def _require_head_is_checkout_head(repo: Path, head: str) -> None:
 
 def _load_json(path: Path, label: str) -> object:
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        raise SweepRecordError(f"{label} not found: {path}") from None
-    except (OSError, ValueError) as exc:
-        raise SweepRecordError(f"{label} is unreadable or not JSON: {path} ({exc})") from None
+        return read_json(path)
+    except JsonReadError as exc:
+        if exc.kind is JsonReadFailure.MISSING:
+            raise SweepRecordError(f"{label} not found: {path}") from None
+        raise SweepRecordError(f"{label} is unreadable or not JSON: {path} ({exc.cause})") from None
 
 
 def index_guides(workspace: Path) -> list[str]:
@@ -320,17 +319,13 @@ def _mkdir_private(path: Path) -> None:
 
 def _write_atomic(path: Path, record: SweepRecord) -> None:
     _mkdir_private(path.parent)
-    fd, tmp = tempfile.mkstemp(prefix=".tmp-", suffix=".json", dir=str(path.parent))
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump(record.to_dict(), fh, indent=2, sort_keys=True)
-            fh.write("\n")
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.replace(tmp, path)
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
+    atomic_write_text(
+        path,
+        json.dumps(record.to_dict(), indent=2, sort_keys=True) + "\n",
+        new_file_mode=0o600,
+        keep_existing_mode=False,
+        fsync=True,
+    )
 
 
 def write_swept(repo: Path, head: str, workspace: Path) -> tuple[Path, SweepRecord]:

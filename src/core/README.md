@@ -71,7 +71,7 @@ flowchart LR
 - `context.py` — `AppContext`: lightweight args/config/root-path carrier.
 - `textio.py` — UTF-8 read/write helpers; `read_text(suppress=...)` scopes which read errors fall back to the default.
 - `yamlio.py` — YAML read/write; errors raise `CLIError`.
-- `fileutil.py` — `atomic_write_json`, `safe_load_json`, `find_rotated_files`, `iter_jsonl_file`; errors raise `CLIError`.
+- `fileutil.py` — `atomic_write_json`, `atomic_write_bytes`/`_text` (`new_file_mode`, `keep_existing_mode`, `fsync`), `safe_load_json`, `load_json_object`, `find_rotated_files`, `iter_jsonl_file`; errors raise `CLIError`.
 - `text_utils.py` — `strip_css_boilerplate`, `html_to_text`, `normalize_unicode`, `truncate_text`, time-range parsing.
 - `date_utils.py` — `normalize_day`, `parse_month`, `parse_window`, `now_utc`.
 - `constants.py` — `credential_ini_paths`.

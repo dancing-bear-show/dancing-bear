@@ -24,7 +24,7 @@ from typing import IO, TYPE_CHECKING
 
 from core.coerce import coerce_int
 from core.date_utils import iso_now, now_utc, parse_iso_utc_strict
-from core.fileutil import atomic_write_json, safe_load_json
+from core.fileutil import atomic_write_json, load_json_object, safe_load_json
 from worker._helpers import (
     FIELD_UPDATED_AT,
     ISO_DATETIME_FORMAT,
@@ -280,7 +280,11 @@ def start_processing(job_path: Path, root: Path | None = None) -> tuple[Path, st
             # record in a partially-initialised state.
             _rename(job_path, new_path)
             try:
-                data = safe_load_json(new_path, default={})
+                # A record that is missing, unparseable, or not a JSON object
+                # (null, []) is rewritten from scratch: the caller holds the
+                # job's data from the pending listing, and a claim left without
+                # a token would sit in processing/ that the reaper skips.
+                data = load_json_object(new_path) or {}
                 data["status"] = "processing"
                 token = uuid.uuid4().hex
                 data[CLAIM_TOKEN_FIELD] = token
@@ -1323,7 +1327,7 @@ def list_processing(root: Path | None = None) -> list[tuple[Path, dict[str, obje
     paths = _ensure_dirs(root)
     items: list[tuple[Path, dict[str, object]]] = []
     for p in _list_job_paths(paths["processing"]):
-        items.append((p, safe_load_json(p, default={})))
+        items.append((p, load_json_object(p) or {}))
     return items
 
 
@@ -1332,7 +1336,7 @@ def list_error(root: Path | None = None) -> list[tuple[Path, dict[str, object]]]
     paths = _ensure_dirs(root)
     items: list[tuple[Path, dict[str, object]]] = []
     for p in _list_job_paths(paths["error"]):
-        items.append((p, safe_load_json(p, default={})))
+        items.append((p, load_json_object(p) or {}))
     return items
 
 
@@ -1380,7 +1384,11 @@ def requeue_error(
     - reset_attempts: set attempts to 0 (so retries are allowed)
     - new_max_attempts: optionally override max_attempts
     """
-    data = safe_load_json(job_path, default={})
+    data = load_json_object(job_path)
+    if data is None:
+        # Requeueing would publish an empty record to pending/ and delete the
+        # only copy of whatever the error file held; leave it for inspection.
+        raise ValueError(f"error record is missing or not a JSON object: {job_path}")
     data["attempts"] = 0 if reset_attempts else int(data.get("attempts", 0))
     if new_max_attempts is not None:
         _apply_max_attempts(data, new_max_attempts)

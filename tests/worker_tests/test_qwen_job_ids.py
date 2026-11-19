@@ -219,6 +219,15 @@ class QwenSameDirSymlinkTests(QwenHandlerCase):
             sorted(p.name for p in self.deferral_dir.iterdir()), ["job-a.json", "job-b.json"]
         )
 
+    def test_job_file_is_0600_new_or_existing(self) -> None:
+        path = self.deferral_dir / "job-mode.json"
+        qwen._write_job_file(path, "{}")
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        path.chmod(0o644)
+        qwen._write_job_file(path, '{"n": 2}')
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(path.read_text(encoding="utf-8"), '{"n": 2}')
+
 
 class QwenJobIdHandlerTests(QwenHandlerCase):
     def test_unsafe_job_id_is_terminal_before_any_path_is_built(self) -> None:

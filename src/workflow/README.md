@@ -158,6 +158,7 @@ Set `human_gate: true` on any stage to pause execution for human review after th
 - `shell_lex.py` — the shell lexer `shell_parse` reads: tokens, heredoc bodies and delimiters, and the nesting bounds (`MAX_DEPTH`, `MAX_EXPANSION_NEST`)
 - `shell_guard.py` — Bash guard parity for `shell-guard-refused`: shell option parsing, stdin shells, `sh -c`/`eval` checks, `find -exec` bodies, and which commands write
 - `output_checks.py` — post-stage output validation
+- `json_read.py` — `read_json`: raises `JsonReadError` with a `kind` (missing/unreadable/invalid) so each caller words its own error
 - `param_guard.py` — `check-params`: validate params read as JSON data
 - `review_ids.py` — `check-fix-index`, `thread-fingerprints`, `check-thread-ids`, `aggregate-fix-results`
 

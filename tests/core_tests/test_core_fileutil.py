@@ -17,6 +17,7 @@ from core.fileutil import (
     atomic_write_json,
     atomic_write_text,
     file_sha256,
+    load_json_object,
     load_json_or_exit,
     safe_load_json,
     write_once,
@@ -64,6 +65,97 @@ class TestAtomicWriteJson(unittest.TestCase):
             with self.assertRaises(TypeError):
                 atomic_write_json(p, {"bad": object()})
             self.assertEqual(list(Path(td).glob("*.tmp")), [])
+
+
+class TestAtomicWriteJsonMode(unittest.TestCase):
+    """atomic_write_json output is 0600 whether the file is new or pre-existing."""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.dir = Path(tmp.name)
+
+    def test_new_file_is_0600(self) -> None:
+        p = self.dir / "token.json"
+        atomic_write_json(p, {"t": 1})
+        self.assertEqual(p.stat().st_mode & 0o777, 0o600)
+
+    def test_existing_world_readable_file_is_narrowed_to_0600(self) -> None:
+        p = self.dir / "token.json"
+        p.write_text("{}")
+        p.chmod(0o644)
+        atomic_write_json(p, {"t": 2})
+        self.assertEqual(p.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(json.loads(p.read_text()), {"t": 2})
+
+    def test_output_matches_json_dumps(self) -> None:
+        p = self.dir / "out.json"
+        data = {"café": [1, None]}
+        atomic_write_json(p, data, indent=None)
+        self.assertEqual(p.read_text(encoding="utf-8"), json.dumps(data, ensure_ascii=False))
+
+
+class TestAtomicWriteBytesOptions(unittest.TestCase):
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.dir = Path(tmp.name)
+
+    def test_keep_existing_mode_false_narrows_existing_file(self) -> None:
+        p = self.dir / "f.bin"
+        p.write_bytes(b"old")
+        p.chmod(0o644)
+        atomic_write_bytes(p, b"new", new_file_mode=0o600, keep_existing_mode=False)
+        self.assertEqual(p.stat().st_mode & 0o777, 0o600)
+
+    def test_keep_existing_mode_default_preserves_existing_file(self) -> None:
+        p = self.dir / "f.bin"
+        p.write_bytes(b"old")
+        p.chmod(0o644)
+        atomic_write_bytes(p, b"new", new_file_mode=0o600)
+        self.assertEqual(p.stat().st_mode & 0o777, 0o644)
+
+    def test_fsync_true_syncs_before_replace(self) -> None:
+        p = self.dir / "f.bin"
+        with unittest.mock.patch("core.fileutil.os.fsync") as fsync:
+            atomic_write_bytes(p, b"data", fsync=True)
+        fsync.assert_called_once()
+        self.assertEqual(p.read_bytes(), b"data")
+
+    def test_fsync_default_does_not_sync(self) -> None:
+        p = self.dir / "f.bin"
+        with unittest.mock.patch("core.fileutil.os.fsync") as fsync:
+            atomic_write_bytes(p, b"data")
+        fsync.assert_not_called()
+
+
+class TestLoadJsonObject(unittest.TestCase):
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.dir = Path(tmp.name)
+
+    def _file(self, text: str) -> Path:
+        p = self.dir / "f.json"
+        p.write_text(text, encoding="utf-8")
+        return p
+
+    def test_object_is_returned(self) -> None:
+        self.assertEqual(load_json_object(self._file('{"a": 1}')), {"a": 1})
+
+    def test_empty_object_is_returned_not_none(self) -> None:
+        self.assertEqual(load_json_object(self._file("{}")), {})
+
+    def test_non_object_json_is_none(self) -> None:
+        for text in ("null", "[]", "[1, 2]", '"s"', "3"):
+            with self.subTest(text=text):
+                self.assertIsNone(load_json_object(self._file(text)))
+
+    def test_garbage_is_none(self) -> None:
+        self.assertIsNone(load_json_object(self._file("{not json")))
+
+    def test_missing_is_none(self) -> None:
+        self.assertIsNone(load_json_object(self.dir / "absent.json"))
 
 
 class TestWriteOnce(unittest.TestCase):

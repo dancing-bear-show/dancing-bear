@@ -10,11 +10,11 @@ platform.
 
 from __future__ import annotations
 
-import os
 import plistlib
 import sys
-import tempfile
 from pathlib import Path
+
+from core.fileutil import atomic_write_bytes
 
 _BUNDLE_ID = "com.dancing-bear.claudestats"
 _PLIST_NAME = f"{_BUNDLE_ID}.plist"
@@ -77,26 +77,9 @@ def enable() -> None:
     if bundle is None:
         raise RuntimeError("Start at Login requires the installed ClaudeStats.app")
 
-    target = plist_path()
-    target.parent.mkdir(parents=True, exist_ok=True)
-    data = build_plist(bundle)
-    fd = tempfile.NamedTemporaryFile(
-        mode="wb",
-        dir=target.parent,
-        delete=False,
-        suffix=".tmp",
+    atomic_write_bytes(
+        plist_path(), build_plist(bundle), new_file_mode=0o600, keep_existing_mode=False
     )
-    try:
-        fd.write(data)
-        fd.close()
-        os.replace(fd.name, target)
-    except Exception:  # nosec B110 - cleanup then re-raise; broad catch ensures tmp file is removed on any write error
-        fd.close()
-        try:
-            os.unlink(fd.name)
-        except OSError:  # nosec B110 - cleanup failure is non-fatal; original exception re-raised below
-            pass
-        raise
 
 
 def disable() -> None:

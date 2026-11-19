@@ -202,15 +202,19 @@ class RequeueErrorsCommand:
 
         paths: list[Path] = []
         for p, _ in items:
-            paths.append(
-                q.requeue_error(
+            try:
+                new_path = q.requeue_error(
                     p,
                     delay_sec=delay,
                     root=q.QUEUE_ROOT,
                     reset_attempts=reset,
                     new_max_attempts=newmax,
                 )
-            )
+            except ValueError as exc:
+                # One corrupt error record must not abort the rest of the batch.
+                logger.warning("Skipping %s: %s", p.name, exc)
+                continue
+            paths.append(new_path)
 
         emit_one({"requeued": len(paths), "paths": [str(p) for p in paths]})
         return 0
