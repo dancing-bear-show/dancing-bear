@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from core.date_utils import parse_iso_utc
 from telemetry.models import AgentTokenRow
 from telemetry.pricing import TokenMetrics, compute_cost
 from telemetry.providers.transcript_parse import (
@@ -24,7 +25,6 @@ from telemetry.providers.transcript_parse import (
     is_billable_usage,
     message_key,
 )
-from telemetry.timeutil import parse_iso_utc
 
 logger = logging.getLogger(__name__)
 

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from core.date_utils import now_utc
 from telemetry.otel.config import RetentionConfig
 from telemetry.otel.models import (
     OTLPEventsRecord,
@@ -14,7 +15,6 @@ from telemetry.otel.models import (
     OTLPSpansRecord,
 )
 from telemetry.otel.reader import OTLPReader
-from telemetry.timeutil import now_utc
 
 
 @dataclass

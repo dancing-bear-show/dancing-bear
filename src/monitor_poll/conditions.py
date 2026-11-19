@@ -25,6 +25,7 @@ from core.github import client as gh_client
 from core.github import pulls
 from core.process import CompletedRun, run_binary
 from core.secrets import mask_url
+from core.text_utils import truncate_text
 
 from .engine import Condition, ConditionError, Outcome, Probe
 
@@ -43,7 +44,7 @@ Runner = Callable[..., CompletedRun]
 def _clip(text: str) -> str:
     """One-line, length-capped detail string."""
     flat = " ".join(text.split())
-    return flat if len(flat) <= _MAX_DETAIL else flat[: _MAX_DETAIL - 3] + "..."
+    return truncate_text(flat, _MAX_DETAIL, "...")
 
 
 def _compile(pattern: str, option: str) -> re.Pattern[str]:

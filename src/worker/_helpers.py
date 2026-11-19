@@ -103,7 +103,7 @@ def log_perf_jsonl(
 
 def _get_log_dir() -> Path:
     """Return the log directory for perf logs."""
-    env_dir = os.environ.get("SRE_LOG_DIR") or os.environ.get("DANCING_BEAR_LOG_DIR")
+    env_dir = os.environ.get("DANCING_BEAR_LOG_DIR")
     if env_dir:
         return Path(env_dir)
     # Through get_worker_state_dir, so DANCING_BEAR_WORKER_STATE_DIR moves the
