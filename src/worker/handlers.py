@@ -23,8 +23,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from core.paths import repo_root
 from core.pipeline import SafeProcessor
-from worker._helpers import get_repo_root
 
 HandlerFn = Callable[[dict[str, object]], tuple[bool, object]]
 
@@ -106,19 +106,19 @@ def _is_allowed_bin(cmd: str) -> bool:
         name = p.name
         if name not in _ALLOWED_BIN_NAMES:
             return False
-        p = (get_repo_root() / "bin" / name).resolve()
+        p = (repo_root() / "bin" / name).resolve()
     try:
         p = p.resolve()
     except Exception:
         return False
-    bin_dir = (get_repo_root() / "bin").resolve()
+    bin_dir = (repo_root() / "bin").resolve()
     return p.is_relative_to(bin_dir) and p.exists() and os.access(str(p), os.X_OK)
 
 
 def _build_command(prog: str, cmd_list: list) -> list[str]:
     """Build command with absolute path for bin programs."""
     if not Path(prog).is_absolute():
-        prog_path = str((get_repo_root() / "bin" / prog).resolve())
+        prog_path = str((repo_root() / "bin" / prog).resolve())
         return [prog_path] + [str(x) for x in cmd_list[1:]]
     return [prog] + [str(x) for x in cmd_list[1:]]
 
@@ -148,7 +148,7 @@ def _execute_subprocess(cmd: list[str], env_overlay: dict, timeout: int, cwd: st
 
 def _execute_command(cmd: list[str], env_overlay: dict, timeout: int, cwd: str | None = None) -> dict:  # pragma: no cover - subprocess execution  # fmt: skip
     """Execute a repo-bin command, defaulting to repo root when cwd is not given."""
-    return _execute_subprocess(cmd, env_overlay, timeout, cwd=cwd or str(get_repo_root()))
+    return _execute_subprocess(cmd, env_overlay, timeout, cwd=cwd or str(repo_root()))
 
 
 def _validate_run_cli_payload(
@@ -275,7 +275,7 @@ def _resolve_exec_context(payload: dict[str, object]) -> tuple[dict, int, str | 
         timeout = 300
     cwd = str(payload.get("cwd") or "") or None
     if cwd is None:
-        cwd = str(get_repo_root())
+        cwd = str(repo_root())
     return env_overlay, timeout, cwd
 
 

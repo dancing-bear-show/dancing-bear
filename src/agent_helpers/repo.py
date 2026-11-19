@@ -4,9 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from core.process import run_binary
-
-_GIT_TIMEOUT_SECONDS = 30.0
+from core.gitutil import run_git
 
 
 def resolve_repo_root(cwd: str | Path | None = None) -> tuple[str, str | None]:
@@ -14,7 +12,7 @@ def resolve_repo_root(cwd: str | Path | None = None) -> tuple[str, str | None]:
 
     Callers must check ``error`` before using ``repo_root`` (empty on failure).
     """
-    run = run_binary(["git", "rev-parse", "--show-toplevel"], cwd=cwd, timeout=_GIT_TIMEOUT_SECONDS)
+    run = run_git(["rev-parse", "--show-toplevel"], cwd=cwd)
     if run.timed_out:
         return "", "git rev-parse timed out"
     if not run.ok:

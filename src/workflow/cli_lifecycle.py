@@ -15,6 +15,7 @@ from typing import Any
 
 from core.cli_errors import ExitCode
 from core.cli_output import emit_rows
+from core.paths import repo_root
 from workflow.cli_dispatch import _stage_names_from_manifest, _stage_names_from_plan
 from workflow.cli_helpers import format_workflow_not_found
 from workflow.models import StageStatus
@@ -27,7 +28,7 @@ from workflow.set_state import (
     set_state,
 )
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+_REPO_ROOT = repo_root()
 
 
 def _workspace_or_none(raw: str) -> Path | None:

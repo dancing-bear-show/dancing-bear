@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from worker._helpers import get_repo_root
+from core.paths import repo_root
 from worker.handlers import (
     _ALLOWED_BIN_NAMES,
     REGISTRY,
@@ -211,22 +211,21 @@ class TestHandleWorkflowStageErrors(unittest.TestCase):
 
 
 class TestGetRepoRoot(unittest.TestCase):
-    """Regression guards for worker._helpers.get_repo_root.
+    """Regression guards for core.paths.repo_root as used by worker.handlers.
 
     These exercise the real filesystem rather than a patched root: the bug they
     guard against was invisible to every existing test precisely because those
-    tests patch get_repo_root. telemetry.otel.config._get_repo_root had the
-    identical defect and carries the same guards.
+    tests patch repo_root.
     """
 
     def test_repo_root_is_not_src(self) -> None:
-        # get_repo_root previously used parents[1], landing at <repo>/src.
-        root = get_repo_root()
+        # the root once used parents[1], landing at <repo>/src.
+        root = repo_root()
         self.assertNotEqual(root.name, "src")
 
     def test_repo_root_contains_bin_dir(self) -> None:
-        # Every caller in worker.handlers builds `get_repo_root() / "bin"`.
-        root = get_repo_root()
+        # Every caller in worker.handlers builds `repo_root() / "bin"`.
+        root = repo_root()
         self.assertTrue((root / "bin").is_dir(), f"Expected {root / 'bin'} to be a directory")
 
     def test_allowlisted_bin_resolves(self) -> None:
@@ -245,7 +244,7 @@ class TestGetRepoRoot(unittest.TestCase):
         # PR review caught it -- the resume CLI is reached through the
         # "assistant" dispatcher, which is the name that actually needs to be
         # allowlisted.
-        missing = [n for n in _ALLOWED_BIN_NAMES if not (get_repo_root() / "bin" / n).exists()]
+        missing = [n for n in _ALLOWED_BIN_NAMES if not (repo_root() / "bin" / n).exists()]
         self.assertEqual(missing, [], f"Allowlisted with no bin/ wrapper: {missing}")
 
     def test_assistant_dispatcher_is_allowed(self) -> None:

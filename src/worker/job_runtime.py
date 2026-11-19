@@ -18,12 +18,10 @@ from types import FrameType
 from core.cli_errors import UsageError
 from core.cli_output import OutputWriter
 from core.date_utils import now_utc
+from core.paths import repo_root
 from core.pipeline import BaseProducer, RequestConsumer, ResultEnvelope, SafeProcessor
 from worker import queue_ops as q
-from worker._helpers import (
-    get_repo_root,
-    log_perf_jsonl,
-)
+from worker._helpers import log_perf_jsonl
 from worker.handlers import REGISTRY as HANDLERS
 
 logger = logging.getLogger(__name__)
@@ -1053,7 +1051,7 @@ class DaemonRunner:
         """
         # Anchor the daemon's cwd to the repo root so job scripts that use
         # relative paths (./bin/...) resolve correctly.
-        os.chdir(str(get_repo_root()))
+        os.chdir(str(repo_root()))
         # Install stop handlers before staged-requeue recovery so that a
         # SIGTERM/SIGINT arriving while recover_staged_requeues holds
         # _transition_lock still sets stop_event and allows drain_live_threads

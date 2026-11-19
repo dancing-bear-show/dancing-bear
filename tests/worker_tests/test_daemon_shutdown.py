@@ -197,7 +197,7 @@ class TestStopSignals(_ShutdownTestBase):
         chdir = patch("worker.job_runtime.os.chdir")
         chdir.start()
         self.addCleanup(chdir.stop)
-        repo = patch("worker.job_runtime.get_repo_root", return_value=self.root)
+        repo = patch("worker.job_runtime.repo_root", return_value=self.root)
         repo.start()
         self.addCleanup(repo.stop)
 

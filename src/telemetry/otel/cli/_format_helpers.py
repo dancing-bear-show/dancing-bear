@@ -7,6 +7,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
+from core.paths import repo_root
 from telemetry.otel.analytics.health_score import calculate_health_score
 from telemetry.otel.reader import OTLPDataDir
 from telemetry.otel.utils import parse_time_window
@@ -14,7 +15,7 @@ from telemetry.otel.utils import parse_time_window
 
 def get_work_dir() -> Path:
     """Return the workflow output directory (repo root / out)."""
-    return Path(__file__).resolve().parents[4] / "out"
+    return repo_root() / "out"
 
 
 def format_validation_error(flag: str, msg: str) -> int:
